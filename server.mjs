@@ -231,6 +231,7 @@ if (discordAlerter.isConfigured) {
 // === Express Server ===
 const app = express();
 app.use(express.static(join(ROOT, 'dashboard/public')));
+app.use(express.json()); // Add JSON middleware for webhook
 
 // Serve loading page until first sweep completes, then the dashboard with injected locale
 app.get('/', (req, res) => {
@@ -249,8 +250,8 @@ app.get('/', (req, res) => {
   }
 });
 
-// Telegram webhook endpoint
-app.post('/webhook', express.json(), async (req, res) => {
+// Telegram webhook endpoint (POST)
+app.post('/webhook', async (req, res) => {
   try {
     const update = req.body;
     console.log('[Webhook] Received update:', update);
@@ -268,6 +269,11 @@ app.post('/webhook', express.json(), async (req, res) => {
     console.error('[Webhook] Error:', error);
     res.sendStatus(500);
   }
+});
+
+// Test webhook endpoint (GET)
+app.get('/webhook', (req, res) => {
+  res.send('Webhook is working!');
 });
 
 // API: current data
