@@ -46,6 +46,7 @@ import { briefing as yfinance } from './sources/yfinance.mjs';
 // === Tier 6: Cyber & Infrastructure ===
 import { briefing as cisaKev } from './sources/cisa-kev.mjs';
 import { briefing as cloudflareRadar } from './sources/cloudflare-radar.mjs';
+import { briefing as supplyChainBriefing } from './sources/supply_chain.mjs';
 
 // === Tier 7: Defense & Weapons Intelligence ===
 import { briefing as defenseNewsBriefing } from './sources/defense_news.mjs';
@@ -92,6 +93,7 @@ export async function fullBriefing() {
     runSource('OFAC', ofac),
     runSource('OpenSanctions', opensanctions),
     runSource('ADS-B', adsb),
+    runSource('Supply Chain', supplyChainBriefing),
 
     // Tier 2: Economic & Financial
     runSource('FRED', fred, process.env.FRED_API_KEY),
