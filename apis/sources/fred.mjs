@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // FRED — Federal Reserve Economic Data
 // 840,000+ time series. Free API key required.
 // Key indicators: yield curve, CPI, unemployment, money supply, GDP, fed funds rate

@@ -47,6 +47,15 @@ import { briefing as yfinance } from './sources/yfinance.mjs';
 import { briefing as cisaKev } from './sources/cisa-kev.mjs';
 import { briefing as cloudflareRadar } from './sources/cloudflare-radar.mjs';
 
+// === Tier 7: Defense & Weapons Intelligence ===
+import { briefing as defenseNewsBriefing } from './sources/defense_news.mjs';
+import { briefing as sipriBriefing } from './sources/sipri_arms.mjs';
+
+// === Tier 8: Due Diligence & Compliance ===
+import { briefing as opencorporatesBriefing } from './sources/opencorporates.mjs';
+import { briefing as sanctionsBriefing } from './sources/sanctions.mjs';
+import { briefing as exportControlsBriefing } from './sources/export_controls.mjs';
+
 const SOURCE_TIMEOUT_MS = 30_000; // 30s max per individual source
 
 export async function runSource(name, fn, ...args) {
@@ -67,7 +76,7 @@ export async function runSource(name, fn, ...args) {
 }
 
 export async function fullBriefing() {
-  console.error('[Crucix] Starting intelligence sweep — 29 sources...');
+  console.error('[Crucix] Starting intelligence sweep — 34 sources...');
   const start = Date.now();
 
   const allPromises = [
@@ -111,6 +120,15 @@ export async function fullBriefing() {
     // Tier 6: Cyber & Infrastructure
     runSource('CISA-KEV', cisaKev),
     runSource('Cloudflare-Radar', cloudflareRadar),
+
+    // Tier 7: Defense & Weapons Intelligence
+    runSource('Defense News', defenseNewsBriefing),
+    runSource('SIPRI Arms', sipriBriefing),
+
+    // Tier 8: Due Diligence & Compliance (NEW)
+    runSource('OpenCorporates', opencorporatesBriefing),
+    runSource('Sanctions', sanctionsBriefing),
+    runSource('ExportControls', exportControlsBriefing),
   ];
 
   // Each runSource has its own 30s timeout, so allSettled will resolve
@@ -119,6 +137,29 @@ export async function fullBriefing() {
 
   const sources = results.map(r => r.status === 'fulfilled' ? r.value : { status: 'failed', error: r.reason?.message });
   const totalMs = Date.now() - start;
+
+  // Extract all updates and signals for dashboard synthesis
+  const allUpdates = [];
+  const allSignals = [];
+  const allMarkers = [];
+  const allAlerts = [];
+
+  for (const source of sources) {
+    if (source.status === 'ok' && source.data) {
+      if (source.data.updates && Array.isArray(source.data.updates)) {
+        allUpdates.push(...source.data.updates);
+      }
+      if (source.data.signals && Array.isArray(source.data.signals)) {
+        allSignals.push(...source.data.signals);
+      }
+      if (source.data.markers && Array.isArray(source.data.markers)) {
+        allMarkers.push(...source.data.markers);
+      }
+      if (source.data.alerts && Array.isArray(source.data.alerts)) {
+        allAlerts.push(...source.data.alerts);
+      }
+    }
+  }
 
   const output = {
     crucix: {
@@ -136,9 +177,23 @@ export async function fullBriefing() {
     timing: Object.fromEntries(
       sources.map(s => [s.name, { status: s.status, ms: s.durationMs }])
     ),
+    // Dashboard-ready aggregated data
+    dashboard: {
+      updates: allUpdates.slice(0, 50), // Limit to 50 for performance
+      signals: allSignals.slice(0, 20),
+      markers: allMarkers.slice(0, 100),
+      alerts: allAlerts.slice(0, 30),
+      counts: {
+        totalUpdates: allUpdates.length,
+        totalSignals: allSignals.length,
+        totalMarkers: allMarkers.length,
+        totalAlerts: allAlerts.length
+      }
+    }
   };
 
   console.error(`[Crucix] Sweep complete in ${totalMs}ms — ${output.crucix.sourcesOk}/${sources.length} sources returned data`);
+  console.error(`[Crucix] Dashboard ready: ${output.dashboard.counts.totalUpdates} updates, ${output.dashboard.counts.totalSignals} signals`);
   return output;
 }
 

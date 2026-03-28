@@ -1,0 +1,1 @@
+CreateObject("Wscript.Shell").Run "C:\Users\anton\Documents\Crucix\start_pm2.bat", 0, False

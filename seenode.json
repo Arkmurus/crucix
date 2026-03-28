@@ -1,0 +1,14 @@
+{
+  "name": "crucix-intelligence",
+  "type": "web",
+  "build": {
+    "command": "npm install"
+  },
+  "start": {
+    "command": "npm start"
+  },
+  "env": {
+    "PORT": "3117",
+    "NODE_ENV": "production"
+  }
+}

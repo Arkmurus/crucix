@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>CRUCIX | Weapon Brokerage Intelligence Platform</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0A0C12;
+            color: #E8EDF2;
+            overflow-x: hidden;
+        }
+
+        /* Professional Grid Background */
+        .bg-pattern {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 212, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 212, 255, 0.02) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Header */
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(10, 12, 18, 0.95);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+            padding: 0.75rem 2rem;
+        }
+
+        .header-container {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #00D4FF, #0066FF);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-icon i {
+            font-size: 1.2rem;
+            color: #0A0C12;
+        }
+
+        .logo-text {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #FFFFFF, #00D4FF);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.9rem;
+            background: rgba(0, 255, 136, 0.1);
+            border-radius: 40px;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            font-size: 0.75rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #00FF88;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Main Layout */
+        .main {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 1.5rem 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* KPI Row - Single Number Widgets */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .kpi-card {
+            background: rgba(16, 20, 28, 0.8);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            border-radius: 16px;
+            padding: 1.2rem;
+            transition: all 0.2s;
+        }
+
+        .kpi-card:hover {
+            border-color: rgba(0, 212, 255, 0.35);
+        }
+
+        .kpi-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #8A99B0;
+            margin-bottom: 0.5rem;
+        }
+
+        .kpi-value {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #FFFFFF;
+            line-height: 1.2;
+        }
+
+        .kpi-trend {
+            font-size: 0.7rem;
+            margin-top: 0.5rem;
+            color: #00FF88;
+        }
+
+        /* Two-Column Layout */
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Cards */
+        .card {
+            background: rgba(12, 15, 22, 0.75);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(0, 212, 255, 0.12);
+            border-radius: 20px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-header h3 {
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #00D4FF;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card-badge {
+            background: rgba(0, 212, 255, 0.1);
+            padding: 0.2rem 0.6rem;
+            border-radius: 20px;
+            font-size: 0.65rem;
+            color: #00D4FF;
+        }
+
+        .card-content {
+            padding: 0.5rem 1.25rem 1rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        /* Alert Items - Color Coded by Severity */
+        .alert-item {
+            padding: 0.8rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-start;
+        }
+
+        .alert-critical {
+            border-left: 3px solid #FF4757;
+            padding-left: 0.75rem;
+            background: rgba(255, 71, 87, 0.05);
+        }
+
+        .alert-warning {
+            border-left: 3px solid #FFA502;
+            padding-left: 0.75rem;
+            background: rgba(255, 165, 2, 0.03);
+        }
+
+        .alert-info {
+            border-left: 3px solid #00D4FF;
+            padding-left: 0.75rem;
+        }
+
+        .alert-title {
+            font-weight: 600;
+            font-size: 0.85rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .alert-detail {
+            font-size: 0.7rem;
+            color: #8A99B0;
+            line-height: 1.4;
+        }
+
+        .alert-time {
+            font-size: 0.6rem;
+            color: #5A6A80;
+            margin-top: 0.25rem;
+        }
+
+        /* Tree View for System Status */
+        .tree-view {
+            font-family: monospace;
+            font-size: 0.8rem;
+        }
+
+        .tree-node {
+            padding: 0.4rem 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .tree-node-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0;
+        }
+
+        .tree-node-header:hover {
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        .tree-icon {
+            width: 20px;
+            color: #00D4FF;
+        }
+
+        .tree-label {
+            flex: 1;
+        }
+
+        .tree-status {
+            font-size: 0.7rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: 20px;
+        }
+
+        .tree-status.green {
+            background: rgba(0, 255, 136, 0.15);
+            color: #00FF88;
+        }
+
+        .tree-status.yellow {
+            background: rgba(255, 165, 2, 0.15);
+            color: #FFA502;
+        }
+
+        .tree-status.red {
+            background: rgba(255, 71, 87, 0.15);
+            color: #FF4757;
+        }
+
+        .tree-children {
+            margin-left: 1.8rem;
+            display: none;
+        }
+
+        .tree-children.open {
+            display: block;
+        }
+
+        /* Feed Items - Chronological Order */
+        .feed-item {
+            padding: 0.8rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .feed-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.25rem;
+        }
+
+        .feed-source {
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #00D4FF;
+        }
+
+        .feed-time {
+            font-size: 0.6rem;
+            color: #5A6A80;
+        }
+
+        .feed-title {
+            font-weight: 600;
+            font-size: 0.85rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .feed-content {
+            font-size: 0.75rem;
+            color: #8A99B0;
+            line-height: 1.4;
+        }
+
+        /* Search Panel */
+        .search-panel {
+            background: rgba(12, 15, 22, 0.9);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: 20px;
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .search-input-group {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .search-input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(0, 212, 255, 0.25);
+            border-radius: 40px;
+            padding: 0.8rem 1.25rem;
+            color: #FFFFFF;
+            font-size: 0.9rem;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #00D4FF;
+        }
+
+        .search-btn {
+            background: linear-gradient(135deg, #00D4FF, #0066FF);
+            border: none;
+            border-radius: 40px;
+            padding: 0.8rem 2rem;
+            color: #0A0C12;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .quick-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .quick-btn {
+            background: rgba(0, 212, 255, 0.08);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: 40px;
+            padding: 0.3rem 0.9rem;
+            font-size: 0.7rem;
+            cursor: pointer;
+        }
+
+        .quick-btn:hover {
+            background: rgba(0, 212, 255, 0.2);
+        }
+
+        /* Search Results */
+        .search-result {
+            background: rgba(16, 20, 28, 0.6);
+            border-left: 3px solid #00D4FF;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 12px;
+        }
+
+        /* Footer */
+        .footer {
+            border-top: 1px solid rgba(0, 212, 255, 0.1);
+            padding: 1.5rem;
+            text-align: center;
+            color: #5A6A80;
+            font-size: 0.7rem;
+            margin-top: 2rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 1000px) {
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+            .kpi-row {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .main {
+                padding: 1rem;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .kpi-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 212, 255, 0.3);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-pattern"></div>
+
+    <div class="header">
+        <div class="header-container">
+            <div class="logo">
+                <div class="logo-icon"><i class="fas fa-dragon"></i></div>
+                <span class="logo-text">CRUCIX</span>
+                <span style="font-size: 0.7rem; color: #5A6A80;">INTELLIGENCE PLATFORM</span>
+            </div>
+            <div class="status-badge">
+                <span class="status-dot"></span>
+                <span id="systemStatus">ACTIVE</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="main">
+        <!-- KPI Row - Single Number Widgets -->
+        <div class="kpi-row" id="kpiRow">
+            <div class="kpi-card">
+                <div class="kpi-label"><i class="fas fa-database"></i> INTELLIGENCE SOURCES</div>
+                <div class="kpi-value" id="sourcesCount">--/34</div>
+                <div class="kpi-trend">All systems operational</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label"><i class="fas fa-exclamation-triangle"></i> CRITICAL ALERTS</div>
+                <div class="kpi-value" id="criticalCount">--</div>
+                <div class="kpi-trend" id="criticalTrend">Require immediate attention</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label"><i class="fas fa-bell"></i> TOTAL SIGNALS</div>
+                <div class="kpi-value" id="signalsCount">--</div>
+                <div class="kpi-trend">Last 24 hours</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label"><i class="fas fa-clock"></i> LAST UPDATE</div>
+                <div class="kpi-value" id="lastUpdate">--</div>
+                <div class="kpi-trend">Sweep cycle: 15 min</div>
+            </div>
+        </div>
+
+        <!-- Two Column Layout -->
+        <div class="two-column">
+            <!-- Left Column: Critical Alerts + Tree View -->
+            <div>
+                <!-- Critical Alerts Card -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header">
+                        <h3><i class="fas fa-exclamation-triangle"></i> CRITICAL ALERTS</h3>
+                        <span class="card-badge">REQUIRES ACTION</span>
+                    </div>
+                    <div class="card-content" id="criticalAlertsList">
+                        <div class="loading" style="text-align:center; padding:2rem;">Loading critical alerts...</div>
+                    </div>
+                </div>
+
+                <!-- System Status Tree View -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-sitemap"></i> SYSTEM STATUS</h3>
+                        <span class="card-badge">HIERARCHICAL</span>
+                    </div>
+                    <div class="card-content">
+                        <div class="tree-view" id="treeView">
+                            <div class="tree-node">
+                                <div class="tree-node-header" onclick="toggleNode(this)">
+                                    <span class="tree-icon"><i class="fas fa-chevron-right"></i></span>
+                                    <span class="tree-label">Intelligence Sources</span>
+                                    <span class="tree-status green">34/34 Active</span>
+                                </div>
+                                <div class="tree-children" id="sourcesTree"></div>
+                            </div>
+                            <div class="tree-node">
+                                <div class="tree-node-header" onclick="toggleNode(this)">
+                                    <span class="tree-icon"><i class="fas fa-chevron-right"></i></span>
+                                    <span class="tree-label">Alert Tiers</span>
+                                    <span class="tree-status green">Monitoring</span>
+                                </div>
+                                <div class="tree-children">
+                                    <div class="tree-node">
+                                        <div class="tree-node-header">
+                                            <span class="tree-icon"><i class="fas fa-circle" style="color:#FF4757; font-size: 8px;"></i></span>
+                                            <span class="tree-label">Critical</span>
+                                            <span class="tree-status red" id="criticalCountTree">0</span>
+                                        </div>
+                                    </div>
+                                    <div class="tree-node">
+                                        <div class="tree-node-header">
+                                            <span class="tree-icon"><i class="fas fa-circle" style="color:#FFA502; font-size: 8px;"></i></span>
+                                            <span class="tree-label">Warning</span>
+                                            <span class="tree-status yellow" id="warningCountTree">0</span>
+                                        </div>
+                                    </div>
+                                    <div class="tree-node">
+                                        <div class="tree-node-header">
+                                            <span class="tree-icon"><i class="fas fa-circle" style="color:#00D4FF; font-size: 8px;"></i></span>
+                                            <span class="tree-label">Informational</span>
+                                            <span class="tree-status green" id="infoCountTree">0</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Intelligence Feed + Market Data -->
+            <div>
+                <!-- Intelligence Feed - Chronological -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-header">
+                        <h3><i class="fas fa-rss"></i> INTELLIGENCE FEED</h3>
+                        <span class="card-badge">CHRONOLOGICAL</span>
+                    </div>
+                    <div class="card-content" id="feedList">
+                        <div class="loading" style="text-align:center; padding:2rem;">Loading intelligence feed...</div>
+                    </div>
+                </div>
+
+                <!-- Market Indicators -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-chart-line"></i> MARKET INDICATORS</h3>
+                        <span class="card-badge">REAL-TIME</span>
+                    </div>
+                    <div class="card-content" id="marketList">
+                        <div class="loading" style="text-align:center; padding:2rem;">Loading market data...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Panel -->
+        <div class="search-panel">
+            <div class="search-input-group">
+                <input type="text" id="companySearch" class="search-input" placeholder="Due Diligence Search: Enter company name (e.g., Lockheed Martin, BAE Systems)">
+                <button class="search-btn" onclick="searchCompany()">SEARCH</button>
+            </div>
+            <div class="quick-buttons">
+                <span class="quick-btn" onclick="quickSearch('Lockheed Martin')">Lockheed Martin</span>
+                <span class="quick-btn" onclick="quickSearch('BAE Systems')">BAE Systems</span>
+                <span class="quick-btn" onclick="quickSearch('Raytheon')">Raytheon</span>
+                <span class="quick-btn" onclick="quickSearch('Northrop Grumman')">Northrop Grumman</span>
+                <span class="quick-btn" onclick="quickSearch('Rheinmetall')">Rheinmetall</span>
+                <span class="quick-btn" onclick="quickSearch('Thales')">Thales</span>
+            </div>
+        </div>
+        <div id="searchResults"></div>
+    </div>
+
+    <div class="footer">
+        <p>CRUCIX Weapon Brokerage Intelligence Platform | 34 Active Sources | Sweep Cycle: 15 Minutes</p>
+        <p style="margin-top: 0.4rem;">Data sources: SIPRI, Defense News, ACLED, OFAC, OpenCorporates, GDELT, FRED, and 27+ others</p>
+    </div>
+
+    <script>
+        // Toggle tree node expansion
+        function toggleNode(element) {
+            const icon = element.querySelector('.tree-icon i');
+            const children = element.parentElement.querySelector('.tree-children');
+            if (children) {
+                children.classList.toggle('open');
+                if (icon) {
+                    icon.classList.toggle('fa-chevron-right');
+                    icon.classList.toggle('fa-chevron-down');
+                }
+            }
+        }
+
+        // Expand all by default
+        function expandAllNodes() {
+            document.querySelectorAll('.tree-children').forEach(child => {
+                child.classList.add('open');
+            });
+            document.querySelectorAll('.tree-icon i').forEach(icon => {
+                if (icon.classList.contains('fa-chevron-right')) {
+                    icon.classList.remove('fa-chevron-right');
+                    icon.classList.add('fa-chevron-down');
+                }
+            });
+        }
+
+        // Company search
+        async function searchCompany() {
+            const query = document.getElementById('companySearch').value.trim();
+            if (!query) return;
+            
+            const resultsDiv = document.getElementById('searchResults');
+            resultsDiv.innerHTML = '<div style="text-align:center; padding:2rem; color:#00D4FF;">🔍 Searching...</div>';
+            
+            try {
+                const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+                const data = await response.json();
+                
+                if (!data.success) {
+                    resultsDiv.innerHTML = `<div style="background:#1a1a1a; border-left:3px solid #FF4757; padding:1rem;">❌ No results found for "${query}"</div>`;
+                    return;
+                }
+                
+                let html = `<div class="search-result">`;
+                if (data.wikipedia) {
+                    html += `<div class="feed-title">📖 Wikipedia: ${data.wikipedia.title}</div>`;
+                    html += `<div class="feed-content">${data.wikipedia.extract ? data.wikipedia.extract.substring(0, 400) + '...' : data.wikipedia.description}</div>`;
+                    if (data.wikipedia.url) html += `<div><a href="${data.wikipedia.url}" target="_blank" style="color:#00D4FF; font-size:0.7rem;">Read more →</a></div>`;
+                }
+                if (data.verificationLinks) {
+                    html += `<div style="margin-top:1rem;"><strong>🛡️ Due Diligence Links:</strong></div>`;
+                    html += `<div><a href="${data.verificationLinks.openCorporates}" target="_blank" style="color:#8A99B0; font-size:0.7rem;">📋 OpenCorporates</a></div>`;
+                    html += `<div><a href="${data.verificationLinks.ofacSanctions}" target="_blank" style="color:#8A99B0; font-size:0.7rem;">⚖️ OFAC Sanctions</a></div>`;
+                    html += `<div><a href="${data.verificationLinks.defenseNews}" target="_blank" style="color:#8A99B0; font-size:0.7rem;">📰 Defense News</a></div>`;
+                }
+                html += `</div>`;
+                resultsDiv.innerHTML = html;
+            } catch (error) {
+                resultsDiv.innerHTML = `<div style="background:#1a1a1a; border-left:3px solid #FF4757; padding:1rem;">❌ Search error: ${error.message}</div>`;
+            }
+        }
+
+        function quickSearch(company) {
+            document.getElementById('companySearch').value = company;
+            searchCompany();
+        }
+
+        // Fetch dashboard data
+        async function fetchDashboardData() {
+            try {
+                const health = await fetch('/api/health').then(r => r.json());
+                document.getElementById('sourcesCount').innerHTML = `${health.sourcesOk || 0}/${health.sourcesQueried || 34}`;
+                document.getElementById('lastUpdate').innerHTML = health.lastSweep ? new Date(health.lastSweep).toLocaleTimeString() : '--';
+                
+                const data = await fetch('/api/data').then(r => r.json());
+                
+                // Signals count
+                const signals = data.tSignals || [];
+                document.getElementById('signalsCount').innerHTML = signals.length;
+                
+                // Critical alerts
+                const criticalSignals = signals.filter(s => s.toLowerCase().includes('critical') || s.toLowerCase().includes('urgent') || s.toLowerCase().includes('flash'));
+                document.getElementById('criticalCount').innerHTML = criticalSignals.length;
+                document.getElementById('criticalCountTree').innerHTML = criticalSignals.length;
+                
+                // Warning count
+                const warningSignals = signals.filter(s => s.toLowerCase().includes('warning') || s.toLowerCase().includes('high'));
+                document.getElementById('warningCountTree').innerHTML = warningSignals.length;
+                
+                // Info count
+                const infoCount = signals.length - criticalSignals.length - warningSignals.length;
+                document.getElementById('infoCountTree').innerHTML = infoCount;
+                
+                // Critical Alerts List
+                const criticalAlertsDiv = document.getElementById('criticalAlertsList');
+                if (criticalSignals.length > 0) {
+                    criticalAlertsDiv.innerHTML = criticalSignals.slice(0, 5).map(s => `
+                        <div class="alert-item alert-critical">
+                            <div>
+                                <div class="alert-title">⚠️ CRITICAL INTELLIGENCE</div>
+                                <div class="alert-detail">${s.substring(0, 150)}${s.length > 150 ? '...' : ''}</div>
+                                <div class="alert-time">${new Date().toLocaleTimeString()}</div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    criticalAlertsDiv.innerHTML = '<div style="text-align:center; padding:1rem; color:#00FF88;">✅ No critical alerts at this time</div>';
+                }
+                
+                // Intelligence Feed
+                const newsFeed = data.newsFeed?.slice(0, 15) || [];
+                const feedDiv = document.getElementById('feedList');
+                if (newsFeed.length > 0) {
+                    feedDiv.innerHTML = newsFeed.map(item => `
+                        <div class="feed-item">
+                            <div class="feed-header">
+                                <span class="feed-source">${item.source || 'INTEL'}</span>
+                                <span class="feed-time">${item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()}</span>
+                            </div>
+                            <div class="feed-title">${item.headline || item.title || 'Intelligence Update'}</div>
+                            <div class="feed-content">${(item.content || item.text || '').substring(0, 120)}...</div>
+                        </div>
+                    `).join('');
+                } else {
+                    feedDiv.innerHTML = '<div style="text-align:center; padding:2rem; color:#8A99B0;">No intelligence feed available</div>';
+                }
+                
+                // Market Indicators
+                const vix = data.fred?.find(f => f.id === 'VIXCLS');
+                const oil = data.energy;
+                const marketDiv = document.getElementById('marketList');
+                marketDiv.innerHTML = `
+                    <div class="alert-item alert-info">
+                        <div>
+                            <div class="alert-title">VIX (Fear Index)</div>
+                            <div class="alert-detail">${vix?.value || '--'}</div>
+                        </div>
+                    </div>
+                    <div class="alert-item alert-info">
+                        <div>
+                            <div class="alert-title">WTI Crude Oil</div>
+                            <div class="alert-detail">$${oil?.wti || '--'}/bbl</div>
+                        </div>
+                    </div>
+                    <div class="alert-item alert-info">
+                        <div>
+                            <div class="alert-title">Brent Crude</div>
+                            <div class="alert-detail">$${oil?.brent || '--'}/bbl</div>
+                        </div>
+                    </div>
+                `;
+                
+                // Sources Tree
+                const sources = [
+                    'Defense News', 'SIPRI Arms', 'OpenCorporates', 'OFAC Sanctions', 'ACLED Conflict',
+                    'GDELT Events', 'FRED Economic', 'Telegram OSINT', 'OpenSky Air', 'ADS-B Flights',
+                    'Maritime Ships', 'NASA FIRMS', 'Space Satellites', 'CISA Cyber', 'YFinance'
+                ];
+                const sourcesTreeDiv = document.getElementById('sourcesTree');
+                sourcesTreeDiv.innerHTML = sources.map(s => `
+                    <div class="tree-node">
+                        <div class="tree-node-header">
+                            <span class="tree-icon"><i class="fas fa-circle" style="color:#00FF88; font-size: 6px;"></i></span>
+                            <span class="tree-label">${s}</span>
+                            <span class="tree-status green">Active</span>
+                        </div>
+                    </div>
+                `).join('');
+                
+                // Expand all after loading
+                expandAllNodes();
+                
+            } catch (error) {
+                console.error('Fetch failed:', error);
+            }
+        }
+
+        // Initialize
+        fetchDashboardData();
+        setInterval(fetchDashboardData, 30000);
+        
+        document.getElementById('companySearch').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') searchCompany();
+        });
+        
+        expandAllNodes();
+    </script>
+</body>
+</html>

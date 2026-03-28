@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRUCIX | Weapon Brokerage Intelligence Platform</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0a0e1a 0%, #0c1222 100%);
+            color: #ffffff;
+            min-height: 100vh;
+        }
+
+        /* Navigation */
+        .navbar {
+            background: rgba(10, 14, 26, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0, 255, 136, 0.15);
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .nav-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #00ff88, #00ccff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: #a0a0c0;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: #00ff88;
+        }
+
+        .status-badge {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #00ff88;
+        }
+
+        /* Hero Section */
+        .hero {
+            max-width: 1200px;
+            margin: 4rem auto;
+            padding: 0 2rem;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #ffffff, #00ff88);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            color: #a0a0c0;
+            max-width: 700px;
+            margin: 0 auto 2rem;
+            line-height: 1.6;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            max-width: 1000px;
+            margin: 3rem auto;
+            padding: 0 2rem;
+        }
+
+        .stat-card {
+            background: rgba(20, 25, 45, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 136, 0.2);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: transform 0.3s, border-color 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(0, 255, 136, 0.5);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #00ff88;
+        }
+
+        .stat-label {
+            font-size: 0.875rem;
+            color: #a0a0c0;
+            margin-top: 0.5rem;
+        }
+
+        /* Features Section */
+        .features {
+            max-width: 1200px;
+            margin: 4rem auto;
+            padding: 0 2rem;
+        }
+
+        .section-title {
+            font-size: 2rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 3rem;
+            background: linear-gradient(135deg, #ffffff, #00ff88);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+
+        .feature-card {
+            background: rgba(20, 25, 45, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 136, 0.15);
+            border-radius: 12px;
+            padding: 2rem;
+            transition: all 0.3s;
+        }
+
+        .feature-card:hover {
+            border-color: rgba(0, 255, 136, 0.4);
+            transform: translateY(-5px);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .feature-card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 0.75rem;
+            color: #00ff88;
+        }
+
+        .feature-card p {
+            color: #a0a0c0;
+            line-height: 1.6;
+        }
+
+        /* CTA Section */
+        .cta-section {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 204, 255, 0.1));
+            border-radius: 24px;
+            padding: 3rem;
+            text-align: center;
+            margin: 4rem auto;
+            max-width: 900px;
+        }
+
+        .cta-section h2 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-top: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 0.875rem 2rem;
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s;
+            cursor: pointer;
+            border: none;
+            font-size: 1rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #00ff88, #00ccff);
+            color: #0a0e1a;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 255, 136, 0.3);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            color: #00ff88;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(0, 255, 136, 0.1);
+            border-color: #00ff88;
+        }
+
+        /* Footer */
+        .footer {
+            border-top: 1px solid rgba(0, 255, 136, 0.1);
+            padding: 2rem;
+            text-align: center;
+            color: #606080;
+            font-size: 0.875rem;
+            margin-top: 4rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2rem;
+            }
+            
+            .nav-links {
+                display: none;
+            }
+            
+            .cta-section {
+                padding: 2rem;
+                margin: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">CRUCIX</div>
+            <div class="nav-links">
+                <a href="/dashboard">Dashboard</a>
+                <a href="/search.html">Due Diligence</a>
+                <a href="#" id="telegramLink">Telegram Bot</a>
+                <span class="status-badge" id="systemStatus">● System Online</span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="hero">
+        <h1>Weapon Brokerage Intelligence</h1>
+        <p>Real-time defense contracts, global arms trade data, and due diligence at your fingertips. Power your decisions with intelligence from 34+ sources.</p>
+        <div class="cta-buttons">
+            <a href="/dashboard" class="btn btn-primary">Launch Dashboard</a>
+            <a href="/search.html" class="btn btn-secondary">Company Search</a>
+        </div>
+    </div>
+
+    <div class="stats-grid" id="statsGrid">
+        <div class="stat-card">
+            <div class="stat-value" id="sourcesCount">--</div>
+            <div class="stat-label">Active Intelligence Sources</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="updatesCount">--</div>
+            <div class="stat-label">Updates Per Sweep</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="signalsCount">--</div>
+            <div class="stat-label">Active Signals</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="sweepTime">--</div>
+            <div class="stat-label">Sweep Duration</div>
+        </div>
+    </div>
+
+    <div class="features">
+        <h2 class="section-title">Intelligence Capabilities</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">📋</div>
+                <h3>Defense Contracts</h3>
+                <p>Real-time weapons contracts, sales, and procurement programs. Track $B in defense spending globally.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔫</div>
+                <h3>Arms Trade Data</h3>
+                <p>SIPRI data on global arms transfers, top exporters, importers, and market trends.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔍</div>
+                <h3>Company Due Diligence</h3>
+                <p>Instant research on any defense contractor. Wikipedia, sanctions, financials, and more.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🛡️</div>
+                <h3>Sanctions Screening</h3>
+                <p>OFAC, EU, and UN sanctions lists. Compliance checks for potential partners.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">📱</div>
+                <h3>Telegram Intelligence</h3>
+                <p>Mobile access to all intelligence via @ArkmurusIntelBot. Commands: /brief, /contracts, /search</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🌍</div>
+                <h3>Conflict Monitoring</h3>
+                <p>ACLED conflict data, global events, and geopolitical risk assessment.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="cta-section">
+        <h2>Ready to Start?</h2>
+        <p>Access your intelligence dashboard or search any defense company in seconds.</p>
+        <div class="cta-buttons">
+            <a href="/dashboard" class="btn btn-primary">Open Dashboard</a>
+            <a href="/search.html" class="btn btn-secondary">Search Companies</a>
+        </div>
+        <div style="margin-top: 1.5rem; font-size: 0.875rem; color: #606080;">
+            📱 Telegram: @ArkmurusIntelBot | Commands: /brief, /contracts, /arms, /search [company]
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>CRUCIX Intelligence Platform | 34 Active Sources | Real-time Defense Intelligence</p>
+        <p style="margin-top: 0.5rem;">For informational purposes only. Not financial advice.</p>
+    </div>
+
+    <script>
+        async function fetchSystemStatus() {
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                
+                document.getElementById('sourcesCount').textContent = `${data.sourcesOk || 0}/${data.sourcesQueried || 34}`;
+                document.getElementById('sweepTime').textContent = data.lastSweep ? 'Active' : 'Starting';
+                document.getElementById('systemStatus').innerHTML = '● System Online';
+                document.getElementById('systemStatus').style.color = '#00ff88';
+                
+                // Fetch additional data from briefing
+                const briefResponse = await fetch('/api/data');
+                const briefData = await briefResponse.json();
+                if (briefData) {
+                    document.getElementById('updatesCount').textContent = briefData.newsFeed?.length || 0;
+                    document.getElementById('signalsCount').textContent = briefData.tSignals?.length || 0;
+                }
+            } catch (error) {
+                console.error('Status fetch failed:', error);
+                document.getElementById('systemStatus').innerHTML = '● Connecting...';
+                document.getElementById('systemStatus').style.color = '#ffaa00';
+            }
+        }
+        
+        fetchSystemStatus();
+        setInterval(fetchSystemStatus, 30000);
+        
+        document.getElementById('telegramLink').addEventListener('click', (e) => {
+            e.preventDefault();
+            window.open('https://t.me/ArkmurusIntelBot', '_blank');
+        });
+    </script>
+</body>
+</html>

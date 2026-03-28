@@ -284,6 +284,95 @@ app.get('/api/locales', (req, res) => {
   });
 });
 
+// API: Company Search - Due Diligence Tool
+app.get('/api/search', async (req, res) => {
+  const query = req.query.q;
+  if (!query) {
+    return res.json({ error: 'No query provided' });
+  }
+  
+  console.log(`[Search API] Searching for: ${query}`);
+  
+  try {
+    // Search Wikipedia
+    let wikipedia = null;
+    try {
+      const wikiResponse = await fetch(
+        `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query.replace(/ /g, '_'))}`,
+        { headers: { 'User-Agent': 'Crucix/1.0' } }
+      );
+      if (wikiResponse.ok) {
+        wikipedia = await wikiResponse.json();
+      }
+    } catch (e) {
+      console.log('Wikipedia error:', e.message);
+    }
+    
+    // Search DuckDuckGo
+    let duckduckgo = null;
+    try {
+      const ddgResponse = await fetch(
+        `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`,
+        { headers: { 'User-Agent': 'Crucix/1.0' } }
+      );
+      if (ddgResponse.ok) {
+        duckduckgo = await ddgResponse.json();
+      }
+    } catch (e) {
+      console.log('DuckDuckGo error:', e.message);
+    }
+    
+    // Generate verification links
+    const verificationLinks = {
+      openCorporates: `https://opencorporates.com/companies?q=${encodeURIComponent(query)}`,
+      ofacSanctions: `https://sanctionssearch.ofac.treas.gov/Search.aspx?searchText=${encodeURIComponent(query)}`,
+      defenseNews: `https://www.defensenews.com/search/?q=${encodeURIComponent(query)}`,
+      googleSearch: `https://www.google.com/search?q=${encodeURIComponent(query)}+defense+weapons+contracts`,
+      secEdgar: `https://www.sec.gov/edgar/searchedgar/companysearch.html?q=${encodeURIComponent(query)}`,
+      sipriArms: `https://www.sipri.org/databases/armstransfers`,
+      companiesHouse: `https://find-and-update.company-information.service.gov.uk/search?q=${encodeURIComponent(query)}`
+    };
+    
+    res.json({
+      success: true,
+      query: query,
+      timestamp: new Date().toISOString(),
+      wikipedia: wikipedia ? {
+        title: wikipedia.title,
+        description: wikipedia.description,
+        extract: wikipedia.extract,
+        url: wikipedia.content_urls?.desktop?.page
+      } : null,
+      duckduckgo: duckduckgo?.Abstract ? {
+        abstract: duckduckgo.Abstract,
+        url: duckduckgo.AbstractURL
+      } : null,
+      verificationLinks: verificationLinks
+    });
+    
+  } catch (error) {
+    console.error('[Search API] Error:', error);
+    res.json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// API: Manual sweep trigger
+app.post('/api/sweep', async (req, res) => {
+  try {
+    if (sweepInProgress) {
+      return res.json({ success: false, message: 'Sweep already in progress' });
+    }
+    // Trigger sweep in background
+    runSweepCycle().catch(err => console.error('[Crucix] Manual sweep failed:', err.message));
+    res.json({ success: true, message: 'Sweep triggered' });
+  } catch (error) {
+    res.json({ success: false, error: error.message });
+  }
+});
+
 // SSE: live updates
 app.get('/events', (req, res) => {
   res.writeHead(200, {
@@ -376,8 +465,18 @@ async function runSweepCycle() {
     memory.pruneAlertedSignals();
 
     currentData = synthesized;
+    
+    // 7. NOTIFY TELEGRAM OF NEW INTELLIGENCE (for watchlist and real-time alerts)
+    if (telegramAlerter && telegramAlerter.isConfigured) {
+      try {
+        await telegramAlerter.onSweepComplete(currentData);
+        console.log('[Crucix] Telegram notified of new intelligence');
+      } catch (err) {
+        console.error('[Crucix] Telegram alert error:', err.message);
+      }
+    }
 
-    // 6. Push to all connected browsers
+    // 8. Push to all connected browsers
     broadcast({ type: 'update', data: currentData });
 
     console.log(`[Crucix] Sweep complete — ${currentData.meta.sourcesOk}/${currentData.meta.sourcesQueried} sources OK`);
@@ -400,9 +499,10 @@ async function start() {
   console.log(`
   ╔══════════════════════════════════════════════╗
   ║           CRUCIX INTELLIGENCE ENGINE         ║
-  ║          Local Palantir · 26 Sources         ║
+  ║          Local Palantir · 34 Sources         ║
   ╠══════════════════════════════════════════════╣
   ║  Dashboard:  http://localhost:${port}${' '.repeat(14 - String(port).length)}║
+  ║  Search:     http://localhost:${port}/search.html${' '.repeat(8 - String(port).length)}║
   ║  Health:     http://localhost:${port}/api/health${' '.repeat(4 - String(port).length)}║
   ║  Refresh:    Every ${config.refreshIntervalMinutes} min${' '.repeat(20 - String(config.refreshIntervalMinutes).length)}║
   ║  LLM:        ${(config.llm.provider || 'disabled').padEnd(31)}║
@@ -430,26 +530,29 @@ async function start() {
     console.log(`[Crucix] Server running on http://localhost:${port}`);
 
     // Auto-open browser
-    // NOTE: On Windows, `start` in PowerShell is an alias for Start-Service, not cmd's start.
-    // We must use `cmd /c start ""` to ensure it works in both cmd.exe and PowerShell.
     const openCmd = process.platform === 'win32' ? 'cmd /c start ""' :
                     process.platform === 'darwin' ? 'open' : 'xdg-open';
     exec(`${openCmd} "http://localhost:${port}"`, (err) => {
       if (err) console.log('[Crucix] Could not auto-open browser:', err.message);
     });
 
-    // Try to load existing data first for instant display (await so dashboard shows immediately)
+    // Try to load existing data first for instant display
     try {
       const existing = JSON.parse(readFileSync(join(RUNS_DIR, 'latest.json'), 'utf8'));
       const data = await synthesize(existing);
       currentData = data;
       console.log('[Crucix] Loaded existing data from runs/latest.json — dashboard ready instantly');
       broadcast({ type: 'update', data: currentData });
+      
+      // Also notify Telegram of existing data
+      if (telegramAlerter && telegramAlerter.isConfigured) {
+        await telegramAlerter.onSweepComplete(currentData);
+      }
     } catch {
       console.log('[Crucix] No existing data found — first sweep required');
     }
 
-    // Run first sweep (refreshes data in background)
+    // Run first sweep
     console.log('[Crucix] Running initial sweep...');
     runSweepCycle().catch(err => {
       console.error('[Crucix] Initial sweep failed:', err.message || err);
@@ -460,7 +563,7 @@ async function start() {
   });
 }
 
-// Graceful error handling — log full stack traces for diagnosis
+// Graceful error handling
 process.on('unhandledRejection', (err) => {
   console.error('[Crucix] Unhandled rejection:', err?.stack || err?.message || err);
 });
