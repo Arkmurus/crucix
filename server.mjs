@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
+import basicAuth from 'express-basic-auth';
 import config from './crucix.config.mjs';
 import { getLocale, currentLanguage, getSupportedLocales } from './lib/i18n.mjs';
 import { fullBriefing } from './apis/briefing.mjs';
@@ -71,13 +72,12 @@ if (telegramAlerter.isConfigured) {
       `Sources: ${sourcesOk}/${sourcesTotal} OK${sourcesFailed > 0 ? ` (${sourcesFailed} failed)` : ''}`,
       `LLM: ${llmStatus}`,
       `SSE clients: ${sseClients.size}`,
-      `Dashboard: http://localhost:${config.port}`,
+      `Dashboard: https://crucix-m4lt.onrender.com`,
     ].join('\n');
   });
 
   telegramAlerter.onCommand('/sweep', async () => {
     if (sweepInProgress) return '🔄 Sweep already in progress. Please wait.';
-    // Fire and forget — don't block the bot response
     runSweepCycle().catch(err => console.error('[Crucix] Manual sweep failed:', err.message));
     return '🚀 Manual sweep triggered. You\'ll receive alerts if anything significant is detected.';
   });
@@ -96,14 +96,12 @@ if (telegramAlerter.isConfigured) {
       ``,
     ];
 
-    // Delta direction
     if (delta?.summary) {
       const dirEmoji = { 'risk-off': '📉', 'risk-on': '📈', 'mixed': '↔️' }[delta.summary.direction] || '↔️';
       sections.push(`${dirEmoji} Direction: *${delta.summary.direction.toUpperCase()}* | ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical`);
       sections.push('');
     }
 
-    // Key metrics
     const vix = currentData.fred?.find(f => f.id === 'VIXCLS');
     const hy = currentData.fred?.find(f => f.id === 'BAMLH0A0HYM2');
     if (vix || energy.wti) {
@@ -112,17 +110,14 @@ if (telegramAlerter.isConfigured) {
       sections.push('');
     }
 
-    // OSINT
     if (tg.urgent?.length > 0) {
       sections.push(`📡 OSINT: ${tg.urgent.length} urgent signals, ${tg.posts || 0} total posts`);
-      // Top 2 urgent
       for (const p of tg.urgent.slice(0, 2)) {
         sections.push(`  • ${(p.text || '').substring(0, 80)}`);
       }
       sections.push('');
     }
 
-    // Top ideas
     if (ideas.length > 0) {
       sections.push(`💡 *Top Ideas:*`);
       for (const idea of ideas) {
@@ -137,7 +132,6 @@ if (telegramAlerter.isConfigured) {
     return '📊 Portfolio integration requires Alpaca MCP connection.\nUse the Crucix dashboard or Claude agent for portfolio queries.';
   });
 
-  // Start polling for bot commands
   telegramAlerter.startPolling(config.telegram.botPollingInterval);
 }
 
@@ -145,7 +139,6 @@ if (telegramAlerter.isConfigured) {
 if (discordAlerter.isConfigured) {
   console.log('[Crucix] Discord bot enabled');
 
-  // Reuse the same command handlers as Telegram (DRY)
   discordAlerter.onCommand('status', async () => {
     const uptime = Math.floor((Date.now() - startTime) / 1000);
     const h = Math.floor(uptime / 3600);
@@ -167,7 +160,7 @@ if (discordAlerter.isConfigured) {
       `Sources: ${sourcesOk}/${sourcesTotal} OK${sourcesFailed > 0 ? ` (${sourcesFailed} failed)` : ''}`,
       `LLM: ${llmStatus}`,
       `SSE clients: ${sseClients.size}`,
-      `Dashboard: http://localhost:${config.port}`,
+      `Dashboard: https://crucix-m4lt.onrender.com`,
     ].join('\n');
   });
 
@@ -222,7 +215,6 @@ if (discordAlerter.isConfigured) {
     return '📊 Portfolio integration requires Alpaca MCP connection.\nUse the Crucix dashboard or Claude agent for portfolio queries.';
   });
 
-  // Start the Discord bot (non-blocking — connection happens async)
   discordAlerter.start().catch(err => {
     console.error('[Crucix] Discord bot startup failed (non-fatal):', err.message);
   });
@@ -230,8 +222,19 @@ if (discordAlerter.isConfigured) {
 
 // === Express Server ===
 const app = express();
+
+// Password protection for dashboard
+const DASHBOARD_USER = process.env.DASHBOARD_USER || 'admin';
+const DASHBOARD_PASS = process.env.DASHBOARD_PASS || 'crucix2026';
+
+app.use(basicAuth({
+    users: { [DASHBOARD_USER]: DASHBOARD_PASS },
+    challenge: true,
+    unauthorizedResponse: '🔒 Access Denied. Please provide valid credentials.'
+}));
+
 app.use(express.static(join(ROOT, 'dashboard/public')));
-app.use(express.json()); // Add JSON middleware for webhook
+app.use(express.json());
 
 // Serve loading page until first sweep completes, then the dashboard with injected locale
 app.get('/', (req, res) => {
@@ -241,7 +244,6 @@ app.get('/', (req, res) => {
     const htmlPath = join(ROOT, 'dashboard/public/jarvis.html');
     let html = readFileSync(htmlPath, 'utf-8');
     
-    // Inject locale data into the HTML
     const locale = getLocale();
     const localeScript = `<script>window.__CRUCIX_LOCALE__ = ${JSON.stringify(locale).replace(/<\/script>/gi, '<\\/script>')};</script>`;
     html = html.replace('</head>', `${localeScript}\n</head>`);
@@ -256,9 +258,7 @@ app.post('/webhook', async (req, res) => {
     const update = req.body;
     console.log('[Webhook] Received update:', update);
     
-    // Handle the update via your Telegram alerter
     if (telegramAlerter && telegramAlerter.isConfigured) {
-      // Process the message
       if (update.message) {
         await telegramAlerter._handleMessage(update.message);
       }
@@ -282,7 +282,7 @@ app.get('/api/data', (req, res) => {
   res.json(currentData);
 });
 
-// API: health check
+// API: health check (no auth needed)
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -321,7 +321,6 @@ app.get('/api/search', async (req, res) => {
   console.log(`[Search API] Searching for: ${query}`);
   
   try {
-    // Search Wikipedia
     let wikipedia = null;
     try {
       const wikiResponse = await fetch(
@@ -335,7 +334,6 @@ app.get('/api/search', async (req, res) => {
       console.log('Wikipedia error:', e.message);
     }
     
-    // Search DuckDuckGo
     let duckduckgo = null;
     try {
       const ddgResponse = await fetch(
@@ -349,7 +347,6 @@ app.get('/api/search', async (req, res) => {
       console.log('DuckDuckGo error:', e.message);
     }
     
-    // Generate verification links
     const verificationLinks = {
       openCorporates: `https://opencorporates.com/companies?q=${encodeURIComponent(query)}`,
       ofacSanctions: `https://sanctionssearch.ofac.treas.gov/Search.aspx?searchText=${encodeURIComponent(query)}`,
@@ -392,7 +389,6 @@ app.post('/api/sweep', async (req, res) => {
     if (sweepInProgress) {
       return res.json({ success: false, message: 'Sweep already in progress' });
     }
-    // Trigger sweep in background
     runSweepCycle().catch(err => console.error('[Crucix] Manual sweep failed:', err.message));
     res.json({ success: true, message: 'Sweep triggered' });
   } catch (error) {
@@ -435,22 +431,15 @@ async function runSweepCycle() {
   console.log(`${'='.repeat(60)}`);
 
   try {
-    // 1. Run the full briefing sweep
     const rawData = await fullBriefing();
-
-    // 2. Save to runs/latest.json
     writeFileSync(join(RUNS_DIR, 'latest.json'), JSON.stringify(rawData, null, 2));
     lastSweepTime = new Date().toISOString();
 
-    // 3. Synthesize into dashboard format
     console.log('[Crucix] Synthesizing dashboard data...');
     const synthesized = await synthesize(rawData);
-
-    // 4. Delta computation + memory
     const delta = memory.addRun(synthesized);
     synthesized.delta = delta;
 
-    // 5. LLM-powered trade ideas (LLM-only feature) — isolated so failures don't kill sweep
     if (llmProvider?.isConfigured) {
       try {
         console.log('[Crucix] Generating LLM trade ideas...');
@@ -474,7 +463,6 @@ async function runSweepCycle() {
       synthesized.ideasSource = 'disabled';
     }
 
-    // 6. Alert evaluation — Telegram + Discord (LLM with rule-based fallback, multi-tier, semantic dedup)
     if (delta?.summary?.totalChanges > 0) {
       if (telegramAlerter.isConfigured) {
         telegramAlerter.evaluateAndAlert(llmProvider, delta, memory).catch(err => {
@@ -488,12 +476,9 @@ async function runSweepCycle() {
       }
     }
 
-    // Prune old alerted signals
     memory.pruneAlertedSignals();
-
     currentData = synthesized;
     
-    // 7. NOTIFY TELEGRAM OF NEW INTELLIGENCE (for watchlist and real-time alerts)
     if (telegramAlerter && telegramAlerter.isConfigured) {
       try {
         await telegramAlerter.onSweepComplete(currentData);
@@ -503,7 +488,6 @@ async function runSweepCycle() {
       }
     }
 
-    // 8. Push to all connected browsers
     broadcast({ type: 'update', data: currentData });
 
     console.log(`[Crucix] Sweep complete — ${currentData.meta.sourcesOk}/${currentData.meta.sourcesQueried} sources OK`);
@@ -556,14 +540,12 @@ async function start() {
   server.on('listening', async () => {
     console.log(`[Crucix] Server running on http://localhost:${port}`);
 
-    // Auto-open browser
     const openCmd = process.platform === 'win32' ? 'cmd /c start ""' :
                     process.platform === 'darwin' ? 'open' : 'xdg-open';
     exec(`${openCmd} "http://localhost:${port}"`, (err) => {
       if (err) console.log('[Crucix] Could not auto-open browser:', err.message);
     });
 
-    // Try to load existing data first for instant display
     try {
       const existing = JSON.parse(readFileSync(join(RUNS_DIR, 'latest.json'), 'utf8'));
       const data = await synthesize(existing);
@@ -571,7 +553,6 @@ async function start() {
       console.log('[Crucix] Loaded existing data from runs/latest.json — dashboard ready instantly');
       broadcast({ type: 'update', data: currentData });
       
-      // Also notify Telegram of existing data
       if (telegramAlerter && telegramAlerter.isConfigured) {
         await telegramAlerter.onSweepComplete(currentData);
       }
@@ -579,13 +560,11 @@ async function start() {
       console.log('[Crucix] No existing data found — first sweep required');
     }
 
-    // Run first sweep
     console.log('[Crucix] Running initial sweep...');
     runSweepCycle().catch(err => {
       console.error('[Crucix] Initial sweep failed:', err.message || err);
     });
 
-    // Schedule recurring sweeps
     setInterval(runSweepCycle, config.refreshIntervalMinutes * 60 * 1000);
   });
 }
