@@ -243,36 +243,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Password protection for dashboard
-const DASHBOARD_USER = process.env.DASHBOARD_USER || 'arkmurus';
-const DASHBOARD_PASS = process.env.DASHBOARD_PASS || 'Crucix2026!';
-
-app.use(basicAuth({
-    users: { [DASHBOARD_USER]: DASHBOARD_PASS },
-    challenge: true,
-    unauthorizedResponse: '🔒 Access Denied. Please provide valid credentials.'
-}));
-
-app.use(express.static(join(ROOT, 'dashboard/public')));
-app.use(express.json());
-
-// Serve loading page until first sweep completes, then the dashboard with injected locale
-app.get('/', (req, res) => {
-  if (!currentData) {
-    res.sendFile(join(ROOT, 'dashboard/public/loading.html'));
-  } else {
-    const htmlPath = join(ROOT, 'dashboard/public/jarvis.html');
-    let html = readFileSync(htmlPath, 'utf-8');
-    
-    const locale = getLocale();
-    const localeScript = `<script>window.__CRUCIX_LOCALE__ = ${JSON.stringify(locale).replace(/<\/script>/gi, '<\\/script>')};</script>`;
-    html = html.replace('</head>', `${localeScript}\n</head>`);
-    
-    res.type('html').send(html);
-  }
-});
-
-// Telegram webhook endpoint (POST)
+// Webhook endpoints - MUST BE BEFORE AUTH
 app.post('/webhook', async (req, res) => {
   try {
     const update = req.body;
@@ -291,9 +262,45 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// Test webhook endpoint (GET)
 app.get('/webhook', (req, res) => {
   res.send('Webhook is working!');
+});
+
+// Password protection for dashboard (excludes webhook and health)
+const DASHBOARD_USER = process.env.DASHBOARD_USER || 'arkmurus';
+const DASHBOARD_PASS = process.env.DASHBOARD_PASS || 'Crucix2026!';
+
+app.use((req, res, next) => {
+  // Skip auth for webhook and health endpoints
+  if (req.path === '/webhook' || req.path === '/api/health') {
+    return next();
+  }
+  
+  // Apply basic auth for all other routes
+  basicAuth({
+    users: { [DASHBOARD_USER]: DASHBOARD_PASS },
+    challenge: true,
+    unauthorizedResponse: '🔒 Access Denied. Please provide valid credentials.'
+  })(req, res, next);
+});
+
+app.use(express.static(join(ROOT, 'dashboard/public')));
+app.use(express.json());
+
+// Serve loading page until first sweep completes, then the dashboard with injected locale
+app.get('/', (req, res) => {
+  if (!currentData) {
+    res.sendFile(join(ROOT, 'dashboard/public/loading.html'));
+  } else {
+    const htmlPath = join(ROOT, 'dashboard/public/jarvis.html');
+    let html = readFileSync(htmlPath, 'utf-8');
+    
+    const locale = getLocale();
+    const localeScript = `<script>window.__CRUCIX_LOCALE__ = ${JSON.stringify(locale).replace(/<\/script>/gi, '<\\/script>')};</script>`;
+    html = html.replace('</head>', `${localeScript}\n</head>`);
+    
+    res.type('html').send(html);
+  }
 });
 
 // API: current data
