@@ -221,7 +221,10 @@ if (discordAlerter.isConfigured) {
 // === Express Server ===
 const app = express();
 
-// Health endpoint - NO AUTH (must come before auth middleware)
+// IMPORTANT: JSON middleware MUST be first to parse webhook bodies
+app.use(express.json());
+
+// Health endpoint - NO AUTH
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -243,16 +246,21 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Webhook endpoints - MUST BE BEFORE AUTH
+// Webhook endpoints
 app.post('/webhook', async (req, res) => {
   try {
     const update = req.body;
     console.log('[Webhook] Received update:', update);
     
+    // Check for valid message
+    if (!update || !update.message) {
+      console.log('[Webhook] No message in update');
+      res.sendStatus(200);
+      return;
+    }
+    
     if (telegramAlerter && telegramAlerter.isConfigured) {
-      if (update.message) {
-        await telegramAlerter._handleMessage(update.message);
-      }
+      await telegramAlerter._handleMessage(update.message);
     }
     
     res.sendStatus(200);
@@ -285,7 +293,6 @@ app.use((req, res, next) => {
 });
 
 app.use(express.static(join(ROOT, 'dashboard/public')));
-app.use(express.json());
 
 // Serve loading page until first sweep completes, then the dashboard with injected locale
 app.get('/', (req, res) => {
