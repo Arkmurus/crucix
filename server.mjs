@@ -29,9 +29,9 @@ for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold')]) {
 }
 
 // === State ===
-let currentData = null;    // Current synthesized dashboard data
-let lastSweepTime = null;  // Timestamp of last sweep
-let sweepStartedAt = null; // Timestamp when current/last sweep started
+let currentData = null;
+let lastSweepTime = null;
+let sweepStartedAt = null;
 let sweepInProgress = false;
 const startTime = Date.now();
 const sseClients = new Set();
@@ -47,8 +47,6 @@ const discordAlerter = new DiscordAlerter(config.discord || {});
 if (llmProvider) console.log(`[Crucix] LLM enabled: ${llmProvider.name} (${llmProvider.model})`);
 if (telegramAlerter.isConfigured) {
   console.log('[Crucix] Telegram alerts enabled');
-
-  // ─── Two-Way Bot Commands ───────────────────────────────────────────────
 
   telegramAlerter.onCommand('/status', async () => {
     const uptime = Math.floor((Date.now() - startTime) / 1000);
@@ -223,9 +221,31 @@ if (discordAlerter.isConfigured) {
 // === Express Server ===
 const app = express();
 
+// Health endpoint - NO AUTH (must come before auth middleware)
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    uptime: Math.floor((Date.now() - startTime) / 1000),
+    lastSweep: lastSweepTime,
+    nextSweep: lastSweepTime
+      ? new Date(new Date(lastSweepTime).getTime() + config.refreshIntervalMinutes * 60000).toISOString()
+      : null,
+    sweepInProgress,
+    sweepStartedAt,
+    sourcesOk: currentData?.meta?.sourcesOk || 0,
+    sourcesFailed: currentData?.meta?.sourcesFailed || 0,
+    sourcesTotal: currentData?.meta?.sourcesQueried || 35,
+    llmEnabled: !!config.llm.provider,
+    llmProvider: config.llm.provider,
+    telegramEnabled: !!(config.telegram.botToken && config.telegram.chatId),
+    refreshIntervalMinutes: config.refreshIntervalMinutes,
+    language: currentLanguage,
+  });
+});
+
 // Password protection for dashboard
-const DASHBOARD_USER = process.env.DASHBOARD_USER || 'admin';
-const DASHBOARD_PASS = process.env.DASHBOARD_PASS || 'crucix2026';
+const DASHBOARD_USER = process.env.DASHBOARD_USER || 'arkmurus';
+const DASHBOARD_PASS = process.env.DASHBOARD_PASS || 'Crucix2026!';
 
 app.use(basicAuth({
     users: { [DASHBOARD_USER]: DASHBOARD_PASS },
@@ -280,27 +300,6 @@ app.get('/webhook', (req, res) => {
 app.get('/api/data', (req, res) => {
   if (!currentData) return res.status(503).json({ error: 'No data yet — first sweep in progress' });
   res.json(currentData);
-});
-
-// API: health check (no auth needed)
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    uptime: Math.floor((Date.now() - startTime) / 1000),
-    lastSweep: lastSweepTime,
-    nextSweep: lastSweepTime
-      ? new Date(new Date(lastSweepTime).getTime() + config.refreshIntervalMinutes * 60000).toISOString()
-      : null,
-    sweepInProgress,
-    sweepStartedAt,
-    sourcesOk: currentData?.meta?.sourcesOk || 0,
-    sourcesFailed: currentData?.meta?.sourcesFailed || 0,
-    llmEnabled: !!config.llm.provider,
-    llmProvider: config.llm.provider,
-    telegramEnabled: !!(config.telegram.botToken && config.telegram.chatId),
-    refreshIntervalMinutes: config.refreshIntervalMinutes,
-    language: currentLanguage,
-  });
 });
 
 // API: available locales
@@ -510,7 +509,7 @@ async function start() {
   console.log(`
   ╔══════════════════════════════════════════════╗
   ║           CRUCIX INTELLIGENCE ENGINE         ║
-  ║          Local Palantir · 34 Sources         ║
+  ║          Local Palantir · 35 Sources         ║
   ╠══════════════════════════════════════════════╣
   ║  Dashboard:  http://localhost:${port}${' '.repeat(Math.max(0, 14 - String(port).length))}║
   ║  Search:     http://localhost:${port}/search.html${' '.repeat(Math.max(0, 8 - String(port).length))}║
