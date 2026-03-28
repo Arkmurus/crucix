@@ -249,6 +249,27 @@ app.get('/', (req, res) => {
   }
 });
 
+// Telegram webhook endpoint
+app.post('/webhook', express.json(), async (req, res) => {
+  try {
+    const update = req.body;
+    console.log('[Webhook] Received update:', update);
+    
+    // Handle the update via your Telegram alerter
+    if (telegramAlerter && telegramAlerter.isConfigured) {
+      // Process the message
+      if (update.message) {
+        await telegramAlerter._handleMessage(update.message);
+      }
+    }
+    
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('[Webhook] Error:', error);
+    res.sendStatus(500);
+  }
+});
+
 // API: current data
 app.get('/api/data', (req, res) => {
   if (!currentData) return res.status(503).json({ error: 'No data yet — first sweep in progress' });
