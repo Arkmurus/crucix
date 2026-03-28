@@ -501,9 +501,9 @@ async function start() {
   ║           CRUCIX INTELLIGENCE ENGINE         ║
   ║          Local Palantir · 34 Sources         ║
   ╠══════════════════════════════════════════════╣
-  ║  Dashboard:  http://localhost:${port}${' '.repeat(14 - String(port).length)}║
-  ║  Search:     http://localhost:${port}/search.html${' '.repeat(8 - String(port).length)}║
-  ║  Health:     http://localhost:${port}/api/health${' '.repeat(4 - String(port).length)}║
+  ║  Dashboard:  http://localhost:${port}${' '.repeat(Math.max(0, 14 - String(port).length))}║
+  ║  Search:     http://localhost:${port}/search.html${' '.repeat(Math.max(0, 8 - String(port).length))}║
+  ║  Health:     http://localhost:${port}/api/health${' '.repeat(Math.max(0, 4 - String(port).length))}║
   ║  Refresh:    Every ${config.refreshIntervalMinutes} min${' '.repeat(20 - String(config.refreshIntervalMinutes).length)}║
   ║  LLM:        ${(config.llm.provider || 'disabled').padEnd(31)}║
   ║  Telegram:   ${config.telegram.botToken ? 'enabled' : 'disabled'}${' '.repeat(config.telegram.botToken ? 24 : 23)}║
