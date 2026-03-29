@@ -3,6 +3,7 @@
 // Serves the Jarvis dashboard, runs sweep cycle, pushes live updates via SSE
 
 import express from 'express';
+import basicAuth from 'express-basic-auth';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -123,20 +124,17 @@ if (telegramAlerter.isConfigured) {
     return '📊 Portfolio integration requires Alpaca MCP connection.\nUse the Crucix dashboard or Claude agent for portfolio queries.';
   });
 
-  // NEW: Trends command
   telegramAlerter.onCommand('/trends', async () => {
     const trends = analyzeTrends();
     return formatTrendsForTelegram(trends);
   });
 
-  // NEW: Correlations command
   telegramAlerter.onCommand('/correlations', async () => {
     if (!currentData) return 'No data yet — waiting for first sweep.';
     const correlations = correlate(currentData);
     return formatCorrelationsForTelegram(correlations) || 'No significant convergences detected.';
   });
 
-  // NEW: Sanctions command
   telegramAlerter.onCommand('/sanctions', async () => {
     if (!currentData) return 'No data yet.';
     const recent = currentData.opensanctions?.recent || [];
@@ -225,6 +223,27 @@ if (discordAlerter.isConfigured) {
 // === Express Server ===
 const app = express();
 app.use(express.json());
+
+// === Selective Basic Auth ===
+// Protects dashboard only — API routes, webhook and SSE are open
+const dashboardUser = process.env.DASHBOARD_USER || 'arkmurus';
+const dashboardPass = process.env.DASHBOARD_PASS || 'Crucix2026!';
+app.use((req, res, next) => {
+  if (
+    req.path.startsWith('/api/') ||
+    req.path === '/webhook' ||
+    req.path === '/events' ||
+    req.path.startsWith('/search')
+  ) {
+    return next();
+  }
+  return basicAuth({
+    users: { [dashboardUser]: dashboardPass },
+    challenge: true,
+    realm: 'Crucix Intelligence'
+  })(req, res, next);
+});
+
 app.use(express.static(join(ROOT, 'dashboard/public')));
 
 app.get('/', (req, res) => {
@@ -329,7 +348,6 @@ app.post('/api/sweep', async (req, res) => {
   }
 });
 
-// Webhook for Telegram
 app.post('/webhook', async (req, res) => {
   try {
     const update = req.body;
@@ -380,10 +398,8 @@ async function runSweepCycle() {
   console.log(`${'='.repeat(60)}`);
 
   try {
-    // 1. Core briefing sweep
     const rawData = await fullBriefing();
 
-    // 2. NEW: Fetch extended intelligence sources in parallel
     console.log('[Crucix] Fetching extended intelligence sources...');
     const [unscData, centralBanksData, thinkTanksData, tradeData, opensanctionsData, gdeltData] =
       await Promise.allSettled([
@@ -402,29 +418,23 @@ async function runSweepCycle() {
     rawData.opensanctions = opensanctionsData;
     rawData.gdelt         = gdeltData;
 
-    // 3. Save to disk
     writeFileSync(join(RUNS_DIR, 'latest.json'), JSON.stringify(rawData, null, 2));
     lastSweepTime = new Date().toISOString();
 
-    // 4. Synthesize
     console.log('[Crucix] Synthesizing dashboard data...');
     const synthesized = await synthesize(rawData);
 
-    // 5. Delta + memory
     const delta = memory.addRun(synthesized);
     synthesized.delta = delta;
 
-    // 6. NEW: Archive run for trend analysis
     archiveRun(synthesized);
 
-    // 7. NEW: Cross-signal correlation
     const correlations = correlate(synthesized);
     synthesized.correlations = correlations;
     if (correlations.length > 0) {
       console.log(`[Crucix] ${correlations.length} regional correlations detected`);
     }
 
-    // 8. LLM trade ideas
     if (llmProvider?.isConfigured) {
       try {
         console.log('[Crucix] Generating LLM trade ideas...');
@@ -448,11 +458,9 @@ async function runSweepCycle() {
       synthesized.ideasSource = 'disabled';
     }
 
-    // 9. NEW: Alert evaluation with deduplication
     if (telegramAlerter.isConfigured) {
       const newSignals = filterNewSignals(synthesized.tg?.urgent || []);
       if (newSignals.length > 0 || delta?.summary?.totalChanges > 0) {
-        // Convergence alert first
         const corrMsg = formatCorrelationsForTelegram(correlations);
         if (corrMsg) {
           telegramAlerter.sendMessage(corrMsg).catch(err =>
@@ -472,7 +480,6 @@ async function runSweepCycle() {
     memory.pruneAlertedSignals();
     currentData = synthesized;
 
-    // 10. Notify Telegram of sweep completion
     if (telegramAlerter && telegramAlerter.isConfigured) {
       try {
         await telegramAlerter.onSweepComplete(currentData);
@@ -557,10 +564,8 @@ async function start() {
       console.error('[Crucix] Initial sweep failed:', err.message || err);
     });
 
-    // Recurring sweep
     setInterval(runSweepCycle, config.refreshIntervalMinutes * 60 * 1000);
 
-    // NEW: Daily morning digest at 07:00 UTC
     cron.schedule('0 7 * * *', async () => {
       console.log('[Crucix] Sending morning digest...');
       try { await sendMorningDigest(telegramAlerter, currentData); }
