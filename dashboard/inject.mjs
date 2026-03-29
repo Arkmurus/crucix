@@ -49,7 +49,6 @@ const geoKeywords = {
   'Peru':[-10,-76],'Ecuador':[-2,-78],'Bolivia':[-17,-65],
   'Singapore':[1.35,103.8],'Malaysia':[4.2,101.9],'Vietnam':[16,108],
   'Algeria':[28,3],'Tunisia':[34,9],'Zimbabwe':[-20,30],'Mozambique':[-18,35],
-  // Americas expansion
   'Texas':[31,-100],'Florida':[28,-82],'Chicago':[41.9,-87.6],'Los Angeles':[34,-118],
   'San Francisco':[37.8,-122.4],'Seattle':[47.6,-122.3],'Miami':[25.8,-80.2],
   'Toronto':[43.7,-79.4],'Ottawa':[45.4,-75.7],'Vancouver':[49.3,-123.1],
@@ -59,27 +58,23 @@ const geoKeywords = {
   'Guatemala':[14.6,-90.5],'Honduras':[14.1,-87.2],'El Salvador':[13.7,-89.2],
   'Costa Rica':[10,-84],'Jamaica':[18.1,-77.3],'Haiti':[19,-72],
   'Dominican':[18.5,-70],'Puerto Rico':[18.2,-66.5],
-  // More Asia-Pacific
   'Sri Lanka':[7,80],'Hong Kong':[22.3,114.2],'Taipei':[25,121.5],
   'Seoul':[37.6,127],'Osaka':[34.7,135.5],'Mumbai':[19.1,72.9],
   'Delhi':[28.6,77.2],'Shanghai':[31.2,121.5],'Shenzhen':[22.5,114.1],
   'Auckland':[-36.8,174.8],'Papua New Guinea':[-6.3,147],
-  // More Europe
   'Berlin':[52.5,13.4],'Paris':[48.9,2.3],'Madrid':[40.4,-3.7],
   'Rome':[41.9,12.5],'Warsaw':[52.2,21],'Prague':[50.1,14.4],
   'Vienna':[48.2,16.4],'Budapest':[47.5,19.1],'Bucharest':[44.4,26.1],
-  'Kyiv':[50.4,30.5],'Oslo':[59.9,10.7],'Copenhagen':[55.7,12.6],
-  'Brussels':[50.8,4.4],'Zurich':[47.4,8.5],'Dublin':[53.3,-6.3],
-  'Lisbon':[38.7,-9.1],'Athens':[37.9,23.7],'Minsk':[53.9,27.6],
-  // More Africa
+  'Oslo':[59.9,10.7],'Copenhagen':[55.7,12.6],'Brussels':[50.8,4.4],
+  'Zurich':[47.4,8.5],'Dublin':[53.3,-6.3],'Lisbon':[38.7,-9.1],
+  'Athens':[37.9,23.7],'Minsk':[53.9,27.6],
   'Nairobi':[-1.3,36.8],'Lagos':[6.5,3.4],'Accra':[5.6,-0.2],
   'Addis Ababa':[9,38.7],'Cape Town':[-33.9,18.4],'Johannesburg':[-26.2,28],
   'Kinshasa':[-4.3,15.3],'Khartoum':[15.6,32.5],'Mogadishu':[2.1,45.3],
   'Dakar':[14.7,-17.5],'Abuja':[9.1,7.5],
-  // Tech/Economy keywords with US locations
   'Fed':[38.9,-77],'Congress':[38.9,-77],'Senate':[38.9,-77],
-  'Silicon Valley':[37.4,-122],'NASA':[28.6,-80.6],'Pentagon':[38.9,-77],
-  'IMF':[38.9,-77],'World Bank':[38.9,-77],'UN':[40.7,-74],
+  'Silicon Valley':[37.4,-122],'NASA':[28.6,-80.6],'IMF':[38.9,-77],
+  'World Bank':[38.9,-77],'UN':[40.7,-74],
 };
 
 function geoTagText(text) {
@@ -177,31 +172,24 @@ const REGIONAL_NEWS_SOURCES = ['MercoPress', 'Indian Express', 'The Hindu', 'SBS
 
 export async function fetchAllNews() {
   const feeds = [
-    // Global
     ['http://feeds.bbci.co.uk/news/world/rss.xml', 'BBC'],
     ['https://rss.nytimes.com/services/xml/rss/nyt/World.xml', 'NYT'],
     ['https://www.aljazeera.com/xml/rss/all.xml', 'Al Jazeera'],
-    // USA
     ['https://feeds.npr.org/1001/rss.xml', 'NPR'],
     ['https://feeds.bbci.co.uk/news/technology/rss.xml', 'BBC Tech'],
     ['http://feeds.bbci.co.uk/news/science_and_environment/rss.xml', 'BBC Science'],
     ['https://rss.nytimes.com/services/xml/rss/nyt/Americas.xml', 'NYT Americas'],
-    // Europe
     ['https://rss.dw.com/rdf/rss-en-all', 'DW'],
     ['https://www.france24.com/en/rss', 'France 24'],
     ['https://www.euronews.com/rss?format=mrss', 'Euronews'],
-    // Africa & Cameroon region
     ['https://rss.dw.com/rdf/rss-en-africa', 'DW Africa'],
     ['https://www.rfi.fr/en/rss', 'RFI'],
     ['https://www.africanews.com/feed/rss', 'Africa News'],
     ['https://rss.nytimes.com/services/xml/rss/nyt/Africa.xml', 'NYT Africa'],
-    // Asia-Pacific
     ['https://rss.nytimes.com/services/xml/rss/nyt/AsiaPacific.xml', 'NYT Asia'],
     ['https://www.sbs.com.au/news/topic/australia/feed', 'SBS Australia'],
-    // India
     ['https://indianexpress.com/section/india/feed/', 'Indian Express'],
     ['https://www.thehindu.com/news/national/feeder/default.rss', 'The Hindu'],
-    // South America
     ['https://en.mercopress.com/rss/latin-america', 'MercoPress'],
   ];
 
@@ -213,7 +201,6 @@ export async function fetchAllNews() {
     .filter(r => r.status === 'fulfilled')
     .flatMap(r => r.value);
 
-  // De-duplicate and geo-tag
   const seen = new Set();
   const geoNews = [];
   for (const item of allNews) {
@@ -248,7 +235,6 @@ export async function fetchAllNews() {
     selectedKeys.add(key);
   };
 
-  // Reserve a little space so newly-added regional feeds are not crowded out by larger globals.
   for (const source of REGIONAL_NEWS_SOURCES) {
     filtered.filter(item => item.source === source).slice(0, 2).forEach(pushUnique);
   }
@@ -479,13 +465,12 @@ export async function synthesize(data) {
 
   // Space/CelesTrak satellite data
   const spaceData = data.sources.Space || {};
-  // Approximate subsatellite position from TLE orbital elements
   function estimateSatPosition(sat) {
     if (!sat?.inclination || !sat?.epoch) return null;
     const epoch = new Date(sat.epoch);
     const now = new Date();
     const elapsed = (now - epoch) / 1000;
-    const period = (sat.period || 92.7) * 60; // minutes to seconds
+    const period = (sat.period || 92.7) * 60;
     const orbits = elapsed / period;
     const frac = orbits % 1;
     const lat = sat.inclination * Math.sin(frac * 2 * Math.PI);
@@ -583,8 +568,17 @@ export async function synthesize(data) {
   // Fetch RSS
   const news = await fetchAllNews();
 
+  // === SUPPLY CHAIN DATA ===
+  const supplyChainData = data.sources['Supply Chain'] || null;
+
   const V2 = {
-    meta: data.crucix, air, thermal, tSignals, chokepoints, nuke, nukeSignals,
+    meta: data.crucix,
+    air,
+    thermal,
+    tSignals,
+    chokepoints,
+    nuke,
+    nukeSignals,
     airMeta: {
       fallback: Boolean(airFallback),
       liveTotal: sumAirHotspots(liveAirHotspots),
@@ -595,10 +589,24 @@ export async function synthesize(data) {
     },
     sdr: { total: sdrNet.totalReceivers || 0, online: sdrNet.online || 0, zones: sdrZones },
     tg: { posts: tgData.totalPosts || 0, urgent: tgUrgent, topPosts: tgTop },
-    who, fred, energy, bls, treasury, gscpi, defense, noaa, epa, acled, gdelt, space, health, news,
-    markets, // Live Yahoo Finance market data
-    ideas: [], ideasSource: 'disabled',
-    // newsFeed for ticker (merged RSS + GDELT + Telegram)
+    who,
+    fred,
+    energy,
+    bls,
+    treasury,
+    gscpi,
+    defense,
+    noaa,
+    epa,
+    acled,
+    gdelt,
+    space,
+    health,
+    news,
+    markets,
+    supplyChain: supplyChainData,
+    ideas: [],
+    ideasSource: 'disabled',
     newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop),
   };
 
@@ -714,16 +722,12 @@ async function cliInject() {
 
   const htmlPath = htmlOverride || join(ROOT, 'dashboard/public/jarvis.html');
   let html = readFileSync(htmlPath, 'utf8');
-  // Use a replacer function so JSON is inserted literally even if it contains `$`.
   html = html.replace(/^(let|const) D = .*;\s*$/m, () => 'let D = ' + json + ';');
   writeFileSync(htmlPath, html);
   console.log('Data injected into jarvis.html!');
 
   if (!shouldOpen) return;
 
-  // Auto-open dashboard in default browser
-  // NOTE: On Windows, `start` in PowerShell is an alias for Start-Service, not cmd's start.
-  // We must use `cmd /c start ""` to ensure it works in both cmd.exe and PowerShell.
   const openCmd = process.platform === 'win32' ? 'cmd /c start ""' :
                   process.platform === 'darwin' ? 'open' : 'xdg-open';
   const dashUrl = htmlPath.replace(/\\/g, '/');
