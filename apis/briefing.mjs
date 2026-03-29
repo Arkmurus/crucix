@@ -57,6 +57,9 @@ import { briefing as opencorporatesBriefing } from './sources/opencorporates.mjs
 import { briefing as sanctionsBriefing } from './sources/sanctions.mjs';
 import { briefing as exportControlsBriefing } from './sources/export_controls.mjs';
 
+// === Tier 9: Custom Business Intelligence ===
+import { briefing as arkumurus } from './sources/arkumurus.mjs';
+
 const SOURCE_TIMEOUT_MS = 30_000; // 30s max per individual source
 
 export async function runSource(name, fn, ...args) {
@@ -77,7 +80,7 @@ export async function runSource(name, fn, ...args) {
 }
 
 export async function fullBriefing() {
-  console.error('[Crucix] Starting intelligence sweep — 35 sources...');
+  console.error('[Crucix] Starting intelligence sweep — 36 sources...'); // Changed from 35 to 36
   const start = Date.now();
 
   const allPromises = [
@@ -131,6 +134,9 @@ export async function fullBriefing() {
     runSource('OpenCorporates', opencorporatesBriefing),
     runSource('Sanctions', sanctionsBriefing),
     runSource('ExportControls', exportControlsBriefing),
+
+    // Tier 9: Custom Business Intelligence
+    runSource('Arkumurus', arkumurus),
   ];
 
   // Each runSource has its own 30s timeout, so allSettled will resolve
