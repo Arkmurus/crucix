@@ -42,7 +42,7 @@ import { briefing as supplyChainBriefing } from './sources/supply_chain.mjs';
 
 // === Tier 7: Defense & Weapons Intelligence ===
 import { briefing as defenseNewsBriefing } from './sources/defense_news.mjs';
-import { fetch as sipriBriefing } from './sources/sipri_arms.mjs';
+import { briefing as sipriBriefing } from './sources/sipri_arms.mjs';
 
 // === Tier 8: Due Diligence & Compliance ===
 import { briefing as opencorporatesBriefing } from './sources/opencorporates.mjs';
