@@ -1,3 +1,4 @@
+// Updated: 2026-03-29T21:36:06.374Z
 // === Tier 1: Core OSINT & Geopolitical ===
 import { fetchGDELT as gdelt } from './sources/gdelt.mjs';
 import { briefing as opensky } from './sources/opensky.mjs';
