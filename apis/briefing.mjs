@@ -7,7 +7,7 @@ import './utils/env.mjs'; // Load API keys from .env
 import { pathToFileURL } from 'node:url';
 
 // === Tier 1: Core OSINT & Geopolitical ===
-import { briefing as gdelt } from './sources/gdelt.mjs';
+import { fetchGDELT as gdelt } from './sources/gdelt.mjs';
 import { briefing as opensky } from './sources/opensky.mjs';
 import { briefing as firms } from './sources/firms.mjs';
 import { briefing as ships } from './sources/ships.mjs';
