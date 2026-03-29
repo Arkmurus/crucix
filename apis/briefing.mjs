@@ -162,10 +162,3 @@ export async function fullBriefing() {
   return output;
 }
 ```
-
-Press **Ctrl+S** to save. Then commit and push:
-```
-cd C:\Users\anton\OneDrive\Documents\GitHub\crucix
-git add apis/briefing.mjs
-git commit -m "Restore fullBriefing function body"
-git push origin main
