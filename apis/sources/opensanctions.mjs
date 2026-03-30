@@ -4,8 +4,8 @@
 // Free API — no key required for bulk dataset checks
 // Reference: https://www.opensanctions.org/docs/api/
 
-const BASE_URL = 'https://api.opensanctions.org';
-
+const res = await fetch(`${BASE_URL}/entities?${params}`, {
+```
 // Datasets to monitor for new/updated entries
 const DATASETS = ['us_ofac_sdn', 'eu_fsf', 'un_sc_sanctions', 'gb_hmt_sanctions'];
 
@@ -22,10 +22,11 @@ export async function fetchOpenSanctions() {
     });
 
     const res = await fetch(`${BASE_URL}/entities?${params}`, {
-      headers: {
-        'Accept':     'application/json',
-        'User-Agent': 'CrucixIntelligence/1.0'
-      },
+  headers: {
+    'Accept':      'application/json',
+    'User-Agent':  'CrucixIntelligence/1.0',
+    'Authorization': `ApiKey ${process.env.OPENSANCTIONS_API_KEY || ''}`
+  },
       signal: AbortSignal.timeout(15000)
     });
 
