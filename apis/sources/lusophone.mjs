@@ -26,37 +26,37 @@ const SOURCES = [
   // ReliefWeb — filtered to Lusophone countries
   {
     name:   'ReliefWeb Guinea-Bissau',
-    url:    'https://reliefweb.int/country/gnb/updates.rss',
+    url:    'https://reliefweb.int/updates/rss.xml?source=countries&primary_country=86',
     type:   'rss',
     region: 'Guinea-Bissau',
     weight: 'critical',
   },
   {
     name:   'ReliefWeb Angola',
-    url:    'https://reliefweb.int/country/ago/updates.rss',
+    url:    'https://reliefweb.int/updates/rss.xml?source=countries&primary_country=4',
     type:   'rss',
     region: 'Angola',
     weight: 'high',
   },
   {
     name:   'ReliefWeb Mozambique',
-    url:    'https://reliefweb.int/country/moz/updates.rss',
+    url:    'https://reliefweb.int/updates/rss.xml?source=countries&primary_country=148',
     type:   'rss',
     region: 'Mozambique',
     weight: 'high',
   },
   // DW Africa (Portuguese service)
   {
-    name:   'RFI Portuguese Africa',
-    url:    'https://www.rfi.fr/pt/rss',
+    name:   'DW Africa Português',
+    url:    'https://rss.dw.com/rdf/rss-por-af',
     type:   'rss',
     region: 'Lusophone Africa',
     weight: 'high',
   },
   // VOA Africa
   {
-    name:   'Al Jazeera Africa',
-    url:    'https://www.aljazeera.com/xml/rss/all.xml',
+    name:   'VOA Africa',
+    url:    'https://www.voanews.com/api/zmpq_iqvt_r',
     type:   'rss',
     region: 'Africa',
     weight: 'medium',
@@ -71,8 +71,8 @@ const SOURCES = [
   },
   // African Development Bank — project pipeline
   {
-    name:   'BBC Africa',
-    url:    'https://feeds.bbci.co.uk/news/world/africa/rss.xml',
+    name:   'AfDB Operations',
+    url:    'https://www.afdb.org/en/rss/news',
     type:   'rss',
     region: 'Africa',
     weight: 'medium',
@@ -185,41 +185,21 @@ export async function briefing() {
 }
 
 async function fetchSource(src) {
-  // Try direct fetch first
   try {
     const res = await fetch(src.url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)',
-        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+        'User-Agent': 'CrucixIntelligence/1.0 (Arkmurus Group)',
+        'Accept':     'application/rss+xml, application/xml, text/xml',
       },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(15000),
     });
-    if (res.ok) {
-      const xml = await res.text();
-      const items = parseRSS(xml);
-      if (items.length > 0) return items;
-    }
-  } catch (e) {}
-
-  // Fallback: rss2json proxy (bypasses Render IP blocks)
-  try {
-    const proxyUrl = 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(src.url);
-    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.status === 'ok' && data.items?.length > 0) {
-        return data.items.slice(0, 20).map(item => ({
-          title:       item.title || '',
-          link:        item.link || '',
-          description: item.description || item.content || '',
-          pubDate:     item.pubDate || '',
-        }));
-      }
-    }
-  } catch (e) {}
-
-  console.warn(`[Lusophone] ${src.name} failed: all attempts blocked`);
-  return [];
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const xml = await res.text();
+    return parseRSS(xml);
+  } catch (err) {
+    console.warn(`[Lusophone] ${src.name} failed: ${err.message}`);
+    return [];
+  }
 }
 
 function parseRSS(xml) {
