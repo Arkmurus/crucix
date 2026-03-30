@@ -466,7 +466,7 @@ async function runSweepCycle() {
     if (telegramAlerter && telegramAlerter.isConfigured) {
       try {
         await telegramAlerter.onSweepComplete(currentData);
-        console.log('[Crucix] Telegram notified of new intelligence');
+        // alert cadence managed by telegram.mjs
       } catch (err) {
         console.error('[Crucix] Telegram alert error:', err.message);
       }
