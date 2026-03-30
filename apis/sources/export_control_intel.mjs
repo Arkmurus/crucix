@@ -8,8 +8,8 @@
 const SOURCES = [
   // BIS (Bureau of Industry and Security) — Entity List & news
   {
-    name:   'BIS Export Controls',
-    url:    'https://www.bis.doc.gov/index.php/rss-feeds?format=feed&type=rss',
+    name:   'Federal Register Export',
+    url:    'https://www.federalregister.gov/api/v1/articles.rss?conditions%5Bagencies%5D%5B%5D=industry-and-security-bureau',
     type:   'rss',
     weight: 'high',
   },
@@ -22,8 +22,8 @@ const SOURCES = [
   },
   // UK GOV export controls news
   {
-    name:   'UK ECJU GOV',
-    url:    'https://www.gov.uk/search/news-and-communications.atom?keywords=export+controls&organisations%5B%5D=export-control-joint-unit',
+    name:   'UK Export Controls GOV',
+    url:    'https://www.gov.uk/government/organisations/export-control-joint-unit.atom',
     type:   'atom',
     weight: 'critical',
   },
@@ -36,15 +36,15 @@ const SOURCES = [
   },
   // OFAC recent actions
   {
-    name:   'OFAC Recent Actions',
-    url:    'https://ofac.treasury.gov/recent-actions/rss',
+    name:   'Treasury Press Releases',
+    url:    'https://home.treasury.gov/news/press-releases.xml',
     type:   'rss',
     weight: 'critical',
   },
   // Sanctions news from GOV.UK
   {
-    name:   'UK Sanctions GOV',
-    url:    'https://www.gov.uk/search/news-and-communications.atom?keywords=sanctions&organisations%5B%5D=foreign-commonwealth-development-office',
+    name:   'UK FCDO Sanctions',
+    url:    'https://www.gov.uk/government/organisations/foreign-commonwealth-development-office.atom',
     type:   'atom',
     weight: 'critical',
   },

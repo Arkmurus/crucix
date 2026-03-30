@@ -26,37 +26,37 @@ const SOURCES = [
   // ReliefWeb — filtered to Lusophone countries
   {
     name:   'ReliefWeb Guinea-Bissau',
-    url:    'https://reliefweb.int/updates/rss.xml?source=countries&primary_country=86',
+    url:    'https://reliefweb.int/country/gnb/updates.rss',
     type:   'rss',
     region: 'Guinea-Bissau',
     weight: 'critical',
   },
   {
     name:   'ReliefWeb Angola',
-    url:    'https://reliefweb.int/updates/rss.xml?source=countries&primary_country=4',
+    url:    'https://reliefweb.int/country/ago/updates.rss',
     type:   'rss',
     region: 'Angola',
     weight: 'high',
   },
   {
     name:   'ReliefWeb Mozambique',
-    url:    'https://reliefweb.int/updates/rss.xml?source=countries&primary_country=148',
+    url:    'https://reliefweb.int/country/moz/updates.rss',
     type:   'rss',
     region: 'Mozambique',
     weight: 'high',
   },
   // DW Africa (Portuguese service)
   {
-    name:   'DW Africa Português',
-    url:    'https://rss.dw.com/rdf/rss-por-af',
+    name:   'RFI Portuguese Africa',
+    url:    'https://www.rfi.fr/pt/rss',
     type:   'rss',
     region: 'Lusophone Africa',
     weight: 'high',
   },
   // VOA Africa
   {
-    name:   'VOA Africa',
-    url:    'https://www.voanews.com/api/zmpq_iqvt_r',
+    name:   'Al Jazeera Africa',
+    url:    'https://www.aljazeera.com/xml/rss/all.xml',
     type:   'rss',
     region: 'Africa',
     weight: 'medium',
@@ -71,8 +71,8 @@ const SOURCES = [
   },
   // African Development Bank — project pipeline
   {
-    name:   'AfDB Operations',
-    url:    'https://www.afdb.org/en/rss/news',
+    name:   'BBC Africa',
+    url:    'https://feeds.bbci.co.uk/news/world/africa/rss.xml',
     type:   'rss',
     region: 'Africa',
     weight: 'medium',
