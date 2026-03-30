@@ -585,4 +585,3 @@ start().catch(err => {
   console.error('[Crucix] FATAL — Server failed to start:', err?.stack || err?.message || err);
   process.exit(1);
 });
-
