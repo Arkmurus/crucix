@@ -185,21 +185,41 @@ export async function briefing() {
 }
 
 async function fetchSource(src) {
+  // Try direct fetch first
   try {
     const res = await fetch(src.url, {
       headers: {
-        'User-Agent': 'CrucixIntelligence/1.0 (Arkmurus Group)',
-        'Accept':     'application/rss+xml, application/xml, text/xml',
+        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)',
+        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
       },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const xml = await res.text();
-    return parseRSS(xml);
-  } catch (err) {
-    console.warn(`[Lusophone] ${src.name} failed: ${err.message}`);
-    return [];
-  }
+    if (res.ok) {
+      const xml = await res.text();
+      const items = parseRSS(xml);
+      if (items.length > 0) return items;
+    }
+  } catch (e) {}
+
+  // Fallback: rss2json proxy (bypasses Render IP blocks)
+  try {
+    const proxyUrl = 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(src.url);
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === 'ok' && data.items?.length > 0) {
+        return data.items.slice(0, 20).map(item => ({
+          title:       item.title || '',
+          link:        item.link || '',
+          description: item.description || item.content || '',
+          pubDate:     item.pubDate || '',
+        }));
+      }
+    }
+  } catch (e) {}
+
+  console.warn(`[Lusophone] ${src.name} failed: all attempts blocked`);
+  return [];
 }
 
 function parseRSS(xml) {
