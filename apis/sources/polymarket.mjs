@@ -62,7 +62,7 @@ export async function briefing() {
     for (const m of geoMarkets.slice(0, 50)) {
       const question     = m.question || 'Unknown';
       const outcomes     = m.outcomes || ['Yes', 'No'];
-      const prices       = (m.outcomePrices || ['0.5', '0.5']).map(Number);
+      let _op = m.outcomePrices || ['0.5','0.5']; if (typeof _op === 'string') { try { _op = JSON.parse(_op); } catch(e) { _op = ['0.5','0.5']; } } if (!Array.isArray(_op)) _op = ['0.5','0.5']; const prices = _op.map(Number);
       const yesProb      = prices[0] || 0.5;
       const noProb       = prices[1] || (1 - yesProb);
       const volume24h    = Number(m.volume24hr || 0);
