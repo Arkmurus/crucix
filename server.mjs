@@ -458,24 +458,7 @@ async function runSweepCycle() {
       synthesized.ideasSource = 'disabled';
     }
 
-    if (telegramAlerter.isConfigured) {
-      const newSignals = filterNewSignals(synthesized.tg?.urgent || []);
-      if (newSignals.length > 0 || delta?.summary?.totalChanges > 0) {
-        const corrMsg = formatCorrelationsForTelegram(correlations);
-        if (corrMsg) {
-          telegramAlerter.sendMessage(corrMsg).catch(err =>
-            console.error('[Crucix] Correlation alert error:', err.message));
-        }
-        telegramAlerter.evaluateAndAlert(llmProvider, delta, memory).catch(err =>
-          console.error('[Crucix] Telegram alert error:', err.message));
-      } else {
-        console.log('[Telegram] No new signals — alert suppressed by dedup');
-      }
-      if (discordAlerter.isConfigured) {
-        discordAlerter.evaluateAndAlert(llmProvider, delta, memory).catch(err =>
-          console.error('[Crucix] Discord alert error:', err.message));
-      }
-    }
+    // Telegram alerts handled exclusively by onSweepComplete (3-hour cadence + new intel check)
 
     memory.pruneAlertedSignals();
     currentData = synthesized;
