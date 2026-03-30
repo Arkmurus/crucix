@@ -5,7 +5,7 @@
 // Reference: https://liveuamap.com/promo/api
 // Replaces GDELT for real-time conflict intelligence
 
-const BASE_URL = 'https://api.liveuamap.com';
+const BASE_URL = 'https://a.liveuamap.com/api';
 const API_KEY = process.env.LIVEUAMAP_API_KEY;
 
 // Regions most relevant to Arkmurus 80-country operations
@@ -124,7 +124,8 @@ async function fetchRegion(region) {
       limit: '20',
     });
 
-    const res = await fetch(`${BASE_URL}/v1/events/${region.id}?${params}`, {
+    const url = `${BASE_URL}/v1/events/${region.id}?${params}`;
+    const res = await fetch(url, {
       headers: {
         'User-Agent': 'CrucixIntelligence/1.0 (Arkmurus Group)',
         'Accept':     'application/json',
