@@ -37,6 +37,11 @@ export async function fetchOpenSanctions() {
       headers,
       signal: AbortSignal.timeout(15000),
     });
+    if (res.status === 402 || res.status === 401 || res.status === 403) {
+      results.error = 'OpenSanctions requires a free API key — register at https://www.opensanctions.org/api/ and set OPENSANCTIONS_API_KEY env var';
+      console.warn('[OpenSanctions] API key required (402/401/403). Register free at opensanctions.org');
+      return results;
+    }
     if (!res.ok) throw new Error(`OpenSanctions API ${res.status}`);
     const data = await res.json();
     const entities = data.results || [];
@@ -60,6 +65,26 @@ export async function fetchOpenSanctions() {
       fetchedAt: new Date().toISOString(),
     };
     results.recent = results.updates.filter(e => e.datasets.length >= 2);
+
+    // ── Sanctions lead-time detection ──────────────────────────────────────
+    // Entity appearing on 2+ lists within 48h = early designation signal,
+    // often days before the official press release.
+    const cutoff48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    results.preDesignation = results.updates.filter(e =>
+      e.datasets.length >= 2 &&
+      e.lastChange &&
+      e.lastChange >= cutoff48h
+    ).map(e => ({
+      ...e,
+      leadTimeSignal: true,
+      text: `PRE-DESIGNATION: ${e.name} added to ${e.datasets.length} lists (${e.datasets.join(', ')}) within 48h — potential imminent official designation`,
+      priority: 'critical',
+    }));
+
+    if (results.preDesignation.length > 0) {
+      console.log(`[OpenSanctions] ⚠️  ${results.preDesignation.length} pre-designation signals (multi-list within 48h)`);
+    }
+
     console.log(`[OpenSanctions] ${entities.length} entities, ${results.recent.length} multi-list`);
   } catch (err) {
     results.error = err.message;

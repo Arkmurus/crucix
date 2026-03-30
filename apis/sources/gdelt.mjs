@@ -18,7 +18,7 @@ export async function fetchGDELT() {
 
   try {
     // Doc API: search recent articles matching conflict/crisis themes
-    const query = 'conflict OR military OR sanctions OR strike OR crisis';
+    const query = '(conflict OR military OR sanctions OR strike OR crisis)';
     const params = new URLSearchParams({
       query,
       mode:       'artlist',

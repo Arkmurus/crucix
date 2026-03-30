@@ -176,6 +176,51 @@ body::before { content: ''; position: fixed; inset: 0; background: repeating-lin
 .sweep-line { height: 2px; background: var(--bg3); overflow: hidden; }
 .sweep-progress { height: 100%; background: var(--blue); width: 0%; transition: width 0.3s linear; }
 
+/* ── COMMODITY TABLE ── */
+.commodity-table { width: 100%; border-collapse: collapse; }
+.commodity-table th { font-family: var(--mono); font-size: 9px; color: var(--text3); letter-spacing: 0.06em; padding: 5px 10px; text-align: left; border-bottom: 0.5px solid var(--border); font-weight: 400; }
+.commodity-table td { font-size: 11px; padding: 5px 10px; border-bottom: 0.5px solid var(--border); color: var(--text2); }
+.commodity-table tr:last-child td { border-bottom: none; }
+.commodity-table tr:hover td { background: var(--bg3); }
+.comm-name { color: var(--text) !important; font-weight: 500; }
+.comm-price { font-family: var(--mono) !important; color: var(--text) !important; }
+.comm-chg { font-family: var(--mono) !important; }
+.chg-up { color: var(--green) !important; }
+.chg-dn { color: var(--red) !important; }
+.chg-flat { color: var(--text3) !important; }
+.comm-impact { font-size: 10px !important; color: var(--text3) !important; }
+.comm-badge { font-family: var(--mono); font-size: 8px; padding: 1px 4px; border-radius: 2px; }
+.badge-alert { background: var(--amber-dim); color: var(--amber); border: 0.5px solid rgba(240,150,42,0.3); }
+.badge-crit { background: var(--red-dim); color: var(--red); border: 0.5px solid rgba(232,69,69,0.3); }
+
+/* ── SOURCE HEALTH ── */
+.health-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 8px; }
+.health-item { display: flex; align-items: center; justify-content: space-between; background: var(--bg3); border-radius: 3px; padding: 4px 8px; }
+.health-name { font-size: 10px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100px; }
+.health-pct { font-family: var(--mono); font-size: 10px; font-weight: 500; }
+.pct-ok { color: var(--green); }
+.pct-warn { color: var(--amber); }
+.pct-bad { color: var(--red); }
+
+/* ── ENTITY TRAJECTORY ── */
+.entity-list { padding: 4px 0; }
+.entity-item { display: flex; align-items: center; gap: 8px; padding: 5px 12px; border-bottom: 0.5px solid var(--border); }
+.entity-item:last-child { border-bottom: none; }
+.entity-name { font-size: 11px; color: var(--text); flex: 1; }
+.entity-trend { font-family: var(--mono); font-size: 10px; font-weight: 500; }
+.entity-bar { height: 3px; border-radius: 2px; }
+
+/* ── TABS ── */
+.tab-bar { display: flex; gap: 0; border-bottom: 0.5px solid var(--border); }
+.tab { font-family: var(--mono); font-size: 9px; padding: 6px 12px; color: var(--text3); cursor: pointer; letter-spacing: 0.06em; border-bottom: 1.5px solid transparent; transition: all 0.1s; }
+.tab:hover { color: var(--text2); }
+.tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── SECTION LABEL ── */
+.section-label { font-family: var(--mono); font-size: 9px; color: var(--text3); letter-spacing: 0.1em; padding: 4px 12px 2px; margin-top: 4px; }
+
 /* ── RESPONSIVE ── */
 @media(max-width:900px) {
   .layout { grid-template-columns: 1fr; height: auto; }
@@ -287,6 +332,45 @@ body::before { content: ''; position: fixed; inset: 0; background: repeating-lin
     </div>
   </div>
 
+  <!-- COMMODITIES + ENTITY TRAJECTORY -->
+  <div style="display:grid;grid-template-columns:1fr 280px;gap:10px">
+
+    <!-- Commodity/Materials Panel with tabs -->
+    <div class="panel">
+      <div class="panel-hdr">
+        <span class="panel-title">CRITICAL MATERIALS &amp; SUPPLY CHAIN</span>
+        <span class="panel-badge" id="comm-count">-- assets</span>
+      </div>
+      <div class="tab-bar">
+        <div class="tab active" onclick="switchTab('comm','markets')">Markets</div>
+        <div class="tab" onclick="switchTab('comm','minerals')">Critical Minerals</div>
+        <div class="tab" onclick="switchTab('comm','munitions')">Munitions</div>
+        <div class="tab" onclick="switchTab('comm','chokepoints')">Chokepoints</div>
+      </div>
+      <div id="comm-markets" class="tab-content active">
+        <table class="commodity-table" id="comm-table-markets"></table>
+      </div>
+      <div id="comm-minerals" class="tab-content">
+        <table class="commodity-table" id="comm-table-minerals"></table>
+      </div>
+      <div id="comm-munitions" class="tab-content">
+        <div id="comm-munitions-content" style="padding:10px 12px;font-size:11px;color:var(--text3)">Loading...</div>
+      </div>
+      <div id="comm-chokepoints" class="tab-content">
+        <div id="comm-choke-list" style="padding:8px"></div>
+      </div>
+    </div>
+
+    <!-- Entity Trajectory -->
+    <div class="panel">
+      <div class="panel-hdr">
+        <span class="panel-title">ENTITY TRAJECTORY</span>
+        <span class="panel-badge" id="entity-count">14d trend</span>
+      </div>
+      <div class="entity-list" id="entity-list"></div>
+    </div>
+  </div>
+
   <!-- SIGNALS + IDEAS -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
     <div class="panel">
@@ -316,6 +400,13 @@ body::before { content: ''; position: fixed; inset: 0; background: repeating-lin
     </div>
     <div class="rgrid" id="region-grid"></div>
   </div>
+  <div class="sb-section">
+    <div class="sb-hdr">
+      <span class="sb-title">SOURCE RELIABILITY</span>
+      <span class="sb-count" id="sb-health">-- sources</span>
+    </div>
+    <div class="health-grid" id="health-grid"></div>
+  </div>
   <div class="sb-section" style="flex:1;overflow-y:auto">
     <div class="sb-hdr" style="position:sticky;top:0;z-index:10">
       <span class="sb-title">INTELLIGENCE FEED</span>
@@ -328,7 +419,8 @@ body::before { content: ''; position: fixed; inset: 0; background: repeating-lin
     <span class="cmd">/osint</span>
     <span class="cmd">/predict</span>
     <span class="cmd">/arms</span>
-    <span class="cmd">/conflict</span>
+    <span class="cmd">/entities</span>
+    <span class="cmd">/trends</span>
     <button class="sweep-btn" onclick="triggerSweep()">sweep ↻</button>
   </div>
 </div>
@@ -410,15 +502,8 @@ function updateMap(d) {
   const tooltip = document.getElementById('map-tooltip');
   const wrap = document.querySelector('.map-wrap');
 
-  // Use liveuamap events if available, fall back to ACLED/correlation regions
   const events = [];
-  const liveEvents = d.sources?.Liveuamap?.updates || d.liveuamap?.updates || [];
-  if (liveEvents.length > 0) {
-    liveEvents.slice(0, 20).forEach(e => {
-      if (e.lat && e.lng) events.push({...e, pos: geoToSVG(e.lat, e.lng)});
-    });
-  }
-  // Fallback: plot from correlations
+  // Plot from correlations
   (d.correlations || []).forEach(c => {
     const coord = REGION_COORDS[c.region];
     if (coord) events.push({title: c.region, region: c.region, priority: c.severity, pos: coord});
@@ -560,6 +645,138 @@ function updateNews(d) {
   }).join('');
 }
 
+// ── Tab switcher ──────────────────────────────────────────────────────────────
+function switchTab(group, name) {
+  const panel = document.getElementById('comm-' + name).closest('.panel');
+  panel.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  panel.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('comm-' + name).classList.add('active');
+}
+
+// ── Commodity table renderer ──────────────────────────────────────────────────
+function renderCommodityTable(tableId, rows) {
+  const el = document.getElementById(tableId);
+  if (!el) return;
+  if (!rows || !rows.length) {
+    el.innerHTML = '<tr><td colspan="5" style="padding:12px;color:var(--text3);font-size:11px">Awaiting sweep data...</td></tr>';
+    return;
+  }
+  el.innerHTML = `<thead><tr>
+    <th>ASSET</th><th>PRICE</th><th>CHG</th><th>IMPACT</th><th></th>
+  </tr></thead><tbody>` + rows.map(r => {
+    const chgClass = r.changePct > 0.5 ? 'chg-up' : r.changePct < -0.5 ? 'chg-dn' : 'chg-flat';
+    const chgSign  = r.changePct > 0 ? '+' : '';
+    const badge    = Math.abs(r.changePct) >= 10 ? '<span class="comm-badge badge-crit">ALERT</span>' :
+                     Math.abs(r.changePct) >= 5  ? '<span class="comm-badge badge-alert">MOVE</span>' : '';
+    const priceStr = r.price ? r.price + (r.unit || '') : '--';
+    return `<tr>
+      <td class="comm-name">${r.name}</td>
+      <td class="comm-price">${priceStr}</td>
+      <td class="comm-chg ${chgClass}">${r.changePct != null ? chgSign + r.changePct + '%' : '--'}</td>
+      <td class="comm-impact">${(r.impact || '').substring(0, 50)}</td>
+      <td>${badge}</td>
+    </tr>`;
+  }).join('') + '</tbody>';
+}
+
+function updateCommodities(d) {
+  const sc = d.sources?.['Supply Chain'] || d['Supply Chain'] || {};
+  const mats = sc.metrics?.rawMaterials || [];
+
+  // Separate YF (realtime) vs World Bank (monthly) vs all
+  const yf   = mats.filter(m => !m.source || m.source === 'Yahoo Finance');
+  const wb   = mats.filter(m => m.source === 'World Bank');
+
+  document.getElementById('comm-count').textContent = mats.length + ' assets';
+
+  renderCommodityTable('comm-table-markets', yf);
+  renderCommodityTable('comm-table-minerals', wb);
+
+  // Munitions tab
+  const munitions = sc.metrics?.munitions || {};
+  const munEl = document.getElementById('comm-munitions-content');
+  if (munEl) {
+    let html = `<div style="color:var(--text3);font-size:10px;margin-bottom:10px;font-family:var(--mono)">${munitions.note || 'No data'}</div>`;
+    if (munitions.explosiveNews?.length) {
+      html += munitions.explosiveNews.map(n =>
+        `<div style="padding:4px 0;border-bottom:0.5px solid var(--border)">
+          <div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${n.source}</div>
+          <div style="font-size:11px;color:var(--text2);cursor:pointer" onclick="window.open('${n.url}','_blank')">${n.title}</div>
+        </div>`
+      ).join('');
+    } else {
+      html += '<div style="font-size:11px;color:var(--text3);padding-top:4px">No munitions/explosive supply news detected this sweep</div>';
+    }
+    munEl.innerHTML = html;
+  }
+
+  // Chokepoints tab
+  const chokeEl = document.getElementById('comm-choke-list');
+  const chokes = sc.metrics?.logistics || [];
+  if (chokeEl && chokes.length) {
+    chokeEl.innerHTML = chokes.map(c => {
+      const col = c.severity === 'critical' ? 'var(--red)' : c.severity === 'high' ? 'var(--amber)' : c.severity === 'elevated' ? 'var(--blue)' : 'var(--text3)';
+      return `<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 4px;border-bottom:0.5px solid var(--border)">
+        <div style="width:8px;height:8px;border-radius:50%;background:${col};margin-top:3px;flex-shrink:0"></div>
+        <div>
+          <div style="font-size:11px;color:var(--text);font-weight:500">${c.name} <span style="font-family:var(--mono);font-size:9px;color:${col}">${c.severity.toUpperCase()}</span></div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">${c.impact}</div>
+          ${c.mentions?.map(m => `<div style="font-size:10px;color:var(--text2);margin-top:2px">• ${m.substring(0,80)}</div>`).join('') || ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+// ── Entity trajectory panel ───────────────────────────────────────────────────
+function updateEntityTrajectory(d) {
+  const traj = d.entityTrajectory || {};
+  const entities = traj.entities || [];
+  document.getElementById('entity-count').textContent = traj.period || '14d trend';
+
+  const el = document.getElementById('entity-list');
+  if (!entities.length) {
+    el.innerHTML = '<div style="padding:12px;font-size:11px;color:var(--text3)">Building trajectory — needs 3+ sweeps</div>';
+    return;
+  }
+
+  el.innerHTML = entities.slice(0, 12).map(e => {
+    const col   = e.trend === 'rising' ? 'var(--red)' : e.trend === 'falling' ? 'var(--green)' : 'var(--text3)';
+    const arrow = e.trend === 'rising' ? '↑' : e.trend === 'falling' ? '↓' : '→';
+    const pct   = Math.abs(e.pctChange);
+    return `<div class="entity-item">
+      <div class="entity-name">${e.entity}</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);width:28px;text-align:right">${e.totalMentions}</div>
+      <div class="entity-trend" style="color:${col};width:44px;text-align:right">${arrow}${pct}%</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Source health panel ───────────────────────────────────────────────────────
+async function updateSourceHealth() {
+  try {
+    const r = await fetch('/api/source-health');
+    if (!r.ok) return;
+    const sources = await r.json();
+    document.getElementById('sb-health').textContent = sources.length + ' sources';
+    const el = document.getElementById('health-grid');
+    // Show only worst performers (reliability < 80%) and any failing
+    const interesting = sources.filter(s => s.reliability !== null && s.reliability < 100).slice(0, 12);
+    if (!interesting.length) {
+      el.innerHTML = '<div style="padding:8px 12px;font-size:10px;color:var(--green)">All sources healthy</div>';
+      return;
+    }
+    el.innerHTML = interesting.map(s => {
+      const pctClass = s.reliability >= 80 ? 'pct-ok' : s.reliability >= 50 ? 'pct-warn' : 'pct-bad';
+      return `<div class="health-item">
+        <span class="health-name" title="${s.name}">${s.name}</span>
+        <span class="health-pct ${pctClass}">${s.reliability}%</span>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
 function renderAll(d) {
   data = d;
   updateHeader(d);
@@ -571,6 +788,8 @@ function renderAll(d) {
   updateIdeas(d);
   updateRegions(d);
   updateNews(d);
+  updateCommodities(d);
+  updateEntityTrajectory(d);
   animateSweepBar();
 }
 
@@ -625,6 +844,8 @@ setInterval(() => {
 
 fetchData();
 connectSSE();
+updateSourceHealth();
+setInterval(updateSourceHealth, 5 * 60 * 1000); // refresh source health every 5 min
 </script>
 </body>
 </html>

@@ -18,9 +18,10 @@ import { createLLMProvider } from './lib/llm/index.mjs';
 import { generateLLMIdeas } from './lib/llm/ideas.mjs';
 import { TelegramAlerter } from './lib/alerts/telegram.mjs';
 import { DiscordAlerter } from './lib/alerts/discord.mjs';
-import { filterNewSignals } from './lib/intel/dedup.mjs';
+import { filterNewSignals, initDedup } from './lib/intel/dedup.mjs';
 import { correlate, formatCorrelationsForTelegram } from './lib/intel/correlate.mjs';
-import { archiveRun, analyzeTrends, formatTrendsForTelegram } from './lib/intel/archive.mjs';
+import { detectArbitrage } from './lib/intel/arbitrage.mjs';
+import { archiveRun, archiveRunWithEntities, analyzeTrends, formatTrendsForTelegram, analyzeEntityTrajectory, formatEntityTrajectoryForTelegram } from './lib/intel/archive.mjs';
 import { sendMorningDigest } from './lib/alerts/digest.mjs';
 import { fetchUNSecurityCouncil, fetchCentralBanks, fetchThinkTanks, fetchTradeFLows } from './apis/sources/intel-feeds.mjs';
 import { fetchOpenSanctions } from './apis/sources/opensanctions.mjs';
@@ -43,6 +44,28 @@ let sweepStartedAt = null;
 let sweepInProgress = false;
 const startTime = Date.now();
 const sseClients = new Set();
+
+// === Source Health Tracker ===
+// Tracks success/fail counts per source across sweeps for reliability scoring
+const sourceHealth = {}; // { sourceName: { ok: N, fail: N, lastStatus: 'ok'|'error', lastMs: N } }
+
+function updateSourceHealth(timingMap) {
+  for (const [name, info] of Object.entries(timingMap || {})) {
+    if (!sourceHealth[name]) sourceHealth[name] = { ok: 0, fail: 0, lastStatus: null, lastMs: 0 };
+    if (info.status === 'ok') sourceHealth[name].ok++;
+    else                      sourceHealth[name].fail++;
+    sourceHealth[name].lastStatus = info.status;
+    sourceHealth[name].lastMs     = info.ms || 0;
+  }
+}
+
+function getSourceHealthSummary() {
+  return Object.entries(sourceHealth).map(([name, h]) => {
+    const total      = h.ok + h.fail;
+    const reliability = total > 0 ? Math.round((h.ok / total) * 100) : null;
+    return { name, ok: h.ok, fail: h.fail, reliability, lastStatus: h.lastStatus, lastMs: h.lastMs };
+  }).sort((a, b) => (a.reliability ?? 100) - (b.reliability ?? 100)); // worst first
+}
 
 // === Delta/Memory ===
 const memory = new MemoryManager(RUNS_DIR);
@@ -125,8 +148,16 @@ if (telegramAlerter.isConfigured) {
   });
 
   telegramAlerter.onCommand('/trends', async () => {
-    const trends = analyzeTrends();
-    return formatTrendsForTelegram(trends);
+    const trends     = analyzeTrends();
+    const trajectory = analyzeEntityTrajectory(14);
+    const msg1 = formatTrendsForTelegram(trends);
+    const msg2 = formatEntityTrajectoryForTelegram(trajectory);
+    return msg1 + '\n\n' + msg2;
+  });
+
+  telegramAlerter.onCommand('/entities', async () => {
+    const trajectory = analyzeEntityTrajectory(14);
+    return formatEntityTrajectoryForTelegram(trajectory);
   });
 
   telegramAlerter.onCommand('/correlations', async () => {
@@ -285,6 +316,19 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/api/source-health', (req, res) => {
+  const summary = getSourceHealthSummary();
+  const degraded = summary.filter(s => s.reliability !== null && s.reliability < 80);
+  res.json({
+    sources:       summary,
+    degraded:      degraded.map(s => s.name),
+    totalTracked:  summary.length,
+    healthyCount:  summary.filter(s => s.reliability === null || s.reliability >= 80).length,
+    degradedCount: degraded.length,
+    asOf:          lastSweepTime,
+  });
+});
+
 app.get('/api/locales', (req, res) => {
   res.json({ current: currentLanguage, supported: getSupportedLocales() });
 });
@@ -421,18 +465,28 @@ async function runSweepCycle() {
     writeFileSync(join(RUNS_DIR, 'latest.json'), JSON.stringify(rawData, null, 2));
     lastSweepTime = new Date().toISOString();
 
+    // Update source health tracker
+    updateSourceHealth(rawData.timing);
+
     console.log('[Crucix] Synthesizing dashboard data...');
     const synthesized = await synthesize(rawData);
 
     const delta = memory.addRun(synthesized);
     synthesized.delta = delta;
 
-    archiveRun(synthesized);
+    archiveRunWithEntities(synthesized);
 
     const correlations = correlate(synthesized);
     synthesized.correlations = correlations;
     if (correlations.length > 0) {
       console.log(`[Crucix] ${correlations.length} regional correlations detected`);
+    }
+
+    // Polymarket arbitrage: compare market odds vs OSINT severity
+    const arbitrage = detectArbitrage(synthesized.polymarket, correlations);
+    synthesized.arbitrage = arbitrage;
+    if (arbitrage.length > 0) {
+      console.log(`[Crucix] ${arbitrage.length} Polymarket arbitrage signals detected`);
     }
 
     if (llmProvider?.isConfigured) {
@@ -457,6 +511,9 @@ async function runSweepCycle() {
       synthesized.ideas = [];
       synthesized.ideasSource = 'disabled';
     }
+
+    // Entity trajectory — computed from archive history
+    synthesized.entityTrajectory = analyzeEntityTrajectory(14);
 
     // Telegram alerts handled exclusively by onSweepComplete (3-hour cadence + new intel check)
 
@@ -522,6 +579,9 @@ async function start() {
 
   server.on('listening', async () => {
     console.log(`[Crucix] Server running on http://localhost:${port}`);
+
+    // Initialise dedup store — loads from Upstash Redis if configured, else file
+    await initDedup();
 
     const openCmd = process.platform === 'win32' ? 'cmd /c start ""' :
                     process.platform === 'darwin' ? 'open' : 'xdg-open';

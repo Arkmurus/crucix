@@ -64,11 +64,23 @@ import { briefing as polymarket } from './sources/polymarket.mjs';
 import { briefing as lusophone } from "./sources/lusophone.mjs";
 import { briefing as exportControlIntel } from "./sources/export_control_intel.mjs";
 
-// === Tier 1b: Live Conflict Events ===
-import { briefing as liveuamap } from "./sources/liveuamap.mjs";
-
 // === Tier 8d: Counterparty Risk ===
 import { briefing as counterpartyRisk } from "./sources/counterparty_risk.mjs";
+
+// === Tier 8e: Corporate Intelligence ===
+import { briefing as secEdgar } from "./sources/sec_edgar.mjs";
+
+// === Tier 8f: Cyber Threats ===
+import { briefing as cyberThreats } from "./sources/cyber_threats.mjs";
+
+// === Tier 8g: Export Controls & Compliance ===
+import { briefing as euDualUse } from "./sources/eu_dual_use.mjs";
+
+// === Tier 8h: Development Finance (Lusophone) ===
+import { briefing as afdb } from "./sources/afdb.mjs";
+
+// === Tier 8i: Port Congestion & Cable Monitoring ===
+import { briefing as portCongestion } from "./sources/port_congestion.mjs";
 
 // === Tier 9: Custom Business Intelligence ===
 import { briefing as arkumurus } from './sources/arkumurus.mjs';
@@ -150,9 +162,13 @@ export async function fullBriefing() {
 
     // Tier 9: Custom Business Intelligence
     runSource('Arkumurus', arkumurus),
-    runSource('Liveuamap', liveuamap),
     runSource('CounterpartyRisk', counterpartyRisk),
     runSource('Polymarket', polymarket),
+    runSource('SecEdgar', secEdgar),
+    runSource('CyberThreats', cyberThreats),
+    runSource('EuDualUse', euDualUse),
+    runSource('AfDB', afdb),
+    runSource('PortCongestion', portCongestion),
     runSource('Lusophone', lusophone),
     runSource('ExportControlIntel', exportControlIntel),
   ];

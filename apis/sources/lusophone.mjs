@@ -68,6 +68,49 @@ const SOURCES = [
     region: 'Africa',
     weight: 'medium',
   },
+  // CPLP / Portuguese-language sources
+  {
+    name:   'Lusa News Agency',
+    url:    'https://www.lusa.pt/rss/rss.aspx?id=default',
+    type:   'rss',
+    region: 'Lusophone',
+    weight: 'high',
+  },
+  {
+    name:   'Agência Angola Press',
+    url:    'https://www.angop.ao/angola/pt_pt/rss/angola.rss',
+    type:   'rss',
+    region: 'Angola',
+    weight: 'high',
+  },
+  {
+    name:   'Observador (Portugal)',
+    url:    'https://observador.pt/feed/',
+    type:   'rss',
+    region: 'Portugal/CPLP',
+    weight: 'medium',
+  },
+  {
+    name:   'DW África (Portuguese)',
+    url:    'https://rss.dw.com/rdf/rss-por-africa',
+    type:   'rss',
+    region: 'Lusophone Africa',
+    weight: 'high',
+  },
+  {
+    name:   'VOA Portuguese Africa',
+    url:    'https://www.voaportugues.com/api/zrqomitmzq',
+    type:   'rss',
+    region: 'Lusophone Africa',
+    weight: 'high',
+  },
+  {
+    name:   'ReliefWeb Timor-Leste',
+    url:    'https://reliefweb.int/country/tls/updates.rss',
+    type:   'rss',
+    region: 'Timor-Leste',
+    weight: 'medium',
+  },
 ];
 
 const ARKMURUS_KEYWORDS = [
