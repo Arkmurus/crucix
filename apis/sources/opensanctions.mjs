@@ -5,7 +5,7 @@
 // Reference: https://www.opensanctions.org/docs/api/
 
 const res = await fetch(`${BASE_URL}/entities?${params}`, {
-```
+
 // Datasets to monitor for new/updated entries
 const DATASETS = ['us_ofac_sdn', 'eu_fsf', 'un_sc_sanctions', 'gb_hmt_sanctions'];
 
