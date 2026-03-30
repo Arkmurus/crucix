@@ -34,7 +34,9 @@ export async function fetchGDELT() {
     });
 
     if (!res.ok) throw new Error(`GDELT Doc API ${res.status}`);
-    const data = await res.json();
+    const rawText = await res.text();
+    if (!rawText.trim().startsWith("{") && !rawText.trim().startsWith("[")) throw new Error("GDELT non-JSON: "+rawText.substring(0,40));
+    const data = JSON.parse(rawText);
 
     const articles = data.articles || [];
     for (const a of articles.slice(0, 15)) {
