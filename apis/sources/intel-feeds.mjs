@@ -100,7 +100,7 @@ export async function fetchThinkTanks() {
       }
     } catch {}
 
-    // Fallback: rss2json proxy (bypasses IP blocks)
+    // Fallback 1: rss2json proxy
     if (items.length === 0) {
       try {
         const proxy = 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(feed.url);
@@ -115,6 +115,18 @@ export async function fetchThinkTanks() {
               summary: (i.description || i.content || '').replace(/<[^>]+>/g,'').substring(0, 200),
             }));
           }
+        }
+      } catch {}
+    }
+
+    // Fallback 2: allorigins.win proxy (different IP pool from rss2json)
+    if (items.length === 0) {
+      try {
+        const proxy = 'https://api.allorigins.win/get?url=' + encodeURIComponent(feed.url);
+        const res   = await fetch(proxy, { signal: AbortSignal.timeout(12000) });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.contents) items = parseRSS(data.contents).slice(0, 4);
         }
       } catch {}
     }

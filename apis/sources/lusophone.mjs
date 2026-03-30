@@ -59,7 +59,7 @@ const SOURCES = [
   },
   {
     name:   'DW África (Portuguese)',
-    url:    'https://rss.dw.com/rdf/rss-por-africa',
+    url:    'https://rss.dw.com/xml/rss-por-africa',
     type:   'rss',
     region: 'Lusophone Africa',
     weight: 'high',
