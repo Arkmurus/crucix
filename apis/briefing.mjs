@@ -60,6 +60,10 @@ import { briefing as exportControlsBriefing } from './sources/export_controls.mj
 // === Tier 8b: Prediction Markets ===
 import { briefing as polymarket } from './sources/polymarket.mjs';
 
+// === Tier 8c: Regional Intelligence ===
+import { briefing as lusophone } from "./sources/lusophone.mjs";
+import { briefing as exportControlIntel } from "./sources/export_control_intel.mjs";
+
 // === Tier 9: Custom Business Intelligence ===
 import { briefing as arkumurus } from './sources/arkumurus.mjs';
 
@@ -141,6 +145,8 @@ export async function fullBriefing() {
     // Tier 9: Custom Business Intelligence
     runSource('Arkumurus', arkumurus),
     runSource('Polymarket', polymarket),
+    runSource('Lusophone', lusophone),
+    runSource('ExportControlIntel', exportControlIntel),
   ];
 
   // Each runSource has its own 30s timeout, so allSettled will resolve
