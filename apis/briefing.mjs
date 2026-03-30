@@ -64,6 +64,9 @@ import { briefing as polymarket } from './sources/polymarket.mjs';
 import { briefing as lusophone } from "./sources/lusophone.mjs";
 import { briefing as exportControlIntel } from "./sources/export_control_intel.mjs";
 
+// === Tier 1b: Live Conflict Events ===
+import { briefing as liveuamap } from "./sources/liveuamap.mjs";
+
 // === Tier 9: Custom Business Intelligence ===
 import { briefing as arkumurus } from './sources/arkumurus.mjs';
 
@@ -144,6 +147,7 @@ export async function fullBriefing() {
 
     // Tier 9: Custom Business Intelligence
     runSource('Arkumurus', arkumurus),
+    runSource('Liveuamap', liveuamap),
     runSource('Polymarket', polymarket),
     runSource('Lusophone', lusophone),
     runSource('ExportControlIntel', exportControlIntel),
