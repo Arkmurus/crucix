@@ -57,6 +57,9 @@ import { briefing as opencorporatesBriefing } from './sources/opencorporates.mjs
 import { briefing as sanctionsBriefing } from './sources/sanctions.mjs';
 import { briefing as exportControlsBriefing } from './sources/export_controls.mjs';
 
+// === Tier 8b: Prediction Markets ===
+import { briefing as polymarket } from './sources/polymarket.mjs';
+
 // === Tier 9: Custom Business Intelligence ===
 import { briefing as arkumurus } from './sources/arkumurus.mjs';
 
@@ -137,6 +140,7 @@ export async function fullBriefing() {
 
     // Tier 9: Custom Business Intelligence
     runSource('Arkumurus', arkumurus),
+    runSource('Polymarket', polymarket),
   ];
 
   // Each runSource has its own 30s timeout, so allSettled will resolve
