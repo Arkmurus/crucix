@@ -3,8 +3,10 @@
 // Free JSON API, no API key required
 // Reference: https://efts.sec.gov / https://data.sec.gov
 
-const EFTS_BASE = 'https://efts.sec.gov/LATEST/search-index';
-const DATA_BASE = 'https://data.sec.gov/submissions';
+// EFTS full-text search is unreliable on cloud IPs — dropped in favour of stable endpoints
+const DATA_BASE  = 'https://data.sec.gov/submissions';
+const EDGAR_RSS  = 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&dateb=&owner=include&count=20&search_text=&output=atom';
+const RSS2JSON   = 'https://api.rss2json.com/v1/api.json?rss_url=';
 
 // Defense, aerospace, and critical infrastructure companies to monitor (CIK → name)
 const WATCH_COMPANIES = {
@@ -43,70 +45,71 @@ function dateRange() {
   };
 }
 
-// ── Fetch recent 8-K filings via EFTS full-text search ───────────────────────
+// ── Fetch recent 8-K filings via SEC EDGAR RSS (stable, works on cloud IPs) ───
 async function fetchMaterial8Ks() {
   const updates = [];
-  const { start, end } = dateRange();
+  const watchNames = Object.values(WATCH_COMPANIES).map(n => n.toLowerCase().split(' ')[0]);
 
-  // Search for material events at watched companies + defense keywords
-  const queries = [
-    'defense contract "material definitive"',
-    '"cybersecurity incident" OR "data breach"',
-    '"executive officer" departure resignation',
-  ];
+  // Try direct SEC RSS first, then rss2json proxy
+  let items = [];
+  try {
+    const res = await fetch(EDGAR_RSS, {
+      headers: { 'User-Agent': 'CrucixIntelligence/1.0 research@crucix.live' },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (res.ok) items = parseAtomFeed(await res.text());
+  } catch {}
 
-  for (const q of queries) {
+  if (items.length === 0) {
     try {
-      const params = new URLSearchParams({
-        q:          q,
-        forms:      '8-K',
-        dateRange:  'custom',
-        startdt:    start,
-        enddt:      end,
-      });
-      const res = await fetch(`${EFTS_BASE}?${params}`, {
-        headers: { 'User-Agent': 'CrucixIntelligence/1.0 research@crucix.live' },
-        signal: AbortSignal.timeout(12000),
-      });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const hits  = data.hits?.hits || [];
-
-      for (const hit of hits.slice(0, 6)) {
-        const src     = hit._source || {};
-        const company = src.display_names?.[0] || src.entity_name || 'Unknown';
-        const form    = src.form_type || '8-K';
-        const filed   = src.file_date || src.period_of_report || '';
-        const desc    = src.file_description || '';
-        const accNum  = hit._id?.replace(/:/g, '-') || '';
-
-        // Check if it's a watched company or contains material keywords
-        const isWatched = Object.values(WATCH_COMPANIES).some(name =>
-          company.toLowerCase().includes(name.toLowerCase().split(' ')[0])
-        );
-        const isMaterial = MATERIAL_KEYWORDS.some(kw =>
-          (company + ' ' + desc).toLowerCase().includes(kw)
-        );
-        if (!isWatched && !isMaterial) continue;
-
-        updates.push({
-          title:    `${form}: ${company} — ${desc || 'Material Event'}`,
-          company,
-          form,
-          filed,
-          url:      accNum ? `https://www.sec.gov/Archives/edgar/data/${accNum.split('-')[0]}/${accNum.replace(/-/g,'')}/` : 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K',
-          source:   'SEC EDGAR',
-          type:     'sec_filing',
-          priority: desc.toLowerCase().includes('cyber') ? 'high' :
-                    isWatched ? 'high' : 'medium',
-        });
+      const res = await fetch(RSS2JSON + encodeURIComponent(EDGAR_RSS), { signal: AbortSignal.timeout(12000) });
+      if (res.ok) {
+        const d = await res.json();
+        if (d.status === 'ok') items = (d.items || []).map(i => ({ title: i.title || '', link: i.link || '', company: i.author || '', date: i.pubDate || '' }));
       }
-    } catch (e) {
-      console.warn('[EDGAR] Query failed:', e.message);
-    }
+    } catch {}
   }
 
+  for (const item of items.slice(0, 30)) {
+    const company = item.company || item.title?.split(' - ')?.[0] || '';
+    const desc    = item.title || '';
+    const isWatched  = watchNames.some(n => company.toLowerCase().includes(n));
+    const isMaterial = MATERIAL_KEYWORDS.some(kw => (company + ' ' + desc).toLowerCase().includes(kw));
+    if (!isWatched && !isMaterial) continue;
+    updates.push({
+      title:    `8-K: ${company} — ${desc.replace(/^.*?8-K\s*[-–]\s*/i,'').substring(0,120)}`,
+      company,
+      form:     '8-K',
+      filed:    item.date || '',
+      url:      item.link || 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K',
+      source:   'SEC EDGAR',
+      type:     'sec_filing',
+      priority: desc.toLowerCase().includes('cyber') ? 'high' : isWatched ? 'high' : 'medium',
+    });
+  }
+
+  console.log(`[EDGAR] RSS: ${updates.length} material 8-Ks`);
   return updates;
+}
+
+function parseAtomFeed(xml) {
+  const items = [];
+  const re = /<entry>([\s\S]*?)<\/entry>/gi;
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    const b = m[1];
+    const link = b.match(/href="([^"]+)"/)?.[1] || '';
+    const title = extractTag(b,'title');
+    const date  = extractTag(b,'updated') || extractTag(b,'published');
+    const company = title.split(' - ')?.[0] || '';
+    items.push({ title, link, company, date });
+  }
+  return items;
+}
+
+function extractTag(xml, tag) {
+  const m = xml.match(new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>|<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return m ? (m[1]||m[2]||'').replace(/<[^>]+>/g,'').trim() : '';
 }
 
 // ── Fetch recent filings for specific watched companies ───────────────────────

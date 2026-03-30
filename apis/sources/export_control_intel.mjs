@@ -185,22 +185,43 @@ function categorise(text) {
   return 'General';
 }
 
+const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
+
 async function fetchSource(src) {
+  // Try direct fetch first
   try {
     const res = await fetch(src.url, {
       headers: {
-        'User-Agent': 'CrucixIntelligence/1.0 (Arkmurus Group)',
+        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)',
         'Accept':     'application/atom+xml, application/rss+xml, application/xml, text/xml',
       },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const xml = await res.text();
-    return src.type === 'atom' ? parseAtom(xml) : parseRSS(xml);
-  } catch (err) {
-    console.warn(`[ExportControlIntel] ${src.name} failed: ${err.message}`);
-    return [];
-  }
+    if (res.ok) {
+      const xml = await res.text();
+      const items = src.type === 'atom' ? parseAtom(xml) : parseRSS(xml);
+      if (items.length > 0) return items;
+    }
+  } catch {}
+
+  // Fallback: rss2json proxy (handles Render IP blocks on .gov.uk and treasury.gov)
+  try {
+    const res = await fetch(RSS2JSON + encodeURIComponent(src.url), { signal: AbortSignal.timeout(12000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === 'ok' && data.items?.length > 0) {
+        return data.items.slice(0, 20).map(i => ({
+          title:       i.title || '',
+          link:        i.link  || '',
+          description: (i.description || i.content || '').replace(/<[^>]+>/g, '').substring(0, 300),
+          pubDate:     i.pubDate || new Date().toISOString(),
+        }));
+      }
+    }
+  } catch {}
+
+  console.warn(`[ExportControlIntel] ${src.name} failed: all attempts blocked`);
+  return [];
 }
 
 function parseRSS(xml) {

@@ -7,6 +7,11 @@
 const GDELT_DOC_API   = 'https://api.gdeltproject.org/api/v2/doc/doc';
 const GDELT_GEO_API   = 'https://api.gdeltproject.org/api/v2/geo/geo';
 
+// Cache: GDELT rate-limits at ~1 req/15min per IP on shared cloud. Cache 12 min.
+let _cache = null;
+let _cacheTime = 0;
+const CACHE_MS = 12 * 60 * 1000;
+
 // Themes to monitor — GDELT theme codes for conflict/crisis intelligence
 const MONITOR_THEMES = [
   'CONFLICT', 'MILITARY', 'SANCTION', 'PROTEST', 'TERROR',
@@ -14,6 +19,12 @@ const MONITOR_THEMES = [
 ];
 
 export async function fetchGDELT() {
+  // Return cached result if fresh enough (avoids 429 on 5-min sweep cycle)
+  if (_cache && (Date.now() - _cacheTime) < CACHE_MS) {
+    console.log('[GDELT] Returning cached result');
+    return _cache;
+  }
+
   const results = { updates: [], signals: [], error: null };
 
   try {
@@ -86,9 +97,15 @@ export async function fetchGDELT() {
     }
 
     console.log(`[GDELT] ${results.updates.length} articles, ${results.signals.length} hotspots`);
+    _cache = results;
+    _cacheTime = Date.now();
   } catch (err) {
     results.error = err.message;
     console.error('[GDELT] Error:', err.message);
+    if (_cache) {
+      console.log('[GDELT] Using stale cache after error');
+      return _cache;
+    }
   }
 
   return results;

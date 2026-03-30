@@ -3,9 +3,12 @@
 // Sources: NVD (NIST), ransomware.live, CISA (supplementary)
 // Free — no API keys required
 
-const NVD_API         = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
-const RANSOMWARE_API  = 'https://api.ransomware.live/v2/recentvictims';
-const RANSOMWARE_GRPS = 'https://api.ransomware.live/v2/groups';
+const NVD_API              = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
+const RANSOMWARE_ENDPOINTS = [
+  'https://api.ransomware.live/v2/recentvictims',
+  'https://api.ransomware.live/recentvictims',
+  'https://api.ransomware.live/v1/recentvictims',
+];
 
 // Sectors where a ransomware hit is intelligence-relevant
 const PRIORITY_SECTORS = [
@@ -77,15 +80,26 @@ async function fetchCriticalCVEs() {
 // ── ransomware.live: Recent victims in priority sectors ──────────────────────
 async function fetchRansomwareVictims() {
   const updates = [];
+  let victims = null;
+
+  for (const endpoint of RANSOMWARE_ENDPOINTS) {
+    try {
+      const res = await fetch(endpoint, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; CrucixIntelligence/1.0)',
+          'Accept':     'application/json',
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) { victims = await res.json(); break; }
+    } catch {}
+  }
+
   try {
-    const res = await fetch(RANSOMWARE_API, {
-      headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) throw new Error(`ransomware.live ${res.status}`);
+    if (!victims) throw new Error('ransomware.live unreachable');
     const victims = await res.json();
 
-    for (const v of (victims || []).slice(0, 50)) {
+    for (const v of victims.slice(0, 50)) {
       const victim  = v.victim || v.company || v.name || '';
       const group   = v.group || v.ransomware_group || '';
       const sector  = (v.activity || v.sector || v.industry || '').toLowerCase();

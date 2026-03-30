@@ -7,7 +7,12 @@
 const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
 
 // IMF PortWatch — vessel traffic at critical ports (free JSON API)
-const PORTWATCH_API = 'https://portwatch.imf.org/server/rest/services/portwatch/PortStats/FeatureServer/0/query';
+// Multiple candidate paths — the ArcGIS REST endpoint moves between IMF deployments
+const PORTWATCH_APIS = [
+  'https://portwatch.imf.org/server/rest/services/portwatch/PortStats/FeatureServer/0/query',
+  'https://portwatch.imf.org/server/rest/services/portwatch/PortWatch/FeatureServer/0/query',
+  'https://portwatch.imf.org/arcgis/rest/services/portwatch/PortStats/FeatureServer/0/query',
+];
 
 // Key ports to monitor (UNLOCODE → display name)
 const CRITICAL_PORTS = [
@@ -46,19 +51,26 @@ const DISRUPTION_KEYWORDS = [
 // ── IMF PortWatch: vessel call stats at critical ports ───────────────────────
 async function fetchPortWatch() {
   const stats = [];
+  const params = new URLSearchParams({
+    where:          `portid IN ('${CRITICAL_PORTS.map(p => p.code).join("','")}')`,
+    outFields:      'portid,portname,vessel_calls_7d,vessel_calls_7d_prev,pct_change',
+    returnGeometry: 'false',
+    f:              'json',
+  });
+
+  let res = null;
+  for (const apiUrl of PORTWATCH_APIS) {
+    try {
+      const r = await fetch(`${apiUrl}?${params}`, {
+        headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (r.ok) { res = r; break; }
+    } catch {}
+  }
+
   try {
-    // PortWatch has a ESRI REST API — get vessel calls for monitored ports
-    const params = new URLSearchParams({
-      where:       `portid IN ('${CRITICAL_PORTS.map(p => p.code).join("','")}')`,
-      outFields:   'portid,portname,vessel_calls_7d,vessel_calls_7d_prev,pct_change',
-      returnGeometry: 'false',
-      f:           'json',
-    });
-    const res = await fetch(`${PORTWATCH_API}?${params}`, {
-      headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) throw new Error(`PortWatch ${res.status}`);
+    if (!res) throw new Error('All PortWatch endpoints failed');
     const data     = await res.json();
     const features = data.features || [];
 

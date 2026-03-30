@@ -4,7 +4,10 @@
 // Free API: https://projectsapi.afdb.org
 // No API key required
 
-const AFDB_API = 'https://projectsapi.afdb.org/ords/analytics/mbfs/projects';
+const AFDB_API          = 'https://projectsapi.afdb.org/ords/analytics/mbfs/projects';
+const AFDB_OPENDATA_API = 'https://opendata.afdb.org/api/explore/v2.1/catalog/datasets/african-development-bank-data-portal-project-operations/records?limit=100&offset=0';
+const AFDB_RSS          = 'https://www.afdb.org/en/rss/projects-and-operations';
+const RSS2JSON          = 'https://api.rss2json.com/v1/api.json?rss_url=';
 
 // Countries of primary interest (ISO2 codes)
 const PRIORITY_COUNTRIES = {
@@ -32,22 +35,74 @@ const CRITICAL_SECTORS = [
   'security', 'agriculture', 'finance', 'social', 'health',
 ];
 
+async function fetchAfDBProjects() {
+  // Try primary ORDS API
+  try {
+    const res = await fetch(AFDB_API, {
+      headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.items || data || [];
+    }
+  } catch {}
+
+  // Fallback: AfDB OpenData portal (Opendatasoft)
+  try {
+    const res = await fetch(AFDB_OPENDATA_API, {
+      headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const records = data.results || data.records || [];
+      // Normalize OpenData format to ORDS format
+      return records.map(r => {
+        const f = r.record?.fields || r.fields || r;
+        return {
+          country:       f.country_code || f.country || '',
+          country_name:  f.country_name || '',
+          project_name:  f.project_title || f.project_name || f.title || '',
+          sector:        f.sector || f.category || '',
+          status:        f.status || f.project_status || '',
+          ua_amount:     f.amount_ua || f.loan_amount || f.amount || 0,
+          approval_date: f.approval_date || f.date || '',
+        };
+      });
+    }
+  } catch {}
+
+  // Fallback: RSS news feed via rss2json
+  try {
+    const res = await fetch(RSS2JSON + encodeURIComponent(AFDB_RSS), { signal: AbortSignal.timeout(10000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === 'ok' && data.items?.length) {
+        // Return news items as synthetic project updates
+        return data.items.slice(0, 10).map(i => ({
+          project_name: i.title || '',
+          country:      'AF', // multi-country
+          country_name: 'Africa (Multi-country)',
+          sector:       'news',
+          status:       'news',
+          ua_amount:    0,
+          approval_date: i.pubDate || '',
+          _newsUrl:     i.link || '',
+        }));
+      }
+    }
+  } catch {}
+
+  throw new Error('All AfDB endpoints unreachable');
+}
+
 export async function briefing() {
   console.log('[AfDB] Fetching project pipeline...');
   const results = { updates: [], signals: [], stats: {}, error: null };
 
   try {
-    const res = await fetch(AFDB_API, {
-      headers: {
-        'User-Agent': 'CrucixIntelligence/1.0',
-        'Accept':     'application/json',
-      },
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (!res.ok) throw new Error(`AfDB API ${res.status}`);
-    const data  = await res.json();
-    const items = data.items || data || [];
+    const items = await fetchAfDBProjects();
 
     let lusophoneCount = 0;
     let totalValue     = 0;
