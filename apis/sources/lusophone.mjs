@@ -4,6 +4,9 @@
 //         Timor-Leste, Brazil, Portugal + broader ECOWAS/AU region
 // Free — no API keys required
 
+// ReliefWeb JSON API — more reliable than RSS on cloud IPs
+const RELIEFWEB_API = 'https://api.reliefweb.int/v1/updates?appname=crucix&limit=15&fields[include][]=title&fields[include][]=url&fields[include][]=date&fields[include][]=primary_country&filter[field]=primary_country.iso3&filter[value]=';
+
 const SOURCES = [
   {
     name:   'ECOWAS Peace & Security',
@@ -17,27 +20,6 @@ const SOURCES = [
     url:    'https://au.int/en/rss.xml',
     type:   'rss',
     region: 'Africa',
-    weight: 'high',
-  },
-  {
-    name:   'ReliefWeb Guinea-Bissau',
-    url:    'https://reliefweb.int/country/gnb/updates.rss',
-    type:   'rss',
-    region: 'Guinea-Bissau',
-    weight: 'critical',
-  },
-  {
-    name:   'ReliefWeb Angola',
-    url:    'https://reliefweb.int/country/ago/updates.rss',
-    type:   'rss',
-    region: 'Angola',
-    weight: 'high',
-  },
-  {
-    name:   'ReliefWeb Mozambique',
-    url:    'https://reliefweb.int/country/moz/updates.rss',
-    type:   'rss',
-    region: 'Mozambique',
     weight: 'high',
   },
   {
@@ -68,21 +50,6 @@ const SOURCES = [
     region: 'Africa',
     weight: 'medium',
   },
-  // CPLP / Portuguese-language sources
-  {
-    name:   'Lusa News Agency',
-    url:    'https://www.lusa.pt/rss/rss.aspx?id=default',
-    type:   'rss',
-    region: 'Lusophone',
-    weight: 'high',
-  },
-  {
-    name:   'Agência Angola Press',
-    url:    'https://www.angop.ao/angola/pt_pt/rss/angola.rss',
-    type:   'rss',
-    region: 'Angola',
-    weight: 'high',
-  },
   {
     name:   'Observador (Portugal)',
     url:    'https://observador.pt/feed/',
@@ -97,19 +64,57 @@ const SOURCES = [
     region: 'Lusophone Africa',
     weight: 'high',
   },
+  // ReliefWeb via JSON API (reliable, no Render blocks)
   {
-    name:   'VOA Portuguese Africa',
-    url:    'https://www.voaportugues.com/api/zrqomitmzq',
-    type:   'rss',
-    region: 'Lusophone Africa',
+    name:   'ReliefWeb Guinea-Bissau',
+    url:    RELIEFWEB_API + 'GNB',
+    type:   'reliefweb_api',
+    region: 'Guinea-Bissau',
+    weight: 'critical',
+  },
+  {
+    name:   'ReliefWeb Angola',
+    url:    RELIEFWEB_API + 'AGO',
+    type:   'reliefweb_api',
+    region: 'Angola',
+    weight: 'high',
+  },
+  {
+    name:   'ReliefWeb Mozambique',
+    url:    RELIEFWEB_API + 'MOZ',
+    type:   'reliefweb_api',
+    region: 'Mozambique',
     weight: 'high',
   },
   {
     name:   'ReliefWeb Timor-Leste',
-    url:    'https://reliefweb.int/country/tls/updates.rss',
-    type:   'rss',
+    url:    RELIEFWEB_API + 'TLS',
+    type:   'reliefweb_api',
     region: 'Timor-Leste',
     weight: 'medium',
+  },
+  {
+    name:   'ReliefWeb Guinea',
+    url:    RELIEFWEB_API + 'GIN',
+    type:   'reliefweb_api',
+    region: 'West Africa',
+    weight: 'medium',
+  },
+  // VOA Portuguese via public RSS
+  {
+    name:   'VOA Portuguese Africa',
+    url:    'https://www.voanews.com/api/epiqq$po',
+    type:   'rss',
+    region: 'Lusophone Africa',
+    weight: 'high',
+  },
+  // Angola Agência Angola Press
+  {
+    name:   'Agência Angola Press',
+    url:    'https://www.angop.ao/rss.rss',
+    type:   'rss',
+    region: 'Angola',
+    weight: 'high',
   },
 ];
 
@@ -209,6 +214,26 @@ export async function briefing() {
 }
 
 async function fetchSource(src) {
+  // ReliefWeb JSON API — always works, no proxy needed
+  if (src.type === 'reliefweb_api') {
+    try {
+      const res = await fetch(src.url, {
+        headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return (data.data || []).map(d => ({
+          title:       d.fields?.title || '',
+          link:        d.fields?.url?.url || `https://reliefweb.int/updates/${d.id}`,
+          description: d.fields?.title || '',
+          pubDate:     d.fields?.date?.created || new Date().toISOString(),
+        })).filter(i => i.title);
+      }
+    } catch {}
+    return [];
+  }
+
   // Try direct fetch first
   try {
     const res = await fetch(src.url, {

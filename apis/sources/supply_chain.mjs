@@ -34,7 +34,8 @@ const WB_COMMODITIES = [
 // ── World Bank commodity price fetch (monthly, last 2 observations) ───────────
 async function fetchWorldBankCommodity(indicator) {
   try {
-    const url = `${WB_BASE}/${indicator.id}?format=json&mrv=3&per_page=3&source=89`;
+    // Use WLD (world) — commodity price series are global, not per-country
+    const url = `${WB_BASE.replace('/country/all','')}/country/WLD/indicator/${indicator.id}?format=json&mrv=3&per_page=3`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
       signal: AbortSignal.timeout(10000),

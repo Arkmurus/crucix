@@ -34,18 +34,18 @@ const SOURCES = [
     type:   'rss',
     weight: 'high',
   },
-  // OFAC recent actions
+  // OFAC/Treasury sanctions news via Reuters
   {
-    name:   'Treasury Press Releases',
-    url:    'https://home.treasury.gov/news/press-releases.xml',
+    name:   'Reuters Sanctions News',
+    url:    'https://feeds.reuters.com/reuters/businessNews',
     type:   'rss',
-    weight: 'critical',
+    weight: 'high',
   },
-  // Sanctions news from GOV.UK
+  // UK sanctions via GOV.UK search API (JSON, more reliable than Atom)
   {
     name:   'UK FCDO Sanctions',
-    url:    'https://www.gov.uk/government/organisations/foreign-commonwealth-development-office.atom',
-    type:   'atom',
+    url:    'https://www.gov.uk/search/all.json?keywords=sanctions+export+controls&order=updated-newest&count=20',
+    type:   'govuk_json',
     weight: 'critical',
   },
 ];
@@ -188,6 +188,26 @@ function categorise(text) {
 const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
 
 async function fetchSource(src) {
+  // GOV.UK JSON search API — more reliable than Atom on cloud IPs
+  if (src.type === 'govuk_json') {
+    try {
+      const res = await fetch(src.url, {
+        headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return (data.results || []).map(r => ({
+          title:       r.title || '',
+          link:        r.link ? `https://www.gov.uk${r.link}` : '',
+          description: r.description || r.title || '',
+          pubDate:     r.public_updated_at || r.updated_at || new Date().toISOString(),
+        }));
+      }
+    } catch {}
+    return [];
+  }
+
   // Try direct fetch first
   try {
     const res = await fetch(src.url, {

@@ -97,7 +97,6 @@ async function fetchRansomwareVictims() {
 
   try {
     if (!victims) throw new Error('ransomware.live unreachable');
-    const victims = await res.json();
 
     for (const v of victims.slice(0, 50)) {
       const victim  = v.victim || v.company || v.name || '';

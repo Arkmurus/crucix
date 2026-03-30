@@ -98,10 +98,12 @@ function parseAtomFeed(xml) {
   let m;
   while ((m = re.exec(xml)) !== null) {
     const b = m[1];
-    const link = b.match(/href="([^"]+)"/)?.[1] || '';
-    const title = extractTag(b,'title');
+    const link  = b.match(/href="([^"]+)"/)?.[1] || '';
+    const title = extractTag(b,'title'); // e.g. "8-K - LOCKHEED MARTIN CORP (0000936468) (filing)"
     const date  = extractTag(b,'updated') || extractTag(b,'published');
-    const company = title.split(' - ')?.[0] || '';
+    // Extract company name: "8-K - COMPANY (CIK)" → "COMPANY"
+    const companyMatch = title.match(/^\S+-\s+(.+?)\s+\(\d+\)/);
+    const company = companyMatch ? companyMatch[1].trim() : title.split(' - ').slice(1).join(' - ').split('(')[0].trim();
     items.push({ title, link, company, date });
   }
   return items;

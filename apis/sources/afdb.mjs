@@ -6,7 +6,9 @@
 
 const AFDB_API          = 'https://projectsapi.afdb.org/ords/analytics/mbfs/projects';
 const AFDB_OPENDATA_API = 'https://opendata.afdb.org/api/explore/v2.1/catalog/datasets/african-development-bank-data-portal-project-operations/records?limit=100&offset=0';
-const AFDB_RSS          = 'https://www.afdb.org/en/rss/projects-and-operations';
+// IATI Datastore — AfDB publishes to IATI (open aid transparency standard)
+const IATI_API          = 'https://api.iatistandard.org/datastore/activity/select?q=reporting_org_ref:46002&rows=50&sort=activity_date_end_actual_iso+desc&wt=json';
+const AFDB_NEWS_RSS     = 'https://www.afdb.org/en/rss/news-and-events';
 const RSS2JSON          = 'https://api.rss2json.com/v1/api.json?rss_url=';
 
 // Countries of primary interest (ISO2 codes)
@@ -73,22 +75,41 @@ async function fetchAfDBProjects() {
     }
   } catch {}
 
-  // Fallback: RSS news feed via rss2json
+  // Fallback: IATI Datastore (open aid data, very reliable)
   try {
-    const res = await fetch(RSS2JSON + encodeURIComponent(AFDB_RSS), { signal: AbortSignal.timeout(10000) });
+    const res = await fetch(IATI_API, {
+      headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const docs = data.response?.docs || [];
+      return docs.map(d => ({
+        project_name:  d.title_narrative?.[0] || d.iati_identifier || '',
+        country:       (d.recipient_country_code?.[0] || 'AF').toUpperCase().substring(0, 2),
+        country_name:  d.recipient_country_narrative?.[0] || '',
+        sector:        d.sector_narrative?.[0] || d.sector_code?.[0] || '',
+        status:        d.activity_status_code || '',
+        ua_amount:     parseFloat(d.budget_value?.[0] || 0),
+        approval_date: d.activity_date_start_actual_iso || d.activity_date_start_planned_iso || '',
+      }));
+    }
+  } catch {}
+
+  // Last fallback: AfDB news RSS via rss2json proxy
+  try {
+    const res = await fetch(RSS2JSON + encodeURIComponent(AFDB_NEWS_RSS), { signal: AbortSignal.timeout(10000) });
     if (res.ok) {
       const data = await res.json();
       if (data.status === 'ok' && data.items?.length) {
-        // Return news items as synthetic project updates
         return data.items.slice(0, 10).map(i => ({
           project_name: i.title || '',
-          country:      'AF', // multi-country
+          country:      'AF',
           country_name: 'Africa (Multi-country)',
           sector:       'news',
-          status:       'news',
+          status:       'active',
           ua_amount:    0,
           approval_date: i.pubDate || '',
-          _newsUrl:     i.link || '',
         }));
       }
     }
