@@ -27,12 +27,19 @@ const SOURCES = [
     type:   'atom',
     weight: 'critical',
   },
-  // EU sanctions / dual-use updates
+  // EU Council — sanctions press releases (more reliable than EUR-Lex search RSS)
   {
-    name:   'EU Sanctions Updates',
-    url:    'https://eur-lex.europa.eu/search.html?type=advanced&qid=1&RSS=true&lang=en&andText0=dual+use+export+control',
+    name:   'EU Council Sanctions',
+    url:    'https://www.consilium.europa.eu/en/press/press-releases/feed/?category=sanctions',
     type:   'rss',
     weight: 'high',
+  },
+  // EU Official Journal — L series (legislation, includes sanctions regulations)
+  {
+    name:   'EU Official Journal',
+    url:    'https://op.europa.eu/en/web/eu-law-and-publications/official-journal/-/publication-detail/rss',
+    type:   'rss',
+    weight: 'medium',
   },
   // OFAC/Treasury sanctions news via Reuters
   {

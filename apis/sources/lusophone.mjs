@@ -24,7 +24,7 @@ const SOURCES = [
   },
   {
     name:   'RFI Portuguese Africa',
-    url:    'https://www.rfi.fr/pt/rss',
+    url:    'https://www.rfi.fr/pt/feeds/rss',
     type:   'rss',
     region: 'Lusophone Africa',
     weight: 'high',
@@ -100,13 +100,21 @@ const SOURCES = [
     region: 'West Africa',
     weight: 'medium',
   },
-  // VOA Portuguese via public RSS
+  // VOA Portuguese (Africa service) — correct feed URL
   {
     name:   'VOA Portuguese Africa',
-    url:    'https://www.voanews.com/api/epiqq$po',
+    url:    'https://www.voaportugues.com/atom.rss',
     type:   'rss',
     region: 'Lusophone Africa',
     weight: 'high',
+  },
+  // UN News Africa (Portuguese)
+  {
+    name:   'UN News Africa PT',
+    url:    'https://news.un.org/feed/subscribe/pt/news/region/africa/feed/rss.xml',
+    type:   'rss',
+    region: 'Africa',
+    weight: 'medium',
   },
   // Angola Agência Angola Press
   {

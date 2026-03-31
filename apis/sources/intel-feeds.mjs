@@ -163,13 +163,15 @@ export async function fetchTradeFLows() {
     { reporter: 'IN', partner: 'RU', label: 'India → Russia' },
   ];
 
-  const year = new Date().getFullYear() - 1; // IMF DOTS lags ~1 year
+  // IMF DOTS annual data lags 12-18 months. In early 2026, 2025 data doesn't exist yet.
+  // Always request a 3-year window to guarantee 2+ observations for YoY comparison.
+  const year = new Date().getFullYear() - 1;
 
   try {
     for (const pair of COUNTRY_PAIRS.slice(0, 4)) { // limit calls
       try {
         // IMF DOTS compact data: exports (TXG_FOB_USD) between pair
-        const url = `https://dataservices.imf.org/REST/SDMX_JSON.svc/CompactData/DOT/A.${pair.reporter}.${pair.partner}.TXG_FOB_USD.?startPeriod=${year - 1}&endPeriod=${year}`;
+        const url = `https://dataservices.imf.org/REST/SDMX_JSON.svc/CompactData/DOT/A.${pair.reporter}.${pair.partner}.TXG_FOB_USD.?startPeriod=${year - 2}&endPeriod=${year}`;
         const res = await fetch(url, {
           headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
           signal: AbortSignal.timeout(12000),

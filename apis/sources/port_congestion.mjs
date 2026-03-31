@@ -6,13 +6,10 @@
 
 const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
 
-// IMF PortWatch — vessel traffic at critical ports (free JSON API)
-// Multiple candidate paths — the ArcGIS REST endpoint moves between IMF deployments
-const PORTWATCH_APIS = [
-  'https://portwatch.imf.org/server/rest/services/portwatch/PortStats/FeatureServer/0/query',
-  'https://portwatch.imf.org/server/rest/services/portwatch/PortWatch/FeatureServer/0/query',
-  'https://portwatch.imf.org/arcgis/rest/services/portwatch/PortStats/FeatureServer/0/query',
-];
+// IMF PortWatch — ArcGIS Online hosted service (imf-dataviz.maps.arcgis.com)
+// The public REST endpoint requires an ArcGIS Online token; disabled for now.
+// Port congestion intelligence is covered by the maritime news feeds below.
+const PORTWATCH_APIS = [];
 
 // Key ports to monitor (UNLOCODE → display name)
 const CRITICAL_PORTS = [
@@ -31,12 +28,16 @@ const CRITICAL_PORTS = [
 
 // Maritime and cable news sources
 const NEWS_SOURCES = [
-  { url: 'https://gcaptain.com/feed/',                                  label: 'gCaptain',            type: 'maritime' },
-  { url: 'https://www.hellenicshippingnews.com/feed/',                  label: 'Hellenic Shipping',   type: 'maritime' },
-  { url: 'https://splash247.com/feed/',                                  label: 'Splash247',           type: 'maritime' },
-  { url: 'https://www.submarinecablemap.com/blog/feed.xml',              label: 'TeleGeography Cables',type: 'cable'    },
-  { url: 'https://netblocks.org/feed',                                   label: 'NetBlocks',           type: 'internet' },
-  { url: 'https://www.maritime-executive.com/feed',                     label: 'Maritime Executive',  type: 'maritime' },
+  { url: 'https://gcaptain.com/feed/',                                         label: 'gCaptain',              type: 'maritime' },
+  { url: 'https://www.hellenicshippingnews.com/feed/',                         label: 'Hellenic Shipping',     type: 'maritime' },
+  { url: 'https://splash247.com/feed/',                                         label: 'Splash247',             type: 'maritime' },
+  { url: 'https://www.maritime-executive.com/feed',                            label: 'Maritime Executive',    type: 'maritime' },
+  { url: 'https://www.tradewindsnews.com/rss',                                 label: 'TradeWinds',            type: 'maritime' },
+  { url: 'https://www.seatrade-maritime.com/rss/xml',                          label: 'Seatrade Maritime',     type: 'maritime' },
+  { url: 'https://www.porttechnology.org/feed/',                               label: 'Port Technology',       type: 'port'     },
+  { url: 'https://www.submarinecablemap.com/blog/feed.xml',                    label: 'TeleGeography Cables',  type: 'cable'    },
+  { url: 'https://netblocks.org/feed',                                          label: 'NetBlocks',             type: 'internet' },
+  { url: 'https://news.un.org/feed/subscribe/en/news/topic/humanitarian-aid/feed/rss.xml', label: 'UN Humanitarian', type: 'maritime' },
 ];
 
 // Keywords for congestion/disruption detection
