@@ -69,28 +69,28 @@ export async function fetchCentralBanks() {
 // ── Think tank / analytical feeds ────────────────────────────────────────────
 export async function fetchThinkTanks() {
   const results = { updates: [], error: null };
+  // gnews: Google News RSS fallback query (used when direct + proxy attempts all fail)
   const feeds = [
-    // RSS feed URLs — Feedly UA is whitelisted by most think tanks
-    { url: 'https://www.rand.org/news/press.xml',                                          label: 'RAND' },
-    { url: 'https://www.chathamhouse.org/path/news-releases.xml',                         label: 'Chatham House' },
-    { url: 'https://www.iiss.org/rss-feeds/iiss-analysis.xml',                           label: 'IISS' },
-    { url: 'https://www.brookings.edu/topic/international-relations/feed/',               label: 'Brookings' },
-    { url: 'https://carnegieendowment.org/rss/solr/articles?q=&lang=en',                 label: 'Carnegie' },
-    { url: 'https://www.wilsoncenter.org/publication/rss.xml',                            label: 'Wilson Center' },
-    { url: 'https://www.crisisgroup.org/rss.xml',                                         label: 'Crisis Group' },
-    { url: 'https://www.sipri.org/rss/news',                                              label: 'SIPRI News' },
-    { url: 'https://www.atlanticcouncil.org/feed/',                                       label: 'Atlantic Council' },
-    { url: 'https://www.csis.org/feed',                                                   label: 'CSIS' },
-    { url: 'https://rusi.org/feed',                                                       label: 'RUSI' },
-    { url: 'https://ecfr.eu/feed/',                                                       label: 'ECFR' },
-    { url: 'https://www.bellingcat.com/feed/',                                             label: 'Bellingcat' },
-    { url: 'https://www.hoover.org/feed',                                                  label: 'Hoover Institution' },
-    { url: 'https://www.cfr.org/rss/all',                                                 label: 'CFR' },
-    { url: 'https://www.stimson.org/feed/',                                               label: 'Stimson Center' },
-    { url: 'https://www.cnas.org/feed',                                                   label: 'CNAS' },
-    { url: 'https://www.heritage.org/rss/latest-research.rss',                           label: 'Heritage Foundation' },
-    { url: 'https://warontherocks.com/feed/',                                             label: 'War on the Rocks' },
-    { url: 'https://thediplomat.com/feed/',                                               label: 'The Diplomat' },
+    { url: 'https://www.rand.org/news/press.xml',                                          label: 'RAND',               gnews: 'RAND+Corporation+research' },
+    { url: 'https://www.chathamhouse.org/path/news-releases.xml',                         label: 'Chatham House',      gnews: 'Chatham+House+geopolitics' },
+    { url: 'https://www.iiss.org/rss-feeds/iiss-analysis.xml',                           label: 'IISS',               gnews: 'IISS+military+security' },
+    { url: 'https://www.brookings.edu/topic/international-relations/feed/',               label: 'Brookings',          gnews: 'Brookings+Institution+policy' },
+    { url: 'https://carnegieendowment.org/rss/solr/articles?q=&lang=en',                 label: 'Carnegie',           gnews: 'Carnegie+Endowment+international' },
+    { url: 'https://www.wilsoncenter.org/publication/rss.xml',                            label: 'Wilson Center',      gnews: 'Wilson+Center+geopolitics' },
+    { url: 'https://www.crisisgroup.org/rss.xml',                                         label: 'Crisis Group',       gnews: 'International+Crisis+Group' },
+    { url: 'https://www.sipri.org/rss/news',                                              label: 'SIPRI News',         gnews: 'SIPRI+arms+military' },
+    { url: 'https://www.atlanticcouncil.org/feed/',                                       label: 'Atlantic Council',   gnews: 'Atlantic+Council+NATO+security' },
+    { url: 'https://www.csis.org/feed',                                                   label: 'CSIS',               gnews: 'CSIS+Center+Strategic+International' },
+    { url: 'https://rusi.org/feed',                                                       label: 'RUSI',               gnews: 'RUSI+defence+security' },
+    { url: 'https://ecfr.eu/feed/',                                                       label: 'ECFR',               gnews: 'ECFR+European+foreign+policy' },
+    { url: 'https://www.bellingcat.com/feed/',                                             label: 'Bellingcat',         gnews: 'Bellingcat+investigation' },
+    { url: 'https://www.hoover.org/feed',                                                  label: 'Hoover Institution', gnews: 'Hoover+Institution+policy' },
+    { url: 'https://www.cfr.org/rss/all',                                                 label: 'CFR',                gnews: 'Council+Foreign+Relations+analysis' },
+    { url: 'https://www.stimson.org/feed/',                                               label: 'Stimson Center',     gnews: 'Stimson+Center+security' },
+    { url: 'https://www.cnas.org/feed',                                                   label: 'CNAS',               gnews: 'CNAS+national+security' },
+    { url: 'https://www.heritage.org/rss/latest-research.rss',                           label: 'Heritage Foundation',gnews: 'Heritage+Foundation+policy' },
+    { url: 'https://warontherocks.com/feed/',                                             label: 'War on the Rocks',   gnews: 'War+on+the+Rocks+defense' },
+    { url: 'https://thediplomat.com/feed/',                                               label: 'The Diplomat',       gnews: 'The+Diplomat+Asia+security' },
   ];
 
   // Fetch all think tanks in parallel (was sequential — up to 7 min if all blocked)
@@ -134,6 +134,18 @@ export async function fetchThinkTanks() {
           const data = await res.json();
           if (data.contents) items = parseRSS(data.contents).slice(0, 4);
         }
+      } catch {}
+    }
+
+    // Fallback 3: Google News RSS — indexes all major think tanks, runs on Google infra (never blocked)
+    if (items.length === 0 && feed.gnews) {
+      try {
+        const gnewsUrl = `https://news.google.com/rss/search?q=${feed.gnews}&hl=en-US&gl=US&ceid=US:en`;
+        const res = await fetch(gnewsUrl, {
+          headers: { 'User-Agent': 'Feedly/1.0 (+https://feedly.com/fetcher.html; like FeedFetcher-Google)' },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (res.ok) items = parseRSS(await res.text()).slice(0, 4);
       } catch {}
     }
 
