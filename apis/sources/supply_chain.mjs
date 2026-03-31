@@ -20,49 +20,53 @@ const COMMODITY_SYMBOLS = {
   '^BDI':  { name: 'Baltic Dry Index',   unit: 'pts',  impact: 'Global bulk shipping costs',              threshold: 5  },
 };
 
-// World Bank commodity indicators for critical minerals + precursors not on Yahoo Finance
-const WB_BASE = 'https://api.worldbank.org/v2/country/all/indicator';
-const WB_COMMODITIES = [
-  { id: 'PNICKUSDM', name: 'Nickel',           unit: '$/mt',    impact: 'EV batteries, stainless steel, armor plating',      threshold: 8  },
-  { id: 'PCOBAUSDM', name: 'Cobalt',            unit: '$/mt',    impact: 'Lithium-ion batteries, jet engines, superalloys',    threshold: 10 },
-  { id: 'PTINUSDM',  name: 'Tin',               unit: '$/mt',    impact: 'Electronics solder, aerospace components',           threshold: 8  },
-  { id: 'PZINCUSDM', name: 'Zinc',              unit: '$/mt',    impact: 'Brass casings, galvanizing, anti-corrosion',         threshold: 7  },
-  { id: 'PALMUSDM',  name: 'Aluminum',          unit: '$/mt',    impact: 'Aircraft, vehicles, missiles, packaging',            threshold: 6  },
-  { id: 'PUREA000',  name: 'Urea (AN proxy)',   unit: '$/mt',    impact: 'Ammonium nitrate precursor — ANFO, fertilizer bombs', threshold: 12 },
+// IMF Primary Commodity Prices — DataMapper API (free, no key required)
+// These codes are IMF codes, not World Bank codes (WB uses dot-notation like SP.POP.TOTL)
+const IMF_COMMODITIES = [
+  { id: 'PNICK',  name: 'Nickel',           unit: '$/mt',    impact: 'EV batteries, stainless steel, armor plating',      threshold: 8  },
+  { id: 'PCOBA',  name: 'Cobalt',            unit: '$/mt',    impact: 'Lithium-ion batteries, jet engines, superalloys',    threshold: 10 },
+  { id: 'PTIN',   name: 'Tin',               unit: '$/mt',    impact: 'Electronics solder, aerospace components',           threshold: 8  },
+  { id: 'PZINC',  name: 'Zinc',              unit: '$/mt',    impact: 'Brass casings, galvanizing, anti-corrosion',         threshold: 7  },
+  { id: 'PALUM',  name: 'Aluminum',          unit: '$/mt',    impact: 'Aircraft, vehicles, missiles, packaging',            threshold: 6  },
+  { id: 'PUREA',  name: 'Urea (AN proxy)',   unit: '$/mt',    impact: 'Ammonium nitrate precursor — ANFO, fertilizer bombs', threshold: 12 },
 ];
 
-// ── World Bank commodity price fetch (monthly, last 2 observations) ───────────
-async function fetchWorldBankCommodity(indicator) {
+// ── IMF Primary Commodity Prices fetch ───────────────────────────────────────
+async function fetchIMFCommodity(indicator) {
   try {
-    // Pink Sheet commodity prices — no country filter (WLD not supported for all indicators)
-    const url = `https://api.worldbank.org/v2/country/all/indicator/${indicator.id}?format=json&mrv=3&per_page=10`;
+    // IMF DataMapper API — returns annual average prices in USD
+    const url = `https://www.imf.org/external/datamapper/api/v1/${indicator.id}`;
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
+      headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
       signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) throw new Error(`WB API ${res.status}`);
+    if (!res.ok) throw new Error(`IMF API ${res.status}`);
     const data = await res.json();
-    const series = Array.isArray(data) ? data[1] : null;
-    if (!series || !series.length) return null;
 
-    const sorted = series.filter(d => d.value !== null).sort((a, b) => b.date.localeCompare(a.date));
-    if (sorted.length < 1) return null;
+    // Response: { values: { PNICK: { WLD: { "2022": 25626, "2023": 21403, "2024": 16835 } } } }
+    const series = data?.values?.[indicator.id]?.WLD;
+    if (!series) return null;
 
-    const latest = sorted[0];
-    const prev   = sorted[1] || null;
-    const pct    = prev?.value ? ((latest.value - prev.value) / prev.value) * 100 : 0;
+    const years = Object.keys(series).filter(y => series[y] != null).sort();
+    if (years.length < 1) return null;
+
+    const latestYear = years[years.length - 1];
+    const prevYear   = years[years.length - 2] || null;
+    const latest     = series[latestYear];
+    const prev       = prevYear ? series[prevYear] : null;
+    const pct        = prev ? ((latest - prev) / prev) * 100 : 0;
 
     return {
       symbol:    indicator.id,
       name:      indicator.name,
-      price:     Math.round(latest.value * 100) / 100,
-      prevValue: prev ? Math.round(prev.value * 100) / 100 : null,
+      price:     Math.round(latest * 100) / 100,
+      prevValue: prev ? Math.round(prev * 100) / 100 : null,
       changePct: Math.round(pct * 100) / 100,
       unit:      indicator.unit,
       impact:    indicator.impact,
-      period:    latest.date, // e.g. "2024M12"
+      period:    latestYear,
       alert:     Math.abs(pct) >= indicator.threshold,
-      source:    'World Bank',
+      source:    'IMF Commodities',
     };
   } catch {
     return null;
@@ -194,14 +198,15 @@ function deriveChokepoints(newsItems) {
 export async function briefing() {
   console.log('[Supply Chain] Fetching intelligence...');
 
-  // 1. Commodity prices (parallel) — Yahoo Finance + World Bank
-  const [yQuotes, wbQuotes] = await Promise.all([
+  // 1. Commodity prices (parallel) — Yahoo Finance + IMF Primary Commodity Prices
+  const [yQuotes, imfQuotes] = await Promise.all([
     Promise.allSettled(Object.keys(COMMODITY_SYMBOLS).map(s => fetchQuote(s)))
       .then(r => r.map(x => x.status === 'fulfilled' ? x.value : null).filter(Boolean)),
-    Promise.allSettled(WB_COMMODITIES.map(c => fetchWorldBankCommodity(c)))
+    Promise.allSettled(IMF_COMMODITIES.map(c => fetchIMFCommodity(c)))
       .then(r => r.map(x => x.status === 'fulfilled' ? x.value : null).filter(Boolean)),
   ]);
-  const quotes = [...yQuotes, ...wbQuotes];
+  const wbQuotes = imfQuotes; // keep variable name for downstream compatibility
+  const quotes = [...yQuotes, ...imfQuotes];
 
   // 2. Maritime + defense news (parallel)
   const feedResults = await Promise.allSettled(
@@ -277,7 +282,7 @@ export async function briefing() {
   alerts.push(...explosiveAlerts);
 
   const liveCount = quotes.filter(q => q.price > 0).length;
-  console.log(`[Supply Chain] ${liveCount} live commodity prices (${wbQuotes.length} WB) · ${allNews.length} supply news · ${explosiveNews.length} munitions · ${alerts.length} alerts`);
+  console.log(`[Supply Chain] ${liveCount} live commodity prices (${imfQuotes.length} IMF) · ${allNews.length} supply news · ${explosiveNews.length} munitions · ${alerts.length} alerts`);
 
   return {
     source:    'Supply Chain Intelligence',
