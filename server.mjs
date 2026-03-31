@@ -609,6 +609,18 @@ async function start() {
 
     setInterval(runSweepCycle, config.refreshIntervalMinutes * 60 * 1000);
 
+    // Self-ping every 4 minutes to prevent Render free tier from sleeping
+    if (process.env.RENDER || process.env.RENDER_EXTERNAL_URL) {
+      const selfUrl = process.env.RENDER_EXTERNAL_URL || `https://crucix-m4lt.onrender.com`;
+      setInterval(async () => {
+        try {
+          await fetch(`${selfUrl}/api/health`, { signal: AbortSignal.timeout(10000) });
+          console.log('[Crucix] Self-ping OK — keeping service awake');
+        } catch {}
+      }, 4 * 60 * 1000);
+      console.log('[Crucix] Self-ping enabled — service will stay awake 24/7');
+    }
+
     cron.schedule('0 7 * * *', async () => {
       console.log('[Crucix] Sending morning digest...');
       try { await sendMorningDigest(telegramAlerter, currentData); }
