@@ -70,31 +70,37 @@ export async function fetchCentralBanks() {
 export async function fetchThinkTanks() {
   const results = { updates: [], error: null };
   const feeds = [
-    { url: 'https://www.rand.org/news/press.xml',                             label: 'RAND' },
-    { url: 'https://www.chathamhouse.org/path/news-releases.xml',            label: 'Chatham House' },
-    { url: 'https://www.iiss.org/rss-feeds/iiss-analysis.xml',              label: 'IISS' },
-    { url: 'https://www.brookings.edu/feed/',                                label: 'Brookings' },
-    { url: 'https://carnegieendowment.org/rss/solr/articles?q=&lang=en',    label: 'Carnegie' },
-    { url: 'https://www.wilsoncenter.org/rss.xml',                           label: 'Wilson Center' },
-    { url: 'https://www.crisisgroup.org/rss.xml',                            label: 'Crisis Group' },
-    { url: 'https://www.sipri.org/rss/news',                                 label: 'SIPRI News' },
-    { url: 'https://www.atlanticcouncil.org/feed/',                          label: 'Atlantic Council' },
-    { url: 'https://www.csis.org/feed',                                      label: 'CSIS' },
-    { url: 'https://rusi.org/feed',                                          label: 'RUSI' },
-    { url: 'https://ecfr.eu/feed/',                                          label: 'ECFR' },
-    { url: 'https://www.bellingcat.com/feed/',                               label: 'Bellingcat' },
-    { url: 'https://www.hoover.org/feed',                                    label: 'Hoover Institution' },
-    { url: 'https://www.cfr.org/rss/publications',                           label: 'CFR' },
+    // RSS feed URLs — Feedly UA is whitelisted by most think tanks
+    { url: 'https://www.rand.org/news/press.xml',                                          label: 'RAND' },
+    { url: 'https://www.chathamhouse.org/path/news-releases.xml',                         label: 'Chatham House' },
+    { url: 'https://www.iiss.org/rss-feeds/iiss-analysis.xml',                           label: 'IISS' },
+    { url: 'https://www.brookings.edu/topic/international-relations/feed/',               label: 'Brookings' },
+    { url: 'https://carnegieendowment.org/rss/solr/articles?q=&lang=en',                 label: 'Carnegie' },
+    { url: 'https://www.wilsoncenter.org/publication/rss.xml',                            label: 'Wilson Center' },
+    { url: 'https://www.crisisgroup.org/rss.xml',                                         label: 'Crisis Group' },
+    { url: 'https://www.sipri.org/rss/news',                                              label: 'SIPRI News' },
+    { url: 'https://www.atlanticcouncil.org/feed/',                                       label: 'Atlantic Council' },
+    { url: 'https://www.csis.org/feed',                                                   label: 'CSIS' },
+    { url: 'https://rusi.org/feed',                                                       label: 'RUSI' },
+    { url: 'https://ecfr.eu/feed/',                                                       label: 'ECFR' },
+    { url: 'https://www.bellingcat.com/feed/',                                             label: 'Bellingcat' },
+    { url: 'https://www.hoover.org/feed',                                                  label: 'Hoover Institution' },
+    { url: 'https://www.cfr.org/rss/all',                                                 label: 'CFR' },
+    { url: 'https://www.stimson.org/feed/',                                               label: 'Stimson Center' },
+    { url: 'https://www.cnas.org/feed',                                                   label: 'CNAS' },
+    { url: 'https://www.heritage.org/rss/latest-research.rss',                           label: 'Heritage Foundation' },
+    { url: 'https://warontherocks.com/feed/',                                             label: 'War on the Rocks' },
+    { url: 'https://thediplomat.com/feed/',                                               label: 'The Diplomat' },
   ];
 
   // Fetch all think tanks in parallel (was sequential — up to 7 min if all blocked)
   const fetchFeed = async (feed) => {
     let items = [];
 
-    // Try direct fetch first
+    // Try direct fetch — Feedly UA is whitelisted by most think tanks as a legitimate RSS reader
     try {
       const res = await fetch(feed.url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' },
+        headers: { 'User-Agent': 'Feedly/1.0 (+https://feedly.com/fetcher.html; like FeedFetcher-Google)' },
         signal: AbortSignal.timeout(6000),
       });
       if (res.ok) items = parseRSS(await res.text());
