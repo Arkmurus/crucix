@@ -86,25 +86,24 @@ export async function fetchThinkTanks() {
     { url: 'https://www.cfr.org/rss/publications',                           label: 'CFR' },
   ];
 
-  for (const feed of feeds) {
+  // Fetch all think tanks in parallel (was sequential — up to 7 min if all blocked)
+  const fetchFeed = async (feed) => {
     let items = [];
 
     // Try direct fetch first
     try {
       const res = await fetch(feed.url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' },
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(6000),
       });
-      if (res.ok) {
-        items = parseRSS(await res.text());
-      }
+      if (res.ok) items = parseRSS(await res.text());
     } catch {}
 
     // Fallback 1: rss2json proxy
     if (items.length === 0) {
       try {
         const proxy = 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(feed.url);
-        const res   = await fetch(proxy, { signal: AbortSignal.timeout(10000) });
+        const res   = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
         if (res.ok) {
           const data = await res.json();
           if (data.status === 'ok' && data.items?.length > 0) {
@@ -119,11 +118,11 @@ export async function fetchThinkTanks() {
       } catch {}
     }
 
-    // Fallback 2: allorigins.win proxy (different IP pool from rss2json)
+    // Fallback 2: allorigins.win proxy
     if (items.length === 0) {
       try {
         const proxy = 'https://api.allorigins.win/get?url=' + encodeURIComponent(feed.url);
-        const res   = await fetch(proxy, { signal: AbortSignal.timeout(12000) });
+        const res   = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
         if (res.ok) {
           const data = await res.json();
           if (data.contents) items = parseRSS(data.contents).slice(0, 4);
@@ -131,11 +130,17 @@ export async function fetchThinkTanks() {
       } catch {}
     }
 
+    return { feed, items };
+  };
+
+  const feedResults = await Promise.allSettled(feeds.map(fetchFeed));
+  for (const r of feedResults) {
+    if (r.status !== 'fulfilled') continue;
+    const { feed, items } = r.value;
     if (items.length === 0) {
       console.warn(`[ThinkTanks] ${feed.label} failed: all attempts blocked`);
       continue;
     }
-
     for (const item of items.slice(0, 4)) {
       results.updates.push({ ...item, source: feed.label, type: 'think_tank' });
     }

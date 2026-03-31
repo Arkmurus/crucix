@@ -25,7 +25,6 @@ import { archiveRun, archiveRunWithEntities, analyzeTrends, formatTrendsForTeleg
 import { sendMorningDigest } from './lib/alerts/digest.mjs';
 import { fetchUNSecurityCouncil, fetchCentralBanks, fetchThinkTanks, fetchTradeFLows } from './apis/sources/intel-feeds.mjs';
 import { fetchOpenSanctions } from './apis/sources/opensanctions.mjs';
-import { fetchGDELT } from './apis/sources/gdelt.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -445,14 +444,13 @@ async function runSweepCycle() {
     const rawData = await fullBriefing();
 
     console.log('[Crucix] Fetching extended intelligence sources...');
-    const [unscData, centralBanksData, thinkTanksData, tradeData, opensanctionsData, gdeltData] =
+    const [unscData, centralBanksData, thinkTanksData, tradeData, opensanctionsData] =
       await Promise.allSettled([
         fetchUNSecurityCouncil(),
         fetchCentralBanks(),
         fetchThinkTanks(),
         fetchTradeFLows(),
         fetchOpenSanctions(),
-        fetchGDELT(),
       ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : null));
 
     rawData.unsc          = unscData;
@@ -460,7 +458,7 @@ async function runSweepCycle() {
     rawData.thinkTanks    = thinkTanksData;
     rawData.tradeFlows    = tradeData;
     rawData.opensanctions = opensanctionsData;
-    rawData.gdelt         = gdeltData;
+    // rawData.gdelt is already set by fullBriefing() — no duplicate call needed
 
     writeFileSync(join(RUNS_DIR, 'latest.json'), JSON.stringify(rawData, null, 2));
     lastSweepTime = new Date().toISOString();

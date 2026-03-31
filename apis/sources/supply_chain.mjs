@@ -34,8 +34,8 @@ const WB_COMMODITIES = [
 // ── World Bank commodity price fetch (monthly, last 2 observations) ───────────
 async function fetchWorldBankCommodity(indicator) {
   try {
-    // Commodity prices: WLD + source=89 (Pink Sheet database), no per-country
-    const url = `https://api.worldbank.org/v2/country/WLD/indicator/${indicator.id}?format=json&mrv=3&per_page=5&source=89`;
+    // Commodity prices: source=15 = Pink Sheet (monthly commodity prices)
+    const url = `https://api.worldbank.org/v2/country/WLD/indicator/${indicator.id}?format=json&mrv=5&per_page=5&source=15`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
       signal: AbortSignal.timeout(10000),
