@@ -583,11 +583,13 @@ async function start() {
     // Initialise dedup store — loads from Upstash Redis if configured, else file
     await initDedup();
 
-    const openCmd = process.platform === 'win32' ? 'cmd /c start ""' :
-                    process.platform === 'darwin' ? 'open' : 'xdg-open';
-    exec(`${openCmd} "http://localhost:${port}"`, (err) => {
-      if (err) console.log('[Crucix] Could not auto-open browser:', err.message);
-    });
+    // Only auto-open browser on desktop environments (not headless Linux servers)
+    if (process.platform !== 'linux' || process.env.DISPLAY) {
+      const openCmd = process.platform === 'win32' ? 'cmd /c start ""' : 'open';
+      exec(`${openCmd} "http://localhost:${port}"`, (err) => {
+        if (err) console.log('[Crucix] Could not auto-open browser:', err.message);
+      });
+    }
 
     try {
       const existing = JSON.parse(readFileSync(join(RUNS_DIR, 'latest.json'), 'utf8'));

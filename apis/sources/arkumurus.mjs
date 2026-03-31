@@ -36,6 +36,8 @@ export async function briefing() {
   };
 }
 
-// Run the test
-const result = await briefing();
-console.log(JSON.stringify(result, null, 2));
+// CLI test only — never runs when imported as a module
+if (process.argv[1]?.endsWith('arkumurus.mjs')) {
+  const result = await briefing();
+  console.log(JSON.stringify(result, null, 2));
+}
