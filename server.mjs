@@ -32,8 +32,8 @@ const ROOT = __dirname;
 const RUNS_DIR = join(ROOT, 'runs');
 const MEMORY_DIR = join(RUNS_DIR, 'memory');
 
-// Ensure directories exist
-for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold')]) {
+// Ensure directories exist (including logs for PM2)
+for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold'), join(RUNS_DIR, 'logs')]) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 

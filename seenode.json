@@ -7,8 +7,16 @@
   "start": {
     "command": "npm start"
   },
+  "restart": "always",
+  "healthCheck": {
+    "path": "/api/health",
+    "interval": 30,
+    "timeout": 10,
+    "unhealthyThreshold": 3
+  },
   "env": {
     "PORT": "3117",
-    "NODE_ENV": "production"
+    "NODE_ENV": "production",
+    "SELF_PING": "false"
   }
 }
