@@ -83,6 +83,7 @@ export async function fetchThinkTanks() {
     { url: 'https://rusi.org/feed',                                          label: 'RUSI' },
     { url: 'https://ecfr.eu/feed/',                                          label: 'ECFR' },
     { url: 'https://www.bellingcat.com/feed/',                               label: 'Bellingcat' },
+    { url: 'https://www.hoover.org/feed',                                    label: 'Hoover Institution' },
     { url: 'https://www.cfr.org/rss/publications',                           label: 'CFR' },
   ];
 
