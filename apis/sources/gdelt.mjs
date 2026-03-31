@@ -6,6 +6,7 @@
 
 const GDELT_DOC_API   = 'https://api.gdeltproject.org/api/v2/doc/doc';
 const GDELT_GEO_API   = 'https://api.gdeltproject.org/api/v2/geo/geo';
+const GDELT_GKG_V1    = 'https://api.gdeltproject.org/api/v1/gkg_geojson';
 
 // Cache: GDELT rate-limits at ~1 req/15min per IP on shared cloud. Cache 12 min.
 let _cache = null;
@@ -79,7 +80,6 @@ export async function fetchGDELT() {
       if (geoRes.ok) {
         const geoData = await geoRes.json();
         const points  = geoData.features || [];
-        // Top 5 geographic hotspots by article count
         const hotspots = points
           .sort((a, b) => (b.properties?.count || 0) - (a.properties?.count || 0))
           .slice(0, 5)
@@ -100,11 +100,55 @@ export async function fetchGDELT() {
     _cache = results;
     _cacheTime = Date.now();
   } catch (err) {
-    results.error = err.message;
-    console.error('[GDELT] Error:', err.message);
-    if (_cache) {
-      console.log('[GDELT] Using stale cache after error');
-      return _cache;
+    // v2 blocked — try v1 GKG GeoJSON (different endpoint, may not be rate-limited the same way)
+    try {
+      const v1Params = new URLSearchParams({
+        QUERY:   '(conflict OR military OR sanctions OR coup OR crisis)',
+        TIMESPAN: '1440',  // last 24h in minutes
+        MAXROWS:  '50',
+      });
+      const v1Res = await fetch(`${GDELT_GKG_V1}?${v1Params}`, {
+        headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (v1Res.ok) {
+        const v1Data = await v1Res.json();
+        const features = v1Data.features || [];
+        for (const f of features.slice(0, 20)) {
+          const props = f.properties || {};
+          const themes = (props.themes || '').split(';').filter(Boolean);
+          results.updates.push({
+            title:   props.names || props.locations || 'GDELT GKG Event',
+            url:     props.url || '',
+            source:  'GDELT GKG',
+            seenAt:  props.date || new Date().toISOString(),
+            tone:    parseFloat(props.tone) || 0,
+            country: props.locations || '',
+            themes,
+            type:    'gdelt_article',
+          });
+        }
+        // Also extract geographic hotspots from v1 features
+        results.signals = features.slice(0, 5).map(f => ({
+          name:  f.properties?.names || f.properties?.locations || 'Unknown',
+          count: 1,
+          lat:   f.geometry?.coordinates?.[1] || 0,
+          lon:   f.geometry?.coordinates?.[0] || 0,
+          type:  'gdelt_hotspot',
+        }));
+        console.log(`[GDELT] v1 fallback: ${results.updates.length} GKG events, ${results.signals.length} locations`);
+        _cache = results;
+        _cacheTime = Date.now();
+      } else {
+        throw new Error(`GDELT v1 ${v1Res.status}`);
+      }
+    } catch (v1Err) {
+      results.error = err.message;
+      console.error('[GDELT] Error:', err.message);
+      if (_cache) {
+        console.log('[GDELT] Using stale cache after error');
+        return _cache;
+      }
     }
   }
 
