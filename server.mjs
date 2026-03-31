@@ -609,16 +609,16 @@ async function start() {
 
     setInterval(runSweepCycle, config.refreshIntervalMinutes * 60 * 1000);
 
-    // Self-ping every 4 minutes to prevent Render free tier from sleeping
-    if (process.env.RENDER || process.env.RENDER_EXTERNAL_URL) {
-      const selfUrl = process.env.RENDER_EXTERNAL_URL || `https://crucix-m4lt.onrender.com`;
+    // Self-ping every 4 minutes — keeps free-tier hosts (Render etc.) awake.
+    // On paid/VPS hosts (Seenode etc.) this is harmless but not needed.
+    if (process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.SELF_PING === 'true') {
+      const selfUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}`;
       setInterval(async () => {
         try {
           await fetch(`${selfUrl}/api/health`, { signal: AbortSignal.timeout(10000) });
-          console.log('[Crucix] Self-ping OK — keeping service awake');
         } catch {}
       }, 4 * 60 * 1000);
-      console.log('[Crucix] Self-ping enabled — service will stay awake 24/7');
+      console.log('[Crucix] Self-ping enabled');
     }
 
     cron.schedule('0 7 * * *', async () => {
