@@ -71,7 +71,7 @@ export async function fetchThinkTanks() {
   const results = { updates: [], error: null };
   const feeds = [
     { url: 'https://www.rand.org/blog.xml',                                  label: 'RAND' },
-    { url: 'https://www.chathamhouse.org/rss.xml',                           label: 'Chatham House' },
+    { url: 'https://www.chathamhouse.org/path/news-releases.xml',            label: 'Chatham House' },
     { url: 'https://www.iiss.org/rss-feeds/iiss-analysis.xml',              label: 'IISS' },
     { url: 'https://www.brookings.edu/feed/',                                label: 'Brookings' },
     { url: 'https://carnegieendowment.org/rss/solr/articles?q=&lang=en',    label: 'Carnegie' },
