@@ -43,8 +43,14 @@ async function fetchIMFCommodity(indicator) {
     if (!res.ok) throw new Error(`IMF API ${res.status}`);
     const data = await res.json();
 
-    // Response: { values: { PNICK: { WLD: { "2022": 25626, "2023": 21403, "2024": 16835 } } } }
-    const series = data?.values?.[indicator.id]?.WLD;
+    // Response: { values: { PNICK: { WLD: { "2022": 25626 } } } }
+    // Country key varies — try WLD first, then W00, then first available key
+    const byIndicator = data?.values?.[indicator.id];
+    if (!byIndicator) {
+      console.warn(`[IMF] No data for ${indicator.id} — keys: ${JSON.stringify(Object.keys(data || {}))}`);
+      return null;
+    }
+    const series = byIndicator.WLD || byIndicator.W00 || byIndicator[Object.keys(byIndicator)[0]];
     if (!series) return null;
 
     const years = Object.keys(series).filter(y => series[y] != null).sort();
@@ -68,7 +74,8 @@ async function fetchIMFCommodity(indicator) {
       alert:     Math.abs(pct) >= indicator.threshold,
       source:    'IMF Commodities',
     };
-  } catch {
+  } catch (e) {
+    console.warn(`[IMF] ${indicator.id} failed: ${e.message}`);
     return null;
   }
 }
