@@ -108,7 +108,7 @@ export async function runSource(name, fn, ...args) {
 }
 
 export async function fullBriefing() {
-  console.error('[Crucix] Starting intelligence sweep — 36 sources...'); // Changed from 35 to 36
+  console.error('[Crucix] Starting intelligence sweep — 46 sources...');
   const start = Date.now();
 
   const allPromises = [
