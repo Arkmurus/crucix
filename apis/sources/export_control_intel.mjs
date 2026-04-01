@@ -27,33 +27,9 @@ const SOURCES = [
     type:   'atom',
     weight: 'critical',
   },
-  // EU Council — sanctions press releases (more reliable than EUR-Lex search RSS)
-  {
-    name:   'EU Council Sanctions',
-    url:    'https://www.consilium.europa.eu/en/press/press-releases/feed/?category=sanctions',
-    type:   'rss',
-    weight: 'high',
-  },
-  // EU Official Journal — L series (legislation, includes sanctions regulations)
-  {
-    name:   'EU Official Journal',
-    url:    'https://op.europa.eu/en/web/eu-law-and-publications/official-journal/-/publication-detail/rss',
-    type:   'rss',
-    weight: 'medium',
-  },
-  // OFAC/Treasury sanctions news via Reuters
-  {
-    name:   'Reuters World News',
-    url:    'https://feeds.reuters.com/reuters/worldNews',
-    type:   'rss',
-    weight: 'high',
-  },
-  {
-    name:   'Reuters Business News',
-    url:    'https://feeds.reuters.com/reuters/businessNews',
-    type:   'rss',
-    weight: 'medium',
-  },
+  // EU Council Sanctions (consilium.europa.eu) — consistently blocked on all proxies, removed.
+  // EU Official Journal (op.europa.eu) — consistently blocked on all proxies, removed.
+  // Reuters World/Business feeds — blocked by Render cloud IPs, removed.
   // UK sanctions via GOV.UK search API (JSON, more reliable than Atom)
   {
     name:   'UK FCDO Sanctions',

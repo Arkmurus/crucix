@@ -4,9 +4,8 @@
 // Free API: https://projectsapi.afdb.org
 // No API key required
 
-const AFDB_API          = 'https://projectsapi.afdb.org/ords/analytics/mbfs/projects';
-const AFDB_OPENDATA_API = 'https://opendata.afdb.org/api/explore/v2.1/catalog/datasets/african-development-bank-data-portal-project-operations/records?limit=100&offset=0';
-// IATI Datastore requires authentication (401) — removed
+// ORDS API (projectsapi.afdb.org) and OpenData portal consistently fail on cloud IPs — removed.
+// IATI Datastore requires authentication (401) — removed.
 const AFDB_NEWS_RSS     = 'https://www.afdb.org/en/rss/news-and-events';
 const AFDB_NEWS_RSS_ALT = 'https://www.afdb.org/en/rss.xml';
 const RSS2JSON          = 'https://api.rss2json.com/v1/api.json?rss_url=';
@@ -38,44 +37,10 @@ const CRITICAL_SECTORS = [
 ];
 
 async function fetchAfDBProjects() {
-  // Try primary ORDS API
-  try {
-    const res = await fetch(AFDB_API, {
-      headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(12000),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return data.items || data || [];
-    }
-  } catch {}
+  // ORDS API and OpenData portal consistently unreachable from cloud IPs — removed.
+  // Go straight to the RSS chain which reliably works via proxy.
 
-  // Fallback: AfDB OpenData portal (Opendatasoft)
-  try {
-    const res = await fetch(AFDB_OPENDATA_API, {
-      headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(12000),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const records = data.results || data.records || [];
-      // Normalize OpenData format to ORDS format
-      return records.map(r => {
-        const f = r.record?.fields || r.fields || r;
-        return {
-          country:       f.country_code || f.country || '',
-          country_name:  f.country_name || '',
-          project_name:  f.project_title || f.project_name || f.title || '',
-          sector:        f.sector || f.category || '',
-          status:        f.status || f.project_status || '',
-          ua_amount:     f.amount_ua || f.loan_amount || f.amount || 0,
-          approval_date: f.approval_date || f.date || '',
-        };
-      });
-    }
-  } catch {}
-
-  // Fallback: AfDB news RSS (try direct + rss2json proxy + alt URL)
+  // AfDB news RSS (direct → rss2json → alt URL → allorigins proxy)
   const rssAttempts = [
     () => fetch(AFDB_NEWS_RSS, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' }, signal: AbortSignal.timeout(10000) }),
     () => fetch(RSS2JSON + encodeURIComponent(AFDB_NEWS_RSS), { signal: AbortSignal.timeout(10000) }),

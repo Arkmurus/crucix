@@ -51,6 +51,9 @@ const DISRUPTION_KEYWORDS = [
 
 // ── IMF PortWatch: vessel call stats at critical ports ───────────────────────
 async function fetchPortWatch() {
+  // ArcGIS token required — endpoints disabled until a free alternative is configured.
+  if (PORTWATCH_APIS.length === 0) return [];
+
   const stats = [];
   const params = new URLSearchParams({
     where:          `portid IN ('${CRITICAL_PORTS.map(p => p.code).join("','")}')`,

@@ -4,12 +4,8 @@
 // Free — no API keys required
 
 const NVD_API              = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
-const RANSOMWARE_ENDPOINTS = [
-  'https://api.ransomware.live/v2/recentvictims',
-  'https://api.ransomware.live/recentvictims',
-  'https://api.ransomware.live/v1/recentvictims',
-];
-
+// ransomware.live is consistently unreachable from cloud IPs — removed.
+// ransomwatch (GitHub-hosted) is the sole reliable source.
 const RANSOMWATCH_URL = 'https://raw.githubusercontent.com/joshhighet/ransomwatch/main/posts.json';
 
 // Sectors where a ransomware hit is intelligence-relevant
@@ -79,96 +75,41 @@ async function fetchCriticalCVEs() {
   return updates;
 }
 
-// ── ransomware.live: Recent victims in priority sectors ──────────────────────
+// ── ransomwatch: Recent victims in priority sectors ───────────────────────────
 async function fetchRansomwareVictims() {
   const updates = [];
-  let victims = null;
-
-  for (const endpoint of RANSOMWARE_ENDPOINTS) {
-    try {
-      const res = await fetch(endpoint, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; CrucixIntelligence/1.0)',
-          'Accept':     'application/json',
-        },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (res.ok) { victims = await res.json(); break; }
-    } catch {}
-  }
-
   try {
-    if (!victims) throw new Error('ransomware.live unreachable');
-
-    for (const v of victims.slice(0, 50)) {
-      const victim  = v.victim || v.company || v.name || '';
-      const group   = v.group || v.ransomware_group || '';
-      const sector  = (v.activity || v.sector || v.industry || '').toLowerCase();
-      const country = v.country || v.nationality || '';
-      const date    = v.published || v.date || '';
-      const url     = v.website || '';
-
-      const isPriority = PRIORITY_SECTORS.some(s => sector.includes(s) || victim.toLowerCase().includes(s));
+    const res = await fetch(RANSOMWATCH_URL, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; CrucixIntelligence/1.0)',
+        'Accept':     'application/json',
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) throw new Error(`ransomwatch HTTP ${res.status}`);
+    const posts = await res.json();
+    for (const item of posts.slice(0, 200)) {
+      const postTitle = item.post_title || '';
+      const lower = postTitle.toLowerCase();
+      const isPriority = PRIORITY_SECTORS.some(s => lower.includes(s));
       if (!isPriority) continue;
-
       updates.push({
-        title:    `Ransomware: ${victim} (${group}) — ${sector}`,
-        victim,
-        group,
-        sector,
-        country,
-        date,
-        url:      url || 'https://ransomware.live',
-        source:   'ransomware.live',
+        title:    `Ransomware: ${postTitle} (${item.group_name || 'unknown'})`,
+        victim:   postTitle,
+        group:    item.group_name || '',
+        sector:   '',
+        country:  '',
+        date:     item.discovered || '',
+        url:      'https://github.com/joshhighet/ransomwatch',
+        source:   'ransomwatch',
         type:     'ransomware_victim',
-        priority: PRIORITY_SECTORS.slice(0, 8).some(s => sector.includes(s)) ? 'critical' : 'high',
+        priority: PRIORITY_SECTORS.slice(0, 8).some(s => lower.includes(s)) ? 'critical' : 'high',
       });
     }
-
-    console.log(`[Ransomware] ${updates.length} priority-sector victims`);
+    if (updates.length > 0) console.log(`[Ransomware] ${updates.length} priority-sector victims (ransomwatch)`);
   } catch (err) {
-    console.warn('[Ransomware] Fetch failed:', err.message);
+    console.warn('[Ransomware] ransomwatch failed:', err.message);
   }
-
-  // Fallback: ransomwatch GitHub (more reliable than ransomware.live)
-  if (updates.length === 0) {
-    try {
-      const res = await fetch(RANSOMWATCH_URL, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; CrucixIntelligence/1.0)',
-          'Accept':     'application/json',
-        },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (res.ok) {
-        const posts = await res.json();
-        for (const item of posts.slice(0, 200)) {
-          const postTitle = item.post_title || '';
-          const lower = postTitle.toLowerCase();
-          const isPriority = PRIORITY_SECTORS.some(s => lower.includes(s));
-          if (!isPriority) continue;
-          updates.push({
-            title:    `Ransomware: ${postTitle} (${item.group_name || 'unknown'})`,
-            victim:   postTitle,
-            group:    item.group_name || '',
-            sector:   '',
-            country:  '',
-            date:     item.discovered || '',
-            url:      'https://github.com/joshhighet/ransomwatch',
-            source:   'ransomwatch',
-            type:     'ransomware_victim',
-            priority: PRIORITY_SECTORS.slice(0, 8).some(s => lower.includes(s)) ? 'critical' : 'high',
-          });
-        }
-        if (updates.length > 0) {
-          console.log(`[Ransomware] ransomwatch fallback: ${updates.length} priority-sector victims`);
-        }
-      }
-    } catch (rwErr) {
-      console.warn('[Ransomware] ransomwatch fallback failed:', rwErr.message);
-    }
-  }
-
   return updates;
 }
 
