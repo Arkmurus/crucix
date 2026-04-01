@@ -456,48 +456,13 @@ app.get('/api/locales', (req, res) => {
 app.get('/api/search', async (req, res) => {
   const query = req.query.q;
   if (!query) return res.json({ error: 'No query provided' });
-  console.log(`[Search API] Searching for: ${query}`);
+  console.log(`[Search] "${query}"`);
   try {
-    let wikipedia = null;
-    try {
-      const wikiResponse = await fetch(
-        `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query.replace(/ /g, '_'))}`,
-        { headers: { 'User-Agent': 'Crucix/1.0' } }
-      );
-      if (wikiResponse.ok) wikipedia = await wikiResponse.json();
-    } catch (e) { console.log('Wikipedia error:', e.message); }
-
-    let duckduckgo = null;
-    try {
-      const ddgResponse = await fetch(
-        `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`,
-        { headers: { 'User-Agent': 'Crucix/1.0' } }
-      );
-      if (ddgResponse.ok) duckduckgo = await ddgResponse.json();
-    } catch (e) { console.log('DuckDuckGo error:', e.message); }
-
-    const verificationLinks = {
-      openCorporates: `https://opencorporates.com/companies?q=${encodeURIComponent(query)}`,
-      ofacSanctions: `https://sanctionssearch.ofac.treas.gov/Search.aspx?searchText=${encodeURIComponent(query)}`,
-      openSanctions: `https://www.opensanctions.org/search/?q=${encodeURIComponent(query)}`,
-      defenseNews: `https://www.defensenews.com/search/?q=${encodeURIComponent(query)}`,
-      googleSearch: `https://www.google.com/search?q=${encodeURIComponent(query)}+defense+contracts`,
-      secEdgar: `https://www.sec.gov/edgar/searchedgar/companysearch.html?q=${encodeURIComponent(query)}`,
-      sipriArms: `https://www.sipri.org/databases/armstransfers`,
-      companiesHouse: `https://find-and-update.company-information.service.gov.uk/search?q=${encodeURIComponent(query)}`
-    };
-
-    res.json({
-      success: true, query, timestamp: new Date().toISOString(),
-      wikipedia: wikipedia ? {
-        title: wikipedia.title, description: wikipedia.description,
-        extract: wikipedia.extract, url: wikipedia.content_urls?.desktop?.page
-      } : null,
-      duckduckgo: duckduckgo?.Abstract ? { abstract: duckduckgo.Abstract, url: duckduckgo.AbstractURL } : null,
-      verificationLinks
-    });
+    const { runSearch } = await import('./lib/search/engine.mjs');
+    const result = await runSearch(query, currentData);
+    res.json({ success: true, ...result });
   } catch (error) {
-    console.error('[Search API] Error:', error);
+    console.error('[Search] Error:', error);
     res.json({ success: false, error: error.message });
   }
 });

@@ -1,404 +1,339 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CRUCIX | Weapon Brokerage Intelligence Platform</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arkmurus Search — Crucix</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #0a0c10;
+  --bg2:      #0f1218;
+  --bg3:      #141820;
+  --border:   rgba(255,255,255,0.07);
+  --border2:  rgba(255,255,255,0.12);
+  --text:     #e8eaf0;
+  --text2:    #8b8f9e;
+  --text3:    #555a6b;
+  --red:      #e84545;
+  --amber:    #f0962a;
+  --blue:     #4a9eff;
+  --green:    #3ecf8e;
+  --gold:     #c9a84c;
+  --mono:     'JetBrains Mono', monospace;
+  --sans:     'Syne', sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:13px;min-height:100vh}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.03) 2px,rgba(0,0,0,0.03) 4px);pointer-events:none;z-index:1000}
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #0a0e1a 0%, #0c1222 100%);
-            color: #ffffff;
-            min-height: 100vh;
-        }
+/* HEADER */
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:0.5px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:100}
+.header-brand{display:flex;align-items:center;gap:10px}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+.brand-name{font-size:13px;font-weight:700;letter-spacing:0.12em;color:var(--text)}
+.brand-sub{font-size:10px;color:var(--text3);font-family:var(--mono)}
+.nav-links{display:flex;gap:16px;align-items:center}
+.nav-links a{font-family:var(--mono);font-size:10px;color:var(--text3);text-decoration:none;letter-spacing:0.06em;transition:color 0.2s}
+.nav-links a:hover{color:var(--green)}
 
-        /* Navigation */
-        .navbar {
-            background: rgba(10, 14, 26, 0.95);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(0, 255, 136, 0.15);
-            padding: 1rem 2rem;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
+/* SEARCH BAR */
+.search-section{max-width:860px;margin:40px auto 0;padding:0 20px}
+.search-title{font-family:var(--mono);font-size:10px;letter-spacing:0.12em;color:var(--text3);margin-bottom:14px;text-transform:uppercase}
+.search-form{display:flex;gap:8px}
+.search-input{flex:1;background:var(--bg2);border:0.5px solid var(--border2);border-radius:6px;padding:11px 14px;color:var(--text);font-family:var(--mono);font-size:13px;outline:none;transition:border-color 0.2s}
+.search-input::placeholder{color:var(--text3)}
+.search-input:focus{border-color:var(--green)}
+.search-btn{background:var(--green);color:var(--bg);border:none;border-radius:6px;padding:11px 20px;font-family:var(--mono);font-size:12px;font-weight:500;cursor:pointer;letter-spacing:0.06em;transition:opacity 0.2s;white-space:nowrap}
+.search-btn:hover{opacity:0.85}
+.search-btn:disabled{opacity:0.4;cursor:not-allowed}
 
-        .nav-container {
-            max-width: 1400px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+/* TABS */
+.tabs{display:flex;gap:4px;margin-top:20px;border-bottom:0.5px solid var(--border)}
+.tab{font-family:var(--mono);font-size:10px;letter-spacing:0.06em;padding:7px 14px;border:none;background:transparent;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:color 0.2s;position:relative;top:1px}
+.tab:hover{color:var(--text2)}
+.tab.active{color:var(--green);border-bottom-color:var(--green)}
+.tab-count{margin-left:5px;background:rgba(255,255,255,0.08);border-radius:3px;padding:1px 5px;font-size:9px}
+.tab.active .tab-count{background:rgba(62,207,142,0.15);color:var(--green)}
 
-        .logo {
-            font-size: 1.5rem;
-            font-weight: 800;
-            background: linear-gradient(135deg, #00ff88, #00ccff);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-        }
+/* RESULTS */
+.results-wrapper{max-width:860px;margin:0 auto;padding:16px 20px 40px}
 
-        .nav-links {
-            display: flex;
-            gap: 2rem;
-            align-items: center;
-        }
+.status-bar{font-family:var(--mono);font-size:10px;color:var(--text3);padding:8px 0;display:flex;align-items:center;gap:12px}
+.status-dot{width:5px;height:5px;border-radius:50%;background:var(--green);animation:blink 1.5s infinite}
 
-        .nav-links a {
-            color: #a0a0c0;
-            text-decoration: none;
-            font-weight: 500;
-            transition: color 0.3s;
-        }
+.results-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 
-        .nav-links a:hover {
-            color: #00ff88;
-        }
+.result-card{background:var(--bg2);border:0.5px solid var(--border);border-radius:6px;padding:12px 14px;transition:border-color 0.2s}
+.result-card:hover{border-color:var(--border2)}
+.result-card.intel{border-left:2px solid var(--amber)}
+.result-card.intel.critical{border-left-color:var(--red)}
+.result-card.intel.high{border-left-color:var(--amber)}
+.result-card.company{border-left:2px solid var(--blue)}
 
-        .status-badge {
-            background: rgba(0, 255, 136, 0.1);
-            border: 1px solid rgba(0, 255, 136, 0.3);
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: #00ff88;
-        }
+.rc-meta{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.rc-badge{font-family:var(--mono);font-size:9px;letter-spacing:0.06em;padding:2px 7px;border-radius:3px;border:0.5px solid}
+.badge-web    {color:var(--text2);border-color:var(--border2);background:rgba(255,255,255,0.04)}
+.badge-news   {color:var(--blue);border-color:rgba(74,158,255,0.3);background:rgba(74,158,255,0.08)}
+.badge-social {color:var(--amber);border-color:rgba(240,150,42,0.3);background:rgba(240,150,42,0.08)}
+.badge-intel  {color:var(--amber);border-color:rgba(240,150,42,0.3);background:rgba(240,150,42,0.08)}
+.badge-critical{color:var(--red);border-color:rgba(232,69,69,0.3);background:rgba(232,69,69,0.08)}
+.badge-company{color:var(--blue);border-color:rgba(74,158,255,0.3);background:rgba(74,158,255,0.08)}
+.badge-reference{color:var(--text2);border-color:var(--border2);background:rgba(255,255,255,0.04)}
+.rc-source{font-family:var(--mono);font-size:9px;color:var(--text3)}
+.rc-age{font-family:var(--mono);font-size:9px;color:var(--text3);margin-left:auto}
+.rc-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:5px;line-height:1.4}
+.rc-title a{color:var(--text);text-decoration:none}
+.rc-title a:hover{color:var(--green);text-decoration:underline}
+.rc-snippet{font-size:11px;color:var(--text2);line-height:1.6}
+.rc-footer{display:flex;align-items:center;gap:10px;margin-top:6px}
+.rc-url{font-family:var(--mono);font-size:9px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
+.rc-score{font-family:var(--mono);font-size:9px;color:var(--text3);margin-left:auto}
 
-        /* Hero Section */
-        .hero {
-            max-width: 1200px;
-            margin: 4rem auto;
-            padding: 0 2rem;
-            text-align: center;
-        }
+/* Empty / loading states */
+.state-empty{text-align:center;padding:40px 0;font-family:var(--mono);font-size:11px;color:var(--text3)}
+.state-loading{display:flex;align-items:center;justify-content:center;gap:8px;padding:40px 0;font-family:var(--mono);font-size:11px;color:var(--text3)}
+.spinner{width:14px;height:14px;border:1.5px solid var(--border2);border-top-color:var(--green);border-radius:50%;animation:spin 0.7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
-        .hero h1 {
-            font-size: 3.5rem;
-            font-weight: 800;
-            margin-bottom: 1rem;
-            background: linear-gradient(135deg, #ffffff, #00ff88);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-        }
+/* Verification sidebar toggle */
+.verify-row{max-width:860px;margin:0 auto;padding:0 20px}
+.verify-toggle{font-family:var(--mono);font-size:10px;color:var(--text3);cursor:pointer;display:flex;align-items:center;gap:6px;padding:6px 0;width:fit-content}
+.verify-toggle:hover{color:var(--text2)}
+.verify-toggle::before{content:'▶';font-size:8px;transition:transform 0.2s}
+.verify-toggle.open::before{transform:rotate(90deg)}
+.verify-links{display:none;flex-wrap:wrap;gap:6px;padding:8px 0}
+.verify-links.open{display:flex}
+.verify-link{font-family:var(--mono);font-size:10px;color:var(--blue);text-decoration:none;padding:4px 10px;border:0.5px solid rgba(74,158,255,0.25);border-radius:4px;transition:background 0.2s}
+.verify-link:hover{background:rgba(74,158,255,0.08)}
 
-        .hero p {
-            font-size: 1.2rem;
-            color: #a0a0c0;
-            max-width: 700px;
-            margin: 0 auto 2rem;
-            line-height: 1.6;
-        }
-
-        /* Stats Grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1.5rem;
-            max-width: 1000px;
-            margin: 3rem auto;
-            padding: 0 2rem;
-        }
-
-        .stat-card {
-            background: rgba(20, 25, 45, 0.6);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(0, 255, 136, 0.2);
-            border-radius: 12px;
-            padding: 1.5rem;
-            text-align: center;
-            transition: transform 0.3s, border-color 0.3s;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-5px);
-            border-color: rgba(0, 255, 136, 0.5);
-        }
-
-        .stat-value {
-            font-size: 2rem;
-            font-weight: 800;
-            color: #00ff88;
-        }
-
-        .stat-label {
-            font-size: 0.875rem;
-            color: #a0a0c0;
-            margin-top: 0.5rem;
-        }
-
-        /* Features Section */
-        .features {
-            max-width: 1200px;
-            margin: 4rem auto;
-            padding: 0 2rem;
-        }
-
-        .section-title {
-            font-size: 2rem;
-            font-weight: 700;
-            text-align: center;
-            margin-bottom: 3rem;
-            background: linear-gradient(135deg, #ffffff, #00ff88);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-        }
-
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-        }
-
-        .feature-card {
-            background: rgba(20, 25, 45, 0.6);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(0, 255, 136, 0.15);
-            border-radius: 12px;
-            padding: 2rem;
-            transition: all 0.3s;
-        }
-
-        .feature-card:hover {
-            border-color: rgba(0, 255, 136, 0.4);
-            transform: translateY(-5px);
-        }
-
-        .feature-icon {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-        }
-
-        .feature-card h3 {
-            font-size: 1.3rem;
-            margin-bottom: 0.75rem;
-            color: #00ff88;
-        }
-
-        .feature-card p {
-            color: #a0a0c0;
-            line-height: 1.6;
-        }
-
-        /* CTA Section */
-        .cta-section {
-            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 204, 255, 0.1));
-            border-radius: 24px;
-            padding: 3rem;
-            text-align: center;
-            margin: 4rem auto;
-            max-width: 900px;
-        }
-
-        .cta-section h2 {
-            font-size: 2rem;
-            margin-bottom: 1rem;
-        }
-
-        .cta-buttons {
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-            margin-top: 2rem;
-            flex-wrap: wrap;
-        }
-
-        .btn {
-            padding: 0.875rem 2rem;
-            border-radius: 8px;
-            font-weight: 600;
-            text-decoration: none;
-            transition: all 0.3s;
-            cursor: pointer;
-            border: none;
-            font-size: 1rem;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #00ff88, #00ccff);
-            color: #0a0e1a;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(0, 255, 136, 0.3);
-        }
-
-        .btn-secondary {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(0, 255, 136, 0.3);
-            color: #00ff88;
-        }
-
-        .btn-secondary:hover {
-            background: rgba(0, 255, 136, 0.1);
-            border-color: #00ff88;
-        }
-
-        /* Footer */
-        .footer {
-            border-top: 1px solid rgba(0, 255, 136, 0.1);
-            padding: 2rem;
-            text-align: center;
-            color: #606080;
-            font-size: 0.875rem;
-            margin-top: 4rem;
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .hero h1 {
-                font-size: 2rem;
-            }
-            
-            .nav-links {
-                display: none;
-            }
-            
-            .cta-section {
-                padding: 2rem;
-                margin: 2rem;
-            }
-        }
-    </style>
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+</style>
 </head>
 <body>
-    <nav class="navbar">
-        <div class="nav-container">
-            <div class="logo">CRUCIX</div>
-            <div class="nav-links">
-                <a href="/dashboard">Dashboard</a>
-                <a href="/search.html">Due Diligence</a>
-                <a href="#" id="telegramLink">Telegram Bot</a>
-                <span class="status-badge" id="systemStatus">● System Online</span>
-            </div>
-        </div>
-    </nav>
 
-    <div class="hero">
-        <h1>Weapon Brokerage Intelligence</h1>
-        <p>Real-time defense contracts, global arms trade data, and due diligence at your fingertips. Power your decisions with intelligence from 34+ sources.</p>
-        <div class="cta-buttons">
-            <a href="/dashboard" class="btn btn-primary">Launch Dashboard</a>
-            <a href="/search.html" class="btn btn-secondary">Company Search</a>
-        </div>
+<div class="header">
+  <div class="header-brand">
+    <div class="live-dot"></div>
+    <div>
+      <div class="brand-name">ARKMURUS</div>
+      <div class="brand-sub">INTELLIGENCE SEARCH</div>
     </div>
+  </div>
+  <div class="nav-links">
+    <a href="/dashboard">Dashboard</a>
+    <a href="/search.html" style="color:var(--green)">Search</a>
+  </div>
+</div>
 
-    <div class="stats-grid" id="statsGrid">
-        <div class="stat-card">
-            <div class="stat-value" id="sourcesCount">--</div>
-            <div class="stat-label">Active Intelligence Sources</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value" id="updatesCount">--</div>
-            <div class="stat-label">Updates Per Sweep</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value" id="signalsCount">--</div>
-            <div class="stat-label">Active Signals</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value" id="sweepTime">--</div>
-            <div class="stat-label">Sweep Duration</div>
-        </div>
+<div class="search-section">
+  <div class="search-title">Intel Search — Web · News · Social · Companies · Live Intel</div>
+  <div class="search-form">
+    <input id="searchInput" class="search-input" type="text" placeholder="Entity, company, country, event, person..." autocomplete="off" spellcheck="false">
+    <button id="searchBtn" class="search-btn" onclick="doSearch()">SEARCH</button>
+  </div>
+
+  <div class="tabs" id="tabs" style="display:none">
+    <button class="tab active" data-tab="all"       onclick="switchTab('all')">ALL       <span class="tab-count" id="cnt-all">0</span></button>
+    <button class="tab"        data-tab="intel"     onclick="switchTab('intel')">INTEL    <span class="tab-count" id="cnt-intel">0</span></button>
+    <button class="tab"        data-tab="news"      onclick="switchTab('news')">NEWS      <span class="tab-count" id="cnt-news">0</span></button>
+    <button class="tab"        data-tab="web"       onclick="switchTab('web')">WEB        <span class="tab-count" id="cnt-web">0</span></button>
+    <button class="tab"        data-tab="social"    onclick="switchTab('social')">SOCIAL  <span class="tab-count" id="cnt-social">0</span></button>
+    <button class="tab"        data-tab="companies" onclick="switchTab('companies')">CORPS <span class="tab-count" id="cnt-companies">0</span></button>
+    <button class="tab"        data-tab="reference" onclick="switchTab('reference')">REF   <span class="tab-count" id="cnt-reference">0</span></button>
+  </div>
+</div>
+
+<div class="results-wrapper">
+  <div id="statusBar" class="status-bar" style="display:none"></div>
+  <div id="resultsList" class="results-list"></div>
+</div>
+
+<div class="verify-row" id="verifyRow" style="display:none">
+  <div class="verify-toggle" id="verifyToggle" onclick="toggleVerify()">Manual Verification Links</div>
+  <div class="verify-links" id="verifyLinks"></div>
+</div>
+
+<script>
+let currentResults = null;
+let currentTab = 'all';
+
+const searchInput = document.getElementById('searchInput');
+const searchBtn   = document.getElementById('searchBtn');
+const resultsList = document.getElementById('resultsList');
+const statusBar   = document.getElementById('statusBar');
+const tabs        = document.getElementById('tabs');
+const verifyRow   = document.getElementById('verifyRow');
+
+// Submit on Enter
+searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+// Pre-fill from URL ?q=
+const urlQ = new URLSearchParams(location.search).get('q');
+if (urlQ) { searchInput.value = urlQ; doSearch(); }
+
+async function doSearch() {
+  const q = searchInput.value.trim();
+  if (!q) return;
+
+  // Update URL without reload
+  history.replaceState(null, '', `?q=${encodeURIComponent(q)}`);
+
+  searchBtn.disabled = true;
+  searchBtn.textContent = 'SEARCHING...';
+  resultsList.innerHTML = `<div class="state-loading"><div class="spinner"></div>Sweeping web, news, social media...</div>`;
+  statusBar.style.display = 'none';
+  tabs.style.display = 'none';
+  verifyRow.style.display = 'none';
+
+  try {
+    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Search failed');
+    currentResults = data;
+    currentTab = 'all';
+    renderResults(data);
+  } catch (e) {
+    resultsList.innerHTML = `<div class="state-empty">Search error: ${e.message}</div>`;
+  } finally {
+    searchBtn.disabled = false;
+    searchBtn.textContent = 'SEARCH';
+  }
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  if (currentResults) renderResults(currentResults);
+}
+
+function renderResults(data) {
+  const { results, totals, durationMs, query } = data;
+
+  // Counts
+  const total = Object.values(totals).reduce((a, b) => a + b, 0);
+  document.getElementById('cnt-all').textContent       = total;
+  document.getElementById('cnt-intel').textContent     = totals.intel || 0;
+  document.getElementById('cnt-news').textContent      = totals.news || 0;
+  document.getElementById('cnt-web').textContent       = totals.web || 0;
+  document.getElementById('cnt-social').textContent    = totals.social || 0;
+  document.getElementById('cnt-companies').textContent = totals.companies || 0;
+  document.getElementById('cnt-reference').textContent = totals.reference || 0;
+
+  tabs.style.display = 'flex';
+
+  // Status bar
+  statusBar.style.display = 'flex';
+  statusBar.innerHTML = `<span class="status-dot"></span><span>${total} results · ${Math.round(durationMs/100)/10}s · "${escHtml(query)}"</span>`;
+
+  // Which results to show
+  let items = [];
+  if (currentTab === 'all') {
+    // Merge: intel first, then news, then web, then social, then companies, then reference
+    const prioOrder = { critical: 0, high: 1 };
+    const intelSorted = [...(results.intel || [])].sort((a, b) => (prioOrder[a.priority] ?? 2) - (prioOrder[b.priority] ?? 2));
+    items = [
+      ...intelSorted,
+      ...(results.news      || []),
+      ...(results.web       || []),
+      ...(results.social    || []),
+      ...(results.companies || []),
+      ...(results.reference || []),
+    ];
+  } else {
+    items = results[currentTab] || [];
+  }
+
+  if (items.length === 0) {
+    resultsList.innerHTML = `<div class="state-empty">No results in this category for "${escHtml(query)}"</div>`;
+  } else {
+    resultsList.innerHTML = items.map(renderCard).join('');
+  }
+
+  // Verification links
+  verifyRow.style.display = 'block';
+  const q = encodeURIComponent(query);
+  document.getElementById('verifyLinks').innerHTML = [
+    ['OFAC Sanctions',    `https://sanctionssearch.ofac.treas.gov/Search.aspx?searchText=${q}`],
+    ['OpenSanctions',     `https://www.opensanctions.org/search/?q=${q}`],
+    ['OpenCorporates',    `https://opencorporates.com/companies?q=${q}`],
+    ['SEC EDGAR',         `https://efts.sec.gov/LATEST/search-index?q=${q}&dateRange=custom&startdt=2020-01-01`],
+    ['SIPRI Arms',        `https://www.sipri.org/databases/armstransfers`],
+    ['Defense News',      `https://www.defensenews.com/search/?q=${q}`],
+    ['Companies House',   `https://find-and-update.company-information.service.gov.uk/search?q=${q}`],
+    ['EU Sanctions',      `https://www.sanctionsmap.eu/#/main`],
+  ].map(([label, url]) => `<a class="verify-link" href="${url}" target="_blank" rel="noopener">${label}</a>`).join('');
+}
+
+function renderCard(item) {
+  const badgeClass = {
+    web:       'badge-web',
+    news:      'badge-news',
+    social:    'badge-social',
+    intel:     item.priority === 'critical' ? 'badge-critical' : 'badge-intel',
+    company:   'badge-company',
+    reference: 'badge-reference',
+  }[item.type] || 'badge-web';
+
+  const typeLabel = {
+    web: 'WEB', news: 'NEWS', social: item.source?.replace('Reddit · ','') || 'SOCIAL',
+    intel: item.source?.toUpperCase() || 'INTEL', company: 'CORP', reference: 'REF',
+  }[item.type] || item.type?.toUpperCase();
+
+  const cardClass = item.type === 'intel'
+    ? `result-card intel ${item.priority || ''}`
+    : item.type === 'company' ? 'result-card company' : 'result-card';
+
+  const titleHtml = item.url
+    ? `<a href="${escAttr(item.url)}" target="_blank" rel="noopener">${escHtml(item.title)}</a>`
+    : escHtml(item.title);
+
+  const age = item.pubDate ? relTime(item.pubDate) : (item.age || '');
+  const score = item.score ? `↑${item.score}` : (item.comments ? `💬${item.comments}` : '');
+  const urlDisplay = item.url ? new URL(item.url).hostname.replace('www.','') : '';
+
+  return `<div class="${cardClass}">
+    <div class="rc-meta">
+      <span class="rc-badge ${badgeClass}">${escHtml(typeLabel)}</span>
+      <span class="rc-source">${escHtml(item.source || '')}</span>
+      ${age ? `<span class="rc-age">${escHtml(age)}</span>` : ''}
     </div>
-
-    <div class="features">
-        <h2 class="section-title">Intelligence Capabilities</h2>
-        <div class="features-grid">
-            <div class="feature-card">
-                <div class="feature-icon">📋</div>
-                <h3>Defense Contracts</h3>
-                <p>Real-time weapons contracts, sales, and procurement programs. Track $B in defense spending globally.</p>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">🔫</div>
-                <h3>Arms Trade Data</h3>
-                <p>SIPRI data on global arms transfers, top exporters, importers, and market trends.</p>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">🔍</div>
-                <h3>Company Due Diligence</h3>
-                <p>Instant research on any defense contractor. Wikipedia, sanctions, financials, and more.</p>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">🛡️</div>
-                <h3>Sanctions Screening</h3>
-                <p>OFAC, EU, and UN sanctions lists. Compliance checks for potential partners.</p>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">📱</div>
-                <h3>Telegram Intelligence</h3>
-                <p>Mobile access to all intelligence via @ArkmurusIntelBot. Commands: /brief, /contracts, /search</p>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">🌍</div>
-                <h3>Conflict Monitoring</h3>
-                <p>ACLED conflict data, global events, and geopolitical risk assessment.</p>
-            </div>
-        </div>
+    <div class="rc-title">${titleHtml}</div>
+    ${item.snippet ? `<div class="rc-snippet">${escHtml(item.snippet)}</div>` : ''}
+    <div class="rc-footer">
+      ${urlDisplay ? `<span class="rc-url">${escHtml(urlDisplay)}</span>` : ''}
+      ${score ? `<span class="rc-score">${escHtml(String(score))}</span>` : ''}
     </div>
+  </div>`;
+}
 
-    <div class="cta-section">
-        <h2>Ready to Start?</h2>
-        <p>Access your intelligence dashboard or search any defense company in seconds.</p>
-        <div class="cta-buttons">
-            <a href="/dashboard" class="btn btn-primary">Open Dashboard</a>
-            <a href="/search.html" class="btn btn-secondary">Search Companies</a>
-        </div>
-        <div style="margin-top: 1.5rem; font-size: 0.875rem; color: #606080;">
-            📱 Telegram: @ArkmurusIntelBot | Commands: /brief, /contracts, /arms, /search [company]
-        </div>
-    </div>
+function toggleVerify() {
+  const toggle = document.getElementById('verifyToggle');
+  const links  = document.getElementById('verifyLinks');
+  toggle.classList.toggle('open');
+  links.classList.toggle('open');
+}
 
-    <div class="footer">
-        <p>CRUCIX Intelligence Platform | 34 Active Sources | Real-time Defense Intelligence</p>
-        <p style="margin-top: 0.5rem;">For informational purposes only. Not financial advice.</p>
-    </div>
+function relTime(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1)   return 'just now';
+  if (m < 60)  return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)  return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
 
-    <script>
-        async function fetchSystemStatus() {
-            try {
-                const response = await fetch('/api/health');
-                const data = await response.json();
-                
-                document.getElementById('sourcesCount').textContent = `${data.sourcesOk || 0}/${data.sourcesQueried || 34}`;
-                document.getElementById('sweepTime').textContent = data.lastSweep ? 'Active' : 'Starting';
-                document.getElementById('systemStatus').innerHTML = '● System Online';
-                document.getElementById('systemStatus').style.color = '#00ff88';
-                
-                // Fetch additional data from briefing
-                const briefResponse = await fetch('/api/data');
-                const briefData = await briefResponse.json();
-                if (briefData) {
-                    document.getElementById('updatesCount').textContent = briefData.newsFeed?.length || 0;
-                    document.getElementById('signalsCount').textContent = briefData.tSignals?.length || 0;
-                }
-            } catch (error) {
-                console.error('Status fetch failed:', error);
-                document.getElementById('systemStatus').innerHTML = '● Connecting...';
-                document.getElementById('systemStatus').style.color = '#ffaa00';
-            }
-        }
-        
-        fetchSystemStatus();
-        setInterval(fetchSystemStatus, 30000);
-        
-        document.getElementById('telegramLink').addEventListener('click', (e) => {
-            e.preventDefault();
-            window.open('https://t.me/ArkmurusIntelBot', '_blank');
-        });
-    </script>
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(s) {
+  return String(s || '').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+</script>
 </body>
 </html>

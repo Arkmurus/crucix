@@ -278,9 +278,11 @@ export async function briefing() {
   const commodityAlerts = quotes
     .filter(q => q.alert)
     .map(q => ({
-      type:    Math.abs(q.changePct) >= 10 ? 'critical' : 'high',
-      message: `${q.name} ${q.changePct > 0 ? '+' : ''}${q.changePct}% — ${q.impact}`,
-      source:  'Yahoo Finance',
+      type:     Math.abs(q.changePct) >= 10 ? 'critical' : 'high',
+      message:  `${q.name} ${q.changePct > 0 ? '+' : ''}${q.changePct}% — ${q.impact}`,
+      source:   'Yahoo Finance',
+      // Stable key: same commodity moving same direction = same story within 48h
+      dedupKey: `commodity:${q.name}:${q.changePct > 0 ? 'up' : 'down'}`,
     }));
 
   const chokepointAlerts = chokepoints
@@ -313,9 +315,10 @@ export async function briefing() {
   const explosiveAlerts = quotes
     .filter(q => q.alert && (q.name.includes('Urea') || q.name.includes('Nitro') || q.name.includes('Ammonium')))
     .map(q => ({
-      type: 'high',
-      message: `${q.name} ${q.changePct > 0 ? '+' : ''}${q.changePct}% — explosive precursor price movement`,
-      source: q.source || 'World Bank',
+      type:     'high',
+      message:  `${q.name} ${q.changePct > 0 ? '+' : ''}${q.changePct}% — explosive precursor price movement`,
+      source:   q.source || 'World Bank',
+      dedupKey: `commodity:${q.name}:${q.changePct > 0 ? 'up' : 'down'}`,
     }));
 
   if (explosiveNews.length > 0) {

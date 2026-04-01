@@ -1,90 +1,49 @@
-// Company Search Tool for Crucix
-// Usage: node search_company.mjs "Company Name"
+// search_company.mjs
+// CLI wrapper for the Crucix search engine
+// Usage: node search_company.mjs "Wagner Group Angola"
 
 import './apis/utils/env.mjs';
+import { runSearch } from './lib/search/engine.mjs';
 
-async function searchCompany(companyName) {
-  console.log(`\n🔍 Searching for: ${companyName}\n`);
-  console.log('='.repeat(60));
-  
-  // 1. Search OpenCorporates
-  console.log('\n📋 OPEN CORPORATES:');
-  try {
-    const ocResponse = await fetch(
-      `https://api.opencorporates.com/v0.4/companies/search?q=${encodeURIComponent(companyName)}&limit=5`,
-      { headers: { 'User-Agent': 'Crucix/1.0' } }
-    );
-    const ocData = await ocResponse.json();
-    
-    if (ocData.results?.companies?.length > 0) {
-      ocData.results.companies.forEach(company => {
-        console.log(`  • ${company.company.name} (${company.company.jurisdiction_code})`);
-        console.log(`    Registration: ${company.company.registration_number}`);
-        console.log(`    Status: ${company.company.current_status}`);
-        console.log(`    Incorporation: ${company.company.incorporation_date}`);
-      });
-    } else {
-      console.log('  No results found');
-    }
-  } catch (error) {
-    console.log(`  Error: ${error.message}`);
-  }
-  
-  // 2. Check Sanctions Lists
-  console.log('\n🛡️ SANCTIONS SCREENING:');
-  try {
-    const sanctionsResponse = await fetch(
-      `https://sanctions-tracker.com/api/search?q=${encodeURIComponent(companyName)}`,
-      { headers: { 'User-Agent': 'Crucix/1.0' } }
-    );
-    // Note: This is a placeholder - real sanctions API would be used
-    console.log('  Checking OFAC, EU, UN sanctions lists...');
-    console.log('  ✅ No sanctions found (manual verification recommended)');
-  } catch (error) {
-    console.log(`  ⚠️ Manual sanctions check required`);
-  }
-  
-  // 3. Search Defense News
-  console.log('\n📰 DEFENSE NEWS:');
-  try {
-    const newsResponse = await fetch(
-      `https://newsapi.org/v2/everything?q=${encodeURIComponent(companyName)}+defense+weapons&apiKey=${process.env.NEWSAPI_KEY}&pageSize=5`,
-      { headers: { 'User-Agent': 'Crucix/1.0' } }
-    );
-    const newsData = await newsResponse.json();
-    
-    if (newsData.articles?.length > 0) {
-      newsData.articles.forEach(article => {
-        console.log(`  • ${article.title}`);
-        console.log(`    ${article.url}`);
-      });
-    } else {
-      console.log('  No recent news found');
-    }
-  } catch (error) {
-    console.log(`  Error: ${error.message}`);
-  }
-  
-  // 4. Search SIPRI Arms Trade
-  console.log('\n🔫 SIPRI ARMS TRADE:');
-  console.log('  Checking arms transfer records...');
-  console.log('  Manual verification at: https://www.sipri.org/databases/armstransfers');
-  
-  console.log('\n' + '='.repeat(60));
-  console.log('\n✅ Search complete. For detailed due diligence:');
-  console.log('   • OpenCorporates: https://opencorporates.com/search?q=' + encodeURIComponent(companyName));
-  console.log('   • OFAC Sanctions: https://sanctionssearch.ofac.treas.gov/');
-  console.log('   • SIPRI: https://www.sipri.org/databases/armstransfers');
-  console.log('   • Defense News: https://www.defensenews.com/search/?q=' + encodeURIComponent(companyName));
-}
-
-// Get company name from command line
-const companyName = process.argv[2];
-
-if (!companyName) {
-  console.log('Usage: node search_company.mjs "Company Name"');
-  console.log('Example: node search_company.mjs "Lockheed Martin"');
+const query = process.argv.slice(2).join(' ');
+if (!query) {
+  console.log('Usage: node search_company.mjs "query"');
+  console.log('Example: node search_company.mjs "Wagner Group Angola"');
   process.exit(1);
 }
 
-await searchCompany(companyName);
+console.log(`\nSearching: ${query}\n${'='.repeat(60)}`);
+
+const result = await runSearch(query);
+const { results, totals, durationMs } = result;
+
+const total = Object.values(totals).reduce((a, b) => a + b, 0);
+console.log(`${total} results in ${durationMs}ms\n`);
+
+const sections = [
+  { key: 'intel',     label: 'LIVE INTEL' },
+  { key: 'news',      label: 'NEWS' },
+  { key: 'web',       label: 'WEB' },
+  { key: 'social',    label: 'SOCIAL (Reddit)' },
+  { key: 'companies', label: 'COMPANY REGISTRY' },
+  { key: 'reference', label: 'REFERENCE' },
+];
+
+for (const { key, label } of sections) {
+  const items = results[key] || [];
+  if (items.length === 0) continue;
+  console.log(`\n── ${label} (${items.length}) ${'─'.repeat(Math.max(0, 50 - label.length))}`);
+  for (const item of items) {
+    console.log(`\n  ${item.title}`);
+    if (item.snippet) console.log(`  ${item.snippet.substring(0, 180)}`);
+    if (item.url)     console.log(`  ${item.url}`);
+    if (item.pubDate) console.log(`  ${new Date(item.pubDate).toLocaleString()}`);
+  }
+}
+
+console.log(`\n${'='.repeat(60)}`);
+console.log('Manual verification:');
+const q = encodeURIComponent(query);
+console.log(`  OFAC:          https://sanctionssearch.ofac.treas.gov/Search.aspx?searchText=${q}`);
+console.log(`  OpenSanctions: https://www.opensanctions.org/search/?q=${q}`);
+console.log(`  SIPRI:         https://www.sipri.org/databases/armstransfers`);
