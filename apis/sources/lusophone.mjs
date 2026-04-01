@@ -275,6 +275,20 @@ async function fetchSource(src) {
     }
   } catch (e) {}
 
+  // Third proxy: allorigins.win
+  try {
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(src.url)}`, {
+      signal: AbortSignal.timeout(12000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.contents) {
+        const items = parseRSS(data.contents);
+        if (items.length > 0) return items;
+      }
+    }
+  } catch {}
+
   console.warn(`[Lusophone] ${src.name} failed: all attempts blocked`);
   return [];
 }

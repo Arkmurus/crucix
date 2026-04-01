@@ -17,6 +17,52 @@ const DATASET_LABELS = {
   au_dfat_sanctions:'DFAT (Australia)',
 };
 
+// Fallback: OFAC recent actions RSS (no API key needed)
+async function fetchSanctionsFallback() {
+  const sources = [
+    'https://home.treasury.gov/rss.xml',
+    'https://ofac.treasury.gov/rss.xml',
+  ];
+  for (const url of sources) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/rss+xml, application/xml, text/xml' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) continue;
+      const xml = await res.text();
+      const items = [];
+      const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+      let match;
+      while ((match = itemRegex.exec(xml)) !== null) {
+        const block = match[1];
+        const title = block.match(/<title[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title[^>]*>([\s\S]*?)<\/title>/i);
+        const link  = block.match(/<link>([\s\S]*?)<\/link>/i);
+        const date  = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
+        const t = (title?.[1] || title?.[2] || '').trim();
+        if (!t) continue;
+        const lower = t.toLowerCase();
+        if (!lower.includes('sanction') && !lower.includes('ofac') && !lower.includes('designat') && !lower.includes('blocked')) continue;
+        items.push({
+          name:       t,
+          id:         (link?.[1] || '').trim(),
+          schema:     'LegalEntity',
+          datasets:   ['us_ofac_sdn'],
+          lastChange: (date?.[1] || '').trim(),
+          topics:     [],
+          country:    '',
+          type:       'sanctions_entity',
+        });
+      }
+      if (items.length > 0) {
+        console.log(`[OpenSanctions] Fallback: ${items.length} OFAC items from Treasury RSS`);
+        return items;
+      }
+    } catch {}
+  }
+  return [];
+}
+
 export async function fetchOpenSanctions() {
   const results = { updates: [], recent: [], stats: {}, error: null };
   try {
@@ -37,7 +83,7 @@ export async function fetchOpenSanctions() {
       headers,
       signal: AbortSignal.timeout(15000),
     });
-    if (res.status === 402 || res.status === 401 || res.status === 403) {
+    if (res.status === 402 || res.status === 401 || res.status === 403 || res.status === 404) {
       results.error = 'OpenSanctions requires a free API key — register at https://www.opensanctions.org/api/ and set OPENSANCTIONS_API_KEY env var';
       console.warn('[OpenSanctions] API key required (402/401/403). Register free at opensanctions.org');
       return results;
@@ -89,6 +135,14 @@ export async function fetchOpenSanctions() {
   } catch (err) {
     results.error = err.message;
     console.error('[OpenSanctions] Error:', err.message);
+    // Fallback to OFAC Treasury RSS
+    try {
+      const fallback = await fetchSanctionsFallback();
+      if (fallback.length > 0) {
+        results.updates = fallback;
+        results.error = null;
+      }
+    } catch {}
   }
   return results;
 }

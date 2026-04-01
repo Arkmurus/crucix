@@ -595,9 +595,9 @@ async function start() {
       currentData = data;
       console.log('[Crucix] Loaded existing data from runs/latest.json — dashboard ready instantly');
       broadcast({ type: 'update', data: currentData });
-      if (telegramAlerter && telegramAlerter.isConfigured) {
-        await telegramAlerter.onSweepComplete(currentData);
-      }
+      // NOTE: do NOT call onSweepComplete here with stale latest.json data.
+      // The initial runSweepCycle() below will fetch fresh data and trigger
+      // alerts via onSweepComplete — preventing repeated sends of old signals.
     } catch {
       console.log('[Crucix] No existing data found — first sweep required');
     }

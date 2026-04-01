@@ -43,10 +43,16 @@ const SOURCES = [
   },
   // OFAC/Treasury sanctions news via Reuters
   {
-    name:   'Reuters Sanctions News',
-    url:    'https://feeds.reuters.com/reuters/businessNews',
+    name:   'Reuters World News',
+    url:    'https://feeds.reuters.com/reuters/worldNews',
     type:   'rss',
     weight: 'high',
+  },
+  {
+    name:   'Reuters Business News',
+    url:    'https://feeds.reuters.com/reuters/businessNews',
+    type:   'rss',
+    weight: 'medium',
   },
   // UK sanctions via GOV.UK search API (JSON, more reliable than Atom)
   {
@@ -243,6 +249,20 @@ async function fetchSource(src) {
           description: (i.description || i.content || '').replace(/<[^>]+>/g, '').substring(0, 300),
           pubDate:     i.pubDate || new Date().toISOString(),
         }));
+      }
+    }
+  } catch {}
+
+  // Second proxy fallback: allorigins.win
+  try {
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(src.url)}`, {
+      signal: AbortSignal.timeout(12000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.contents) {
+        const items = src.type === 'atom' ? parseAtom(data.contents) : parseRSS(data.contents);
+        if (items.length > 0) return items;
       }
     }
   } catch {}

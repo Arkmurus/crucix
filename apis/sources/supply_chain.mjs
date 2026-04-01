@@ -35,6 +35,7 @@ const IMF_COMMODITIES = [
 async function fetchIMFCommodity(indicator) {
   try {
     // IMF DataMapper API — returns annual average prices in USD
+    // Try v1 first, then v2 if needed
     const url = `https://www.imf.org/external/datamapper/api/v1/${indicator.id}`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
@@ -51,7 +52,10 @@ async function fetchIMFCommodity(indicator) {
       return null;
     }
     const series = byIndicator.WLD || byIndicator.W00 || byIndicator[Object.keys(byIndicator)[0]];
-    if (!series) return null;
+    if (!series) {
+      console.warn(`[IMF] ${indicator.id}: no series found — available keys: ${JSON.stringify(Object.keys(byIndicator))}`);
+      return null;
+    }
 
     const years = Object.keys(series).filter(y => series[y] != null).sort();
     if (years.length < 1) return null;
@@ -75,6 +79,43 @@ async function fetchIMFCommodity(indicator) {
       source:    'IMF Commodities',
     };
   } catch (e) {
+    // Try v2 API as fallback
+    try {
+      const url2 = `https://www.imf.org/external/datamapper/api/v2/${indicator.id}`;
+      const res2 = await fetch(url2, {
+        headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res2.ok) {
+        const data2 = await res2.json();
+        const byInd2 = data2?.values?.[indicator.id] || data2?.values?.[indicator.id.toLowerCase()];
+        if (byInd2) {
+          const series2 = byInd2.WLD || byInd2.W00 || byInd2[Object.keys(byInd2)[0]];
+          if (series2) {
+            const years2 = Object.keys(series2).filter(y => series2[y] != null).sort();
+            if (years2.length > 0) {
+              const latestYear2 = years2[years2.length - 1];
+              const prevYear2   = years2[years2.length - 2] || null;
+              const latest2     = series2[latestYear2];
+              const prev2       = prevYear2 ? series2[prevYear2] : null;
+              const pct2        = prev2 ? ((latest2 - prev2) / prev2) * 100 : 0;
+              return {
+                symbol:    indicator.id,
+                name:      indicator.name,
+                price:     Math.round(latest2 * 100) / 100,
+                prevValue: prev2 ? Math.round(prev2 * 100) / 100 : null,
+                changePct: Math.round(pct2 * 100) / 100,
+                unit:      indicator.unit,
+                impact:    indicator.impact,
+                period:    latestYear2,
+                alert:     Math.abs(pct2) >= indicator.threshold,
+                source:    'IMF Commodities',
+              };
+            }
+          }
+        }
+      }
+    } catch {}
     console.warn(`[IMF] ${indicator.id} failed: ${e.message}`);
     return null;
   }

@@ -10,6 +10,8 @@ const RANSOMWARE_ENDPOINTS = [
   'https://api.ransomware.live/v1/recentvictims',
 ];
 
+const RANSOMWATCH_URL = 'https://raw.githubusercontent.com/joshhighet/ransomwatch/main/posts.json';
+
 // Sectors where a ransomware hit is intelligence-relevant
 const PRIORITY_SECTORS = [
   'defense', 'government', 'energy', 'utilities', 'critical infrastructure',
@@ -127,6 +129,46 @@ async function fetchRansomwareVictims() {
   } catch (err) {
     console.warn('[Ransomware] Fetch failed:', err.message);
   }
+
+  // Fallback: ransomwatch GitHub (more reliable than ransomware.live)
+  if (updates.length === 0) {
+    try {
+      const res = await fetch(RANSOMWATCH_URL, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; CrucixIntelligence/1.0)',
+          'Accept':     'application/json',
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        const posts = await res.json();
+        for (const item of posts.slice(0, 200)) {
+          const postTitle = item.post_title || '';
+          const lower = postTitle.toLowerCase();
+          const isPriority = PRIORITY_SECTORS.some(s => lower.includes(s));
+          if (!isPriority) continue;
+          updates.push({
+            title:    `Ransomware: ${postTitle} (${item.group_name || 'unknown'})`,
+            victim:   postTitle,
+            group:    item.group_name || '',
+            sector:   '',
+            country:  '',
+            date:     item.discovered || '',
+            url:      'https://github.com/joshhighet/ransomwatch',
+            source:   'ransomwatch',
+            type:     'ransomware_victim',
+            priority: PRIORITY_SECTORS.slice(0, 8).some(s => lower.includes(s)) ? 'critical' : 'high',
+          });
+        }
+        if (updates.length > 0) {
+          console.log(`[Ransomware] ransomwatch fallback: ${updates.length} priority-sector victims`);
+        }
+      }
+    } catch (rwErr) {
+      console.warn('[Ransomware] ransomwatch fallback failed:', rwErr.message);
+    }
+  }
+
   return updates;
 }
 

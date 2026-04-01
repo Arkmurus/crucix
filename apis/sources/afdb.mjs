@@ -8,6 +8,7 @@ const AFDB_API          = 'https://projectsapi.afdb.org/ords/analytics/mbfs/proj
 const AFDB_OPENDATA_API = 'https://opendata.afdb.org/api/explore/v2.1/catalog/datasets/african-development-bank-data-portal-project-operations/records?limit=100&offset=0';
 // IATI Datastore requires authentication (401) — removed
 const AFDB_NEWS_RSS     = 'https://www.afdb.org/en/rss/news-and-events';
+const AFDB_NEWS_RSS_ALT = 'https://www.afdb.org/en/rss.xml';
 const RSS2JSON          = 'https://api.rss2json.com/v1/api.json?rss_url=';
 
 // Countries of primary interest (ISO2 codes)
@@ -74,24 +75,47 @@ async function fetchAfDBProjects() {
     }
   } catch {}
 
-  // Fallback: AfDB news RSS via rss2json proxy
-  try {
-    const res = await fetch(RSS2JSON + encodeURIComponent(AFDB_NEWS_RSS), { signal: AbortSignal.timeout(10000) });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.status === 'ok' && data.items?.length) {
-        return data.items.slice(0, 10).map(i => ({
-          project_name: i.title || '',
-          country:      'AF',
-          country_name: 'Africa (Multi-country)',
-          sector:       'news',
-          status:       'active',
-          ua_amount:    0,
-          approval_date: i.pubDate || '',
+  // Fallback: AfDB news RSS (try direct + rss2json proxy + alt URL)
+  const rssAttempts = [
+    () => fetch(AFDB_NEWS_RSS, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' }, signal: AbortSignal.timeout(10000) }),
+    () => fetch(RSS2JSON + encodeURIComponent(AFDB_NEWS_RSS), { signal: AbortSignal.timeout(10000) }),
+    () => fetch(RSS2JSON + encodeURIComponent(AFDB_NEWS_RSS_ALT), { signal: AbortSignal.timeout(10000) }),
+  ];
+  for (const attempt of rssAttempts) {
+    try {
+      const res = await attempt();
+      if (!res.ok) continue;
+      const text = await res.text();
+      // Handle both direct XML and rss2json JSON
+      let items = [];
+      if (text.trim().startsWith('{')) {
+        const data = JSON.parse(text);
+        if (data.status === 'ok' && data.items?.length) {
+          items = data.items.map(i => ({ title: i.title || '', pubDate: i.pubDate || '' }));
+        }
+      } else if (text.includes('<item>')) {
+        const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+        let m;
+        while ((m = itemRegex.exec(text)) !== null) {
+          const block = m[1];
+          const title = block.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+          const date  = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
+          items.push({ title: (title?.[1] || '').replace(/<!\[CDATA\[|\]\]>/g, '').trim(), pubDate: date?.[1] || '' });
+        }
+      }
+      if (items.length > 0) {
+        return items.slice(0, 10).map(i => ({
+          project_name:  i.title,
+          country:       'AF',
+          country_name:  'Africa (Multi-country)',
+          sector:        'news',
+          status:        'active',
+          ua_amount:     0,
+          approval_date: i.pubDate,
         }));
       }
-    }
-  } catch {}
+    } catch {}
+  }
 
   throw new Error('All AfDB endpoints unreachable');
 }
