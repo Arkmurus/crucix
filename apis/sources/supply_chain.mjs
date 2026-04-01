@@ -274,17 +274,9 @@ export async function briefing() {
   // 3. Derive chokepoint risk from live news
   const chokepoints = deriveChokepoints(allNews);
 
-  // 4. Build commodity alerts
-  const commodityAlerts = quotes
-    .filter(q => q.alert)
-    .map(q => ({
-      type:     Math.abs(q.changePct) >= 10 ? 'critical' : 'high',
-      message:  `${q.name} ${q.changePct > 0 ? '+' : ''}${q.changePct}% — ${q.impact}`,
-      source:   'Yahoo Finance',
-      // Stable key: same commodity moving same direction = same story within 48h
-      dedupKey: `commodity:${q.name}:${q.changePct > 0 ? 'up' : 'down'}`,
-    }));
-
+  // 4. Build alerts — chokepoints only (commodity prices are display-only in /supply)
+  // Yahoo Finance commodity alerts are intentionally excluded from the alerts array
+  // so they never appear in push notifications regardless of alerter version.
   const chokepointAlerts = chokepoints
     .filter(c => c.severity === 'critical' || c.severity === 'high')
     .map(c => ({
@@ -293,7 +285,7 @@ export async function briefing() {
       source:  'Maritime Intelligence',
     }));
 
-  const alerts = [...commodityAlerts, ...chokepointAlerts];
+  const alerts = [...chokepointAlerts];
 
   // 5. Build updates from live news
   const updates = allNews.slice(0, 15).map(n => ({
@@ -305,9 +297,8 @@ export async function briefing() {
     priority:  SUPPLY_KEYWORDS.slice(0, 5).some(kw => n.title.toLowerCase().includes(kw)) ? 'high' : 'normal',
   }));
 
-  // 6. Build signals
+  // 6. Build signals — chokepoints only (commodity prices shown in rawMaterials)
   const signals = [
-    ...commodityAlerts.map(a => a.message),
     ...chokepointAlerts.map(a => `${a.type === 'critical' ? '🚨' : '⚠️'} ${a.message}`),
   ];
 
