@@ -17,6 +17,6 @@
   "env": {
     "PORT": "3117",
     "NODE_ENV": "production",
-    "SELF_PING": "false"
+    "SELF_PING": "true"
   }
 }
