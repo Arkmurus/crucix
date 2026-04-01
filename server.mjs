@@ -108,39 +108,7 @@ if (telegramAlerter.isConfigured) {
     return '🚀 Manual sweep triggered. You\'ll receive alerts if anything significant is detected.';
   });
 
-  telegramAlerter.onCommand('/brief', async () => {
-    if (!currentData) return '⏳ No data yet — waiting for first sweep to complete.';
-    const tg = currentData.tg || {};
-    const energy = currentData.energy || {};
-    const delta = memory.getLastDelta();
-    const ideas = (currentData.ideas || []).slice(0, 3);
-    const sections = [
-      `📋 *CRUCIX BRIEF*`,
-      `_${new Date().toISOString().replace('T', ' ').substring(0, 19)} UTC_`, ``,
-    ];
-    if (delta?.summary) {
-      const dirEmoji = { 'risk-off': '📉', 'risk-on': '📈', 'mixed': '↔️' }[delta.summary.direction] || '↔️';
-      sections.push(`${dirEmoji} Direction: *${delta.summary.direction.toUpperCase()}* | ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical`);
-      sections.push('');
-    }
-    const vix = currentData.fred?.find(f => f.id === 'VIXCLS');
-    const hy = currentData.fred?.find(f => f.id === 'BAMLH0A0HYM2');
-    if (vix || energy.wti) {
-      sections.push(`📊 VIX: ${vix?.value || '--'} | WTI: $${energy.wti || '--'} | Brent: $${energy.brent || '--'}`);
-      if (hy) sections.push(`   HY Spread: ${hy.value} | NatGas: $${energy.natgas || '--'}`);
-      sections.push('');
-    }
-    if (tg.urgent?.length > 0) {
-      sections.push(`📡 OSINT: ${tg.urgent.length} urgent signals, ${tg.posts || 0} total posts`);
-      for (const p of tg.urgent.slice(0, 2)) sections.push(`  • ${(p.text || '').substring(0, 80)}`);
-      sections.push('');
-    }
-    if (ideas.length > 0) {
-      sections.push(`💡 *Top Ideas:*`);
-      for (const idea of ideas) sections.push(`  ${idea.type === 'long' ? '📈' : idea.type === 'hedge' ? '🛡️' : '👁️'} ${idea.title}`);
-    }
-    return sections.join('\n');
-  });
+  // /brief handled by telegram.mjs _handleBrief() — 8-section BRIEFING_PROMPT.md format
 
   telegramAlerter.onCommand('/portfolio', async () => {
     return '📊 Portfolio integration requires Alpaca MCP connection.\nUse the Crucix dashboard or Claude agent for portfolio queries.';
