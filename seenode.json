@@ -2,7 +2,7 @@
   "name": "crucix-intelligence",
   "type": "web",
   "build": {
-    "command": "npm install"
+    "command": "npm install && node sync.mjs"
   },
   "start": {
     "command": "npm start"
