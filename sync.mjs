@@ -12,6 +12,8 @@ const FILES = [
   'server.mjs',
   'lib/alerts/telegram.mjs',
   'lib/intel/dedup.mjs',
+  'lib/intel/oem_db.mjs',
+  'lib/search/engine.mjs',
   'apis/sources/afdb.mjs',
   'apis/sources/cyber_threats.mjs',
   'apis/sources/export_control_intel.mjs',
