@@ -72,6 +72,159 @@ const memory = new MemoryManager(RUNS_DIR);
 // === LLM + Telegram + Discord ===
 const llmProvider = createLLMProvider(config.llm);
 const telegramAlerter = new TelegramAlerter(config.telegram);
+
+// MONKEY-PATCH: Override _handleBrief on the instance to guarantee the 8-section
+// ARKMURUS format even if Seenode's persistent volume has an older telegram.mjs loaded.
+// The old telegram.mjs has `handlers = { '/brief': () => this._handleBrief() }` which
+// calls this method on the instance — patching here wins regardless of prototype version.
+telegramAlerter._handleBrief = async function() {
+  console.log('[Telegram] _handleBrief() called — server.mjs monkey-patch ARKMURUS 8-section');
+  try {
+    const data = await this._getCachedData();
+    if (!data) return `⏳ Intelligence data is loading — please try again in 60 seconds.`;
+
+    const ts  = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const ds  = data.delta?.summary || {};
+    const dir = ds.direction;
+    const vix = data.fred?.find(f => f.id === 'VIXCLS');
+    const oil = data.energy || {};
+    const corrs = data.correlations || [];
+    const critCorrs = corrs.filter(c => c.severity === 'critical' || c.severity === 'high');
+
+    let msg = `*ARKMURUS INTELLIGENCE BRIEF*\n_${ts} UTC_\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+    // ── 1. LEVERAGEABLE IDEAS ─────────────────────────────────────────────────
+    const ideas = data.ideas || [];
+    if (ideas.length > 0) {
+      msg += `*1. LEVERAGEABLE IDEAS*\n`;
+      for (const idea of ideas.slice(0, 3)) {
+        const thesis     = idea.thesis || idea.title || idea.text || String(idea);
+        const instrument = idea.instrument || idea.sector || '';
+        const horizon    = idea.horizon || idea.timeHorizon || '';
+        const conf       = idea.confidence || '';
+        const catalyst   = idea.catalyst || idea.catalysts?.[0] || '';
+        msg += `▸ *${thesis.substring(0, 120)}*\n`;
+        if (instrument) msg += `  Instrument: ${instrument}`;
+        if (horizon)    msg += ` · Horizon: ${horizon}`;
+        if (conf)       msg += ` · Confidence: ${conf}`;
+        msg += `\n`;
+        if (catalyst)   msg += `  Catalyst: ${catalyst.toString().substring(0, 100)}\n`;
+        msg += `\n`;
+      }
+      if (ideas.length > 3) msg += `_+ ${ideas.length - 3} more ideas in /full_\n\n`;
+    } else {
+      const topCorr  = critCorrs[0];
+      const topAlert = (data.supplyChain?.metrics?.alerts || []).find(a => a.type === 'critical');
+      if (topCorr || topAlert) {
+        msg += `*1. LEVERAGEABLE IDEAS*\n`;
+        if (topCorr) {
+          msg += `▸ *${topCorr.region} — multi-source ${topCorr.severity} signal*\n`;
+          msg += `  Monitor exposure to ${topCorr.region} counterparties and contracts.\n`;
+          msg += `  Horizon: 24–72h · Catalyst: ${topCorr.topSignals?.[0]?.text?.substring(0, 80) || 'see /full'}\n\n`;
+        }
+        if (topAlert) {
+          msg += `▸ *Supply chain stress: ${topAlert.message?.substring(0, 100)}*\n`;
+          msg += `  Review procurement timelines and alternative sourcing.\n\n`;
+        }
+        msg += `_Enable LLM (ANTHROPIC_API_KEY) for full trade ideas with instruments and invalidation criteria._\n\n`;
+      }
+    }
+
+    // ── 2. EXECUTIVE THESIS ───────────────────────────────────────────────────
+    msg += `*2. EXECUTIVE THESIS*\n`;
+    const dirLine = dir === 'risk-off' ? '📉 Risk-off — global stress indicators elevated'
+                  : dir === 'risk-on'  ? '📈 Risk-on — conditions broadly constructive'
+                  : '↔️ Mixed signals — no dominant regime forming yet';
+    msg += `${dirLine}.\n`;
+    if (critCorrs.length > 0) {
+      const regions = critCorrs.slice(0, 3).map(c => c.region).join(', ');
+      msg += `Concurrent stress across *${regions}* suggests coordinated pressure, not isolated events.\n`;
+    }
+    if (ds.criticalChanges > 0) {
+      msg += `*${ds.criticalChanges}* indicators crossed critical thresholds this sweep.\n`;
+    }
+    if (vix?.value > 25) {
+      msg += `VIX at *${vix.value}* confirms elevated market anxiety — reduce leverage on new positions.\n`;
+    }
+    msg += `\n`;
+
+    // ── 3. SITUATION AWARENESS ────────────────────────────────────────────────
+    if (critCorrs.length > 0) {
+      msg += `*3. SITUATION AWARENESS*\n`;
+      for (const c of critCorrs.slice(0, 4)) {
+        const badge = c.severity === 'critical' ? '🔴' : '🟠';
+        const top   = c.topSignals?.[0]?.text || '';
+        msg += `${badge} *${c.region}* [${(c.sourceCount || c.sources?.length || 1)} sources]\n`;
+        if (top) msg += `  └ ${top.substring(0, 140)}\n`;
+      }
+      msg += `\n`;
+    }
+
+    // OSINT top signals
+    const urgent = data.tg?.urgent || [];
+    if (urgent.length > 0) {
+      msg += `📡 *OSINT (${urgent.length} signals — top 2)*\n`;
+      for (const s of urgent.slice(0, 2)) {
+        msg += `• *[${s.channel || 'OSINT'}]* ${(s.text || '').trim().replace(/\n+/g, ' ').substring(0, 160)}\n`;
+      }
+      msg += `\n`;
+    }
+
+    // ── 4. PATTERN RECOGNITION ────────────────────────────────────────────────
+    const multiSourceCorrs = corrs.filter(c => (c.sourceCount || c.sources?.length || 0) >= 3);
+    if (multiSourceCorrs.length > 0) {
+      msg += `*4. PATTERN RECOGNITION*\n`;
+      for (const c of multiSourceCorrs.slice(0, 2)) {
+        msg += `🔗 *${c.region}* — ${c.sourceCount || c.sources?.length} independent sources converging`;
+        const sig2 = c.topSignals?.[1]?.text;
+        if (sig2) msg += `: "${sig2.substring(0, 100)}"`;
+        msg += `. Pattern: ${c.severity === 'critical' ? 'strengthening' : 'stable'}.\n`;
+      }
+      msg += `\n`;
+    }
+
+    // ── 6. MARKET & ASSET IMPLICATIONS ───────────────────────────────────────
+    const hasMarketData = vix?.value || oil.brent;
+    if (hasMarketData) {
+      msg += `*6. MARKET & ASSET IMPLICATIONS*\n`;
+      if (vix?.value) msg += `• Volatility (VIX): *${vix.value}* — ${vix.value > 30 ? '🔴 extreme stress' : vix.value > 20 ? '🟠 elevated' : '🟢 normal'}\n`;
+      if (oil.brent)  msg += `• Brent crude: *$${oil.brent}* · WTI: *$${oil.wti || '--'}*\n`;
+      const scMats = (data.supplyChain?.metrics?.rawMaterials || []).filter(m => m.risk === 'critical' || m.risk === 'high').slice(0, 3);
+      for (const m of scMats) msg += `• ${m.name}: *${m.price}* (${m.change}) — ${m.impact}\n`;
+      msg += `\n`;
+    }
+
+    // ── 7. DECISION BOARD ─────────────────────────────────────────────────────
+    msg += `*7. DECISION BOARD*\n`;
+    const topIdea = ideas[0];
+    msg += `• Best long: ${topIdea ? topIdea.instrument || topIdea.thesis?.substring(0, 60) : 'await multi-source confirmation'}\n`;
+    const sanctions = data.opensanctions?.preDesignation || [];
+    msg += `• Best hedge: ${sanctions.length > 0 ? `Exposure review — ${sanctions.length} pre-designation signal(s)` : dir === 'risk-off' ? 'Gold / defensive assets' : 'Monitor VIX for entry'}\n`;
+    const topWatch = critCorrs[0];
+    msg += `• Watch: ${topWatch ? `${topWatch.region} — next 24–72h` : 'No critical zones currently'}\n`;
+    if (ds.totalChanges > 0) msg += `• Monitor: ${ds.totalChanges} delta changes — confirm or reverse in next sweep\n`;
+    msg += `\n`;
+
+    // ── 8. SOURCE INTEGRITY ───────────────────────────────────────────────────
+    const srcOk    = data.meta?.sourcesOk || 0;
+    const srcTotal = data.meta?.sourcesQueried || 0;
+    const srcFail  = data.meta?.sourcesFailed || 0;
+    msg += `*8. SOURCE INTEGRITY*\n`;
+    msg += `${srcOk}/${srcTotal} sources delivered data`;
+    if (srcFail > 0) msg += ` · ${srcFail} degraded`;
+    const hasLLM = ideas.length > 0 && data.ideasSource === 'llm';
+    msg += `\nThesis basis: ${hasLLM ? 'LLM synthesis + hard data' : 'hard data only — LLM not active'}`;
+    msg += `\n`;
+
+    msg += `\n━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `_/full · /osint · /supply · /arms · /predict · /ask [topic]_`;
+
+    return msg;
+  } catch (error) {
+    return `Brief failed: ${error.message}`;
+  }
+};
+
 const discordAlerter = new DiscordAlerter(config.discord || {});
 
 if (llmProvider) console.log(`[Crucix] LLM enabled: ${llmProvider.name} (${llmProvider.model})`);
