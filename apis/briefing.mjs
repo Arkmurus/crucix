@@ -82,6 +82,9 @@ import { briefing as afdb } from "./sources/afdb.mjs";
 // === Tier 8i: Port Congestion & Cable Monitoring ===
 import { briefing as portCongestion } from "./sources/port_congestion.mjs";
 
+// === Tier 7b: Defence Events Calendar ===
+import { briefing as defenseEvents } from './sources/defense_events.mjs';
+
 // === Tier 9: Custom Business Intelligence ===
 import { briefing as arkumurus } from './sources/arkumurus.mjs';
 
@@ -154,6 +157,7 @@ export async function fullBriefing() {
     // Tier 7: Defense & Weapons Intelligence
     runSource('Defense News', defenseNewsBriefing),
     runSource('SIPRI Arms', sipriBriefing),
+    runSource('DefenseEvents', defenseEvents),
 
     // Tier 8: Due Diligence & Compliance (NEW)
     runSource('OpenCorporates', opencorporatesBriefing),

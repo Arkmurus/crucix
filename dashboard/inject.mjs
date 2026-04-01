@@ -442,6 +442,17 @@ export async function synthesize(data) {
   const defense = (data.sources.USAspending?.recentDefenseContracts || []).slice(0, 5).map(c => ({
     recipient: c.recipient?.substring(0, 40), amount: c.amount, desc: c.description?.substring(0, 80)
   }));
+  const defenseEventsData = data.sources.DefenseEvents || null;
+  const defenseEvents = defenseEventsData ? {
+    upcoming: defenseEventsData.upcoming || [],
+    ongoing: defenseEventsData.ongoing || [],
+    signals: defenseEventsData.signals || [],
+    alerts: defenseEventsData.alerts || [],
+    nextEvent: defenseEventsData.nextEvent || null,
+    nextHighPriority: defenseEventsData.nextHighPriority || null,
+    totalUpcoming: defenseEventsData.totalUpcoming || 0,
+    byRegion: defenseEventsData.byRegion || {},
+  } : null;
   const noaa = {
     totalAlerts: data.sources.NOAA?.totalSevereAlerts || 0,
     alerts: (data.sources.NOAA?.topAlerts || []).filter(a => a.lat != null && a.lon != null).slice(0, 10).map(a => ({
@@ -605,6 +616,7 @@ export async function synthesize(data) {
     news,
     markets,
     supplyChain: supplyChainData,
+    defenseEvents,
     ideas: [],
     ideasSource: 'disabled',
     newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop),
