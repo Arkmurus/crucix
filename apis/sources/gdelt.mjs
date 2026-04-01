@@ -161,6 +161,45 @@ export async function fetchGDELT() {
           throw new Error(`GDELT v1 ${v1Res.status}`);
         }
       } catch (v1Err) {
+        // Final fallback: allorigins proxy (bypasses cloud IP blocks on GDELT)
+        try {
+          const proxyQuery = new URLSearchParams({
+            query, mode: 'artlist', maxrecords: '25', format: 'rss', timespan: '4h', sort: 'DateDesc',
+          });
+          const proxyRes = await fetch(
+            `https://api.allorigins.win/get?url=${encodeURIComponent(`${GDELT_DOC_API}?${proxyQuery}`)}`,
+            { signal: AbortSignal.timeout(25000) }
+          );
+          if (proxyRes.ok) {
+            const wrapper = await proxyRes.json();
+            const xml = wrapper.contents || '';
+            const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+            let m2;
+            while ((m2 = itemRegex.exec(xml)) !== null && results.updates.length < 15) {
+              const block = m2[1];
+              const getTag = (tag) => {
+                const match = block.match(new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>|<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+                return (match?.[1] || match?.[2] || '').trim();
+              };
+              const title = getTag('title');
+              if (!title) continue;
+              results.updates.push({
+                title, url: getTag('link'), source: getTag('source') || 'GDELT',
+                seenAt: getTag('pubDate') || new Date().toISOString(),
+                tone: 0, country: '', lang: 'English', type: 'gdelt_article',
+              });
+            }
+            if (results.updates.length > 0) {
+              console.log(`[GDELT] ${results.updates.length} articles (allorigins proxy)`);
+              _cache = results;
+              _cacheTime = Date.now();
+              return results;
+            }
+          }
+        } catch (proxyErr) {
+          console.warn('[GDELT] allorigins proxy failed:', proxyErr.message);
+        }
+
         results.error = jsonErr.message;
         console.error('[GDELT] Error:', jsonErr.message);
         if (_cache) {

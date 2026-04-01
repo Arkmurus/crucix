@@ -117,6 +117,35 @@ async function fetchAfDBProjects() {
     } catch {}
   }
 
+  // Final fallback: allorigins proxy (handles CORS/IP blocks)
+  try {
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(AFDB_NEWS_RSS)}`, {
+      signal: AbortSignal.timeout(12000),
+    });
+    if (res.ok) {
+      const wrapper = await res.json();
+      const xml = wrapper.contents || '';
+      if (xml.includes('<item>')) {
+        const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+        let m;
+        const items = [];
+        while ((m = itemRegex.exec(xml)) !== null) {
+          const block = m[1];
+          const title = block.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+          const date  = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
+          items.push({ title: (title?.[1] || '').replace(/<!\[CDATA\[|\]\]>/g, '').trim(), pubDate: date?.[1] || '' });
+        }
+        if (items.length > 0) {
+          console.log(`[AfDB] allorigins proxy: ${items.length} items`);
+          return items.slice(0, 10).map(i => ({
+            project_name: i.title, country: 'AF', country_name: 'Africa (Multi-country)',
+            sector: 'news', status: 'active', ua_amount: 0, approval_date: i.pubDate,
+          }));
+        }
+      }
+    }
+  } catch {}
+
   throw new Error('All AfDB endpoints unreachable');
 }
 

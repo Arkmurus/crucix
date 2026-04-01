@@ -84,9 +84,8 @@ export async function fetchOpenSanctions() {
       signal: AbortSignal.timeout(15000),
     });
     if (res.status === 402 || res.status === 401 || res.status === 403 || res.status === 404) {
-      results.error = 'OpenSanctions requires a free API key — register at https://www.opensanctions.org/api/ and set OPENSANCTIONS_API_KEY env var';
-      console.warn('[OpenSanctions] API key required (402/401/403). Register free at opensanctions.org');
-      return results;
+      // Throw so the catch block can run the Treasury RSS fallback
+      throw new Error(`OpenSanctions API ${res.status} — API key required. Register free at opensanctions.org`);
     }
     if (!res.ok) throw new Error(`OpenSanctions API ${res.status}`);
     const data = await res.json();
