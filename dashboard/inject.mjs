@@ -453,6 +453,25 @@ export async function synthesize(data) {
     totalUpcoming: defenseEventsData.totalUpcoming || 0,
     byRegion: defenseEventsData.byRegion || {},
   } : null;
+
+  // Defense News (live RSS — DefenseWeb, Breaking Defense, ISS Africa, UN Peacekeeping)
+  const defenseNewsRaw = data.sources['Defense News'] || null;
+  const defenseNews = defenseNewsRaw ? {
+    updates:      (defenseNewsRaw.updates || []).slice(0, 20),
+    signals:      defenseNewsRaw.signals || [],
+    counts:       defenseNewsRaw.counts || {},
+    sourceStatus: defenseNewsRaw.sourceStatus || {},
+  } : null;
+
+  // Procurement Tenders (live — DSCA FMS, EU TED, World Bank, UN; Lusophone-weighted)
+  const procurementRaw = data.sources['ProcurementTenders'] || null;
+  const procurementTenders = procurementRaw ? {
+    updates:   (procurementRaw.updates || []).slice(0, 20),
+    signals:   procurementRaw.signals || [],
+    lusophone: procurementRaw.lusophone || [],
+    africa:    procurementRaw.africa || [],
+    counts:    procurementRaw.counts || {},
+  } : null;
   const noaa = {
     totalAlerts: data.sources.NOAA?.totalSevereAlerts || 0,
     alerts: (data.sources.NOAA?.topAlerts || []).filter(a => a.lat != null && a.lon != null).slice(0, 10).map(a => ({
@@ -617,6 +636,8 @@ export async function synthesize(data) {
     markets,
     supplyChain: supplyChainData,
     defenseEvents,
+    defenseNews,
+    procurementTenders,
     ideas: [],
     ideasSource: 'disabled',
     newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop),
