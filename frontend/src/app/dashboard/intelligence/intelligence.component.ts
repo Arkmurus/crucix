@@ -81,13 +81,15 @@ export class IntelligenceComponent implements OnInit, OnDestroy {
   get sourcesTotal(): number { return this.data?.meta?.sourcesQueried ?? 0; }
   get opportunities(): any[] { return (this.data?.opportunities || []).slice(0, 3); }
   get criticalChanges(): number { return this.data?.delta?.summary?.criticalChanges ?? 0; }
+  // Lusophone box: top Africa/defence articles with full content + URL (from updates)
   get defenceSignals(): any[] {
-    // All pre-scored Africa/defence signals from DefenseNews source
-    const signals = (this.data?.defenseNews?.signals || []).slice(0, 8);
-    // Lusophone procurement tenders (Angola, Mozambique etc.)
-    const tenders = (this.data?.procurementTenders?.lusophone || []).slice(0, 4);
-    return [...signals, ...tenders];
+    const updates = this.data?.defenseNews?.updates || [];
+    // Sort by relevance score descending, take top 8
+    return [...updates]
+      .sort((a: any, b: any) => (b.relevanceScore || 0) - (a.relevanceScore || 0))
+      .slice(0, 8);
   }
+  // Defence News Feed: full list in chronological order
   get defenceUpdates(): any[] { return (this.data?.defenseNews?.updates || []).slice(0, 15); }
 
   private expandedItems = new Set<string>();

@@ -699,6 +699,47 @@ app.get('/api/search', requireAuth, async (req, res) => {
   }
 });
 
+// ── Deep intelligence search — SSE streaming ──────────────────────────────────
+// EventSource cannot set headers — accept token via query param for this endpoint only
+app.get('/api/search/deep', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
+  if (!token) return res.status(401).json({ error: 'Authentication required' });
+  try {
+    const payload = verifyToken(token);
+    req.user = payload;
+  } catch { return res.status(401).json({ error: 'Invalid token' }); }
+
+  const query = req.query.q?.trim();
+  if (!query || query.length < 2) return res.status(400).json({ error: 'Query required' });
+
+  // SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const send = (data) => {
+    try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch {}
+  };
+
+  console.log(`[DeepSearch] "${query}" by ${req.user?.email || 'unknown'}`);
+  try {
+    const { runDeepSearch } = await import('./lib/search/deep-engine.mjs');
+    const result = await runDeepSearch(query, {
+      cachedData:  currentData,
+      llmProvider,
+      onEvent:     send,
+    });
+    send({ type: 'result', data: result });
+  } catch (err) {
+    console.error('[DeepSearch] Error:', err.message);
+    send({ type: 'error', message: err.message });
+  } finally {
+    res.end();
+  }
+});
+
 // ── Power entity search ────────────────────────────────────────────────────────
 app.get('/api/search/entity', requireAuth, async (req, res) => {
   const query = req.query.q;

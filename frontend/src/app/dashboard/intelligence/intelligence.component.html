@@ -268,9 +268,17 @@
             <ng-container *ngIf="defenceSignals.length > 0">
               <div *ngFor="let s of defenceSignals; let si = index" class="mb-3 pb-3 border-bottom small">
                 <div class="fw-semibold" style="font-size:0.83rem;line-height:1.45;word-break:break-word;color:#60a5fa">
-                  <span *ngIf="s.type === 'tender'" class="badge bg-primary me-1" style="font-size:0.65rem">Tender</span>
-                  {{ (s.text || s.title || '') | slice:0:160 }}
+                  {{ s.title || '' }}
                 </div>
+                <ng-container *ngIf="cleanContent(s.content || s.description) as body">
+                  <div class="text-muted mt-1" style="font-size:0.78rem;line-height:1.55;word-break:break-word">
+                    {{ truncateText(body, 'ls'+si, 220) }}
+                  </div>
+                  <a *ngIf="body.length > 220" (click)="toggleExpand('ls'+si)"
+                     style="font-size:0.72rem;color:#90caf9;cursor:pointer;text-decoration:none;display:block;margin-top:3px">
+                    {{ isExpanded('ls'+si) ? '▲ Show less' : '▼ Show more' }}
+                  </a>
+                </ng-container>
                 <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
                   <small class="text-muted">{{ s.source }}</small>
                   <span *ngIf="s.priority === 'high'" class="badge bg-danger" style="font-size:0.62rem">HIGH</span>
@@ -282,7 +290,7 @@
               </div>
             </ng-container>
             <div *ngIf="defenceSignals.length === 0" class="text-muted small py-3 text-center">
-              No Africa &amp; Lusophone signals this sweep
+              No Africa &amp; Defence signals this sweep
             </div>
           </mat-card-content>
         </mat-card>
