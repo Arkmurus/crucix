@@ -230,6 +230,27 @@ telegramAlerter._handleBrief = async function() {
       msg += `\n`;
     }
 
+    // ── 5. HISTORICAL PARALLELS ───────────────────────────────────────────────
+    const parallels = [];
+    if (vix?.value > 30 && oil.brent > 90)
+      parallels.push({ period: '2022 Russia-Ukraine shock', match: 'VIX >30 + Brent >$90 — energy-driven inflation with geopolitical disruption', lesson: 'Gold and defence names outperformed; commodity exporters gained. Watch for demand destruction at $100+.' });
+    if (dir === 'risk-off' && critCorrs.length >= 3)
+      parallels.push({ period: 'Q4 2018 / Q1 2020 stress buildup', match: 'Multi-region risk-off with 3+ concurrent stress zones', lesson: 'Historically precedes 10–20% equity drawdowns within 60 days. Monitor credit spreads for confirmation.' });
+    if (critCorrs.some(c => c.region === 'Eastern Europe') && vix?.value > 25)
+      parallels.push({ period: 'Feb 2022 pre-invasion week', match: 'Eastern Europe critical + VIX spiking', lesson: 'Positions in European defence ETFs and energy hedges outperformed 40–90% in the 6 months after escalation.' });
+    if (critCorrs.some(c => c.region === 'Middle East') && oil.brent > 85)
+      parallels.push({ period: '2019 Aramco strike / 2024 Red Sea disruption', match: 'Middle East stress + Brent above $85', lesson: 'Maritime insurance premiums spiked 300%; shipping re-routing cost weeks and billions. Logistics and tanker plays outperformed.' });
+    if (critCorrs.some(c => c.region === 'Lusophone Africa') || critCorrs.some(c => c.region === 'West Africa'))
+      parallels.push({ period: '2012–2015 Sahel destabilisation', match: 'Lusophone/West Africa stress signals', lesson: 'Arkmurus advantage: instability in the region historically precedes 18–36 month procurement surges for border and peacekeeping equipment.' });
+    if (parallels.length > 0) {
+      msg += `*5. HISTORICAL PARALLELS*\n`;
+      for (const p of parallels.slice(0, 2)) {
+        msg += `📜 *Rhymes with: ${p.period}*\n`;
+        msg += `Match: ${p.match}\n`;
+        msg += `Lesson: ${p.lesson}\n\n`;
+      }
+    }
+
     // ── 6. MARKET & ASSET IMPLICATIONS ───────────────────────────────────────
     const hasMarketData = vix?.value || oil.brent;
     if (hasMarketData) {
@@ -250,6 +271,19 @@ telegramAlerter._handleBrief = async function() {
     const topWatch = critCorrs[0];
     msg += `• Watch: ${topWatch ? `${topWatch.region} — next 24–72h` : 'No critical zones currently'}\n`;
     if (ds.totalChanges > 0) msg += `• Monitor: ${ds.totalChanges} delta changes — confirm or reverse in next sweep\n`;
+    // BD Brain priority — most actionable BD signal right now
+    const bd = data.bdIntelligence;
+    const brainPriority = bd?.brain?.weeklyPriority;
+    const topTender = bd?.tenders?.[0];
+    if (brainPriority?.action) {
+      msg += `\n⚡ *BD BRAIN — TOP PRIORITY*\n`;
+      msg += `${brainPriority.action.substring(0, 200)}\n`;
+      if (brainPriority.whyNow) msg += `_Why now: ${brainPriority.whyNow.substring(0, 120)}_\n`;
+    } else if (topTender) {
+      msg += `\n🎯 *BD — ACTIVE TENDER*\n`;
+      msg += `${topTender.market}: ${topTender.title.substring(0, 100)}\n`;
+      if (topTender.winProbability != null) msg += `Win probability: *${topTender.winProbability}%*\n`;
+    }
     msg += `\n`;
 
     // ── 8. SOURCE INTEGRITY ───────────────────────────────────────────────────
