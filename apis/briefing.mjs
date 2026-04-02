@@ -194,37 +194,93 @@ export async function fullBriefing() {
   const sources = results.map(r => r.status === 'fulfilled' ? r.value : { status: 'failed', error: r.reason?.message });
   const totalMs = Date.now() - start;
 
-  // Extract all updates and signals for dashboard synthesis
+  // ── Extract all updates/signals with source tagging ──────────────────────────
   const allUpdates = [];
   const allSignals = [];
   const allMarkers = [];
-  const allAlerts = [];
+  const allAlerts  = [];
+
+  // Track title/text seen per source for cross-source boosting
+  const titleIndex = {}; // normalised title → [sourceName, ...]
+
+  function normTitle(t) {
+    return (t || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  }
 
   for (const source of sources) {
-    if (source.status === 'ok' && source.data) {
-      if (source.data.updates && Array.isArray(source.data.updates)) {
-        allUpdates.push(...source.data.updates);
+    if (source.status !== 'ok' || !source.data) continue;
+    const d = source.data;
+
+    // Updates — tag with source name; track for cross-source boosting
+    for (const u of (d.updates || [])) {
+      const tagged = { ...u, _sourceName: source.name };
+      const nt = normTitle(u.title || u.headline || u.text);
+      if (nt) {
+        if (!titleIndex[nt]) titleIndex[nt] = [];
+        titleIndex[nt].push(source.name);
       }
-      if (source.data.signals && Array.isArray(source.data.signals)) {
-        allSignals.push(...source.data.signals);
-      }
-      if (source.data.markers && Array.isArray(source.data.markers)) {
-        allMarkers.push(...source.data.markers);
-      }
-      if (source.data.alerts && Array.isArray(source.data.alerts)) {
-        allAlerts.push(...source.data.alerts);
-      }
+      allUpdates.push(tagged);
     }
+
+    for (const s of (d.signals || [])) allSignals.push({ ...s, _sourceName: source.name });
+    for (const m of (d.markers || [])) allMarkers.push(m);
+    for (const a of (d.alerts  || [])) allAlerts.push(a);
   }
+
+  // ── Fuzzy deduplication — drop exact/near-duplicate titles (keep highest priority) ──
+  const PRIORITY_RANK = { critical: 4, high: 3, medium: 2, normal: 1, low: 0 };
+  function prank(item) { return PRIORITY_RANK[(item.priority || 'normal').toLowerCase()] ?? 1; }
+
+  // For updates: group by normalised title; keep highest-priority version, tag confirmCount
+  const updateGroups = {};
+  for (const u of allUpdates) {
+    const nt = normTitle(u.title || u.headline || u.text);
+    if (!updateGroups[nt]) { updateGroups[nt] = u; continue; }
+    const existing = updateGroups[nt];
+    // Keep higher-priority; if equal keep first; always add confirmation count
+    if (prank(u) > prank(existing)) updateGroups[nt] = u;
+    updateGroups[nt]._confirmedBy = (updateGroups[nt]._confirmedBy || 1) + 1;
+  }
+
+  // Cross-source boost: if title seen from 2+ independent sources → elevate priority
+  const deduped = Object.values(updateGroups).map(u => {
+    const nt = normTitle(u.title || u.headline || u.text);
+    const srcCount = titleIndex[nt]?.length || 1;
+    const confirmed = u._confirmedBy || srcCount;
+    if (confirmed >= 3 && (!u.priority || u.priority === 'normal' || u.priority === 'medium')) {
+      return { ...u, priority: 'high', _crossSourceConfirmed: confirmed };
+    }
+    if (confirmed >= 2 && (!u.priority || u.priority === 'normal')) {
+      return { ...u, priority: 'medium', _crossSourceConfirmed: confirmed };
+    }
+    return u;
+  });
+
+  // Sort: critical → high → medium → normal → low; then by timestamp desc
+  function sortByPriority(items) {
+    return items.sort((a, b) => {
+      const pd = prank(b) - prank(a);
+      if (pd !== 0) return pd;
+      const ta = a.timestamp || a.pubDate || 0;
+      const tb = b.timestamp || b.pubDate || 0;
+      return (new Date(tb) - new Date(ta)) || 0;
+    });
+  }
+
+  const sortedUpdates  = sortByPriority(deduped);
+  const sortedSignals  = sortByPriority([...allSignals]);
+  const sortedAlerts   = sortByPriority([...allAlerts]);
+
+  const confirmedCount = sortedUpdates.filter(u => u._crossSourceConfirmed >= 2).length;
 
   const output = {
     crucix: {
-      version: '2.0.0',
-      timestamp: new Date().toISOString(),
+      version:        '2.1.0',
+      timestamp:       new Date().toISOString(),
       totalDurationMs: totalMs,
-      sourcesQueried: sources.length,
-      sourcesOk: sources.filter(s => s.status === 'ok').length,
-      sourcesFailed: sources.filter(s => s.status !== 'ok').length,
+      sourcesQueried:  sources.length,
+      sourcesOk:       sources.filter(s => s.status === 'ok').length,
+      sourcesFailed:   sources.filter(s => s.status !== 'ok').length,
     },
     sources: Object.fromEntries(
       sources.filter(s => s.status === 'ok').map(s => [s.name, s.data])
@@ -233,23 +289,25 @@ export async function fullBriefing() {
     timing: Object.fromEntries(
       sources.map(s => [s.name, { status: s.status, ms: s.durationMs }])
     ),
-    // Dashboard-ready aggregated data
+    // Dashboard-ready aggregated data — full quality-sorted, deduped sets
     dashboard: {
-      updates: allUpdates.slice(0, 50), // Limit to 50 for performance
-      signals: allSignals.slice(0, 20),
-      markers: allMarkers.slice(0, 100),
-      alerts: allAlerts.slice(0, 30),
+      updates: sortedUpdates.slice(0, 200),    // Quality-sorted, deduped (was 50)
+      signals: sortedSignals.slice(0, 100),    // Full signal set (was 20)
+      markers: allMarkers.slice(0, 300),       // More map markers (was 100)
+      alerts:  sortedAlerts.slice(0, 100),     // Full alert set (was 30)
       counts: {
-        totalUpdates: allUpdates.length,
-        totalSignals: allSignals.length,
-        totalMarkers: allMarkers.length,
-        totalAlerts: allAlerts.length
+        totalUpdates:     allUpdates.length,
+        dedupedUpdates:   sortedUpdates.length,
+        totalSignals:     allSignals.length,
+        totalMarkers:     allMarkers.length,
+        totalAlerts:      allAlerts.length,
+        crossConfirmed:   confirmedCount,
       }
     }
   };
 
   console.error(`[Crucix] Sweep complete in ${totalMs}ms — ${output.crucix.sourcesOk}/${sources.length} sources returned data`);
-  console.error(`[Crucix] Dashboard ready: ${output.dashboard.counts.totalUpdates} updates, ${output.dashboard.counts.totalSignals} signals`);
+  console.error(`[Crucix] Dashboard: ${sortedUpdates.length} deduped updates (${confirmedCount} cross-confirmed), ${sortedSignals.length} signals`);
   return output;
 }
 

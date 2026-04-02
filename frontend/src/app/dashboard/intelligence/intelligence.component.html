@@ -84,22 +84,31 @@
               Situation Awareness
             </mat-card-title>
           </mat-card-header>
-          <mat-card-content>
-            <div *ngIf="correlations.length === 0" class="text-muted py-2">No critical correlations detected</div>
-            <mat-list dense>
-              <mat-list-item *ngFor="let c of correlations" class="corr-item">
-                <mat-icon matListItemIcon [style.color]="c.severity === 'critical' ? '#f44336' : '#ff9800'">
-                  {{ c.severity === 'critical' ? 'crisis_alert' : 'warning_amber' }}
+          <mat-card-content style="max-height:380px;overflow-y:auto;padding:8px 0">
+            <div *ngIf="correlations.length === 0" class="text-muted py-2 px-2">No critical correlations detected</div>
+            <div *ngFor="let c of correlations" class="corr-block mb-2 mx-2 p-2"
+                 [style.border-left]="'3px solid ' + (c.severity==='critical' ? '#f44336' : '#ff9800')"
+                 style="background:rgba(255,255,255,0.03);border-radius:4px">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <mat-icon [style.color]="c.severity==='critical' ? '#f44336' : '#ff9800'"
+                          style="font-size:15px;width:15px;height:15px;flex-shrink:0">
+                  {{ c.severity==='critical' ? 'crisis_alert' : 'warning_amber' }}
                 </mat-icon>
-                <div matListItemTitle>{{ c.region }}</div>
-                <div matListItemLine class="text-muted small">
+                <span style="font-weight:700;font-size:0.9rem;color:#e3f2fd">{{ c.region }}</span>
+                <span class="text-muted" style="font-size:0.72rem">
                   {{ c.sourceCount || c.sources?.length || 1 }} sources · {{ c.severity | uppercase }}
+                </span>
+              </div>
+              <div *ngFor="let sig of (c.topSignals || []).slice(0,3)" class="corr-sig mb-1">
+                <div style="font-size:0.82rem;color:#cfd8dc;line-height:1.5;word-break:break-word">
+                  {{ sig.text }}
                 </div>
-                <div matListItemLine *ngIf="c.topSignals?.[0]?.text" class="small text-truncate">
-                  {{ c.topSignals[0].text | slice:0:100 }}
-                </div>
-              </mat-list-item>
-            </mat-list>
+                <a *ngIf="sig.url" [href]="sig.url" target="_blank" rel="noopener"
+                   style="font-size:0.72rem;color:#90caf9;text-decoration:none;display:inline-flex;align-items:center;gap:3px">
+                  <mat-icon style="font-size:11px;width:11px;height:11px">open_in_new</mat-icon>Source
+                </a>
+              </div>
+            </div>
           </mat-card-content>
         </mat-card>
       </div>
@@ -112,14 +121,15 @@
               OSINT Signals
             </mat-card-title>
           </mat-card-header>
-          <mat-card-content style="max-height:280px; overflow-y:auto">
-            <div *ngIf="urgentPosts.length === 0" class="text-muted py-2">No urgent signals this sweep</div>
-            <div *ngFor="let p of urgentPosts" class="osint-item mb-2 pb-2 border-bottom">
-              <div class="d-flex justify-content-between">
-                <small class="text-primary fw-bold">{{ p.channel || 'OSINT' }}</small>
-                <small class="text-muted">{{ p.date | date:'dd/MM HH:mm':'Europe/London' }}</small>
+          <mat-card-content style="max-height:380px;overflow-y:auto;padding:8px 0">
+            <div *ngIf="urgentPosts.length === 0" class="text-muted py-2 px-2">No urgent signals this sweep</div>
+            <div *ngFor="let p of urgentPosts" class="osint-item mb-2 mx-2 pb-2"
+                 style="border-bottom:1px solid rgba(255,255,255,0.06)">
+              <div class="d-flex justify-content-between align-items-baseline gap-2 mb-1">
+                <span style="font-size:0.8rem;font-weight:700;color:#90caf9;flex-shrink:0">{{ p.channel || 'OSINT' }}</span>
+                <span class="text-muted" style="font-size:0.72rem;white-space:nowrap">{{ p.date | date:'dd/MM HH:mm':'Europe/London' }}</span>
               </div>
-              <div class="small mt-1">{{ (p.text || '') | slice:0:180 }}</div>
+              <div style="font-size:0.85rem;line-height:1.55;color:#cfd8dc;word-break:break-word">{{ p.text || '' }}</div>
             </div>
           </mat-card-content>
         </mat-card>

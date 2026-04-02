@@ -1,15 +1,35 @@
-<div class="container-fluid">
+<div class="container-fluid opp-page">
 
   <!-- ── Header ── -->
-  <div class="row mb-3">
-    <div class="col-12">
-      <h4 class="page-title">
-        <mat-icon style="vertical-align:middle;margin-right:6px">business_center</mat-icon>
+  <div class="opp-header mb-4">
+    <div>
+      <h4 class="page-title mb-0">
+        <mat-icon style="vertical-align:middle;margin-right:8px;color:#f44336">business_center</mat-icon>
         Procurement Opportunity Pipeline
       </h4>
       <small class="text-muted" *ngIf="updatedAt">
-        As of {{ updatedAt | date:'dd/MM/yyyy HH:mm':'Europe/London' }}
+        Intelligence as of {{ updatedAt | date:'dd/MM/yyyy HH:mm':'Europe/London' }}
       </small>
+    </div>
+    <!-- Summary bar -->
+    <div *ngIf="!loading && opportunities.length > 0" class="d-flex gap-2 flex-wrap align-items-center">
+      <span class="tier-pill" style="background:rgba(244,67,54,.15);border-color:rgba(244,67,54,.35);color:#ef9a9a">
+        <mat-icon style="font-size:13px;width:13px;height:13px">warning</mat-icon>
+        {{ highCount }} HIGH
+      </span>
+      <span class="tier-pill" style="background:rgba(255,152,0,.1);border-color:rgba(255,152,0,.3);color:#ffcc80">
+        <mat-icon style="font-size:13px;width:13px;height:13px">flag</mat-icon>
+        {{ mediumCount }} MEDIUM
+      </span>
+      <span class="tier-pill" style="background:rgba(120,144,156,.1);border-color:rgba(120,144,156,.25);color:#b0bec5">
+        {{ opportunities.length }} markets
+      </span>
+      <div class="ms-2 d-flex gap-2">
+        <button mat-stroked-button class="filter-btn" [class.active]="activeFilter==='ALL'" (click)="activeFilter='ALL'">All</button>
+        <button mat-stroked-button class="filter-btn" [class.active]="activeFilter==='HIGH'" (click)="activeFilter='HIGH'">HIGH</button>
+        <button mat-stroked-button class="filter-btn" [class.active]="activeFilter==='MEDIUM'" (click)="activeFilter='MEDIUM'">MEDIUM</button>
+        <button mat-stroked-button class="filter-btn" [class.active]="activeFilter==='WATCH'" (click)="activeFilter='WATCH'">WATCH</button>
+      </div>
     </div>
   </div>
 
@@ -20,127 +40,124 @@
   <div *ngIf="!loading">
 
     <div *ngIf="opportunities.length === 0" class="alert alert-info">
-      No active procurement windows detected. Monitoring 26 target markets — check back after next sweep.
-    </div>
-
-    <!-- ── Summary bar ── -->
-    <div *ngIf="opportunities.length > 0" class="d-flex gap-2 flex-wrap mb-3">
-      <span class="badge" style="background:#f44336;color:white;font-size:0.75rem;padding:4px 10px">
-        {{ highCount }} HIGH
-      </span>
-      <span class="badge" style="background:#ff9800;color:white;font-size:0.75rem;padding:4px 10px">
-        {{ mediumCount }} MEDIUM
-      </span>
-      <span class="badge" style="background:#78909c;color:white;font-size:0.75rem;padding:4px 10px">
-        {{ opportunities.length }} total markets tracked
-      </span>
+      No active procurement windows detected. Monitoring {{ totalMarkets }} target markets — check back after next sweep.
     </div>
 
     <!-- ── Opportunity cards ── -->
-    <div *ngFor="let opp of opportunities" class="mb-3">
-      <mat-card [style.border-left]="'5px solid ' + tierColor(opp.tier)">
-        <mat-card-content style="padding:16px">
+    <div *ngFor="let opp of filtered" class="opp-card mb-3" [style.--tier-color]="tierColor(opp.tier)">
 
-          <!-- Title row -->
-          <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-            <span class="fw-bold" style="font-size:1rem">{{ opp.market }}</span>
-            <mat-icon *ngIf="opp.lusophone" style="font-size:16px;width:16px;height:16px;color:#2159d5" title="Lusophone advantage">flag</mat-icon>
-            <span class="badge" [style.background]="tierColor(opp.tier)" style="color:white;font-size:0.75rem">
-              {{ opp.tier }} · {{ opp.score }}/100
-            </span>
-            <span class="badge" [style.background]="opp.complianceStatus === 'CLEAR' ? '#1b5e20' : '#b71c1c'"
-                  style="color:white;font-size:0.75rem">
-              {{ opp.complianceStatus }}
-            </span>
-            <span *ngIf="opp.adaptiveMultiplier" class="badge bg-secondary" style="font-size:0.7rem"
-                  title="Score adjusted by outcome learning">
-              ×{{ opp.adaptiveMultiplier }} adaptive
-            </span>
+      <!-- Card header strip -->
+      <div class="opp-card-header">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="market-name">{{ opp.market }}</span>
+          <mat-icon *ngIf="opp.lusophone" class="luso-flag" title="Lusophone advantage">flag</mat-icon>
+          <span class="tier-badge" [style.background]="tierBg(opp.tier)" [style.color]="tierColor(opp.tier)">
+            {{ opp.tier }} · {{ opp.score }}/100
+          </span>
+          <span class="compliance-badge" [class.clear]="opp.complianceStatus==='CLEAR'">
+            <mat-icon style="font-size:12px;width:12px;height:12px">{{ opp.complianceStatus==='CLEAR' ? 'check_circle' : 'warning' }}</mat-icon>
+            {{ opp.complianceStatus }}
+          </span>
+          <span *ngIf="opp.adaptiveMultiplier" class="adaptive-badge" title="Score adjusted by outcome learning">
+            ×{{ opp.adaptiveMultiplier }} adaptive
+          </span>
+        </div>
+        <!-- Action buttons -->
+        <div class="d-flex gap-2 align-items-center">
+          <a *ngIf="opp.procurementPortal" [href]="opp.procurementPortal" target="_blank" rel="noopener"
+             class="portal-btn" title="Open official procurement portal">
+            <mat-icon style="font-size:14px;width:14px;height:14px">gavel</mat-icon>
+            Procurement Portal
+          </a>
+        </div>
+      </div>
+
+      <!-- Strategy context -->
+      <div class="opp-context">{{ opp.notes }}</div>
+
+      <!-- ── Detail grid ── -->
+      <div class="opp-grid">
+
+        <!-- Conflict Activity -->
+        <div class="opp-cell">
+          <div class="cell-label">Conflict Activity</div>
+          <div class="cell-value" [style.color]="opp.conflict?.events > 0 ? '#ef9a9a' : '#78909c'">
+            {{ opp.conflict?.events ?? 0 }} events
           </div>
-
-          <!-- Notes -->
-          <div class="text-muted mb-3" style="font-size:0.82rem">{{ opp.notes }}</div>
-
-          <!-- Detail grid -->
-          <div class="row g-2 mb-2">
-
-            <div class="col-sm-6 col-lg-3">
-              <div class="info-group">
-                <div class="info-label">Conflict Activity</div>
-                <div class="info-value">{{ opp.conflict?.events ?? 0 }} events</div>
-                <div class="text-muted" style="font-size:0.78rem">
-                  {{ opp.conflict?.fatalities ?? 0 }} fatalities
-                </div>
-                <div *ngIf="opp.conflict?.types?.length" class="text-muted" style="font-size:0.78rem">
-                  {{ (opp.conflict.types).slice(0,2).join(', ') }}
-                </div>
-              </div>
-            </div>
-
-            <div class="col-sm-6 col-lg-3">
-              <div class="info-group">
-                <div class="info-label">Procurement Needs</div>
-                <div class="d-flex flex-wrap gap-1 mt-1">
-                  <span *ngFor="let need of (opp.procurementNeeds || []).slice(0,5)"
-                        class="badge bg-secondary small-chip">{{ need }}</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="col-sm-6 col-lg-3">
-              <div class="info-group">
-                <div class="info-label">Matched OEMs</div>
-                <div *ngFor="let oem of (opp.matchedOEMs || []).slice(0,3)" class="text-primary"
-                     style="font-size:0.8rem">
-                  {{ oem.name }}
-                  <span class="text-muted">({{ oem.country }})</span>
-                </div>
-                <div *ngIf="!opp.matchedOEMs?.length" class="text-muted" style="font-size:0.78rem">
-                  Use /oem &lt;product&gt; in Telegram
-                </div>
-              </div>
-            </div>
-
-            <div class="col-sm-6 col-lg-3">
-              <div class="info-group">
-                <div class="info-label">Status</div>
-                <div *ngIf="!opp.blockers?.length" class="text-success" style="font-size:0.8rem">
-                  ✓ No export control blockers
-                </div>
-                <div *ngFor="let b of opp.blockers" class="text-danger" style="font-size:0.78rem">
-                  ⚠ {{ b.message | slice:0:90 }}
-                </div>
-                <div *ngIf="opp.devFinanceActivity" class="text-info mt-1" style="font-size:0.78rem">
-                  💰 Development finance detected
-                </div>
-                <div *ngIf="opp.explorerSignals > 0" class="text-primary mt-1" style="font-size:0.78rem">
-                  📡 {{ opp.explorerSignals }} intel signal(s)
-                </div>
-              </div>
-            </div>
-
+          <div class="cell-sub">{{ opp.conflict?.fatalities ?? 0 }} fatalities</div>
+          <div *ngIf="opp.conflict?.types?.length" class="cell-sub">
+            {{ opp.conflict.types.slice(0,2).join(', ') }}
           </div>
+          <div *ngIf="!opp.conflict?.events" class="cell-sub" style="color:#546e7a">Pre-conflict positioning</div>
+        </div>
 
-          <!-- ── Source links ── -->
-          <div *ngIf="opp.sources?.length" style="border-top:1px solid rgba(255,255,255,0.07);padding-top:10px;margin-top:4px">
-            <div class="info-label mb-2">Intelligence Sources</div>
-            <div *ngFor="let src of opp.sources" class="source-link-row">
-              <span class="src-badge" [class.src-procurement]="src.isProcurement" [class.src-news]="!src.isProcurement">
-                {{ src.isProcurement ? 'PROCUREMENT' : src.type === 'explorer' ? 'EXPLORER' : 'NEWS' }}
-              </span>
-              <a [href]="src.url" target="_blank" rel="noopener" class="src-title">
-                {{ src.title || src.url }}
-              </a>
-              <mat-icon class="src-icon">open_in_new</mat-icon>
-            </div>
+        <!-- Procurement Needs -->
+        <div class="opp-cell">
+          <div class="cell-label">Procurement Needs</div>
+          <div class="needs-chips">
+            <span *ngFor="let need of (opp.procurementNeeds || []).slice(0,6)" class="need-chip">{{ need }}</span>
+            <span *ngIf="!opp.procurementNeeds?.length" class="cell-sub" style="color:#546e7a">Run sweep for needs</span>
           </div>
-          <div *ngIf="!opp.sources?.length" style="border-top:1px solid rgba(255,255,255,0.07);padding-top:8px;margin-top:4px">
-            <span class="text-muted" style="font-size:0.78rem">No direct source links yet — sources attach after next sweep when signals mention this market</span>
-          </div>
+        </div>
 
-        </mat-card-content>
-      </mat-card>
-    </div>
+        <!-- Matched OEMs -->
+        <div class="opp-cell">
+          <div class="cell-label">Matched OEMs</div>
+          <div *ngFor="let oem of (opp.matchedOEMs || []).slice(0,3)" class="oem-row">
+            <mat-icon style="font-size:12px;width:12px;height:12px;color:#546e7a;flex-shrink:0">business</mat-icon>
+            <span class="oem-name">{{ oem.name }}</span>
+            <span class="oem-country">{{ oem.country }}</span>
+          </div>
+          <div *ngIf="!opp.matchedOEMs?.length" class="cell-sub">Use /oem in Telegram</div>
+        </div>
+
+        <!-- Status / Signals -->
+        <div class="opp-cell">
+          <div class="cell-label">Status</div>
+          <div *ngIf="!opp.blockers?.length" class="status-ok">
+            <mat-icon style="font-size:13px;width:13px;height:13px">check_circle</mat-icon>
+            No export control blockers
+          </div>
+          <div *ngFor="let b of opp.blockers" class="status-warn">
+            <mat-icon style="font-size:13px;width:13px;height:13px">warning</mat-icon>
+            {{ b.message | slice:0:90 }}
+          </div>
+          <div *ngIf="opp.devFinanceActivity" class="status-info mt-1">
+            <mat-icon style="font-size:12px;width:12px;height:12px">account_balance</mat-icon>
+            Dev finance detected
+          </div>
+          <div *ngIf="opp.explorerSignals > 0" class="status-info mt-1">
+            <mat-icon style="font-size:12px;width:12px;height:12px">radar</mat-icon>
+            {{ opp.explorerSignals }} intel signal(s)
+          </div>
+        </div>
+
+      </div><!-- /opp-grid -->
+
+      <!-- ── Intelligence Sources ── -->
+      <div *ngIf="opp.sources?.length" class="opp-sources">
+        <div class="cell-label mb-2">Intelligence Sources</div>
+        <div *ngFor="let src of opp.sources" class="src-row">
+          <span class="src-badge" [class.src-p]="src.isProcurement" [class.src-n]="!src.isProcurement">
+            {{ src.isProcurement ? 'PROCUREMENT' : src.type === 'explorer' ? 'EXPLORER' : 'NEWS' }}
+          </span>
+          <a [href]="src.url" target="_blank" rel="noopener" class="src-link">
+            {{ src.title || src.url }}
+          </a>
+          <mat-icon class="src-ext">open_in_new</mat-icon>
+        </div>
+      </div>
+
+      <!-- Portal CTA when no sources yet -->
+      <div *ngIf="!opp.sources?.length && opp.procurementPortal" class="opp-portal-cta">
+        <mat-icon style="font-size:14px;width:14px;height:14px;color:#546e7a">info</mat-icon>
+        <span>No current signals — </span>
+        <a [href]="opp.procurementPortal" target="_blank" rel="noopener" class="src-link">
+          search {{ opp.market }} procurement portal directly
+        </a>
+      </div>
+
+    </div><!-- /opp-card -->
 
   </div>
 </div>
