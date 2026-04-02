@@ -34,3 +34,57 @@ mat-card-subtitle {
   min-width: 0;
   overflow: hidden;
 }
+
+/* ── Source link rows ───────────────────────────────────── */
+.source-link-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  min-width: 0;
+
+  &:last-child { border-bottom: none; }
+}
+
+.src-badge {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.src-procurement {
+  background: rgba(244,67,54,0.18);
+  color: #ef9a9a;
+  border: 1px solid rgba(244,67,54,0.3);
+}
+.src-news {
+  background: rgba(33,150,243,0.15);
+  color: #90caf9;
+  border: 1px solid rgba(33,150,243,0.25);
+}
+
+.src-title {
+  flex: 1;
+  font-size: 0.8rem;
+  color: #90caf9;
+  text-decoration: none;
+  word-break: break-word;
+  line-height: 1.4;
+  min-width: 0;
+
+  &:hover { color: #ffffff; text-decoration: underline; }
+}
+
+.src-icon {
+  flex-shrink: 0;
+  font-size: 13px;
+  width: 13px;
+  height: 13px;
+  color: #64748b;
+  margin-top: 3px;
+}

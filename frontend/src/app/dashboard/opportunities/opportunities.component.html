@@ -62,7 +62,7 @@
           <div class="text-muted mb-3" style="font-size:0.82rem">{{ opp.notes }}</div>
 
           <!-- Detail grid -->
-          <div class="row g-2">
+          <div class="row g-2 mb-2">
 
             <div class="col-sm-6 col-lg-3">
               <div class="info-group">
@@ -119,6 +119,23 @@
               </div>
             </div>
 
+          </div>
+
+          <!-- ── Source links ── -->
+          <div *ngIf="opp.sources?.length" style="border-top:1px solid rgba(255,255,255,0.07);padding-top:10px;margin-top:4px">
+            <div class="info-label mb-2">Intelligence Sources</div>
+            <div *ngFor="let src of opp.sources" class="source-link-row">
+              <span class="src-badge" [class.src-procurement]="src.isProcurement" [class.src-news]="!src.isProcurement">
+                {{ src.isProcurement ? 'PROCUREMENT' : src.type === 'explorer' ? 'EXPLORER' : 'NEWS' }}
+              </span>
+              <a [href]="src.url" target="_blank" rel="noopener" class="src-title">
+                {{ src.title || src.url }}
+              </a>
+              <mat-icon class="src-icon">open_in_new</mat-icon>
+            </div>
+          </div>
+          <div *ngIf="!opp.sources?.length" style="border-top:1px solid rgba(255,255,255,0.07);padding-top:8px;margin-top:4px">
+            <span class="text-muted" style="font-size:0.78rem">No direct source links yet — sources attach after next sweep when signals mention this market</span>
           </div>
 
         </mat-card-content>
