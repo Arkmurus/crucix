@@ -264,19 +264,25 @@
               Lusophone &amp; Africa Defence
             </mat-card-title>
           </mat-card-header>
-          <mat-card-content style="max-height:260px;overflow-y:auto">
+          <mat-card-content style="max-height:420px;overflow-y:auto">
             <ng-container *ngIf="defenceSignals.length > 0">
-              <div *ngFor="let s of defenceSignals" class="mb-2 pb-2 border-bottom small">
-                <span class="badge bg-primary me-1" *ngIf="s.type === 'tender'">Tender</span>
-                <span class="badge bg-secondary me-1" *ngIf="s.type !== 'tender'">Signal</span>
-                <span style="color:#60a5fa;font-weight:600">{{ (s.text || s.title || '') | slice:0:160 }}</span>
-                <div class="text-muted" *ngIf="s.source">
-                  <small>{{ s.source }}</small>
+              <div *ngFor="let s of defenceSignals; let si = index" class="mb-3 pb-3 border-bottom small">
+                <div class="fw-semibold" style="font-size:0.83rem;line-height:1.45;word-break:break-word;color:#60a5fa">
+                  <span *ngIf="s.type === 'tender'" class="badge bg-primary me-1" style="font-size:0.65rem">Tender</span>
+                  {{ (s.text || s.title || '') | slice:0:160 }}
+                </div>
+                <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
+                  <small class="text-muted">{{ s.source }}</small>
+                  <span *ngIf="s.priority === 'high'" class="badge bg-danger" style="font-size:0.62rem">HIGH</span>
+                  <a *ngIf="s.url" [href]="s.url" target="_blank" rel="noopener"
+                     style="font-size:0.75rem;color:#90caf9;text-decoration:none;display:inline-flex;align-items:center;gap:3px">
+                    <mat-icon style="font-size:12px;width:12px;height:12px">open_in_new</mat-icon>Full article
+                  </a>
                 </div>
               </div>
             </ng-container>
             <div *ngIf="defenceSignals.length === 0" class="text-muted small py-3 text-center">
-              No Lusophone &amp; Africa signals this sweep
+              No Africa &amp; Lusophone signals this sweep
             </div>
           </mat-card-content>
         </mat-card>
