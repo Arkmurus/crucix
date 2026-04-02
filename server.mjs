@@ -44,19 +44,24 @@ const ROOT = __dirname;
 const RUNS_DIR = join(ROOT, 'runs');
 const MEMORY_DIR = join(RUNS_DIR, 'memory');
 
-// ── Timezone helper — all server logs use Europe/London ──────────────────────
-const TZ = 'Europe/London';
-function logTime(date = new Date()) {
-  return date.toLocaleString('en-GB', {
-    timeZone: TZ,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false
-  }).replace(',', '');
+// ── Timezone helper — ICU-free, honours BST/GMT (Europe/London) ─────────────
+// UK clock: BST (UTC+1) last Sun March 01:00 UTC → last Sun October 01:00 UTC
+function londonTs(date = new Date(), seconds = true) {
+  function ukOffset(d) {
+    const y = d.getUTCFullYear();
+    const lastSunMar = new Date(Date.UTC(y, 2, 31, 1, 0, 0));
+    while (lastSunMar.getUTCDay() !== 0) lastSunMar.setUTCDate(lastSunMar.getUTCDate() - 1);
+    const lastSunOct = new Date(Date.UTC(y, 9, 31, 1, 0, 0));
+    while (lastSunOct.getUTCDay() !== 0) lastSunOct.setUTCDate(lastSunOct.getUTCDate() - 1);
+    return (d >= lastSunMar && d < lastSunOct) ? 1 : 0;
+  }
+  const p = n => String(n).padStart(2, '0');
+  const local = new Date(date.getTime() + ukOffset(date) * 3600000);
+  const base = `${local.getUTCFullYear()}-${p(local.getUTCMonth()+1)}-${p(local.getUTCDate())} ${p(local.getUTCHours())}:${p(local.getUTCMinutes())}`;
+  return seconds ? `${base}:${p(local.getUTCSeconds())}` : base;
 }
-function logTimeShort(date = new Date()) {
-  return date.toLocaleTimeString('en-GB', { timeZone: TZ, hour12: false });
-}
+function logTime(date = new Date()) { return londonTs(date); }
+function logTimeShort(date = new Date()) { return londonTs(date, false); }
 
 // Ensure directories exist (including logs for PM2)
 for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold'), join(RUNS_DIR, 'logs')]) {
@@ -114,7 +119,7 @@ telegramAlerter._handleBrief = async function() {
     const data = await this._getCachedData();
     if (!data) return `⏳ Intelligence data is loading — please try again in 60 seconds.`;
 
-    const ts  = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const ts  = londonTs();
     const ds  = data.delta?.summary || {};
     const dir = ds.direction;
     const vix = data.fred?.find(f => f.id === 'VIXCLS');
@@ -122,7 +127,7 @@ telegramAlerter._handleBrief = async function() {
     const corrs = data.correlations || [];
     const critCorrs = corrs.filter(c => c.severity === 'critical' || c.severity === 'high');
 
-    let msg = `*ARKMURUS INTELLIGENCE BRIEF*\n_${ts} UTC_\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    let msg = `*ARKMURUS INTELLIGENCE BRIEF*\n_${ts} London_\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
     // ── 1. LEVERAGEABLE IDEAS ─────────────────────────────────────────────────
     const ideas = data.ideas || [];
@@ -568,7 +573,7 @@ if (discordAlerter.isConfigured) {
     const energy = currentData.energy || {};
     const delta = memory.getLastDelta();
     const ideas = (currentData.ideas || []).slice(0, 3);
-    const sections = [`**📋 CRUCIX BRIEF**\n_${new Date().toISOString().replace('T', ' ').substring(0, 19)} UTC_\n`];
+    const sections = [`**📋 CRUCIX BRIEF**\n_${londonTs()} London_\n`];
     if (delta?.summary) {
       const dirEmoji = { 'risk-off': '📉', 'risk-on': '📈', 'mixed': '↔️' }[delta.summary.direction] || '↔️';
       sections.push(`${dirEmoji} Direction: **${delta.summary.direction.toUpperCase()}** | ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical\n`);
