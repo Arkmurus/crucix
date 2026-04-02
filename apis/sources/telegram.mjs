@@ -337,8 +337,11 @@ export async function briefing() {
   // Sort all posts by significance
   allPosts.sort((a, b) => b.score - a.score);
 
-  // Separate urgent posts
-  const urgentPosts = allPosts.filter(p => p.urgentFlags).slice(0, 15);
+  // Separate urgent posts — enrich with direct post URL for Telegram deep-links
+  const urgentPosts = allPosts
+    .filter(p => p.urgentFlags)
+    .slice(0, 15)
+    .map(p => ({ ...p, url: p.postId ? `https://t.me/${p.postId}` : null }));
 
   // Group by topic
   const byTopic = groupByTopic(allPosts, CHANNELS);
