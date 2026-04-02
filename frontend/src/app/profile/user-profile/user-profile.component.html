@@ -165,6 +165,93 @@
             </form>
           </mat-card-content>
         </mat-card>
+
+        <!-- 2FA CARD -->
+        <mat-card class="rounded-4 mt-4">
+          <mat-card-content class="p-4">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+              <div>
+                <h5 class="mb-1">Two-Factor Authentication</h5>
+                <p class="text-muted mb-0 small">Protect your account with Google Authenticator or Microsoft Authenticator</p>
+              </div>
+              <span class="badge bg-success" *ngIf="twoFaEnabled" style="font-size:13px;padding:6px 12px;">Active</span>
+              <span class="badge bg-secondary" *ngIf="!twoFaEnabled" style="font-size:13px;padding:6px 12px;">Inactive</span>
+            </div>
+
+            <div class="alert alert-success mb-3" *ngIf="twoFaMsg">{{ twoFaMsg }}</div>
+            <div class="alert alert-danger mb-3" *ngIf="twoFaError">{{ twoFaError }}</div>
+
+            <!-- Not enabled, not in setup mode -->
+            <div *ngIf="!twoFaEnabled && !twoFaSetupMode">
+              <p class="text-muted small mb-3">
+                Two-factor authentication adds an extra layer of security. After entering your password,
+                you'll need to enter a 6-digit code from your authenticator app.
+              </p>
+              <button mat-flat-button color="primary" (click)="startTwoFaSetup()" [disabled]="twoFaLoading">
+                <mat-icon class="me-1">security</mat-icon>
+                <span *ngIf="!twoFaLoading">Set Up 2FA</span>
+                <span *ngIf="twoFaLoading">Loading...</span>
+              </button>
+            </div>
+
+            <!-- Setup mode: show QR code -->
+            <div *ngIf="twoFaSetupMode">
+              <div class="row g-4">
+                <div class="col-12 col-md-5 text-center">
+                  <p class="small text-muted mb-2">Scan this QR code with your authenticator app:</p>
+                  <img [src]="twoFaQr" alt="2FA QR Code" style="max-width:200px;border-radius:8px;border:1px solid #dee2e6;">
+                  <p class="small text-muted mt-2 mb-0">Or enter this key manually:</p>
+                  <code style="font-size:12px;word-break:break-all;color:#2159d5;">{{ twoFaSecret }}</code>
+                </div>
+                <div class="col-12 col-md-7">
+                  <p class="small text-muted mb-3">
+                    After scanning, enter the 6-digit code shown in your app to confirm setup:
+                  </p>
+                  <mat-form-field class="w-100" appearance="outline">
+                    <mat-label>Authenticator Code</mat-label>
+                    <input matInput [(ngModel)]="twoFaEnableCode" placeholder="000000"
+                           maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+                  </mat-form-field>
+                  <div class="d-flex gap-2 mt-2">
+                    <button mat-flat-button color="primary" (click)="confirmTwoFaEnable()" [disabled]="twoFaLoading">
+                      <span *ngIf="!twoFaLoading">Enable 2FA</span>
+                      <span *ngIf="twoFaLoading">Verifying...</span>
+                    </button>
+                    <button mat-stroked-button (click)="cancelTwoFaSetup()">Cancel</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Enabled, not in disable mode -->
+            <div *ngIf="twoFaEnabled && !twoFaDisableMode">
+              <p class="text-muted small mb-3">
+                Two-factor authentication is active on your account. You will be asked for a code every time you sign in.
+              </p>
+              <button mat-stroked-button color="warn" (click)="twoFaDisableMode = true; twoFaError = ''">
+                <mat-icon class="me-1">no_encryption</mat-icon> Disable 2FA
+              </button>
+            </div>
+
+            <!-- Disable confirmation mode -->
+            <div *ngIf="twoFaEnabled && twoFaDisableMode">
+              <p class="text-muted small mb-3">Enter your current authenticator code to confirm disabling 2FA:</p>
+              <mat-form-field appearance="outline" style="max-width:200px;">
+                <mat-label>Authenticator Code</mat-label>
+                <input matInput [(ngModel)]="twoFaDisableCode" placeholder="000000"
+                       maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+              </mat-form-field>
+              <div class="d-flex gap-2 mt-2">
+                <button mat-flat-button color="warn" (click)="confirmTwoFaDisable()" [disabled]="twoFaLoading">
+                  <span *ngIf="!twoFaLoading">Confirm Disable</span>
+                  <span *ngIf="twoFaLoading">Verifying...</span>
+                </button>
+                <button mat-stroked-button (click)="twoFaDisableMode = false; twoFaDisableCode = ''; twoFaError = ''">Cancel</button>
+              </div>
+            </div>
+
+          </mat-card-content>
+        </mat-card>
       </div>
     </mat-tab>
 

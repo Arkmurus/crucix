@@ -1,6 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { ReactiveFormsModule, FormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { MatModule } from 'src/app/appModules/mat.module';
 import { AuthService, User } from 'src/app/services/auth.service';
@@ -9,7 +9,7 @@ import { PushService } from 'src/app/services/push.service';
 @Component({
   selector: 'app-user-profile',
   standalone: true,
-  imports: [CommonModule, MatModule, ReactiveFormsModule],
+  imports: [CommonModule, MatModule, ReactiveFormsModule, FormsModule],
   templateUrl: './user-profile.component.html',
   styleUrl: './user-profile.component.scss'
 })
@@ -39,6 +39,18 @@ export class UserProfileComponent implements OnInit {
   hideNewPw = true;
   hideConfirmPw = true;
 
+  // 2FA state
+  twoFaEnabled = false;
+  twoFaSetupMode = false;
+  twoFaQr = '';
+  twoFaSecret = '';
+  twoFaEnableCode = '';
+  twoFaDisableCode = '';
+  twoFaLoading = false;
+  twoFaMsg = '';
+  twoFaError = '';
+  twoFaDisableMode = false;
+
   constructor(
     private fb: FormBuilder,
     private authService: AuthService,
@@ -67,6 +79,8 @@ export class UserProfileComponent implements OnInit {
       newPassword: ['', [Validators.required, Validators.minLength(8)]],
       confirmNewPassword: ['', Validators.required]
     });
+
+    this.twoFaEnabled = this.currentUser?.twoFactorEnabled ?? false;
 
     this.pushService.isSubscribed().then(subscribed => {
       this.pushSubscribed = subscribed;
@@ -198,6 +212,80 @@ export class UserProfileComponent implements OnInit {
     this.http.delete(`/api/admin/users/${userId}`).subscribe({
       next: () => this.loadAdminUsers(),
       error: (err) => { this.adminError = err?.error?.message || 'Failed to delete user.'; }
+    });
+  }
+
+  startTwoFaSetup(): void {
+    this.twoFaLoading = true;
+    this.twoFaMsg = '';
+    this.twoFaError = '';
+    this.authService.twoFaSetup().subscribe({
+      next: (res) => {
+        this.twoFaLoading = false;
+        this.twoFaQr = res.qrDataUrl;
+        this.twoFaSecret = res.secret;
+        this.twoFaSetupMode = true;
+      },
+      error: (err) => {
+        this.twoFaLoading = false;
+        this.twoFaError = err?.error?.error || 'Failed to start 2FA setup.';
+      }
+    });
+  }
+
+  confirmTwoFaEnable(): void {
+    if (!this.twoFaEnableCode || this.twoFaEnableCode.length !== 6) {
+      this.twoFaError = 'Enter the 6-digit code from your authenticator app.';
+      return;
+    }
+    this.twoFaLoading = true;
+    this.twoFaError = '';
+    this.authService.twoFaEnable(this.twoFaEnableCode).subscribe({
+      next: () => {
+        this.twoFaLoading = false;
+        this.twoFaEnabled = true;
+        this.twoFaSetupMode = false;
+        this.twoFaQr = '';
+        this.twoFaSecret = '';
+        this.twoFaEnableCode = '';
+        this.twoFaMsg = '2FA enabled successfully. Your account is now protected.';
+        this.authService.getMe().subscribe();
+      },
+      error: (err) => {
+        this.twoFaLoading = false;
+        this.twoFaError = err?.error?.error || 'Invalid code. Try again.';
+      }
+    });
+  }
+
+  cancelTwoFaSetup(): void {
+    this.twoFaSetupMode = false;
+    this.twoFaQr = '';
+    this.twoFaSecret = '';
+    this.twoFaEnableCode = '';
+    this.twoFaError = '';
+  }
+
+  confirmTwoFaDisable(): void {
+    if (!this.twoFaDisableCode || this.twoFaDisableCode.length !== 6) {
+      this.twoFaError = 'Enter the 6-digit code to confirm disabling 2FA.';
+      return;
+    }
+    this.twoFaLoading = true;
+    this.twoFaError = '';
+    this.authService.twoFaDisable(this.twoFaDisableCode).subscribe({
+      next: () => {
+        this.twoFaLoading = false;
+        this.twoFaEnabled = false;
+        this.twoFaDisableMode = false;
+        this.twoFaDisableCode = '';
+        this.twoFaMsg = '2FA has been disabled.';
+        this.authService.getMe().subscribe();
+      },
+      error: (err) => {
+        this.twoFaLoading = false;
+        this.twoFaError = err?.error?.error || 'Invalid code. Try again.';
+      }
     });
   }
 

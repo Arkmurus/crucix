@@ -839,12 +839,95 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(403).json({ error: 'Account suspended. Contact an administrator.' });
     }
 
+    // If 2FA is enabled, issue a short-lived pre-auth token instead of the real JWT
+    if (user.twoFactorEnabled && user.twoFactorSecret) {
+      const preToken = createToken(user.id, user.role, '5m');
+      return res.json({ requires2FA: true, preToken });
+    }
+
     const token = createToken(user.id, user.role);
     const cleanUser = updateUser(user.id, { lastLogin: new Date().toISOString() });
     res.json({ token, user: cleanUser });
   } catch (err) {
     console.error('[Auth] Login error:', err.message);
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// ── 2FA: verify TOTP code after password (second step) ───────────────────────
+app.post('/api/auth/2fa/authenticate', async (req, res) => {
+  try {
+    const { preToken, code } = req.body || {};
+    if (!preToken || !code) return res.status(400).json({ error: 'preToken and code required' });
+    let payload;
+    try { payload = verifyToken(preToken); } catch { return res.status(401).json({ error: 'Pre-auth token invalid or expired' }); }
+    const user = findUserById(payload.userId);
+    if (!user || !user.twoFactorSecret) return res.status(401).json({ error: 'Invalid session' });
+    const { TOTP } = await import('otplib');
+    const valid = TOTP.verify({ token: String(code).replace(/\s/g, ''), secret: user.twoFactorSecret });
+    if (!valid) return res.status(401).json({ error: 'Invalid authenticator code' });
+    const token = createToken(user.id, user.role);
+    const cleanUser = updateUser(user.id, { lastLogin: new Date().toISOString() });
+    res.json({ token, user: cleanUser });
+  } catch (err) {
+    console.error('[Auth] 2FA authenticate error:', err.message);
+    res.status(500).json({ error: '2FA verification failed' });
+  }
+});
+
+// ── 2FA: generate secret + QR code (setup step 1) ────────────────────────────
+app.post('/api/auth/2fa/setup', requireAuth, async (req, res) => {
+  try {
+    const user = findUserById(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const { generateSecret, generateURI } = await import('otplib');
+    const secret = generateSecret();
+    const uri = generateURI('TOTP', {
+      label: user.email,
+      secret,
+      issuer: 'Arkmurus Intelligence',
+    });
+    const QRCode = (await import('qrcode')).default;
+    const qrDataUrl = await QRCode.toDataURL(uri);
+    updateUser(user.id, { twoFactorSecret: secret, twoFactorEnabled: false });
+    res.json({ secret, qrDataUrl });
+  } catch (err) {
+    console.error('[Auth] 2FA setup error:', err.message);
+    res.status(500).json({ error: '2FA setup failed' });
+  }
+});
+
+// ── 2FA: confirm code and enable ─────────────────────────────────────────────
+app.post('/api/auth/2fa/enable', requireAuth, async (req, res) => {
+  try {
+    const { code } = req.body || {};
+    if (!code) return res.status(400).json({ error: 'Authenticator code required' });
+    const user = findUserById(req.user.userId);
+    if (!user?.twoFactorSecret) return res.status(400).json({ error: 'Run /api/auth/2fa/setup first' });
+    const { TOTP } = await import('otplib');
+    const valid = TOTP.verify({ token: String(code).replace(/\s/g, ''), secret: user.twoFactorSecret });
+    if (!valid) return res.status(400).json({ error: 'Invalid code — check your authenticator app and try again' });
+    updateUser(user.id, { twoFactorEnabled: true });
+    res.json({ message: '2FA enabled successfully' });
+  } catch (err) {
+    res.status(500).json({ error: '2FA enable failed' });
+  }
+});
+
+// ── 2FA: disable ─────────────────────────────────────────────────────────────
+app.post('/api/auth/2fa/disable', requireAuth, async (req, res) => {
+  try {
+    const { code } = req.body || {};
+    if (!code) return res.status(400).json({ error: 'Authenticator code required to disable 2FA' });
+    const user = findUserById(req.user.userId);
+    if (!user?.twoFactorSecret) return res.status(400).json({ error: '2FA is not enabled' });
+    const { TOTP } = await import('otplib');
+    const valid = TOTP.verify({ token: String(code).replace(/\s/g, ''), secret: user.twoFactorSecret });
+    if (!valid) return res.status(400).json({ error: 'Invalid code' });
+    updateUser(user.id, { twoFactorEnabled: false, twoFactorSecret: null });
+    res.json({ message: '2FA disabled' });
+  } catch (err) {
+    res.status(500).json({ error: '2FA disable failed' });
   }
 });
 

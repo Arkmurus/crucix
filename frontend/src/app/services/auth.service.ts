@@ -13,6 +13,7 @@ export interface User {
   notifyDigest: boolean;
   notifyFlash: boolean;
   notifyPush: boolean;
+  twoFactorEnabled?: boolean;
   createdAt: string;
   lastLogin?: string;
 }
@@ -67,14 +68,38 @@ export class AuthService {
     return user?.role === 'admin';
   }
 
-  login(email: string, password: string): Observable<{ token: string; user: User }> {
-    return this.http.post<{ token: string; user: User }>('/api/auth/login', { email, password }).pipe(
+  login(email: string, password: string): Observable<any> {
+    return this.http.post<any>('/api/auth/login', { email, password }).pipe(
+      tap(res => {
+        if (!res.requires2FA) {
+          localStorage.setItem(this.TOKEN_KEY, res.token);
+          localStorage.setItem(this.USER_KEY, JSON.stringify(res.user));
+          this.currentUserSubject.next(res.user);
+        }
+      })
+    );
+  }
+
+  twoFaAuthenticate(preToken: string, code: string): Observable<any> {
+    return this.http.post<any>('/api/auth/2fa/authenticate', { preToken, code }).pipe(
       tap(res => {
         localStorage.setItem(this.TOKEN_KEY, res.token);
         localStorage.setItem(this.USER_KEY, JSON.stringify(res.user));
         this.currentUserSubject.next(res.user);
       })
     );
+  }
+
+  twoFaSetup(): Observable<{ secret: string; qrDataUrl: string }> {
+    return this.http.post<any>('/api/auth/2fa/setup', {});
+  }
+
+  twoFaEnable(code: string): Observable<any> {
+    return this.http.post('/api/auth/2fa/enable', { code });
+  }
+
+  twoFaDisable(code: string): Observable<any> {
+    return this.http.post('/api/auth/2fa/disable', { code });
   }
 
   register(data: { fullName: string; username: string; email: string; password: string }): Observable<any> {
