@@ -110,6 +110,19 @@ export class IntelligenceComponent implements OnInit, OnDestroy {
     return cleaned;
   }
 
+  // Extract [Source] prefix from title like "[DefenseWeb] Article title..."
+  titleSource(title: string): string {
+    if (!title) return '';
+    const m = title.match(/^\[([^\]]+)\]/);
+    return m ? `[${m[1]}]` : '';
+  }
+
+  // Return title body after stripping leading [Source] prefix
+  titleBody(title: string): string {
+    if (!title) return '';
+    return title.replace(/^\[[^\]]+\]\s*/, '');
+  }
+
   directionColor(): string {
     const d = this.direction;
     if (d === 'risk-off') return 'warn';

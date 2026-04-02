@@ -868,13 +868,32 @@ app.post('/api/auth/register', async (req, res) => {
     if (findUserByEmail(email)) return res.status(409).json({ error: 'Email already registered' });
     if (findUserByUsername(username)) return res.status(409).json({ error: 'Username already taken' });
 
+    const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
+
     createUser({ username, email, password, fullName });
     const rawUser = findUserByEmail(email); // raw record includes verificationCode
 
-    await sendVerificationEmail(email, rawUser.fullName, rawUser.verificationCode).catch(() => {});
+    if (smtpConfigured) {
+      // SMTP available — send verification email, require email confirmation first
+      await sendVerificationEmail(email, rawUser.fullName, rawUser.verificationCode).catch(() => {});
+      console.log(`[Auth] New registration, verification email sent: ${email}`);
+      res.json({ message: 'Account created. Please check your email for a 6-digit verification code.', needsVerification: true, email });
+    } else {
+      // SMTP not configured — skip email verification, go straight to pending_approval
+      updateUser(rawUser.id, { status: 'pending_approval', verificationCode: null, verificationExpiry: null });
+      console.log(`[Auth] New registration (no SMTP — skipping email verify, pending admin approval): ${email}`);
 
-    console.log(`[Auth] New registration, verification email sent: ${email}`);
-    res.json({ message: 'Account created. Please check your email for a 6-digit verification code.', needsVerification: true, email });
+      // Notify admin via Telegram
+      if (telegramAlerter?.isConfigured) {
+        telegramAlerter.sendMessage(
+          `👤 *New User Registration — Approval Required*\n\n` +
+          `Name: ${rawUser.fullName}\nEmail: ${email}\nUsername: @${username}\n\n` +
+          `Go to Admin → Users in the dashboard to approve or reject.`
+        ).catch(() => {});
+      }
+
+      res.json({ message: 'Account created. Your registration is awaiting admin approval — you will be notified once activated.', needsVerification: false, email });
+    }
   } catch (err) {
     console.error('[Auth] Register error:', err.message);
     res.status(500).json({ error: 'Registration failed' });
@@ -1015,6 +1034,12 @@ app.post('/api/auth/verify-email', async (req, res) => {
        </ul>
        <p>Log in to the admin panel and go to <strong>Admin &rarr; Users</strong> to approve or reject this account.</p>`
     ).catch(() => {});
+    // Also notify via Telegram (in case SMTP is unreliable)
+    if (telegramAlerter?.isConfigured) {
+      telegramAlerter.sendMessage(
+        `👤 *User Verified — Approval Required*\n\nName: ${user.fullName}\nEmail: ${email}\nUsername: @${user.username}\n\nGo to Admin → Users to approve or reject.`
+      ).catch(() => {});
+    }
     res.json({ message: 'Email verified. Your account is awaiting admin approval — you will be notified once activated.' });
   } catch (err) {
     console.error('[Auth] Verify email error:', err.message);

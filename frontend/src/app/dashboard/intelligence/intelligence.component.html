@@ -268,7 +268,13 @@
             <div *ngFor="let s of defenceSignals" class="mb-2 pb-2 border-bottom small">
               <span class="badge bg-primary me-1" *ngIf="s.type === 'tender'">Tender</span>
               <span class="badge bg-secondary me-1" *ngIf="s.type !== 'tender'">Signal</span>
-              {{ (s.text || s.title || '') | slice:0:160 }}
+              <ng-container *ngIf="titleSource(s.text || s.title || '') as src">
+                <span style="color:#1565c0">{{ src }}</span>
+                {{ titleBody(s.text || s.title || '') | slice:0:160 }}
+              </ng-container>
+              <ng-container *ngIf="!titleSource(s.text || s.title || '')">
+                {{ (s.text || s.title || '') | slice:0:160 }}
+              </ng-container>
               <div class="text-muted" *ngIf="s.source">
                 <small>{{ s.source }}</small>
               </div>
@@ -287,7 +293,8 @@
           <mat-card-content style="max-height:420px;overflow-y:auto">
             <div *ngFor="let u of defenceUpdates; let ui = index" class="mb-3 pb-3 border-bottom small">
               <div class="fw-semibold" style="font-size:0.83rem;line-height:1.45;word-break:break-word;color:#ecf0f1">
-                {{ u.title || '' }}
+                <span *ngIf="titleSource(u.title)" style="color:#1565c0">{{ titleSource(u.title) }}</span>
+                {{ titleBody(u.title) || u.title || '' }}
               </div>
               <ng-container *ngIf="cleanContent(u.content) as body">
                 <div class="text-muted mt-1" style="font-size:0.78rem;line-height:1.55;word-break:break-word">

@@ -53,10 +53,15 @@ export class SignUpComponent implements OnInit {
     const { fullName, username, email, password } = this.registerForm.value;
 
     this.authService.register({ fullName, username, email, password }).subscribe({
-      next: () => {
+      next: (res: any) => {
         this.loading = false;
-        this.successMsg = 'Account created! Check your email for a 6-digit verification code.';
-        setTimeout(() => this.router.navigate(['/auth/verify-email'], { queryParams: { email } }), 2000);
+        if (res?.needsVerification === false) {
+          this.successMsg = 'Account created! Your registration is awaiting admin approval. You will be notified once activated.';
+          setTimeout(() => this.router.navigate(['/auth/sign-in']), 3000);
+        } else {
+          this.successMsg = 'Account created! Check your email for a 6-digit verification code.';
+          setTimeout(() => this.router.navigate(['/auth/verify-email'], { queryParams: { email } }), 2000);
+        }
       },
       error: (err) => {
         this.loading = false;

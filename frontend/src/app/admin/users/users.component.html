@@ -92,8 +92,8 @@
       <!-- Actions row -->
       <div class="user-actions">
 
-        <!-- Pending approval -->
-        <ng-container *ngIf="user.status === 'pending_approval'">
+        <!-- Pending approval or verification (admin can approve directly) -->
+        <ng-container *ngIf="user.status === 'pending_approval' || user.status === 'pending_verification'">
           <button mat-flat-button color="primary" class="action-btn"
                   [disabled]="saving.has(user.id)" (click)="approveUser(user)">
             <mat-icon style="font-size:14px;width:14px;height:14px">how_to_reg</mat-icon>
