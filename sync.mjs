@@ -9,7 +9,7 @@ const BRANCH = 'main';
 const BASE  = `https://raw.githubusercontent.com/${REPO}/${BRANCH}`;
 
 const FILES = [
-  'server.mjs',
+  // server.mjs intentionally excluded — pulled via git on Seenode, not overwritten at runtime
   'dashboard/inject.mjs',
   'lib/alerts/telegram.mjs',
   'lib/intel/correlate.mjs',
