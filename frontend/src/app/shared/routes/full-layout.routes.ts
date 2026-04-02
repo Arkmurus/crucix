@@ -21,6 +21,12 @@ export const Full_ROUTES: Routes = [
         path: 'admin',
         canActivate: [AuthGuard, AdminGuard],
         loadChildren: () => import('../../admin/admin.module').then(m => m.AdminModule)
+    },
+
+    {
+        path: 'chat',
+        canActivate: [AuthGuard],
+        loadChildren: () => import('../../chat/chat.module').then(m => m.ChatModule)
     }
 
 ];

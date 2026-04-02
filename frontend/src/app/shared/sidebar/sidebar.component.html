@@ -48,6 +48,22 @@
         </mat-nav-list>
       </mat-expansion-panel>
 
+      <!-- ── Messaging ── -->
+      <mat-expansion-panel [class.mat-elevation-z0]="true">
+        <mat-expansion-panel-header>
+          <mat-icon class="material-icons-outlined">forum</mat-icon>
+          Messaging
+          <span class="badge bg-primary ms-1" *ngIf="chatUnread > 0" style="font-size:10px;padding:2px 6px;">{{ chatUnread }}</span>
+        </mat-expansion-panel-header>
+        <mat-nav-list>
+          <a mat-list-item routerLink="chat">
+            <mat-icon>chat</mat-icon>
+            Messages
+            <span class="badge bg-primary ms-1" *ngIf="chatUnread > 0" style="font-size:10px;padding:2px 6px;">{{ chatUnread }}</span>
+          </a>
+        </mat-nav-list>
+      </mat-expansion-panel>
+
       <!-- ── Separator ── -->
       <mat-nav-list>
         <mat-divider></mat-divider>

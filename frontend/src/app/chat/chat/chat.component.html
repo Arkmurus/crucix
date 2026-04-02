@@ -1,0 +1,156 @@
+<div class="chat-layout">
+
+  <!-- ── Sidebar: contact list ─────────────────────────────────── -->
+  <div class="chat-sidebar" [class.d-none-mobile]="mobileShowConversation">
+
+    <div class="chat-sidebar-header">
+      <h5 class="mb-0">Messages</h5>
+      <span class="badge bg-primary ms-2" *ngIf="totalUnread > 0">{{ totalUnread }}</span>
+    </div>
+
+    <!-- Search -->
+    <div class="chat-search-wrap">
+      <mat-form-field appearance="outline" class="w-100 chat-search-field">
+        <mat-icon matPrefix>search</mat-icon>
+        <input matInput [(ngModel)]="searchQuery" placeholder="Search people...">
+      </mat-form-field>
+    </div>
+
+    <!-- Existing conversations -->
+    <div class="chat-section-label" *ngIf="conversations.length > 0 && !searchQuery">Recent</div>
+    <div class="contact-list" *ngIf="!searchQuery">
+      <div *ngFor="let conv of conversations"
+           class="contact-item"
+           [class.active]="activeUser?.id === conv.userId"
+           (click)="openConversation(conv)">
+        <div class="contact-avatar">
+          <span>{{ conv.fullName.charAt(0).toUpperCase() }}</span>
+          <span class="presence-dot" [class.online]="isOnline(conv.userId)"></span>
+        </div>
+        <div class="contact-info">
+          <div class="contact-name">{{ conv.fullName }}</div>
+          <div class="contact-preview">{{ conv.lastMessage.text }}</div>
+        </div>
+        <div class="contact-meta">
+          <div class="contact-time">{{ formatTime(conv.lastMessage.ts) }}</div>
+          <span class="badge bg-primary unread-badge" *ngIf="conv.unread > 0">{{ conv.unread }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- All users (when searching or no conversations) -->
+    <div class="chat-section-label">{{ searchQuery ? 'Results' : 'All Users' }}</div>
+    <div class="contact-list">
+      <div *ngFor="let user of filteredUsers"
+           class="contact-item"
+           [class.active]="activeUser?.id === user.id"
+           (click)="openUser(user)">
+        <div class="contact-avatar">
+          <span>{{ user.fullName.charAt(0).toUpperCase() }}</span>
+          <span class="presence-dot" [class.online]="isOnline(user.id)"></span>
+        </div>
+        <div class="contact-info">
+          <div class="contact-name">{{ user.fullName }}</div>
+          <div class="contact-role">{{ user.role | titlecase }}</div>
+        </div>
+        <div class="contact-status-icon">
+          <mat-icon *ngIf="isOnline(user.id)" style="color:#22c55e;font-size:12px;width:12px;height:12px;">circle</mat-icon>
+        </div>
+      </div>
+      <div class="no-users" *ngIf="filteredUsers.length === 0">
+        <span class="text-muted small">No users found</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Main conversation area ────────────────────────────────── -->
+  <div class="chat-main" [class.d-none-mobile]="!mobileShowConversation && !activeUser">
+
+    <!-- No conversation selected -->
+    <div class="chat-empty" *ngIf="!activeUser">
+      <mat-icon style="font-size:56px;width:56px;height:56px;color:#2159d5;opacity:0.5;">forum</mat-icon>
+      <h5 class="mt-3 mb-1">Select a conversation</h5>
+      <p class="text-muted small">Choose a contact from the list to start a secure private conversation</p>
+    </div>
+
+    <!-- Active conversation -->
+    <ng-container *ngIf="activeUser">
+
+      <!-- Conversation header -->
+      <div class="chat-conv-header">
+        <button mat-icon-button class="back-btn d-md-none" (click)="backToList()">
+          <mat-icon>arrow_back</mat-icon>
+        </button>
+        <div class="contact-avatar header-avatar">
+          <span>{{ activeUser.fullName.charAt(0).toUpperCase() }}</span>
+          <span class="presence-dot" [class.online]="isOnline(activeUser.id)"></span>
+        </div>
+        <div class="header-info">
+          <div class="header-name">{{ activeUser.fullName }}</div>
+          <div class="header-status" [class.online-text]="isOnline(activeUser.id)">
+            <ng-container *ngIf="remoteTyping">typing...</ng-container>
+            <ng-container *ngIf="!remoteTyping">
+              {{ isOnline(activeUser.id) ? 'Online' : 'Offline' }}
+            </ng-container>
+          </div>
+        </div>
+      </div>
+
+      <!-- Message list -->
+      <div class="message-list" #messageList>
+        <div *ngIf="loadingMessages" class="text-center p-4">
+          <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+        </div>
+
+        <div *ngIf="!loadingMessages && messages.length === 0" class="chat-empty-conv">
+          <mat-icon>lock</mat-icon>
+          <p class="text-muted small mt-2">This conversation is private and encrypted in transit.<br>Send a message to start.</p>
+        </div>
+
+        <div *ngFor="let msg of messages"
+             class="message-row"
+             [class.mine]="isMine(msg)"
+             [class.theirs]="!isMine(msg)">
+          <div class="message-bubble">
+            <div class="message-text">{{ msg.text }}</div>
+            <div class="message-time">{{ formatTime(msg.ts) }}</div>
+          </div>
+        </div>
+
+        <!-- Typing indicator -->
+        <div class="message-row theirs" *ngIf="remoteTyping">
+          <div class="message-bubble typing-bubble">
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input area -->
+      <div class="chat-input-area">
+        <mat-form-field appearance="outline" class="chat-input-field">
+          <textarea matInput
+            [(ngModel)]="messageText"
+            (keydown)="onKeydown($event)"
+            (input)="onInputChange()"
+            placeholder="Type a message... (Enter to send)"
+            rows="1"
+            cdkTextareaAutosize
+            cdkAutosizeMinRows="1"
+            cdkAutosizeMaxRows="4">
+          </textarea>
+        </mat-form-field>
+        <button mat-fab color="primary" class="send-btn"
+                (click)="sendMessage()"
+                [disabled]="!messageText.trim()"
+                matTooltip="Send message">
+          <mat-icon>send</mat-icon>
+        </button>
+      </div>
+
+    </ng-container>
+  </div>
+
+</div>

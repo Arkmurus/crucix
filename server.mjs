@@ -35,6 +35,9 @@ import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRe
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser } from './lib/auth/users.mjs';
 import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification } from './lib/auth/email.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
+import { createServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
+import { storeMessage, getConversation, markRead, getConversationSummaries, unreadCount } from './lib/messages.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -1152,6 +1155,42 @@ app.post('/api/push/test', requireAdmin, async (req, res) => {
   }
 });
 
+// ── Chat REST API ─────────────────────────────────────────────────────────────
+
+// GET /api/chat/users — list all users (id, username, fullName) for contact list
+app.get('/api/chat/users', requireAuth, (req, res) => {
+  const users = listUsers().filter(u => u.status === 'active' && u.id !== req.user.userId);
+  res.json(users.map(u => ({ id: u.id, username: u.username, fullName: u.fullName, role: u.role })));
+});
+
+// GET /api/chat/conversations — summary list for sidebar
+app.get('/api/chat/conversations', requireAuth, (req, res) => {
+  const summaries = getConversationSummaries(req.user.userId);
+  // Enrich with user info
+  const enriched = summaries.map(s => {
+    const u = findUserById(s.userId);
+    return {
+      ...s,
+      username: u?.username || 'Unknown',
+      fullName: u?.fullName || 'Unknown',
+      role: u?.role || 'viewer'
+    };
+  });
+  res.json(enriched);
+});
+
+// GET /api/chat/messages/:userId — conversation history
+app.get('/api/chat/messages/:userId', requireAuth, (req, res) => {
+  const msgs = getConversation(req.user.userId, req.params.userId, 100);
+  markRead(req.user.userId, req.params.userId);
+  res.json(msgs);
+});
+
+// GET /api/chat/unread — total unread count for badge
+app.get('/api/chat/unread', requireAuth, (req, res) => {
+  res.json({ count: unreadCount(req.user.userId) });
+});
+
 app.get('/events', (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -1344,7 +1383,98 @@ async function start() {
   ╚══════════════════════════════════════════════╝
   `);
 
-  const server = app.listen(port, '0.0.0.0');
+  const server = createServer(app);
+
+  // ── Socket.io — Real-time Chat ─────────────────────────────────────────────
+  const io = new SocketIOServer(server, {
+    cors: { origin: '*', methods: ['GET', 'POST'] }
+  });
+
+  // Map userId → Set of socket ids (one user may have multiple tabs)
+  const onlineUsers = new Map(); // userId → Set<socketId>
+
+  io.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+    try {
+      const payload = verifyToken(token);
+      socket.userId = payload.userId;
+      socket.userRole = payload.role;
+      next();
+    } catch {
+      next(new Error('Authentication error'));
+    }
+  });
+
+  io.on('connection', (socket) => {
+    const uid = socket.userId;
+
+    // Track online
+    if (!onlineUsers.has(uid)) onlineUsers.set(uid, new Set());
+    onlineUsers.get(uid).add(socket.id);
+
+    // Broadcast presence update
+    io.emit('presence', { userId: uid, online: true });
+    socket.emit('online_users', Array.from(onlineUsers.keys()));
+
+    // Send message
+    socket.on('send_message', ({ toId, text }) => {
+      if (!toId || !text || typeof text !== 'string') return;
+      const safeText = text.trim().slice(0, 2000);
+      if (!safeText) return;
+
+      const msg = storeMessage(uid, toId, safeText);
+      const enrichFrom = findUserById(uid);
+      const payload = {
+        ...msg,
+        fromUsername: enrichFrom?.username || 'Unknown',
+        fromFullName: enrichFrom?.fullName || 'Unknown'
+      };
+
+      // Deliver to recipient (all their sockets)
+      const toSockets = onlineUsers.get(toId);
+      if (toSockets) {
+        for (const sid of toSockets) {
+          io.to(sid).emit('new_message', payload);
+        }
+      }
+
+      // Echo back to sender (all their tabs)
+      const fromSockets = onlineUsers.get(uid);
+      if (fromSockets) {
+        for (const sid of fromSockets) {
+          io.to(sid).emit('new_message', payload);
+        }
+      }
+    });
+
+    // Typing indicator
+    socket.on('typing', ({ toId, typing }) => {
+      const toSockets = onlineUsers.get(toId);
+      if (toSockets) {
+        for (const sid of toSockets) {
+          io.to(sid).emit('typing', { fromId: uid, typing });
+        }
+      }
+    });
+
+    // Mark read
+    socket.on('mark_read', ({ fromId }) => {
+      markRead(uid, fromId);
+    });
+
+    socket.on('disconnect', () => {
+      const sockets = onlineUsers.get(uid);
+      if (sockets) {
+        sockets.delete(socket.id);
+        if (sockets.size === 0) {
+          onlineUsers.delete(uid);
+          io.emit('presence', { userId: uid, online: false });
+        }
+      }
+    });
+  });
+
+  server.listen(port, '0.0.0.0');
 
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
