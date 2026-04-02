@@ -14,6 +14,12 @@
           </div>
           <div *ngIf="successMsg" class="alert alert-success" role="alert">{{ successMsg }}</div>
 
+          <!-- Pending approval banner -->
+          <div *ngIf="pendingUsers.length > 0" class="alert alert-warning d-flex align-items-center gap-2">
+            <mat-icon style="font-size:18px;width:18px;height:18px;">pending_actions</mat-icon>
+            <span><strong>{{ pendingUsers.length }} account(s)</strong> awaiting your approval.</span>
+          </div>
+
           <div *ngIf="loading" class="text-center py-4">
             <div class="spinner-border text-primary" role="status"></div>
             <p class="mt-2 text-muted">Loading users...</p>
@@ -32,14 +38,15 @@
                 </tr>
               </thead>
               <tbody>
-                <tr *ngFor="let user of users">
+                <tr *ngFor="let user of users"
+                    [style.background]="user.status === 'pending_approval' ? 'rgba(255,193,7,.06)' : ''">
                   <td>
                     <strong>{{ user.fullName }}</strong><br>
                     <small class="text-muted">{{ '@' + user.username }}</small>
                   </td>
                   <td>{{ user.email }}</td>
                   <td>
-                    <span [class]="statusBadge(user.status)">{{ user.status }}</span>
+                    <span [class]="statusBadge(user.status)">{{ statusLabel(user.status) }}</span>
                   </td>
                   <td>
                     <select class="form-select form-select-sm"
@@ -55,8 +62,17 @@
                   <td>
                     <small>{{ user.lastLogin ? (user.lastLogin | date:'dd MMM HH:mm') : 'Never' }}</small>
                   </td>
-                  <td>
-                    <button class="btn btn-sm me-1"
+                  <td class="d-flex gap-1 flex-wrap">
+                    <!-- Approve button — only for pending_approval -->
+                    <button *ngIf="user.status === 'pending_approval'"
+                            class="btn btn-sm btn-success"
+                            [disabled]="saving.has(user.id)"
+                            (click)="approveUser(user)">
+                      Approve
+                    </button>
+                    <!-- Suspend / Activate — only for non-pending users -->
+                    <button *ngIf="user.status !== 'pending_approval'"
+                            class="btn btn-sm"
                             [class]="suspendBtnClass(user.status)"
                             [disabled]="saving.has(user.id)"
                             (click)="toggleStatus(user)">
@@ -68,7 +84,7 @@
                       Delete
                     </button>
                     <span *ngIf="saving.has(user.id)"
-                          class="spinner-border spinner-border-sm ms-1 text-primary"></span>
+                          class="spinner-border spinner-border-sm ms-1 text-primary align-self-center"></span>
                   </td>
                 </tr>
                 <tr *ngIf="users.length === 0">

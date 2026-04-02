@@ -15,8 +15,10 @@ export class UsersComponent implements OnInit {
 
   constructor(private http: HttpClient, private auth: AuthService) {}
 
-  ngOnInit(): void {
-    this.loadUsers();
+  ngOnInit(): void { this.loadUsers(); }
+
+  get pendingUsers(): User[] {
+    return this.users.filter(u => u.status === 'pending_approval');
   }
 
   private headers(): HttpHeaders {
@@ -50,6 +52,10 @@ export class UsersComponent implements OnInit {
     });
   }
 
+  approveUser(user: User): void {
+    this.updateUser(user, { status: 'active' });
+  }
+
   setRole(user: User, role: string): void {
     this.updateUser(user, { role: role as any });
   }
@@ -66,7 +72,7 @@ export class UsersComponent implements OnInit {
       next: () => {
         this.users = this.users.filter(u => u.id !== user.id);
         this.saving.delete(user.id);
-        this.successMsg = `User deleted.`;
+        this.successMsg = 'User deleted.';
         setTimeout(() => this.successMsg = '', 3000);
       },
       error: err => {
@@ -78,11 +84,23 @@ export class UsersComponent implements OnInit {
 
   statusBadge(status: string): string {
     if (status === 'active') return 'badge bg-success';
-    if (status === 'pending_verification') return 'badge bg-warning text-dark';
-    return 'badge bg-danger';
+    if (status === 'pending_approval') return 'badge bg-warning text-dark';
+    if (status === 'pending_verification') return 'badge bg-info text-dark';
+    if (status === 'suspended') return 'badge bg-danger';
+    return 'badge bg-secondary';
+  }
+
+  statusLabel(status: string): string {
+    if (status === 'pending_approval') return 'Pending Approval';
+    if (status === 'pending_verification') return 'Verify Email';
+    if (status === 'active') return 'Active';
+    if (status === 'suspended') return 'Suspended';
+    return status;
   }
 
   suspendBtnClass(status: string): string {
-    return status === 'suspended' ? 'btn btn-sm btn-outline-success me-1' : 'btn btn-sm btn-outline-warning me-1';
+    return status === 'suspended'
+      ? 'btn btn-sm btn-outline-success'
+      : 'btn btn-sm btn-outline-warning';
   }
 }

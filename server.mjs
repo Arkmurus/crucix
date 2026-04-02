@@ -802,20 +802,18 @@ app.post('/api/auth/register', async (req, res) => {
     const user = createUser({ username, email, password, fullName });
 
     await sendAdminNotification(
-      'New user registration',
-      `<p>New user registered: <strong>${user.fullName}</strong> (${email})</p><p>Username: ${username}</p>`
+      'New user registration — approval required',
+      `<p>New user registered and awaiting your approval:</p>
+       <ul>
+         <li><strong>Name:</strong> ${user.fullName}</li>
+         <li><strong>Email:</strong> ${email}</li>
+         <li><strong>Username:</strong> ${username}</li>
+       </ul>
+       <p>Log in to the admin panel and go to <strong>Admin → Users</strong> to approve or reject this account.</p>`
     ).catch(() => {});
 
-    // If SMTP is not configured, auto-activate the account immediately
-    if (!process.env.EMAIL_HOST) {
-      updateUser(user.id, { status: 'active', verificationCode: null, verificationExpiry: null });
-      console.log(`[Auth] Auto-activated ${email} (no SMTP configured)`);
-      return res.json({ message: 'Account created. You can now sign in.', autoActivated: true });
-    }
-
-    const verCode = findUserByEmail(email)?.verificationCode;
-    await sendVerificationEmail(email, user.fullName, verCode || generateCode()).catch(() => {});
-    res.json({ message: 'Verification email sent. Please check your inbox.' });
+    console.log(`[Auth] New registration pending approval: ${email}`);
+    res.json({ message: 'Account created — awaiting admin approval. You will be notified once your account is activated.' });
   } catch (err) {
     console.error('[Auth] Register error:', err.message);
     res.status(500).json({ error: 'Registration failed' });
@@ -831,6 +829,9 @@ app.post('/api/auth/login', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     if (!verifyPassword(password, user.passwordHash)) return res.status(401).json({ error: 'Invalid credentials' });
 
+    if (user.status === 'pending_approval') {
+      return res.status(403).json({ error: 'Your account is pending admin approval. You will be notified once activated.' });
+    }
     if (user.status === 'pending_verification') {
       return res.status(403).json({ error: 'Please verify your email first', needsVerification: true });
     }
