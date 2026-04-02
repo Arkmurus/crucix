@@ -86,10 +86,14 @@
 <mat-toolbar class="searchbar mat-elevation-z5 justify-content-between"
              [ngClass]="{'full-search': getSideBarSate()}"
              [class.searchVisible]="toggleSearch">
-  <button mat-icon-button class="btn-search">
+  <button mat-icon-button class="btn-search" (click)="onSearch()">
     <mat-icon class="material-icons-outlined">search</mat-icon>
   </button>
-  <input class="w-100 search-control" placeholder="Search intelligence...">
+  <input class="w-100 search-control"
+         placeholder="Search companies, entities, people..."
+         [(ngModel)]="searchQuery"
+         (keyup.enter)="onSearch()"
+         autocomplete="off">
   <button mat-icon-button class="btn-search" (click)="searchClose()">
     <mat-icon class="material-icons-outlined">close</mat-icon>
   </button>

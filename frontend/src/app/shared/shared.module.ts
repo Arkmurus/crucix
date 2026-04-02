@@ -7,6 +7,7 @@ import { HeaderComponent } from "./header/header.component";
 import { SidebarComponent } from "./sidebar/sidebar.component";
 // import { ColorSwitcherComponent } from './color-switcher/color-switcher.component';
 import { MatModule } from '../appModules/mat.module';
+import { FormsModule } from '@angular/forms';
 
 
 
@@ -22,6 +23,7 @@ import { MatModule } from '../appModules/mat.module';
     imports: [
         RouterModule,
         CommonModule,
+        FormsModule,
         MatModule
     ],
     declarations: [

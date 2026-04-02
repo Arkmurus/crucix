@@ -6,6 +6,7 @@ import { OpportunitiesComponent } from './opportunities/opportunities.component'
 import { SourcesComponent } from './sources/sources.component';
 import { ExplorerComponent } from './explorer/explorer.component';
 import { BdIntelligenceComponent } from './bd-intelligence/bd-intelligence.component';
+import { SearchComponent } from './search/search.component';
 
 const routes: Routes = [
   {
@@ -16,6 +17,7 @@ const routes: Routes = [
       { path: 'bd-intelligence',component: BdIntelligenceComponent,data: { title: 'BD & Strategy Intelligence' } },
       { path: 'sources',        component: SourcesComponent,       data: { title: 'Source Health' } },
       { path: 'explorer',       component: ExplorerComponent,      data: { title: 'Intelligence Explorer' } },
+      { path: 'search',         component: SearchComponent,        data: { title: 'Entity Search' } },
     ]
   }
 ];

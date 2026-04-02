@@ -120,4 +120,9 @@ export class CrucixApiService {
     return this.http.get(`${this.base}/api/search?q=${encodeURIComponent(query)}`)
       .pipe(catchError(() => of({ results: [] })));
   }
+
+  entitySearch(query: string): Observable<any> {
+    return this.http.get(`${this.base}/api/search/entity?q=${encodeURIComponent(query)}`)
+      .pipe(catchError(err => of({ success: false, error: err?.error?.error || 'Search failed' })));
+  }
 }

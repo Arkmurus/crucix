@@ -1,0 +1,384 @@
+<div class="container-fluid" style="max-width:1100px">
+
+  <!-- Search bar -->
+  <div class="row mb-4 mt-2">
+    <div class="col-12">
+      <div style="display:flex;align-items:center;gap:12px;
+                  background:#111827;border:1px solid #1e3a5f;border-radius:10px;padding:10px 16px;">
+        <mat-icon style="color:#60a5fa;font-size:22px;width:22px;height:22px">manage_search</mat-icon>
+        <input [(ngModel)]="newSearch" (keyup.enter)="onSearch()"
+               placeholder="Search companies, entities, people..."
+               style="flex:1;background:transparent;border:none;outline:none;color:#e2e8f0;font-size:15px;"
+               autocomplete="off">
+        <button mat-flat-button color="primary" (click)="onSearch()"
+                style="min-width:90px;font-weight:600;font-size:13px;">
+          Search
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="loading" style="text-align:center;padding:80px 0">
+    <mat-spinner diameter="48" class="mx-auto"></mat-spinner>
+    <p style="color:#60a5fa;margin-top:20px;font-size:14px;letter-spacing:1px">
+      Querying corporate registries, sanctions lists and intelligence feeds...
+    </p>
+  </div>
+
+  <!-- Error -->
+  <div *ngIf="error && !loading" class="alert alert-danger">{{ error }}</div>
+
+  <!-- Results -->
+  <div *ngIf="data && !loading">
+
+    <!-- ── Entity header card ─────────────────────────────────────── -->
+    <mat-card style="margin-bottom:20px;background:#111827;border:1px solid #1e3a5f;border-radius:10px">
+      <mat-card-content style="padding:24px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <div style="font-size:11px;letter-spacing:2px;color:#3b82f6;text-transform:uppercase;font-weight:700;margin-bottom:6px">
+              Entity Intelligence Profile
+            </div>
+            <h2 style="margin:0 0 8px;font-size:24px;font-weight:800;color:#f1f5f9;letter-spacing:-0.02em">
+              {{ data.query }}
+            </h2>
+            <p *ngIf="data.synthesis?.summary" style="margin:0 0 12px;color:#94a3b8;font-size:14px;line-height:1.6">
+              {{ data.synthesis.summary }}
+            </p>
+            <p *ngIf="!data.synthesis?.summary && data.reference?.snippet"
+               style="margin:0 0 12px;color:#94a3b8;font-size:14px;line-height:1.6">
+              {{ data.reference.snippet | slice:0:280 }}
+            </p>
+
+            <!-- Key facts -->
+            <div *ngIf="data.synthesis?.keyFacts?.length" style="margin-top:12px">
+              <div *ngFor="let f of data.synthesis.keyFacts" style="display:flex;align-items:flex-start;gap:8px;margin-bottom:5px">
+                <mat-icon style="font-size:14px;width:14px;height:14px;color:#10b981;flex-shrink:0;margin-top:2px">check</mat-icon>
+                <span style="color:#cbd5e1;font-size:13px">{{ f }}</span>
+              </div>
+            </div>
+
+            <!-- Risk indicators -->
+            <div *ngIf="data.synthesis?.riskIndicators?.length" style="margin-top:10px">
+              <div *ngFor="let r of data.synthesis.riskIndicators" style="display:flex;align-items:flex-start;gap:8px;margin-bottom:5px">
+                <mat-icon style="font-size:14px;width:14px;height:14px;color:#f59e0b;flex-shrink:0;margin-top:2px">warning</mat-icon>
+                <span style="color:#fcd34d;font-size:13px">{{ r }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Confidence + meta -->
+          <div style="text-align:center;min-width:130px">
+            <div style="width:80px;height:80px;border-radius:50%;margin:0 auto 10px;
+                        display:flex;align-items:center;justify-content:center;flex-direction:column;
+                        border:3px solid {{ confidenceColor(data.confidence) }};
+                        background:rgba(0,0,0,0.3)">
+              <span style="font-size:20px;font-weight:800;color:{{ confidenceColor(data.confidence) }}">
+                {{ (data.confidence * 100).toFixed(0) }}%
+              </span>
+            </div>
+            <div style="font-size:12px;color:#94a3b8;font-weight:600">{{ confidenceLabel(data.confidence) }}</div>
+            <div style="font-size:11px;color:#475569;margin-top:4px">{{ data.sourcesQueried }} sources</div>
+            <div style="font-size:11px;color:#475569">{{ data.durationMs }}ms</div>
+
+            <!-- Sector badge -->
+            <div *ngIf="data.synthesis?.sector"
+                 style="margin-top:10px;background:#1e3a5f;border-radius:6px;padding:4px 10px;font-size:11px;color:#60a5fa;font-weight:600">
+              {{ data.synthesis.sector }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Active sources -->
+        <div *ngIf="data.activeSources?.length" style="margin-top:16px;padding-top:14px;border-top:1px solid #1e3a5f">
+          <span style="font-size:11px;color:#475569;margin-right:8px">Verified by:</span>
+          <span *ngFor="let s of data.activeSources"
+                style="display:inline-block;background:#0a0e1a;border:1px solid #1e3a5f;
+                       border-radius:4px;padding:2px 8px;font-size:11px;color:#60a5fa;margin:2px">
+            {{ s }}
+          </span>
+        </div>
+      </mat-card-content>
+    </mat-card>
+
+    <!-- Low confidence warning -->
+    <div *ngIf="!data.meetsThreshold"
+         style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);
+                border-radius:8px;padding:12px 16px;margin-bottom:20px;display:flex;gap:10px;align-items:center">
+      <mat-icon style="color:#f59e0b;flex-shrink:0">info</mat-icon>
+      <span style="color:#fcd34d;font-size:13px">
+        Confidence below 80% — limited verified data found. Results shown may be incomplete.
+      </span>
+    </div>
+
+    <div class="row g-3">
+
+      <!-- ── Compliance card ───────────────────────────────────────── -->
+      <div class="col-12">
+        <mat-card style="background:#111827;border:1px solid;border-radius:10px"
+                  [style.border-color]="data.sanctions?.sanctioned ? '#ef4444' : '#1e3a5f'">
+          <mat-card-content style="padding:20px 24px">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <mat-icon [style.color]="riskColor(data.sanctions?.sanctioned)"
+                        style="font-size:28px;width:28px;height:28px">
+                {{ data.sanctions?.sanctioned ? 'gpp_bad' : 'verified_user' }}
+              </mat-icon>
+              <div style="flex:1">
+                <div style="font-size:11px;letter-spacing:2px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px">
+                  Sanctions &amp; Compliance
+                </div>
+                <div style="font-size:18px;font-weight:700;"
+                     [style.color]="riskColor(data.sanctions?.sanctioned)">
+                  {{ sanctionLabel(data.sanctions) }}
+                  <span *ngIf="!data.sanctions?.checked" style="font-size:13px;color:#64748b;font-weight:400"> — check unavailable</span>
+                </div>
+                <div *ngIf="data.sanctions?.lists?.length" style="margin-top:8px">
+                  <span *ngFor="let l of data.sanctions.lists"
+                        style="display:inline-block;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);
+                               border-radius:4px;padding:2px 10px;font-size:12px;color:#fca5a5;margin:2px;font-weight:600">
+                    {{ listName(l) }}
+                  </span>
+                </div>
+              </div>
+              <div *ngIf="data.sanctions?.confidence" style="text-align:right">
+                <div style="font-size:11px;color:#475569">Check confidence</div>
+                <div style="font-size:16px;font-weight:700;"
+                     [style.color]="confidenceColor(data.sanctions.confidence)">
+                  {{ (data.sanctions.confidence * 100).toFixed(0) }}%
+                </div>
+              </div>
+            </div>
+
+            <!-- Matched entities -->
+            <div *ngIf="data.sanctions?.entities?.length"
+                 style="margin-top:16px;padding-top:14px;border-top:1px solid #1e3a5f">
+              <div style="font-size:11px;color:#64748b;font-weight:600;margin-bottom:8px;letter-spacing:1px;text-transform:uppercase">
+                Matched Records
+              </div>
+              <div *ngFor="let e of data.sanctions.entities.slice(0,4)"
+                   style="display:flex;justify-content:space-between;align-items:center;
+                          padding:8px 12px;background:#0a0e1a;border-radius:6px;margin-bottom:6px;gap:12px;flex-wrap:wrap">
+                <div>
+                  <div style="color:#e2e8f0;font-size:13px;font-weight:600">{{ e.name }}</div>
+                  <div *ngIf="e.countries?.length" style="color:#64748b;font-size:12px">{{ e.countries.join(', ') }}</div>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+                  <span *ngIf="e.sanctioned"
+                        style="background:rgba(239,68,68,0.2);border:1px solid #ef4444;
+                               border-radius:4px;padding:2px 8px;font-size:11px;color:#fca5a5;font-weight:700">
+                    SANCTIONED
+                  </span>
+                  <span *ngFor="let t of (e.topics || []).slice(0,2)"
+                        style="background:#1e3a5f;border-radius:4px;padding:2px 8px;font-size:11px;color:#93c5fd">
+                    {{ t }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <!-- ── Corporate registrations ───────────────────────────────── -->
+      <div class="col-12" *ngIf="data.corporate?.length">
+        <mat-card style="background:#111827;border:1px solid #1e3a5f;border-radius:10px">
+          <mat-card-content style="padding:20px 24px">
+            <div style="font-size:11px;letter-spacing:2px;color:#3b82f6;text-transform:uppercase;font-weight:700;margin-bottom:16px">
+              <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:6px">business</mat-icon>
+              Corporate Registrations
+            </div>
+            <div class="row g-3">
+              <div *ngFor="let c of data.corporate" class="col-md-6">
+                <div style="background:#0a0e1a;border:1px solid #1e3a5f;border-radius:8px;padding:16px">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+                    <div style="font-size:14px;font-weight:700;color:#e2e8f0;flex:1;margin-right:8px">{{ c.name || c.title }}</div>
+                    <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;white-space:nowrap;"
+                          [style.background]="c.status === 'Active' || c.status === 'REGISTERED' ? 'rgba(16,185,129,0.15)' : 'rgba(100,116,139,0.2)'"
+                          [style.color]="c.status === 'Active' || c.status === 'REGISTERED' ? '#10b981' : '#94a3b8'">
+                      {{ c.status || 'Unknown' }}
+                    </span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                    <div *ngIf="c.jurisdiction || c.legalForm">
+                      <div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:0.5px">Jurisdiction</div>
+                      <div style="font-size:12px;color:#94a3b8">{{ jurisdictionLabel(c.jurisdiction) }}</div>
+                    </div>
+                    <div *ngIf="c.lei">
+                      <div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:0.5px">LEI</div>
+                      <div style="font-size:11px;color:#60a5fa;font-family:monospace">{{ c.lei }}</div>
+                    </div>
+                    <div *ngIf="c.registrationDate || c.incorporationDate">
+                      <div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:0.5px">Incorporated</div>
+                      <div style="font-size:12px;color:#94a3b8">{{ formatDate(c.registrationDate || c.incorporationDate) }}</div>
+                    </div>
+                    <div *ngIf="c.address">
+                      <div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:0.5px">Address</div>
+                      <div style="font-size:11px;color:#94a3b8;word-break:break-word">{{ c.address | slice:0:80 }}</div>
+                    </div>
+                  </div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+                    <span style="font-size:10px;color:#475569">Source: {{ c.source }}</span>
+                    <a *ngIf="c.url" [href]="c.url" target="_blank" rel="noopener"
+                       style="font-size:11px;color:#60a5fa;text-decoration:none;display:flex;align-items:center;gap:3px">
+                      <mat-icon style="font-size:11px;width:11px;height:11px">open_in_new</mat-icon> View record
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <!-- ── People / leadership ───────────────────────────────────── -->
+      <div class="col-md-6" *ngIf="data.synthesis?.peopleFound?.length">
+        <mat-card style="background:#111827;border:1px solid #1e3a5f;border-radius:10px;height:100%">
+          <mat-card-content style="padding:20px 24px">
+            <div style="font-size:11px;letter-spacing:2px;color:#3b82f6;text-transform:uppercase;font-weight:700;margin-bottom:14px">
+              <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:6px">people</mat-icon>
+              People Found
+            </div>
+            <div *ngFor="let p of data.synthesis.peopleFound"
+                 style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1e3a5f">
+              <div style="width:32px;height:32px;border-radius:50%;background:#1e3a5f;
+                          display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <mat-icon style="font-size:16px;width:16px;height:16px;color:#60a5fa">person</mat-icon>
+              </div>
+              <span style="color:#e2e8f0;font-size:13px">{{ p }}</span>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <!-- ── Wikipedia / Wikidata reference ───────────────────────── -->
+      <div [class]="data.synthesis?.peopleFound?.length ? 'col-md-6' : 'col-12'"
+           *ngIf="data.reference || data.wikidata">
+        <mat-card style="background:#111827;border:1px solid #1e3a5f;border-radius:10px;height:100%">
+          <mat-card-content style="padding:20px 24px">
+            <div style="font-size:11px;letter-spacing:2px;color:#3b82f6;text-transform:uppercase;font-weight:700;margin-bottom:14px">
+              <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:6px">menu_book</mat-icon>
+              Reference
+            </div>
+            <div *ngIf="data.reference">
+              <div style="font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:8px">{{ data.reference.title }}</div>
+              <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0 0 12px">{{ data.reference.snippet }}</p>
+              <a [href]="data.reference.url" target="_blank" rel="noopener"
+                 style="font-size:12px;color:#60a5fa;text-decoration:none;display:flex;align-items:center;gap:4px">
+                <mat-icon style="font-size:12px;width:12px;height:12px">open_in_new</mat-icon>
+                Wikipedia
+              </a>
+            </div>
+            <div *ngIf="!data.reference && data.wikidata">
+              <div style="font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:6px">{{ data.wikidata.label }}</div>
+              <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0 0 12px">{{ data.wikidata.description }}</p>
+              <a [href]="data.wikidata.url" target="_blank" rel="noopener"
+                 style="font-size:12px;color:#60a5fa;text-decoration:none;display:flex;align-items:center;gap:4px">
+                <mat-icon style="font-size:12px;width:12px;height:12px">open_in_new</mat-icon>
+                Wikidata
+              </a>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <!-- ── Platform intelligence ─────────────────────────────────── -->
+      <div class="col-12" *ngIf="data.intelligence?.length">
+        <mat-card style="background:#111827;border:1px solid #1e3a5f;border-radius:10px">
+          <mat-card-content style="padding:20px 24px">
+            <div style="font-size:11px;letter-spacing:2px;color:#f59e0b;text-transform:uppercase;font-weight:700;margin-bottom:14px">
+              <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:6px;color:#f59e0b">bolt</mat-icon>
+              Platform Intelligence Hits
+            </div>
+            <div *ngFor="let i of data.intelligence"
+                 style="padding:10px 14px;background:#0a0e1a;border-radius:6px;margin-bottom:8px;
+                        border-left:3px solid"
+                 [style.border-color]="i.priority === 'critical' ? '#ef4444' : i.priority === 'high' ? '#f59e0b' : '#3b82f6'">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#64748b">
+                  {{ i.source }}
+                </span>
+                <span style="font-size:10px;padding:1px 6px;border-radius:3px;font-weight:700;text-transform:uppercase"
+                      [style.background]="i.priority === 'critical' ? 'rgba(239,68,68,0.2)' : i.priority === 'high' ? 'rgba(245,158,11,0.2)' : 'rgba(59,130,246,0.2)'"
+                      [style.color]="i.priority === 'critical' ? '#fca5a5' : i.priority === 'high' ? '#fcd34d' : '#93c5fd'">
+                  {{ i.priority }}
+                </span>
+              </div>
+              <div style="font-size:13px;color:#cbd5e1;line-height:1.5">{{ i.title }}</div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <!-- ── News intelligence ─────────────────────────────────────── -->
+      <div class="col-12" *ngIf="data.news?.length">
+        <mat-card style="background:#111827;border:1px solid #1e3a5f;border-radius:10px">
+          <mat-card-content style="padding:20px 24px">
+            <div style="font-size:11px;letter-spacing:2px;color:#3b82f6;text-transform:uppercase;font-weight:700;margin-bottom:14px">
+              <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:6px">newspaper</mat-icon>
+              News Intelligence
+            </div>
+            <div *ngFor="let n of data.news"
+                 style="display:flex;gap:14px;padding:12px 0;border-bottom:1px solid #1e3a5f;align-items:flex-start">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600;color:#e2e8f0;line-height:1.4;margin-bottom:5px">{{ n.title }}</div>
+                <div *ngIf="n.snippet" style="font-size:12px;color:#64748b;line-height:1.5">{{ n.snippet | slice:0:160 }}</div>
+                <div style="display:flex;gap:12px;margin-top:6px;align-items:center;flex-wrap:wrap">
+                  <span style="font-size:11px;color:#475569">{{ n.source }}</span>
+                  <span *ngIf="n.pubDate" style="font-size:11px;color:#475569">{{ formatDate(n.pubDate) }}</span>
+                  <a *ngIf="n.url" [href]="n.url" target="_blank" rel="noopener"
+                     style="font-size:11px;color:#60a5fa;text-decoration:none;display:flex;align-items:center;gap:3px">
+                    <mat-icon style="font-size:11px;width:11px;height:11px">open_in_new</mat-icon>Read article
+                  </a>
+                </div>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <!-- ── Web intelligence ──────────────────────────────────────── -->
+      <div class="col-12" *ngIf="data.web?.length">
+        <mat-card style="background:#111827;border:1px solid #1e3a5f;border-radius:10px">
+          <mat-card-content style="padding:20px 24px">
+            <div style="font-size:11px;letter-spacing:2px;color:#3b82f6;text-transform:uppercase;font-weight:700;margin-bottom:14px">
+              <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:6px">travel_explore</mat-icon>
+              Web Intelligence
+            </div>
+            <div *ngFor="let w of data.web"
+                 style="padding:12px 0;border-bottom:1px solid #1e3a5f">
+              <div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:4px">{{ w.title }}</div>
+              <div *ngIf="w.snippet" style="font-size:12px;color:#64748b;line-height:1.5;margin-bottom:6px">{{ w.snippet | slice:0:200 }}</div>
+              <a *ngIf="w.url" [href]="w.url" target="_blank" rel="noopener"
+                 style="font-size:11px;color:#475569;text-decoration:none;word-break:break-all">
+                {{ w.url | slice:0:80 }}{{ w.url.length > 80 ? '...' : '' }}
+              </a>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <!-- ── No results ────────────────────────────────────────────── -->
+      <div class="col-12"
+           *ngIf="!data.corporate?.length && !data.news?.length && !data.web?.length && !data.intelligence?.length && !data.sanctions?.entities?.length">
+        <div style="text-align:center;padding:48px;background:#111827;border:1px solid #1e3a5f;border-radius:10px">
+          <mat-icon style="font-size:48px;width:48px;height:48px;color:#1e3a5f;margin-bottom:16px">search_off</mat-icon>
+          <div style="color:#475569;font-size:14px">No verified intelligence found for <strong style="color:#94a3b8">{{ data.query }}</strong></div>
+          <div style="color:#374151;font-size:12px;margin-top:6px">Try a more specific company name or add a country</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Empty state (no search yet) -->
+  <div *ngIf="!loading && !data && !error" style="text-align:center;padding:80px 0">
+    <mat-icon style="font-size:64px;width:64px;height:64px;color:#1e3a5f;margin-bottom:20px">manage_search</mat-icon>
+    <h3 style="color:#475569;font-weight:600;margin-bottom:8px">Entity Intelligence Search</h3>
+    <p style="color:#374151;font-size:14px;max-width:420px;margin:0 auto;line-height:1.6">
+      Search any company, organisation or person. Arkmurus cross-references corporate registries,
+      sanctions lists, news feeds and live intelligence to build a verified profile.
+    </p>
+  </div>
+
+</div>

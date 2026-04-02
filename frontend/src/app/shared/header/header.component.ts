@@ -84,6 +84,16 @@ export class HeaderComponent implements OnInit, OnDestroy {
     this.sidebarservice.setSidebarState(!this.sidebarservice.getSidebarState());
   }
 
+  searchQuery = '';
+
   openSearch()  { this.toggleSearch = true; }
-  searchClose() { this.toggleSearch = false; }
+  searchClose() { this.toggleSearch = false; this.searchQuery = ''; }
+
+  onSearch(): void {
+    const q = this.searchQuery.trim();
+    if (!q) return;
+    this.toggleSearch = false;
+    this.searchQuery = '';
+    this.router.navigate(['/dashboard/search'], { queryParams: { q } });
+  }
 }

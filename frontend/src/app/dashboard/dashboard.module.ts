@@ -15,6 +15,8 @@ import { OpportunitiesComponent } from './opportunities/opportunities.component'
 import { SourcesComponent } from './sources/sources.component';
 import { ExplorerComponent } from './explorer/explorer.component';
 import { BdIntelligenceComponent } from './bd-intelligence/bd-intelligence.component';
+import { SearchComponent } from './search/search.component';
+import { FormsModule } from '@angular/forms';
 
 @NgModule({
   declarations: [
@@ -25,10 +27,12 @@ import { BdIntelligenceComponent } from './bd-intelligence/bd-intelligence.compo
     SourcesComponent,
     ExplorerComponent,
     BdIntelligenceComponent,
+    SearchComponent,
   ],
   imports: [
     CommonModule,
     HttpClientModule,
+    FormsModule,
     DashboardRoutingModule,
     MatModule,
   ]

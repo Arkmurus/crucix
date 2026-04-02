@@ -699,6 +699,21 @@ app.get('/api/search', requireAuth, async (req, res) => {
   }
 });
 
+// ── Power entity search ────────────────────────────────────────────────────────
+app.get('/api/search/entity', requireAuth, async (req, res) => {
+  const query = req.query.q;
+  if (!query || query.trim().length < 2) return res.status(400).json({ error: 'Query required' });
+  console.log(`[EntitySearch] "${query}"`);
+  try {
+    const { runEntitySearch } = await import('./lib/search/engine.mjs');
+    const result = await runEntitySearch(query.trim(), currentData, llmProvider);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('[EntitySearch] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/api/sweep', requireAuth, async (req, res) => {
   try {
     if (sweepInProgress) return res.json({ success: false, message: 'Sweep already in progress' });
