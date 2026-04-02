@@ -26,6 +26,14 @@ import { sendMorningDigest } from './lib/alerts/digest.mjs';
 import { fetchUNSecurityCouncil, fetchCentralBanks, fetchThinkTanks, fetchTradeFLows } from './apis/sources/intel-feeds.mjs';
 import { fetchOpenSanctions } from './apis/sources/opensanctions.mjs';
 
+// === Self-Learning & Self-Update System ===
+import { getLearningStats, getOutcomes, recordAlertOutcome, getSourceHistory, getSourcesToReview, getPatterns, getOpportunities, getExplorerFindings, getUpdateLog, recordSourceSweep } from './lib/self/learning_store.mjs';
+import { detectOpportunities, formatOpportunitiesForTelegram } from './lib/self/opportunity_engine.mjs';
+import { analyzePatterns, formatPatternsForTelegram } from './lib/self/pattern_analyzer.mjs';
+import { runExploration, exploreQuery, formatExplorerFindingsForTelegram } from './lib/self/web_explorer.mjs';
+import { generateSourceModule, generateSourceFix, stageModule, getStagedModules, getStagedCode, formatStagedForTelegram } from './lib/self/code_generator.mjs';
+import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRestartFlag, triggerGracefulRestart, getAutoManagedModules } from './lib/self/updater.mjs';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
 const RUNS_DIR = join(ROOT, 'runs');
@@ -295,6 +303,205 @@ if (telegramAlerter.isConfigured) {
     return msg;
   });
 
+  // ── Self-Learning Commands ────────────────────────────────────────────────
+
+  telegramAlerter.onCommand('/opportunities', async () => {
+    const stored = getOpportunities();
+    const opps = stored.opportunities || [];
+    // Refresh from current data if available
+    if (currentData) {
+      const fresh = detectOpportunities(currentData);
+      return formatOpportunitiesForTelegram(fresh);
+    }
+    return formatOpportunitiesForTelegram(opps);
+  });
+
+  telegramAlerter.onCommand('/patterns', async () => {
+    const stored = getPatterns();
+    return formatPatternsForTelegram(stored);
+  });
+
+  telegramAlerter.onCommand('/explore', async (args) => {
+    if (args && args.trim()) {
+      const query = args.trim();
+      const result = await exploreQuery(llmProvider, query);
+      if (result.error) return `❌ ${result.error}`;
+      let msg = `🌐 *EXPLORATION: ${query}*\n\n`;
+      if (result.analysis) msg += result.analysis.substring(0, 1800);
+      else msg += result.results.slice(0, 3).map(r => `▸ *${r.title}*\n${r.snippet?.substring(0, 100)}`).join('\n\n');
+      return msg;
+    }
+    // Full sweep exploration
+    const findings = await runExploration(llmProvider);
+    return formatExplorerFindingsForTelegram(findings);
+  });
+
+  telegramAlerter.onCommand('/learn', async (args) => {
+    const parts = (args || '').trim().split(/\s+/);
+    const subCmd = parts[0];
+
+    if (subCmd === 'status') {
+      const stats = getLearningStats();
+      const acc = stats.outcomes.accuracy !== null ? `${stats.outcomes.accuracy}%` : 'n/a (need outcomes)';
+      return [
+        '*🧠 LEARNING STATUS*', '',
+        `*Outcomes tracked:* ${stats.outcomes.total} (${stats.outcomes.confirmed} confirmed, ${stats.outcomes.dismissed} dismissed)`,
+        `*Signal accuracy:* ${acc}`,
+        `*Sources — healthy:* ${stats.sources.healthy} · degraded: ${stats.sources.degraded} · critical: ${stats.sources.critical}`,
+        `*Patterns detected:* ${stats.patternCount}`,
+        `*Opportunities found:* ${stats.opportunityCount}`,
+        '',
+        `_/learn confirm <hash> · /learn dismiss <hash>_`,
+        `_/sources for per-source reliability_`,
+      ].join('\n');
+    }
+
+    if ((subCmd === 'confirm' || subCmd === 'dismiss') && parts[1]) {
+      const hash = parts[1];
+      const outcome = subCmd;
+      recordAlertOutcome(hash, '', outcome, {});
+      return `✅ Alert ${hash.substring(0, 12)}… marked as *${outcome}*\nLearning weights updated.`;
+    }
+
+    return [
+      '*🧠 LEARN COMMANDS*', '',
+      '`/learn status` — learning accuracy stats',
+      '`/learn confirm <id>` — mark alert as accurate',
+      '`/learn dismiss <id>` — mark alert as false alarm',
+    ].join('\n');
+  });
+
+  telegramAlerter.onCommand('/sources', async (args) => {
+    const history = getSourceHistory();
+    if (history.length === 0) return '📡 No source history yet — runs after first sweep.';
+
+    const critical  = history.filter(s => s.status === 'critical');
+    const degraded  = history.filter(s => s.status === 'degraded');
+    const healthy   = history.filter(s => s.status === 'healthy');
+
+    let msg = `*📡 SOURCE HEALTH (${history.length} sources)*\n`;
+    msg += `🟢 ${healthy.length} healthy · 🟠 ${degraded.length} degraded · 🔴 ${critical.length} critical\n\n`;
+
+    if (critical.length > 0) {
+      msg += `*🔴 CRITICAL (fix needed)*\n`;
+      for (const s of critical.slice(0, 5)) {
+        msg += `▸ ${s.name} — ${s.reliability ?? '?'}% reliability\n`;
+      }
+      msg += '\n';
+    }
+    if (degraded.length > 0) {
+      msg += `*🟠 DEGRADED (monitor)*\n`;
+      for (const s of degraded.slice(0, 5)) {
+        msg += `▸ ${s.name} — ${s.reliability ?? '?'}% reliability\n`;
+      }
+    }
+    msg += `\n_/sources fix <name> to auto-repair · /sources all for full list_`;
+    return msg;
+  });
+
+  telegramAlerter.onCommand('/update', async (args) => {
+    const parts = (args || '').trim().split(/\s+/);
+    const subCmd = parts[0];
+
+    if (!subCmd || subCmd === 'status') {
+      const staged  = getStagedModules();
+      const managed = getAutoManagedModules();
+      const log     = getUpdateLog(3);
+      let msg = `*🔧 SELF-UPDATE STATUS*\n\n`;
+      msg += `Auto-managed sources: ${managed.length > 0 ? managed.join(', ') : 'none yet'}\n`;
+      msg += `Staged for deployment: ${staged.length}\n`;
+      if (staged.length > 0) msg += staged.map(s => `  ▸ ${s.name} (${s.type || 'new'})`).join('\n') + '\n';
+      msg += '\n*Recent activity:*\n';
+      for (const entry of log) {
+        msg += `▸ ${entry.action} — ${entry.timestamp?.substring(0, 16).replace('T', ' ')}\n`;
+      }
+      msg += '\n_/update add <description> — generate new source_\n_/update apply <name> — deploy staged module_\n_/update staged — list staged modules_';
+      return msg;
+    }
+
+    if (subCmd === 'staged') {
+      return formatStagedForTelegram(getStagedModules());
+    }
+
+    if (subCmd === 'add' && parts.length >= 2) {
+      const description = parts.slice(1).join(' ');
+      const moduleName = description
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .trim()
+        .replace(/\s+/g, '_')
+        .substring(0, 30);
+
+      if (!llmProvider?.isConfigured) {
+        return '❌ LLM not configured — set ANTHROPIC_API_KEY to enable code generation';
+      }
+
+      const reply = await telegramAlerter._sendText?.('⏳ Generating source module — this takes ~30s...');
+      const result = await generateSourceModule(llmProvider, description, moduleName);
+
+      if (!result.success) return `❌ Generation failed: ${result.error}`;
+
+      stageModule(result.moduleName, result.code, { type: 'new', description });
+      return `✅ *Source module generated and staged*\nName: \`${result.moduleName}\`\nLines: ${result.code.split('\n').length}\n\nTo deploy: \`/update apply ${result.moduleName}\`\nTo preview: \`/update preview ${result.moduleName}\``;
+    }
+
+    if (subCmd === 'apply' && parts[1]) {
+      const moduleName = parts[1];
+      const result = await deployModule(moduleName);
+      return result.success ? `✅ ${result.message}` : `❌ Deploy failed: ${result.error}`;
+    }
+
+    if (subCmd === 'discard' && parts[1]) {
+      const { unlinkSync, existsSync } = await import('node:fs');
+      const stagePath = join(ROOT, 'runs', 'staged', `${parts[1]}.mjs.staged`);
+      if (existsSync(stagePath)) {
+        unlinkSync(stagePath);
+        try { unlinkSync(stagePath + '.meta.json'); } catch {}
+        return `🗑️ Staged module \`${parts[1]}\` discarded`;
+      }
+      return `❌ No staged module named: ${parts[1]}`;
+    }
+
+    if (subCmd === 'preview' && parts[1]) {
+      const code = getStagedCode(parts[1]);
+      if (!code) return `❌ No staged module: ${parts[1]}`;
+      const preview = code.substring(0, 800);
+      return `*Preview: ${parts[1]}*\n\`\`\`\n${preview}\n\`\`\`${code.length > 800 ? `\n_...${code.length - 800} more chars_` : ''}`;
+    }
+
+    if (subCmd === 'fix' && parts[1]) {
+      const sourceName = parts[1];
+      const sourceHistory = getSourceHistory();
+      const srcInfo = sourceHistory.find(s => s.name.toLowerCase() === sourceName.toLowerCase());
+      const errorMsg = srcInfo?.status === 'critical' ? `Source ${sourceName} has ${srcInfo.reliability}% reliability` : `Source ${sourceName} reported as failing`;
+
+      if (!llmProvider?.isConfigured) return '❌ LLM required for auto-fix';
+
+      const result = await generateSourceFix(llmProvider, sourceName, errorMsg);
+      if (!result.success) return `❌ Fix generation failed: ${result.error}`;
+
+      stageModule(result.moduleName, result.code, { type: 'fix', description: `Auto-fix for ${sourceName}`, originalError: errorMsg });
+      return `🔧 Fix generated for \`${sourceName}\`\nTo apply: \`/update apply ${result.moduleName}\``;
+    }
+
+    if (subCmd === 'rollback' && parts[1]) {
+      const result = rollbackModule(parts[1]);
+      return result.success ? `⏪ ${result.message}` : `❌ Rollback failed: ${result.error}`;
+    }
+
+    return [
+      '*🔧 UPDATE COMMANDS*', '',
+      '`/update status` — show managed sources + recent activity',
+      '`/update add <description>` — generate new source module',
+      '`/update staged` — list modules awaiting deployment',
+      '`/update apply <name>` — deploy a staged module',
+      '`/update preview <name>` — preview staged module code',
+      '`/update fix <source>` — auto-fix a broken source',
+      '`/update discard <name>` — discard staged module',
+      '`/update rollback <name>` — rollback to previous version',
+    ].join('\n');
+  });
+
   telegramAlerter.startPolling(config.telegram.botPollingInterval);
 }
 
@@ -397,18 +604,17 @@ app.use((req, res, next) => {
 
 app.use(express.static(join(ROOT, 'dashboard/public')));
 
-app.get('/', (req, res) => {
-  if (!currentData) {
-    res.sendFile(join(ROOT, 'dashboard/public/loading.html'));
-  } else {
-    const htmlPath = join(ROOT, 'dashboard/public/jarvis.html');
-    let html = readFileSync(htmlPath, 'utf-8');
-    const locale = getLocale();
-    const localeScript = `<script>window.__CRUCIX_LOCALE__ = ${JSON.stringify(locale).replace(/<\/script>/gi, '<\\/script>')};</script>`;
-    html = html.replace('</head>', `${localeScript}\n</head>`);
-    res.type('html').send(html);
-  }
-});
+// Angular dashboard — served at root /
+const ANGULAR_DIST = join(ROOT, 'frontend', 'dist', 'crucix-admin');
+if (existsSync(ANGULAR_DIST)) {
+  app.use(express.static(ANGULAR_DIST));
+  // Angular client-side routing: catch all non-API routes and serve index.html
+  app.get('/*path', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path === '/events' || req.path === '/webhook') return next();
+    res.sendFile(join(ANGULAR_DIST, 'index.html'));
+  });
+  console.log('[Crucix] Angular dashboard live at /');
+}
 
 app.get('/api/data', (req, res) => {
   if (!currentData) return res.status(503).json({ error: 'No data yet — first sweep in progress' });
@@ -475,6 +681,86 @@ app.post('/api/sweep', async (req, res) => {
   } catch (error) {
     res.json({ success: false, error: error.message });
   }
+});
+
+// ── Self-Learning API ─────────────────────────────────────────────────────────
+
+app.get('/api/learning/stats', (req, res) => {
+  res.json(getLearningStats());
+});
+
+app.get('/api/learning/outcomes', (req, res) => {
+  const limit = parseInt(req.query.limit) || 50;
+  res.json(getOutcomes(limit));
+});
+
+app.post('/api/learning/outcome', (req, res) => {
+  const { hash, text, outcome, source, region, tier } = req.body || {};
+  if (!hash || !outcome) return res.status(400).json({ error: 'hash and outcome required' });
+  if (!['confirmed', 'dismissed', 'pending'].includes(outcome)) {
+    return res.status(400).json({ error: 'outcome must be confirmed|dismissed|pending' });
+  }
+  const entry = recordAlertOutcome(hash, text || '', outcome, { source, region, tier });
+  res.json({ success: true, entry });
+});
+
+app.get('/api/opportunities', (req, res) => {
+  if (currentData) {
+    const fresh = detectOpportunities(currentData);
+    return res.json({ opportunities: fresh, source: 'live', asOf: lastSweepTime });
+  }
+  const stored = getOpportunities();
+  res.json({ ...stored, source: 'cached' });
+});
+
+app.get('/api/patterns', (req, res) => {
+  res.json(getPatterns());
+});
+
+app.get('/api/explorer', (req, res) => {
+  res.json(getExplorerFindings());
+});
+
+app.post('/api/explorer/run', async (req, res) => {
+  try {
+    const findings = await runExploration(llmProvider, req.body || {});
+    res.json({ success: true, ...findings });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/self/staged', (req, res) => {
+  res.json({ staged: getStagedModules() });
+});
+
+app.post('/api/self/generate', async (req, res) => {
+  const { description, moduleName } = req.body || {};
+  if (!description || !moduleName) return res.status(400).json({ error: 'description and moduleName required' });
+  const result = await generateSourceModule(llmProvider, description, moduleName);
+  if (result.success) {
+    stageModule(result.moduleName, result.code, { description });
+    res.json({ success: true, moduleName: result.moduleName, staged: true });
+  } else {
+    res.status(500).json({ success: false, error: result.error });
+  }
+});
+
+app.post('/api/self/apply', async (req, res) => {
+  const { moduleName } = req.body || {};
+  if (!moduleName) return res.status(400).json({ error: 'moduleName required' });
+  const result = await deployModule(moduleName);
+  res.json(result);
+});
+
+app.post('/api/self/rollback', (req, res) => {
+  const { moduleName } = req.body || {};
+  if (!moduleName) return res.status(400).json({ error: 'moduleName required' });
+  res.json(rollbackModule(moduleName));
+});
+
+app.get('/api/self/update-log', (req, res) => {
+  res.json({ log: getUpdateLog(parseInt(req.query.limit) || 20) });
 });
 
 app.post('/webhook', async (req, res) => {
@@ -549,8 +835,11 @@ async function runSweepCycle() {
     writeFileSync(join(RUNS_DIR, 'latest.json'), JSON.stringify(rawData, null, 2));
     lastSweepTime = new Date().toISOString();
 
-    // Update source health tracker
+    // Update source health tracker (in-memory + persistent learning store)
     updateSourceHealth(rawData.timing);
+    for (const [name, info] of Object.entries(rawData.timing || {})) {
+      try { recordSourceSweep(name, info.status, info.ms); } catch {}
+    }
 
     console.log('[Crucix] Synthesizing dashboard data...');
     const synthesized = await synthesize(rawData);
@@ -599,6 +888,23 @@ async function runSweepCycle() {
     // Entity trajectory — computed from archive history
     synthesized.entityTrajectory = analyzeEntityTrajectory(14);
 
+    // Self-learning: detect sales opportunities on every sweep
+    try {
+      const opportunities = detectOpportunities(synthesized);
+      synthesized.opportunities = opportunities;
+      if (opportunities.length > 0) {
+        console.log(`[Self] ${opportunities.length} opportunity/ies detected (top: ${opportunities[0]?.market} score:${opportunities[0]?.score})`);
+      }
+    } catch (err) {
+      console.error('[Self] Opportunity detection failed (non-fatal):', err.message);
+      synthesized.opportunities = [];
+    }
+
+    // Check restart flag — apply pending self-updates after sweep completes
+    if (isRestartPending()) {
+      console.log('[Self] Restart flag detected — will restart after current sweep to apply updates');
+    }
+
     // Telegram alerts handled exclusively by onSweepComplete (3-hour cadence + new intel check)
 
     memory.pruneAlertedSignals();
@@ -620,6 +926,12 @@ async function runSweepCycle() {
     if (delta?.summary) console.log(`[Crucix] Delta: ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical, direction: ${delta.summary.direction}`);
     if (correlations.length > 0) console.log(`[Crucix] Correlations: ${correlations.map(c => `${c.region}(${c.severity})`).join(', ')}`);
     console.log(`[Crucix] Next sweep at ${new Date(Date.now() + config.refreshIntervalMinutes * 60000).toLocaleTimeString()}`);
+
+    // Graceful restart to apply any self-deployed modules
+    if (isRestartPending()) {
+      clearRestartFlag();
+      triggerGracefulRestart(5000);
+    }
 
   } catch (err) {
     console.error('[Crucix] Sweep failed:', err.message);
@@ -711,6 +1023,50 @@ async function start() {
       console.log('[Crucix] Sending morning digest...');
       try { await sendMorningDigest(telegramAlerter, currentData); }
       catch (e) { console.error('[Digest] Failed:', e.message); }
+    }, { timezone: 'UTC' });
+
+    // Weekly pattern analysis — Sunday 03:00 UTC
+    cron.schedule('0 3 * * 0', async () => {
+      console.log('[Self] Running weekly pattern analysis...');
+      try {
+        const { patterns, runsAnalyzed } = await analyzePatterns(llmProvider);
+        console.log(`[Self] Pattern analysis complete — ${patterns.length} patterns from ${runsAnalyzed} runs`);
+        if (telegramAlerter?.isConfigured && patterns.length > 0) {
+          const stored = getPatterns();
+          await telegramAlerter.sendMessage(
+            `🔍 *WEEKLY PATTERN UPDATE*\n${patterns.length} intelligence patterns detected from ${runsAnalyzed} historical runs.\n\n/patterns to view`
+          );
+        }
+      } catch (e) { console.error('[Self] Pattern analysis failed:', e.message); }
+    }, { timezone: 'UTC' });
+
+    // Weekly internet exploration — Sunday 04:00 UTC
+    cron.schedule('0 4 * * 0', async () => {
+      console.log('[Self] Running weekly web exploration...');
+      try {
+        const findings = await runExploration(llmProvider);
+        console.log(`[Self] Exploration complete — ${findings.insights?.length || 0} insights, ${findings.salesIdeas?.length || 0} ideas`);
+        if (telegramAlerter?.isConfigured && (findings.insights?.length > 0 || findings.salesIdeas?.length > 0)) {
+          await telegramAlerter.sendMessage(formatExplorerFindingsForTelegram(findings));
+        }
+      } catch (e) { console.error('[Self] Web exploration failed:', e.message); }
+    }, { timezone: 'UTC' });
+
+    // Daily source health review — 02:00 UTC
+    // Auto-stages fixes for sources with <40% reliability over 48+ sweeps
+    cron.schedule('0 2 * * *', async () => {
+      console.log('[Self] Daily source health review...');
+      try {
+        const toReview = getSourcesToReview().filter(s => s.status === 'critical' && (s.totalOk + s.totalFail) >= 48);
+        if (toReview.length === 0) return;
+        console.log(`[Self] ${toReview.length} critical source(s) flagged for review: ${toReview.map(s => s.name).join(', ')}`);
+        if (telegramAlerter?.isConfigured) {
+          const names = toReview.map(s => `▸ ${s.name} (${s.reliability}% reliable)`).join('\n');
+          await telegramAlerter.sendMessage(
+            `🔴 *SOURCE HEALTH ALERT*\n${toReview.length} source(s) critically degraded:\n${names}\n\n/sources fix <name> to auto-repair\n/sources for full health report`
+          );
+        }
+      } catch (e) { console.error('[Self] Source health review failed:', e.message); }
     }, { timezone: 'UTC' });
   });
 }
