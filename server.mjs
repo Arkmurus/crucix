@@ -33,8 +33,9 @@ import { runExploration, exploreQuery, formatExplorerFindingsForTelegram } from 
 import { generateSourceModule, generateSourceFix, stageModule, getStagedModules, getStagedCode, formatStagedForTelegram } from './lib/self/code_generator.mjs';
 import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRestartFlag, triggerGracefulRestart, getAutoManagedModules } from './lib/self/updater.mjs';
 import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, formatBDSummaryForTelegram } from './lib/self/bd_intelligence.mjs';
-import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser } from './lib/auth/users.mjs';
-import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification } from './lib/auth/email.mjs';
+import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser } from './lib/auth/users.mjs';
+import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail } from './lib/auth/email.mjs';
+import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
@@ -833,7 +834,15 @@ function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Authentication required' });
   try {
-    req.user = verifyToken(token);
+    const payload = verifyToken(token);
+    // Token version check — invalidates sessions after force-logout
+    if (payload.ver !== undefined) {
+      const user = findUserById(payload.userId);
+      if (user && (user.tokenVersion || 0) !== payload.ver) {
+        return res.status(401).json({ error: 'Session revoked — please log in again' });
+      }
+    }
+    req.user = payload;
     next();
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -897,7 +906,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.json({ requires2FA: true, preToken });
     }
 
-    const token = createToken(user.id, user.role);
+    const token = createToken(user.id, user.role, '7d', user.tokenVersion || 0);
     const cleanUser = updateUser(user.id, { lastLogin: new Date().toISOString() });
     res.json({ token, user: cleanUser });
   } catch (err) {
@@ -918,7 +927,7 @@ app.post('/api/auth/2fa/authenticate', async (req, res) => {
     const { TOTP } = await import('otplib');
     const valid = TOTP.verify({ token: String(code).replace(/\s/g, ''), secret: user.twoFactorSecret });
     if (!valid) return res.status(401).json({ error: 'Invalid authenticator code' });
-    const token = createToken(user.id, user.role);
+    const token = createToken(user.id, user.role, '7d', user.tokenVersion || 0);
     const cleanUser = updateUser(user.id, { lastLogin: new Date().toISOString() });
     res.json({ token, user: cleanUser });
   } catch (err) {
@@ -1175,25 +1184,71 @@ app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
   try {
     const { role, status, notifyDigest, notifyFlash } = req.body || {};
     const existingUser = findUserById(req.params.id);
+    if (!existingUser) return res.status(404).json({ error: 'User not found' });
+    const admin = findUserById(req.user.userId);
     const updates = {};
     if (role         !== undefined) updates.role         = role;
     if (status       !== undefined) updates.status       = status;
     if (notifyDigest !== undefined) updates.notifyDigest = !!notifyDigest;
     if (notifyFlash  !== undefined) updates.notifyFlash  = !!notifyFlash;
     const updated = updateUser(req.params.id, updates);
-    if (status === 'active' && existingUser && existingUser.status !== 'active') {
-      await sendWelcomeEmail(existingUser.email, existingUser.fullName).catch(() => {});
+
+    // Emails + audit on status change
+    if (status && status !== existingUser.status) {
+      if (status === 'active') {
+        await sendWelcomeEmail(existingUser.email, existingUser.fullName).catch(() => {});
+        logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'approve', targetId: existingUser.id, targetEmail: existingUser.email, targetName: existingUser.fullName });
+      } else if (status === 'suspended') {
+        await sendSuspensionEmail(existingUser.email, existingUser.fullName).catch(() => {});
+        logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'suspend', targetId: existingUser.id, targetEmail: existingUser.email, targetName: existingUser.fullName });
+      } else if (status === 'active' && existingUser.status === 'suspended') {
+        await sendReactivationEmail(existingUser.email, existingUser.fullName).catch(() => {});
+        logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'unsuspend', targetId: existingUser.id, targetEmail: existingUser.email, targetName: existingUser.fullName });
+      }
     }
+    if (role && role !== existingUser.role) {
+      logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'role_change', targetId: existingUser.id, targetEmail: existingUser.email, targetName: existingUser.fullName, notes: `${existingUser.role} → ${role}` });
+    }
+
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to update user' });
   }
 });
 
-app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
+app.post('/api/admin/users/:id/force-logout', requireAdmin, (req, res) => {
+  try {
+    const target = findUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Cannot force-logout yourself' });
+    revokeTokens(req.params.id);
+    const admin = findUserById(req.user.userId);
+    logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'force_logout', targetId: target.id, targetEmail: target.email, targetName: target.fullName });
+    res.json({ ok: true, message: `${target.fullName}'s session has been revoked` });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to revoke session' });
+  }
+});
+
+app.get('/api/admin/audit', requireAdmin, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+  res.json(getAuditLog(limit));
+});
+
+app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
   try {
     if (req.params.id === req.user.userId) {
       return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+    const target = findUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    const admin = findUserById(req.user.userId);
+    // Send rejection email if account was pending
+    if (target.status === 'pending_approval' || target.status === 'pending_verification') {
+      await sendRejectionEmail(target.email, target.fullName).catch(() => {});
+      logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'reject', targetId: target.id, targetEmail: target.email, targetName: target.fullName });
+    } else {
+      logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'delete', targetId: target.id, targetEmail: target.email, targetName: target.fullName });
     }
     deleteUser(req.params.id);
     res.json({ message: 'User deleted' });

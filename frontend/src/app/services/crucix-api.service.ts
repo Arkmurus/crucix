@@ -62,6 +62,16 @@ export class CrucixApiService {
       .pipe(catchError(() => of({ tenders: [], ideas: [], strategy: null, pipeline: [], counts: {} })));
   }
 
+  forceLogout(userId: string): Observable<any> {
+    return this.http.post(`${this.base}/api/admin/users/${userId}/force-logout`, {})
+      .pipe(catchError(err => of({ ok: false, error: err.error?.error || 'Failed' })));
+  }
+
+  getAuditLog(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.base}/api/admin/audit`)
+      .pipe(catchError(() => of([])));
+  }
+
   updateDealStage(dealId: string, stage: string, notes?: string): Observable<any> {
     return this.http.post(`${this.base}/api/bd-intelligence/pipeline/${dealId}/stage`, { stage, notes })
       .pipe(catchError(err => of({ ok: false, error: err.message })));

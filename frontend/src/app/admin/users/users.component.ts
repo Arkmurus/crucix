@@ -1,6 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { AuthService, User } from '../../services/auth.service';
+import { CrucixApiService } from '../../services/crucix-api.service';
 
 @Component({
   selector: 'app-admin-users',
@@ -14,7 +15,15 @@ export class UsersComponent implements OnInit {
   successMsg = '';
   saving = new Set<string>();
 
-  constructor(private http: HttpClient, private auth: AuthService) {}
+  showAudit = false;
+  auditLog: any[] = [];
+  auditLoading = false;
+
+  constructor(
+    private http: HttpClient,
+    private auth: AuthService,
+    private api: CrucixApiService
+  ) {}
 
   ngOnInit(): void { this.loadUsers(); }
 
@@ -54,7 +63,24 @@ export class UsersComponent implements OnInit {
   }
 
   approveUser(user: User): void {
-    this.updateUser(user, { status: 'active' });
+    this.updateUser(user, { status: 'active' } as any);
+  }
+
+  rejectUser(user: User): void {
+    if (!confirm(`Reject "${user.username}"? They will receive a rejection email and be removed.`)) return;
+    this.saving.add(user.id);
+    this.http.delete(`/api/admin/users/${user.id}`, { headers: this.headers() }).subscribe({
+      next: () => {
+        this.users = this.users.filter(u => u.id !== user.id);
+        this.saving.delete(user.id);
+        this.successMsg = `${user.username} rejected and notified.`;
+        setTimeout(() => this.successMsg = '', 3000);
+      },
+      error: err => {
+        this.error = err.error?.error || 'Reject failed';
+        this.saving.delete(user.id);
+      }
+    });
   }
 
   setRole(user: User, role: string): void {
@@ -63,11 +89,28 @@ export class UsersComponent implements OnInit {
 
   toggleStatus(user: User): void {
     const newStatus = user.status === 'suspended' ? 'active' : 'suspended';
-    this.updateUser(user, { status: newStatus });
+    this.updateUser(user, { status: newStatus } as any);
+  }
+
+  forceLogout(user: User): void {
+    if (!confirm(`Force logout "${user.username}"? Their active session will be invalidated immediately.`)) return;
+    this.saving.add(user.id);
+    this.api.forceLogout(user.id).subscribe({
+      next: (res: any) => {
+        this.saving.delete(user.id);
+        if (res.ok) {
+          this.successMsg = `${user.username}'s session revoked.`;
+        } else {
+          this.error = res.error || 'Force logout failed';
+        }
+        setTimeout(() => this.successMsg = '', 3000);
+      },
+      error: () => { this.saving.delete(user.id); this.error = 'Force logout failed'; }
+    });
   }
 
   deleteUser(user: User): void {
-    if (!confirm(`Delete user "${user.username}"? This cannot be undone.`)) return;
+    if (!confirm(`Permanently delete "${user.username}"? This cannot be undone.`)) return;
     this.saving.add(user.id);
     this.http.delete(`/api/admin/users/${user.id}`, { headers: this.headers() }).subscribe({
       next: () => {
@@ -83,25 +126,55 @@ export class UsersComponent implements OnInit {
     });
   }
 
-  statusBadge(status: string): string {
-    if (status === 'active') return 'badge bg-success';
-    if (status === 'pending_approval') return 'badge bg-warning text-dark';
-    if (status === 'pending_verification') return 'badge bg-info text-dark';
-    if (status === 'suspended') return 'badge bg-danger';
-    return 'badge bg-secondary';
+  toggleAuditLog(): void {
+    this.showAudit = !this.showAudit;
+    if (this.showAudit && this.auditLog.length === 0) {
+      this.auditLoading = true;
+      this.api.getAuditLog().subscribe(log => {
+        this.auditLog = log;
+        this.auditLoading = false;
+      });
+    }
+  }
+
+  auditIcon(action: string): string {
+    const icons: Record<string, string> = {
+      approve:      'how_to_reg',
+      reject:       'person_off',
+      suspend:      'pause_circle',
+      unsuspend:    'play_circle',
+      delete:       'delete_outline',
+      force_logout: 'logout',
+      role_change:  'manage_accounts',
+    };
+    return icons[action] || 'history';
+  }
+
+  auditColor(action: string): string {
+    if (action === 'approve' || action === 'unsuspend') return '#a5d6a7';
+    if (action === 'reject'  || action === 'delete')   return '#ef9a9a';
+    if (action === 'suspend' || action === 'force_logout') return '#ffcc80';
+    return '#90caf9';
+  }
+
+  auditLabel(action: string): string {
+    const labels: Record<string, string> = {
+      approve:      'Approved',
+      reject:       'Rejected',
+      suspend:      'Suspended',
+      unsuspend:    'Reactivated',
+      delete:       'Deleted',
+      force_logout: 'Force Logout',
+      role_change:  'Role Changed',
+    };
+    return labels[action] || action;
   }
 
   statusLabel(status: string): string {
-    if (status === 'pending_approval') return 'Pending Approval';
+    if (status === 'pending_approval')    return 'Pending Approval';
     if (status === 'pending_verification') return 'Verify Email';
-    if (status === 'active') return 'Active';
+    if (status === 'active')   return 'Active';
     if (status === 'suspended') return 'Suspended';
     return status;
-  }
-
-  suspendBtnClass(status: string): string {
-    return status === 'suspended'
-      ? 'btn btn-sm btn-outline-success'
-      : 'btn btn-sm btn-outline-warning';
   }
 }

@@ -7,47 +7,54 @@
         <mat-icon style="vertical-align:middle;margin-right:8px">manage_accounts</mat-icon>
         User Management
       </h4>
-      <button mat-stroked-button (click)="loadUsers()" style="font-size:0.82rem">
-        <mat-icon style="font-size:16px;width:16px;height:16px;margin-right:4px">refresh</mat-icon>
-        Refresh
-      </button>
+      <div class="d-flex gap-2">
+        <button mat-stroked-button (click)="toggleAuditLog()" style="font-size:0.82rem"
+                [style.color]="showAudit ? '#90caf9' : ''">
+          <mat-icon style="font-size:16px;width:16px;height:16px;margin-right:4px">history</mat-icon>
+          Audit Log
+        </button>
+        <button mat-stroked-button (click)="loadUsers()" style="font-size:0.82rem">
+          <mat-icon style="font-size:16px;width:16px;height:16px;margin-right:4px">refresh</mat-icon>
+          Refresh
+        </button>
+      </div>
     </div>
   </div>
 
   <!-- Alerts -->
-  <div *ngIf="error" class="alert alert-danger d-flex align-items-center gap-2 mb-3" role="alert">
-    <mat-icon style="font-size:18px;width:18px;height:18px;flex-shrink:0">error_outline</mat-icon>
+  <div *ngIf="error" class="alert-bar alert-bar-error mb-3">
+    <mat-icon style="font-size:16px;width:16px;height:16px;flex-shrink:0">error_outline</mat-icon>
     <span>{{ error }}</span>
-    <button type="button" class="btn-close ms-auto" style="filter:invert(1)" (click)="error=''"></button>
+    <button class="alert-close" (click)="error=''">✕</button>
   </div>
-  <div *ngIf="successMsg" class="alert alert-success d-flex align-items-center gap-2 mb-3">
-    <mat-icon style="font-size:18px;width:18px;height:18px;flex-shrink:0">check_circle</mat-icon>
+  <div *ngIf="successMsg" class="alert-bar alert-bar-success mb-3">
+    <mat-icon style="font-size:16px;width:16px;height:16px;flex-shrink:0">check_circle</mat-icon>
     {{ successMsg }}
   </div>
 
   <!-- Pending banner -->
   <div *ngIf="pendingUsers.length > 0" class="pending-banner mb-3">
-    <mat-icon style="font-size:18px;width:18px;height:18px;color:#ffd54f">pending_actions</mat-icon>
+    <mat-icon style="font-size:16px;width:16px;height:16px;color:#ffd54f">pending_actions</mat-icon>
     <span><strong>{{ pendingUsers.length }} account(s)</strong> awaiting your approval</span>
   </div>
 
   <!-- Loading -->
   <div *ngIf="loading" class="text-center py-5">
-    <mat-spinner diameter="40" class="mx-auto"></mat-spinner>
-    <p class="text-muted mt-3" style="font-size:0.85rem">Loading users…</p>
+    <mat-spinner diameter="36" class="mx-auto"></mat-spinner>
+    <p class="text-muted mt-3" style="font-size:0.82rem">Loading users…</p>
   </div>
 
-  <!-- User cards -->
+  <!-- User list -->
   <div *ngIf="!loading">
-
-    <div *ngIf="users.length === 0" class="text-muted py-4 text-center">No users found.</div>
+    <div *ngIf="users.length === 0" class="text-muted py-4 text-center" style="font-size:0.85rem">
+      No users found.
+    </div>
 
     <div *ngFor="let user of users" class="user-card mb-2"
          [class.user-pending]="user.status === 'pending_approval'">
 
+      <!-- Top row -->
       <div class="user-main">
-
-        <!-- Avatar + name -->
         <div class="user-avatar">{{ (user.fullName || user.username || '?')[0].toUpperCase() }}</div>
 
         <div class="user-info">
@@ -58,7 +65,6 @@
           </div>
         </div>
 
-        <!-- Status badge -->
         <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
           <span class="status-badge"
                 [class.status-active]="user.status==='active'"
@@ -67,7 +73,6 @@
             {{ statusLabel(user.status) }}
           </span>
 
-          <!-- Role selector -->
           <select class="role-select"
                   [value]="user.role"
                   [disabled]="saving.has(user.id)"
@@ -77,44 +82,51 @@
             <option value="admin">admin</option>
           </select>
 
-          <!-- Last login -->
           <span class="last-login">
-            <mat-icon style="font-size:12px;width:12px;height:12px">schedule</mat-icon>
+            <mat-icon style="font-size:11px;width:11px;height:11px">schedule</mat-icon>
             {{ user.lastLogin ? (user.lastLogin | date:'dd MMM HH:mm') : 'Never' }}
           </span>
         </div>
-
       </div>
 
       <!-- Actions row -->
       <div class="user-actions">
-        <button *ngIf="user.status === 'pending_approval'"
-                mat-flat-button color="primary"
-                class="action-btn"
-                [disabled]="saving.has(user.id)"
-                (click)="approveUser(user)">
-          <mat-icon style="font-size:14px;width:14px;height:14px">how_to_reg</mat-icon>
-          Approve
-        </button>
 
-        <button *ngIf="user.status !== 'pending_approval'"
-                mat-stroked-button
-                class="action-btn"
-                [style.color]="user.status==='suspended' ? '#a5d6a7' : '#ffcc80'"
-                [style.border-color]="user.status==='suspended' ? 'rgba(165,214,167,.4)' : 'rgba(255,204,128,.3)'"
-                [disabled]="saving.has(user.id)"
-                (click)="toggleStatus(user)">
-          <mat-icon style="font-size:14px;width:14px;height:14px">
-            {{ user.status==='suspended' ? 'play_circle' : 'pause_circle' }}
-          </mat-icon>
-          {{ user.status==='suspended' ? 'Activate' : 'Suspend' }}
-        </button>
+        <!-- Pending approval -->
+        <ng-container *ngIf="user.status === 'pending_approval'">
+          <button mat-flat-button color="primary" class="action-btn"
+                  [disabled]="saving.has(user.id)" (click)="approveUser(user)">
+            <mat-icon style="font-size:14px;width:14px;height:14px">how_to_reg</mat-icon>
+            Approve
+          </button>
+          <button mat-stroked-button class="action-btn action-btn-reject"
+                  [disabled]="saving.has(user.id)" (click)="rejectUser(user)">
+            <mat-icon style="font-size:14px;width:14px;height:14px">person_off</mat-icon>
+            Reject
+          </button>
+        </ng-container>
 
-        <button mat-stroked-button
-                class="action-btn"
-                style="color:#ef9a9a;border-color:rgba(239,154,154,.3)"
-                [disabled]="saving.has(user.id)"
-                (click)="deleteUser(user)">
+        <!-- Active / suspended -->
+        <ng-container *ngIf="user.status !== 'pending_approval' && user.status !== 'pending_verification'">
+          <button mat-stroked-button class="action-btn"
+                  [style.color]="user.status==='suspended' ? '#a5d6a7' : '#ffcc80'"
+                  [style.border-color]="user.status==='suspended' ? 'rgba(165,214,167,.35)' : 'rgba(255,204,128,.3)'"
+                  [disabled]="saving.has(user.id)" (click)="toggleStatus(user)">
+            <mat-icon style="font-size:14px;width:14px;height:14px">
+              {{ user.status==='suspended' ? 'play_circle' : 'pause_circle' }}
+            </mat-icon>
+            {{ user.status==='suspended' ? 'Reactivate' : 'Suspend' }}
+          </button>
+
+          <button mat-stroked-button class="action-btn action-btn-logout"
+                  [disabled]="saving.has(user.id)" (click)="forceLogout(user)">
+            <mat-icon style="font-size:14px;width:14px;height:14px">logout</mat-icon>
+            Force Logout
+          </button>
+        </ng-container>
+
+        <button mat-stroked-button class="action-btn action-btn-delete"
+                [disabled]="saving.has(user.id)" (click)="deleteUser(user)">
           <mat-icon style="font-size:14px;width:14px;height:14px">delete_outline</mat-icon>
           Delete
         </button>
@@ -123,6 +135,39 @@
       </div>
 
     </div>
-
   </div>
+
+  <!-- Audit Log panel -->
+  <div *ngIf="showAudit" class="audit-panel mt-4">
+    <div class="audit-header">
+      <mat-icon style="font-size:15px;width:15px;height:15px">history</mat-icon>
+      <span>Admin Audit Log</span>
+      <span class="audit-count" *ngIf="auditLog.length > 0">{{ auditLog.length }} entries</span>
+    </div>
+
+    <div *ngIf="auditLoading" class="text-center py-3">
+      <mat-spinner diameter="24" class="mx-auto"></mat-spinner>
+    </div>
+
+    <div *ngIf="!auditLoading && auditLog.length === 0" class="audit-empty">
+      No audit entries recorded yet.
+    </div>
+
+    <div *ngFor="let entry of auditLog" class="audit-row">
+      <mat-icon class="audit-icon" [style.color]="auditColor(entry.action)">
+        {{ auditIcon(entry.action) }}
+      </mat-icon>
+      <div class="audit-body">
+        <span class="audit-action" [style.color]="auditColor(entry.action)">{{ auditLabel(entry.action) }}</span>
+        <span class="audit-target">{{ entry.targetName }}</span>
+        <span class="audit-email">{{ entry.targetEmail }}</span>
+        <span *ngIf="entry.notes" class="audit-notes">— {{ entry.notes }}</span>
+      </div>
+      <div class="audit-meta">
+        <span class="audit-by">by {{ entry.adminEmail }}</span>
+        <span class="audit-ts">{{ entry.ts | date:'dd MMM yyyy HH:mm' }}</span>
+      </div>
+    </div>
+  </div>
+
 </div>
