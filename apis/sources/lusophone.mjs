@@ -10,7 +10,7 @@ const RELIEFWEB_API = 'https://api.reliefweb.int/v1/updates?appname=crucix&limit
 const SOURCES = [
   {
     name:   'ECOWAS Peace & Security',
-    url:    'https://www.ecowas.int/feed/',
+    url:    'https://news.google.com/rss/search?q=ECOWAS+peace+security+west+africa+military&hl=en&gl=US&ceid=US:en',
     type:   'rss',
     region: 'West Africa',
     weight: 'high',
@@ -59,7 +59,7 @@ const SOURCES = [
   },
   {
     name:   'DW África (Portuguese)',
-    url:    'https://rss.dw.com/xml/rss-por-africa',
+    url:    'https://news.google.com/rss/search?q=DW+africa+angola+mo%C3%A7ambique+portugu%C3%AAs&hl=pt&gl=BR&ceid=BR:pt',
     type:   'rss',
     region: 'Lusophone Africa',
     weight: 'high',
@@ -103,7 +103,7 @@ const SOURCES = [
   // VOA Portuguese (Africa service) — correct feed URL
   {
     name:   'VOA Portuguese Africa',
-    url:    'https://www.voaportugues.com/atom.rss',
+    url:    'https://news.google.com/rss/search?q=VOA+africa+angola+mo%C3%A7ambique+portugu%C3%AAs&hl=pt&gl=AO&ceid=AO:pt',
     type:   'rss',
     region: 'Lusophone Africa',
     weight: 'high',

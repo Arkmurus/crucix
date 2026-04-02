@@ -17,9 +17,8 @@ const FEEDS = [
   },
   {
     name: 'ISS Africa',
-    // ISS uses multiple paths; try the ISS Peace & Security Council blog
-    url:  'https://issafrica.org/iss-today/rss',
-    urlAlt: 'https://issafrica.org/feed',
+    // issafrica.org blocks cloud IPs — use Google News RSS
+    url:  'https://news.google.com/rss/search?q=%22ISS+Africa%22+security+defence+peace&hl=en&gl=US&ceid=US:en',
     region: 'Africa',
     weight: 3,
   },
@@ -56,7 +55,8 @@ const FEEDS = [
   },
   {
     name: 'SIPRI Blog',
-    url:  'https://www.sipri.org/news/rss.xml',
+    // sipri.org blocks cloud IPs — use Google News RSS
+    url:  'https://news.google.com/rss/search?q=SIPRI+arms+trade+military+expenditure&hl=en&gl=US&ceid=US:en',
     region: 'Global',
     weight: 2,
   },

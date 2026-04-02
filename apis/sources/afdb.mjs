@@ -38,10 +38,12 @@ const CRITICAL_SECTORS = [
 
 async function fetchAfDBProjects() {
   // ORDS API and OpenData portal consistently unreachable from cloud IPs — removed.
-  // Go straight to the RSS chain which reliably works via proxy.
+  // Primary: Google News RSS (reliably works from cloud IPs)
+  // Fallback: AfDB RSS chain (direct → rss2json → allorigins)
 
-  // AfDB news RSS (direct → rss2json → alt URL → allorigins proxy)
+  const GNEWS_URL = 'https://news.google.com/rss/search?q=%22African+Development+Bank%22+project+africa+infrastructure&hl=en&gl=US&ceid=US:en';
   const rssAttempts = [
+    () => fetch(GNEWS_URL, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' }, signal: AbortSignal.timeout(10000) }),
     () => fetch(AFDB_NEWS_RSS, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' }, signal: AbortSignal.timeout(10000) }),
     () => fetch(RSS2JSON + encodeURIComponent(AFDB_NEWS_RSS), { signal: AbortSignal.timeout(10000) }),
     () => fetch(RSS2JSON + encodeURIComponent(AFDB_NEWS_RSS_ALT), { signal: AbortSignal.timeout(10000) }),

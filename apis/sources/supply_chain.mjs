@@ -47,15 +47,9 @@ async function fetchIMFCommodity(indicator) {
     // Response: { values: { PNICK: { WLD: { "2022": 25626 } } } }
     // Country key varies — try WLD first, then W00, then first available key
     const byIndicator = data?.values?.[indicator.id];
-    if (!byIndicator) {
-      console.warn(`[IMF] No data for ${indicator.id} — keys: ${JSON.stringify(Object.keys(data || {}))}`);
-      return null;
-    }
+    if (!byIndicator) throw new Error('empty_response'); // fall through to v2
     const series = byIndicator.WLD || byIndicator.W00 || byIndicator[Object.keys(byIndicator)[0]];
-    if (!series) {
-      console.warn(`[IMF] ${indicator.id}: no series found — available keys: ${JSON.stringify(Object.keys(byIndicator))}`);
-      return null;
-    }
+    if (!series) throw new Error('no_series'); // fall through to v2
 
     const years = Object.keys(series).filter(y => series[y] != null).sort();
     if (years.length < 1) return null;
@@ -116,8 +110,7 @@ async function fetchIMFCommodity(indicator) {
         }
       }
     } catch {}
-    console.warn(`[IMF] ${indicator.id} failed: ${e.message}`);
-    return null;
+    return null; // IMF unavailable — Yahoo Finance covers main commodities
   }
 }
 
