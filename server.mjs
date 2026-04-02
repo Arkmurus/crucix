@@ -1373,6 +1373,16 @@ async function runSweepCycle() {
     if (correlations.length > 0) console.log(`[Crucix] Correlations: ${correlations.map(c => `${c.region}(${c.severity})`).join(', ')}`);
     console.log(`[Crucix] Next sweep at ${logTimeShort(new Date(Date.now() + config.refreshIntervalMinutes * 60000))} (London)`);
 
+    // Auto-classify pending outcomes using current sweep signals (non-blocking)
+    try {
+      const { autoClassifyOutcomes, pruneOldData } = await import('./lib/self/learning_store.mjs');
+      const allSignals = (correlations || []).flatMap(c => c.topSignals || [])
+        .concat((currentData.signals || []).slice(0, 100));
+      const classified = autoClassifyOutcomes(allSignals);
+      if (classified > 0) console.log(`[Crucix] Auto-classified ${classified} pending signal outcome(s)`);
+      pruneOldData();
+    } catch {}
+
     // Graceful restart to apply any self-deployed modules
     if (isRestartPending()) {
       clearRestartFlag();
@@ -1561,7 +1571,7 @@ async function start() {
       try { await sendMorningDigest(telegramAlerter, currentData); }
       catch (e) { console.error('[Digest] Failed:', e.message); }
       pushDigest('Morning Intelligence Brief', 'Your daily Arkmurus intelligence briefing is ready.', '/dashboard/brief').catch(e => console.warn('[Push] digest push failed:', e.message));
-    }, { timezone: 'UTC' });
+    }, { timezone: 'Europe/London' });
 
     // Weekly pattern analysis — Sunday 03:00 UTC
     cron.schedule('0 3 * * 0', async () => {
@@ -1576,7 +1586,7 @@ async function start() {
           );
         }
       } catch (e) { console.error('[Self] Pattern analysis failed:', e.message); }
-    }, { timezone: 'UTC' });
+    }, { timezone: 'Europe/London' });
 
     // Daily internet exploration — 06:00 UTC (morning sweep) + 14:00 UTC (afternoon sweep)
     const runDailyExploration = async () => {
@@ -1589,25 +1599,73 @@ async function start() {
         }
       } catch (e) { console.error('[Self] Web exploration failed:', e.message); }
     };
-    cron.schedule('0 6 * * *',  runDailyExploration, { timezone: 'UTC' });
-    cron.schedule('0 14 * * *', runDailyExploration, { timezone: 'UTC' });
+    cron.schedule('0 6 * * *',  runDailyExploration, { timezone: 'Europe/London' });
+    cron.schedule('0 14 * * *', runDailyExploration, { timezone: 'Europe/London' });
 
-    // Daily source health review — 02:00 UTC
-    // Auto-stages fixes for sources with <40% reliability over 48+ sweeps
+    // Daily autonomous maintenance — 02:00 London
+    // 1) Auto-disables sources with ≥90% failure rate (≥20 sweeps of data)
+    // 2) Auto-deploys staged modules that pass the briefing() test
+    // 3) Alerts sources still degraded but not yet auto-disabled (need manual review or LLM fix)
     cron.schedule('0 2 * * *', async () => {
-      console.log('[Self] Daily source health review...');
+      console.log('[AutoMaint] Daily autonomous maintenance starting...');
       try {
-        const toReview = getSourcesToReview().filter(s => s.status === 'critical' && (s.totalOk + s.totalFail) >= 48);
-        if (toReview.length === 0) return;
-        console.log(`[Self] ${toReview.length} critical source(s) flagged for review: ${toReview.map(s => s.name).join(', ')}`);
-        if (telegramAlerter?.isConfigured) {
-          const names = toReview.map(s => `▸ ${s.name} (${s.reliability}% reliable)`).join('\n');
-          await telegramAlerter.sendMessage(
-            `🔴 *SOURCE HEALTH ALERT*\n${toReview.length} source(s) critically degraded:\n${names}\n\n/sources fix <name> to auto-repair\n/sources for full health report`
-          );
+        const { autoDisableDegradedSources, autoDeployStaged } = await import('./lib/self/updater.mjs');
+        const ts = londonTs();
+
+        // Step 1: auto-disable dead sources
+        const disabled = autoDisableDegradedSources(0.90, 20);
+        if (disabled.length > 0) {
+          console.log(`[AutoMaint] Auto-disabled: ${disabled.map(d => d.name).join(', ')}`);
+          if (telegramAlerter?.isConfigured) {
+            await telegramAlerter.sendMessage(
+              `⚙️ *AUTO-MAINTENANCE*\n_${ts} London_\n\n${disabled.map(d => `⛔ \`${d.name}\` disabled (${d.failRate}% fail rate)`).join('\n')}\n\n_Dead sources removed automatically. /sources for full report_`
+            );
+          }
         }
-      } catch (e) { console.error('[Self] Source health review failed:', e.message); }
-    }, { timezone: 'UTC' });
+
+        // Step 2: auto-deploy staged modules that pass test
+        const deployResults = await autoDeployStaged();
+        const deployed = deployResults.filter(r => r.deployed);
+        const skipped  = deployResults.filter(r => !r.deployed);
+        if (deployed.length > 0) {
+          console.log(`[AutoMaint] Auto-deployed: ${deployed.map(d => d.moduleName).join(', ')}`);
+          if (telegramAlerter?.isConfigured) {
+            await telegramAlerter.sendMessage(
+              `🚀 *AUTO-DEPLOY*\n_${ts} London_\n\n${deployed.map(d => `✅ \`${d.moduleName}\` — ${d.testResult?.updates || 0} updates`).join('\n')}\n\n_New source modules deployed and tested automatically._`
+            );
+          }
+        }
+        if (skipped.length > 0) {
+          console.log(`[AutoMaint] Deploy skipped (test failed): ${skipped.map(s => s.moduleName).join(', ')}`);
+        }
+
+        // Step 3: report remaining degraded sources that need LLM fix
+        const toReview = getSourcesToReview().filter(s => s.status === 'critical' && (s.totalOk + s.totalFail) >= 48);
+        const unfixed  = toReview.filter(s => !disabled.find(d => d.name === s.name));
+        if (unfixed.length > 0) {
+          console.log(`[AutoMaint] ${unfixed.length} source(s) still degraded — staging LLM fixes...`);
+          for (const source of unfixed.slice(0, 3)) {
+            try {
+              const { generateSourceFix, stageModule } = await import('./lib/self/code_generator.mjs');
+              const fix = await generateSourceFix(llmProvider, source.name, `Reliability ${source.reliability}% — consistently failing`);
+              if (fix.success) {
+                await stageModule(source.name, fix.code, { type: 'fix', description: `Auto-fix: ${source.name} was ${source.reliability}% reliable`, confidence: 0.75 });
+                console.log(`[AutoMaint] LLM fix staged for: ${source.name}`);
+              }
+            } catch (err) {
+              console.warn(`[AutoMaint] Fix staging failed for ${source.name}:`, err.message);
+            }
+          }
+          if (telegramAlerter?.isConfigured) {
+            const names = unfixed.map(s => `▸ \`${s.name}\` (${s.reliability}% reliable)`).join('\n');
+            await telegramAlerter.sendMessage(
+              `🔴 *SOURCE HEALTH ALERT*\n_${ts} London_\n\n${unfixed.length} source(s) degraded — LLM fixes staged:\n${names}\n\n_/sources for full report · fixes auto-deploy tomorrow if tests pass_`
+            );
+          }
+        }
+
+      } catch (e) { console.error('[AutoMaint] Daily maintenance failed:', e.message); }
+    }, { timezone: 'Europe/London' });
   });
 }
 
