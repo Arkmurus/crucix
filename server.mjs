@@ -607,7 +607,7 @@ if (existsSync(ANGULAR_DIST)) {
   app.use(express.static(join(ROOT, 'dashboard/public')));
 }
 
-app.get('/api/data', (req, res) => {
+app.get('/api/data', requireAuth, (req, res) => {
   if (!currentData) return res.status(503).json({ error: 'No data yet — first sweep in progress' });
   res.json(currentData);
 });
@@ -633,7 +633,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.get('/api/source-health', (req, res) => {
+app.get('/api/source-health', requireAuth, (req, res) => {
   const summary = getSourceHealthSummary();
   const degraded = summary.filter(s => s.reliability !== null && s.reliability < 80);
   res.json({
@@ -650,7 +650,7 @@ app.get('/api/locales', (req, res) => {
   res.json({ current: currentLanguage, supported: getSupportedLocales() });
 });
 
-app.get('/api/search', async (req, res) => {
+app.get('/api/search', requireAuth, async (req, res) => {
   const query = req.query.q;
   if (!query) return res.json({ error: 'No query provided' });
   console.log(`[Search] "${query}"`);
@@ -664,7 +664,7 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-app.post('/api/sweep', async (req, res) => {
+app.post('/api/sweep', requireAuth, async (req, res) => {
   try {
     if (sweepInProgress) return res.json({ success: false, message: 'Sweep already in progress' });
     runSweepCycle().catch(err => console.error('[Crucix] Manual sweep failed:', err.message));
@@ -676,16 +676,16 @@ app.post('/api/sweep', async (req, res) => {
 
 // ── Self-Learning API ─────────────────────────────────────────────────────────
 
-app.get('/api/learning/stats', (req, res) => {
+app.get('/api/learning/stats', requireAuth, (req, res) => {
   res.json(getLearningStats());
 });
 
-app.get('/api/learning/outcomes', (req, res) => {
+app.get('/api/learning/outcomes', requireAuth, (req, res) => {
   const limit = parseInt(req.query.limit) || 50;
   res.json(getOutcomes(limit));
 });
 
-app.post('/api/learning/outcome', (req, res) => {
+app.post('/api/learning/outcome', requireAuth, (req, res) => {
   const { hash, text, outcome, source, region, tier } = req.body || {};
   if (!hash || !outcome) return res.status(400).json({ error: 'hash and outcome required' });
   if (!['confirmed', 'dismissed', 'pending'].includes(outcome)) {
@@ -695,7 +695,7 @@ app.post('/api/learning/outcome', (req, res) => {
   res.json({ success: true, entry });
 });
 
-app.get('/api/opportunities', (req, res) => {
+app.get('/api/opportunities', requireAuth, (req, res) => {
   if (currentData) {
     const fresh = detectOpportunities(currentData);
     return res.json({ opportunities: fresh, source: 'live', asOf: lastSweepTime });
@@ -704,15 +704,15 @@ app.get('/api/opportunities', (req, res) => {
   res.json({ ...stored, source: 'cached' });
 });
 
-app.get('/api/patterns', (req, res) => {
+app.get('/api/patterns', requireAuth, (req, res) => {
   res.json(getPatterns());
 });
 
-app.get('/api/explorer', (req, res) => {
+app.get('/api/explorer', requireAuth, (req, res) => {
   res.json(getExplorerFindings());
 });
 
-app.post('/api/explorer/run', async (req, res) => {
+app.post('/api/explorer/run', requireAuth, async (req, res) => {
   try {
     const findings = await runExploration(llmProvider, req.body || {});
     res.json({ success: true, ...findings });
@@ -721,11 +721,11 @@ app.post('/api/explorer/run', async (req, res) => {
   }
 });
 
-app.get('/api/self/staged', (req, res) => {
+app.get('/api/self/staged', requireAdmin, (req, res) => {
   res.json({ staged: getStagedModules() });
 });
 
-app.post('/api/self/generate', async (req, res) => {
+app.post('/api/self/generate', requireAdmin, async (req, res) => {
   const { description, moduleName } = req.body || {};
   if (!description || !moduleName) return res.status(400).json({ error: 'description and moduleName required' });
   const result = await generateSourceModule(llmProvider, description, moduleName);
@@ -737,20 +737,20 @@ app.post('/api/self/generate', async (req, res) => {
   }
 });
 
-app.post('/api/self/apply', async (req, res) => {
+app.post('/api/self/apply', requireAdmin, async (req, res) => {
   const { moduleName } = req.body || {};
   if (!moduleName) return res.status(400).json({ error: 'moduleName required' });
   const result = await deployModule(moduleName);
   res.json(result);
 });
 
-app.post('/api/self/rollback', (req, res) => {
+app.post('/api/self/rollback', requireAdmin, (req, res) => {
   const { moduleName } = req.body || {};
   if (!moduleName) return res.status(400).json({ error: 'moduleName required' });
   res.json(rollbackModule(moduleName));
 });
 
-app.get('/api/self/update-log', (req, res) => {
+app.get('/api/self/update-log', requireAdmin, (req, res) => {
   res.json({ log: getUpdateLog(parseInt(req.query.limit) || 20) });
 });
 
