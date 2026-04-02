@@ -6,7 +6,7 @@
         Intelligence Explorer
       </h4>
       <small class="text-muted">
-        Auto-sweeps daily at 06:00 &amp; 14:00 UTC · 29 queries across global markets · export-control screened
+        Auto-sweeps daily at 06:00 &amp; 14:00 London · 66 queries across global markets · export-control screened
         <span *ngIf="runAt"> · Last run: {{ runAt | date:'dd/MM/yyyy HH:mm':'Europe/London' }}</span>
       </small>
     </div>
@@ -22,12 +22,22 @@
 
   <div *ngIf="running" class="alert alert-info d-flex align-items-center gap-2">
     <mat-spinner diameter="20"></mat-spinner>
-    Running 29-query deep sweep across global markets — Brave, SearXNG and Google News RSS — this takes ~60s...
+    Running 66-query deep sweep across global markets — Brave, SearXNG and Google News RSS — this takes ~60–90s...
   </div>
 
   <div *ngIf="!loading && !running">
     <div *ngIf="!insights.length && !salesIdeas.length" class="alert alert-info">
       No exploration data yet. Click "Run Now" to sweep the internet for live procurement intelligence.
+    </div>
+
+    <div *ngIf="resultsFound > 0 || synthesisMethod" class="mb-3 d-flex gap-2 align-items-center">
+      <small class="text-muted" *ngIf="resultsFound > 0">{{ resultsFound }} raw results collected</small>
+      <mat-chip *ngIf="synthesisMethod === 'llm'" style="font-size:0.7rem;background:#1b5e20;color:white">
+        <mat-icon class="very-small me-1">smart_toy</mat-icon>LLM synthesis
+      </mat-chip>
+      <mat-chip *ngIf="synthesisMethod === 'rules'" style="font-size:0.7rem;background:#e65100;color:white">
+        <mat-icon class="very-small me-1">rule</mat-icon>Rules-based (no LLM key)
+      </mat-chip>
     </div>
 
     <!-- Sales Opportunities — primary output -->

@@ -32,6 +32,8 @@ export class ExplorerComponent implements OnInit {
   get salesIdeas(): any[] { return this.findings?.salesIdeas || this.findings?.findings?.salesIdeas || []; }
   get newSources(): any[] { return this.findings?.newSources || this.findings?.findings?.newSources || []; }
   get runAt(): string | null { return this.findings?.runAt || this.findings?.updatedAt || null; }
+  get resultsFound(): number { return this.findings?.resultsFound || this.findings?.findings?.resultsFound || 0; }
+  get synthesisMethod(): string { return this.findings?.synthesisMethod || this.findings?.findings?.synthesisMethod || 'unknown'; }
 
   relevanceColor(r: string): string {
     return r === 'HIGH' ? '#f44336' : r === 'MEDIUM' ? '#ff9800' : '#9e9e9e';
