@@ -12,17 +12,23 @@ const FILES = [
   'server.mjs',
   'dashboard/inject.mjs',
   'lib/alerts/telegram.mjs',
+  'lib/intel/correlate.mjs',
   'lib/intel/dedup.mjs',
   'lib/intel/oem_db.mjs',
   'lib/search/engine.mjs',
+  'lib/self/bd_intelligence.mjs',
+  'lib/self/opportunity_engine.mjs',
+  'apis/briefing.mjs',
   'apis/sources/afdb.mjs',
   'apis/sources/cyber_threats.mjs',
+  'apis/sources/defense_news.mjs',
   'apis/sources/export_control_intel.mjs',
   'apis/sources/gdelt.mjs',
   'apis/sources/lusophone.mjs',
   'apis/sources/opensanctions.mjs',
   'apis/sources/port_congestion.mjs',
   'apis/sources/supply_chain.mjs',
+  'apis/sources/telegram.mjs',
 ];
 
 console.log(`[sync] Pulling ${FILES.length} files from github.com/${REPO}@${BRANCH}...`);
