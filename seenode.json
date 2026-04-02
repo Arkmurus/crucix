@@ -3,7 +3,7 @@
   "type": "web",
   "runtime": "node22",
   "build": {
-    "command": "npm install && node sync.mjs"
+    "command": "npm install && node sync.mjs && cd frontend && npm install --legacy-peer-deps && npm run build"
   },
   "start": {
     "command": "npm start"
