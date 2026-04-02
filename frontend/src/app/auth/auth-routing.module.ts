@@ -10,13 +10,14 @@ import { CoverSignupComponent } from './cover-signup/cover-signup.component';
 import { CoverForgotPasswordComponent } from './cover-forgot-password/cover-forgot-password.component';
 import { CoverResetPasswordComponent } from './cover-reset-password/cover-reset-password.component';
 import { VerifyEmailComponent } from './verify-email/verify-email.component';
-// import { SigninWithHeaderFooterComponent } from './signin-with-header-footer/signin-with-header-footer.component';
-// import { SignupWithHeaderFooterComponent } from './signup-with-header-footer/signup-with-header-footer.component';
+import { LandingComponent } from './landing/landing.component';
 
 const routes: Routes = [
   {
     path: '',
     children: [
+      { path: 'landing', component: LandingComponent, data: { title: 'Welcome' } },
+      { path: '', redirectTo: 'landing', pathMatch: 'full' },
       {
         path: 'sign-in',
         component: SignInComponent,

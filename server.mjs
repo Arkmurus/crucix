@@ -3,7 +3,6 @@
 // Serves the Jarvis dashboard, runs sweep cycle, pushes live updates via SSE
 
 import express from 'express';
-import basicAuth from 'express-basic-auth';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -589,25 +588,7 @@ if (discordAlerter.isConfigured) {
 const app = express();
 app.use(express.json());
 
-// === Selective Basic Auth ===
-// Protects dashboard only — API routes, webhook and SSE are open
-const dashboardUser = process.env.DASHBOARD_USER || 'arkmurus';
-const dashboardPass = process.env.DASHBOARD_PASS || 'Crucix2026!';
-app.use((req, res, next) => {
-  if (
-    req.path.startsWith('/api/') ||
-    req.path === '/webhook' ||
-    req.path === '/events' ||
-    req.path.startsWith('/search')
-  ) {
-    return next();
-  }
-  return basicAuth({
-    users: { [dashboardUser]: dashboardPass },
-    challenge: true,
-    realm: 'Crucix Intelligence'
-  })(req, res, next);
-});
+// Site access is protected by the Angular JWT auth layer — no HTTP Basic Auth needed.
 
 // Angular dashboard — served at root / (must be before dashboard/public static)
 const ANGULAR_DIST = join(ROOT, 'frontend', 'dist', 'crucix-admin');
@@ -819,14 +800,21 @@ app.post('/api/auth/register', async (req, res) => {
     if (findUserByUsername(username)) return res.status(409).json({ error: 'Username already taken' });
 
     const user = createUser({ username, email, password, fullName });
-    const verCode = findUserByEmail(email)?.verificationCode;
 
-    await sendVerificationEmail(email, user.fullName, verCode || generateCode()).catch(() => {});
     await sendAdminNotification(
       'New user registration',
       `<p>New user registered: <strong>${user.fullName}</strong> (${email})</p><p>Username: ${username}</p>`
     ).catch(() => {});
 
+    // If SMTP is not configured, auto-activate the account immediately
+    if (!process.env.EMAIL_HOST) {
+      updateUser(user.id, { status: 'active', verificationCode: null, verificationExpiry: null });
+      console.log(`[Auth] Auto-activated ${email} (no SMTP configured)`);
+      return res.json({ message: 'Account created. You can now sign in.', autoActivated: true });
+    }
+
+    const verCode = findUserByEmail(email)?.verificationCode;
+    await sendVerificationEmail(email, user.fullName, verCode || generateCode()).catch(() => {});
     res.json({ message: 'Verification email sent. Please check your inbox.' });
   } catch (err) {
     console.error('[Auth] Register error:', err.message);

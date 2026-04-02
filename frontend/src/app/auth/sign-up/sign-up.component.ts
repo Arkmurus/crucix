@@ -53,12 +53,17 @@ export class SignUpComponent implements OnInit {
     const { fullName, username, email, password } = this.registerForm.value;
 
     this.authService.register({ fullName, username, email, password }).subscribe({
-      next: () => {
+      next: (res: any) => {
         this.loading = false;
-        this.successMsg = 'Registration successful! Please check your email for the verification code.';
-        setTimeout(() => {
-          this.router.navigate(['/auth/verify-email'], { queryParams: { email } });
-        }, 1500);
+        if (res?.autoActivated) {
+          this.successMsg = 'Account created! Redirecting to sign in...';
+          setTimeout(() => this.router.navigate(['/auth/sign-in']), 1200);
+        } else {
+          this.successMsg = 'Registration successful! Please check your email for the verification code.';
+          setTimeout(() => {
+            this.router.navigate(['/auth/verify-email'], { queryParams: { email } });
+          }, 1500);
+        }
       },
       error: (err) => {
         this.loading = false;

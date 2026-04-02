@@ -11,12 +11,12 @@ import { AuthGuard } from "./guards/auth.guard";
 const routes: Routes = [
   {
     path: '',
-    redirectTo: 'dashboard/brief',
+    redirectTo: 'auth/landing',
     pathMatch: 'full',
   },
   { path: '', component: FullLayoutComponent, canActivate: [AuthGuard], data: { title: 'full Views' }, children: Full_ROUTES },
   { path: '', component: ContentLayoutComponent, data: { title: 'content Views' }, children: CONTENT_ROUTES },
-  { path: '**', redirectTo: 'dashboard/brief' }
+  { path: '**', redirectTo: 'pages/e404' }
 ];
 
 @NgModule({
