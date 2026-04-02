@@ -268,7 +268,7 @@
             <div *ngFor="let s of defenceSignals" class="mb-2 pb-2 border-bottom small">
               <span class="badge bg-primary me-1" *ngIf="s.type === 'tender'">Tender</span>
               <span class="badge bg-secondary me-1" *ngIf="s.type !== 'tender'">Signal</span>
-              <span style="color:#1565c0">{{ (s.text || s.title || '') | slice:0:160 }}</span>
+              <span style="color:#60a5fa;font-weight:600">{{ (s.text || s.title || '') | slice:0:160 }}</span>
               <div class="text-muted" *ngIf="s.source">
                 <small>{{ s.source }}</small>
               </div>
@@ -286,7 +286,7 @@
           </mat-card-header>
           <mat-card-content style="max-height:420px;overflow-y:auto">
             <div *ngFor="let u of defenceUpdates; let ui = index" class="mb-3 pb-3 border-bottom small">
-              <div class="fw-semibold" style="font-size:0.83rem;line-height:1.45;word-break:break-word;color:#1565c0">
+              <div class="fw-semibold" style="font-size:0.83rem;line-height:1.45;word-break:break-word;color:#60a5fa">
                 {{ u.title || '' }}
               </div>
               <ng-container *ngIf="cleanContent(u.content) as body">
