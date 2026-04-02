@@ -1,6 +1,7 @@
 {
   "name": "crucix-intelligence",
   "type": "web",
+  "runtime": "node22",
   "build": {
     "command": "npm install && node sync.mjs"
   },
