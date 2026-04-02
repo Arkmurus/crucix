@@ -8,7 +8,7 @@
         ARKMURUS Intelligence Brief
       </h4>
       <small class="text-muted" *ngIf="lastUpdated">
-        Last updated: {{ lastUpdated | date:'HH:mm:ss' }} &nbsp;·&nbsp;
+        Last updated: {{ lastUpdated | date:'dd/MM/yyyy HH:mm:ss':'Europe/London' }} &nbsp;·&nbsp;
         {{ sourcesOk }}/{{ sourcesTotal }} sources &nbsp;·&nbsp;
         <span [class]="sweeping ? 'text-warning' : 'text-success'">
           {{ sweeping ? '⟳ Sweeping...' : '● Live' }}
@@ -117,7 +117,7 @@
             <div *ngFor="let p of urgentPosts" class="osint-item mb-2 pb-2 border-bottom">
               <div class="d-flex justify-content-between">
                 <small class="text-primary fw-bold">{{ p.channel || 'OSINT' }}</small>
-                <small class="text-muted">{{ p.date | date:'HH:mm' }}</small>
+                <small class="text-muted">{{ p.date | date:'dd/MM HH:mm':'Europe/London' }}</small>
               </div>
               <div class="small mt-1">{{ (p.text || '') | slice:0:180 }}</div>
             </div>

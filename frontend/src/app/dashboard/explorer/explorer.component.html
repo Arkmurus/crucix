@@ -7,7 +7,7 @@
       </h4>
       <small class="text-muted">
         Auto-sweeps daily at 06:00 &amp; 14:00 UTC · 29 queries across global markets · export-control screened
-        <span *ngIf="runAt"> · Last run: {{ runAt | date:'dd MMM HH:mm' }}</span>
+        <span *ngIf="runAt"> · Last run: {{ runAt | date:'dd/MM/yyyy HH:mm':'Europe/London' }}</span>
       </small>
     </div>
     <div class="col-md-4 text-end">

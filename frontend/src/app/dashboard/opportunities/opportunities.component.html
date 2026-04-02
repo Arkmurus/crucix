@@ -5,7 +5,7 @@
         <mat-icon class="me-2" style="vertical-align:middle">business_center</mat-icon>
         Procurement Opportunity Pipeline
       </h4>
-      <small class="text-muted" *ngIf="updatedAt">As of {{ updatedAt | date:'dd MMM HH:mm' }}</small>
+      <small class="text-muted" *ngIf="updatedAt">As of {{ updatedAt | date:'dd/MM/yyyy HH:mm':'Europe/London' }}</small>
     </div>
   </div>
 

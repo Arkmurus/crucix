@@ -1,6 +1,13 @@
 import { Component, OnInit } from '@angular/core';
-import { Router, ActivatedRoute } from "@angular/router";
+import { AbstractControl, FormBuilder, FormGroup, ValidationErrors, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
+import { AuthService } from '../../services/auth.service';
 
+function passwordsMatchValidator(group: AbstractControl): ValidationErrors | null {
+  const password = group.get('password')?.value;
+  const confirm = group.get('confirmPassword')?.value;
+  return password === confirm ? null : { passwordsMismatch: true };
+}
 
 @Component({
   selector: 'app-sign-up',
@@ -8,71 +15,55 @@ import { Router, ActivatedRoute } from "@angular/router";
   styleUrls: ['./sign-up.component.scss']
 })
 export class SignUpComponent implements OnInit {
+  registerForm!: FormGroup;
+  loading = false;
+  errorMsg = '';
+  successMsg = '';
+  hide = true;
+  hideConfirm = true;
 
-  constructor(private router: Router, private route: ActivatedRoute) { }
-
-  // On Signup link click
-  onSignIn() {
-    this.router.navigate(['sign-in'], { relativeTo: this.route.parent });
-  }
+  constructor(
+    private fb: FormBuilder,
+    private authService: AuthService,
+    private router: Router
+  ) {}
 
   ngOnInit(): void {
+    this.registerForm = this.fb.group(
+      {
+        fullName: ['', Validators.required],
+        username: ['', [Validators.required, Validators.minLength(3)]],
+        email: ['', [Validators.required, Validators.email]],
+        password: ['', [Validators.required, Validators.minLength(8)]],
+        confirmPassword: ['', Validators.required]
+      },
+      { validators: passwordsMatchValidator }
+    );
   }
 
-  
-  
-  countries: string[] = [
-    'India',
-    'America',
-    'China',
-    'Arab',
-    'Dubai',
-    'Japan',
-    'Nepal',
-    'England',
-    'Canada',
-    'Georgia',
-    'Hawaii',
-    'Idaho',
-    'Illinois',
-    'Indiana',
-    'Iowa',
-    'Kansas',
-    'Kentucky',
-    'Louisiana',
-    'Maine',
-    'Maryland',
-    'Massachusetts',
-    'Michigan',
-    'Minnesota',
-    'Mississippi',
-    'Missouri',
-    'Montana',
-    'Nebraska',
-    'Nevada',
-    'New Hampshire',
-    'New Jersey',
-    'New Mexico',
-    'New York',
-    'North Carolina',
-    'North Dakota',
-    'Ohio',
-    'Oklahoma',
-    'Oregon',
-    'Pennsylvania',
-    'Rhode Island',
-    'South Carolina',
-    'South Dakota',
-    'Tennessee',
-    'Texas',
-    'Utah',
-    'Vermont',
-    'Virginia',
-    'Washington',
-    'West Virginia',
-    'Wisconsin',
-    'Wyoming',
-  ];
+  onSubmit(): void {
+    if (this.registerForm.invalid) {
+      this.registerForm.markAllAsTouched();
+      return;
+    }
+    this.loading = true;
+    this.errorMsg = '';
+    this.successMsg = '';
 
+    const { fullName, username, email, password } = this.registerForm.value;
 
+    this.authService.register({ fullName, username, email, password }).subscribe({
+      next: () => {
+        this.loading = false;
+        this.successMsg = 'Registration successful! Please check your email for the verification code.';
+        setTimeout(() => {
+          this.router.navigate(['/auth/verify-email'], { queryParams: { email } });
+        }, 1500);
+      },
+      error: (err) => {
+        this.loading = false;
+        this.errorMsg = err?.error?.message || 'Registration failed. Please try again.';
+      }
+    });
+  }
 }

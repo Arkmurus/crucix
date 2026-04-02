@@ -1,0 +1,56 @@
+<div class="login-bg position-fixed top-0 start-0 end-0 bottom-0"
+	style="background-image: url(assets/images/gallery/login-bg.png);">
+</div>
+
+<div class="auth-box d-flex align-items-center justify-content-center my-5 my-lg-0">
+  <div class="container-fluid">
+    <div class="row row-cols-1 row-cols-lg-2 row-cols-xl-3">
+      <div class="col mx-auto">
+        <mat-card class="rounded-4 m-2">
+          <mat-card-content class="p-5">
+            <div class="text-center">
+              <img src="assets/images/app/favicon-32x32.png" class="mb-3" width="55" alt="Arkmurus">
+              <h4 class="mb-2">Verify Your Email</h4>
+              <p class="mb-4" *ngIf="email">A 6-digit code was sent to <strong>{{email}}</strong></p>
+              <p class="mb-4" *ngIf="!email">Please enter the 6-digit code sent to your email address.</p>
+            </div>
+            <div class="alert alert-danger" *ngIf="errorMsg">{{errorMsg}}</div>
+            <div class="alert alert-success" *ngIf="successMsg">{{successMsg}}</div>
+            <form [formGroup]="verifyForm">
+              <div class="row g-3">
+                <div class="col-12">
+                  <mat-form-field class="w-100" appearance="outline">
+                    <mat-label>Verification Code</mat-label>
+                    <input matInput placeholder="Enter 6-digit code" formControlName="code" maxlength="6">
+                    <mat-error *ngIf="verifyForm.get('code')?.hasError('required')">Code is required</mat-error>
+                    <mat-error *ngIf="verifyForm.get('code')?.hasError('pattern')">Enter a valid 6-digit code</mat-error>
+                  </mat-form-field>
+                </div>
+                <div class="col-12">
+                  <div class="d-grid">
+                    <button mat-flat-button color="primary" (click)="onSubmit()" [disabled]="loading">
+                      <span *ngIf="!loading">Verify Email</span>
+                      <span *ngIf="loading">Verifying...</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="col-12 text-center">
+                  <p>
+                    Didn't receive the code?
+                    <button mat-button color="primary" (click)="resendCode()" [disabled]="resendLoading" type="button">
+                      <span *ngIf="!resendLoading">Resend code</span>
+                      <span *ngIf="resendLoading">Sending...</span>
+                    </button>
+                  </p>
+                </div>
+                <div class="col-12 text-center">
+                  <a routerLink="../sign-in" style="color: #1414f8;">Back to sign in</a>
+                </div>
+              </div>
+            </form>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </div>
+  </div>
+</div>

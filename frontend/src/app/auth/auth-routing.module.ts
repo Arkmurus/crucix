@@ -9,6 +9,7 @@ import { CoverSigninComponent } from './cover-signin/cover-signin.component';
 import { CoverSignupComponent } from './cover-signup/cover-signup.component';
 import { CoverForgotPasswordComponent } from './cover-forgot-password/cover-forgot-password.component';
 import { CoverResetPasswordComponent } from './cover-reset-password/cover-reset-password.component';
+import { VerifyEmailComponent } from './verify-email/verify-email.component';
 // import { SigninWithHeaderFooterComponent } from './signin-with-header-footer/signin-with-header-footer.component';
 // import { SignupWithHeaderFooterComponent } from './signup-with-header-footer/signup-with-header-footer.component';
 
@@ -77,6 +78,13 @@ const routes: Routes = [
         component: LockScreenComponent,
         data: {
           title: 'Lock Screen'
+        }
+      },
+      {
+        path: 'verify-email',
+        component: VerifyEmailComponent,
+        data: {
+          title: 'Verify Email'
         }
       },
     ]

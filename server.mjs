@@ -33,6 +33,9 @@ import { analyzePatterns, formatPatternsForTelegram } from './lib/self/pattern_a
 import { runExploration, exploreQuery, formatExplorerFindingsForTelegram } from './lib/self/web_explorer.mjs';
 import { generateSourceModule, generateSourceFix, stageModule, getStagedModules, getStagedCode, formatStagedForTelegram } from './lib/self/code_generator.mjs';
 import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRestartFlag, triggerGracefulRestart, getAutoManagedModules } from './lib/self/updater.mjs';
+import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser } from './lib/auth/users.mjs';
+import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification } from './lib/auth/email.mjs';
+import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -80,6 +83,10 @@ const memory = new MemoryManager(RUNS_DIR);
 // === LLM + Telegram + Discord ===
 const llmProvider = createLLMProvider(config.llm);
 const telegramAlerter = new TelegramAlerter(config.telegram);
+
+// === Auth & Push Initialization ===
+initAdminUser().catch(err => console.error('[Auth] initAdminUser failed:', err.message));
+initVapid().catch(err => console.error('[Push] initVapid failed:', err.message));
 
 // MONKEY-PATCH: Override _handleBrief on the instance to guarantee the 8-section
 // ARKMURUS format even if Seenode's persistent volume has an older telegram.mjs loaded.
@@ -779,6 +786,300 @@ app.post('/webhook', async (req, res) => {
 
 app.get('/webhook', (req, res) => res.send('Webhook is working!'));
 
+// ── Auth Middleware ───────────────────────────────────────────────────────────
+
+function requireAuth(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authentication required' });
+  try {
+    req.user = verifyToken(token);
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+function requireAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+    next();
+  });
+}
+
+// ── Auth Routes ───────────────────────────────────────────────────────────────
+
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, email, password, fullName } = req.body || {};
+    if (!username || username.length < 3)  return res.status(400).json({ error: 'Username must be at least 3 characters' });
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email address' });
+    if (!password || password.length < 8)  return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+    if (findUserByEmail(email)) return res.status(409).json({ error: 'Email already registered' });
+    if (findUserByUsername(username)) return res.status(409).json({ error: 'Username already taken' });
+
+    const user = createUser({ username, email, password, fullName });
+    const verCode = findUserByEmail(email)?.verificationCode;
+
+    await sendVerificationEmail(email, user.fullName, verCode || generateCode()).catch(() => {});
+    await sendAdminNotification(
+      'New user registration',
+      `<p>New user registered: <strong>${user.fullName}</strong> (${email})</p><p>Username: ${username}</p>`
+    ).catch(() => {});
+
+    res.json({ message: 'Verification email sent. Please check your inbox.' });
+  } catch (err) {
+    console.error('[Auth] Register error:', err.message);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+    const user = findUserByEmail(email);
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!verifyPassword(password, user.passwordHash)) return res.status(401).json({ error: 'Invalid credentials' });
+
+    if (user.status === 'pending_verification') {
+      return res.status(403).json({ error: 'Please verify your email first', needsVerification: true });
+    }
+    if (user.status === 'suspended') {
+      return res.status(403).json({ error: 'Account suspended. Contact an administrator.' });
+    }
+
+    const token = createToken(user.id, user.role);
+    const cleanUser = updateUser(user.id, { lastLogin: new Date().toISOString() });
+    res.json({ token, user: cleanUser });
+  } catch (err) {
+    console.error('[Auth] Login error:', err.message);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+app.post('/api/auth/verify-email', async (req, res) => {
+  try {
+    const { email, code } = req.body || {};
+    if (!email || !code) return res.status(400).json({ error: 'Email and code required' });
+
+    const user = findUserByEmail(email);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.verificationCode !== String(code)) return res.status(400).json({ error: 'Invalid verification code' });
+    if (user.verificationExpiry && new Date(user.verificationExpiry) < new Date()) {
+      return res.status(400).json({ error: 'Verification code expired. Request a new one.' });
+    }
+
+    updateUser(user.id, { status: 'active', verificationCode: null, verificationExpiry: null });
+    await sendWelcomeEmail(email, user.fullName).catch(() => {});
+    res.json({ message: 'Email verified successfully. You can now log in.' });
+  } catch (err) {
+    console.error('[Auth] Verify email error:', err.message);
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+app.post('/api/auth/resend-verification', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Email required' });
+
+    const user = findUserByEmail(email);
+    if (!user) return res.json({ message: 'If that email exists, a code has been sent.' });
+    if (user.status === 'active') return res.status(400).json({ error: 'Account already verified' });
+
+    // Rate limit: reject if last code sent <60s ago
+    if (user.verificationExpiry) {
+      const expiryTime  = new Date(user.verificationExpiry).getTime();
+      const issuedApprox = expiryTime - 15 * 60 * 1000;
+      if (Date.now() - issuedApprox < 60 * 1000) {
+        return res.status(429).json({ error: 'Please wait 60 seconds before requesting a new code' });
+      }
+    }
+
+    const newCode = generateCode();
+    updateUser(user.id, {
+      verificationCode: newCode,
+      verificationExpiry: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+    });
+    await sendVerificationEmail(email, user.fullName, newCode).catch(() => {});
+    res.json({ message: 'Verification email resent.' });
+  } catch (err) {
+    console.error('[Auth] Resend verification error:', err.message);
+    res.status(500).json({ error: 'Failed to resend verification' });
+  }
+});
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  try {
+    const user = findUserById(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    // Return clean user (no passwordHash) — findUserById returns raw; strip here
+    const { passwordHash, verificationCode, verificationExpiry, resetCode, resetExpiry, ...clean } = user;
+    res.json(clean);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+app.put('/api/auth/profile', requireAuth, (req, res) => {
+  try {
+    const { fullName, telegramUsername, notifyDigest, notifyFlash, notifyPush } = req.body || {};
+    const updates = {};
+    if (fullName         !== undefined) updates.fullName         = fullName;
+    if (telegramUsername !== undefined) updates.telegramUsername = telegramUsername;
+    if (notifyDigest     !== undefined) updates.notifyDigest     = !!notifyDigest;
+    if (notifyFlash      !== undefined) updates.notifyFlash      = !!notifyFlash;
+    if (notifyPush       !== undefined) updates.notifyPush       = !!notifyPush;
+    const updated = updateUser(req.user.userId, updates);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+app.put('/api/auth/password', requireAuth, (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password required' });
+    if (newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters' });
+
+    const user = findUserById(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!verifyPassword(currentPassword, user.passwordHash)) {
+      return res.status(401).json({ error: 'Current password incorrect' });
+    }
+
+    updateUser(req.user.userId, { passwordHash: hashPassword(newPassword) });
+    res.json({ message: 'Password updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update password' });
+  }
+});
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Email required' });
+
+    const user = findUserByEmail(email);
+    // Always return 200 — do not reveal if email exists
+    if (user) {
+      const resetCode = generateCode();
+      updateUser(user.id, {
+        resetCode,
+        resetExpiry: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      });
+      await sendPasswordResetEmail(email, user.fullName, resetCode).catch(() => {});
+    }
+    res.json({ message: 'If that email is registered, a reset code has been sent.' });
+  } catch (err) {
+    console.error('[Auth] Forgot password error:', err.message);
+    res.status(500).json({ error: 'Failed to process request' });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { email, code, newPassword } = req.body || {};
+    if (!email || !code || !newPassword) return res.status(400).json({ error: 'Email, code, and new password required' });
+    if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+    const user = findUserByEmail(email);
+    if (!user || user.resetCode !== String(code)) return res.status(400).json({ error: 'Invalid or expired reset code' });
+    if (user.resetExpiry && new Date(user.resetExpiry) < new Date()) {
+      return res.status(400).json({ error: 'Reset code expired. Request a new one.' });
+    }
+
+    updateUser(user.id, {
+      passwordHash: hashPassword(newPassword),
+      resetCode: null,
+      resetExpiry: null,
+    });
+    res.json({ message: 'Password reset successfully. You can now log in.' });
+  } catch (err) {
+    console.error('[Auth] Reset password error:', err.message);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+// ── Admin User Management Routes ──────────────────────────────────────────────
+
+app.get('/api/admin/users', requireAdmin, (req, res) => {
+  try {
+    res.json(listUsers());
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to list users' });
+  }
+});
+
+app.put('/api/admin/users/:id', requireAdmin, (req, res) => {
+  try {
+    const { role, status, notifyDigest, notifyFlash } = req.body || {};
+    const updates = {};
+    if (role         !== undefined) updates.role         = role;
+    if (status       !== undefined) updates.status       = status;
+    if (notifyDigest !== undefined) updates.notifyDigest = !!notifyDigest;
+    if (notifyFlash  !== undefined) updates.notifyFlash  = !!notifyFlash;
+    const updated = updateUser(req.params.id, updates);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to update user' });
+  }
+});
+
+app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
+  try {
+    if (req.params.id === req.user.userId) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+    deleteUser(req.params.id);
+    res.json({ message: 'User deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to delete user' });
+  }
+});
+
+// ── Push Notification Routes ──────────────────────────────────────────────────
+
+app.get('/api/push/vapid-public-key', (req, res) => {
+  const publicKey = getVapidPublicKey();
+  if (!publicKey) return res.status(503).json({ error: 'Push notifications not initialized' });
+  res.json({ publicKey });
+});
+
+app.post('/api/push/subscribe', requireAuth, (req, res) => {
+  try {
+    const { subscription } = req.body || {};
+    if (!subscription) return res.status(400).json({ error: 'subscription object required' });
+    saveSubscription(req.user.userId, subscription);
+    updateUser(req.user.userId, { notifyPush: true });
+    res.json({ message: 'Subscribed to push notifications' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save subscription' });
+  }
+});
+
+app.delete('/api/push/unsubscribe', requireAuth, (req, res) => {
+  try {
+    removeSubscription(req.user.userId);
+    updateUser(req.user.userId, { notifyPush: false });
+    res.json({ message: 'Unsubscribed from push notifications' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to remove subscription' });
+  }
+});
+
+app.post('/api/push/test', requireAdmin, async (req, res) => {
+  try {
+    await pushFlash('Test Alert', 'This is a test push notification from Arkmurus');
+    res.json({ message: 'Test push sent' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to send test push' });
+  }
+});
+
 app.get('/events', (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -919,6 +1220,17 @@ async function runSweepCycle() {
       }
     }
 
+    // Flash push for critical correlations
+    const critFlash = (currentData.correlations || []).filter(c => c.severity === 'critical');
+    if (critFlash.length > 0) {
+      const top = critFlash[0];
+      pushFlash(
+        `Critical Intel: ${top.region}`,
+        `Multi-source critical signal detected — ${top.topSignals?.[0]?.text?.substring(0, 80) || 'view dashboard for details'}`,
+        '/dashboard/brief'
+      ).catch(e => console.warn('[Push] flash push failed:', e.message));
+    }
+
     broadcast({ type: 'update', data: currentData });
 
     console.log(`[Crucix] Sweep complete — ${currentData.meta.sourcesOk}/${currentData.meta.sourcesQueried} sources OK`);
@@ -1023,6 +1335,7 @@ async function start() {
       console.log('[Crucix] Sending morning digest...');
       try { await sendMorningDigest(telegramAlerter, currentData); }
       catch (e) { console.error('[Digest] Failed:', e.message); }
+      pushDigest('Morning Intelligence Brief', 'Your daily Arkmurus intelligence briefing is ready.', '/dashboard/brief').catch(e => console.warn('[Push] digest push failed:', e.message));
     }, { timezone: 'UTC' });
 
     // Weekly pattern analysis — Sunday 03:00 UTC
