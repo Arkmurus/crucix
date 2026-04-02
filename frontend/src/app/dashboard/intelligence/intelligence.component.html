@@ -255,8 +255,8 @@
     </div>
 
     <!-- Lusophone & Africa Defence Intel -->
-    <div class="row mb-3" *ngIf="defenceSignals.length > 0 || defenceUpdates.length > 0">
-      <div class="col-md-6 mb-3" *ngIf="defenceSignals.length > 0">
+    <div class="row mb-3" *ngIf="defenceUpdates.length > 0">
+      <div class="col-md-6 mb-3">
         <mat-card class="h-100">
           <mat-card-header>
             <mat-card-title>
@@ -265,13 +265,18 @@
             </mat-card-title>
           </mat-card-header>
           <mat-card-content style="max-height:260px;overflow-y:auto">
-            <div *ngFor="let s of defenceSignals" class="mb-2 pb-2 border-bottom small">
-              <span class="badge bg-primary me-1" *ngIf="s.type === 'tender'">Tender</span>
-              <span class="badge bg-secondary me-1" *ngIf="s.type !== 'tender'">Signal</span>
-              <span style="color:#60a5fa;font-weight:600">{{ (s.text || s.title || '') | slice:0:160 }}</span>
-              <div class="text-muted" *ngIf="s.source">
-                <small>{{ s.source }}</small>
+            <ng-container *ngIf="defenceSignals.length > 0">
+              <div *ngFor="let s of defenceSignals" class="mb-2 pb-2 border-bottom small">
+                <span class="badge bg-primary me-1" *ngIf="s.type === 'tender'">Tender</span>
+                <span class="badge bg-secondary me-1" *ngIf="s.type !== 'tender'">Signal</span>
+                <span style="color:#60a5fa;font-weight:600">{{ (s.text || s.title || '') | slice:0:160 }}</span>
+                <div class="text-muted" *ngIf="s.source">
+                  <small>{{ s.source }}</small>
+                </div>
               </div>
+            </ng-container>
+            <div *ngIf="defenceSignals.length === 0" class="text-muted small py-3 text-center">
+              No Lusophone &amp; Africa signals this sweep
             </div>
           </mat-card-content>
         </mat-card>

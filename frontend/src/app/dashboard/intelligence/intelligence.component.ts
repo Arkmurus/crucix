@@ -82,12 +82,20 @@ export class IntelligenceComponent implements OnInit, OnDestroy {
   get opportunities(): any[] { return (this.data?.opportunities || []).slice(0, 3); }
   get criticalChanges(): number { return this.data?.delta?.summary?.criticalChanges ?? 0; }
   get defenceSignals(): any[] {
-    const LUSI = ['angola','mozambique','guinea-bissau','cape verde','são tomé','sao tome','lusophone'];
-    const news = (this.data?.defenseNews?.signals || []).filter((s: any) =>
+    const LUSI = ['angola','mozambique','guinea-bissau','cape verde','são tomé','sao tome','lusophone','africa'];
+    // Primary: pre-tagged Lusophone signals
+    const signals = (this.data?.defenseNews?.signals || []).filter((s: any) =>
       LUSI.some(kw => (s.text || '').toLowerCase().includes(kw))
     );
+    // Fallback: scan full updates list for Lusophone keywords
+    const seen = new Set(signals.map((s: any) => s.text));
+    const fromUpdates = (this.data?.defenseNews?.updates || [])
+      .filter((u: any) => LUSI.some(kw => (`${u.title || ''} ${u.content || ''}`).toLowerCase().includes(kw)))
+      .filter((u: any) => !seen.has(u.title))
+      .slice(0, 4)
+      .map((u: any) => ({ text: u.title, title: u.title, source: u.source, url: u.url, type: 'news' }));
     const tenders = this.data?.procurementTenders?.lusophone || [];
-    return [...news.slice(0, 4), ...tenders.slice(0, 3)];
+    return [...signals.slice(0, 4), ...fromUpdates, ...tenders.slice(0, 3)];
   }
   get defenceUpdates(): any[] { return (this.data?.defenseNews?.updates || []).slice(0, 15); }
 
