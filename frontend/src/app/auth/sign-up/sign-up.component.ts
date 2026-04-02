@@ -55,12 +55,12 @@ export class SignUpComponent implements OnInit {
     this.authService.register({ fullName, username, email, password }).subscribe({
       next: () => {
         this.loading = false;
-        this.successMsg = 'Account created — awaiting admin approval. You will be notified once your account is activated.';
-        setTimeout(() => this.router.navigate(['/auth/sign-in']), 3000);
+        this.successMsg = 'Account created! Check your email for a 6-digit verification code.';
+        setTimeout(() => this.router.navigate(['/auth/verify-email'], { queryParams: { email } }), 2000);
       },
       error: (err) => {
         this.loading = false;
-        this.errorMsg = err?.error?.message || 'Registration failed. Please try again.';
+        this.errorMsg = err?.error?.error || err?.error?.message || 'Registration failed. Please try again.';
       }
     });
   }

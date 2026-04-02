@@ -86,32 +86,37 @@
           </mat-card-header>
           <mat-card-content style="max-height:380px;overflow-y:auto;padding:8px 0">
             <div *ngIf="correlations.length === 0" class="text-muted py-2 px-2">No critical correlations detected</div>
-            <div *ngFor="let c of correlations; let ci = index" class="corr-block mb-2 mx-2 p-2"
-                 [style.border-left]="'3px solid ' + (c.severity==='critical' ? '#f44336' : '#ff9800')"
-                 style="background:rgba(255,255,255,0.03);border-radius:4px">
-              <div class="d-flex align-items-center gap-2 mb-1">
-                <mat-icon [style.color]="c.severity==='critical' ? '#f44336' : '#ff9800'"
+            <div *ngFor="let c of correlations; let ci = index" class="corr-block mb-2 mx-2"
+                 style="border-radius:6px;overflow:hidden;border:1px solid #d0d7e3">
+              <!-- Region header -->
+              <div class="d-flex align-items-center gap-2 px-2 py-1"
+                   style="background:#1a3a5c">
+                <mat-icon [style.color]="c.severity==='critical' ? '#ff6b6b' : '#ffa94d'"
                           style="font-size:15px;width:15px;height:15px;flex-shrink:0">
                   {{ c.severity==='critical' ? 'crisis_alert' : 'warning_amber' }}
                 </mat-icon>
-                <span style="font-weight:700;font-size:0.9rem;color:#e3f2fd">{{ c.region }}</span>
-                <span class="text-muted" style="font-size:0.72rem">
-                  {{ c.sourceCount || c.sources?.length || 1 }} sources · {{ c.severity | uppercase }}
+                <span style="font-weight:700;font-size:0.88rem;color:#ffffff;letter-spacing:0.02em">{{ c.region }}</span>
+                <span style="font-size:0.70rem;color:#a8c4e0;margin-left:auto;white-space:nowrap">
+                  {{ c.sourceCount || c.sources?.length || 1 }} sources ·
+                  <span [style.color]="c.severity==='critical' ? '#ff6b6b' : '#ffa94d'" style="font-weight:600">{{ c.severity | uppercase }}</span>
                 </span>
               </div>
-              <div *ngFor="let sig of (c.topSignals || []).slice(0,3); let si = index" class="corr-sig mb-1">
-                <div style="font-size:0.82rem;color:#cfd8dc;line-height:1.5;word-break:break-word">
-                  {{ truncateText(sig.text, 'c'+ci+'-'+si) }}
-                </div>
-                <div class="d-flex align-items-center gap-2 mt-1">
-                  <a *ngIf="(sig.text?.length || 0) > 280" (click)="toggleExpand('c'+ci+'-'+si)"
-                     style="font-size:0.72rem;color:#90caf9;cursor:pointer;text-decoration:none">
-                    {{ isExpanded('c'+ci+'-'+si) ? '▲ less' : '▼ more' }}
-                  </a>
-                  <a *ngIf="sig.url" [href]="sig.url" target="_blank" rel="noopener"
-                     style="font-size:0.72rem;color:#90caf9;text-decoration:none;display:inline-flex;align-items:center;gap:3px">
-                    <mat-icon style="font-size:11px;width:11px;height:11px">open_in_new</mat-icon>Source
-                  </a>
+              <!-- Signal items -->
+              <div style="background:#ffffff;padding:6px 10px">
+                <div *ngFor="let sig of (c.topSignals || []).slice(0,3); let si = index" class="corr-sig mb-1">
+                  <div style="font-size:0.82rem;color:#1a1a2e;line-height:1.5;word-break:break-word">
+                    {{ truncateText(sig.text, 'c'+ci+'-'+si) }}
+                  </div>
+                  <div class="d-flex align-items-center gap-2 mt-1">
+                    <a *ngIf="(sig.text?.length || 0) > 280" (click)="toggleExpand('c'+ci+'-'+si)"
+                       style="font-size:0.72rem;color:#1a3a5c;cursor:pointer;text-decoration:none">
+                      {{ isExpanded('c'+ci+'-'+si) ? '▲ less' : '▼ more' }}
+                    </a>
+                    <a *ngIf="sig.url" [href]="sig.url" target="_blank" rel="noopener"
+                       style="font-size:0.72rem;color:#1a3a5c;text-decoration:none;display:inline-flex;align-items:center;gap:3px">
+                      <mat-icon style="font-size:11px;width:11px;height:11px">open_in_new</mat-icon>Source
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
@@ -135,9 +140,9 @@
                 <span style="font-size:0.8rem;font-weight:700;color:#90caf9;flex-shrink:0">{{ p.channel || 'OSINT' }}</span>
                 <span class="text-muted" style="font-size:0.72rem;white-space:nowrap">{{ p.date | date:'dd/MM HH:mm':'Europe/London' }}</span>
               </div>
-              <div style="font-size:0.85rem;line-height:1.55;color:#cfd8dc;word-break:break-word">{{ truncateText(p.text || '', 'p'+pi) }}</div>
+              <div style="font-size:0.85rem;line-height:1.55;color:#1a1a2e;word-break:break-word">{{ truncateText(p.text || '', 'p'+pi) }}</div>
               <a *ngIf="(p.text?.length || 0) > 280" (click)="toggleExpand('p'+pi)"
-                 style="font-size:0.72rem;color:#90caf9;cursor:pointer;text-decoration:none;display:block;margin-top:3px">
+                 style="font-size:0.72rem;color:#1a3a5c;cursor:pointer;text-decoration:none;display:block;margin-top:3px">
                 {{ isExpanded('p'+pi) ? '▲ Show less' : '▼ Show more' }}
               </a>
             </div>
