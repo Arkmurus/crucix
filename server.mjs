@@ -110,6 +110,15 @@ const telegramAlerter = new TelegramAlerter(config.telegram);
 initAdminUser().catch(err => console.error('[Auth] initAdminUser failed:', err.message));
 initVapid().catch(err => console.error('[Push] initVapid failed:', err.message));
 
+// === SMTP Diagnostics ===
+const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
+if (smtpConfigured) {
+  console.log(`[Email] SMTP configured — host:${process.env.EMAIL_HOST} port:${process.env.EMAIL_PORT || 587} user:${process.env.EMAIL_USER}`);
+} else {
+  const missing = ['EMAIL_HOST','EMAIL_USER','EMAIL_PASS'].filter(k => !process.env[k]);
+  console.warn(`[Email] SMTP NOT configured — missing env vars: ${missing.join(', ')} — emails will be logged to console only`);
+}
+
 // MONKEY-PATCH: Override _handleBrief on the instance to guarantee the 8-section
 // ARKMURUS format even if Seenode's persistent volume has an older telegram.mjs loaded.
 // The old telegram.mjs has `handlers = { '/brief': () => this._handleBrief() }` which
@@ -1126,6 +1135,30 @@ app.post('/api/auth/reset-password', async (req, res) => {
     console.error('[Auth] Reset password error:', err.message);
     res.status(500).json({ error: 'Failed to reset password' });
   }
+});
+
+// ── Admin: SMTP test ──────────────────────────────────────────────────────────
+app.post('/api/admin/test-email', requireAdmin, async (req, res) => {
+  const { to } = req.body || {};
+  if (!to) return res.status(400).json({ error: 'to address required' });
+  const result = await sendAdminNotification(
+    'Arkmurus SMTP Test',
+    `<p>This is a test email sent at ${new Date().toISOString()}.</p><p>If you received this, SMTP is configured correctly.</p>`
+  ).catch(err => ({ sent: false, reason: err.message }));
+  // Also try sending to the provided address
+  const result2 = await sendVerificationEmail(to, 'Test User', '123456').catch(err => ({ sent: false, reason: err.message }));
+  res.json({
+    adminEmail: result,
+    testEmail:  result2,
+    smtpConfig: {
+      host:      process.env.EMAIL_HOST     || '(not set)',
+      port:      process.env.EMAIL_PORT     || '587 (default)',
+      user:      process.env.EMAIL_USER     || '(not set)',
+      passSet:   !!(process.env.EMAIL_PASS),
+      secure:    process.env.EMAIL_SECURE   || 'false (default)',
+      adminDest: process.env.ADMIN_EMAIL    || 'acorrea@arkmurus.com (default)',
+    },
+  });
 });
 
 // ── Admin User Management Routes ──────────────────────────────────────────────
