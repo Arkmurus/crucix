@@ -602,9 +602,7 @@ app.use((req, res, next) => {
   })(req, res, next);
 });
 
-app.use(express.static(join(ROOT, 'dashboard/public')));
-
-// Angular dashboard — served at root /
+// Angular dashboard — served at root / (must be before dashboard/public static)
 const ANGULAR_DIST = join(ROOT, 'frontend', 'dist', 'crucix-admin');
 if (existsSync(ANGULAR_DIST)) {
   app.use(express.static(ANGULAR_DIST));
@@ -614,6 +612,8 @@ if (existsSync(ANGULAR_DIST)) {
     res.sendFile(join(ANGULAR_DIST, 'index.html'));
   });
   console.log('[Crucix] Angular dashboard live at /');
+} else {
+  app.use(express.static(join(ROOT, 'dashboard/public')));
 }
 
 app.get('/api/data', (req, res) => {
