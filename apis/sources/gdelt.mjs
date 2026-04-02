@@ -200,6 +200,50 @@ export async function fetchGDELT() {
           console.warn('[GDELT] allorigins proxy failed:', proxyErr.message);
         }
 
+        // Ultimate fallback: Google News RSS (works from any IP, broad conflict/defence coverage)
+        try {
+          const gnTopics = [
+            'https://news.google.com/rss/search?q=military+procurement+defence+contract&hl=en&gl=US&ceid=US:en',
+            'https://news.google.com/rss/search?q=africa+military+security+conflict&hl=en&gl=US&ceid=US:en',
+          ];
+          for (const gnUrl of gnTopics) {
+            if (results.updates.length >= 10) break;
+            try {
+              const gnRes = await fetch(gnUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' },
+                signal: AbortSignal.timeout(15000),
+              });
+              if (!gnRes.ok) continue;
+              const xml = await gnRes.text();
+              const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+              let m3;
+              while ((m3 = itemRegex.exec(xml)) !== null && results.updates.length < 20) {
+                const block = m3[1];
+                const getTag = (tag) => {
+                  const match = block.match(new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>|<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+                  return (match?.[1] || match?.[2] || '').trim();
+                };
+                const title = getTag('title');
+                if (!title) continue;
+                const srcBlock = block.match(/<source[^>]*>([^<]*)<\/source>/i)?.[1] || 'News';
+                results.updates.push({
+                  title, url: getTag('link'), source: srcBlock,
+                  seenAt: getTag('pubDate') || new Date().toISOString(),
+                  tone: 0, country: '', lang: 'English', type: 'gdelt_article',
+                });
+              }
+            } catch {}
+          }
+          if (results.updates.length > 0) {
+            console.log(`[GDELT] ${results.updates.length} articles (Google News fallback)`);
+            _cache = results;
+            _cacheTime = Date.now();
+            return results;
+          }
+        } catch (gnErr) {
+          console.warn('[GDELT] Google News fallback failed:', gnErr.message);
+        }
+
         results.error = jsonErr.message;
         console.error('[GDELT] Error:', jsonErr.message);
         if (_cache) {

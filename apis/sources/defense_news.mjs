@@ -17,7 +17,9 @@ const FEEDS = [
   },
   {
     name: 'ISS Africa',
-    url:  'https://issafrica.org/rss',
+    // ISS uses multiple paths; try the ISS Peace & Security Council blog
+    url:  'https://issafrica.org/iss-today/rss',
+    urlAlt: 'https://issafrica.org/feed',
     region: 'Africa',
     weight: 3,
   },
@@ -34,16 +36,29 @@ const FEEDS = [
     weight: 2,
   },
   {
-    name: 'UN Peacekeeping',
-    url:  'https://peacekeeping.un.org/en/news.rss',
+    name: 'Jane\'s / Shephard',
+    // Google News: defence procurement — always accessible from cloud IPs
+    url:  'https://news.google.com/rss/search?q=defence+procurement+contract+military+acquisition&hl=en&gl=GB&ceid=GB:en',
     region: 'Global',
     weight: 2,
   },
   {
-    name: 'French MoD',
-    url:  'https://www.defense.gouv.fr/english/actuality/rss.xml',
-    region: 'Europe',
-    weight: 1,
+    name: 'Africa Defence News',
+    url:  'https://news.google.com/rss/search?q=africa+military+defence+security+procurement&hl=en&gl=US&ceid=US:en',
+    region: 'Africa',
+    weight: 3,
+  },
+  {
+    name: 'UN News Africa',
+    url:  'https://news.un.org/feed/subscribe/en/news/region/africa/feed/rss.xml',
+    region: 'Africa',
+    weight: 2,
+  },
+  {
+    name: 'SIPRI Blog',
+    url:  'https://www.sipri.org/news/rss.xml',
+    region: 'Global',
+    weight: 2,
   },
 ];
 
@@ -77,9 +92,15 @@ function parseXML(xml, feedName) {
                || b.match(/<link[^>]*>([\s\S]*?)<\/link>/i)?.[1]?.trim() || '';
     const date  = b.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1]
                || b.match(/<published>([\s\S]*?)<\/published>/i)?.[1] || '';
-    const desc  = (b.match(/<description[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i)?.[1]
-               || b.match(/<summary[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/summary>/i)?.[1] || '')
-                  .replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').slice(0, 300).trim();
+    const rawDesc = (b.match(/<description[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i)?.[1]
+               || b.match(/<summary[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/summary>/i)?.[1] || '');
+    const desc = rawDesc
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/&apos;/g, "'")
+      .replace(/\s+/g, ' ')
+      .slice(0, 500)
+      .trim();
 
     if (title) {
       items.push({ source: feedName, title, description: desc, url: link, pubDate: date });
