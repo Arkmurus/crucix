@@ -32,6 +32,7 @@ import { analyzePatterns, formatPatternsForTelegram } from './lib/self/pattern_a
 import { runExploration, exploreQuery, formatExplorerFindingsForTelegram } from './lib/self/web_explorer.mjs';
 import { generateSourceModule, generateSourceFix, stageModule, getStagedModules, getStagedCode, formatStagedForTelegram } from './lib/self/code_generator.mjs';
 import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRestartFlag, triggerGracefulRestart, getAutoManagedModules } from './lib/self/updater.mjs';
+import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, formatBDSummaryForTelegram } from './lib/self/bd_intelligence.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser } from './lib/auth/users.mjs';
 import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification } from './lib/auth/email.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
@@ -342,6 +343,11 @@ if (telegramAlerter.isConfigured) {
       return formatOpportunitiesForTelegram(fresh);
     }
     return formatOpportunitiesForTelegram(opps);
+  });
+
+  telegramAlerter.onCommand('/bd', async () => {
+    const bd = currentData?.bdIntelligence || getBDIntelligence();
+    return formatBDSummaryForTelegram(bd);
   });
 
   telegramAlerter.onCommand('/patterns', async () => {
@@ -721,6 +727,25 @@ app.get('/api/opportunities', requireAuth, (req, res) => {
   }
   const stored = getOpportunities();
   res.json({ ...stored, source: 'cached' });
+});
+
+app.get('/api/bd-intelligence', requireAuth, (req, res) => {
+  if (currentData?.bdIntelligence) return res.json(currentData.bdIntelligence);
+  const stored = getBDIntelligence();
+  if (stored) return res.json(stored);
+  res.json({ tenders: [], ideas: [], strategy: null, pipeline: [], counts: { activeTenders: 0, contractAwards: 0, strategicIdeas: 0, pipelineDeals: 0 } });
+});
+
+app.get('/api/bd-intelligence/pipeline', requireAuth, (req, res) => {
+  res.json(getDealPipeline());
+});
+
+app.post('/api/bd-intelligence/pipeline/:id/stage', requireAuth, (req, res) => {
+  const { id } = req.params;
+  const { stage, notes } = req.body || {};
+  if (!stage) return res.status(400).json({ error: 'stage required' });
+  const result = updateDealStage(id, stage, notes || '');
+  res.json(result);
 });
 
 app.get('/api/patterns', requireAuth, (req, res) => {
@@ -1333,6 +1358,15 @@ async function runSweepCycle() {
     } catch (err) {
       console.error('[Self] Opportunity detection failed (non-fatal):', err.message);
       synthesized.opportunities = [];
+    }
+
+    // BD Intelligence: real tenders + strategic ideas
+    try {
+      const bdResult = await runBDIntelligence(synthesized, null, llmProvider);
+      synthesized.bdIntelligence = bdResult;
+      console.log(`[BD] ${bdResult.counts.activeTenders} tenders · ${bdResult.counts.strategicIdeas} ideas · ${bdResult.counts.pipelineDeals} pipeline`);
+    } catch (err) {
+      console.error('[BD] BD intelligence failed (non-fatal):', err.message);
     }
 
     // Check restart flag — apply pending self-updates after sweep completes

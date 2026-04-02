@@ -57,6 +57,16 @@ export class CrucixApiService {
       .pipe(catchError(() => of({ success: false })));
   }
 
+  getBDIntelligence(): Observable<any> {
+    return this.http.get(`${this.base}/api/bd-intelligence`)
+      .pipe(catchError(() => of({ tenders: [], ideas: [], strategy: null, pipeline: [], counts: {} })));
+  }
+
+  updateDealStage(dealId: string, stage: string, notes?: string): Observable<any> {
+    return this.http.post(`${this.base}/api/bd-intelligence/pipeline/${dealId}/stage`, { stage, notes })
+      .pipe(catchError(err => of({ ok: false, error: err.message })));
+  }
+
   getExplorerFindings(): Observable<any> {
     return this.http.get(`${this.base}/api/explorer`)
       .pipe(catchError(() => of({ findings: [] })));

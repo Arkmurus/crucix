@@ -14,6 +14,7 @@ import { IntelligenceComponent } from './intelligence/intelligence.component';
 import { OpportunitiesComponent } from './opportunities/opportunities.component';
 import { SourcesComponent } from './sources/sources.component';
 import { ExplorerComponent } from './explorer/explorer.component';
+import { BdIntelligenceComponent } from './bd-intelligence/bd-intelligence.component';
 
 @NgModule({
   declarations: [
@@ -23,6 +24,7 @@ import { ExplorerComponent } from './explorer/explorer.component';
     OpportunitiesComponent,
     SourcesComponent,
     ExplorerComponent,
+    BdIntelligenceComponent,
   ],
   imports: [
     CommonModule,
