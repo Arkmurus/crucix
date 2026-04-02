@@ -36,4 +36,8 @@ export class ExplorerComponent implements OnInit {
   relevanceColor(r: string): string {
     return r === 'HIGH' ? '#f44336' : r === 'MEDIUM' ? '#ff9800' : '#9e9e9e';
   }
+
+  urgencyColor(u: string): string {
+    return u === 'HIGH' ? '#d32f2f' : u === 'MEDIUM' ? '#f57c00' : '#388e3c';
+  }
 }

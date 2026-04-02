@@ -1040,9 +1040,9 @@ async function start() {
       } catch (e) { console.error('[Self] Pattern analysis failed:', e.message); }
     }, { timezone: 'UTC' });
 
-    // Weekly internet exploration — Sunday 04:00 UTC
-    cron.schedule('0 4 * * 0', async () => {
-      console.log('[Self] Running weekly web exploration...');
+    // Daily internet exploration — 06:00 UTC (morning sweep) + 14:00 UTC (afternoon sweep)
+    const runDailyExploration = async () => {
+      console.log('[Self] Running daily web exploration...');
       try {
         const findings = await runExploration(llmProvider);
         console.log(`[Self] Exploration complete — ${findings.insights?.length || 0} insights, ${findings.salesIdeas?.length || 0} ideas`);
@@ -1050,7 +1050,9 @@ async function start() {
           await telegramAlerter.sendMessage(formatExplorerFindingsForTelegram(findings));
         }
       } catch (e) { console.error('[Self] Web exploration failed:', e.message); }
-    }, { timezone: 'UTC' });
+    };
+    cron.schedule('0 6 * * *',  runDailyExploration, { timezone: 'UTC' });
+    cron.schedule('0 14 * * *', runDailyExploration, { timezone: 'UTC' });
 
     // Daily source health review — 02:00 UTC
     // Auto-stages fixes for sources with <40% reliability over 48+ sweeps
