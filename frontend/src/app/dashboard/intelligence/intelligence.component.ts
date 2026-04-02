@@ -89,7 +89,7 @@ export class IntelligenceComponent implements OnInit, OnDestroy {
     const tenders = this.data?.procurementTenders?.lusophone || [];
     return [...news.slice(0, 4), ...tenders.slice(0, 3)];
   }
-  get defenceUpdates(): any[] { return (this.data?.defenseNews?.updates || []).slice(0, 5); }
+  get defenceUpdates(): any[] { return (this.data?.defenseNews?.updates || []).slice(0, 15); }
 
   directionColor(): string {
     const d = this.direction;
