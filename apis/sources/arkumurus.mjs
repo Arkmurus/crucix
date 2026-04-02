@@ -6,11 +6,12 @@
 export async function briefing() {
   console.log('[Arkmurus] Fetching live Lusophone/Africa defence intelligence...');
 
+  // Google News RSS used for sources consistently blocked on cloud IPs (BICC, ISS, AU PSC, GRIP)
   const FEEDS = [
-    { name: 'ISS Africa',  url: 'https://issafrica.org/rss.xml' },
-    { name: 'BICC',        url: 'https://www.bicc.de/publications/rss.xml' },
-    { name: 'GRIP',        url: 'https://www.grip.org/en/rss.xml' },
-    { name: 'AU PSC',      url: 'https://www.peaceau.org/en/rss.xml' },
+    { name: 'ISS Africa',  url: 'https://news.google.com/rss/search?q=%22ISS+Africa%22+security+peace+defence&hl=en&gl=US&ceid=US:en' },
+    { name: 'BICC',        url: 'https://news.google.com/rss/search?q=BICC+arms+trade+africa+conflict+weapons&hl=en&gl=US&ceid=US:en' },
+    { name: 'GRIP',        url: 'https://news.google.com/rss/search?q=GRIP+arms+trade+africa+%22Group+de+recherche%22&hl=en&gl=BE&ceid=BE:fr' },
+    { name: 'AU PSC',      url: 'https://news.google.com/rss/search?q=%22African+Union%22+%22Peace+and+Security+Council%22&hl=en&gl=US&ceid=US:en' },
   ];
 
   // Lusophone-relevant keywords for signal extraction

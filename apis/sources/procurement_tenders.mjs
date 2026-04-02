@@ -121,16 +121,18 @@ async function fetchDSCA() {
   return items.slice(0, 10);
 }
 
-// ── EU TED: Tenders Electronic Daily (POST API) ───────────────────────────────
-// CPV 35* = defense/security equipment. TED API v3 requires POST.
+// ── EU TED: Tenders Electronic Daily ─────────────────────────────────────────
+// CPV 35* = defense/security equipment.
+// TED API v3 POST → TED OData GET → Google News fallback
 async function fetchEUTED() {
+  // Attempt 1: TED API v3 POST (corrected query syntax)
   try {
     const body = {
-      query:    'cpv:35*',
+      query:    'cpvCode=35*',
       fields:   ['title', 'publicationDate', 'contractingAuthorityName', 'buyerCountry', 'totalValue', 'cpv', 'noticeType'],
       page:     1,
       pageSize: 15,
-      language: 'EN',
+      scope:    'ACTIVE',
     };
     const res = await fetch('https://api.ted.europa.eu/v3/notices/search', {
       method:  'POST',
@@ -138,26 +140,36 @@ async function fetchEUTED() {
       body:    JSON.stringify(body),
       signal:  AbortSignal.timeout(15000),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const notices = data.notices || data.results || data.items || [];
-    const items = notices.map(n => {
-      const title   = (Array.isArray(n.title) ? n.title.find(t => t.language === 'EN')?.value : (n.title?.EN || n.title || '')).toString().slice(0, 200);
-      const country = n.buyerCountry || '';
-      const authority = (Array.isArray(n.contractingAuthorityName)
-        ? n.contractingAuthorityName.find(a => a.language === 'EN')?.value
-        : n.contractingAuthorityName) || '';
-      const value   = n.totalValue?.amount ? `€${(n.totalValue.amount / 1e6).toFixed(1)}M` : '';
-      return {
-        source:      'EU TED',
-        title:       title || `Defense Tender (${country})`,
-        description: `${authority} · ${country}${value ? ' · ' + value : ''}`.replace(/^·\s*|·\s*$/, '').trim(),
-        url:         n.permalink || `https://ted.europa.eu`,
-        pubDate:     n.publicationDate || '',
-      };
-    }).filter(i => i.title && i.title.length > 5);
+    if (res.ok) {
+      const data = await res.json();
+      const notices = data.notices || data.results || data.items || [];
+      if (notices.length > 0) {
+        const items = notices.map(n => {
+          const title   = (Array.isArray(n.title) ? n.title.find(t => t.language === 'EN')?.value : (n.title?.EN || n.title || '')).toString().slice(0, 200);
+          const country = n.buyerCountry || '';
+          const authority = (Array.isArray(n.contractingAuthorityName)
+            ? n.contractingAuthorityName.find(a => a.language === 'EN')?.value
+            : n.contractingAuthorityName) || '';
+          const value   = n.totalValue?.amount ? `€${(n.totalValue.amount / 1e6).toFixed(1)}M` : '';
+          return {
+            source:      'EU TED',
+            title:       title || `Defense Tender (${country})`,
+            description: `${authority} · ${country}${value ? ' · ' + value : ''}`.replace(/^·\s*|·\s*$/, '').trim(),
+            url:         n.permalink || `https://ted.europa.eu`,
+            pubDate:     n.publicationDate || '',
+          };
+        }).filter(i => i.title && i.title.length > 5);
+        console.log(`[Procurement] EU TED: ${items.length} defense notices`);
+        return items;
+      }
+    }
+  } catch {}
 
-    console.log(`[Procurement] EU TED: ${items.length} defense notices`);
+  // Fallback: Google News for EU defense tenders
+  const gnUrl = `https://news.google.com/rss/search?q=${encodeURIComponent('Europe defense security procurement tender contract CPV 35')}&hl=en-US&gl=GB&ceid=GB:en`;
+  try {
+    const items = await fetchRSS(gnUrl, 'EU TED');
+    console.log(`[Procurement] EU TED (Google News fallback): ${items.length} items`);
     return items;
   } catch (e) {
     console.warn(`[Procurement] EU TED failed: ${e.message}`);
