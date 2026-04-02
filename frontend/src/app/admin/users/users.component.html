@@ -1,0 +1,85 @@
+<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h4 class="card-title mb-0">User Management</h4>
+        <button class="btn btn-sm btn-outline-primary" (click)="loadUsers()">Refresh</button>
+      </div>
+      <div class="card-content">
+        <div class="card-body">
+
+          <div *ngIf="error" class="alert alert-danger" role="alert">
+            {{ error }}
+            <button type="button" class="btn-close float-end" (click)="error=''"></button>
+          </div>
+          <div *ngIf="successMsg" class="alert alert-success" role="alert">{{ successMsg }}</div>
+
+          <div *ngIf="loading" class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Loading users...</p>
+          </div>
+
+          <div *ngIf="!loading" class="table-responsive">
+            <table class="table table-hover mb-0">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Email</th>
+                  <th>Status</th>
+                  <th>Role</th>
+                  <th>Last Login</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let user of users">
+                  <td>
+                    <strong>{{ user.fullName }}</strong><br>
+                    <small class="text-muted">{{ '@' + user.username }}</small>
+                  </td>
+                  <td>{{ user.email }}</td>
+                  <td>
+                    <span [class]="statusBadge(user.status)">{{ user.status }}</span>
+                  </td>
+                  <td>
+                    <select class="form-select form-select-sm"
+                            style="width:auto"
+                            [value]="user.role"
+                            [disabled]="saving.has(user.id)"
+                            (change)="setRole(user, $any($event.target).value)">
+                      <option value="viewer">viewer</option>
+                      <option value="analyst">analyst</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  </td>
+                  <td>
+                    <small>{{ user.lastLogin ? (user.lastLogin | date:'dd MMM HH:mm') : 'Never' }}</small>
+                  </td>
+                  <td>
+                    <button class="btn btn-sm me-1"
+                            [class]="suspendBtnClass(user.status)"
+                            [disabled]="saving.has(user.id)"
+                            (click)="toggleStatus(user)">
+                      {{ user.status === 'suspended' ? 'Activate' : 'Suspend' }}
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger"
+                            [disabled]="saving.has(user.id)"
+                            (click)="deleteUser(user)">
+                      Delete
+                    </button>
+                    <span *ngIf="saving.has(user.id)"
+                          class="spinner-border spinner-border-sm ms-1 text-primary"></span>
+                  </td>
+                </tr>
+                <tr *ngIf="users.length === 0">
+                  <td colspan="6" class="text-center text-muted py-4">No users found.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

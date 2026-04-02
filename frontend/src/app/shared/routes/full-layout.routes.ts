@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { AuthGuard } from '../../guards/auth.guard';
+import { AdminGuard } from '../../guards/admin.guard';
 
 //Route for content layout with sidebar, navbar and footer.
 
@@ -60,6 +61,12 @@ export const Full_ROUTES: Routes = [
         path: 'downloads',
         canActivate: [AuthGuard],
         loadChildren: () => import('../../downloads/downloads.module').then(m => m.DownloadsModule)
+    },
+
+    {
+        path: 'admin',
+        canActivate: [AuthGuard, AdminGuard],
+        loadChildren: () => import('../../admin/admin.module').then(m => m.AdminModule)
     }
 
 ];
