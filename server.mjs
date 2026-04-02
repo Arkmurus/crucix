@@ -850,21 +850,13 @@ app.post('/api/auth/register', async (req, res) => {
     if (findUserByEmail(email)) return res.status(409).json({ error: 'Email already registered' });
     if (findUserByUsername(username)) return res.status(409).json({ error: 'Username already taken' });
 
-    const user = createUser({ username, email, password, fullName });
+    createUser({ username, email, password, fullName });
+    const rawUser = findUserByEmail(email); // raw record includes verificationCode
 
-    await sendAdminNotification(
-      'New user registration — approval required',
-      `<p>New user registered and awaiting your approval:</p>
-       <ul>
-         <li><strong>Name:</strong> ${user.fullName}</li>
-         <li><strong>Email:</strong> ${email}</li>
-         <li><strong>Username:</strong> ${username}</li>
-       </ul>
-       <p>Log in to the admin panel and go to <strong>Admin → Users</strong> to approve or reject this account.</p>`
-    ).catch(() => {});
+    await sendVerificationEmail(email, rawUser.fullName, rawUser.verificationCode).catch(() => {});
 
-    console.log(`[Auth] New registration pending approval: ${email}`);
-    res.json({ message: 'Account created — awaiting admin approval. You will be notified once your account is activated.' });
+    console.log(`[Auth] New registration, verification email sent: ${email}`);
+    res.json({ message: 'Account created. Please check your email for a 6-digit verification code.', needsVerification: true, email });
   } catch (err) {
     console.error('[Auth] Register error:', err.message);
     res.status(500).json({ error: 'Registration failed' });
@@ -994,9 +986,18 @@ app.post('/api/auth/verify-email', async (req, res) => {
       return res.status(400).json({ error: 'Verification code expired. Request a new one.' });
     }
 
-    updateUser(user.id, { status: 'active', verificationCode: null, verificationExpiry: null });
-    await sendWelcomeEmail(email, user.fullName).catch(() => {});
-    res.json({ message: 'Email verified successfully. You can now log in.' });
+    updateUser(user.id, { status: 'pending_approval', verificationCode: null, verificationExpiry: null });
+    await sendAdminNotification(
+      'New user registration — approval required',
+      `<p>A new user has verified their email and is awaiting your approval:</p>
+       <ul>
+         <li><strong>Name:</strong> ${user.fullName}</li>
+         <li><strong>Email:</strong> ${email}</li>
+         <li><strong>Username:</strong> ${user.username}</li>
+       </ul>
+       <p>Log in to the admin panel and go to <strong>Admin &rarr; Users</strong> to approve or reject this account.</p>`
+    ).catch(() => {});
+    res.json({ message: 'Email verified. Your account is awaiting admin approval — you will be notified once activated.' });
   } catch (err) {
     console.error('[Auth] Verify email error:', err.message);
     res.status(500).json({ error: 'Verification failed' });
@@ -1137,15 +1138,19 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
   }
 });
 
-app.put('/api/admin/users/:id', requireAdmin, (req, res) => {
+app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
   try {
     const { role, status, notifyDigest, notifyFlash } = req.body || {};
+    const existingUser = findUserById(req.params.id);
     const updates = {};
     if (role         !== undefined) updates.role         = role;
     if (status       !== undefined) updates.status       = status;
     if (notifyDigest !== undefined) updates.notifyDigest = !!notifyDigest;
     if (notifyFlash  !== undefined) updates.notifyFlash  = !!notifyFlash;
     const updated = updateUser(req.params.id, updates);
+    if (status === 'active' && existingUser && existingUser.status !== 'active') {
+      await sendWelcomeEmail(existingUser.email, existingUser.fullName).catch(() => {});
+    }
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to update user' });
