@@ -4,7 +4,8 @@ import { AuthService, User } from '../../services/auth.service';
 
 @Component({
   selector: 'app-admin-users',
-  templateUrl: './users.component.html'
+  templateUrl: './users.component.html',
+  styleUrls: ['./users.component.scss']
 })
 export class UsersComponent implements OnInit {
   users: User[] = [];

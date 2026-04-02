@@ -1,101 +1,128 @@
-<div class="row">
-  <div class="col-12">
-    <div class="card">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <h4 class="card-title mb-0">User Management</h4>
-        <button class="btn btn-sm btn-outline-primary" (click)="loadUsers()">Refresh</button>
-      </div>
-      <div class="card-content">
-        <div class="card-body">
+<div class="container-fluid">
 
-          <div *ngIf="error" class="alert alert-danger" role="alert">
-            {{ error }}
-            <button type="button" class="btn-close float-end" (click)="error=''"></button>
-          </div>
-          <div *ngIf="successMsg" class="alert alert-success" role="alert">{{ successMsg }}</div>
-
-          <!-- Pending approval banner -->
-          <div *ngIf="pendingUsers.length > 0" class="alert alert-warning d-flex align-items-center gap-2">
-            <mat-icon style="font-size:18px;width:18px;height:18px;">pending_actions</mat-icon>
-            <span><strong>{{ pendingUsers.length }} account(s)</strong> awaiting your approval.</span>
-          </div>
-
-          <div *ngIf="loading" class="text-center py-4">
-            <div class="spinner-border text-primary" role="status"></div>
-            <p class="mt-2 text-muted">Loading users...</p>
-          </div>
-
-          <div *ngIf="!loading" class="table-responsive">
-            <table class="table table-hover mb-0">
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Email</th>
-                  <th>Status</th>
-                  <th>Role</th>
-                  <th>Last Login</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let user of users"
-                    [style.background]="user.status === 'pending_approval' ? 'rgba(255,193,7,.06)' : ''">
-                  <td>
-                    <strong>{{ user.fullName }}</strong><br>
-                    <small class="text-muted">{{ '@' + user.username }}</small>
-                  </td>
-                  <td>{{ user.email }}</td>
-                  <td>
-                    <span [class]="statusBadge(user.status)">{{ statusLabel(user.status) }}</span>
-                  </td>
-                  <td>
-                    <select class="form-select form-select-sm"
-                            style="width:auto"
-                            [value]="user.role"
-                            [disabled]="saving.has(user.id)"
-                            (change)="setRole(user, $any($event.target).value)">
-                      <option value="viewer">viewer</option>
-                      <option value="analyst">analyst</option>
-                      <option value="admin">admin</option>
-                    </select>
-                  </td>
-                  <td>
-                    <small>{{ user.lastLogin ? (user.lastLogin | date:'dd MMM HH:mm') : 'Never' }}</small>
-                  </td>
-                  <td class="d-flex gap-1 flex-wrap">
-                    <!-- Approve button — only for pending_approval -->
-                    <button *ngIf="user.status === 'pending_approval'"
-                            class="btn btn-sm btn-success"
-                            [disabled]="saving.has(user.id)"
-                            (click)="approveUser(user)">
-                      Approve
-                    </button>
-                    <!-- Suspend / Activate — only for non-pending users -->
-                    <button *ngIf="user.status !== 'pending_approval'"
-                            class="btn btn-sm"
-                            [class]="suspendBtnClass(user.status)"
-                            [disabled]="saving.has(user.id)"
-                            (click)="toggleStatus(user)">
-                      {{ user.status === 'suspended' ? 'Activate' : 'Suspend' }}
-                    </button>
-                    <button class="btn btn-sm btn-outline-danger"
-                            [disabled]="saving.has(user.id)"
-                            (click)="deleteUser(user)">
-                      Delete
-                    </button>
-                    <span *ngIf="saving.has(user.id)"
-                          class="spinner-border spinner-border-sm ms-1 text-primary align-self-center"></span>
-                  </td>
-                </tr>
-                <tr *ngIf="users.length === 0">
-                  <td colspan="6" class="text-center text-muted py-4">No users found.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-        </div>
-      </div>
+  <!-- Header -->
+  <div class="row mb-4">
+    <div class="col-12 d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <h4 class="page-title mb-0">
+        <mat-icon style="vertical-align:middle;margin-right:8px">manage_accounts</mat-icon>
+        User Management
+      </h4>
+      <button mat-stroked-button (click)="loadUsers()" style="font-size:0.82rem">
+        <mat-icon style="font-size:16px;width:16px;height:16px;margin-right:4px">refresh</mat-icon>
+        Refresh
+      </button>
     </div>
+  </div>
+
+  <!-- Alerts -->
+  <div *ngIf="error" class="alert alert-danger d-flex align-items-center gap-2 mb-3" role="alert">
+    <mat-icon style="font-size:18px;width:18px;height:18px;flex-shrink:0">error_outline</mat-icon>
+    <span>{{ error }}</span>
+    <button type="button" class="btn-close ms-auto" style="filter:invert(1)" (click)="error=''"></button>
+  </div>
+  <div *ngIf="successMsg" class="alert alert-success d-flex align-items-center gap-2 mb-3">
+    <mat-icon style="font-size:18px;width:18px;height:18px;flex-shrink:0">check_circle</mat-icon>
+    {{ successMsg }}
+  </div>
+
+  <!-- Pending banner -->
+  <div *ngIf="pendingUsers.length > 0" class="pending-banner mb-3">
+    <mat-icon style="font-size:18px;width:18px;height:18px;color:#ffd54f">pending_actions</mat-icon>
+    <span><strong>{{ pendingUsers.length }} account(s)</strong> awaiting your approval</span>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="loading" class="text-center py-5">
+    <mat-spinner diameter="40" class="mx-auto"></mat-spinner>
+    <p class="text-muted mt-3" style="font-size:0.85rem">Loading users…</p>
+  </div>
+
+  <!-- User cards -->
+  <div *ngIf="!loading">
+
+    <div *ngIf="users.length === 0" class="text-muted py-4 text-center">No users found.</div>
+
+    <div *ngFor="let user of users" class="user-card mb-2"
+         [class.user-pending]="user.status === 'pending_approval'">
+
+      <div class="user-main">
+
+        <!-- Avatar + name -->
+        <div class="user-avatar">{{ (user.fullName || user.username || '?')[0].toUpperCase() }}</div>
+
+        <div class="user-info">
+          <div class="user-fullname">{{ user.fullName }}</div>
+          <div class="user-meta">
+            <span class="user-handle">{{ '@' + user.username }}</span>
+            <span class="user-email">{{ user.email }}</span>
+          </div>
+        </div>
+
+        <!-- Status badge -->
+        <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+          <span class="status-badge"
+                [class.status-active]="user.status==='active'"
+                [class.status-pending]="user.status==='pending_approval'||user.status==='pending_verification'"
+                [class.status-suspended]="user.status==='suspended'">
+            {{ statusLabel(user.status) }}
+          </span>
+
+          <!-- Role selector -->
+          <select class="role-select"
+                  [value]="user.role"
+                  [disabled]="saving.has(user.id)"
+                  (change)="setRole(user, $any($event.target).value)">
+            <option value="viewer">viewer</option>
+            <option value="analyst">analyst</option>
+            <option value="admin">admin</option>
+          </select>
+
+          <!-- Last login -->
+          <span class="last-login">
+            <mat-icon style="font-size:12px;width:12px;height:12px">schedule</mat-icon>
+            {{ user.lastLogin ? (user.lastLogin | date:'dd MMM HH:mm') : 'Never' }}
+          </span>
+        </div>
+
+      </div>
+
+      <!-- Actions row -->
+      <div class="user-actions">
+        <button *ngIf="user.status === 'pending_approval'"
+                mat-flat-button color="primary"
+                class="action-btn"
+                [disabled]="saving.has(user.id)"
+                (click)="approveUser(user)">
+          <mat-icon style="font-size:14px;width:14px;height:14px">how_to_reg</mat-icon>
+          Approve
+        </button>
+
+        <button *ngIf="user.status !== 'pending_approval'"
+                mat-stroked-button
+                class="action-btn"
+                [style.color]="user.status==='suspended' ? '#a5d6a7' : '#ffcc80'"
+                [style.border-color]="user.status==='suspended' ? 'rgba(165,214,167,.4)' : 'rgba(255,204,128,.3)'"
+                [disabled]="saving.has(user.id)"
+                (click)="toggleStatus(user)">
+          <mat-icon style="font-size:14px;width:14px;height:14px">
+            {{ user.status==='suspended' ? 'play_circle' : 'pause_circle' }}
+          </mat-icon>
+          {{ user.status==='suspended' ? 'Activate' : 'Suspend' }}
+        </button>
+
+        <button mat-stroked-button
+                class="action-btn"
+                style="color:#ef9a9a;border-color:rgba(239,154,154,.3)"
+                [disabled]="saving.has(user.id)"
+                (click)="deleteUser(user)">
+          <mat-icon style="font-size:14px;width:14px;height:14px">delete_outline</mat-icon>
+          Delete
+        </button>
+
+        <mat-spinner *ngIf="saving.has(user.id)" diameter="18" style="flex-shrink:0"></mat-spinner>
+      </div>
+
+    </div>
+
   </div>
 </div>
