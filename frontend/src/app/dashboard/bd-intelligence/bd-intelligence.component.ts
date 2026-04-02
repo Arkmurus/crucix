@@ -11,7 +11,7 @@ const STAGES = ['IDENTIFIED', 'QUALIFYING', 'ENGAGED', 'PROPOSAL', 'NEGOTIATING'
 export class BdIntelligenceComponent implements OnInit {
   loading = true;
   bd: any = null;
-  activeTab: 'tenders' | 'ideas' | 'pipeline' | 'strategy' = 'tenders';
+  activeTab: 'tenders' | 'ideas' | 'pipeline' | 'strategy' | 'brain' = 'tenders';
   stageOptions = STAGES;
   updatingStage: string | null = null;
 
@@ -22,7 +22,8 @@ export class BdIntelligenceComponent implements OnInit {
       this.bd = res;
       this.loading = false;
       // Auto-select first tab with data
-      if (!res?.tenders?.length && res?.ideas?.length) this.activeTab = 'ideas';
+      if (res?.brain) this.activeTab = 'brain';
+      else if (!res?.tenders?.length && res?.ideas?.length) this.activeTab = 'ideas';
       else if (!res?.tenders?.length && !res?.ideas?.length && res?.pipeline?.length) this.activeTab = 'pipeline';
     });
   }
@@ -34,10 +35,24 @@ export class BdIntelligenceComponent implements OnInit {
   get ideas() { return this.bd?.ideas || []; }
   get pipeline() { return this.bd?.pipeline || []; }
   get strategy() { return this.bd?.strategy || null; }
+  get brain() { return this.bd?.brain || null; }
+  get learning() { return this.bd?.learning || null; }
   get counts() { return this.bd?.counts || {}; }
 
   tierColor(priority: string): string {
     return priority === 'HIGH' ? '#f44336' : priority === 'MEDIUM' ? '#ff9800' : '#78909c';
+  }
+
+  winProbColor(prob: number): string {
+    if (prob >= 70) return '#4caf50';
+    if (prob >= 45) return '#ff9800';
+    return '#ef5350';
+  }
+
+  urgencyColor(urgency: string): string {
+    if (urgency === 'HIGH') return '#f44336';
+    if (urgency === 'MEDIUM') return '#ff9800';
+    return '#78909c';
   }
 
   typeColor(type: string): string {

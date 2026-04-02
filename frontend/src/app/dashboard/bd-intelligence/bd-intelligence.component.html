@@ -50,6 +50,10 @@
         AI Strategy
         <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-left:4px;color:#ffd54f">auto_awesome</mat-icon>
       </button>
+      <button *ngIf="brain" class="bd-tab brain-tab" [class.active]="activeTab==='brain'" (click)="activeTab='brain'">
+        <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:5px;color:#ff6f00">psychology</mat-icon>
+        The Brain
+      </button>
     </div>
 
     <!-- ── TENDERS & CONTRACTS tab ── -->
@@ -70,7 +74,12 @@
                 <span class="badge" [style.background]="tierColor(t.priority)" style="color:#fff;font-size:0.7rem">{{ t.priority }}</span>
                 <mat-icon *ngIf="t.lusophone" style="font-size:14px;width:14px;height:14px;color:#2196f3" title="Lusophone advantage">flag</mat-icon>
                 <strong style="color:#ecf0f1">{{ t.market }}</strong>
-                <span class="card-meta">{{ t.date }}</span>
+                <span *ngIf="t.winProbability != null" class="win-prob-badge ms-auto"
+                      [style.color]="winProbColor(t.winProbability)"
+                      [style.border-color]="winProbColor(t.winProbability)">
+                  {{ t.winProbability }}% WIN
+                </span>
+                <span *ngIf="t.winProbability == null" class="card-meta">{{ t.date }}</span>
               </div>
               <div class="tender-title">{{ t.title }}</div>
               <div class="tender-summary" *ngIf="t.summary && t.summary !== t.title">{{ t.summary }}</div>
@@ -231,7 +240,15 @@
             <mat-icon style="font-size:16px;width:16px;height:16px;vertical-align:middle;color:#ffd54f;margin-right:4px">bolt</mat-icon>
             THIS WEEK'S TOP PRIORITY
           </div>
-          <pre class="strategy-json">{{ strategy.topPriority | json }}</pre>
+          <div *ngIf="strategy.topPriority?.action || strategy.topPriority?.description; else rawPriority" class="tender-title">
+            {{ strategy.topPriority?.action || strategy.topPriority?.description }}
+          </div>
+          <ng-template #rawPriority><pre class="strategy-json">{{ strategy.topPriority | json }}</pre></ng-template>
+          <div *ngIf="strategy.topPriority?.market" class="text-muted mt-1" style="font-size:0.82rem">Market: {{ strategy.topPriority.market }}</div>
+          <div *ngIf="strategy.topPriority?.whyNow" class="action-step mt-2">
+            <mat-icon style="font-size:13px;width:13px;height:13px;color:#ffd54f;margin-right:4px">bolt</mat-icon>
+            {{ strategy.topPriority.whyNow }}
+          </div>
         </mat-card-content>
       </mat-card>
 
@@ -260,6 +277,169 @@
       </mat-card>
 
     </div><!-- /strategy tab -->
+
+    <!-- ── BRAIN tab ── -->
+    <div *ngIf="activeTab==='brain' && brain">
+
+      <!-- Weekly Priority — top action card -->
+      <mat-card *ngIf="brain.weeklyPriority" class="tender-card mb-3 brain-priority-card">
+        <mat-card-content style="padding:18px">
+          <div class="section-label mb-2" style="color:#ff6f00">
+            <mat-icon style="font-size:16px;width:16px;height:16px;vertical-align:middle;color:#ff6f00;margin-right:5px">psychology</mat-icon>
+            BRAIN'S TOP PRIORITY THIS WEEK
+          </div>
+          <div class="brain-priority-action">{{ brain.weeklyPriority.action }}</div>
+          <div class="d-flex flex-wrap gap-3 mt-3">
+            <div *ngIf="brain.weeklyPriority.market" class="brain-meta-item">
+              <span class="brain-meta-label">MARKET</span>
+              <span class="brain-meta-val">{{ brain.weeklyPriority.market }}</span>
+            </div>
+            <div *ngIf="brain.weeklyPriority.deal" class="brain-meta-item">
+              <span class="brain-meta-label">DEAL</span>
+              <span class="brain-meta-val">{{ brain.weeklyPriority.deal }}</span>
+            </div>
+          </div>
+          <div *ngIf="brain.weeklyPriority.whyNow" class="brain-why-now mt-3">
+            <mat-icon style="font-size:14px;width:14px;height:14px;color:#ffd54f;vertical-align:middle;margin-right:4px">bolt</mat-icon>
+            <strong style="color:#ffd54f;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px">Why now: </strong>
+            <span style="color:#fff9c4;font-size:0.86rem">{{ brain.weeklyPriority.whyNow }}</span>
+          </div>
+          <div *ngIf="brain.weeklyPriority.firstStep" class="action-step mt-2">
+            <mat-icon style="font-size:14px;width:14px;height:14px;color:#a5d6a7;margin-right:4px">arrow_forward</mat-icon>
+            <span style="color:#c8e6c9"><strong>First step:</strong> {{ brain.weeklyPriority.firstStep }}</span>
+          </div>
+        </mat-card-content>
+      </mat-card>
+
+      <!-- Action Plan -->
+      <div *ngIf="brain.actionPlan?.length" class="mb-4">
+        <div class="section-label mb-2">
+          <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#64b5f6;margin-right:5px">route</mat-icon>
+          ACTION PLAN ({{ brain.actionPlan.length }} deals)
+        </div>
+        <div *ngFor="let ap of brain.actionPlan; let i = index" class="mb-2">
+          <mat-card class="tender-card" style="border-left:4px solid #1976d2">
+            <mat-card-content style="padding:14px">
+              <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                <span class="badge" style="background:#1565c0;color:#fff;font-size:0.7rem">DEAL {{ i+1 }}</span>
+                <strong style="color:#90caf9">{{ ap.market }}</strong>
+                <span *ngIf="ap.winProb != null" class="win-prob-badge ms-auto"
+                      [style.color]="winProbColor(ap.winProb)"
+                      [style.border-color]="winProbColor(ap.winProb)">
+                  {{ ap.winProb }}% WIN
+                </span>
+                <span *ngIf="ap.deadline" class="text-muted ms-auto" style="font-size:0.72rem">⏰ {{ ap.deadline }}</span>
+              </div>
+              <div class="tender-title mb-2">{{ ap.deal }}</div>
+              <ol class="brain-steps" *ngIf="ap.steps?.length">
+                <li *ngFor="let step of ap.steps" class="brain-step">{{ step }}</li>
+              </ol>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </div>
+
+      <!-- Market Intelligence -->
+      <div *ngIf="brain.marketIntelligence?.length" class="mb-4">
+        <div class="section-label mb-2">
+          <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#7b1fa2;margin-right:5px">insights</mat-icon>
+          MARKET INTELLIGENCE
+        </div>
+        <div *ngFor="let mi of brain.marketIntelligence" class="mb-2">
+          <mat-card class="tender-card" style="border-left:4px solid #7b1fa2">
+            <mat-card-content style="padding:14px">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge" style="background:#6a1b9a;color:#fff;font-size:0.7rem">{{ mi.market }}</span>
+              </div>
+              <div class="tender-summary mb-1" style="color:#e1bee7;font-size:0.86rem">{{ mi.signal }}</div>
+              <div class="action-step" *ngIf="mi.recommendation">
+                <mat-icon style="font-size:13px;width:13px;height:13px;color:#ffd54f;margin-right:4px">lightbulb</mat-icon>
+                <span>{{ mi.recommendation }}</span>
+              </div>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </div>
+
+      <!-- Two-column: Competitive Threats + Knowledge Gaps -->
+      <div class="row mb-4">
+        <div class="col-md-6 mb-3" *ngIf="brain.competitiveThreats?.length">
+          <div class="section-label mb-2">
+            <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#ef5350;margin-right:5px">security</mat-icon>
+            COMPETITIVE THREATS
+          </div>
+          <mat-card class="tender-card" style="border-left:4px solid #c62828">
+            <mat-card-content style="padding:14px">
+              <div *ngFor="let ct of brain.competitiveThreats" class="brain-threat-row">
+                <div class="d-flex align-items-center gap-2 mb-1">
+                  <span class="badge" style="background:#b71c1c;font-size:0.68rem">{{ ct.market }}</span>
+                </div>
+                <div style="color:#ef9a9a;font-size:0.83rem;margin-bottom:3px">{{ ct.threat }}</div>
+                <div *ngIf="ct.counter" class="action-step" style="margin-top:4px">
+                  <mat-icon style="font-size:12px;width:12px;height:12px;color:#a5d6a7;margin-right:3px">shield</mat-icon>
+                  <span style="font-size:0.8rem">{{ ct.counter }}</span>
+                </div>
+              </div>
+            </mat-card-content>
+          </mat-card>
+        </div>
+
+        <div class="col-md-6 mb-3" *ngIf="brain.knowledgeGaps?.length">
+          <div class="section-label mb-2">
+            <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#ffd54f;margin-right:5px">help_outline</mat-icon>
+            KNOWLEDGE GAPS
+          </div>
+          <mat-card class="tender-card" style="border-left:4px solid #f57f17">
+            <mat-card-content style="padding:14px">
+              <div *ngFor="let kg of brain.knowledgeGaps" class="brain-gap-row">
+                <div class="d-flex align-items-center gap-2 mb-1">
+                  <span class="badge" [style.background]="urgencyColor(kg.urgency)" style="font-size:0.68rem">{{ kg.urgency }}</span>
+                </div>
+                <div style="color:#fff9c4;font-size:0.83rem;margin-bottom:3px">{{ kg.question }}</div>
+                <div *ngIf="kg.howToFind" style="color:#90a4ae;font-size:0.78rem">→ {{ kg.howToFind }}</div>
+              </div>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </div>
+
+      <!-- Self-Learning -->
+      <div *ngIf="brain.selfLearning" class="mb-4">
+        <div class="section-label mb-2">
+          <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#26c6da;margin-right:5px">model_training</mat-icon>
+          SELF-LEARNING &amp; STRATEGY EVOLUTION
+        </div>
+        <mat-card class="tender-card" style="border-left:4px solid #00838f">
+          <mat-card-content style="padding:14px">
+            <div *ngIf="brain.selfLearning.patternsObserved?.length" class="mb-3">
+              <div class="brain-meta-label mb-1">PATTERNS OBSERVED</div>
+              <ul class="brain-patterns">
+                <li *ngFor="let p of brain.selfLearning.patternsObserved">{{ p }}</li>
+              </ul>
+            </div>
+            <div *ngIf="brain.selfLearning.strategyAdjustment" class="action-step mb-2">
+              <mat-icon style="font-size:13px;width:13px;height:13px;color:#80deea;margin-right:4px">tune</mat-icon>
+              <span><strong style="color:#b2ebf2">Strategy adjustment:</strong> {{ brain.selfLearning.strategyAdjustment }}</span>
+            </div>
+            <div *ngIf="brain.selfLearning.nextSweepFocus" style="font-size:0.82rem;color:#80cbc4;margin-top:8px">
+              <mat-icon style="font-size:13px;width:13px;height:13px;vertical-align:middle;color:#4db6ac;margin-right:4px">search</mat-icon>
+              <strong>Next sweep focus:</strong> {{ brain.selfLearning.nextSweepFocus }}
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <!-- Learning Stats footer -->
+      <div *ngIf="learning" class="brain-learning-footer">
+        <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px;color:#78909c">history</mat-icon>
+        <span *ngIf="learning.totalOutcomes">{{ learning.totalOutcomes }} recorded outcomes</span>
+        <span *ngIf="learning.topMarkets?.length" style="margin-left:12px">
+          Top markets: {{ learning.topMarkets.join(', ') }}
+        </span>
+        <span *ngIf="brain.generatedAt" style="margin-left:12px">Brain last ran: {{ brain.generatedAt | date:'dd/MM HH:mm' }}</span>
+      </div>
+
+    </div><!-- /brain tab -->
 
   </div>
 </div>

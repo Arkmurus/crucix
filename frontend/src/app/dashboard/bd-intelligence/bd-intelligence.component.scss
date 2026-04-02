@@ -211,3 +211,106 @@ mat-card-content {
   color: #90a4ae;
   font-weight: 700;
 }
+
+/* ── Win probability badge ── */
+.win-prob-badge {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  border: 1px solid;
+  border-radius: 4px;
+  padding: 2px 8px;
+  background: rgba(0,0,0,0.25);
+  white-space: nowrap;
+}
+
+/* ── Brain tab ── */
+.brain-tab {
+  &.active { border-bottom-color: #ff6f00 !important; color: #ffcc80 !important; }
+}
+
+.brain-priority-card {
+  border-left: 5px solid #ff6f00 !important;
+  background: linear-gradient(135deg, #1a1200 0%, #161c24 100%) !important;
+}
+
+.brain-priority-action {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #ffe0b2;
+  line-height: 1.45;
+}
+
+.brain-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.brain-meta-label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #546e7a;
+  font-weight: 700;
+}
+
+.brain-meta-val {
+  font-size: 0.88rem;
+  color: #90caf9;
+  font-weight: 600;
+}
+
+.brain-why-now {
+  background: rgba(255,213,79,0.06);
+  border-left: 3px solid rgba(255,213,79,0.4);
+  padding: 8px 12px;
+  border-radius: 0 4px 4px 0;
+}
+
+.brain-steps {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.brain-step {
+  font-size: 0.82rem;
+  color: #b0bec5;
+  padding: 3px 0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.brain-threat-row {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  &:last-child { border-bottom: none; }
+}
+
+.brain-gap-row {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  &:last-child { border-bottom: none; }
+}
+
+.brain-patterns {
+  margin: 0;
+  padding-left: 18px;
+  li {
+    font-size: 0.82rem;
+    color: #b2dfdb;
+    padding: 2px 0;
+    line-height: 1.5;
+  }
+}
+
+.brain-learning-footer {
+  font-size: 0.76rem;
+  color: #546e7a;
+  padding: 10px 4px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
