@@ -22,8 +22,11 @@ export class OpportunitiesComponent implements OnInit {
     });
   }
 
+  get highCount(): number  { return this.opportunities.filter(o => o.tier === 'HIGH').length; }
+  get mediumCount(): number { return this.opportunities.filter(o => o.tier === 'MEDIUM').length; }
+
   tierColor(tier: string): string {
-    return tier === 'HIGH' ? '#f44336' : tier === 'MEDIUM' ? '#ff9800' : '#8bc34a';
+    return tier === 'HIGH' ? '#f44336' : tier === 'MEDIUM' ? '#ff9800' : '#78909c';
   }
 
   complianceColor(status: string): string {

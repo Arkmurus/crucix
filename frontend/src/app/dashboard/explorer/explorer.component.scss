@@ -1,1 +1,89 @@
 .very-small { font-size: 14px; vertical-align: middle; }
+
+/* ── Card containment ───────────────────────────────────── */
+mat-card {
+  overflow: hidden;
+  word-break: break-word;
+  overflow-wrap: break-word;
+
+  mat-card-content {
+    overflow: hidden;
+    min-width: 0;
+  }
+}
+
+/* ── All text inside cards wraps cleanly ────────────────── */
+.card-title,
+.card-text,
+.fw-bold,
+.fw-semibold,
+.text-muted,
+.text-primary,
+.text-success {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  min-width: 0;
+}
+
+/* ── URLs never overflow ────────────────────────────────── */
+a {
+  word-break: break-all;
+  overflow-wrap: break-word;
+}
+
+/* ── Chip row stays on one line, chips don't stretch ───── */
+.chip-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+
+/* ── Next-step highlight box ────────────────────────────── */
+.next-step-box {
+  background: rgba(33, 150, 243, 0.08);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 0.8rem;
+  overflow: hidden;
+  word-break: break-word;
+
+  em { word-break: break-word; }
+}
+
+/* ── Source link ────────────────────────────────────────── */
+.source-link {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  overflow: hidden;
+
+  a {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+    display: inline-block;
+  }
+}
+
+/* ── Info rows inside a card ────────────────────────────── */
+.info-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 0.8rem;
+  margin-bottom: 4px;
+  min-width: 0;
+
+  mat-icon { flex-shrink: 0; }
+  span { word-break: break-word; min-width: 0; }
+}

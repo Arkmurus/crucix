@@ -1,12 +1,14 @@
 <div class="container-fluid">
+
+  <!-- ── Header ── -->
   <div class="row mb-3 align-items-center">
     <div class="col-md-8">
       <h4 class="page-title">
-        <mat-icon class="me-2" style="vertical-align:middle">travel_explore</mat-icon>
+        <mat-icon style="vertical-align:middle;margin-right:6px">travel_explore</mat-icon>
         Intelligence Explorer
       </h4>
       <small class="text-muted">
-        Auto-sweeps daily at 06:00 &amp; 14:00 London · 66 queries across global markets · export-control screened
+        Auto-sweeps daily at 06:00 &amp; 14:00 London · 66 queries · export-control screened
         <span *ngIf="runAt"> · Last run: {{ runAt | date:'dd/MM/yyyy HH:mm':'Europe/London' }}</span>
       </small>
     </div>
@@ -18,112 +20,168 @@
     </div>
   </div>
 
-  <div *ngIf="loading" class="text-center py-5"><mat-spinner diameter="40" class="mx-auto"></mat-spinner></div>
+  <!-- ── Loading ── -->
+  <div *ngIf="loading" class="text-center py-5">
+    <mat-spinner diameter="40" class="mx-auto"></mat-spinner>
+  </div>
 
+  <!-- ── Running banner ── -->
   <div *ngIf="running" class="alert alert-info d-flex align-items-center gap-2">
     <mat-spinner diameter="20"></mat-spinner>
-    Running 66-query deep sweep across global markets — Brave, SearXNG and Google News RSS — this takes ~60–90s...
+    Running 66-query deep sweep — Brave, SearXNG and Google News RSS — takes ~60–90s...
   </div>
 
   <div *ngIf="!loading && !running">
+
+    <!-- ── Status bar ── -->
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+      <small class="text-muted" *ngIf="resultsFound > 0">
+        <strong>{{ resultsFound }}</strong> raw results collected
+      </small>
+      <span *ngIf="insights.length > 0 || salesIdeas.length > 0">·</span>
+      <small class="text-muted" *ngIf="insights.length > 0">{{ insights.length }} insights</small>
+      <small class="text-muted" *ngIf="salesIdeas.length > 0">· {{ salesIdeas.length }} sales opportunities</small>
+      <span class="badge ms-1"
+        [style.background]="synthesisMethod === 'llm' ? '#1b5e20' : '#e65100'"
+        style="color:white;font-size:0.7rem;padding:3px 8px;border-radius:10px"
+        *ngIf="synthesisMethod">
+        {{ synthesisMethod === 'llm' ? '🤖 LLM synthesis' : '⚙️ Rules-based' }}
+      </span>
+    </div>
+
+    <!-- ── Empty state ── -->
     <div *ngIf="!insights.length && !salesIdeas.length" class="alert alert-info">
-      No exploration data yet. Click "Run Now" to sweep the internet for live procurement intelligence.
+      No exploration data yet. Click <strong>Run Now</strong> to sweep the internet for live procurement intelligence.
     </div>
 
-    <div *ngIf="resultsFound > 0 || synthesisMethod" class="mb-3 d-flex gap-2 align-items-center">
-      <small class="text-muted" *ngIf="resultsFound > 0">{{ resultsFound }} raw results collected</small>
-      <mat-chip *ngIf="synthesisMethod === 'llm'" style="font-size:0.7rem;background:#1b5e20;color:white">
-        <mat-icon class="very-small me-1">smart_toy</mat-icon>LLM synthesis
-      </mat-chip>
-      <mat-chip *ngIf="synthesisMethod === 'rules'" style="font-size:0.7rem;background:#e65100;color:white">
-        <mat-icon class="very-small me-1">rule</mat-icon>Rules-based (no LLM key)
-      </mat-chip>
-    </div>
+    <!-- ── Sales Opportunities ── -->
+    <div *ngIf="salesIdeas.length > 0" class="mb-4">
+      <h6 class="mb-3">
+        <mat-icon class="very-small" color="primary" style="vertical-align:middle;margin-right:4px">monetization_on</mat-icon>
+        Sales Opportunities ({{ salesIdeas.length }})
+      </h6>
+      <div class="row">
+        <div class="col-md-6 mb-3" *ngFor="let idea of salesIdeas">
+          <mat-card style="height:100%;border-left:4px solid" [style.border-left-color]="urgencyColor(idea.urgency)">
+            <mat-card-content style="padding:16px">
 
-    <!-- Sales Opportunities — primary output -->
-    <div class="row mb-3" *ngIf="salesIdeas.length > 0">
-      <div class="col-12 mb-2">
-        <h6><mat-icon class="very-small me-1" color="primary">monetization_on</mat-icon>Sales Opportunities ({{ salesIdeas.length }})</h6>
-      </div>
-      <div class="col-md-6 mb-3" *ngFor="let idea of salesIdeas">
-        <mat-card class="h-100" [style.border-left]="'4px solid ' + urgencyColor(idea.urgency)">
-          <mat-card-content class="pt-3">
-            <div class="d-flex justify-content-between align-items-start mb-2">
-              <mat-chip [style.background]="urgencyColor(idea.urgency)" style="color:white;font-size:0.7rem">
-                {{ idea.urgency }}
-              </mat-chip>
-              <small class="text-primary fw-semibold">{{ idea.market }}</small>
-            </div>
-            <div class="fw-bold mb-1 small">{{ idea.title }}</div>
-            <div *ngIf="idea.buyer" class="text-muted small mb-1">
-              <mat-icon class="very-small">account_balance</mat-icon> {{ idea.buyer }}
-            </div>
-            <div *ngIf="idea.productCategory" class="text-muted small mb-1">
-              <mat-icon class="very-small">category</mat-icon> {{ idea.productCategory }}
-            </div>
-            <div *ngIf="idea.suggestedOEM" class="text-muted small mb-1">
-              <mat-icon class="very-small">factory</mat-icon> OEM: <strong>{{ idea.suggestedOEM }}</strong>
-            </div>
-            <div *ngIf="idea.estimatedValue" class="text-success small mb-1 fw-semibold">
-              💰 {{ idea.estimatedValue }}
-            </div>
-            <div class="text-muted small mb-2">{{ (idea.rationale || '') | slice:0:180 }}</div>
-            <div *ngIf="idea.nextStep" class="small p-2 rounded" style="background:rgba(33,150,243,0.08)">
-              <mat-icon class="very-small" color="primary">arrow_forward</mat-icon>
-              <em>{{ idea.nextStep | slice:0:150 }}</em>
-            </div>
-          </mat-card-content>
-        </mat-card>
-      </div>
-    </div>
+              <div class="chip-row">
+                <span class="badge" [style.background]="urgencyColor(idea.urgency)" style="color:white;font-size:0.7rem">
+                  {{ idea.urgency || 'MEDIUM' }}
+                </span>
+                <span class="badge bg-secondary" style="font-size:0.7rem">{{ idea.market }}</span>
+              </div>
 
-    <!-- Intelligence Insights -->
-    <div class="row mb-3" *ngIf="insights.length > 0">
-      <div class="col-12 mb-2">
-        <h6><mat-icon class="very-small me-1">insights</mat-icon>Intelligence Insights ({{ insights.length }})</h6>
-      </div>
-      <div class="col-md-6 mb-3" *ngFor="let insight of insights">
-        <mat-card class="h-100" [style.border-left]="'4px solid ' + relevanceColor(insight.relevance)">
-          <mat-card-content class="pt-3">
-            <div class="d-flex justify-content-between mb-1">
-              <mat-chip [style.background]="relevanceColor(insight.relevance)" style="color:white;font-size:0.7rem">
-                {{ insight.relevance }}
-              </mat-chip>
-              <small class="text-muted">{{ insight.region }}</small>
-            </div>
-            <div class="fw-semibold mb-1 small">{{ insight.title }}</div>
-            <div class="text-muted small mb-1">{{ insight.summary | slice:0:220 }}</div>
-            <div *ngIf="insight.dealSize" class="text-success small">💰 {{ insight.dealSize }}</div>
-            <div *ngIf="insight.timeline" class="text-muted small">⏱ {{ insight.timeline }}</div>
-            <div *ngIf="insight.sourceUrl" class="mt-1">
-              <a [href]="insight.sourceUrl" target="_blank" rel="noopener" class="small text-primary">
-                <mat-icon class="very-small">open_in_new</mat-icon> Source
-              </a>
-            </div>
-          </mat-card-content>
-        </mat-card>
+              <div class="fw-bold mb-2" style="font-size:0.85rem;line-height:1.4">
+                {{ idea.title }}
+              </div>
+
+              <div *ngIf="idea.buyer" class="info-row">
+                <mat-icon class="very-small" style="color:#64748b">account_balance</mat-icon>
+                <span class="text-muted">{{ idea.buyer }}</span>
+              </div>
+
+              <div *ngIf="idea.productCategory" class="info-row">
+                <mat-icon class="very-small" style="color:#64748b">category</mat-icon>
+                <span class="text-muted">{{ idea.productCategory }}</span>
+              </div>
+
+              <div *ngIf="idea.suggestedOEM" class="info-row">
+                <mat-icon class="very-small" style="color:#64748b">factory</mat-icon>
+                <span class="text-muted">OEM: <strong>{{ idea.suggestedOEM }}</strong></span>
+              </div>
+
+              <div *ngIf="idea.estimatedValue" class="text-success fw-semibold mb-2" style="font-size:0.82rem">
+                💰 {{ idea.estimatedValue }}
+              </div>
+
+              <div *ngIf="idea.rationale" class="text-muted mb-2" style="font-size:0.8rem;line-height:1.5">
+                {{ idea.rationale | slice:0:200 }}
+              </div>
+
+              <div *ngIf="idea.nextStep" class="next-step-box">
+                <mat-icon class="very-small" color="primary" style="flex-shrink:0">arrow_forward</mat-icon>
+                <em>{{ idea.nextStep | slice:0:180 }}</em>
+              </div>
+
+            </mat-card-content>
+          </mat-card>
+        </div>
       </div>
     </div>
 
-    <!-- New Sources to add -->
-    <div class="row mb-3" *ngIf="newSources.length > 0">
-      <div class="col-12 mb-2"><h6><mat-icon class="very-small me-1">add_circle</mat-icon>Suggested New Sources ({{ newSources.length }})</h6></div>
-      <div class="col-12">
-        <mat-card>
-          <mat-card-content>
-            <mat-list>
-              <mat-list-item *ngFor="let src of newSources">
-                <mat-icon matListItemIcon color="primary">sensors</mat-icon>
-                <div matListItemTitle>{{ src.name }} <small class="text-muted">({{ src.type }})</small></div>
-                <div matListItemLine>{{ src.why | slice:0:120 }}</div>
-                <div matListItemLine class="text-primary small">
-                  Deploy via Telegram: <code>/update add {{ src.moduleName }}</code>
-                </div>
-              </mat-list-item>
-            </mat-list>
-          </mat-card-content>
-        </mat-card>
+    <!-- ── Intelligence Insights ── -->
+    <div *ngIf="insights.length > 0" class="mb-4">
+      <h6 class="mb-3">
+        <mat-icon class="very-small" style="vertical-align:middle;margin-right:4px">insights</mat-icon>
+        Intelligence Insights ({{ insights.length }})
+      </h6>
+      <div class="row">
+        <div class="col-md-6 mb-3" *ngFor="let insight of insights">
+          <mat-card style="height:100%;border-left:4px solid" [style.border-left-color]="relevanceColor(insight.relevance)">
+            <mat-card-content style="padding:16px">
+
+              <div class="chip-row">
+                <span class="badge" [style.background]="relevanceColor(insight.relevance)" style="color:white;font-size:0.7rem">
+                  {{ insight.relevance || 'LOW' }}
+                </span>
+                <span class="text-muted" style="font-size:0.75rem">{{ insight.region }}</span>
+              </div>
+
+              <div class="fw-semibold mb-2" style="font-size:0.85rem;line-height:1.4">
+                {{ insight.title }}
+              </div>
+
+              <div class="text-muted mb-2" style="font-size:0.8rem;line-height:1.5">
+                {{ insight.summary | slice:0:250 }}
+              </div>
+
+              <div *ngIf="insight.dealSize" class="text-success mb-1" style="font-size:0.8rem">
+                💰 {{ insight.dealSize }}
+              </div>
+
+              <div *ngIf="insight.timeline" class="text-muted mb-1" style="font-size:0.8rem">
+                ⏱ {{ insight.timeline }}
+              </div>
+
+              <div *ngIf="insight.sourceUrl" class="source-link">
+                <mat-icon class="very-small" color="primary">open_in_new</mat-icon>
+                <a [href]="insight.sourceUrl" target="_blank" rel="noopener" class="text-primary">
+                  {{ insight.sourceUrl | slice:0:60 }}{{ insight.sourceUrl.length > 60 ? '…' : '' }}
+                </a>
+              </div>
+
+            </mat-card-content>
+          </mat-card>
+        </div>
       </div>
     </div>
+
+    <!-- ── Suggested New Sources ── -->
+    <div *ngIf="newSources.length > 0" class="mb-4">
+      <h6 class="mb-3">
+        <mat-icon class="very-small" style="vertical-align:middle;margin-right:4px">add_circle</mat-icon>
+        Suggested New Sources ({{ newSources.length }})
+      </h6>
+      <mat-card>
+        <mat-card-content style="padding:8px 0">
+          <div *ngFor="let src of newSources; let last = last"
+               style="padding:12px 16px;display:flex;gap:12px;align-items:flex-start"
+               [style.border-bottom]="!last ? '1px solid rgba(255,255,255,0.06)' : 'none'">
+            <mat-icon color="primary" style="flex-shrink:0;margin-top:2px">sensors</mat-icon>
+            <div style="min-width:0;flex:1">
+              <div class="fw-semibold" style="font-size:0.85rem">
+                {{ src.name }} <span class="text-muted" style="font-weight:400">({{ src.type }})</span>
+              </div>
+              <div class="text-muted" style="font-size:0.8rem;margin-top:2px">{{ src.why | slice:0:140 }}</div>
+              <div class="text-primary" style="font-size:0.78rem;margin-top:4px">
+                Telegram: <code>/update add {{ src.moduleName }}</code>
+              </div>
+            </div>
+          </div>
+        </mat-card-content>
+      </mat-card>
+    </div>
+
   </div>
 </div>

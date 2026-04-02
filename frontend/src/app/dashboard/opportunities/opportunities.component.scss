@@ -1,3 +1,36 @@
 .info-label { font-size: 0.7rem; text-transform: uppercase; color: #9e9e9e; letter-spacing: 0.5px; margin-bottom: 2px; }
-.info-value { font-size: 1.1rem; font-weight: 600; }
-.small-chip { font-size: 0.7rem !important; min-height: 20px !important; }
+.info-value  { font-size: 1rem; font-weight: 600; word-break: break-word; }
+.small-chip  { font-size: 0.7rem !important; min-height: 20px !important; }
+
+mat-card {
+  overflow: hidden;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+mat-card-content,
+mat-card-header {
+  min-width: 0;
+  overflow: hidden;
+}
+
+mat-card-title,
+mat-card-subtitle {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.text-muted,
+.text-danger,
+.text-info,
+.text-success {
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.info-group {
+  padding-bottom: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
