@@ -85,6 +85,9 @@ import { briefing as portCongestion } from "./sources/port_congestion.mjs";
 // === Tier 7b: Defence Events Calendar ===
 import { briefing as defenseEvents } from './sources/defense_events.mjs';
 
+// === Tier 7c: Live Procurement Tenders & FMS Notifications ===
+import { briefing as procurementTenders } from './sources/procurement_tenders.mjs';
+
 // === Tier 9: Custom Business Intelligence ===
 import { briefing as arkumurus } from './sources/arkumurus.mjs';
 
@@ -111,7 +114,7 @@ export async function runSource(name, fn, ...args) {
 }
 
 export async function fullBriefing() {
-  console.error('[Crucix] Starting intelligence sweep — 46 sources...');
+  console.error('[Crucix] Starting intelligence sweep — 47 sources...');
   const start = Date.now();
 
   const allPromises = [
@@ -161,6 +164,7 @@ export async function fullBriefing() {
     runSource('Defense News', defenseNewsBriefing),
     runSource('SIPRI Arms', sipriBriefing),
     runSource('DefenseEvents', defenseEvents),
+    runSource('ProcurementTenders', procurementTenders),
 
     // Tier 8: Due Diligence & Compliance (NEW)
     runSource('OpenCorporates', opencorporatesBriefing),
