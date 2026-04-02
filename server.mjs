@@ -773,6 +773,10 @@ app.get('/webhook', (req, res) => res.send('Webhook is working!'));
 // ── Auth Middleware ───────────────────────────────────────────────────────────
 
 function requireAuth(req, res, next) {
+  // Allow internal localhost calls (e.g. Telegram bot fetching /api/data on same process)
+  const ip = req.ip || req.socket?.remoteAddress || '';
+  if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return next();
+
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Authentication required' });
   try {
