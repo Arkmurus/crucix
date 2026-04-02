@@ -1,0 +1,229 @@
+<h6 class="text-uppercase">Apex Charts Example</h6>
+<hr>
+
+<mat-card>
+  <mat-card-content>
+    <div class="d-flex flex-row gap-3 align-items-center justify-content-between">
+      <div class="">
+        <h5 class="">Area Chart</h5>
+      </div>
+      <div>
+        <button mat-icon-button [matMenuTriggerFor]="menu">
+          <mat-icon>more_vert</mat-icon>
+        </button>
+        <mat-menu #menu="matMenu">
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">visibility</mat-icon>
+            <span>View</span>
+          </button>
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">edit</mat-icon>
+            <span>Edit</span>
+          </button>
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">delete</mat-icon>
+            <span>Delete</span>
+          </button>
+        </mat-menu>
+      </div>
+    </div>
+    <apx-chart
+      [series]="AreachartOptions.series" 
+      [colors]="AreachartOptions.colors"
+      [chart]="AreachartOptions.chart"
+      [xaxis]="AreachartOptions.xaxis"
+      [title]="AreachartOptions.title"
+      [grid]="AreachartOptions.grid"
+      [tooltip]="AreachartOptions.tooltip">
+    </apx-chart>
+  </mat-card-content>
+</mat-card>
+
+
+<mat-card>
+  <mat-card-content>
+    <div class="d-flex flex-row gap-3 align-items-center justify-content-between">
+      <div class="">
+        <h5 class="">Line Chart</h5>
+      </div>
+      <div>
+        <button mat-icon-button [matMenuTriggerFor]="menu">
+          <mat-icon>more_vert</mat-icon>
+        </button>
+        <mat-menu #menu="matMenu">
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">visibility</mat-icon>
+            <span>View</span>
+          </button>
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">edit</mat-icon>
+            <span>Edit</span>
+          </button>
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">delete</mat-icon>
+            <span>Delete</span>
+          </button>
+        </mat-menu>
+      </div>
+    </div>
+    <apx-chart [series]="LinechartOptions.series" [chart]="LinechartOptions.chart" [xaxis]="LinechartOptions.xaxis"
+      [title]="LinechartOptions.title" [stroke]="LinechartOptions.stroke" [colors]="LinechartOptions.colors"
+      [fill]="LinechartOptions.fill" [markers]="LinechartOptions.markers" 
+      [grid]="LinechartOptions.grid"
+      [tooltip]="LinechartOptions.tooltip"></apx-chart>
+  </mat-card-content>
+</mat-card>
+
+
+<mat-card>
+  <mat-card-content>
+    <div class="d-flex flex-row gap-3 align-items-center justify-content-between">
+      <div class="">
+        <h5 class="">Bar Chart</h5>
+      </div>
+      <div>
+        <button mat-icon-button [matMenuTriggerFor]="menu">
+          <mat-icon>more_vert</mat-icon>
+        </button>
+        <mat-menu #menu="matMenu">
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">visibility</mat-icon>
+            <span>View</span>
+          </button>
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">edit</mat-icon>
+            <span>Edit</span>
+          </button>
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">delete</mat-icon>
+            <span>Delete</span>
+          </button>
+        </mat-menu>
+      </div>
+    </div>
+    <apx-chart [series]="BarchartOptions.series" [chart]="BarchartOptions.chart" [xaxis]="BarchartOptions.xaxis"
+      [title]="BarchartOptions.title" [stroke]="BarchartOptions.stroke" [colors]="BarchartOptions.colors"
+      [fill]="BarchartOptions.fill" [markers]="BarchartOptions.markers" [grid]="BarchartOptions.grid" [tooltip]="BarchartOptions.tooltip"></apx-chart>
+  </mat-card-content>
+</mat-card>
+
+<mat-card>
+  <mat-card-content>
+    <div class="d-flex flex-row gap-3 align-items-center justify-content-between">
+      <div class="">
+        <h5 class="">Multi Column Chart</h5>
+      </div>
+      <div>
+        <button mat-icon-button [matMenuTriggerFor]="menu">
+          <mat-icon>more_vert</mat-icon>
+        </button>
+        <mat-menu #menu="matMenu">
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">visibility</mat-icon>
+            <span>View</span>
+          </button>
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">edit</mat-icon>
+            <span>Edit</span>
+          </button>
+          <button mat-menu-item>
+            <mat-icon class="material-icons-outlined">delete</mat-icon>
+            <span>Delete</span>
+          </button>
+        </mat-menu>
+      </div>
+    </div>
+    <apx-chart [series]="MultiColumnchartOptions.series" [chart]="MultiColumnchartOptions.chart"
+      [xaxis]="MultiColumnchartOptions.xaxis" [title]="MultiColumnchartOptions.title"
+      [stroke]="MultiColumnchartOptions.stroke" [colors]="MultiColumnchartOptions.colors"
+      [fill]="MultiColumnchartOptions.fill" [markers]="MultiColumnchartOptions.markers"
+      [dataLabels]="MultiColumnchartOptions.dataLabels" [plotOptions]="MultiColumnchartOptions.plotOptions"
+      [grid]="MultiColumnchartOptions.grid"
+      [tooltip]="MultiColumnchartOptions.tooltip"></apx-chart>
+  </mat-card-content>
+</mat-card>
+
+<div class="row row-cols-1 row-cols-lg-2">
+  <div class="col">
+    <mat-card>
+      <mat-card-content>
+        <div class="d-flex flex-row gap-3 align-items-center justify-content-between">
+          <div class="">
+            <h5 class="">Simple Pie Chart</h5>
+          </div>
+          <div>
+            <button mat-icon-button [matMenuTriggerFor]="menu">
+              <mat-icon>more_vert</mat-icon>
+            </button>
+            <mat-menu #menu="matMenu">
+              <button mat-menu-item>
+                <mat-icon class="material-icons-outlined">visibility</mat-icon>
+                <span>View</span>
+              </button>
+              <button mat-menu-item>
+                <mat-icon class="material-icons-outlined">edit</mat-icon>
+                <span>Edit</span>
+              </button>
+              <button mat-menu-item>
+                <mat-icon class="material-icons-outlined">delete</mat-icon>
+                <span>Delete</span>
+              </button>
+            </mat-menu>
+          </div>
+        </div>
+
+        <div id="chart">
+          <apx-chart
+            [series]="SimplePiechartOptions.series"
+            [chart]="SimplePiechartOptions.chart"
+            [labels]="SimplePiechartOptions.labels"
+            [colors]="SimplePiechartOptions.colors"
+            [responsive]="SimplePiechartOptions.responsive">
+          </apx-chart>
+        </div>
+
+      </mat-card-content>
+    </mat-card>
+  </div>
+  <div class="col">
+    <mat-card>
+      <mat-card-content>
+        <div class="d-flex flex-row gap-3 align-items-center justify-content-between">
+          <div class="">
+            <h5 class="">Simple Donut Chart</h5>
+          </div>
+          <div>
+            <button mat-icon-button [matMenuTriggerFor]="menu">
+              <mat-icon>more_vert</mat-icon>
+            </button>
+            <mat-menu #menu="matMenu">
+              <button mat-menu-item>
+                <mat-icon class="material-icons-outlined">visibility</mat-icon>
+                <span>View</span>
+              </button>
+              <button mat-menu-item>
+                <mat-icon class="material-icons-outlined">edit</mat-icon>
+                <span>Edit</span>
+              </button>
+              <button mat-menu-item>
+                <mat-icon class="material-icons-outlined">delete</mat-icon>
+                <span>Delete</span>
+              </button>
+            </mat-menu>
+          </div>
+        </div>
+
+        <div id="chart">
+          <apx-chart
+            [series]="SimpleDonutchartOptions.series"
+            [chart]="SimpleDonutchartOptions.chart"
+            [labels]="SimpleDonutchartOptions.labels"
+            [colors]="SimpleDonutchartOptions.colors"
+            [responsive]="SimpleDonutchartOptions.responsive">
+          </apx-chart>
+        </div>
+
+      </mat-card-content>
+    </mat-card>
+  </div>
+</div><!--end -->

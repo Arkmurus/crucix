@@ -1,0 +1,19 @@
+{
+  "/api": {
+    "target": "http://localhost:3117",
+    "secure": false,
+    "changeOrigin": true,
+    "logLevel": "warn"
+  },
+  "/events": {
+    "target": "http://localhost:3117",
+    "secure": false,
+    "changeOrigin": true,
+    "ws": false
+  },
+  "/webhook": {
+    "target": "http://localhost:3117",
+    "secure": false,
+    "changeOrigin": true
+  }
+}

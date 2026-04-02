@@ -1,0 +1,77 @@
+<div class="container-fluid">
+  <div class="row mb-3">
+    <div class="col-12">
+      <h4 class="page-title">
+        <mat-icon class="me-2" style="vertical-align:middle">business_center</mat-icon>
+        Procurement Opportunity Pipeline
+      </h4>
+      <small class="text-muted" *ngIf="updatedAt">As of {{ updatedAt | date:'dd MMM HH:mm' }}</small>
+    </div>
+  </div>
+
+  <div *ngIf="loading" class="text-center py-5">
+    <mat-spinner diameter="40" class="mx-auto"></mat-spinner>
+  </div>
+
+  <div *ngIf="!loading">
+    <div *ngIf="opportunities.length === 0" class="alert alert-info">
+      No active procurement windows detected. Monitoring 9 target markets — check back after next sweep.
+    </div>
+
+    <div class="row" *ngFor="let opp of opportunities">
+      <div class="col-12 mb-3">
+        <mat-card [style.border-left]="'5px solid ' + tierColor(opp.tier)">
+          <mat-card-header>
+            <mat-card-title>
+              {{ opp.market }}
+              <mat-icon *ngIf="opp.lusophone" class="small ms-1" title="Lusophone advantage" color="primary">flag</mat-icon>
+              <mat-chip class="ms-2" [style.background]="tierColor(opp.tier)" style="color:white;font-size:0.75rem">
+                {{ opp.tier }} · {{ opp.score }}/100
+              </mat-chip>
+              <mat-chip class="ms-1" [color]="complianceColor(opp.complianceStatus)" selected style="font-size:0.75rem">
+                {{ opp.complianceStatus }}
+              </mat-chip>
+            </mat-card-title>
+            <mat-card-subtitle>{{ opp.notes }}</mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="row mt-2">
+              <div class="col-md-3">
+                <div class="info-group">
+                  <div class="info-label">Conflict Activity</div>
+                  <div class="info-value">{{ opp.conflict?.events }} events</div>
+                  <div class="text-muted small">{{ opp.conflict?.fatalities }} fatalities · {{ (opp.conflict?.types || []).slice(0,2).join(', ') }}</div>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="info-group">
+                  <div class="info-label">Procurement Needs</div>
+                  <mat-chip-set>
+                    <mat-chip *ngFor="let need of (opp.procurementNeeds || []).slice(0,4)" class="small-chip">{{ need }}</mat-chip>
+                  </mat-chip-set>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="info-group">
+                  <div class="info-label">Matched OEMs</div>
+                  <div *ngFor="let oem of (opp.matchedOEMs || []).slice(0,3)" class="small text-primary">
+                    {{ oem.name }} <span class="text-muted">({{ oem.country }})</span>
+                  </div>
+                  <div *ngIf="!opp.matchedOEMs?.length" class="text-muted small">Use /oem &lt;product&gt; in Telegram</div>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="info-group">
+                  <div class="info-label">Blockers</div>
+                  <div *ngIf="!opp.blockers?.length" class="text-success small">✓ No export control blockers</div>
+                  <div *ngFor="let b of opp.blockers" class="text-danger small">⚠ {{ b.message | slice:0:80 }}</div>
+                  <div *ngIf="opp.devFinanceActivity" class="text-info small mt-1">💰 Development finance activity detected</div>
+                </div>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </div>
+  </div>
+</div>

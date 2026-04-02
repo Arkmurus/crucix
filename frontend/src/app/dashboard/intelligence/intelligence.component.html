@@ -1,0 +1,234 @@
+<div class="container-fluid">
+
+  <!-- Header row -->
+  <div class="row mb-3 align-items-center">
+    <div class="col-md-8">
+      <h4 class="page-title mb-0">
+        <mat-icon class="me-2" style="vertical-align:middle">radar</mat-icon>
+        ARKMURUS Intelligence Brief
+      </h4>
+      <small class="text-muted" *ngIf="lastUpdated">
+        Last updated: {{ lastUpdated | date:'HH:mm:ss' }} &nbsp;·&nbsp;
+        {{ sourcesOk }}/{{ sourcesTotal }} sources &nbsp;·&nbsp;
+        <span [class]="sweeping ? 'text-warning' : 'text-success'">
+          {{ sweeping ? '⟳ Sweeping...' : '● Live' }}
+        </span>
+      </small>
+    </div>
+    <div class="col-md-4 text-end">
+      <button mat-raised-button color="primary" (click)="triggerSweep()" [disabled]="sweeping">
+        <mat-icon>refresh</mat-icon> Run Sweep
+      </button>
+    </div>
+  </div>
+
+  <!-- Loading spinner -->
+  <div *ngIf="loading" class="text-center py-5">
+    <mat-spinner diameter="48" class="mx-auto"></mat-spinner>
+    <p class="text-muted mt-3">Loading intelligence data...</p>
+  </div>
+
+  <div *ngIf="!loading && data">
+
+    <!-- KPI row -->
+    <div class="row mb-3">
+      <div class="col-6 col-md-3 mb-3">
+        <mat-card class="kpi-card">
+          <mat-card-content>
+            <div class="kpi-label">Market Direction</div>
+            <div class="kpi-value" [style.color]="direction === 'risk-off' ? '#f44336' : direction === 'risk-on' ? '#4caf50' : '#ff9800'">
+              {{ direction | uppercase }}
+            </div>
+            <small class="text-muted">{{ criticalChanges }} critical changes</small>
+          </mat-card-content>
+        </mat-card>
+      </div>
+      <div class="col-6 col-md-3 mb-3">
+        <mat-card class="kpi-card">
+          <mat-card-content>
+            <div class="kpi-label">VIX</div>
+            <div class="kpi-value" [style.color]="(vix || 0) > 30 ? '#f44336' : (vix || 0) > 20 ? '#ff9800' : '#4caf50'">
+              {{ vix ?? '--' }}
+            </div>
+            <small class="text-muted">{{ (vix || 0) > 30 ? 'Extreme stress' : (vix || 0) > 20 ? 'Elevated' : 'Normal' }}</small>
+          </mat-card-content>
+        </mat-card>
+      </div>
+      <div class="col-6 col-md-3 mb-3">
+        <mat-card class="kpi-card">
+          <mat-card-content>
+            <div class="kpi-label">Brent Crude</div>
+            <div class="kpi-value">${{ brent ?? '--' }}</div>
+            <small class="text-muted">WTI ${{ wti ?? '--' }}</small>
+          </mat-card-content>
+        </mat-card>
+      </div>
+      <div class="col-6 col-md-3 mb-3">
+        <mat-card class="kpi-card">
+          <mat-card-content>
+            <div class="kpi-label">OSINT Signals</div>
+            <div class="kpi-value">{{ urgentPosts.length }}</div>
+            <small class="text-muted">urgent this sweep</small>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </div>
+
+    <!-- Critical correlations + OSINT signals -->
+    <div class="row mb-3">
+      <div class="col-md-6 mb-3">
+        <mat-card class="h-100">
+          <mat-card-header>
+            <mat-card-title>
+              <mat-icon class="me-1" color="warn">warning</mat-icon>
+              Situation Awareness
+            </mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <div *ngIf="correlations.length === 0" class="text-muted py-2">No critical correlations detected</div>
+            <mat-list dense>
+              <mat-list-item *ngFor="let c of correlations" class="corr-item">
+                <mat-icon matListItemIcon [style.color]="c.severity === 'critical' ? '#f44336' : '#ff9800'">
+                  {{ c.severity === 'critical' ? 'crisis_alert' : 'warning_amber' }}
+                </mat-icon>
+                <div matListItemTitle>{{ c.region }}</div>
+                <div matListItemLine class="text-muted small">
+                  {{ c.sourceCount || c.sources?.length || 1 }} sources · {{ c.severity | uppercase }}
+                </div>
+                <div matListItemLine *ngIf="c.topSignals?.[0]?.text" class="small text-truncate">
+                  {{ c.topSignals[0].text | slice:0:100 }}
+                </div>
+              </mat-list-item>
+            </mat-list>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <div class="col-md-6 mb-3">
+        <mat-card class="h-100">
+          <mat-card-header>
+            <mat-card-title>
+              <mat-icon class="me-1" color="accent">satellite_alt</mat-icon>
+              OSINT Signals
+            </mat-card-title>
+          </mat-card-header>
+          <mat-card-content style="max-height:280px; overflow-y:auto">
+            <div *ngIf="urgentPosts.length === 0" class="text-muted py-2">No urgent signals this sweep</div>
+            <div *ngFor="let p of urgentPosts" class="osint-item mb-2 pb-2 border-bottom">
+              <div class="d-flex justify-content-between">
+                <small class="text-primary fw-bold">{{ p.channel || 'OSINT' }}</small>
+                <small class="text-muted">{{ p.date | date:'HH:mm' }}</small>
+              </div>
+              <div class="small mt-1">{{ (p.text || '') | slice:0:180 }}</div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </div>
+
+    <!-- Trade Ideas -->
+    <div class="row mb-3">
+      <div class="col-12">
+        <mat-card>
+          <mat-card-header>
+            <mat-card-title>
+              <mat-icon class="me-1" color="primary">lightbulb</mat-icon>
+              Leverageable Ideas
+              <small class="text-muted ms-2 fw-normal" *ngIf="data?.ideasSource">
+                ({{ data.ideasSource === 'llm' ? 'AI-generated' : data.ideasSource }})
+              </small>
+            </mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <div *ngIf="ideas.length === 0" class="text-muted py-2">
+              No ideas generated — enable LLM via ANTHROPIC_API_KEY for AI trade ideas
+            </div>
+            <div class="row">
+              <div class="col-md-4 mb-3" *ngFor="let idea of ideas">
+                <mat-card class="idea-card h-100" [style.border-left]="'4px solid ' + (idea.type === 'LONG' ? '#4caf50' : idea.type === 'SHORT' ? '#f44336' : '#9e9e9e')">
+                  <mat-card-content class="pt-3">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                      <mat-chip [style.background]="idea.type === 'LONG' ? '#e8f5e9' : idea.type === 'SHORT' ? '#ffebee' : '#f5f5f5'"
+                                [style.color]="idea.type === 'LONG' ? '#2e7d32' : idea.type === 'SHORT' ? '#c62828' : '#616161'">
+                        {{ idea.type }}
+                      </mat-chip>
+                      <mat-chip [style.background]="idea.confidence === 'HIGH' ? '#fff3e0' : '#f5f5f5'"
+                                [style.color]="idea.confidence === 'HIGH' ? '#e65100' : '#757575'"
+                                class="small">
+                        {{ idea.confidence }}
+                      </mat-chip>
+                    </div>
+                    <div class="fw-semibold mt-1 mb-1 small">{{ idea.title }}</div>
+                    <div *ngIf="idea.ticker" class="text-primary small fw-bold mb-1">{{ idea.ticker }}</div>
+                    <div class="text-muted small">{{ (idea.rationale || '') | slice:0:140 }}</div>
+                    <div *ngIf="idea.horizon" class="mt-1">
+                      <mat-icon class="very-small text-muted">schedule</mat-icon>
+                      <small class="text-muted"> {{ idea.horizon }}</small>
+                    </div>
+                  </mat-card-content>
+                </mat-card>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </div>
+
+    <!-- Opportunity pipeline preview -->
+    <div class="row mb-3" *ngIf="opportunities.length > 0">
+      <div class="col-12">
+        <mat-card>
+          <mat-card-header>
+            <mat-card-title>
+              <mat-icon class="me-1" color="primary">business_center</mat-icon>
+              Procurement Opportunities
+              <small class="text-muted ms-2 fw-normal">top {{ opportunities.length }} markets</small>
+            </mat-card-title>
+            <div class="ms-auto">
+              <a mat-stroked-button routerLink="/dashboard/opportunities">View all</a>
+            </div>
+          </mat-card-header>
+          <mat-card-content>
+            <mat-table [dataSource]="opportunities" class="w-100">
+              <ng-container matColumnDef="market">
+                <mat-header-cell *matHeaderCellDef>Market</mat-header-cell>
+                <mat-cell *matCellDef="let o">
+                  <strong>{{ o.market }}</strong>
+                  <mat-icon *ngIf="o.lusophone" class="small ms-1" title="Lusophone">flag</mat-icon>
+                </mat-cell>
+              </ng-container>
+              <ng-container matColumnDef="score">
+                <mat-header-cell *matHeaderCellDef>Score</mat-header-cell>
+                <mat-cell *matCellDef="let o">
+                  <mat-chip [style.background]="tierColor(o.tier)" style="color:white;font-weight:600">
+                    {{ o.score }}/100
+                  </mat-chip>
+                </mat-cell>
+              </ng-container>
+              <ng-container matColumnDef="conflict">
+                <mat-header-cell *matHeaderCellDef>Conflict Events</mat-header-cell>
+                <mat-cell *matCellDef="let o">{{ o.conflict?.events }} events · {{ o.conflict?.fatalities }} fatalities</mat-cell>
+              </ng-container>
+              <ng-container matColumnDef="needs">
+                <mat-header-cell *matHeaderCellDef>Procurement Needs</mat-header-cell>
+                <mat-cell *matCellDef="let o">{{ (o.procurementNeeds || []).slice(0,3).join(', ') }}</mat-cell>
+              </ng-container>
+              <ng-container matColumnDef="status">
+                <mat-header-cell *matHeaderCellDef>Compliance</mat-header-cell>
+                <mat-cell *matCellDef="let o">
+                  <mat-chip [color]="o.complianceStatus === 'CLEAR' ? 'primary' : 'warn'" selected>
+                    {{ o.complianceStatus }}
+                  </mat-chip>
+                </mat-cell>
+              </ng-container>
+              <mat-header-row *matHeaderRowDef="['market','score','conflict','needs','status']"></mat-header-row>
+              <mat-row *matRowDef="let row; columns: ['market','score','conflict','needs','status']"></mat-row>
+            </mat-table>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </div>
+
+  </div><!-- /!loading -->
+
+</div>

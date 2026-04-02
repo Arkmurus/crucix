@@ -88,6 +88,9 @@ import { briefing as defenseEvents } from './sources/defense_events.mjs';
 // === Tier 9: Custom Business Intelligence ===
 import { briefing as arkumurus } from './sources/arkumurus.mjs';
 
+// === Auto-Managed Sources (deployed by self-update engine) ===
+import { AUTO_SOURCES } from './auto_sources.mjs';
+
 const SOURCE_TIMEOUT_MS = 30_000; // 30s max per individual source
 
 export async function runSource(name, fn, ...args) {
@@ -175,6 +178,9 @@ export async function fullBriefing() {
     runSource('PortCongestion', portCongestion),
     runSource('Lusophone', lusophone),
     runSource('ExportControlIntel', exportControlIntel),
+
+    // Auto-managed sources deployed by self-update engine
+    ...AUTO_SOURCES.map(({ name, fn }) => runSource(name, fn)),
   ];
 
   // Each runSource has its own 30s timeout, so allSettled will resolve

@@ -1,0 +1,438 @@
+<div class="row row-cols-1 row-cols-lg-2 row-cols-xxl-4">
+    <div class="col">
+        <mat-card class="rounded-4 border-3 border-start border-purple">
+            <mat-card-content>
+                <div class="d-flex flex-row flex-row-reverse gap-3 align-items-center justify-content-between">
+                    <div class="">
+                        <span class="material-icons-outlined text-purple fs-2">account_balance_wallet</span>
+                    </div>
+                    <div class="card-lable mat-light-bg-red">
+                        <p class="text-red">-26.7%</p>
+                    </div>
+                </div>
+                <div class="mt-3 d-flex align-items-center justify-content-between">
+                    <div class="">
+                        <h4 class="mb-0 text-purple">$98,462</h4>
+                        <p class="mb-0">Total Sales</p>
+                    </div>
+                    <apx-chart [series]="AnalyticsChart1.series" [colors]="AnalyticsChart1.colors"
+                        [fill]="AnalyticsChart1.fill" [chart]="AnalyticsChart1.chart"
+                        [plotOptions]="AnalyticsChart1.plotOptions" [stroke]="AnalyticsChart1.stroke"
+                        [tooltip]="AnalyticsChart1.tooltip">
+                    </apx-chart>
+                </div>
+            </mat-card-content>
+        </mat-card>
+    </div>
+    <div class="col">
+        <mat-card class="rounded-4 border-3 border-start border-accent">
+            <mat-card-content>
+                <div class="d-flex flex-row flex-row-reverse gap-3 align-items-center justify-content-between">
+                    <div class="">
+                        <span class="material-icons-outlined text-accent fs-2">visibility</span>
+                    </div>
+                    <div class="card-lable mat-light-bg-green">
+                        <p class="text-green">+28.5%</p>
+                    </div>
+                </div>
+                <div class="mt-3 d-flex align-items-center justify-content-between">
+                    <div class="">
+                        <h4 class="mb-0 text-accent">8597</h4>
+                        <p class="mb-0">Total Views</p>
+                    </div>
+                    <apx-chart [series]="AnalyticsChart2.series" [colors]="AnalyticsChart2.colors"
+                        [fill]="AnalyticsChart2.fill" [chart]="AnalyticsChart2.chart"
+                        [plotOptions]="AnalyticsChart2.plotOptions" [stroke]="AnalyticsChart2.stroke" [tooltip]="AnalyticsChart1.tooltip">
+                    </apx-chart>
+                </div>
+            </mat-card-content>
+        </mat-card>
+    </div>
+    <div class="col">
+        <mat-card class="rounded-4 border-3 border-start border-teal">
+            <mat-card-content>
+                <div class="d-flex flex-row flex-row-reverse gap-3 align-items-center justify-content-between">
+                    <div class="">
+                        <span class="material-icons-outlined text-teal fs-2">insights</span>
+                    </div>
+                    <div class="card-lable mat-light-bg-red">
+                        <p class="text-red">-18.4%</p>
+                    </div>
+                </div>
+                <div class="mt-3 d-flex align-items-center justify-content-between">
+                    <div class="">
+                        <h4 class="mb-0 text-teal">6849</h4>
+                        <p class="mb-0">Sessions</p>
+                    </div>
+                    <apx-chart [series]="AnalyticsChart3.series" [colors]="AnalyticsChart3.colors"
+                        [fill]="AnalyticsChart3.fill" [chart]="AnalyticsChart3.chart"
+                        [plotOptions]="AnalyticsChart3.plotOptions" [stroke]="AnalyticsChart3.stroke" [tooltip]="AnalyticsChart1.tooltip">
+                    </apx-chart>
+                </div>
+            </mat-card-content>
+        </mat-card>
+    </div>
+    <div class="col">
+        <mat-card class="rounded-4 border-3 border-start border-blue">
+            <mat-card-content>
+                <div class="d-flex flex-row flex-row-reverse gap-3 align-items-center justify-content-between">
+                    <div class="">
+                        <span class="material-icons-outlined text-blue fs-2">analytics</span>
+                    </div>
+                    <div class="card-lable mat-light-bg-green">
+                        <p class="text-green">+34.6%</p>
+                    </div>
+                </div>
+                <div class="mt-3 d-flex align-items-center justify-content-between">
+                    <div class="">
+                        <h4 class="mb-0 text-blue">5478</h4>
+                        <p class="mb-0">Impressions</p>
+                    </div>
+                    <apx-chart [series]="AnalyticsChart4.series" [colors]="AnalyticsChart4.colors"
+                        [fill]="AnalyticsChart4.fill" [chart]="AnalyticsChart4.chart"
+                        [plotOptions]="AnalyticsChart4.plotOptions" [stroke]="AnalyticsChart4.stroke" [tooltip]="AnalyticsChart1.tooltip">
+                    </apx-chart>
+                </div>
+            </mat-card-content>
+        </mat-card>
+    </div>
+</div><!--end row-->
+
+
+<div class="row">
+    <div class="col-12">
+        <mat-card class="rounded-4">
+            <div class="d-flex align-items-center justify-content-between gap-3 py-3 px-3 border-bottom">
+                <div class="">
+                    <h5 class="mb-0">Impressions</h5>
+                    <p class="mb-0 font-13">Last month impression by users</p>
+                </div>
+                <div>
+                    <button mat-stroked-button class="rounded-4" [matMenuTriggerFor]="menu">
+                        Last 30 Days
+                    </button>
+                    <mat-menu #menu="matMenu" class="rounded-4">
+                        <button mat-menu-item>
+                            <mat-icon class="material-icons-outlined">refresh</mat-icon>
+                            <span>Refresh</span>
+                        </button>
+                        <button mat-menu-item>
+                            <mat-icon class="material-icons-outlined">cloud_download</mat-icon>
+                            <span>Download</span>
+                        </button>
+                        <button mat-menu-item>
+                            <mat-icon class="material-icons-outlined">delete</mat-icon>
+                            <span>Delete</span>
+                        </button>
+                    </mat-menu>
+                </div>
+            </div>
+            <mat-card-content>
+                <apx-chart [series]="AnalyticsChart5.series" [chart]="AnalyticsChart5.chart" [xaxis]="AnalyticsChart5.xaxis"
+                    [title]="AnalyticsChart5.title" [stroke]="AnalyticsChart5.stroke" [colors]="AnalyticsChart5.colors"
+                    [fill]="AnalyticsChart5.fill" [legend]="AnalyticsChart5.legend" [dataLabels]="AnalyticsChart5.dataLabels"
+                    [markers]="AnalyticsChart5.markers" [grid]="AnalyticsChart5.grid" [tooltip]="AnalyticsChart1.tooltip">
+                </apx-chart>
+            </mat-card-content>
+        </mat-card>
+    </div>
+</div><!--end row-->
+
+
+
+<div class="row">
+    <div class="col-12 col-lg-6 d-flex">
+        <mat-card class="rounded-4 w-100">
+            <mat-card-content>
+                <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+                    <div class="">
+                        <h5 class="mb-0">Top demographics</h5>
+                    </div>
+                    <div>
+                        <button mat-icon-button [matMenuTriggerFor]="menu">
+                            <mat-icon>more_horiz</mat-icon>
+                        </button>
+                        <mat-menu #menu="matMenu" class="rounded-4">
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">refresh</mat-icon>
+                                <span>Refresh</span>
+                            </button>
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">cloud_download</mat-icon>
+                                <span>Download</span>
+                            </button>
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">delete</mat-icon>
+                                <span>Delete</span>
+                            </button>
+                        </mat-menu>
+                    </div>
+                </div>
+                <div class="progressbar-list d-flex flex-column gap-5">
+                    <div class="progressbar-item">
+                        <h6 class="mb-2 d-flex align-items-center gap-2"><span class="">Software Engineer</span><span class="fw-light">7.6%</span></h6>
+                        <mat-progress-bar mode="determinate" value="85"></mat-progress-bar>
+                    </div>
+                    <div class="progressbar-item">
+                        <h6 class="mb-2 d-flex align-items-center gap-2"><span class="">Founder</span><span class="fw-light">4.1%</span></h6>
+                        <mat-progress-bar mode="determinate" value="75"></mat-progress-bar>
+                    </div>
+                    <div class="progressbar-item">
+                        <h6 class="mb-2 d-flex align-items-center gap-2"><span class="">Human Resources Manager</span><span class="fw-light">3.8%</span></h6>
+                        <mat-progress-bar mode="determinate" value="65"></mat-progress-bar>
+                    </div>
+                    <div class="progressbar-item">
+                        <h6 class="mb-2 d-flex align-items-center gap-2"><span class="">Frontend Developer</span><span class="fw-light">2.2%</span></h6>
+                        <mat-progress-bar mode="determinate" value="55"></mat-progress-bar>
+                    </div>
+                    <div class="progressbar-item">
+                        <h6 class="mb-2 d-flex align-items-center gap-2"><span class="">Human Resources Executive</span><span class="fw-light">1.7%</span></h6>
+                        <mat-progress-bar mode="determinate" value="45"></mat-progress-bar>
+                    </div>
+                    
+                </div>
+
+            </mat-card-content>
+        </mat-card>
+    </div>
+    <div class="col-12 col-lg-6 d-flex">
+        <mat-card class="rounded-4 w-100">
+            <mat-card-content>
+                <div class="d-flex align-items-center justify-content-between gap-3">
+                    <div class="">
+                        <h5 class="mb-0">Visitors Status</h5>
+                    </div>
+                    <div>
+                        <button mat-icon-button [matMenuTriggerFor]="menu">
+                            <mat-icon>more_horiz</mat-icon>
+                        </button>
+                        <mat-menu #menu="matMenu" class="rounded-4">
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">refresh</mat-icon>
+                                <span>Refresh</span>
+                            </button>
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">cloud_download</mat-icon>
+                                <span>Download</span>
+                            </button>
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">delete</mat-icon>
+                                <span>Delete</span>
+                            </button>
+                        </mat-menu>
+                    </div>
+                </div>
+                 <div class="mb-0">
+                    <apx-chart [series]="AnalyticsChart6.series" [colors]="AnalyticsChart6.colors"
+                        [fill]="AnalyticsChart6.fill" [chart]="AnalyticsChart6.chart"
+                        [plotOptions]="AnalyticsChart6.plotOptions" [stroke]="AnalyticsChart6.stroke" 
+                        [legend]="AnalyticsChart6.legend"
+                        [grid]="AnalyticsChart6.grid"
+                        [xaxis]="AnalyticsChart6.xaxis"
+                         [dataLabels]="AnalyticsChart6.dataLabels" [tooltip]="AnalyticsChart1.tooltip">
+                    </apx-chart>
+                 </div>
+                <div class="d-flex gap-3 align-items-center justify-content-between">
+                    <mat-card class="rounded-4 flex-fill mb-0 shadow-none border">
+                        <mat-card-content>
+                           
+                            <div class="mt-3 d-flex align-items-center justify-content-between">
+                                <div class="">
+                                    <h4 class="mb-0">4762</h4>
+                                    <p class="mb-0">New Visitors</p>
+                                </div>
+                                <div class="card-lable mat-light-bg-green">
+                                    <p class="text-green">+28.5%</p>
+                                </div>
+                            </div>
+                        </mat-card-content>
+                    </mat-card>
+                    <mat-card class="rounded-4 flex-fill mb-0 shadow-none border">
+                        <mat-card-content>
+                            
+                            <div class="mt-3 d-flex align-items-center justify-content-between">
+                                <div class="">
+                                    <h4 class="mb-0">6847</h4>
+                                    <p class="mb-0">Old Visitors</p>
+                                </div>
+                                <div class="card-lable mat-light-bg-red">
+                                    <p class="text-red">-45.6%</p>
+                                </div>
+                            </div>
+                        </mat-card-content>
+                    </mat-card>
+                </div>
+            </mat-card-content>
+        </mat-card>
+    </div>
+</div><!--end row-->
+
+
+
+<div class="row">
+    <div class="col-12 col-lg-4 d-flex">
+        <mat-card class="rounded-4 w-100">
+            <mat-card-content>
+                <div class="d-flex align-items-center justify-content-between gap-3">
+                    <div class="">
+                        <h5 class="mb-0">Order Status</h5>
+                    </div>
+                    <div>
+                        <button mat-icon-button [matMenuTriggerFor]="menu">
+                            <mat-icon>more_horiz</mat-icon>
+                        </button>
+                        <mat-menu #menu="matMenu" class="rounded-4">
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">refresh</mat-icon>
+                                <span>Refresh</span>
+                            </button>
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">cloud_download</mat-icon>
+                                <span>Download</span>
+                            </button>
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">delete</mat-icon>
+                                <span>Delete</span>
+                            </button>
+                        </mat-menu>
+                    </div>
+                </div>
+               <div class="order-status-chart">
+                    <apx-chart [series]="AnalyticsChart7.series" [colors]="AnalyticsChart7.colors"
+                        [fill]="AnalyticsChart7.fill" [chart]="AnalyticsChart7.chart"
+                         [stroke]="AnalyticsChart7.stroke" 
+                        [legend]="AnalyticsChart7.legend"
+                        [labels]="AnalyticsChart7.labels"
+                        [dataLabels]="AnalyticsChart7.dataLabels" [tooltip]="AnalyticsChart1.tooltip">
+                    </apx-chart>
+               </div>
+
+               <div class="d-flex flex-column gap-0">
+                <div class="d-flex justify-content-between align-items-center">
+                    <p class="mb-0">Completed</p>
+                    <div class="card-lable mat-bg-purple">
+                      <p class="text-white">52</p>
+                    </div>
+                 </div>
+                 <hr>
+                 <div class="d-flex justify-content-between align-items-center">
+                    <p class="mb-0">Pending</p>
+                    <div class="card-lable mat-bg-teal">
+                      <p class="text-white">35</p>
+                    </div>
+                 </div>
+                 <hr>
+                 <div class="d-flex justify-content-between align-items-center">
+                    <p class="mb-0">Received</p>
+                    <div class="card-lable mat-bg-pink">
+                      <p class="text-white">65</p>
+                    </div>
+                 </div>
+
+               </div>
+               
+            </mat-card-content>
+        </mat-card>
+    </div>
+    <div class="col-12 col-lg-4 d-flex">
+        <mat-card class="rounded-4 w-100">
+            <mat-card-content>
+                <div class="d-flex align-items-center justify-content-between gap-3">
+                    <div class="">
+                        <h5 class="mb-0">Device Status</h5>
+                    </div>
+                    <div>
+                        <button mat-icon-button [matMenuTriggerFor]="menu">
+                            <mat-icon>more_horiz</mat-icon>
+                        </button>
+                        <mat-menu #menu="matMenu" class="rounded-4">
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">refresh</mat-icon>
+                                <span>Refresh</span>
+                            </button>
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">cloud_download</mat-icon>
+                                <span>Download</span>
+                            </button>
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">delete</mat-icon>
+                                <span>Delete</span>
+                            </button>
+                        </mat-menu>
+                    </div>
+                </div>
+                <div class="order-status-chart">
+                    <apx-chart [series]="AnalyticsChart8.series" [colors]="AnalyticsChart8.colors"
+                        [fill]="AnalyticsChart8.fill" [chart]="AnalyticsChart8.chart"
+                         [stroke]="AnalyticsChart8.stroke" 
+                        [legend]="AnalyticsChart8.legend"
+                        [labels]="AnalyticsChart8.labels"
+                        [dataLabels]="AnalyticsChart8.dataLabels" [tooltip]="AnalyticsChart1.tooltip">
+                    </apx-chart>
+               </div>
+
+               <div class="d-flex flex-column gap-0">
+                <div class="d-flex justify-content-between align-items-center">
+                    <p class="mb-0">Desktop</p>
+                    <div class="card-lable mat-bg-blue">
+                      <p class="text-white">120</p>
+                    </div>
+                 </div>
+                 <hr>
+                 <div class="d-flex justify-content-between align-items-center">
+                    <p class="mb-0">Tablet</p>
+                    <div class="card-lable mat-bg-green">
+                      <p class="text-white">250</p>
+                    </div>
+                 </div>
+                 <hr>
+                 <div class="d-flex justify-content-between align-items-center">
+                    <p class="mb-0">Mobile</p>
+                    <div class="card-lable mat-bg-orange">
+                      <p class="text-white">568</p>
+                    </div>
+                 </div>
+
+               </div>
+            </mat-card-content>
+        </mat-card>
+    </div>
+    <div class="col-12 col-lg-4 d-flex">
+        <mat-card class="rounded-4 w-100">
+            <mat-card-content>
+                <div class="d-flex align-items-center justify-content-between gap-3">
+                    <div class="">
+                        <h5 class="mb-0">Weekly Clicks</h5>
+                    </div>
+                    <div>
+                        <button mat-icon-button [matMenuTriggerFor]="menu">
+                            <mat-icon>more_horiz</mat-icon>
+                        </button>
+                        <mat-menu #menu="matMenu" class="rounded-4">
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">refresh</mat-icon>
+                                <span>Refresh</span>
+                            </button>
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">cloud_download</mat-icon>
+                                <span>Download</span>
+                            </button>
+                            <button mat-menu-item>
+                                <mat-icon class="material-icons-outlined">delete</mat-icon>
+                                <span>Delete</span>
+                            </button>
+                        </mat-menu>
+                    </div>
+                </div>
+                <div>
+                    <apx-chart [series]="AnalyticsChart9.series" [chart]="AnalyticsChart9.chart" [xaxis]="AnalyticsChart9.xaxis"
+                        [title]="AnalyticsChart9.title" [stroke]="AnalyticsChart9.stroke" [colors]="AnalyticsChart9.colors"
+                        [fill]="AnalyticsChart9.fill" [legend]="AnalyticsChart9.legend" [dataLabels]="AnalyticsChart9.dataLabels"
+                        [markers]="AnalyticsChart9.markers" [grid]="AnalyticsChart9.grid" [tooltip]="AnalyticsChart1.tooltip">
+                    </apx-chart>
+                </div>
+            </mat-card-content>
+        </mat-card>
+    </div>
+
+</div><!--end row-->

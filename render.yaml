@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: crucix
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SELF_PING
+        value: "true"
+      - key: PORT
+        fromGroup: crucix-secrets
+      - key: LLM_PROVIDER
+        fromGroup: crucix-secrets
+      - key: LLM_API_KEY
+        fromGroup: crucix-secrets
+      - key: TELEGRAM_BOT_TOKEN
+        fromGroup: crucix-secrets
+      - key: TELEGRAM_CHAT_ID
+        fromGroup: crucix-secrets
+    disk:
+      name: runs-data
+      mountPath: /app/runs
+      sizeGB: 1

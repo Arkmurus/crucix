@@ -15,7 +15,11 @@
     "brief:save": "node apis/save-briefing.mjs",
     "diag": "node diag.mjs",
     "clean": "node scripts/clean.mjs",
-    "fresh-start": "npm run clean && npm start"
+    "fresh-start": "npm run clean && npm start",
+    "frontend:install": "cd frontend && npm install",
+    "frontend:dev": "cd frontend && npx ng serve --open",
+    "frontend:build": "cd frontend && npx ng build --configuration production",
+    "frontend:watch": "cd frontend && npx ng build --watch --configuration development"
   },
   "keywords": [
     "osint",

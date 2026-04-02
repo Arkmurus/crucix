@@ -1,0 +1,144 @@
+<h6 class="mb-0 text-uppercase">Chart Js</h6>
+<hr>
+
+<mat-card>
+    <mat-card-content>
+        <div class="d-flex flex-row gap-3 align-items-center justify-content-between">
+            <div class="">
+              <h5 class="">Bar Chart</h5>
+            </div>
+            <div>
+              <button mat-icon-button [matMenuTriggerFor]="menu">
+                <mat-icon>more_vert</mat-icon>
+              </button>
+              <mat-menu #menu="matMenu">
+                <button mat-menu-item>
+                  <mat-icon class="material-icons-outlined">visibility</mat-icon>
+                  <span>View</span>
+                </button>
+                <button mat-menu-item>
+                  <mat-icon class="material-icons-outlined">edit</mat-icon>
+                  <span>Edit</span>
+                </button>
+                <button mat-menu-item>
+                  <mat-icon class="material-icons-outlined">delete</mat-icon>
+                  <span>Delete</span>
+                </button>
+              </mat-menu>
+            </div>
+          </div>
+        
+        <div class="chartjs-container">
+            <canvas baseChart [data]="barChartData" [options]="barChartOptions" [type]="'bar'"></canvas>
+        </div>
+    </mat-card-content>
+</mat-card>
+
+
+
+<mat-card>
+    <mat-card-content>
+        <div class="d-flex flex-row gap-3 align-items-center justify-content-between">
+            <div class="">
+              <h5 class="">Line Chart</h5>
+            </div>
+            <div>
+              <button mat-icon-button [matMenuTriggerFor]="menu">
+                <mat-icon>more_vert</mat-icon>
+              </button>
+              <mat-menu #menu="matMenu">
+                <button mat-menu-item>
+                  <mat-icon class="material-icons-outlined">visibility</mat-icon>
+                  <span>View</span>
+                </button>
+                <button mat-menu-item>
+                  <mat-icon class="material-icons-outlined">edit</mat-icon>
+                  <span>Edit</span>
+                </button>
+                <button mat-menu-item>
+                  <mat-icon class="material-icons-outlined">delete</mat-icon>
+                  <span>Delete</span>
+                </button>
+              </mat-menu>
+            </div>
+          </div>
+        <div class="chartjs-container">
+            <canvas baseChart [data]="lineChartData" [options]="lineChartOptions" [type]="'line'"></canvas>
+        </div>
+    </mat-card-content>
+</mat-card>
+
+
+
+
+<div class="row row-cols-1 row-cols-lg-2">
+   <div class="col">
+     <mat-card>
+        <mat-card-content>
+            <div class="d-flex flex-row gap-3 align-items-center justify-content-between">
+                <div class="">
+                  <h5 class="">Pie Chart</h5>
+                </div>
+                <div>
+                  <button mat-icon-button [matMenuTriggerFor]="menu">
+                    <mat-icon>more_vert</mat-icon>
+                  </button>
+                  <mat-menu #menu="matMenu">
+                    <button mat-menu-item>
+                      <mat-icon class="material-icons-outlined">visibility</mat-icon>
+                      <span>View</span>
+                    </button>
+                    <button mat-menu-item>
+                      <mat-icon class="material-icons-outlined">edit</mat-icon>
+                      <span>Edit</span>
+                    </button>
+                    <button mat-menu-item>
+                      <mat-icon class="material-icons-outlined">delete</mat-icon>
+                      <span>Delete</span>
+                    </button>
+                  </mat-menu>
+                </div>
+              </div>
+            <div class="chartjs-container">
+                <canvas baseChart [data]="PieChartData" [options]="PieChartOptions" [type]="'pie'"></canvas>
+            </div>
+        </mat-card-content>
+    </mat-card>
+   </div>
+   <div class="col">
+    <mat-card>
+       <mat-card-content>
+           <div class="d-flex flex-row gap-3 align-items-center justify-content-between">
+               <div class="">
+                 <h5 class="">Doughnut Chart</h5>
+               </div>
+               <div>
+                 <button mat-icon-button [matMenuTriggerFor]="menu">
+                   <mat-icon>more_vert</mat-icon>
+                 </button>
+                 <mat-menu #menu="matMenu">
+                   <button mat-menu-item>
+                     <mat-icon class="material-icons-outlined">visibility</mat-icon>
+                     <span>View</span>
+                   </button>
+                   <button mat-menu-item>
+                     <mat-icon class="material-icons-outlined">edit</mat-icon>
+                     <span>Edit</span>
+                   </button>
+                   <button mat-menu-item>
+                     <mat-icon class="material-icons-outlined">delete</mat-icon>
+                     <span>Delete</span>
+                   </button>
+                 </mat-menu>
+               </div>
+             </div>
+           <div class="chartjs-container">
+               <canvas baseChart [data]="DoughnutChartData" [options]="DoughnutChartOptions" [type]="'doughnut'"></canvas>
+           </div>
+       </mat-card-content>
+   </mat-card>
+  </div>
+
+</div><!--end row-->
+
+
