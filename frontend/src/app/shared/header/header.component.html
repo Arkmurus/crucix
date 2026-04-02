@@ -1,174 +1,96 @@
-<header class="top-header mat-elevation-z5" [class.hidden]="toggleSearch" [ngClass]="{'test' : getSideBarSate()}">
+<header class="top-header mat-elevation-z5" [class.hidden]="toggleSearch" [ngClass]="{'test': getSideBarSate()}">
   <div class="flex-grow-1 gap-1 d-flex align-items-center">
-    <button mat-icon-button (click)="toggleSidebar()" >
+    <button mat-icon-button (click)="toggleSidebar()">
       <mat-icon class="material-icons-outlined">menu</mat-icon>
     </button>
     <button mat-icon-button (click)="openSearch()">
       <mat-icon class="material-icons-outlined">search</mat-icon>
     </button>
+    <span class="text-muted small d-none d-md-inline ms-2" style="font-family:monospace;letter-spacing:.5px">ARKMURUS INTELLIGENCE</span>
   </div>
 
   <div class="d-flex align-items-center gap-1">
-    <button mat-icon-button [matMenuTriggerFor]="language" class="d-none d-sm-flex">
-      <img src="assets/images/county/02.png" alt="">
-    </button>
-    <mat-menu #language class="rounded-4">
-      <button mat-menu-item>
-        <div class="d-flex align-items-center gap-2">
-          <img src="assets/images/county/01.png" width="24" alt="">
-          <span>English</span>
-        </div>
-      </button>
-      <button mat-menu-item>
-        <div class="d-flex align-items-center gap-2">
-          <img src="assets/images/county/02.png" width="24" alt="">
-          <span>Catalan</span>
-        </div>
-      </button>
-      <button mat-menu-item>
-        <div class="d-flex align-items-center gap-2">
-          <img src="assets/images/county/03.png" width="24" alt="">
-          <span>French</span>
-        </div>
-      </button>
-      <button mat-menu-item>
-        <div class="d-flex align-items-center gap-2">
-          <img src="assets/images/county/04.png" width="24" alt="">
-          <span>Belize</span>
-        </div>
-      </button>
-      <button mat-menu-item>
-        <div class="d-flex align-items-center gap-2">
-          <img src="assets/images/county/05.png" width="24" alt="">
-          <span>Colombia</span>
-        </div>
-      </button>
-      <button mat-menu-item>
-        <div class="d-flex align-items-center gap-2">
-          <img src="assets/images/county/06.png" width="24" alt="">
-          <span>Spanish</span>
-        </div>
-      </button>
-      <button mat-menu-item>
-        <div class="d-flex align-items-center gap-2">
-          <img src="assets/images/county/07.png" width="24" alt="">
-          <span>Georgian</span>
-        </div>
-      </button>
-      <button mat-menu-item>
-        <div class="d-flex align-items-center gap-2">
-          <img src="assets/images/county/08.png" width="24" alt="">
-          <span>Hindi</span>
-        </div>
-      </button>
-    </mat-menu>
-    <button mat-icon-button (click)="darkMode()">
+
+    <!-- Dark/light mode -->
+    <button mat-icon-button (click)="darkMode()" title="Toggle theme">
       <mat-icon class="material-icons-outlined">{{ theme_name }}</mat-icon>
     </button>
-    <button mat-icon-button [matMenuTriggerFor]="Appmenu">
-      <mat-icon class="material-icons-outlined">apps</mat-icon>
+
+    <!-- Source health quick-link -->
+    <button mat-icon-button routerLink="/dashboard/sources" title="Source Health">
+      <mat-icon class="material-icons-outlined">sensors</mat-icon>
     </button>
-    <mat-menu #Appmenu class="dropdown-apps rounded-4">
-      <mat-grid-list cols="3" rowHeight="4:4">
-        <mat-grid-tile *ngFor="let item of appIcon">
-          <div class="app-box text-center">
-            <div class="app-icon">
-              <img src="{{item.src}}" width="30" alt="">
-            </div>
-            <div class="app-name">
-              <p>{{item.name}}</p>
+
+    <!-- User profile menu -->
+    <button mat-icon-button [matMenuTriggerFor]="UserProfile" title="{{ displayName }}">
+      <!-- Show initials circle when logged in, generic icon when not -->
+      <span *ngIf="currentUser"
+            style="width:32px;height:32px;border-radius:50%;background:#1565c0;color:#fff;
+                   display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">
+        {{ userInitials }}
+      </span>
+      <mat-icon *ngIf="!currentUser" class="material-icons-outlined">account_circle</mat-icon>
+    </button>
+
+    <mat-menu #UserProfile class="rounded-4 dropdown-userprofile">
+      <!-- Logged in state -->
+      <ng-container *ngIf="currentUser">
+        <div class="px-3 py-2" style="min-width:220px">
+          <div class="d-flex align-items-center gap-2">
+            <span style="width:44px;height:44px;border-radius:50%;background:#1565c0;color:#fff;
+                         display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex-shrink:0">
+              {{ userInitials }}
+            </span>
+            <div>
+              <div class="fw-bold" style="font-size:14px">{{ displayName }}</div>
+              <div class="text-muted" style="font-size:12px">{{ displayEmail }}</div>
+              <span class="badge bg-primary" style="font-size:10px">{{ roleBadge }}</span>
             </div>
           </div>
-        </mat-grid-tile>
-      </mat-grid-list>
+        </div>
+        <mat-divider></mat-divider>
+        <button mat-menu-item (click)="goProfile()">
+          <mat-icon class="material-icons-outlined">manage_accounts</mat-icon>
+          <span>My Profile</span>
+        </button>
+        <button mat-menu-item (click)="goDashboard()">
+          <mat-icon class="material-icons-outlined">radar</mat-icon>
+          <span>Intelligence Brief</span>
+        </button>
+        <button mat-menu-item routerLink="/dashboard/sources">
+          <mat-icon class="material-icons-outlined">sensors</mat-icon>
+          <span>Source Health</span>
+        </button>
+        <mat-divider></mat-divider>
+        <button mat-menu-item (click)="logout()" style="color:#f44336">
+          <mat-icon class="material-icons-outlined" style="color:#f44336">logout</mat-icon>
+          <span>Sign Out</span>
+        </button>
+      </ng-container>
+
+      <!-- Not logged in -->
+      <ng-container *ngIf="!currentUser">
+        <div class="px-3 py-2 text-muted small">Not signed in</div>
+        <mat-divider></mat-divider>
+        <button mat-menu-item routerLink="/auth/sign-in">
+          <mat-icon class="material-icons-outlined">login</mat-icon>
+          <span>Sign In</span>
+        </button>
+      </ng-container>
     </mat-menu>
 
-    <button mat-icon-button [matMenuTriggerFor]="Notification">
-      <mat-icon class="material-icons-outlined" matBadge="7" matBadgePosition="after"
-        matBadgeColor="warn">notifications</mat-icon>
-    </button>
-    <mat-menu #Notification class="rounded-4 dropdown-notification">
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined text-red">shopping_cart</mat-icon>
-        <span>New Sale from Gumroad</span>
-      </button>
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined text-purple">email</mat-icon>
-        <span>Check your new message</span>
-      </button>
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined text-green">task</mat-icon>
-        <span>You have 5 new task</span>
-      </button>
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined text-blue">supervisor_account</mat-icon>
-        <span>10 New users registered</span>
-      </button>
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined text-amber">card_giftcard</mat-icon>
-        <span>You have received 1 new gift</span>
-      </button>
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined text-teal">done_all</mat-icon>
-        <span>Payment succesfully completed</span>
-      </button>
-      <div class="mx-3 my-2">
-        <button mat-raised-button color="primary" class="rounded-4 w-100">View All</button>
-      </div>
-    </mat-menu>
-
-    <button mat-icon-button [matMenuTriggerFor]="UserProfile">
-      <mat-icon class="material-icons-outlined">account_circle</mat-icon>
-    </button>
-    <mat-menu #UserProfile class="rounded-4 dropdown-userprofile">
-      <button mat-menu-item class="d-flex align-items-center justify-content-center text-center py-2">
-        <div>
-          <img src="assets/images/avatars/avatar-1.png" width="80" height="80" class="rounded-circle" alt="">
-        </div>
-        <div>
-          <h4 class="username mb-0">Hi, codervent!</h4>
-          <p class="mb-0">coderventxyz.com</p>
-        </div>
-      </button>
-      <mat-divider></mat-divider>
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined">account_circle</mat-icon>
-        <span>Profile</span>
-      </button>
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined">settings</mat-icon>
-        <span>Setting</span>
-      </button>
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined">dashboard</mat-icon>
-        <span>Dashboard</span>
-      </button>
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined">account_balance</mat-icon>
-        <span>Balance</span>
-      </button>
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined">file_download</mat-icon>
-        <span>Downloads</span>
-      </button>
-      <mat-divider></mat-divider>
-      <button mat-menu-item>
-        <mat-icon class="material-icons-outlined">logout</mat-icon>
-        <span>Logout</span>
-      </button>
-    </mat-menu>
   </div>
 </header>
 
-
-<!--start search toolbar-->
-<mat-toolbar class="searchbar mat-elevation-z5 justify-content-between"  [ngClass]="{'full-search' : getSideBarSate()}" [class.searchVisible]="toggleSearch">
+<!-- Search toolbar -->
+<mat-toolbar class="searchbar mat-elevation-z5 justify-content-between"
+             [ngClass]="{'full-search': getSideBarSate()}"
+             [class.searchVisible]="toggleSearch">
   <button mat-icon-button class="btn-search">
     <mat-icon class="material-icons-outlined">search</mat-icon>
   </button>
-  <input class="w-100 search-control" placeholder="Search">
+  <input class="w-100 search-control" placeholder="Search intelligence...">
   <button mat-icon-button class="btn-search" (click)="searchClose()">
     <mat-icon class="material-icons-outlined">close</mat-icon>
   </button>
 </mat-toolbar>
-<!--end search toolbar-->
