@@ -91,6 +91,25 @@ export class IntelligenceComponent implements OnInit, OnDestroy {
   }
   get defenceUpdates(): any[] { return (this.data?.defenseNews?.updates || []).slice(0, 15); }
 
+  private expandedItems = new Set<string>();
+  toggleExpand(key: string): void {
+    if (this.expandedItems.has(key)) this.expandedItems.delete(key);
+    else this.expandedItems.add(key);
+  }
+  isExpanded(key: string): boolean { return this.expandedItems.has(key); }
+  truncateText(text: string, key: string, limit = 280): string {
+    if (!text) return '';
+    if (this.isExpanded(key) || text.length <= limit) return text;
+    return text.substring(0, limit) + '…';
+  }
+
+  cleanContent(text: string): string {
+    if (!text) return '';
+    // Strip RSS truncation markers like [...] at the end
+    const cleaned = text.replace(/\s*\[[\.\u2026]+\]\s*$/, '').trim();
+    return cleaned;
+  }
+
   directionColor(): string {
     const d = this.direction;
     if (d === 'risk-off') return 'warn';

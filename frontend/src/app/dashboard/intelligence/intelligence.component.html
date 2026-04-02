@@ -86,7 +86,7 @@
           </mat-card-header>
           <mat-card-content style="max-height:380px;overflow-y:auto;padding:8px 0">
             <div *ngIf="correlations.length === 0" class="text-muted py-2 px-2">No critical correlations detected</div>
-            <div *ngFor="let c of correlations" class="corr-block mb-2 mx-2 p-2"
+            <div *ngFor="let c of correlations; let ci = index" class="corr-block mb-2 mx-2 p-2"
                  [style.border-left]="'3px solid ' + (c.severity==='critical' ? '#f44336' : '#ff9800')"
                  style="background:rgba(255,255,255,0.03);border-radius:4px">
               <div class="d-flex align-items-center gap-2 mb-1">
@@ -99,14 +99,20 @@
                   {{ c.sourceCount || c.sources?.length || 1 }} sources · {{ c.severity | uppercase }}
                 </span>
               </div>
-              <div *ngFor="let sig of (c.topSignals || []).slice(0,3)" class="corr-sig mb-1">
+              <div *ngFor="let sig of (c.topSignals || []).slice(0,3); let si = index" class="corr-sig mb-1">
                 <div style="font-size:0.82rem;color:#cfd8dc;line-height:1.5;word-break:break-word">
-                  {{ sig.text }}
+                  {{ truncateText(sig.text, 'c'+ci+'-'+si) }}
                 </div>
-                <a *ngIf="sig.url" [href]="sig.url" target="_blank" rel="noopener"
-                   style="font-size:0.72rem;color:#90caf9;text-decoration:none;display:inline-flex;align-items:center;gap:3px">
-                  <mat-icon style="font-size:11px;width:11px;height:11px">open_in_new</mat-icon>Source
-                </a>
+                <div class="d-flex align-items-center gap-2 mt-1">
+                  <a *ngIf="(sig.text?.length || 0) > 280" (click)="toggleExpand('c'+ci+'-'+si)"
+                     style="font-size:0.72rem;color:#90caf9;cursor:pointer;text-decoration:none">
+                    {{ isExpanded('c'+ci+'-'+si) ? '▲ less' : '▼ more' }}
+                  </a>
+                  <a *ngIf="sig.url" [href]="sig.url" target="_blank" rel="noopener"
+                     style="font-size:0.72rem;color:#90caf9;text-decoration:none;display:inline-flex;align-items:center;gap:3px">
+                    <mat-icon style="font-size:11px;width:11px;height:11px">open_in_new</mat-icon>Source
+                  </a>
+                </div>
               </div>
             </div>
           </mat-card-content>
@@ -123,13 +129,17 @@
           </mat-card-header>
           <mat-card-content style="max-height:380px;overflow-y:auto;padding:8px 0">
             <div *ngIf="urgentPosts.length === 0" class="text-muted py-2 px-2">No urgent signals this sweep</div>
-            <div *ngFor="let p of urgentPosts" class="osint-item mb-2 mx-2 pb-2"
+            <div *ngFor="let p of urgentPosts; let pi = index" class="osint-item mb-2 mx-2 pb-2"
                  style="border-bottom:1px solid rgba(255,255,255,0.06)">
               <div class="d-flex justify-content-between align-items-baseline gap-2 mb-1">
                 <span style="font-size:0.8rem;font-weight:700;color:#90caf9;flex-shrink:0">{{ p.channel || 'OSINT' }}</span>
                 <span class="text-muted" style="font-size:0.72rem;white-space:nowrap">{{ p.date | date:'dd/MM HH:mm':'Europe/London' }}</span>
               </div>
-              <div style="font-size:0.85rem;line-height:1.55;color:#cfd8dc;word-break:break-word">{{ p.text || '' }}</div>
+              <div style="font-size:0.85rem;line-height:1.55;color:#cfd8dc;word-break:break-word">{{ truncateText(p.text || '', 'p'+pi) }}</div>
+              <a *ngIf="(p.text?.length || 0) > 280" (click)="toggleExpand('p'+pi)"
+                 style="font-size:0.72rem;color:#90caf9;cursor:pointer;text-decoration:none;display:block;margin-top:3px">
+                {{ isExpanded('p'+pi) ? '▲ Show less' : '▼ Show more' }}
+              </a>
             </div>
           </mat-card-content>
         </mat-card>
@@ -269,15 +279,21 @@
               Defence News Feed
             </mat-card-title>
           </mat-card-header>
-          <mat-card-content style="max-height:380px;overflow-y:auto">
-            <div *ngFor="let u of defenceUpdates" class="mb-3 pb-3 border-bottom small">
-              <div class="fw-semibold" style="font-size:0.82rem;line-height:1.4;word-break:break-word;color:#e3f2fd">
+          <mat-card-content style="max-height:420px;overflow-y:auto">
+            <div *ngFor="let u of defenceUpdates; let ui = index" class="mb-3 pb-3 border-bottom small">
+              <div class="fw-semibold" style="font-size:0.83rem;line-height:1.45;word-break:break-word;color:#ecf0f1">
                 {{ u.title || '' }}
               </div>
-              <div class="text-muted mt-1" style="font-size:0.78rem;line-height:1.5;word-break:break-word">
-                {{ u.content || '' }}
-              </div>
-              <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+              <ng-container *ngIf="cleanContent(u.content) as body">
+                <div class="text-muted mt-1" style="font-size:0.78rem;line-height:1.55;word-break:break-word">
+                  {{ truncateText(body, 'dn'+ui, 220) }}
+                </div>
+                <a *ngIf="body.length > 220" (click)="toggleExpand('dn'+ui)"
+                   style="font-size:0.72rem;color:#90caf9;cursor:pointer;text-decoration:none;display:block;margin-top:3px">
+                  {{ isExpanded('dn'+ui) ? '▲ Show less' : '▼ Show more' }}
+                </a>
+              </ng-container>
+              <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
                 <small class="text-muted">{{ u.source }}</small>
                 <span *ngIf="u.priority === 'high'" class="badge bg-danger" style="font-size:0.62rem">HIGH</span>
                 <a *ngIf="u.url" [href]="u.url" target="_blank" rel="noopener"

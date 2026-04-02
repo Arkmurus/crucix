@@ -63,22 +63,21 @@
       <div *ngIf="activeTenders.length > 0" class="mb-4">
         <div class="section-label">Active Tenders / RFPs</div>
         <div *ngFor="let t of activeTenders" class="mb-2">
-          <mat-card class="tender-card" [style.border-left]="'5px solid #e53935'">
-            <mat-card-content style="padding:14px">
-              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                <span class="badge" style="background:#e53935;color:#fff;font-size:0.72rem">TENDER</span>
-                <span class="badge" [style.background]="tierColor(t.priority)" style="color:#fff;font-size:0.72rem">{{ t.priority }}</span>
-                <mat-icon *ngIf="t.lusophone" style="font-size:15px;width:15px;height:15px;color:#2159d5" title="Lusophone advantage">flag</mat-icon>
-                <span class="fw-bold">{{ t.market }}</span>
-                <span class="text-muted ms-auto" style="font-size:0.72rem">{{ t.date }}</span>
+          <mat-card [style.border-left]="'4px solid #e53935'">
+            <mat-card-content style="padding:14px 16px">
+              <div class="card-tags">
+                <span class="badge" style="background:#e53935;color:#fff;font-size:0.7rem">TENDER</span>
+                <span class="badge" [style.background]="tierColor(t.priority)" style="color:#fff;font-size:0.7rem">{{ t.priority }}</span>
+                <mat-icon *ngIf="t.lusophone" style="font-size:14px;width:14px;height:14px;color:#2196f3" title="Lusophone advantage">flag</mat-icon>
+                <strong style="color:#ecf0f1">{{ t.market }}</strong>
+                <span class="card-meta">{{ t.date }}</span>
               </div>
               <div class="tender-title">{{ t.title }}</div>
-              <div class="tender-summary text-muted">{{ t.summary }}</div>
-              <div class="d-flex gap-2 mt-2 flex-wrap">
-                <span class="text-muted" style="font-size:0.75rem">Source: {{ t.source }}</span>
+              <div class="tender-summary" *ngIf="t.summary && t.summary !== t.title">{{ t.summary }}</div>
+              <div class="card-footer">
+                <span style="font-size:0.75rem;color:#78909c">{{ t.source }}</span>
                 <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener" class="src-link">
-                  <mat-icon style="font-size:13px;width:13px;height:13px;vertical-align:middle">open_in_new</mat-icon>
-                  View tender
+                  <mat-icon style="font-size:13px;width:13px;height:13px">open_in_new</mat-icon>View tender
                 </a>
               </div>
             </mat-card-content>
@@ -90,20 +89,19 @@
       <div *ngIf="contracts.length > 0" class="mb-4">
         <div class="section-label">Contract Awards</div>
         <div *ngFor="let t of contracts" class="mb-2">
-          <mat-card class="tender-card" [style.border-left]="'5px solid #43a047'">
-            <mat-card-content style="padding:14px">
-              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                <span class="badge" style="background:#43a047;color:#fff;font-size:0.72rem">CONTRACT AWARD</span>
-                <span class="badge" [style.background]="tierColor(t.priority)" style="color:#fff;font-size:0.72rem">{{ t.priority }}</span>
-                <span class="fw-bold">{{ t.market }}</span>
+          <mat-card [style.border-left]="'4px solid #43a047'">
+            <mat-card-content style="padding:14px 16px">
+              <div class="card-tags">
+                <span class="badge" style="background:#43a047;color:#fff;font-size:0.7rem">CONTRACT AWARD</span>
+                <span class="badge" [style.background]="tierColor(t.priority)" style="color:#fff;font-size:0.7rem">{{ t.priority }}</span>
+                <strong style="color:#ecf0f1">{{ t.market }}</strong>
               </div>
               <div class="tender-title">{{ t.title }}</div>
-              <div class="tender-summary text-muted">{{ t.summary }}</div>
-              <div class="d-flex gap-2 mt-2 flex-wrap">
-                <span class="text-muted" style="font-size:0.75rem">Source: {{ t.source }}</span>
+              <div class="tender-summary" *ngIf="t.summary && t.summary !== t.title">{{ t.summary }}</div>
+              <div class="card-footer">
+                <span style="font-size:0.75rem;color:#78909c">{{ t.source }}</span>
                 <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener" class="src-link">
-                  <mat-icon style="font-size:13px;width:13px;height:13px;vertical-align:middle">open_in_new</mat-icon>
-                  View award
+                  <mat-icon style="font-size:13px;width:13px;height:13px">open_in_new</mat-icon>View award
                 </a>
               </div>
             </mat-card-content>
