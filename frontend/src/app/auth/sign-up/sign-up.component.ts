@@ -21,6 +21,8 @@ export class SignUpComponent implements OnInit {
   successMsg = '';
   hide = true;
   hideConfirm = true;
+  pendingApproval = false;
+  registeredName = '';
 
   constructor(
     private fb: FormBuilder,
@@ -56,8 +58,8 @@ export class SignUpComponent implements OnInit {
       next: (res: any) => {
         this.loading = false;
         if (res?.needsVerification === false) {
-          this.successMsg = 'Account created! Your registration is awaiting admin approval. You will be notified once activated.';
-          setTimeout(() => this.router.navigate(['/auth/sign-in']), 3000);
+          this.registeredName = fullName;
+          this.pendingApproval = true;
         } else {
           this.successMsg = 'Account created! Check your email for a 6-digit verification code.';
           setTimeout(() => this.router.navigate(['/auth/verify-email'], { queryParams: { email } }), 2000);
