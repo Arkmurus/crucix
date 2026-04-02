@@ -229,6 +229,47 @@
       </div>
     </div>
 
+    <!-- Lusophone & Africa Defence Intel -->
+    <div class="row mb-3" *ngIf="defenceSignals.length > 0 || defenceUpdates.length > 0">
+      <div class="col-md-6 mb-3" *ngIf="defenceSignals.length > 0">
+        <mat-card class="h-100">
+          <mat-card-header>
+            <mat-card-title>
+              <mat-icon class="me-1" style="color:#1565c0">flag</mat-icon>
+              Lusophone &amp; Africa Defence
+            </mat-card-title>
+          </mat-card-header>
+          <mat-card-content style="max-height:260px;overflow-y:auto">
+            <div *ngFor="let s of defenceSignals" class="mb-2 pb-2 border-bottom small">
+              <span class="badge bg-primary me-1" *ngIf="s.type === 'tender'">Tender</span>
+              <span class="badge bg-secondary me-1" *ngIf="s.type !== 'tender'">Signal</span>
+              {{ (s.text || s.title || '') | slice:0:160 }}
+              <div class="text-muted" *ngIf="s.source">
+                <small>{{ s.source }}</small>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+      <div class="col-md-6 mb-3" *ngIf="defenceUpdates.length > 0">
+        <mat-card class="h-100">
+          <mat-card-header>
+            <mat-card-title>
+              <mat-icon class="me-1" style="color:#1565c0">newspaper</mat-icon>
+              Defence News Feed
+            </mat-card-title>
+          </mat-card-header>
+          <mat-card-content style="max-height:260px;overflow-y:auto">
+            <div *ngFor="let u of defenceUpdates" class="mb-2 pb-2 border-bottom small">
+              <div class="fw-semibold">{{ (u.title || '') | slice:0:100 }}</div>
+              <div class="text-muted">{{ (u.content || '') | slice:0:120 }}</div>
+              <small class="text-muted">{{ u.source }}</small>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </div>
+
   </div><!-- /!loading -->
 
 </div>

@@ -81,6 +81,15 @@ export class IntelligenceComponent implements OnInit, OnDestroy {
   get sourcesTotal(): number { return this.data?.meta?.sourcesQueried ?? 0; }
   get opportunities(): any[] { return (this.data?.opportunities || []).slice(0, 3); }
   get criticalChanges(): number { return this.data?.delta?.summary?.criticalChanges ?? 0; }
+  get defenceSignals(): any[] {
+    const LUSI = ['angola','mozambique','guinea-bissau','cape verde','são tomé','sao tome','lusophone'];
+    const news = (this.data?.defenseNews?.signals || []).filter((s: any) =>
+      LUSI.some(kw => (s.text || '').toLowerCase().includes(kw))
+    );
+    const tenders = this.data?.procurementTenders?.lusophone || [];
+    return [...news.slice(0, 4), ...tenders.slice(0, 3)];
+  }
+  get defenceUpdates(): any[] { return (this.data?.defenseNews?.updates || []).slice(0, 5); }
 
   directionColor(): string {
     const d = this.direction;
