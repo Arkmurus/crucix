@@ -44,6 +44,20 @@ const ROOT = __dirname;
 const RUNS_DIR = join(ROOT, 'runs');
 const MEMORY_DIR = join(RUNS_DIR, 'memory');
 
+// ── Timezone helper — all server logs use Europe/London ──────────────────────
+const TZ = 'Europe/London';
+function logTime(date = new Date()) {
+  return date.toLocaleString('en-GB', {
+    timeZone: TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false
+  }).replace(',', '');
+}
+function logTimeShort(date = new Date()) {
+  return date.toLocaleTimeString('en-GB', { timeZone: TZ, hour12: false });
+}
+
 // Ensure directories exist (including logs for PM2)
 for (const dir of [RUNS_DIR, MEMORY_DIR, join(MEMORY_DIR, 'cold'), join(RUNS_DIR, 'logs')]) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -257,13 +271,13 @@ if (telegramAlerter.isConfigured) {
     const sourcesFailed = currentData?.meta?.sourcesFailed || 0;
     const llmStatus = llmProvider?.isConfigured ? `✅ ${llmProvider.name}` : '❌ Disabled';
     const nextSweep = lastSweepTime
-      ? new Date(new Date(lastSweepTime).getTime() + config.refreshIntervalMinutes * 60000).toLocaleTimeString()
+      ? logTimeShort(new Date(new Date(lastSweepTime).getTime() + config.refreshIntervalMinutes * 60000))
       : 'pending';
     return [
       `🖥️ *CRUCIX STATUS*`, ``,
       `Uptime: ${h}h ${m}m`,
-      `Last sweep: ${lastSweepTime ? new Date(lastSweepTime).toLocaleTimeString() + ' UTC' : 'never'}`,
-      `Next sweep: ${nextSweep} UTC`,
+      `Last sweep: ${lastSweepTime ? logTimeShort(new Date(lastSweepTime)) + ' London' : 'never'}`,
+      `Next sweep: ${nextSweep} London`,
       `Sweep in progress: ${sweepInProgress ? '🔄 Yes' : '⏸️ No'}`,
       `Sources: ${sourcesOk}/${sourcesTotal} OK${sourcesFailed > 0 ? ` (${sourcesFailed} failed)` : ''}`,
       `LLM: ${llmStatus}`,
@@ -527,13 +541,13 @@ if (discordAlerter.isConfigured) {
     const sourcesFailed = currentData?.meta?.sourcesFailed || 0;
     const llmStatus = llmProvider?.isConfigured ? `✅ ${llmProvider.name}` : '❌ Disabled';
     const nextSweep = lastSweepTime
-      ? new Date(new Date(lastSweepTime).getTime() + config.refreshIntervalMinutes * 60000).toLocaleTimeString()
+      ? logTimeShort(new Date(new Date(lastSweepTime).getTime() + config.refreshIntervalMinutes * 60000))
       : 'pending';
     return [
       `**🖥️ CRUCIX STATUS**\n`,
       `Uptime: ${h}h ${m}m`,
-      `Last sweep: ${lastSweepTime ? new Date(lastSweepTime).toLocaleTimeString() + ' UTC' : 'never'}`,
-      `Next sweep: ${nextSweep} UTC`,
+      `Last sweep: ${lastSweepTime ? logTimeShort(new Date(lastSweepTime)) + ' London' : 'never'}`,
+      `Next sweep: ${nextSweep} London`,
       `Sweep in progress: ${sweepInProgress ? '🔄 Yes' : '⏸️ No'}`,
       `Sources: ${sourcesOk}/${sourcesTotal} OK${sourcesFailed > 0 ? ` (${sourcesFailed} failed)` : ''}`,
       `LLM: ${llmStatus}`,
@@ -1225,7 +1239,7 @@ async function runSweepCycle() {
   sweepStartedAt = new Date().toISOString();
   broadcast({ type: 'sweep_start', timestamp: sweepStartedAt });
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`[Crucix] Starting sweep at ${new Date().toLocaleTimeString()}`);
+  console.log(`[Crucix] Starting sweep at ${logTime()} (London)`);
   console.log(`${'='.repeat(60)}`);
 
   try {
@@ -1352,7 +1366,7 @@ async function runSweepCycle() {
     console.log(`[Crucix] ${currentData.ideas.length} ideas (${synthesized.ideasSource}) | ${currentData.news.length} news | ${currentData.newsFeed.length} feed items`);
     if (delta?.summary) console.log(`[Crucix] Delta: ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical, direction: ${delta.summary.direction}`);
     if (correlations.length > 0) console.log(`[Crucix] Correlations: ${correlations.map(c => `${c.region}(${c.severity})`).join(', ')}`);
-    console.log(`[Crucix] Next sweep at ${new Date(Date.now() + config.refreshIntervalMinutes * 60000).toLocaleTimeString()}`);
+    console.log(`[Crucix] Next sweep at ${logTimeShort(new Date(Date.now() + config.refreshIntervalMinutes * 60000))} (London)`);
 
     // Graceful restart to apply any self-deployed modules
     if (isRestartPending()) {
