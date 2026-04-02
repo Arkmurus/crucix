@@ -1,54 +1,97 @@
-<div class="landing-bg position-fixed top-0 start-0 end-0 bottom-0"
-     style="background:#0a0e1a;"></div>
+<div class="row g-0" style="min-height:100vh">
 
-<!-- Grid pattern overlay -->
-<div class="position-fixed top-0 start-0 end-0 bottom-0"
-     style="background-image:linear-gradient(rgba(30,64,175,.08) 1px,transparent 1px),
-            linear-gradient(90deg,rgba(30,64,175,.08) 1px,transparent 1px);
-            background-size:40px 40px;"></div>
+  <!-- ── Left panel: ARKMURUS branding ── -->
+  <div class="col-12 col-xl-7 d-none d-xl-flex align-items-center justify-content-center position-relative overflow-hidden"
+       style="background:#0e101f;">
 
-<div class="position-fixed top-0 start-0 end-0 bottom-0 d-flex flex-column align-items-center justify-content-center z-1 px-3">
+    <!-- Subtle grid overlay -->
+    <div class="position-absolute top-0 start-0 w-100 h-100"
+         style="background-image:linear-gradient(rgba(33,89,213,.06) 1px,transparent 1px),
+                linear-gradient(90deg,rgba(33,89,213,.06) 1px,transparent 1px);
+                background-size:48px 48px;pointer-events:none;"></div>
 
-  <!-- Logo + wordmark -->
-  <div class="text-center mb-5">
-    <img src="assets/images/app/favicon-32x32.png" width="52" alt="Arkmurus" class="mb-4"
-         style="filter:drop-shadow(0 0 12px rgba(59,130,246,.6));">
-    <div style="font-family:monospace;letter-spacing:4px;font-size:11px;color:#3b82f6;text-transform:uppercase;margin-bottom:8px;">
-      ARKMURUS
+    <!-- Glow -->
+    <div class="position-absolute"
+         style="width:500px;height:500px;border-radius:50%;
+                background:radial-gradient(circle,rgba(33,89,213,.18) 0%,transparent 70%);
+                top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;"></div>
+
+    <div class="position-relative text-center px-5">
+      <div style="font-family:'Manrope',sans-serif;font-size:52px;font-weight:800;
+                  color:#ffffff;letter-spacing:4px;text-transform:uppercase;line-height:1;">
+        ARKMURUS
+      </div>
+      <div style="font-family:'Inter',sans-serif;font-size:14px;font-weight:500;
+                  color:#2159d5;letter-spacing:3px;text-transform:uppercase;margin-top:10px;">
+        Intelligence Platform
+      </div>
+      <div style="width:60px;height:2px;background:#2159d5;margin:28px auto;"></div>
+      <p style="font-family:'Inter',sans-serif;font-size:14px;color:#64748b;
+                max-width:400px;line-height:1.8;margin:0 auto;">
+        Real-time OSINT · Defense procurement signals<br>
+        Lusophone &amp; Africa intelligence coverage
+      </p>
+      <div style="margin-top:48px;display:flex;gap:28px;justify-content:center;
+                  font-family:'Manrope',sans-serif;font-size:11px;letter-spacing:2px;
+                  text-transform:uppercase;color:#334155;">
+        <span>OSINT</span>
+        <span>·</span>
+        <span>PROCUREMENT</span>
+        <span>·</span>
+        <span>ANALYSIS</span>
+      </div>
     </div>
-    <h1 style="font-size:clamp(22px,4vw,36px);font-weight:700;color:#e2e8f0;letter-spacing:1px;margin:0 0 12px;">
-      Intelligence Platform
-    </h1>
-    <p style="color:#64748b;font-size:14px;max-width:360px;line-height:1.6;margin:0 auto;">
-      Real-time OSINT · Defense procurement signals · Lusophone &amp; Africa coverage
-    </p>
   </div>
 
-  <!-- Action card -->
-  <div style="width:100%;max-width:380px;">
-    <div style="background:rgba(17,24,39,.95);border:1px solid #1e3a5f;border-radius:12px;padding:32px;">
+  <!-- ── Right panel: actions ── -->
+  <div class="col-12 col-xl-5 d-flex align-items-center justify-content-center"
+       style="background:#111320;min-height:100vh;">
+    <div style="width:100%;max-width:380px;padding:40px 24px;">
+
+      <!-- Mobile-only wordmark -->
+      <div class="d-xl-none text-center mb-5">
+        <div style="font-family:'Manrope',sans-serif;font-size:28px;font-weight:800;
+                    color:#ffffff;letter-spacing:3px;text-transform:uppercase;">
+          ARKMURUS
+        </div>
+        <div style="font-size:12px;color:#2159d5;letter-spacing:2px;margin-top:4px;">
+          Intelligence Platform
+        </div>
+      </div>
+
+      <div style="margin-bottom:32px;">
+        <h2 style="font-family:'Manrope',sans-serif;font-size:22px;font-weight:700;
+                   color:#e2e8f0;margin:0 0 6px;">Welcome back</h2>
+        <p style="font-size:13px;color:#64748b;margin:0;">
+          Sign in to your account or create a new one
+        </p>
+      </div>
 
       <div class="d-grid gap-3">
         <a mat-flat-button color="primary" routerLink="/auth/sign-in"
-           style="padding:14px;font-size:15px;font-weight:600;letter-spacing:.5px;border-radius:8px;">
-          <mat-icon class="me-2">login</mat-icon>Sign In
+           style="padding:14px 20px;font-family:'Inter',sans-serif;font-size:14px;
+                  font-weight:600;letter-spacing:.3px;border-radius:8px;
+                  background:#2159d5;text-decoration:none;">
+          Sign In
         </a>
         <a mat-stroked-button routerLink="/auth/sign-up"
-           style="padding:14px;font-size:15px;font-weight:600;letter-spacing:.5px;border-radius:8px;
-                  border-color:#1e40af;color:#60a5fa;">
-          <mat-icon class="me-2">person_add</mat-icon>Create Account
+           style="padding:14px 20px;font-family:'Inter',sans-serif;font-size:14px;
+                  font-weight:600;letter-spacing:.3px;border-radius:8px;
+                  border-color:#252a44;color:#99a3c8;text-decoration:none;">
+          Create Account
         </a>
       </div>
 
-      <div class="text-center mt-4" style="font-size:12px;color:#475569;">
-        Access is restricted to authorised personnel.
+      <div style="border-top:1px solid #1e2035;margin:32px 0;"></div>
+      <p style="font-size:11px;color:#334155;text-align:center;letter-spacing:.5px;margin:0;">
+        Access restricted to authorised personnel
+      </p>
+
+      <div style="margin-top:48px;text-align:center;font-family:'Manrope',sans-serif;
+                  font-size:10px;color:#1e2035;letter-spacing:2px;text-transform:uppercase;">
+        © {{ year }} Arkmurus Intelligence Platform
       </div>
     </div>
-  </div>
-
-  <!-- Footer wordmark -->
-  <div class="mt-5 text-center" style="font-size:11px;color:#334155;letter-spacing:2px;font-family:monospace;">
-    ARKMURUS · INTELLIGENCE · SECURE &nbsp;·&nbsp; © {{ year }}
   </div>
 
 </div>

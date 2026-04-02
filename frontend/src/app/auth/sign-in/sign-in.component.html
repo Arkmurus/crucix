@@ -1,64 +1,70 @@
 <div class="login-bg position-fixed top-0 start-0 end-0 bottom-0"
-	style="background-image: url(assets/images/gallery/login-bg.png);">
+  style="background-image: url(assets/images/gallery/login-bg.png);">
 </div>
 
 <div class="auth-box d-flex align-items-center justify-content-center my-5 my-lg-0">
- <div class="container-fluid">
-	<div class="row row-cols-1 row-cols-lg-2 row-cols-xl-3">
-		<div class="col mx-auto">
-			<mat-card class="rounded-4 m-2">
-				<mat-card-content class="p-5">
-					<div class="text-center">
-						<img src="assets/images/app/favicon-32x32.png" class="mb-3" width="55" alt="Arkmurus">
-						<h4 class="mb-2">Arkmurus Intelligence Platform</h4>
-						<p class="mb-4">Sign in to your account</p>
-					</div>
-					<div class="alert alert-danger" *ngIf="errorMsg">{{errorMsg}}</div>
-					<form [formGroup]="loginForm">
-						<div class="row g-3">
-							<div class="col-12 col-md-12">
-								<mat-form-field class="w-100 mb-0" appearance="outline">
-									<mat-label>Email</mat-label>
-									<input matInput placeholder="Ex. analyst@arkmurus.com" formControlName="email" type="email">
-									<mat-error *ngIf="loginForm.get('email')?.hasError('required')">Email is required</mat-error>
-									<mat-error *ngIf="loginForm.get('email')?.hasError('email')">Enter a valid email</mat-error>
-								</mat-form-field>
-							</div>
-							<div class="col-12 col-md-12">
-								<mat-form-field class="w-100 mb-0" appearance="outline">
-									<mat-label>Password</mat-label>
-									<input matInput [type]="hide ? 'password' : 'text'" formControlName="password">
-									<button mat-icon-button matSuffix (click)="hide = !hide" type="button"
-										[attr.aria-label]="'Hide password'" [attr.aria-pressed]="hide">
-										<mat-icon>{{hide ? 'visibility_off' : 'visibility'}}</mat-icon>
-									</button>
-									<mat-error *ngIf="loginForm.get('password')?.hasError('required')">Password is required</mat-error>
-								</mat-form-field>
-							</div>
-							<div class="col-12 col-md-12">
-								<div class="d-flex align-items-center justify-content-end">
-									<a style="cursor: pointer; color: #1414f8;" routerLink="../forgot-password">Forgot Password?</a>
-								</div>
-							</div>
-							<div class="col-12 col-md-12">
-								<div class="d-grid">
-									<button mat-flat-button color="primary" (click)="onSubmit()" [disabled]="loading">
-										<span *ngIf="!loading">Login</span>
-										<span *ngIf="loading">Signing in...</span>
-									</button>
-								</div>
-							</div>
-							<div class="col-12 col-md-12">
-								<div class="text-center">
-									<p>Don't have an account yet? <a routerLink="../sign-up"
-											style="cursor: pointer; color: #1414f8;">Sign up here</a></p>
-								</div>
-							</div>
-						</div><!--end row-->
-					</form>
-				</mat-card-content>
-			</mat-card>
-		</div>
-	</div>
- </div>
+  <div class="container-fluid">
+    <div class="row row-cols-1 row-cols-lg-2 row-cols-xl-3">
+      <div class="col mx-auto">
+        <mat-card class="rounded-4 m-2">
+          <mat-card-content class="p-5">
+
+            <div class="text-center mb-4">
+              <a routerLink="/auth/landing"
+                 style="font-family:'Manrope',sans-serif;font-size:24px;font-weight:800;
+                        color:#ffffff;letter-spacing:3px;text-transform:uppercase;
+                        text-decoration:none;display:inline-block;margin-bottom:8px;">
+                ARKMURUS
+              </a>
+              <p class="mb-0 text-muted" style="font-size:13px;">Sign in to your account</p>
+            </div>
+
+            <div class="alert alert-danger" *ngIf="errorMsg">{{ errorMsg }}</div>
+
+            <form [formGroup]="loginForm">
+              <div class="row g-3">
+                <div class="col-12">
+                  <mat-form-field class="w-100 mb-0" appearance="outline">
+                    <mat-label>Email</mat-label>
+                    <input matInput formControlName="email" type="email" autocomplete="email">
+                    <mat-error *ngIf="loginForm.get('email')?.hasError('required')">Email is required</mat-error>
+                    <mat-error *ngIf="loginForm.get('email')?.hasError('email')">Enter a valid email</mat-error>
+                  </mat-form-field>
+                </div>
+                <div class="col-12">
+                  <mat-form-field class="w-100 mb-0" appearance="outline">
+                    <mat-label>Password</mat-label>
+                    <input matInput [type]="hide ? 'password' : 'text'" formControlName="password" autocomplete="current-password">
+                    <button mat-icon-button matSuffix (click)="hide = !hide" type="button">
+                      <mat-icon>{{ hide ? 'visibility_off' : 'visibility' }}</mat-icon>
+                    </button>
+                    <mat-error *ngIf="loginForm.get('password')?.hasError('required')">Password is required</mat-error>
+                  </mat-form-field>
+                </div>
+                <div class="col-12 d-flex justify-content-end">
+                  <a routerLink="../forgot-password" style="font-size:13px;color:#2159d5;text-decoration:none;">
+                    Forgot password?
+                  </a>
+                </div>
+                <div class="col-12">
+                  <div class="d-grid">
+                    <button mat-flat-button color="primary" (click)="onSubmit()" [disabled]="loading"
+                            style="padding:10px;font-size:14px;font-weight:600;">
+                      <span *ngIf="!loading">Sign In</span>
+                      <span *ngIf="loading">Signing in...</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="col-12 text-center">
+                  <span class="text-muted" style="font-size:13px;">Don't have an account?&nbsp;</span>
+                  <a routerLink="../sign-up" style="font-size:13px;color:#2159d5;text-decoration:none;">Create account</a>
+                </div>
+              </div>
+            </form>
+
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </div>
+  </div>
 </div>
