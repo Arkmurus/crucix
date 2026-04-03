@@ -112,17 +112,23 @@ async function loadUsers() {
 }
 
 async function approveUser(id) {
-  const { ok, data } = await API.post(`/api/admin/users/${id}/approve`);
-  if (ok) { showMsg('User approved'); loadUsers(); } else showMsg(data.error||'Failed','error');
+  try {
+    var r = await API.post('/api/admin/users/' + id + '/approve', {});
+    if (r.ok) { showMsg('User approved'); loadUsers(); } else showMsg((r.data && r.data.error) || 'Approve failed', 'error');
+  } catch (e) { showMsg('Error: ' + e.message, 'error'); }
 }
 async function rejectUser(id) {
   if (!confirm('Reject and remove this user?')) return;
-  const { ok, data } = await API.post(`/api/admin/users/${id}/reject`);
-  if (ok) { showMsg('User rejected'); loadUsers(); } else showMsg(data.error||'Failed','error');
+  try {
+    var r = await API.post('/api/admin/users/' + id + '/reject', {});
+    if (r.ok) { showMsg('User rejected'); loadUsers(); } else showMsg((r.data && r.data.error) || 'Reject failed', 'error');
+  } catch (e) { showMsg('Error: ' + e.message, 'error'); }
 }
 async function forceLogout(id) {
-  const { ok } = await API.post(`/api/admin/users/${id}/force-logout`);
-  if (ok) showMsg('User logged out'); else showMsg('Failed','error');
+  try {
+    var r = await API.post('/api/admin/users/' + id + '/force-logout', {});
+    if (r.ok) showMsg('User logged out'); else showMsg('Failed', 'error');
+  } catch (e) { showMsg('Error: ' + e.message, 'error'); }
 }
 async function deleteUser(id) {
   if (!confirm('Permanently delete this user?')) return;

@@ -691,6 +691,10 @@ if (discordAlerter.isConfigured) {
 // === Express Server ===
 const app = express();
 
+// Trust proxy — required on Seenode/Render/Railway (behind reverse proxy)
+// Without this, express-rate-limit sees all users as same IP (the proxy)
+app.set('trust proxy', 1);
+
 // ── Security headers ──────────────────────────────────────────────────────────
 applySecurityHeaders(app);
 
