@@ -31,7 +31,7 @@
     </div>
     <div style="padding:0">
       <table class="sc-table" id="src-table">
-        <thead><tr><th>Source</th><th>Status</th><th>Records</th><th>Last Check</th><th>Error</th></tr></thead>
+        <thead><tr><th>Source</th><th>Status</th><th>Reliability</th><th>Latency</th><th>Fetches</th></tr></thead>
         <tbody id="src-body"><tr><td colspan="5" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr></tbody>
       </table>
     </div>
@@ -49,24 +49,39 @@ async function loadSources() {
   const data = await API.get('/api/source-health');
   if (!data) return;
   const sources = data.sources || [];
-  const ok   = sources.filter(s=>s.status==='ok').length;
-  const err  = sources.filter(s=>s.status==='error').length;
-  const warn = sources.filter(s=>s.status==='warning'||s.status==='degraded').length;
-  document.getElementById('src-ok').textContent  = ok;
-  document.getElementById('src-err').textContent = err;
-  document.getElementById('src-warn').textContent= warn;
-  document.getElementById('src-last').textContent= data.lastUpdated ? fmtDateTime(data.lastUpdated) : '—';
+  const ok   = sources.filter(s => s.lastStatus === 'ok').length;
+  const err  = sources.filter(s => s.lastStatus === 'error').length;
+  const warn = sources.filter(s => s.reliability !== null && s.reliability < 80 && s.lastStatus !== 'error').length;
+  document.getElementById('src-ok').textContent   = ok;
+  document.getElementById('src-err').textContent  = err;
+  document.getElementById('src-warn').textContent = warn;
+  document.getElementById('src-last').textContent = data.asOf ? fmtDateTime(data.asOf) : '—';
 
   document.getElementById('src-body').innerHTML = sources.map(s => {
-    const dot = s.status==='ok'?'ok':s.status==='error'?'error':'warn';
+    const isOk  = s.lastStatus === 'ok';
+    const isErr = s.lastStatus === 'error';
+    const dotCls = isOk ? 'ok' : isErr ? 'error' : 'warn';
+    const reliColor = s.reliability === null ? 'rgba(255,255,255,.3)'
+                    : s.reliability >= 80   ? '#22c55e'
+                    : s.reliability >= 50   ? '#FF7A41' : '#ef4444';
     return `<tr>
-      <td><strong>${escHtml(s.name||s.source||s.id||'')}</strong></td>
-      <td><span class="status-dot ${dot}" style="margin-right:6px"></span><span style="font-size:12px;text-transform:capitalize">${escHtml(s.status||'')}</span></td>
-      <td>${s.count ?? s.records ?? '—'}</td>
-      <td style="font-size:12px;color:rgba(255,255,255,.4)">${s.lastCheck||s.checkedAt?fmtDateTime(s.lastCheck||s.checkedAt):'—'}</td>
-      <td style="font-size:12px;color:#f87171">${escHtml(s.error||s.errorMsg||'')}</td>
+      <td><strong>${escHtml(s.name || '')}</strong></td>
+      <td>
+        <span class="status-dot ${dotCls}" style="margin-right:6px;display:inline-block;
+          width:7px;height:7px;border-radius:50%;background:${isOk?'#22c55e':isErr?'#ef4444':'#FF7A41'};vertical-align:middle"></span>
+        <span style="font-size:12px;text-transform:capitalize">${escHtml(s.lastStatus || '—')}</span>
+      </td>
+      <td style="font-size:12px;font-weight:700;color:${reliColor}">
+        ${s.reliability !== null ? s.reliability + '%' : '—'}
+      </td>
+      <td style="font-size:12px;color:rgba(255,255,255,.4)">
+        ${s.lastMs ? s.lastMs + 'ms' : '—'}
+      </td>
+      <td style="font-size:12px;color:rgba(255,255,255,.4)">
+        ${s.ok || 0}ok / ${s.fail || 0}fail
+      </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,.4);padding:30px">No source data available</td></tr>';
+  }).join('') || '<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,.4);padding:30px">No source data yet — run a sweep first</td></tr>';
 }
 
 loadSources();

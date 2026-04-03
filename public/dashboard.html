@@ -93,7 +93,6 @@
 </main>
 
 <script src="vendor/jquery.min.js"></script>
-<script src="fonts/bootstrap-icons/font-css.css" type="text/plain" id="biCss"></script>
 <script src="js/app.js"></script>
 <script src="js/sidebar.js"></script>
 <script>
@@ -104,18 +103,22 @@ async function loadData() {
   const data = await API.get('/api/data');
   if (!data) return;
 
-  // KPIs
-  const d = data.direction || 'neutral';
+  // KPIs — derive market direction from VIX
+  const vix = data.markets?.vix?.value;
+  const d = vix > 25 ? 'risk-off' : (vix && vix < 15) ? 'risk-on' : 'neutral';
   document.getElementById('kpi-direction').textContent = d.toUpperCase();
   document.getElementById('kpi-direction').style.color =
     d === 'risk-off' ? '#ef4444' : d === 'risk-on' ? '#22c55e' : '#FF7A41';
-  document.getElementById('kpi-vix').textContent = data.vix ?? '—';
-  document.getElementById('kpi-brent').textContent = data.brent ? `$${data.brent}` : '—';
-  document.getElementById('kpi-osint').textContent = (data.urgentPosts || []).length;
+  document.getElementById('kpi-vix').textContent = vix ? vix.toFixed(1) : '—';
+  document.getElementById('kpi-brent').textContent = data.energy?.brent ? `$${data.energy.brent}` : '—';
+  document.getElementById('kpi-osint').textContent = (data.tg?.urgent || []).length;
 
   // Last updated
+  const sweepTs = data.meta?.timestamp;
+  const srcOk   = data.meta?.sourcesOk ?? 0;
+  const srcTotal = data.meta?.sourcesQueried ?? 0;
   document.getElementById('last-updated').textContent =
-    data.lastUpdated ? `Updated: ${fmtDateTime(data.lastUpdated)} · ${data.sourcesOk||0}/${data.sourcesTotal||0} sources` : '';
+    sweepTs ? `Updated: ${fmtDateTime(sweepTs)} · ${srcOk}/${srcTotal} sources` : '';
 
   // Correlations
   const corrEl = document.getElementById('correlations-list');
@@ -140,7 +143,7 @@ async function loadData() {
 
   // OSINT
   const osintEl = document.getElementById('osint-list');
-  const posts = data.urgentPosts || [];
+  const posts = data.tg?.urgent || [];
   if (!posts.length) {
     osintEl.innerHTML = '<p class="text-muted" style="padding:8px">No urgent signals this sweep.</p>';
   } else {
@@ -192,7 +195,7 @@ async function loadData() {
   }
 
   // Defence signals
-  const def = data.defenceSignals || data.defenceUpdates || [];
+  const def = data.defenseNews || data.defenceSignals || [];
   if (def.length) {
     document.getElementById('defence-section').style.display = '';
     document.getElementById('defence-list').innerHTML = def.slice(0,5).map(s => `
