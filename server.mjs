@@ -896,7 +896,7 @@ app.post('/api/learning/outcome', requireAuth, (req, res) => {
   res.json({ success: true, entry });
 });
 
-app.get('/api/opportunities', requireAuth, (req, res) => {
+app.get('/api/opportunities', requireAuth, async (req, res) => {
   if (currentData) {
     const fresh = await detectOpportunities(currentData);
     return res.json({ opportunities: fresh, source: 'live', asOf: lastSweepTime });
@@ -2108,7 +2108,7 @@ async function runSweepCycle() {
 
     // Self-learning: detect sales opportunities on every sweep
     try {
-      const opportunities = detectOpportunities(synthesized);
+      const opportunities = await detectOpportunities(synthesized);
       synthesized.opportunities = opportunities;
       if (opportunities.length > 0) {
         console.log(`[Self] ${opportunities.length} opportunity/ies detected (top: ${opportunities[0]?.market} score:${opportunities[0]?.score})`);
