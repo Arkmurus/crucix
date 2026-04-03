@@ -7,6 +7,16 @@ import './utils/env.mjs'; // Load API keys from .env
 import { pathToFileURL } from 'node:url';
 import { redisPush } from '../lib/persist/store.mjs';
 
+// Hooks injected by server.mjs after startup — zero coupling
+let _onSourceSuccess = null;
+let _onSourceError   = null;
+let _isSuspended     = null;
+export function registerSourceHooks({ onSuccess, onError, isSuspended }) {
+  _onSourceSuccess = onSuccess;
+  _onSourceError   = onError;
+  _isSuspended     = isSuspended;
+}
+
 // === Tier 1: Core OSINT & Geopolitical ===
 import { fetchGDELT as gdelt } from './sources/gdelt.mjs';
 import { briefing as opensky } from './sources/opensky.mjs';
@@ -101,6 +111,15 @@ import { AUTO_SOURCES } from './auto_sources.mjs';
 const SOURCE_TIMEOUT_MS = 30_000; // 30s max per individual source
 
 export async function runSource(name, fn, ...args) {
+  // GAP 11: Skip suspended sources
+  if (_isSuspended) {
+    try {
+      if (await _isSuspended(name)) {
+        return { name, status: 'suspended', durationMs: 0 };
+      }
+    } catch {}
+  }
+
   const start = Date.now();
   let timer;
   try {
@@ -109,8 +128,10 @@ export async function runSource(name, fn, ...args) {
       timer = setTimeout(() => reject(new Error(`Source ${name} timed out after ${SOURCE_TIMEOUT_MS / 1000}s`)), SOURCE_TIMEOUT_MS);
     });
     const data = await Promise.race([dataPromise, timeoutPromise]);
+    if (_onSourceSuccess) _onSourceSuccess(name, Date.now() - start);
     return { name, status: 'ok', durationMs: Date.now() - start, data };
   } catch (e) {
+    if (_onSourceError) _onSourceError(name, e, Date.now() - start);
     return { name, status: 'error', durationMs: Date.now() - start, error: e.message };
   } finally {
     clearTimeout(timer);

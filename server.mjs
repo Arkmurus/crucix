@@ -10,7 +10,7 @@ import { exec } from 'child_process';
 import cron from 'node-cron';
 import config from './crucix.config.mjs';
 import { getLocale, currentLanguage, getSupportedLocales } from './lib/i18n.mjs';
-import { fullBriefing, pushSignalsToBrain } from './apis/briefing.mjs';
+import { fullBriefing, pushSignalsToBrain, registerSourceHooks } from './apis/briefing.mjs';
 import { synthesize, generateIdeas } from './dashboard/inject.mjs';
 import { MemoryManager } from './lib/delta/index.mjs';
 import { createLLMProvider } from './lib/llm/index.mjs';
@@ -43,6 +43,13 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { storeMessage, getConversation, markRead, getConversationSummaries, unreadCount } from './lib/messages.mjs';
 import { ariaChat as ariaLocalChat, ariaThink as ariaLocalThink } from './lib/aria/aria.mjs';
+import { applyRateLimiting, applyInputValidation, applySecurityHeaders } from './middleware/rateLimiter.mjs';
+import { handleTelegramWebhook, setLLMProvider as setTelegramLLM, handleAriaCommand, buildArkmursBrief } from './lib/telegram/telegramCommands.mjs';
+import { startComplianceRefreshScheduler, screenEntity, getComplianceVersions } from './lib/compliance/listRefresher.mjs';
+import { errorTracker, configureTelemetry, SweepMonitor } from './lib/observability/errorTracker.mjs';
+import { ProcurementDedup, SourcePruner } from './lib/sources/sourceMaintenance.mjs';
+import { startExplorerScheduler } from './lib/self/explorerScheduler.mjs';
+import { redisAdapter } from './lib/persist/redisAdapter.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -599,6 +606,12 @@ if (telegramAlerter.isConfigured) {
     ].join('\n');
   });
 
+  // /aria command — full ARIA Telegram interface
+  telegramAlerter.onCommand('/aria', async (args, chatId, userId) => {
+    await handleAriaCommand(chatId || config.telegram.chatId, userId || '', args || '');
+    return null; // handleAriaCommand sends directly
+  });
+
   telegramAlerter.startPolling(config.telegram.botPollingInterval);
 }
 
@@ -677,7 +690,55 @@ if (discordAlerter.isConfigured) {
 
 // === Express Server ===
 const app = express();
-app.use(express.json());
+
+// ── Security headers ──────────────────────────────────────────────────────────
+applySecurityHeaders(app);
+
+// ── Request body parsing — tiered limits ─────────────────────────────────────
+app.use('/api/aria',  express.json({ limit: '500kb' }));
+app.use('/api/brain', express.json({ limit: '500kb' }));
+app.use('/api/',      express.json({ limit: '100kb' }));
+app.use('/api/',      express.urlencoded({ extended: true, limit: '50kb' }));
+app.use(express.json());  // fallback for non-API routes
+
+// ── Rate limiting + XSS guard — BEFORE route registration ────────────────────
+applyRateLimiting(app);
+applyInputValidation(app);
+
+// ── Observability — structured error logging ──────────────────────────────────
+const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
+const notifyAdmin = async (msg) => {
+  if (!telegramAlerter?.isConfigured) return;
+  try { await telegramAlerter.sendMessage?.(msg); } catch {}
+};
+configureTelemetry(redisAdapter, notifyAdmin);
+
+// ── Procurement dedup + source pruner ────────────────────────────────────────
+const procDedup   = new ProcurementDedup(redisAdapter);
+const sourcePruner = new SourcePruner(redisAdapter, notifyAdmin);
+
+// Wire pruner + errorTracker into sweep source runner
+registerSourceHooks({
+  onSuccess: (name, latencyMs) => {
+    sourcePruner.recordFetch(name, true,  latencyMs).catch(() => {});
+    errorTracker.recordSuccess(name);
+  },
+  onError: (name, err, latencyMs) => {
+    sourcePruner.recordFetch(name, false, latencyMs).catch(() => {});
+    errorTracker.record(name, 'fetch_error', err);
+  },
+  isSuspended: (name) => sourcePruner.isSuspended(name),
+});
+
+// ── Compliance list auto-refresh (weekly, non-blocking) ───────────────────────
+if (redisAdapter.isConfigured) {
+  startComplianceRefreshScheduler(redisAdapter, notifyAdmin).catch(e =>
+    console.warn('[Compliance] Refresh scheduler failed to start:', e.message)
+  );
+}
+
+// ── Inject LLM provider into Telegram ARIA commands ──────────────────────────
+setTelegramLLM(llmProvider);
 
 // Site access is protected by the Angular JWT auth layer — no HTTP Basic Auth needed.
 
@@ -1772,6 +1833,59 @@ app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// ── Observability Admin Routes ────────────────────────────────────────────────
+const errHandlers = errorTracker.apiHandler();
+app.get('/api/admin/errors',           requireAdmin, errHandlers.getErrors);
+app.get('/api/admin/source-health-errors', requireAdmin, errHandlers.getSourceHealth);
+app.get('/api/admin/error-dashboard',  requireAdmin, errHandlers.getDashboard);
+
+// ── Source Pruner Admin Routes ────────────────────────────────────────────────
+app.get('/api/admin/source-prune-report', requireAdmin, async (req, res) => {
+  res.json(await sourcePruner.getSourceHealthReport());
+});
+app.post('/api/admin/sources/:name/enable', requireAdmin, async (req, res) => {
+  await sourcePruner.setSourceEnabled(req.params.name, true);
+  res.json({ status: 'enabled', source: req.params.name });
+});
+app.post('/api/admin/sources/:name/disable', requireAdmin, async (req, res) => {
+  await sourcePruner.setSourceEnabled(req.params.name, false);
+  res.json({ status: 'disabled', source: req.params.name });
+});
+
+// ── Compliance entity screening (live lists) + version info ───────────────────
+app.post('/api/compliance/entity-screen', requireAuth, async (req, res) => {
+  const { entity_name } = req.body || {};
+  if (!entity_name) return res.status(400).json({ error: 'entity_name required' });
+  if (!redisAdapter.isConfigured) {
+    return res.status(503).json({ error: 'Redis not configured — live compliance lists unavailable' });
+  }
+  try {
+    const result = await screenEntity(entity_name, redisAdapter);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/compliance/versions', requireAuth, async (req, res) => {
+  if (!redisAdapter.isConfigured) return res.json({ versions: {}, last_fetch: null });
+  try {
+    res.json(await getComplianceVersions(redisAdapter));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Active tenders (deduped procurement portals) ──────────────────────────────
+app.get('/api/tenders/active', requireAuth, async (req, res) => {
+  try {
+    const tenders = await procDedup.getActiveTenders(req.query.market);
+    res.json(tenders);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Push Notification Routes ──────────────────────────────────────────────────
 
 app.get('/api/push/vapid-public-key', (req, res) => {
@@ -2313,6 +2427,15 @@ async function start() {
     }, { timezone: 'Europe/London' });
   });
 }
+
+// ── Explorer auto-scheduler (curiosity → web exploration loop) ───────────────
+if (BRAIN_URL) {
+  startExplorerScheduler(app, redisAdapter, notifyAdmin);
+  console.log('[Init] Explorer auto-scheduler started (curiosity thread resolution)');
+}
+
+// ── Express error handler — MUST be last middleware ──────────────────────────
+app.use(errorTracker.expressMiddleware());
 
 process.on('unhandledRejection', (err) => {
   console.error('[Crucix] Unhandled rejection:', err?.stack || err?.message || err);

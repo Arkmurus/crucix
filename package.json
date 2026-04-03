@@ -37,12 +37,17 @@
     "dotenv": "^17.3.1",
     "express": "^5.1.0",
     "express-basic-auth": "^1.2.1",
+    "express-rate-limit": "^8.3.2",
+    "express-slow-down": "^3.1.0",
+    "express-validator": "^7.3.2",
+    "helmet": "^8.1.0",
     "node-cron": "^3.0.3",
     "nodemailer": "^8.0.4",
     "otplib": "^13.4.0",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.3",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "xml2js": "^0.6.2"
   },
   "optionalDependencies": {
     "discord.js": "^14.25.1"
