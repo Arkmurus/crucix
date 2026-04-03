@@ -143,9 +143,9 @@ async function loadAudit() {
   el.innerHTML = log.length ? `<table class="sc-table"><thead><tr><th>Action</th><th>Target</th><th>By</th><th>When</th></tr></thead><tbody>
     ${log.slice(0,50).map(e=>`<tr>
       <td><strong style="font-size:12px">${escHtml(e.action||'')}</strong></td>
-      <td style="font-size:12px">${escHtml(e.targetEmail||e.target||'')}</td>
-      <td style="font-size:12px">${escHtml(e.byEmail||e.by||'')}</td>
-      <td style="font-size:11px;color:rgba(255,255,255,.35)">${fmtDateTime(e.timestamp||e.at)}</td>
+      <td style="font-size:12px">${escHtml(e.targetEmail||e.target||'')}${e.targetName?`<br><span style="font-size:10px;color:rgba(255,255,255,.3)">${escHtml(e.targetName)}</span>`:''}</td>
+      <td style="font-size:12px">${escHtml(e.adminEmail||e.byEmail||e.by||'')}</td>
+      <td style="font-size:11px;color:rgba(255,255,255,.35)">${fmtDateTime(e.ts||e.timestamp||e.at)}</td>
     </tr>`).join('')}
   </tbody></table>` : '<p class="text-muted" style="padding:20px">No audit records.</p>';
 }
