@@ -90,7 +90,7 @@ function userCard(u) {
       </select>
     </div>
     <div class="user-actions">
-      ${u.status==='pending'?`
+      ${(u.status==='pending_approval'||u.status==='pending_verification')?`
         <button class="action-btn approve" onclick="approveUser('${u.id}')"><i class="bi bi-check-lg"></i> Approve</button>
         <button class="action-btn reject" onclick="rejectUser('${u.id}')"><i class="bi bi-x-lg"></i> Reject</button>
       `:''}
@@ -106,7 +106,7 @@ let allUsers = [];
 async function loadUsers() {
   const data = await API.get('/api/admin/users');
   allUsers = data || [];
-  const pending = allUsers.filter(u=>u.status==='pending');
+  const pending = allUsers.filter(u=>u.status==='pending_approval'||u.status==='pending_verification');
   document.getElementById('cnt-all').textContent = allUsers.length;
   document.getElementById('cnt-pending').textContent = pending.length;
   document.getElementById('tab-all').innerHTML = allUsers.length ? allUsers.map(userCard).join('') : '<p class="text-muted">No users found.</p>';
@@ -132,7 +132,7 @@ async function deleteUser(id) {
   if (ok) { showMsg('User deleted'); loadUsers(); } else showMsg(data.error||'Failed','error');
 }
 async function changeRole(id, role) {
-  const { ok, data } = await API.put(`/api/admin/users/${id}/role`, { role });
+  const { ok, data } = await API.put(`/api/admin/users/${id}`, { role });
   if (ok) showMsg('Role updated'); else showMsg(data.error||'Failed','error');
 }
 

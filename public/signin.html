@@ -167,7 +167,7 @@
   // If already logged in, redirect to dashboard
   if (Auth.isLoggedIn()) window.location.href = '/dashboard.html';
 
-  let tempToken = null;
+  let preToken = null;
 
   async function doLogin() {
     const btn = document.getElementById('btn-login');
@@ -183,8 +183,8 @@
 
     if (!ok) return showError(data.error || 'Login failed. Check your credentials.');
 
-    if (data.requiresTwoFactor) {
-      tempToken = data.tempToken;
+    if (data.requires2FA) {
+      preToken = data.preToken;
       document.getElementById('step-credentials').style.display = 'none';
       document.getElementById('step-2fa').style.display = 'block';
       return;
@@ -201,7 +201,7 @@
     if (!code) return showError('Enter the 6-digit code.');
 
     btn.textContent = 'Verifying…'; btn.disabled = true;
-    const { ok, data } = await API.post('/api/auth/2fa/authenticate', { tempToken, code });
+    const { ok, data } = await API.post('/api/auth/2fa/authenticate', { preToken, code });
     btn.textContent = 'Verify Code'; btn.disabled = false;
 
     if (!ok) return showError(data.error || 'Invalid code.');
