@@ -19,38 +19,64 @@ const API = {
   },
 
   async get(path) {
-    const r = await fetch(this.BASE + path, { headers: this.headers() });
-    if (r.status === 401) { Auth.logout(); return null; }
-    return r.json();
+    try {
+      const r = await fetch(this.BASE + path, { headers: this.headers() });
+      if (r.status === 401) { Auth.logout(); return null; }
+      return r.json();
+    } catch (e) {
+      console.error('API.get error:', path, e);
+      return null;
+    }
   },
 
   async post(path, body) {
-    const r = await fetch(this.BASE + path, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(body)
-    });
-    // Do NOT auto-logout on 401 for POST — login endpoint legitimately returns 401 for wrong credentials
-    return { ok: r.ok, status: r.status, data: await r.json() };
+    try {
+      const r = await fetch(this.BASE + path, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body)
+      });
+      // Do NOT auto-logout on 401 for POST — login endpoint legitimately returns 401 for wrong credentials
+      let data = {};
+      try { data = await r.json(); } catch { data = { error: 'Server returned an unexpected response.' }; }
+      return { ok: r.ok, status: r.status, data };
+    } catch (e) {
+      console.error('API.post error:', path, e);
+      return { ok: false, status: 0, data: { error: 'Network error — please check your connection and try again.' } };
+    }
   },
 
   async put(path, body) {
-    const r = await fetch(this.BASE + path, {
-      method: 'PUT',
-      headers: this.headers(),
-      body: JSON.stringify(body)
-    });
-    if (r.status === 401) { Auth.logout(); return { ok: false, data: {} }; }
-    return { ok: r.ok, data: await r.json() };
+    try {
+      const r = await fetch(this.BASE + path, {
+        method: 'PUT',
+        headers: this.headers(),
+        body: JSON.stringify(body)
+      });
+      if (r.status === 401) { Auth.logout(); return { ok: false, data: {} }; }
+      let data = {};
+      try { data = await r.json(); } catch { data = {}; }
+      return { ok: r.ok, data };
+    } catch (e) {
+      console.error('API.put error:', path, e);
+      return { ok: false, data: { error: 'Network error.' } };
+    }
   },
 
   async del(path) {
-    const r = await fetch(this.BASE + path, {
-      method: 'DELETE',
-      headers: this.headers()
-    });
-    if (r.status === 401) { Auth.logout(); return { ok: false, data: {} }; }
-    return { ok: r.ok, data: await r.json() };
+    try {
+      const r = await fetch(this.BASE + path, {
+        method: 'DELETE',
+        headers: this.headers()
+      });
+      if (r.status === 401) { Auth.logout(); return { ok: false, data: {} }; }
+      let data = {};
+      try { data = await r.json(); } catch { data = {}; }
+      return { ok: r.ok, data };
+    } catch (e) {
+      console.error('API.del error:', path, e);
+      return { ok: false, data: { error: 'Network error.' } };
+    }
   }
 };
 

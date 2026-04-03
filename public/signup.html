@@ -151,16 +151,22 @@
     if (password !== confirmPassword) return showError('Passwords do not match.');
 
     btn.textContent = 'Creating account…'; btn.disabled = true;
-    const { ok, data } = await API.post('/api/auth/register', { fullName, username, email, password });
-    btn.textContent = 'Create Account'; btn.disabled = false;
+    try {
+      const { ok, data } = await API.post('/api/auth/register', { fullName, username, email, password });
+      btn.textContent = 'Create Account'; btn.disabled = false;
 
-    if (!ok) return showError(data.error || 'Registration failed.');
+      if (!ok) return showError(data.error || 'Registration failed.');
 
-    document.getElementById('register-screen').style.display = 'none';
-    document.getElementById('pending-screen').style.display = 'block';
-    document.getElementById('pending-msg').textContent = data.needsVerification
-      ? `Hi ${fullName}, please check your email for a 6-digit verification code to confirm your address.`
-      : `Hi ${fullName}, your access request has been submitted and is awaiting admin approval. You'll receive an email once your account is activated.`;
+      document.getElementById('register-screen').style.display = 'none';
+      document.getElementById('pending-screen').style.display = 'block';
+      document.getElementById('pending-msg').textContent = data.needsVerification
+        ? `Hi ${fullName}, please check your email for a 6-digit verification code to confirm your address.`
+        : `Hi ${fullName}, your access request has been submitted and is awaiting admin approval. You'll receive an email once your account is activated.`;
+    } catch (e) {
+      btn.textContent = 'Create Account'; btn.disabled = false;
+      showError('Unexpected error. Please try again.');
+      console.error('doRegister error:', e);
+    }
   }
 
   function showError(m){ const e=document.getElementById('error-msg'); e.textContent=m; e.style.display='flex'; }
