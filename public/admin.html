@@ -112,7 +112,7 @@ async function loadUsers() {
 }
 
 async function approveUser(id) {
-  showMsg('Approving user ' + id + '...', 'info');
+  alert('Approve clicked for user: ' + id);
   try {
     var r = await fetch('/api/admin/users/' + id + '/approve', {
       method: 'POST',
@@ -121,9 +121,9 @@ async function approveUser(id) {
     });
     var data = {};
     try { data = await r.json(); } catch(e) { data = { error: 'Server returned non-JSON: ' + r.status }; }
-    if (r.ok) { showMsg('User approved successfully!'); loadUsers(); }
-    else { showMsg('Approve failed: ' + (data.error || 'HTTP ' + r.status), 'error'); }
-  } catch (e) { showMsg('Network error: ' + e.message, 'error'); console.error('approveUser error:', e); }
+    if (r.ok) { alert('SUCCESS: User approved!'); loadUsers(); }
+    else { alert('FAILED: ' + (data.error || 'HTTP ' + r.status)); }
+  } catch (e) { alert('ERROR: ' + e.message); }
 }
 
 async function rejectUser(id) {
