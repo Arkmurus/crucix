@@ -1,37 +1,35 @@
-<div class="container-fluid">
+<div class="container-fluid bd-wrap">
 
-  <!-- Header -->
-  <div class="row mb-3">
-    <div class="col-12 d-flex flex-wrap align-items-center gap-3">
+  <!-- ── Header ── -->
+  <div class="bd-header mb-3">
+    <div class="bd-header-title">
+      <mat-icon class="bd-header-icon">trending_up</mat-icon>
       <div>
-        <h4 class="page-title mb-0">
-          <mat-icon style="vertical-align:middle;margin-right:6px">trending_up</mat-icon>
-          BD &amp; Strategy Intelligence
-        </h4>
-        <small class="text-muted" *ngIf="bd?.computedAt">
-          As of {{ bd.computedAt | date:'dd/MM/yyyy HH:mm':'Europe/London' }}
-        </small>
+        <h4 class="mb-0">BD &amp; Strategy Intelligence</h4>
+        <small *ngIf="bd?.computedAt">As of {{ bd.computedAt | date:'dd/MM/yyyy HH:mm':'Europe/London' }}</small>
       </div>
-      <!-- Summary pills + share -->
-      <div *ngIf="!loading" class="d-flex gap-2 flex-wrap ms-auto align-items-center">
-        <span class="badge bd-pill" style="background:#e53935">{{ counts.activeTenders || 0 }} TENDERS</span>
-        <span class="badge bd-pill" style="background:#43a047">{{ counts.contractAwards || 0 }} AWARDS</span>
-        <span class="badge bd-pill" style="background:#7b1fa2">{{ counts.strategicIdeas || 0 }} IDEAS</span>
-        <span class="badge bd-pill" style="background:#1565c0">{{ counts.pipelineDeals || 0 }} PIPELINE</span>
-        <button class="stage-btn" (click)="generateShareLink()" [disabled]="generatingShare"
-                title="Create shareable brief link (7 days)"
-                style="padding:4px 10px;font-size:0.72rem;display:flex;align-items:center;gap:4px">
-          <mat-icon style="font-size:13px;width:13px;height:13px">share</mat-icon>
-          {{ generatingShare ? '...' : 'Share Brief' }}
-        </button>
-        <span *ngIf="shareUrl" style="font-size:0.7rem;color:#42a5f5;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-              title="{{ shareUrl }}">
-          <a [href]="shareUrl" target="_blank" rel="noopener" style="color:#42a5f5">Brief link ↗</a>
-        </span>
+    </div>
+    <div *ngIf="!loading" class="bd-stats">
+      <div class="bd-stat" style="--sc:#e53935">
+        <span class="bd-stat-val">{{ counts.activeTenders || 0 }}</span>
+        <span class="bd-stat-lbl">TENDERS</span>
+      </div>
+      <div class="bd-stat" style="--sc:#43a047">
+        <span class="bd-stat-val">{{ counts.contractAwards || 0 }}</span>
+        <span class="bd-stat-lbl">AWARDS</span>
+      </div>
+      <div class="bd-stat" style="--sc:#7b1fa2">
+        <span class="bd-stat-val">{{ counts.strategicIdeas || 0 }}</span>
+        <span class="bd-stat-lbl">IDEAS</span>
+      </div>
+      <div class="bd-stat" style="--sc:#1565c0">
+        <span class="bd-stat-val">{{ counts.pipelineDeals || 0 }}</span>
+        <span class="bd-stat-lbl">PIPELINE</span>
       </div>
     </div>
   </div>
 
+  <!-- Loading -->
   <div *ngIf="loading" class="text-center py-5">
     <mat-spinner diameter="40" class="mx-auto"></mat-spinner>
   </div>
@@ -42,445 +40,468 @@
       No BD intelligence yet — run a sweep to populate tenders, contract awards, and strategic ideas.
     </div>
 
-    <!-- Tab bar -->
-    <div class="bd-tabs mb-3">
-      <button *ngIf="totalLeads > 0" class="bd-tab" [class.active]="activeTab==='leads'" (click)="activeTab='leads'"
-              style="border-color:#f44336">
-        <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:4px;color:#f44336">bolt</mat-icon>
-        Sales Leads
-        <span class="badge ms-1" style="background:#f44336;font-size:0.7rem">{{ totalLeads }}</span>
+    <!-- ── Tab bar ── -->
+    <div class="bnt mb-4">
+      <button *ngIf="totalLeads > 0" class="bnt-tab" [class.active]="activeTab==='leads'" (click)="activeTab='leads'">
+        <mat-icon>bolt</mat-icon> Sales Leads
+        <span class="bnt-badge" style="background:#f44336">{{ totalLeads }}</span>
       </button>
-      <button class="bd-tab" [class.active]="activeTab==='tenders'" (click)="activeTab='tenders'">
-        Tenders &amp; Contracts
-        <span class="badge ms-1" style="background:#e53935;font-size:0.7rem">{{ activeTenders.length + contracts.length }}</span>
+      <button class="bnt-tab" [class.active]="activeTab==='tenders'" (click)="activeTab='tenders'">
+        <mat-icon>description</mat-icon> Tenders &amp; Contracts
+        <span class="bnt-badge" style="background:#e53935">{{ activeTenders.length + contracts.length }}</span>
       </button>
-      <button class="bd-tab" [class.active]="activeTab==='ideas'" (click)="activeTab='ideas'">
-        Strategic Ideas
-        <span class="badge ms-1" style="background:#7b1fa2;font-size:0.7rem">{{ ideas.length }}</span>
+      <button class="bnt-tab" [class.active]="activeTab==='ideas'" (click)="activeTab='ideas'">
+        <mat-icon>lightbulb</mat-icon> Strategic Ideas
+        <span class="bnt-badge" style="background:#7b1fa2">{{ ideas.length }}</span>
       </button>
-      <button class="bd-tab" [class.active]="activeTab==='pipeline'" (click)="activeTab='pipeline'">
-        Deal Pipeline
-        <span class="badge ms-1" style="background:#1565c0;font-size:0.7rem">{{ pipeline.length }}</span>
+      <button class="bnt-tab" [class.active]="activeTab==='pipeline'" (click)="activeTab='pipeline'">
+        <mat-icon>account_tree</mat-icon> Pipeline
+        <span class="bnt-badge" style="background:#1565c0">{{ pipeline.length }}</span>
       </button>
-      <button *ngIf="strategy" class="bd-tab" [class.active]="activeTab==='strategy'" (click)="activeTab='strategy'">
-        AI Strategy
-        <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-left:4px;color:#ffd54f">auto_awesome</mat-icon>
+      <button *ngIf="strategy" class="bnt-tab" [class.active]="activeTab==='strategy'" (click)="activeTab='strategy'">
+        <mat-icon>auto_awesome</mat-icon> AI Strategy
       </button>
-      <button *ngIf="brain" class="bd-tab brain-tab" [class.active]="activeTab==='brain'" (click)="activeTab='brain'">
-        <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:5px;color:#ff6f00">psychology</mat-icon>
-        The Brain
+      <button *ngIf="brain" class="bnt-tab bnt-brain" [class.active]="activeTab==='brain'" (click)="activeTab='brain'">
+        <mat-icon>psychology</mat-icon> The Brain
       </button>
-      <button class="bd-tab" [class.active]="activeTab==='compliance'" (click)="activeTab='compliance'"
-              style="border-color:#00897b">
-        <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:4px;color:#00897b">gavel</mat-icon>
-        Compliance Screen
+      <button class="bnt-tab bnt-compliance" [class.active]="activeTab==='compliance'" (click)="activeTab='compliance'">
+        <mat-icon>gavel</mat-icon> Compliance
       </button>
-      <button class="bd-tab" [class.active]="activeTab==='mlleads'" (click)="activeTab='mlleads'"
-              style="border-color:#7c4dff">
-        <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:4px;color:#7c4dff">smart_toy</mat-icon>
-        ML Leads
-        <span *ngIf="mlLeads.length > 0" class="badge ms-1" style="background:#7c4dff;font-size:0.7rem">{{ mlLeads.length }}</span>
+      <button class="bnt-tab bnt-ml" [class.active]="activeTab==='mlleads'" (click)="activeTab='mlleads'">
+        <mat-icon>smart_toy</mat-icon> ML Leads
+        <span *ngIf="mlLeads.length > 0" class="bnt-badge" style="background:#7c4dff">{{ mlLeads.length }}</span>
       </button>
     </div>
 
-    <!-- ── SALES LEADS tab ── -->
+    <!-- ══════════════════════════════════════════════════════════════════
+         SALES LEADS TAB
+    ══════════════════════════════════════════════════════════════════ -->
     <div *ngIf="activeTab==='leads'">
 
-      <div *ngIf="totalLeads === 0" class="text-muted" style="font-size:0.85rem">
+      <div *ngIf="totalLeads === 0" class="ic-empty">
         No qualified leads yet — brain will generate leads on next sweep.
       </div>
 
-      <!-- Brain-enriched leads (HOT) -->
+      <!-- HOT brain leads -->
       <div *ngIf="hotLeads.length > 0" class="mb-4">
-        <div class="section-label" style="color:#f44336">🔥 HOT LEADS — Act Now</div>
-        <div *ngFor="let l of hotLeads" class="mb-3">
-          <mat-card style="border-left:4px solid #f44336;background:#1e1e1e">
-            <mat-card-content style="padding:16px">
-              <div class="card-tags mb-2">
-                <span class="badge" style="background:#f44336;color:#fff;font-size:0.7rem">HOT</span>
-                <span class="badge" style="background:#37474f;color:#ecf0f1;font-size:0.7rem">{{ l.type || 'LEAD' }}</span>
-                <strong style="color:#ecf0f1">{{ l.market }}</strong>
-                <span *ngIf="l.estimatedValue" style="color:#ffd54f;font-weight:600;font-size:0.85rem;margin-left:auto">
-                  {{ l.estimatedValue }}
-                </span>
-              </div>
-              <div style="color:#ecf0f1;font-size:0.95rem;margin-bottom:10px;font-weight:500">{{ l.lead }}</div>
-
-              <div class="row g-2" style="font-size:0.82rem">
-                <div *ngIf="l.procurementAuthority" class="col-12 col-md-6">
-                  <span style="color:#90a4ae">Procurement Authority:</span>
-                  <span style="color:#e0e0e0;margin-left:6px">{{ l.procurementAuthority }}</span>
-                </div>
-                <div *ngIf="l.oemRecommendation" class="col-12 col-md-6">
-                  <span style="color:#90a4ae">Recommended OEM:</span>
-                  <span style="color:#e0e0e0;margin-left:6px">{{ l.oemRecommendation }}</span>
-                </div>
-              </div>
-
-              <div *ngIf="l.nextStep" class="mt-2 p-2 rounded" style="background:#1b3a2d;border-left:3px solid #4caf50">
-                <span style="color:#81c784;font-size:0.78rem;font-weight:600">NEXT STEP (48h):</span>
-                <span style="color:#e0e0e0;font-size:0.85rem;margin-left:6px">{{ l.nextStep }}</span>
-              </div>
-
-              <div class="d-flex align-items-center gap-2 mt-2">
-                <a *ngIf="l.portalUrl" [href]="l.portalUrl" target="_blank" rel="noopener"
-                   style="color:#42a5f5;font-size:0.8rem;text-decoration:none">
-                  <mat-icon style="font-size:12px;width:12px;height:12px;vertical-align:middle">open_in_new</mat-icon>
-                  Procurement Portal
-                </a>
-                <div class="ms-auto d-flex gap-1" *ngIf="!isFeedbackSent(l)">
-                  <button class="feedback-btn positive" title="Good lead — confirm" (click)="sendFeedback(l,'positive')">👍</button>
-                  <button class="feedback-btn negative" title="Not relevant — dismiss" (click)="sendFeedback(l,'negative')">👎</button>
-                </div>
-                <span *ngIf="isFeedbackSent(l)" style="font-size:0.72rem;color:#546e7a;margin-left:auto">✓ feedback sent</span>
-              </div>
-            </mat-card-content>
-          </mat-card>
+        <div class="sec-label" style="color:#f44336">🔥 HOT LEADS — Act Now</div>
+        <div *ngFor="let l of hotLeads" class="intel-card" style="border-left-color:#f44336">
+          <div class="ic-top">
+            <div class="ic-chips">
+              <span class="ic-chip" style="background:#f44336">HOT</span>
+              <span class="ic-chip ic-chip-dim">{{ l.type || 'LEAD' }}</span>
+              <strong class="ic-market">{{ l.market }}</strong>
+              <span *ngIf="l.estimatedValue" class="ic-val">{{ l.estimatedValue }}</span>
+            </div>
+            <div class="ic-actions">
+              <button class="ic-share-btn" title="Share this lead" (click)="openCardShare(fmtLead(l))">
+                <mat-icon>ios_share</mat-icon>
+              </button>
+            </div>
+          </div>
+          <div class="ic-body">
+            <div class="ic-title">{{ l.lead }}</div>
+            <div *ngIf="l.procurementAuthority" class="ic-row">
+              <span class="ic-lbl">Authority</span><span>{{ l.procurementAuthority }}</span>
+            </div>
+            <div *ngIf="l.oemRecommendation" class="ic-row">
+              <span class="ic-lbl">OEM</span><span>{{ l.oemRecommendation }}</span>
+            </div>
+            <div *ngIf="l.nextStep" class="ic-nextstep">
+              <mat-icon>arrow_forward</mat-icon><span>{{ l.nextStep }}</span>
+            </div>
+          </div>
+          <div class="ic-foot">
+            <a *ngIf="l.portalUrl" [href]="l.portalUrl" target="_blank" rel="noopener" class="ic-link">Procurement Portal ↗</a>
+            <div class="ic-feedback ms-auto" *ngIf="!isFeedbackSent(l)">
+              <button class="fb-btn" title="Good lead" (click)="sendFeedback(l,'positive')">👍</button>
+              <button class="fb-btn" title="Not relevant" (click)="sendFeedback(l,'negative')">👎</button>
+            </div>
+            <span *ngIf="isFeedbackSent(l)" class="ic-sent ms-auto">✓ feedback sent</span>
+          </div>
         </div>
       </div>
 
-      <!-- HOT tenders from rule-based scoring -->
+      <!-- HOT tenders (rule-based) -->
       <div *ngIf="hotTenders.length > 0" class="mb-4">
-        <div class="section-label" style="color:#ff7043">🔥 Verified HOT Tenders</div>
-        <div *ngFor="let t of hotTenders" class="mb-2">
-          <mat-card style="border-left:4px solid #ff7043;background:#1e1e1e">
-            <mat-card-content style="padding:14px 16px">
-              <div class="card-tags mb-1">
-                <span class="badge" style="background:#ff7043;color:#fff;font-size:0.7rem">HOT</span>
-                <span class="badge" [style.background]="typeColor(t.type)" style="color:#fff;font-size:0.7rem">{{ t.type }}</span>
-                <mat-icon *ngIf="t.lusophone" style="font-size:14px;width:14px;height:14px;color:#2196f3" title="Lusophone">flag</mat-icon>
-                <strong style="color:#ecf0f1">{{ t.market }}</strong>
-                <span *ngIf="t.winProbability != null" class="win-prob-badge ms-auto"
-                      [style.color]="winProbColor(t.winProbability)"
-                      [style.border-color]="winProbColor(t.winProbability)">
-                  {{ t.winProbability }}% WIN
-                </span>
-              </div>
-              <div style="color:#ecf0f1;font-size:0.9rem;margin-bottom:6px">{{ t.title }}</div>
-              <div *ngIf="t.summary" style="color:#90a4ae;font-size:0.8rem;margin-bottom:8px">{{ t.summary | slice:0:200 }}</div>
-              <div class="d-flex gap-3 align-items-center" style="font-size:0.78rem">
-                <span style="color:#78909c">{{ t.source }} · {{ t.date }}</span>
-                <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener"
-                   style="color:#42a5f5;text-decoration:none;margin-left:auto">View Tender →</a>
-                <a *ngIf="!t.url && t.procurementPortal" [href]="t.procurementPortal" target="_blank" rel="noopener"
-                   style="color:#78909c;text-decoration:none;font-size:0.75rem;margin-left:auto">Portal →</a>
-              </div>
-            </mat-card-content>
-          </mat-card>
+        <div class="sec-label" style="color:#ff7043">🔥 Verified HOT Tenders</div>
+        <div *ngFor="let t of hotTenders" class="intel-card" style="border-left-color:#ff7043">
+          <div class="ic-top">
+            <div class="ic-chips">
+              <span class="ic-chip" style="background:#ff7043">HOT</span>
+              <span class="ic-chip" [style.background]="typeColor(t.type)">{{ t.type }}</span>
+              <mat-icon *ngIf="t.lusophone" class="ic-flag" title="Lusophone advantage">flag</mat-icon>
+              <strong class="ic-market">{{ t.market }}</strong>
+            </div>
+            <div class="ic-actions">
+              <span *ngIf="t.winProbability != null" class="ic-win"
+                    [style.color]="winProbColor(t.winProbability)"
+                    [style.border-color]="winProbColor(t.winProbability)">{{ t.winProbability }}% WIN</span>
+              <button class="ic-share-btn" title="Share" (click)="openCardShare(fmtTender(t), t.url)">
+                <mat-icon>ios_share</mat-icon>
+              </button>
+            </div>
+          </div>
+          <div class="ic-body">
+            <div class="ic-title">{{ t.title }}</div>
+            <div *ngIf="t.summary && t.summary !== t.title" class="ic-summary">{{ t.summary | slice:0:200 }}</div>
+          </div>
+          <div class="ic-foot">
+            <span class="ic-source">{{ t.source }} · {{ t.date }}</span>
+            <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener" class="ic-link">View Tender ↗</a>
+          </div>
         </div>
       </div>
 
-      <!-- Warm leads from brain -->
+      <!-- WARM brain leads -->
       <div *ngIf="warmLeads.length > 0" class="mb-4">
-        <div class="section-label" style="color:#ff9800">⚡ WARM LEADS — Qualify This Week</div>
-        <div *ngFor="let l of warmLeads" class="mb-2">
-          <mat-card style="border-left:4px solid #ff9800;background:#1e1e1e">
-            <mat-card-content style="padding:14px 16px">
-              <div class="card-tags mb-1">
-                <span class="badge" style="background:#ff9800;color:#fff;font-size:0.7rem">WARM</span>
-                <span class="badge" style="background:#37474f;color:#ecf0f1;font-size:0.7rem">{{ l.type || 'LEAD' }}</span>
-                <strong style="color:#ecf0f1">{{ l.market }}</strong>
-                <span *ngIf="l.estimatedValue" style="color:#ffd54f;font-size:0.82rem;margin-left:auto">{{ l.estimatedValue }}</span>
-              </div>
-              <div style="color:#ecf0f1;font-size:0.9rem;margin-bottom:6px">{{ l.lead }}</div>
-              <div *ngIf="l.oemRecommendation" style="color:#90a4ae;font-size:0.8rem;margin-bottom:6px">
-                OEM: {{ l.oemRecommendation }}
-              </div>
-              <div *ngIf="l.nextStep" style="color:#80cbc4;font-size:0.8rem">→ {{ l.nextStep }}</div>
-              <div class="d-flex align-items-center mt-2">
-                <a *ngIf="l.portalUrl" [href]="l.portalUrl" target="_blank" rel="noopener"
-                   style="color:#42a5f5;font-size:0.75rem;text-decoration:none">
-                  Procurement Portal →
-                </a>
-                <div class="ms-auto d-flex gap-1" *ngIf="!isFeedbackSent(l)">
-                  <button class="feedback-btn positive" title="Good lead" (click)="sendFeedback(l,'positive')">👍</button>
-                  <button class="feedback-btn negative" title="Not relevant" (click)="sendFeedback(l,'negative')">👎</button>
-                </div>
-                <span *ngIf="isFeedbackSent(l)" style="font-size:0.72rem;color:#546e7a;margin-left:auto">✓ sent</span>
-              </div>
-            </mat-card-content>
-          </mat-card>
+        <div class="sec-label" style="color:#ff9800">⚡ WARM LEADS — Qualify This Week</div>
+        <div *ngFor="let l of warmLeads" class="intel-card" style="border-left-color:#ff9800">
+          <div class="ic-top">
+            <div class="ic-chips">
+              <span class="ic-chip" style="background:#ff9800">WARM</span>
+              <span class="ic-chip ic-chip-dim">{{ l.type || 'LEAD' }}</span>
+              <strong class="ic-market">{{ l.market }}</strong>
+              <span *ngIf="l.estimatedValue" class="ic-val">{{ l.estimatedValue }}</span>
+            </div>
+            <div class="ic-actions">
+              <button class="ic-share-btn" title="Share" (click)="openCardShare(fmtLead(l))">
+                <mat-icon>ios_share</mat-icon>
+              </button>
+            </div>
+          </div>
+          <div class="ic-body">
+            <div class="ic-title">{{ l.lead }}</div>
+            <div *ngIf="l.oemRecommendation" class="ic-row">
+              <span class="ic-lbl">OEM</span><span>{{ l.oemRecommendation }}</span>
+            </div>
+            <div *ngIf="l.nextStep" class="ic-nextstep">
+              <mat-icon>arrow_forward</mat-icon><span>{{ l.nextStep }}</span>
+            </div>
+          </div>
+          <div class="ic-foot">
+            <a *ngIf="l.portalUrl" [href]="l.portalUrl" target="_blank" rel="noopener" class="ic-link">Portal ↗</a>
+            <div class="ic-feedback ms-auto" *ngIf="!isFeedbackSent(l)">
+              <button class="fb-btn" (click)="sendFeedback(l,'positive')">👍</button>
+              <button class="fb-btn" (click)="sendFeedback(l,'negative')">👎</button>
+            </div>
+            <span *ngIf="isFeedbackSent(l)" class="ic-sent ms-auto">✓ sent</span>
+          </div>
         </div>
       </div>
 
-      <!-- Warm tenders from rule-based scoring -->
+      <!-- WARM tenders -->
       <div *ngIf="warmTenders.length > 0" class="mb-4">
-        <div class="section-label" style="color:#ffa726">⚡ Warm Tenders</div>
-        <div *ngFor="let t of warmTenders" class="mb-2">
-          <mat-card style="border-left:4px solid #ffa726;background:#1e1e1e">
-            <mat-card-content style="padding:12px 16px">
-              <div class="card-tags mb-1">
-                <span class="badge" style="background:#ffa726;color:#fff;font-size:0.7rem">WARM</span>
-                <span class="badge" [style.background]="typeColor(t.type)" style="color:#fff;font-size:0.7rem">{{ t.type }}</span>
-                <strong style="color:#ecf0f1">{{ t.market }}</strong>
-                <span *ngIf="t.winProbability != null" class="win-prob-badge ms-auto"
-                      [style.color]="winProbColor(t.winProbability)"
-                      [style.border-color]="winProbColor(t.winProbability)">
-                  {{ t.winProbability }}%
-                </span>
-              </div>
-              <div style="color:#ecf0f1;font-size:0.88rem;margin-bottom:4px">{{ t.title }}</div>
-              <div class="d-flex gap-2 align-items-center" style="font-size:0.75rem">
-                <span style="color:#78909c">{{ t.source }} · {{ t.date }}</span>
-                <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener"
-                   style="color:#42a5f5;text-decoration:none;margin-left:auto">View →</a>
-              </div>
-            </mat-card-content>
-          </mat-card>
+        <div class="sec-label" style="color:#ffa726">⚡ Warm Tenders</div>
+        <div *ngFor="let t of warmTenders" class="intel-card" style="border-left-color:#ffa726">
+          <div class="ic-top">
+            <div class="ic-chips">
+              <span class="ic-chip" style="background:#ffa726">WARM</span>
+              <span class="ic-chip" [style.background]="typeColor(t.type)">{{ t.type }}</span>
+              <strong class="ic-market">{{ t.market }}</strong>
+            </div>
+            <div class="ic-actions">
+              <span *ngIf="t.winProbability != null" class="ic-win"
+                    [style.color]="winProbColor(t.winProbability)"
+                    [style.border-color]="winProbColor(t.winProbability)">{{ t.winProbability }}%</span>
+              <button class="ic-share-btn" title="Share" (click)="openCardShare(fmtTender(t), t.url)">
+                <mat-icon>ios_share</mat-icon>
+              </button>
+            </div>
+          </div>
+          <div class="ic-body">
+            <div class="ic-title">{{ t.title }}</div>
+          </div>
+          <div class="ic-foot">
+            <span class="ic-source">{{ t.source }} · {{ t.date }}</span>
+            <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener" class="ic-link">View ↗</a>
+          </div>
         </div>
       </div>
 
       <!-- Cold leads -->
       <div *ngIf="coldLeads.length > 0" class="mb-4">
-        <div class="section-label" style="color:#78909c">❄️ Cold / Monitor</div>
-        <div *ngFor="let l of coldLeads" class="mb-1">
-          <div style="padding:8px 12px;background:#1a1a1a;border-radius:4px;border-left:3px solid #37474f;font-size:0.82rem">
-            <strong style="color:#90a4ae">{{ l.market }}</strong>
-            <span style="color:#616161;margin-left:8px">{{ l.lead }}</span>
-            <span *ngIf="l.estimatedValue" style="color:#455a64;margin-left:8px">· {{ l.estimatedValue }}</span>
-          </div>
+        <div class="sec-label" style="color:#78909c">❄️ Cold / Monitor</div>
+        <div *ngFor="let l of coldLeads" class="ic-cold">
+          <strong>{{ l.market }}</strong>
+          <span>{{ l.lead }}</span>
+          <span *ngIf="l.estimatedValue" class="ic-val-cold">{{ l.estimatedValue }}</span>
         </div>
       </div>
 
-    </div>
+    </div><!-- /leads -->
 
-    <!-- ── TENDERS & CONTRACTS tab ── -->
+    <!-- ══════════════════════════════════════════════════════════════════
+         TENDERS & CONTRACTS TAB
+    ══════════════════════════════════════════════════════════════════ -->
     <div *ngIf="activeTab==='tenders'">
 
-      <div *ngIf="!activeTenders.length && !contracts.length && !budgetSignals.length" class="text-muted" style="font-size:0.85rem">
+      <div *ngIf="!activeTenders.length && !contracts.length && !budgetSignals.length" class="ic-empty">
         No tenders or contract awards found in current sweep. Signals detected after next procurement feed sweep.
       </div>
 
       <!-- Active Tenders -->
       <div *ngIf="activeTenders.length > 0" class="mb-4">
-        <div class="section-label">Active Tenders / RFPs</div>
-        <div *ngFor="let t of activeTenders" class="mb-2">
-          <mat-card [style.border-left]="'4px solid #e53935'">
-            <mat-card-content style="padding:14px 16px">
-              <div class="card-tags">
-                <span class="badge" style="background:#e53935;color:#fff;font-size:0.7rem">TENDER</span>
-                <span class="badge" [style.background]="tierColor(t.priority)" style="color:#fff;font-size:0.7rem">{{ t.priority }}</span>
-                <mat-icon *ngIf="t.lusophone" style="font-size:14px;width:14px;height:14px;color:#2196f3" title="Lusophone advantage">flag</mat-icon>
-                <strong style="color:#ecf0f1">{{ t.market }}</strong>
-                <span *ngIf="t.winProbability != null" class="win-prob-badge ms-auto"
-                      [style.color]="winProbColor(t.winProbability)"
-                      [style.border-color]="winProbColor(t.winProbability)">
-                  {{ t.winProbability }}% WIN
-                </span>
-                <span *ngIf="t.winProbability == null" class="card-meta">{{ t.date }}</span>
-              </div>
-              <div class="tender-title">{{ t.title }}</div>
-              <div class="tender-summary" *ngIf="t.summary && t.summary !== t.title">{{ t.summary }}</div>
-              <div class="card-footer">
-                <span style="font-size:0.75rem;color:#78909c">{{ t.source }}</span>
-                <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener" class="src-link">
-                  <mat-icon style="font-size:13px;width:13px;height:13px">open_in_new</mat-icon>View tender
-                </a>
-              </div>
-            </mat-card-content>
-          </mat-card>
+        <div class="sec-label">Active Tenders / RFPs</div>
+        <div *ngFor="let t of activeTenders" class="intel-card" [style.border-left-color]="typeColor(t.type)">
+          <div class="ic-top">
+            <div class="ic-chips">
+              <span class="ic-chip" style="background:#e53935">TENDER</span>
+              <span class="ic-chip" [style.background]="tierColor(t.priority)">{{ t.priority }}</span>
+              <mat-icon *ngIf="t.lusophone" class="ic-flag" title="Lusophone advantage">flag</mat-icon>
+              <strong class="ic-market">{{ t.market }}</strong>
+            </div>
+            <div class="ic-actions">
+              <span *ngIf="t.winProbability != null" class="ic-win"
+                    [style.color]="winProbColor(t.winProbability)"
+                    [style.border-color]="winProbColor(t.winProbability)">{{ t.winProbability }}% WIN</span>
+              <span *ngIf="t.winProbability == null" class="ic-date">{{ t.date }}</span>
+              <button class="ic-share-btn" title="Share" (click)="openCardShare(fmtTender(t), t.url)">
+                <mat-icon>ios_share</mat-icon>
+              </button>
+            </div>
+          </div>
+          <div class="ic-body">
+            <div class="ic-title">{{ t.title }}</div>
+            <div *ngIf="t.summary && t.summary !== t.title" class="ic-summary">{{ t.summary }}</div>
+          </div>
+          <div class="ic-foot">
+            <span class="ic-source">{{ t.source }}</span>
+            <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener" class="ic-link">
+              <mat-icon>open_in_new</mat-icon> View tender
+            </a>
+          </div>
         </div>
       </div>
 
       <!-- Contract Awards -->
       <div *ngIf="contracts.length > 0" class="mb-4">
-        <div class="section-label">Contract Awards</div>
-        <div *ngFor="let t of contracts" class="mb-2">
-          <mat-card [style.border-left]="'4px solid #43a047'">
-            <mat-card-content style="padding:14px 16px">
-              <div class="card-tags">
-                <span class="badge" style="background:#43a047;color:#fff;font-size:0.7rem">CONTRACT AWARD</span>
-                <span class="badge" [style.background]="tierColor(t.priority)" style="color:#fff;font-size:0.7rem">{{ t.priority }}</span>
-                <strong style="color:#ecf0f1">{{ t.market }}</strong>
-              </div>
-              <div class="tender-title">{{ t.title }}</div>
-              <div class="tender-summary" *ngIf="t.summary && t.summary !== t.title">{{ t.summary }}</div>
-              <div class="card-footer">
-                <span style="font-size:0.75rem;color:#78909c">{{ t.source }}</span>
-                <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener" class="src-link">
-                  <mat-icon style="font-size:13px;width:13px;height:13px">open_in_new</mat-icon>View award
-                </a>
-              </div>
-            </mat-card-content>
-          </mat-card>
+        <div class="sec-label">Contract Awards</div>
+        <div *ngFor="let t of contracts" class="intel-card" style="border-left-color:#43a047">
+          <div class="ic-top">
+            <div class="ic-chips">
+              <span class="ic-chip" style="background:#43a047">AWARD</span>
+              <span class="ic-chip" [style.background]="tierColor(t.priority)">{{ t.priority }}</span>
+              <strong class="ic-market">{{ t.market }}</strong>
+            </div>
+            <div class="ic-actions">
+              <button class="ic-share-btn" title="Share" (click)="openCardShare(fmtTender(t), t.url)">
+                <mat-icon>ios_share</mat-icon>
+              </button>
+            </div>
+          </div>
+          <div class="ic-body">
+            <div class="ic-title">{{ t.title }}</div>
+            <div *ngIf="t.summary && t.summary !== t.title" class="ic-summary">{{ t.summary }}</div>
+          </div>
+          <div class="ic-foot">
+            <span class="ic-source">{{ t.source }}</span>
+            <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener" class="ic-link">
+              <mat-icon>open_in_new</mat-icon> View award
+            </a>
+          </div>
         </div>
       </div>
 
       <!-- Budget Signals -->
       <div *ngIf="budgetSignals.length > 0">
-        <div class="section-label">Budget &amp; Finance Signals</div>
-        <div *ngFor="let t of budgetSignals" class="mb-2">
-          <mat-card class="tender-card" [style.border-left]="'5px solid #1976d2'">
-            <mat-card-content style="padding:14px">
-              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                <span class="badge" style="background:#1976d2;color:#fff;font-size:0.72rem">BUDGET SIGNAL</span>
-                <span class="badge" [style.background]="tierColor(t.priority)" style="color:#fff;font-size:0.72rem">{{ t.priority }}</span>
-                <span class="fw-bold">{{ t.market }}</span>
-              </div>
-              <div class="tender-title">{{ t.title }}</div>
-              <div class="tender-summary text-muted">{{ t.summary }}</div>
-              <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener" class="src-link mt-2 d-inline-flex align-items-center gap-1">
-                <mat-icon style="font-size:13px;width:13px;height:13px">open_in_new</mat-icon>
-                View source
-              </a>
-            </mat-card-content>
-          </mat-card>
+        <div class="sec-label">Budget &amp; Finance Signals</div>
+        <div *ngFor="let t of budgetSignals" class="intel-card" style="border-left-color:#1976d2">
+          <div class="ic-top">
+            <div class="ic-chips">
+              <span class="ic-chip" style="background:#1976d2">BUDGET</span>
+              <span class="ic-chip" [style.background]="tierColor(t.priority)">{{ t.priority }}</span>
+              <strong class="ic-market">{{ t.market }}</strong>
+            </div>
+            <div class="ic-actions">
+              <button class="ic-share-btn" title="Share" (click)="openCardShare(fmtTender(t), t.url)">
+                <mat-icon>ios_share</mat-icon>
+              </button>
+            </div>
+          </div>
+          <div class="ic-body">
+            <div class="ic-title">{{ t.title }}</div>
+            <div *ngIf="t.summary" class="ic-summary">{{ t.summary }}</div>
+          </div>
+          <div class="ic-foot">
+            <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener" class="ic-link">
+              <mat-icon>open_in_new</mat-icon> View source
+            </a>
+          </div>
         </div>
       </div>
 
-    </div><!-- /tenders tab -->
+    </div><!-- /tenders -->
 
-    <!-- ── STRATEGIC IDEAS tab ── -->
+    <!-- ══════════════════════════════════════════════════════════════════
+         STRATEGIC IDEAS TAB
+    ══════════════════════════════════════════════════════════════════ -->
     <div *ngIf="activeTab==='ideas'">
 
-      <div *ngIf="!ideas.length" class="text-muted" style="font-size:0.85rem">
+      <div *ngIf="!ideas.length" class="ic-empty">
         No strategic ideas detected yet. Ideas emerge from intelligence convergence — run a full sweep with active market signals.
       </div>
 
-      <div *ngFor="let idea of ideas" class="mb-2">
-        <mat-card class="tender-card" [style.border-left]="'5px solid ' + tierColor(idea.priority)">
-          <mat-card-content style="padding:14px">
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-              <span class="badge" style="background:#7b1fa2;color:#fff;font-size:0.72rem">STRATEGIC IDEA</span>
-              <span class="badge" [style.background]="tierColor(idea.priority)" style="color:#fff;font-size:0.72rem">{{ idea.priority }}</span>
-              <mat-icon *ngIf="idea.lusophone" style="font-size:15px;width:15px;height:15px;color:#2159d5" title="Lusophone advantage">flag</mat-icon>
-              <span class="fw-bold">{{ idea.market }}</span>
-              <span class="idea-type-badge ms-auto">{{ idea.type }}</span>
-              <span class="text-muted" style="font-size:0.72rem">score {{ idea.score }}</span>
+      <div *ngFor="let idea of ideas" class="intel-card" [style.border-left-color]="tierColor(idea.priority)">
+        <div class="ic-top">
+          <div class="ic-chips">
+            <span class="ic-chip" style="background:#7b1fa2">IDEA</span>
+            <span class="ic-chip" [style.background]="tierColor(idea.priority)">{{ idea.priority }}</span>
+            <mat-icon *ngIf="idea.lusophone" class="ic-flag" title="Lusophone advantage">flag</mat-icon>
+            <strong class="ic-market">{{ idea.market }}</strong>
+          </div>
+          <div class="ic-actions">
+            <span class="ic-type-badge">{{ idea.type }}</span>
+            <button class="ic-share-btn" title="Share" (click)="openCardShare(fmtIdea(idea))">
+              <mat-icon>ios_share</mat-icon>
+            </button>
+          </div>
+        </div>
+        <div class="ic-body">
+          <div class="ic-title">{{ idea.rationale }}</div>
+          <div class="ic-nextstep">
+            <mat-icon>bolt</mat-icon><span>{{ idea.actionStep }}</span>
+          </div>
+          <div *ngIf="idea.sources?.length" class="mt-2" style="border-top:1px solid rgba(255,255,255,0.07);padding-top:8px">
+            <div *ngFor="let src of idea.sources" style="padding:2px 0;min-width:0">
+              <a *ngIf="src.url" [href]="src.url" target="_blank" rel="noopener" class="ic-link" style="font-size:0.78rem">
+                <mat-icon style="font-size:12px;width:12px;height:12px">open_in_new</mat-icon>
+                {{ src.title | slice:0:80 }}{{ (src.title?.length > 80) ? '…' : '' }}
+              </a>
+              <span *ngIf="!src.url" class="ic-source">{{ src.title }}</span>
             </div>
-
-            <div class="tender-title">{{ idea.rationale }}</div>
-
-            <div class="action-step mt-2">
-              <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;color:#ffd54f;margin-right:4px">bolt</mat-icon>
-              <span>{{ idea.actionStep }}</span>
-            </div>
-
-            <div class="d-flex gap-2 mt-2 flex-wrap align-items-center">
-              <span class="text-muted" style="font-size:0.75rem">{{ idea.signals }} signal(s)</span>
-              <span *ngIf="idea.devFinance" class="text-info" style="font-size:0.75rem">💰 Dev finance detected</span>
-            </div>
-
-            <!-- Source links -->
-            <div *ngIf="idea.sources?.length" class="mt-2" style="border-top:1px solid rgba(255,255,255,0.07);padding-top:8px">
-              <div *ngFor="let src of idea.sources" class="src-row">
-                <a *ngIf="src.url" [href]="src.url" target="_blank" rel="noopener" class="src-link">
-                  <mat-icon style="font-size:12px;width:12px;height:12px;vertical-align:middle">open_in_new</mat-icon>
-                  {{ src.title | slice:0:80 }}{{ (src.title?.length > 80) ? '…' : '' }}
-                </a>
-                <span *ngIf="!src.url" class="text-muted" style="font-size:0.75rem">{{ src.title }}</span>
-              </div>
-            </div>
-
-          </mat-card-content>
-        </mat-card>
+          </div>
+        </div>
+        <div class="ic-foot">
+          <span class="ic-source">{{ idea.signals }} signal(s)</span>
+          <span *ngIf="idea.devFinance" class="ic-badge-info">💰 Dev finance</span>
+          <span *ngIf="idea.score" class="ic-source ms-auto">score {{ idea.score }}</span>
+        </div>
       </div>
 
-    </div><!-- /ideas tab -->
+    </div><!-- /ideas -->
 
-    <!-- ── PIPELINE tab ── -->
+    <!-- ══════════════════════════════════════════════════════════════════
+         PIPELINE TAB
+    ══════════════════════════════════════════════════════════════════ -->
     <div *ngIf="activeTab==='pipeline'">
 
-      <div *ngIf="!pipeline.length" class="text-muted" style="font-size:0.85rem">
+      <div *ngIf="!pipeline.length" class="ic-empty">
         Pipeline is empty — confirmed tenders are auto-tracked here after the first sweep detects them.
       </div>
 
-      <div *ngFor="let deal of pipeline" class="mb-2">
-        <mat-card class="tender-card" [style.border-left]="'5px solid ' + stageColor(deal.stage)">
-          <mat-card-content style="padding:14px">
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-              <span class="badge" [style.background]="stageColor(deal.stage)" style="color:#fff;font-size:0.72rem">{{ deal.stage }}</span>
-              <span class="badge" style="background:#546e7a;color:#fff;font-size:0.72rem">{{ deal.type }}</span>
-              <span class="fw-bold">{{ deal.market }}</span>
-              <span class="text-muted ms-auto" style="font-size:0.72rem">{{ deal.detectedAt | date:'dd/MM/yyyy' }}</span>
+      <div *ngFor="let deal of pipeline" class="intel-card" [style.border-left-color]="stageColor(deal.stage)">
+        <div class="ic-top">
+          <div class="ic-chips">
+            <span class="ic-chip" [style.background]="stageColor(deal.stage)">{{ deal.stage }}</span>
+            <span class="ic-chip ic-chip-dim">{{ deal.type }}</span>
+            <strong class="ic-market">{{ deal.market }}</strong>
+          </div>
+          <div class="ic-actions">
+            <span class="ic-date">{{ deal.detectedAt | date:'dd/MM/yy' }}</span>
+            <button class="ic-share-btn" title="Share" (click)="openCardShare(fmtDeal(deal), deal.url)">
+              <mat-icon>ios_share</mat-icon>
+            </button>
+          </div>
+        </div>
+        <div class="ic-body">
+          <div class="ic-title">{{ deal.title }}</div>
+          <div class="d-flex align-items-center gap-2 flex-wrap mt-2">
+            <span class="ic-lbl">Stage:</span>
+            <div class="stage-btns">
+              <button *ngFor="let s of stageOptions" class="stage-btn"
+                      [class.active]="deal.stage === s"
+                      [disabled]="updatingStage === deal.id"
+                      (click)="updateStage(deal, s)">{{ s }}</button>
             </div>
-            <div class="tender-title">{{ deal.title }}</div>
-            <div class="d-flex gap-2 mt-2 flex-wrap align-items-center">
-              <a *ngIf="deal.url" [href]="deal.url" target="_blank" rel="noopener" class="src-link">
-                <mat-icon style="font-size:13px;width:13px;height:13px;vertical-align:middle">open_in_new</mat-icon>
-                View source
-              </a>
-              <span class="text-muted" style="font-size:0.75rem">Source: {{ deal.source }}</span>
-            </div>
-            <!-- Stage updater -->
-            <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
-              <span class="text-muted" style="font-size:0.75rem">Update stage:</span>
-              <div class="stage-btns">
-                <button *ngFor="let s of stageOptions" class="stage-btn"
-                        [class.active]="deal.stage === s"
-                        [disabled]="updatingStage === deal.id"
-                        (click)="updateStage(deal, s)">{{ s }}</button>
-              </div>
-              <button class="feedback-btn positive ms-auto" title="Record deal outcome for learning" (click)="openOutcomeModal(deal)"
-                      style="font-size:0.72rem;padding:3px 8px;border-radius:4px">
-                <mat-icon style="font-size:12px;width:12px;height:12px;vertical-align:middle">how_to_reg</mat-icon>
-                Record Outcome
-              </button>
-            </div>
-          </mat-card-content>
-        </mat-card>
+          </div>
+        </div>
+        <div class="ic-foot">
+          <a *ngIf="deal.url" [href]="deal.url" target="_blank" rel="noopener" class="ic-link">
+            <mat-icon>open_in_new</mat-icon> Source
+          </a>
+          <span class="ic-source">{{ deal.source }}</span>
+          <button class="fb-btn ms-auto" title="Record outcome" (click)="openOutcomeModal(deal)"
+                  style="font-size:0.72rem;padding:3px 8px;display:flex;align-items:center;gap:4px">
+            <mat-icon style="font-size:12px;width:12px;height:12px">how_to_reg</mat-icon> Outcome
+          </button>
+        </div>
       </div>
 
-    </div><!-- /pipeline tab -->
+    </div><!-- /pipeline -->
 
-    <!-- ── AI STRATEGY tab ── -->
+    <!-- ══════════════════════════════════════════════════════════════════
+         AI STRATEGY TAB
+    ══════════════════════════════════════════════════════════════════ -->
     <div *ngIf="activeTab==='strategy' && strategy">
 
-      <!-- Top Priority -->
-      <mat-card *ngIf="strategy.topPriority" class="tender-card mb-3" style="border-left:5px solid #ffd54f">
-        <mat-card-content style="padding:16px">
-          <div class="section-label mb-2">
-            <mat-icon style="font-size:16px;width:16px;height:16px;vertical-align:middle;color:#ffd54f;margin-right:4px">bolt</mat-icon>
-            THIS WEEK'S TOP PRIORITY
+      <div *ngIf="strategy.topPriority" class="intel-card mb-3" style="border-left-color:#ffd54f">
+        <div class="ic-top">
+          <div class="ic-chips">
+            <span class="ic-chip" style="background:#f57c00">THIS WEEK</span>
+            <strong class="ic-market">Top Priority</strong>
           </div>
-          <div *ngIf="strategy.topPriority?.action || strategy.topPriority?.description; else rawPriority" class="tender-title">
+          <div class="ic-actions">
+            <mat-icon style="color:#ffd54f;font-size:18px;width:18px;height:18px">auto_awesome</mat-icon>
+          </div>
+        </div>
+        <div class="ic-body">
+          <div class="ic-title" *ngIf="strategy.topPriority?.action || strategy.topPriority?.description">
             {{ strategy.topPriority?.action || strategy.topPriority?.description }}
           </div>
-          <ng-template #rawPriority><pre class="strategy-json">{{ strategy.topPriority | json }}</pre></ng-template>
-          <div *ngIf="strategy.topPriority?.market" class="text-muted mt-1" style="font-size:0.82rem">Market: {{ strategy.topPriority.market }}</div>
-          <div *ngIf="strategy.topPriority?.whyNow" class="action-step mt-2">
-            <mat-icon style="font-size:13px;width:13px;height:13px;color:#ffd54f;margin-right:4px">bolt</mat-icon>
-            {{ strategy.topPriority.whyNow }}
+          <pre class="strategy-json" *ngIf="!strategy.topPriority?.action && !strategy.topPriority?.description">{{ strategy.topPriority | json }}</pre>
+          <div *ngIf="strategy.topPriority?.market" class="ic-row">
+            <span class="ic-lbl">Market</span><span>{{ strategy.topPriority.market }}</span>
           </div>
-        </mat-card-content>
-      </mat-card>
+          <div *ngIf="strategy.topPriority?.whyNow" class="ic-nextstep">
+            <mat-icon>bolt</mat-icon><span>{{ strategy.topPriority.whyNow }}</span>
+          </div>
+        </div>
+      </div>
 
-      <!-- Strategic Moves -->
-      <mat-card *ngIf="strategy.strategicMoves?.length" class="tender-card mb-3" style="border-left:5px solid #7b1fa2">
-        <mat-card-content style="padding:16px">
-          <div class="section-label mb-2">Strategic Moves</div>
+      <div *ngIf="strategy.strategicMoves?.length" class="intel-card mb-3" style="border-left-color:#7b1fa2">
+        <div class="ic-top">
+          <div class="ic-chips">
+            <strong class="ic-market">Strategic Moves</strong>
+          </div>
+        </div>
+        <div class="ic-body">
           <div *ngFor="let move of strategy.strategicMoves; let i = index" class="strategy-move">
             <span class="move-num">{{ i+1 }}.</span>
             <span>{{ move?.recommendation || move?.description || (move | json) }}</span>
           </div>
-        </mat-card-content>
-      </mat-card>
+        </div>
+      </div>
 
-      <!-- Risk Watch -->
-      <mat-card *ngIf="strategy.riskWatch?.length" class="tender-card" style="border-left:5px solid #e53935">
-        <mat-card-content style="padding:16px">
-          <div class="section-label mb-2">
-            <mat-icon style="font-size:16px;width:16px;height:16px;vertical-align:middle;color:#e53935;margin-right:4px">warning</mat-icon>
-            Risk Watch
+      <div *ngIf="strategy.riskWatch?.length" class="intel-card" style="border-left-color:#e53935">
+        <div class="ic-top">
+          <div class="ic-chips">
+            <mat-icon style="color:#e53935;font-size:16px;width:16px;height:16px">warning</mat-icon>
+            <strong class="ic-market">Risk Watch</strong>
           </div>
-          <div *ngFor="let risk of strategy.riskWatch" class="strategy-move text-warning">
+        </div>
+        <div class="ic-body">
+          <div *ngFor="let risk of strategy.riskWatch" class="strategy-move" style="color:#ef9a9a">
             ⚠ {{ risk?.risk || risk?.description || (risk | json) }}
           </div>
-        </mat-card-content>
-      </mat-card>
+        </div>
+      </div>
 
-    </div><!-- /strategy tab -->
+    </div><!-- /strategy -->
 
-    <!-- ── BRAIN tab ── -->
+    <!-- ══════════════════════════════════════════════════════════════════
+         BRAIN TAB
+    ══════════════════════════════════════════════════════════════════ -->
     <div *ngIf="activeTab==='brain' && brain">
 
-      <!-- Weekly Priority — top action card -->
-      <mat-card *ngIf="brain.weeklyPriority" class="tender-card mb-3 brain-priority-card">
-        <mat-card-content style="padding:18px">
-          <div class="section-label mb-2" style="color:#ff6f00">
-            <mat-icon style="font-size:16px;width:16px;height:16px;vertical-align:middle;color:#ff6f00;margin-right:5px">psychology</mat-icon>
-            BRAIN'S TOP PRIORITY THIS WEEK
+      <div *ngIf="brain.weeklyPriority" class="intel-card brain-priority-card mb-4" style="border-left-color:#ff6f00">
+        <div class="ic-top">
+          <div class="ic-chips">
+            <mat-icon style="color:#ff6f00;font-size:16px;width:16px;height:16px">psychology</mat-icon>
+            <strong class="ic-market" style="color:#ffcc80">BRAIN'S TOP PRIORITY</strong>
           </div>
+        </div>
+        <div class="ic-body">
           <div class="brain-priority-action">{{ brain.weeklyPriority.action }}</div>
           <div class="d-flex flex-wrap gap-3 mt-3">
             <div *ngIf="brain.weeklyPriority.market" class="brain-meta-item">
@@ -497,324 +518,302 @@
             <strong style="color:#ffd54f;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px">Why now: </strong>
             <span style="color:#fff9c4;font-size:0.86rem">{{ brain.weeklyPriority.whyNow }}</span>
           </div>
-          <div *ngIf="brain.weeklyPriority.firstStep" class="action-step mt-2">
-            <mat-icon style="font-size:14px;width:14px;height:14px;color:#a5d6a7;margin-right:4px">arrow_forward</mat-icon>
+          <div *ngIf="brain.weeklyPriority.firstStep" class="ic-nextstep mt-2">
+            <mat-icon style="color:#a5d6a7">arrow_forward</mat-icon>
             <span style="color:#c8e6c9"><strong>First step:</strong> {{ brain.weeklyPriority.firstStep }}</span>
           </div>
-        </mat-card-content>
-      </mat-card>
+        </div>
+      </div>
 
       <!-- Action Plan -->
       <div *ngIf="brain.actionPlan?.length" class="mb-4">
-        <div class="section-label mb-2">
+        <div class="sec-label">
           <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#64b5f6;margin-right:5px">route</mat-icon>
           ACTION PLAN ({{ brain.actionPlan.length }} deals)
         </div>
-        <div *ngFor="let ap of brain.actionPlan; let i = index" class="mb-2">
-          <mat-card class="tender-card" style="border-left:4px solid #1976d2">
-            <mat-card-content style="padding:14px">
-              <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
-                <span class="badge" style="background:#1565c0;color:#fff;font-size:0.7rem">DEAL {{ i+1 }}</span>
-                <strong style="color:#90caf9">{{ ap.market }}</strong>
-                <span *ngIf="ap.winProb != null" class="win-prob-badge ms-auto"
-                      [style.color]="winProbColor(ap.winProb)"
-                      [style.border-color]="winProbColor(ap.winProb)">
-                  {{ ap.winProb }}% WIN
-                </span>
-                <span *ngIf="ap.deadline" class="text-muted ms-auto" style="font-size:0.72rem">⏰ {{ ap.deadline }}</span>
-              </div>
-              <div class="tender-title mb-2">{{ ap.deal }}</div>
-              <ol class="brain-steps" *ngIf="ap.steps?.length">
-                <li *ngFor="let step of ap.steps" class="brain-step">{{ step }}</li>
-              </ol>
-            </mat-card-content>
-          </mat-card>
+        <div *ngFor="let ap of brain.actionPlan; let i = index" class="intel-card mb-3" style="border-left-color:#1976d2">
+          <div class="ic-top">
+            <div class="ic-chips">
+              <span class="ic-chip" style="background:#1565c0">DEAL {{ i+1 }}</span>
+              <strong class="ic-market" style="color:#90caf9">{{ ap.market }}</strong>
+            </div>
+            <div class="ic-actions">
+              <span *ngIf="ap.winProb != null" class="ic-win"
+                    [style.color]="winProbColor(ap.winProb)"
+                    [style.border-color]="winProbColor(ap.winProb)">{{ ap.winProb }}% WIN</span>
+              <span *ngIf="ap.deadline" class="ic-date">⏰ {{ ap.deadline }}</span>
+            </div>
+          </div>
+          <div class="ic-body">
+            <div class="ic-title">{{ ap.deal }}</div>
+            <ol class="brain-steps" *ngIf="ap.steps?.length">
+              <li *ngFor="let step of ap.steps" class="brain-step">{{ step }}</li>
+            </ol>
+          </div>
         </div>
       </div>
 
       <!-- Market Intelligence -->
       <div *ngIf="brain.marketIntelligence?.length" class="mb-4">
-        <div class="section-label mb-2">
+        <div class="sec-label">
           <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#7b1fa2;margin-right:5px">insights</mat-icon>
           MARKET INTELLIGENCE
         </div>
-        <div *ngFor="let mi of brain.marketIntelligence" class="mb-2">
-          <mat-card class="tender-card" style="border-left:4px solid #7b1fa2">
-            <mat-card-content style="padding:14px">
-              <div class="d-flex align-items-center gap-2 mb-1">
-                <span class="badge" style="background:#6a1b9a;color:#fff;font-size:0.7rem">{{ mi.market }}</span>
-              </div>
-              <div class="tender-summary mb-1" style="color:#e1bee7;font-size:0.86rem">{{ mi.signal }}</div>
-              <div class="action-step" *ngIf="mi.recommendation">
-                <mat-icon style="font-size:13px;width:13px;height:13px;color:#ffd54f;margin-right:4px">lightbulb</mat-icon>
-                <span>{{ mi.recommendation }}</span>
-              </div>
-            </mat-card-content>
-          </mat-card>
+        <div *ngFor="let mi of brain.marketIntelligence" class="intel-card mb-3" style="border-left-color:#7b1fa2">
+          <div class="ic-top">
+            <div class="ic-chips">
+              <span class="ic-chip" style="background:#6a1b9a">{{ mi.market }}</span>
+            </div>
+          </div>
+          <div class="ic-body">
+            <div class="ic-title" style="color:#e1bee7">{{ mi.signal }}</div>
+            <div *ngIf="mi.recommendation" class="ic-nextstep">
+              <mat-icon style="color:#ffd54f">lightbulb</mat-icon><span>{{ mi.recommendation }}</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Two-column: Competitive Threats + Knowledge Gaps -->
+      <!-- Two-column: Threats + Gaps -->
       <div class="row mb-4">
         <div class="col-md-6 mb-3" *ngIf="brain.competitiveThreats?.length">
-          <div class="section-label mb-2">
+          <div class="sec-label">
             <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#ef5350;margin-right:5px">security</mat-icon>
             COMPETITIVE THREATS
           </div>
-          <mat-card class="tender-card" style="border-left:4px solid #c62828">
-            <mat-card-content style="padding:14px">
+          <div class="intel-card" style="border-left-color:#c62828">
+            <div class="ic-body">
               <div *ngFor="let ct of brain.competitiveThreats" class="brain-threat-row">
                 <div class="d-flex align-items-center gap-2 mb-1">
-                  <span class="badge" style="background:#b71c1c;font-size:0.68rem">{{ ct.market }}</span>
+                  <span class="ic-chip" style="background:#b71c1c">{{ ct.market }}</span>
                 </div>
                 <div style="color:#ef9a9a;font-size:0.83rem;margin-bottom:3px">{{ ct.threat }}</div>
-                <div *ngIf="ct.counter" class="action-step" style="margin-top:4px">
-                  <mat-icon style="font-size:12px;width:12px;height:12px;color:#a5d6a7;margin-right:3px">shield</mat-icon>
+                <div *ngIf="ct.counter" class="ic-nextstep" style="margin-top:4px">
+                  <mat-icon style="color:#a5d6a7;font-size:12px;width:12px;height:12px">shield</mat-icon>
                   <span style="font-size:0.8rem">{{ ct.counter }}</span>
                 </div>
               </div>
-            </mat-card-content>
-          </mat-card>
+            </div>
+          </div>
         </div>
 
         <div class="col-md-6 mb-3" *ngIf="brain.knowledgeGaps?.length">
-          <div class="section-label mb-2">
+          <div class="sec-label">
             <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#ffd54f;margin-right:5px">help_outline</mat-icon>
             KNOWLEDGE GAPS
           </div>
-          <mat-card class="tender-card" style="border-left:4px solid #f57f17">
-            <mat-card-content style="padding:14px">
+          <div class="intel-card" style="border-left-color:#f57f17">
+            <div class="ic-body">
               <div *ngFor="let kg of brain.knowledgeGaps" class="brain-gap-row">
                 <div class="d-flex align-items-center gap-2 mb-1">
-                  <span class="badge" [style.background]="urgencyColor(kg.urgency)" style="font-size:0.68rem">{{ kg.urgency }}</span>
+                  <span class="ic-chip" [style.background]="urgencyColor(kg.urgency)">{{ kg.urgency }}</span>
                 </div>
                 <div style="color:#fff9c4;font-size:0.83rem;margin-bottom:3px">{{ kg.question }}</div>
                 <div *ngIf="kg.howToFind" style="color:#90a4ae;font-size:0.78rem">→ {{ kg.howToFind }}</div>
               </div>
-            </mat-card-content>
-          </mat-card>
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- Self-Learning -->
-      <div *ngIf="brain.selfLearning" class="mb-4">
-        <div class="section-label mb-2">
-          <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#26c6da;margin-right:5px">model_training</mat-icon>
-          SELF-LEARNING &amp; STRATEGY EVOLUTION
+      <div *ngIf="brain.selfLearning" class="intel-card mb-4" style="border-left-color:#00838f">
+        <div class="ic-top">
+          <div class="ic-chips">
+            <mat-icon style="color:#26c6da;font-size:16px;width:16px;height:16px">model_training</mat-icon>
+            <strong class="ic-market">SELF-LEARNING &amp; STRATEGY EVOLUTION</strong>
+          </div>
         </div>
-        <mat-card class="tender-card" style="border-left:4px solid #00838f">
-          <mat-card-content style="padding:14px">
-            <div *ngIf="brain.selfLearning.patternsObserved?.length" class="mb-3">
-              <div class="brain-meta-label mb-1">PATTERNS OBSERVED</div>
-              <ul class="brain-patterns">
-                <li *ngFor="let p of brain.selfLearning.patternsObserved">{{ p }}</li>
-              </ul>
-            </div>
-            <div *ngIf="brain.selfLearning.strategyAdjustment" class="action-step mb-2">
-              <mat-icon style="font-size:13px;width:13px;height:13px;color:#80deea;margin-right:4px">tune</mat-icon>
-              <span><strong style="color:#b2ebf2">Strategy adjustment:</strong> {{ brain.selfLearning.strategyAdjustment }}</span>
-            </div>
-            <div *ngIf="brain.selfLearning.nextSweepFocus" style="font-size:0.82rem;color:#80cbc4;margin-top:8px">
-              <mat-icon style="font-size:13px;width:13px;height:13px;vertical-align:middle;color:#4db6ac;margin-right:4px">search</mat-icon>
-              <strong>Next sweep focus:</strong> {{ brain.selfLearning.nextSweepFocus }}
-            </div>
-          </mat-card-content>
-        </mat-card>
+        <div class="ic-body">
+          <div *ngIf="brain.selfLearning.patternsObserved?.length" class="mb-3">
+            <div class="brain-meta-label mb-1">PATTERNS OBSERVED</div>
+            <ul class="brain-patterns">
+              <li *ngFor="let p of brain.selfLearning.patternsObserved">{{ p }}</li>
+            </ul>
+          </div>
+          <div *ngIf="brain.selfLearning.strategyAdjustment" class="ic-nextstep mb-2">
+            <mat-icon style="color:#80deea">tune</mat-icon>
+            <span><strong style="color:#b2ebf2">Strategy adjustment:</strong> {{ brain.selfLearning.strategyAdjustment }}</span>
+          </div>
+          <div *ngIf="brain.selfLearning.nextSweepFocus" style="font-size:0.82rem;color:#80cbc4;margin-top:8px">
+            <mat-icon style="font-size:13px;width:13px;height:13px;vertical-align:middle;color:#4db6ac;margin-right:4px">search</mat-icon>
+            <strong>Next sweep focus:</strong> {{ brain.selfLearning.nextSweepFocus }}
+          </div>
+        </div>
       </div>
 
       <!-- Win Probability Trends -->
-      <div *ngIf="learning?.trendSummary?.length" class="mb-3">
-        <div class="section-label mb-2">
-          <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#78909c;margin-right:5px">trending_up</mat-icon>
-          WIN PROBABILITY TRENDS (30-DAY)
+      <div *ngIf="learning?.trendSummary?.length" class="intel-card mb-3" style="border-left-color:#37474f">
+        <div class="ic-top">
+          <div class="ic-chips">
+            <mat-icon style="color:#78909c;font-size:16px;width:16px;height:16px">trending_up</mat-icon>
+            <strong class="ic-market">WIN PROBABILITY TRENDS (30-DAY)</strong>
+          </div>
         </div>
-        <mat-card class="tender-card" style="border-left:4px solid #37474f">
-          <mat-card-content style="padding:12px 14px">
-            <div *ngFor="let t of learning.trendSummary" class="d-flex align-items-center gap-3 mb-2"
-                 style="border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:8px">
-              <span style="font-size:0.82rem;color:#90caf9;min-width:120px;font-weight:600">{{ t.market }}</span>
-              <span class="win-prob-badge"
-                    [style.color]="winProbColor(t.latest)"
-                    [style.border-color]="winProbColor(t.latest)">{{ t.latest }}%</span>
-              <span style="font-size:0.75rem"
-                    [style.color]="t.direction === 'rising' ? '#4caf50' : t.direction === 'falling' ? '#ef5350' : '#78909c'">
-                {{ t.direction === 'rising' ? '↑ rising' : t.direction === 'falling' ? '↓ falling' : '→ stable' }}
-              </span>
-              <span style="font-size:0.7rem;color:#546e7a;margin-left:auto">{{ t.trend.length }} data points</span>
-            </div>
-          </mat-card-content>
-        </mat-card>
+        <div class="ic-body">
+          <div *ngFor="let t of learning.trendSummary" class="d-flex align-items-center gap-3 mb-2"
+               style="border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:8px">
+            <span style="font-size:0.82rem;color:#90caf9;min-width:120px;font-weight:600">{{ t.market }}</span>
+            <span class="ic-win" [style.color]="winProbColor(t.latest)" [style.border-color]="winProbColor(t.latest)">{{ t.latest }}%</span>
+            <span style="font-size:0.75rem"
+                  [style.color]="t.direction === 'rising' ? '#4caf50' : t.direction === 'falling' ? '#ef5350' : '#78909c'">
+              {{ t.direction === 'rising' ? '↑ rising' : t.direction === 'falling' ? '↓ falling' : '→ stable' }}
+            </span>
+            <span style="font-size:0.7rem;color:#546e7a;margin-left:auto">{{ t.trend.length }} pts</span>
+          </div>
+        </div>
       </div>
 
-      <!-- Learning Stats footer -->
       <div *ngIf="learning" class="brain-learning-footer">
         <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px;color:#78909c">history</mat-icon>
         <span *ngIf="learning.totalOutcomes">{{ learning.totalOutcomes }} recorded outcomes</span>
-        <span *ngIf="learning.topMarkets?.length" style="margin-left:12px">
-          Top markets: {{ learning.topMarkets.join(', ') }}
-        </span>
+        <span *ngIf="learning.topMarkets?.length" style="margin-left:12px">Top markets: {{ learning.topMarkets.join(', ') }}</span>
         <span *ngIf="brain.generatedAt" style="margin-left:12px">Brain last ran: {{ brain.generatedAt | date:'dd/MM HH:mm' }}</span>
       </div>
 
-    </div><!-- /brain tab -->
+    </div><!-- /brain -->
 
-    <!-- ── COMPLIANCE SCREEN tab ── -->
+    <!-- ══════════════════════════════════════════════════════════════════
+         COMPLIANCE TAB
+    ══════════════════════════════════════════════════════════════════ -->
     <div *ngIf="activeTab==='compliance'">
 
       <div class="mb-3" style="font-size:0.82rem;color:#80cbc4">
         Pre-screen a deal for UK ECJU licensing, ITAR/EAR, EU dual-use, and embargo status before committing resources.
       </div>
 
-      <mat-card style="border-left:4px solid #00897b;background:#1a2a28;margin-bottom:20px">
-        <mat-card-content style="padding:18px">
-          <div class="section-label mb-3" style="color:#00897b">Deal Compliance Pre-Screen</div>
-
+      <div class="intel-card mb-4" style="border-left-color:#00897b;background:#1a2a28 !important">
+        <div class="ic-body" style="padding:18px">
+          <div class="sec-label mb-3" style="color:#00897b">Deal Compliance Pre-Screen</div>
           <div class="row g-3">
             <div class="col-6 col-md-3">
-              <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:4px">OEM / Seller Country (ISO2)</label>
+              <label class="ic-lbl d-block mb-1">OEM / Seller Country (ISO2)</label>
               <input class="compliance-input" [(ngModel)]="complianceForm.sellerCountry" placeholder="e.g. ZA, FR, IL" maxlength="2" />
             </div>
             <div class="col-6 col-md-3">
-              <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:4px">Buyer Country (ISO2)</label>
+              <label class="ic-lbl d-block mb-1">Buyer Country (ISO2)</label>
               <input class="compliance-input" [(ngModel)]="complianceForm.buyerCountry" placeholder="e.g. AO, MZ, NG" maxlength="2" />
             </div>
             <div class="col-12 col-md-4">
-              <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:4px">Product Category</label>
+              <label class="ic-lbl d-block mb-1">Product Category</label>
               <select class="compliance-input" [(ngModel)]="complianceForm.productCategory">
                 <option value="">-- select --</option>
                 <option *ngFor="let p of complianceProducts" [value]="p.key">{{ p.desc }} ({{ p.mlCode || p.eccn }})</option>
               </select>
             </div>
             <div class="col-12 col-md-2">
-              <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:4px">Deal Value (USD)</label>
+              <label class="ic-lbl d-block mb-1">Deal Value (USD)</label>
               <input class="compliance-input" [(ngModel)]="complianceForm.dealValueUSD" type="number" placeholder="optional" />
             </div>
           </div>
-
           <div class="d-flex gap-2 mt-3">
-            <button class="stage-btn active" [disabled]="complianceLoading || !complianceForm.sellerCountry || !complianceForm.buyerCountry || !complianceForm.productCategory"
-                    (click)="screenCompliance()" style="background:#00695c;border-color:#00897b;color:#fff;padding:6px 16px">
+            <button class="stage-btn active"
+                    [disabled]="complianceLoading || !complianceForm.sellerCountry || !complianceForm.buyerCountry || !complianceForm.productCategory"
+                    (click)="screenCompliance()"
+                    style="background:#00695c;border-color:#00897b;color:#fff;padding:6px 16px">
               <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px">search</mat-icon>
               {{ complianceLoading ? 'Screening...' : 'Screen Deal' }}
             </button>
             <button *ngIf="complianceResult" class="stage-btn" (click)="clearCompliance()" style="padding:6px 12px">Clear</button>
           </div>
-        </mat-card-content>
-      </mat-card>
+        </div>
+      </div>
 
-      <!-- Result -->
       <div *ngIf="complianceResult && !complianceResult.error">
-        <mat-card [style.border-left]="'5px solid ' + complianceStatusColor(complianceResult.status)"
-                  style="background:#1e1e1e;margin-bottom:16px">
-          <mat-card-content style="padding:18px">
-
-            <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
-              <span class="badge" [style.background]="complianceStatusColor(complianceResult.status)"
-                    style="color:#fff;font-size:0.85rem;padding:6px 14px">{{ complianceResult.status }}</span>
-              <span style="color:#ecf0f1;font-size:0.88rem">{{ complianceResult.deal.product }}</span>
-              <span style="color:#90a4ae;font-size:0.82rem">
-                {{ complianceResult.deal.sellerCountry }} → {{ complianceResult.deal.buyerCountry }}
-              </span>
-              <span *ngIf="complianceResult.deal.mlCode" style="color:#78909c;font-size:0.75rem">{{ complianceResult.deal.mlCode }}</span>
+        <div class="intel-card" [style.border-left-color]="complianceStatusColor(complianceResult.status)">
+          <div class="ic-top">
+            <div class="ic-chips">
+              <span class="ic-chip" [style.background]="complianceStatusColor(complianceResult.status)"
+                    style="font-size:0.85rem;padding:5px 12px">{{ complianceResult.status }}</span>
+              <strong class="ic-market">{{ complianceResult.deal.product }}</strong>
             </div>
-
-            <div style="color:#e0e0e0;font-size:0.88rem;margin-bottom:16px;padding:10px;background:#111;border-radius:4px">
+            <div class="ic-actions">
+              <span class="ic-source">{{ complianceResult.deal.sellerCountry }} → {{ complianceResult.deal.buyerCountry }}</span>
+              <span *ngIf="complianceResult.deal.mlCode" class="ic-date">{{ complianceResult.deal.mlCode }}</span>
+            </div>
+          </div>
+          <div class="ic-body">
+            <div style="color:#e0e0e0;font-size:0.88rem;margin-bottom:16px;padding:10px;background:#111;border-radius:6px">
               {{ complianceResult.summary }}
             </div>
-
-            <!-- Licensing grid -->
             <div class="row g-2 mb-3">
               <div class="col-12 col-md-4">
-                <div style="background:#0d1f1a;border-radius:4px;padding:10px">
+                <div style="background:#0d1f1a;border-radius:6px;padding:10px">
                   <div style="font-size:0.7rem;color:#00897b;font-weight:700;letter-spacing:0.5px;margin-bottom:4px">UK ECJU</div>
                   <div style="font-size:0.82rem;color:#e0e0e0">{{ complianceResult.licensing.uk.label }}</div>
                   <div *ngIf="complianceResult.licensing.uk.embargoed" style="color:#ef5350;font-size:0.75rem;margin-top:4px">EMBARGOED</div>
                 </div>
               </div>
               <div class="col-12 col-md-4">
-                <div style="background:#1a1a0d;border-radius:4px;padding:10px">
+                <div style="background:#1a1a0d;border-radius:6px;padding:10px">
                   <div style="font-size:0.7rem;color:#ffd54f;font-weight:700;letter-spacing:0.5px;margin-bottom:4px">US ITAR/EAR</div>
                   <div style="font-size:0.82rem;color:#e0e0e0">{{ complianceResult.licensing.us.label }}</div>
                   <div *ngIf="complianceResult.licensing.us.embargoed" style="color:#ef5350;font-size:0.75rem;margin-top:4px">ITAR 126.1 EMBARGO</div>
                 </div>
               </div>
               <div class="col-12 col-md-4">
-                <div style="background:#0d1a1f;border-radius:4px;padding:10px">
+                <div style="background:#0d1a1f;border-radius:6px;padding:10px">
                   <div style="font-size:0.7rem;color:#42a5f5;font-weight:700;letter-spacing:0.5px;margin-bottom:4px">EU DUAL-USE</div>
                   <div style="font-size:0.82rem;color:#e0e0e0">{{ complianceResult.licensing.eu.label }}</div>
                   <div *ngIf="complianceResult.licensing.eu.embargoed" style="color:#ef5350;font-size:0.75rem;margin-top:4px">EU EMBARGO</div>
                 </div>
               </div>
             </div>
-
-            <!-- UN embargo -->
             <div *ngIf="complianceResult.licensing.un.embargoed" class="mb-3 p-2 rounded" style="background:#2a0d0d;border:1px solid #b71c1c">
               <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;color:#ef5350;margin-right:4px">block</mat-icon>
               <strong style="color:#ef5350;font-size:0.82rem">UN Security Council Arms Embargo</strong>
               <span style="color:#ef9a9a;font-size:0.8rem;margin-left:6px">— deal prohibited under international law</span>
             </div>
-
-            <!-- EUC required -->
             <div *ngIf="complianceResult.eucRequired" class="mb-3" style="font-size:0.82rem;color:#fff9c4">
               <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#ffd54f;margin-right:4px">description</mat-icon>
               End-User Certificate (EUC) required
-              <span style="color:#90a4ae;margin-left:4px">· Buyer risk level: {{ complianceResult.buyerRisk }}</span>
+              <span style="color:#90a4ae;margin-left:4px">· Buyer risk: {{ complianceResult.buyerRisk }}</span>
             </div>
-
-            <!-- Issues & Warnings -->
             <div *ngIf="complianceResult.issues?.length" class="mb-3">
-              <div *ngFor="let issue of complianceResult.issues"
-                   class="mb-1 p-2 rounded" style="background:#2a0d0d;font-size:0.8rem">
-                <span class="badge" style="background:#b71c1c;font-size:0.68rem;margin-right:6px">{{ issue.code }}</span>
+              <div *ngFor="let issue of complianceResult.issues" class="mb-1 p-2 rounded" style="background:#2a0d0d;font-size:0.8rem">
+                <span class="ic-chip" style="background:#b71c1c;font-size:0.68rem;margin-right:6px">{{ issue.code }}</span>
                 <span style="color:#ffcdd2">{{ issue.text }}</span>
               </div>
             </div>
             <div *ngIf="complianceResult.warnings?.length" class="mb-3">
-              <div *ngFor="let w of complianceResult.warnings"
-                   class="mb-1 p-2 rounded" style="background:#1f1a0d;font-size:0.8rem">
-                <span class="badge" style="background:#f57c00;font-size:0.68rem;margin-right:6px">{{ w.code }}</span>
+              <div *ngFor="let w of complianceResult.warnings" class="mb-1 p-2 rounded" style="background:#1f1a0d;font-size:0.8rem">
+                <span class="ic-chip" style="background:#f57c00;font-size:0.68rem;margin-right:6px">{{ w.code }}</span>
                 <span style="color:#ffe0b2">{{ w.text }}</span>
               </div>
             </div>
-
-            <!-- Required Actions -->
             <div *ngIf="complianceResult.actions?.length" class="mb-3">
-              <div style="font-size:0.75rem;color:#90a4ae;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Required Actions</div>
+              <div class="ic-lbl mb-1">Required Actions</div>
               <ol style="margin:0;padding-left:20px">
                 <li *ngFor="let a of complianceResult.actions" style="font-size:0.82rem;color:#c8e6c9;margin-bottom:4px">{{ a }}</li>
               </ol>
             </div>
-
-            <!-- OEM Strategy -->
-            <div *ngIf="complianceResult.oemStrategy" class="action-step" style="background:#0d1a2a">
-              <mat-icon style="font-size:13px;width:13px;height:13px;color:#64b5f6;margin-right:4px">lightbulb</mat-icon>
+            <div *ngIf="complianceResult.oemStrategy" class="ic-nextstep" style="background:#0d1a2a">
+              <mat-icon style="color:#64b5f6">lightbulb</mat-icon>
               <span style="font-size:0.82rem;color:#bbdefb"><strong>OEM Strategy:</strong> {{ complianceResult.oemStrategy }}</span>
             </div>
-
             <div style="font-size:0.7rem;color:#37474f;margin-top:12px;border-top:1px solid rgba(255,255,255,0.05);padding-top:8px">
               {{ complianceResult.disclaimer }}
             </div>
-
-          </mat-card-content>
-        </mat-card>
+          </div>
+        </div>
       </div>
 
       <div *ngIf="complianceResult?.error" class="alert alert-danger" style="font-size:0.82rem">
         {{ complianceResult.error }}
       </div>
 
-    </div><!-- /compliance tab -->
+    </div><!-- /compliance -->
 
-    <!-- ── ML LEADS tab ── -->
+    <!-- ══════════════════════════════════════════════════════════════════
+         ML LEADS TAB
+    ══════════════════════════════════════════════════════════════════ -->
     <div *ngIf="activeTab==='mlleads'">
 
       <div class="mb-3 d-flex align-items-center gap-3 flex-wrap">
-        <div>
-          <span style="font-size:0.78rem;color:#90a4ae">Python brain ML-generated leads — powered by DeepSeek + GradientBoosting</span>
-          <span *ngIf="brainStatus?.last_run" style="font-size:0.72rem;color:#546e7a;margin-left:10px">
-            Last run: {{ brainStatus.last_run | date:'dd/MM HH:mm' }}
-          </span>
-        </div>
+        <span style="font-size:0.78rem;color:#90a4ae">Python brain ML-generated leads — powered by DeepSeek + GradientBoosting</span>
+        <span *ngIf="brainStatus?.last_run" style="font-size:0.72rem;color:#546e7a">
+          Last run: {{ brainStatus.last_run | date:'dd/MM HH:mm' }}
+        </span>
       </div>
 
       <div *ngIf="mlLeadsLoading" class="text-center py-4">
@@ -822,74 +821,101 @@
       </div>
 
       <div *ngIf="!mlLeadsLoading && mlLeads.length === 0" class="alert alert-info" style="font-size:0.85rem">
-        No ML leads yet. The Python brain service needs to run at least one sweep. Ensure <code>REDIS_URL</code> is configured and the brain service is deployed.
+        No ML leads yet. Ensure <code>REDIS_URL</code> is configured and the brain service is deployed.
       </div>
 
-      <div *ngFor="let lead of mlLeads" class="mb-3">
-        <mat-card [style.border-left]="'4px solid ' + mlUrgencyColor(lead.urgency)"
-                  style="background:#1e1e1e">
-          <mat-card-content style="padding:16px">
-
-            <!-- Header row -->
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-              <span class="badge" [style.background]="mlUrgencyColor(lead.urgency)" style="color:#fff;font-size:0.7rem">
-                {{ lead.urgency || 'MEDIUM' }}
-              </span>
-              <span class="badge" style="background:#37474f;color:#ecf0f1;font-size:0.7rem">ML</span>
-              <strong style="color:#ecf0f1;font-size:0.92rem">{{ lead.market }}</strong>
-              <span style="margin-left:auto;font-size:0.75rem;color:#90a4ae">
-                Win probability:
-                <span [style.color]="mlWinProbColor(lead)" style="font-weight:700;font-size:0.88rem">
-                  {{ mlWinProbPct(lead) }}%
-                </span>
-              </span>
+      <div *ngFor="let lead of mlLeads" class="intel-card mb-3" [style.border-left-color]="mlUrgencyColor(lead.urgency)">
+        <div class="ic-top">
+          <div class="ic-chips">
+            <span class="ic-chip" [style.background]="mlUrgencyColor(lead.urgency)">{{ lead.urgency || 'MEDIUM' }}</span>
+            <span class="ic-chip" style="background:#37474f">ML</span>
+            <strong class="ic-market">{{ lead.market }}</strong>
+          </div>
+          <div class="ic-actions">
+            <span style="font-size:0.75rem;color:#90a4ae">
+              Win: <span [style.color]="mlWinProbColor(lead)" style="font-weight:700">{{ mlWinProbPct(lead) }}%</span>
+            </span>
+            <button class="ic-share-btn" title="Share" (click)="openCardShare(fmtMLLead(lead), lead.source_url)">
+              <mat-icon>ios_share</mat-icon>
+            </button>
+          </div>
+        </div>
+        <div class="ic-body">
+          <div *ngIf="lead.signal_title" class="ic-summary mb-2">{{ lead.signal_title }}</div>
+          <div *ngIf="lead.lead_action" class="ic-nextstep" style="background:#1b3a2d;border-left-color:#4caf50">
+            <mat-icon style="color:#81c784">flash_on</mat-icon>
+            <span style="color:#e0e0e0">{{ lead.lead_action }}</span>
+          </div>
+          <div class="row g-2 mt-2" style="font-size:0.8rem">
+            <div *ngIf="lead.oem_match_needed?.length" class="col-12 col-md-6">
+              <span class="ic-lbl">OEM needed:</span>
+              <span style="color:#80deea;margin-left:4px">{{ lead.oem_match_needed.join(', ') }}</span>
             </div>
-
-            <!-- Signal title -->
-            <div *ngIf="lead.signal_title" style="color:#cfd8dc;font-size:0.88rem;margin-bottom:8px">
-              {{ lead.signal_title }}
+            <div *ngIf="lead.compliance_flags?.length" class="col-12 col-md-6">
+              <span class="ic-lbl" style="color:#ff8a65">Compliance:</span>
+              <span style="color:#ffccbc;margin-left:4px">{{ lead.compliance_flags.join(', ') }}</span>
             </div>
-
-            <!-- Lead action -->
-            <div *ngIf="lead.lead_action" class="mb-2 p-2 rounded" style="background:#1b3a2d;border-left:3px solid #4caf50">
-              <span style="color:#81c784;font-size:0.75rem;font-weight:600">ACTION: </span>
-              <span style="color:#e0e0e0;font-size:0.85rem">{{ lead.lead_action }}</span>
-            </div>
-
-            <!-- OEM matches + compliance flags -->
-            <div class="row g-2 mb-2" style="font-size:0.8rem">
-              <div *ngIf="lead.oem_match_needed?.length" class="col-12 col-md-6">
-                <span style="color:#90a4ae">OEM needed: </span>
-                <span style="color:#80deea">{{ lead.oem_match_needed.join(', ') }}</span>
-              </div>
-              <div *ngIf="lead.compliance_flags?.length" class="col-12 col-md-6">
-                <span style="color:#ff8a65;font-weight:600">Compliance: </span>
-                <span style="color:#ffccbc">{{ lead.compliance_flags.join(', ') }}</span>
-              </div>
-            </div>
-
-            <!-- Reasoning -->
-            <div *ngIf="lead.reasoning" style="color:#90a4ae;font-size:0.78rem;font-style:italic;border-top:1px solid #263238;padding-top:8px;margin-top:8px">
-              {{ lead.reasoning | slice:0:280 }}{{ lead.reasoning.length > 280 ? '...' : '' }}
-            </div>
-
-            <!-- Footer -->
-            <div class="d-flex align-items-center gap-3 mt-2" style="font-size:0.75rem;color:#546e7a">
-              <span>Confidence: {{ lead.confidence }}/100</span>
-              <span *ngIf="lead.source">Source: {{ lead.source }}</span>
-              <a *ngIf="lead.source_url" [href]="lead.source_url" target="_blank" rel="noopener"
-                 style="color:#42a5f5;text-decoration:none;margin-left:auto">
-                <mat-icon style="font-size:12px;width:12px;height:12px;vertical-align:middle">open_in_new</mat-icon>
-                Source
-              </a>
-            </div>
-
-          </mat-card-content>
-        </mat-card>
+          </div>
+          <div *ngIf="lead.reasoning" style="color:#90a4ae;font-size:0.78rem;font-style:italic;border-top:1px solid #263238;padding-top:8px;margin-top:8px">
+            {{ lead.reasoning | slice:0:280 }}{{ lead.reasoning.length > 280 ? '...' : '' }}
+          </div>
+        </div>
+        <div class="ic-foot">
+          <span class="ic-source">Confidence: {{ lead.confidence }}/100</span>
+          <span *ngIf="lead.source" class="ic-source">{{ lead.source }}</span>
+          <a *ngIf="lead.source_url" [href]="lead.source_url" target="_blank" rel="noopener" class="ic-link ms-auto">
+            <mat-icon>open_in_new</mat-icon> Source
+          </a>
+        </div>
       </div>
 
-    </div><!-- /mlleads tab -->
+    </div><!-- /mlleads -->
 
+  </div><!-- /!loading -->
+</div><!-- /bd-wrap -->
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SHARE MODAL
+══════════════════════════════════════════════════════════════════ -->
+<div *ngIf="cardShare.visible" class="share-overlay" (click)="closeCardShare()">
+  <div class="share-panel" (click)="$event.stopPropagation()">
+    <div class="sp-header">
+      <span>Share Intelligence</span>
+      <button class="sp-close" (click)="closeCardShare()">✕</button>
+    </div>
+    <div class="sp-preview">{{ cardShare.text | slice:0:160 }}{{ cardShare.text.length > 160 ? '…' : '' }}</div>
+    <div class="sp-btns">
+      <!-- WhatsApp -->
+      <button class="sp-btn sp-wa" (click)="shareCardVia('whatsapp')">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+        </svg>
+        WhatsApp
+      </button>
+      <!-- Telegram -->
+      <button class="sp-btn sp-tg" (click)="shareCardVia('telegram')">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+          <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+        </svg>
+        Telegram
+      </button>
+      <!-- Email -->
+      <button class="sp-btn sp-em" (click)="shareCardVia('email')">
+        <mat-icon style="font-size:20px;width:20px;height:20px">email</mat-icon>
+        Email
+      </button>
+      <!-- X / Twitter -->
+      <button class="sp-btn sp-x" (click)="shareCardVia('x')">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.258 5.63 5.906-5.63Zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+        </svg>
+        X / Twitter
+      </button>
+    </div>
+    <button class="sp-copy" (click)="copyCardText()">
+      <mat-icon style="font-size:16px;width:16px;height:16px;vertical-align:middle;margin-right:6px">{{ cardShareCopied ? 'check' : 'content_copy' }}</mat-icon>
+      {{ cardShareCopied ? 'Copied to clipboard!' : 'Copy text' }}
+    </button>
   </div>
 </div>
 
@@ -905,7 +931,7 @@
         {{ outcomeModal.deal?.title | slice:0:80 }}
       </div>
       <div class="mb-3">
-        <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:6px">Outcome</label>
+        <label class="ic-lbl d-block mb-2">Outcome</label>
         <div class="d-flex gap-2">
           <button class="stage-btn" [class.active]="outcomeForm.outcome==='WON'"
                   (click)="outcomeForm.outcome='WON'" style="background:#1b3a2d;border-color:#4caf50;color:#81c784">WON</button>
@@ -916,7 +942,7 @@
         </div>
       </div>
       <div class="mb-3">
-        <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:4px">Reason (optional — improves future predictions)</label>
+        <label class="ic-lbl d-block mb-1">Reason (optional — improves future predictions)</label>
         <textarea class="compliance-input" [(ngModel)]="outcomeForm.reason" rows="2"
                   placeholder="e.g. Lost on price to Elbit, Won through MoD contact, Pulled out — sanctions risk"></textarea>
       </div>
