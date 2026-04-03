@@ -11,7 +11,7 @@ const STAGES = ['IDENTIFIED', 'QUALIFYING', 'ENGAGED', 'PROPOSAL', 'NEGOTIATING'
 export class BdIntelligenceComponent implements OnInit {
   loading = true;
   bd: any = null;
-  activeTab: 'tenders' | 'ideas' | 'pipeline' | 'strategy' | 'brain' = 'tenders';
+  activeTab: 'leads' | 'tenders' | 'ideas' | 'pipeline' | 'strategy' | 'brain' = 'tenders';
   stageOptions = STAGES;
   updatingStage: string | null = null;
 
@@ -21,8 +21,10 @@ export class BdIntelligenceComponent implements OnInit {
     this.api.getBDIntelligence().subscribe(res => {
       this.bd = res;
       this.loading = false;
-      // Auto-select first tab with data
-      if (res?.brain) this.activeTab = 'brain';
+      // Auto-select most useful tab
+      const hasLeads = res?.brain?.salesLeads?.length > 0 || res?.tenders?.some((t: any) => t.leadQuality === 'HOT' || t.leadQuality === 'WARM');
+      if (hasLeads) this.activeTab = 'leads';
+      else if (res?.brain) this.activeTab = 'brain';
       else if (!res?.tenders?.length && res?.ideas?.length) this.activeTab = 'ideas';
       else if (!res?.tenders?.length && !res?.ideas?.length && res?.pipeline?.length) this.activeTab = 'pipeline';
     });
@@ -32,6 +34,13 @@ export class BdIntelligenceComponent implements OnInit {
   get activeTenders() { return this.tenders.filter((t: any) => t.type === 'TENDER'); }
   get contracts() { return this.tenders.filter((t: any) => t.type === 'CONTRACT'); }
   get budgetSignals() { return this.tenders.filter((t: any) => t.type === 'BUDGET'); }
+  get hotTenders() { return this.tenders.filter((t: any) => t.leadQuality === 'HOT'); }
+  get warmTenders() { return this.tenders.filter((t: any) => t.leadQuality === 'WARM'); }
+  get brainLeads() { return this.brain?.salesLeads || []; }
+  get hotLeads() { return this.brainLeads.filter((l: any) => l.urgency === 'HOT'); }
+  get warmLeads() { return this.brainLeads.filter((l: any) => l.urgency === 'WARM'); }
+  get coldLeads() { return this.brainLeads.filter((l: any) => l.urgency === 'COLD'); }
+  get totalLeads() { return this.brainLeads.length + this.hotTenders.length + this.warmTenders.length; }
   get ideas() { return this.bd?.ideas || []; }
   get pipeline() { return this.bd?.pipeline || []; }
   get strategy() { return this.bd?.strategy || null; }
@@ -50,9 +59,21 @@ export class BdIntelligenceComponent implements OnInit {
   }
 
   urgencyColor(urgency: string): string {
-    if (urgency === 'HIGH') return '#f44336';
-    if (urgency === 'MEDIUM') return '#ff9800';
+    if (urgency === 'HIGH' || urgency === 'HOT') return '#f44336';
+    if (urgency === 'MEDIUM' || urgency === 'WARM') return '#ff9800';
     return '#78909c';
+  }
+
+  leadQualityColor(q: string): string {
+    if (q === 'HOT') return '#f44336';
+    if (q === 'WARM') return '#ff9800';
+    return '#78909c';
+  }
+
+  leadQualityIcon(q: string): string {
+    if (q === 'HOT') return '🔥';
+    if (q === 'WARM') return '⚡';
+    return '👁️';
   }
 
   typeColor(type: string): string {

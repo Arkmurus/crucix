@@ -34,6 +34,12 @@
 
     <!-- Tab bar -->
     <div class="bd-tabs mb-3">
+      <button *ngIf="totalLeads > 0" class="bd-tab" [class.active]="activeTab==='leads'" (click)="activeTab='leads'"
+              style="border-color:#f44336">
+        <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:4px;color:#f44336">bolt</mat-icon>
+        Sales Leads
+        <span class="badge ms-1" style="background:#f44336;font-size:0.7rem">{{ totalLeads }}</span>
+      </button>
       <button class="bd-tab" [class.active]="activeTab==='tenders'" (click)="activeTab='tenders'">
         Tenders &amp; Contracts
         <span class="badge ms-1" style="background:#e53935;font-size:0.7rem">{{ activeTenders.length + contracts.length }}</span>
@@ -54,6 +60,155 @@
         <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:5px;color:#ff6f00">psychology</mat-icon>
         The Brain
       </button>
+    </div>
+
+    <!-- ── SALES LEADS tab ── -->
+    <div *ngIf="activeTab==='leads'">
+
+      <div *ngIf="totalLeads === 0" class="text-muted" style="font-size:0.85rem">
+        No qualified leads yet — brain will generate leads on next sweep.
+      </div>
+
+      <!-- Brain-enriched leads (HOT) -->
+      <div *ngIf="hotLeads.length > 0" class="mb-4">
+        <div class="section-label" style="color:#f44336">🔥 HOT LEADS — Act Now</div>
+        <div *ngFor="let l of hotLeads" class="mb-3">
+          <mat-card style="border-left:4px solid #f44336;background:#1e1e1e">
+            <mat-card-content style="padding:16px">
+              <div class="card-tags mb-2">
+                <span class="badge" style="background:#f44336;color:#fff;font-size:0.7rem">HOT</span>
+                <span class="badge" style="background:#37474f;color:#ecf0f1;font-size:0.7rem">{{ l.type || 'LEAD' }}</span>
+                <strong style="color:#ecf0f1">{{ l.market }}</strong>
+                <span *ngIf="l.estimatedValue" style="color:#ffd54f;font-weight:600;font-size:0.85rem;margin-left:auto">
+                  {{ l.estimatedValue }}
+                </span>
+              </div>
+              <div style="color:#ecf0f1;font-size:0.95rem;margin-bottom:10px;font-weight:500">{{ l.lead }}</div>
+
+              <div class="row g-2" style="font-size:0.82rem">
+                <div *ngIf="l.procurementAuthority" class="col-12 col-md-6">
+                  <span style="color:#90a4ae">Procurement Authority:</span>
+                  <span style="color:#e0e0e0;margin-left:6px">{{ l.procurementAuthority }}</span>
+                </div>
+                <div *ngIf="l.oemRecommendation" class="col-12 col-md-6">
+                  <span style="color:#90a4ae">Recommended OEM:</span>
+                  <span style="color:#e0e0e0;margin-left:6px">{{ l.oemRecommendation }}</span>
+                </div>
+              </div>
+
+              <div *ngIf="l.nextStep" class="mt-2 p-2 rounded" style="background:#1b3a2d;border-left:3px solid #4caf50">
+                <span style="color:#81c784;font-size:0.78rem;font-weight:600">NEXT STEP (48h):</span>
+                <span style="color:#e0e0e0;font-size:0.85rem;margin-left:6px">{{ l.nextStep }}</span>
+              </div>
+
+              <div *ngIf="l.portalUrl" class="mt-2">
+                <a [href]="l.portalUrl" target="_blank" rel="noopener"
+                   style="color:#42a5f5;font-size:0.8rem;text-decoration:none">
+                  <mat-icon style="font-size:12px;width:12px;height:12px;vertical-align:middle">open_in_new</mat-icon>
+                  Procurement Portal
+                </a>
+              </div>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </div>
+
+      <!-- HOT tenders from rule-based scoring -->
+      <div *ngIf="hotTenders.length > 0" class="mb-4">
+        <div class="section-label" style="color:#ff7043">🔥 Verified HOT Tenders</div>
+        <div *ngFor="let t of hotTenders" class="mb-2">
+          <mat-card style="border-left:4px solid #ff7043;background:#1e1e1e">
+            <mat-card-content style="padding:14px 16px">
+              <div class="card-tags mb-1">
+                <span class="badge" style="background:#ff7043;color:#fff;font-size:0.7rem">HOT</span>
+                <span class="badge" [style.background]="typeColor(t.type)" style="color:#fff;font-size:0.7rem">{{ t.type }}</span>
+                <mat-icon *ngIf="t.lusophone" style="font-size:14px;width:14px;height:14px;color:#2196f3" title="Lusophone">flag</mat-icon>
+                <strong style="color:#ecf0f1">{{ t.market }}</strong>
+                <span *ngIf="t.winProbability != null" class="win-prob-badge ms-auto"
+                      [style.color]="winProbColor(t.winProbability)"
+                      [style.border-color]="winProbColor(t.winProbability)">
+                  {{ t.winProbability }}% WIN
+                </span>
+              </div>
+              <div style="color:#ecf0f1;font-size:0.9rem;margin-bottom:6px">{{ t.title }}</div>
+              <div *ngIf="t.summary" style="color:#90a4ae;font-size:0.8rem;margin-bottom:8px">{{ t.summary | slice:0:200 }}</div>
+              <div class="d-flex gap-3 align-items-center" style="font-size:0.78rem">
+                <span style="color:#78909c">{{ t.source }} · {{ t.date }}</span>
+                <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener"
+                   style="color:#42a5f5;text-decoration:none;margin-left:auto">View Tender →</a>
+                <a *ngIf="!t.url && t.procurementPortal" [href]="t.procurementPortal" target="_blank" rel="noopener"
+                   style="color:#78909c;text-decoration:none;font-size:0.75rem;margin-left:auto">Portal →</a>
+              </div>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </div>
+
+      <!-- Warm leads from brain -->
+      <div *ngIf="warmLeads.length > 0" class="mb-4">
+        <div class="section-label" style="color:#ff9800">⚡ WARM LEADS — Qualify This Week</div>
+        <div *ngFor="let l of warmLeads" class="mb-2">
+          <mat-card style="border-left:4px solid #ff9800;background:#1e1e1e">
+            <mat-card-content style="padding:14px 16px">
+              <div class="card-tags mb-1">
+                <span class="badge" style="background:#ff9800;color:#fff;font-size:0.7rem">WARM</span>
+                <span class="badge" style="background:#37474f;color:#ecf0f1;font-size:0.7rem">{{ l.type || 'LEAD' }}</span>
+                <strong style="color:#ecf0f1">{{ l.market }}</strong>
+                <span *ngIf="l.estimatedValue" style="color:#ffd54f;font-size:0.82rem;margin-left:auto">{{ l.estimatedValue }}</span>
+              </div>
+              <div style="color:#ecf0f1;font-size:0.9rem;margin-bottom:6px">{{ l.lead }}</div>
+              <div *ngIf="l.oemRecommendation" style="color:#90a4ae;font-size:0.8rem;margin-bottom:6px">
+                OEM: {{ l.oemRecommendation }}
+              </div>
+              <div *ngIf="l.nextStep" style="color:#80cbc4;font-size:0.8rem">→ {{ l.nextStep }}</div>
+              <a *ngIf="l.portalUrl" [href]="l.portalUrl" target="_blank" rel="noopener"
+                 style="color:#42a5f5;font-size:0.75rem;text-decoration:none;display:block;margin-top:6px">
+                Procurement Portal →
+              </a>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </div>
+
+      <!-- Warm tenders from rule-based scoring -->
+      <div *ngIf="warmTenders.length > 0" class="mb-4">
+        <div class="section-label" style="color:#ffa726">⚡ Warm Tenders</div>
+        <div *ngFor="let t of warmTenders" class="mb-2">
+          <mat-card style="border-left:4px solid #ffa726;background:#1e1e1e">
+            <mat-card-content style="padding:12px 16px">
+              <div class="card-tags mb-1">
+                <span class="badge" style="background:#ffa726;color:#fff;font-size:0.7rem">WARM</span>
+                <span class="badge" [style.background]="typeColor(t.type)" style="color:#fff;font-size:0.7rem">{{ t.type }}</span>
+                <strong style="color:#ecf0f1">{{ t.market }}</strong>
+                <span *ngIf="t.winProbability != null" class="win-prob-badge ms-auto"
+                      [style.color]="winProbColor(t.winProbability)"
+                      [style.border-color]="winProbColor(t.winProbability)">
+                  {{ t.winProbability }}%
+                </span>
+              </div>
+              <div style="color:#ecf0f1;font-size:0.88rem;margin-bottom:4px">{{ t.title }}</div>
+              <div class="d-flex gap-2 align-items-center" style="font-size:0.75rem">
+                <span style="color:#78909c">{{ t.source }} · {{ t.date }}</span>
+                <a *ngIf="t.url" [href]="t.url" target="_blank" rel="noopener"
+                   style="color:#42a5f5;text-decoration:none;margin-left:auto">View →</a>
+              </div>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </div>
+
+      <!-- Cold leads -->
+      <div *ngIf="coldLeads.length > 0" class="mb-4">
+        <div class="section-label" style="color:#78909c">❄️ Cold / Monitor</div>
+        <div *ngFor="let l of coldLeads" class="mb-1">
+          <div style="padding:8px 12px;background:#1a1a1a;border-radius:4px;border-left:3px solid #37474f;font-size:0.82rem">
+            <strong style="color:#90a4ae">{{ l.market }}</strong>
+            <span style="color:#616161;margin-left:8px">{{ l.lead }}</span>
+            <span *ngIf="l.estimatedValue" style="color:#455a64;margin-left:8px">· {{ l.estimatedValue }}</span>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- ── TENDERS & CONTRACTS tab ── -->
