@@ -2114,6 +2114,15 @@ async function runSweepCycle() {
       synthesized.opportunities = [];
     }
 
+    // Inject saved patterns + explorer findings into synthesized data for BD brain
+    try {
+      const { getPatterns, getExplorerFindings } = await import('./lib/self/learning_store.mjs');
+      const patterns = getPatterns();
+      if (patterns?.patterns?.length) synthesized.patterns = patterns.patterns;
+      const explorer = getExplorerFindings();
+      if (explorer?.findings) synthesized.explorerFindings = explorer;
+    } catch {}
+
     // BD Intelligence: real tenders + strategic ideas
     try {
       const bdResult = await runBDIntelligence(synthesized, null, llmProvider);
@@ -2161,15 +2170,20 @@ async function runSweepCycle() {
     if (correlations.length > 0) console.log(`[Crucix] Correlations: ${correlations.map(c => `${c.region}(${c.severity})`).join(', ')}`);
     console.log(`[Crucix] Next sweep at ${logTimeShort(new Date(Date.now() + config.refreshIntervalMinutes * 60000))} (London)`);
 
-    // Auto-classify pending outcomes using current sweep signals (non-blocking)
+    // Auto-classify pending outcomes using ALL current sweep signals (non-blocking)
     try {
       const { autoClassifyOutcomes, pruneOldData } = await import('./lib/self/learning_store.mjs');
-      const allSignals = (correlations || []).flatMap(c => c.topSignals || [])
-        .concat((currentData.signals || []).slice(0, 100));
+      const allSignals = [
+        ...(correlations || []).flatMap(c => c.topSignals || []),
+        ...(synthesized.tg?.urgent || []),
+        ...(synthesized.tg?.top || []),
+        ...(synthesized.defenseNews?.updates || []).map(d => ({ text: d.title + ' ' + (d.content || ''), source: d.source })),
+        ...(synthesized.newsFeed || []).map(n => ({ text: n.title + ' ' + (n.description || ''), source: n.source })),
+      ].slice(0, 300);
       const classified = autoClassifyOutcomes(allSignals);
       if (classified > 0) console.log(`[Crucix] Auto-classified ${classified} pending signal outcome(s)`);
       pruneOldData();
-    } catch {}
+    } catch (e) { console.warn('[Crucix] Auto-classify error (non-fatal):', e.message); }
 
     // Graceful restart to apply any self-deployed modules
     if (isRestartPending()) {
