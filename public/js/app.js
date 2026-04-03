@@ -30,7 +30,7 @@ const API = {
       headers: this.headers(),
       body: JSON.stringify(body)
     });
-    if (r.status === 401) { Auth.logout(); return { ok: false, status: 401, data: {} }; }
+    // Do NOT auto-logout on 401 for POST — login endpoint legitimately returns 401 for wrong credentials
     return { ok: r.ok, status: r.status, data: await r.json() };
   },
 
