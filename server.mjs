@@ -26,14 +26,14 @@ import { fetchUNSecurityCouncil, fetchCentralBanks, fetchThinkTanks, fetchTradeF
 import { fetchOpenSanctions } from './apis/sources/opensanctions.mjs';
 
 // === Self-Learning & Self-Update System ===
-import { getLearningStats, getOutcomes, recordAlertOutcome, getSourceHistory, getSourcesToReview, getPatterns, getOpportunities, getExplorerFindings, getUpdateLog, recordSourceSweep } from './lib/self/learning_store.mjs';
+import { getLearningStats, getOutcomes, recordAlertOutcome, getSourceHistory, getSourcesToReview, getPatterns, getOpportunities, getExplorerFindings, getUpdateLog, recordSourceSweep, initLearningStore } from './lib/self/learning_store.mjs';
 import { detectOpportunities, formatOpportunitiesForTelegram } from './lib/self/opportunity_engine.mjs';
 import { analyzePatterns, formatPatternsForTelegram } from './lib/self/pattern_analyzer.mjs';
 import { runExploration, exploreQuery, formatExplorerFindingsForTelegram } from './lib/self/web_explorer.mjs';
 import { generateSourceModule, generateSourceFix, stageModule, getStagedModules, getStagedCode, formatStagedForTelegram } from './lib/self/code_generator.mjs';
 import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRestartFlag, triggerGracefulRestart, getAutoManagedModules } from './lib/self/updater.mjs';
-import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, formatBDSummaryForTelegram } from './lib/self/bd_intelligence.mjs';
-import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser } from './lib/auth/users.mjs';
+import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, formatBDSummaryForTelegram, initBDStore } from './lib/self/bd_intelligence.mjs';
+import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore } from './lib/auth/users.mjs';
 import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
@@ -102,10 +102,26 @@ function getSourceHealthSummary() {
 
 // === Delta/Memory ===
 const memory = new MemoryManager(RUNS_DIR);
+// Restore alertedSignals from Redis if hot.json is missing (Render restart)
+memory.initFromRedis().catch(() => {});
 
 // === LLM + Telegram + Discord ===
 const llmProvider = createLLMProvider(config.llm);
 const telegramAlerter = new TelegramAlerter(config.telegram);
+
+// === Persistence Initialization — restores Redis backups if local files are missing ===
+(async () => {
+  try {
+    await initUsersStore();
+    await initLearningStore();
+    await initBDStore();
+    const { initEntityStore } = await import('./lib/search/entity-store.mjs');
+    await initEntityStore();
+    console.log('[Persist] All stores initialized');
+  } catch (e) {
+    console.error('[Persist] Store init error:', e.message);
+  }
+})();
 
 // === Auth & Push Initialization ===
 initAdminUser().catch(err => console.error('[Auth] initAdminUser failed:', err.message));
