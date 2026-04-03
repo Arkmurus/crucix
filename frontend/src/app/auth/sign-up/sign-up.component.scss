@@ -1,17 +1,37 @@
-.login-separater {
-    span {
-        position: relative;
-        top: 26px;
-        margin-top: -10px;
-        background-color: #fff;
-        padding: 5px;
-        font-size: 13px;
-        color: #949494;
-        z-index: 1;
-    }
+.signup-bg {
+    background: #0a0c18 !important;
+    background-image: none !important;
 }
 
-.signup-bg {
-    background: #000 !important;
-    background-image: none !important;
+.signup-wrap {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    padding: 40px 0;
+
+    .container { width: 100%; }
+}
+
+.auth-sub {
+    color: #64748b !important;
+}
+
+::ng-deep .auth-card {
+    background: #111320 !important;
+    border: 1px solid rgba(255,255,255,0.09) !important;
+    box-shadow: 0 8px 40px rgba(0,0,0,.7) !important;
+
+    .mat-mdc-text-field-wrapper { background: rgba(255,255,255,0.04) !important; }
+    .mdc-floating-label, .mat-mdc-floating-label { color: #64748b !important; }
+    .mdc-text-field--outlined:not(.mdc-text-field--disabled) .mdc-notched-outline__leading,
+    .mdc-text-field--outlined:not(.mdc-text-field--disabled) .mdc-notched-outline__notch,
+    .mdc-text-field--outlined:not(.mdc-text-field--disabled) .mdc-notched-outline__trailing {
+        border-color: rgba(255,255,255,0.15) !important;
+    }
+    input.mat-mdc-input-element { color: #e2e8f0 !important; caret-color: #2159d5; }
+    .mat-mdc-icon-button { color: #64748b !important; }
+    .text-muted { color: #64748b !important; }
+    h5 { color: #e2e8f0 !important; }
 }

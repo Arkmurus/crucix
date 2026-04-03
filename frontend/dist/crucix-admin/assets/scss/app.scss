@@ -15,7 +15,8 @@ body {
     color: #636363;
     font-family: Roboto, "Helvetica Neue", sans-serif;
     background: #efefef;
-
+    /* Prevent horizontal scroll from layout shifts */
+    overflow-x: hidden;
 }
 
 button {

@@ -1,20 +1,20 @@
 <div class="login-bg position-fixed top-0 start-0 end-0 bottom-0"></div>
 
-<div class="auth-box d-flex align-items-center justify-content-center my-5 my-lg-0">
+<div class="auth-box d-flex align-items-center justify-content-center">
   <div class="container-fluid">
     <div class="row row-cols-1 row-cols-lg-2 row-cols-xl-3">
       <div class="col mx-auto">
-        <mat-card class="rounded-4 m-2">
+        <mat-card class="rounded-4 m-2 auth-card">
           <mat-card-content class="p-5">
 
             <div class="text-center mb-4">
               <a routerLink="/auth/landing"
                  style="font-family:'Manrope',sans-serif;font-size:24px;font-weight:800;
-                        color:#ffffff;letter-spacing:3px;text-transform:uppercase;
+                        color:#e2e8f0;letter-spacing:3px;text-transform:uppercase;
                         text-decoration:none;display:inline-block;margin-bottom:8px;">
                 ARKMURUS
               </a>
-              <p class="mb-0 text-muted" style="font-size:13px;">Sign in to your account</p>
+              <p class="mb-0 auth-sub" style="font-size:13px;">Sign in to your account</p>
             </div>
 
             <div class="alert alert-danger" *ngIf="errorMsg">{{ errorMsg }}</div>

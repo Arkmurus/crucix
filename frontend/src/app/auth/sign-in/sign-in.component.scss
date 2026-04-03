@@ -1,39 +1,33 @@
 .auth-box {
-    height: 100vh;
-    .social-circle {
-        width: 50px !important;
-        height: 50px !important;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-}
-
-.login-separater {
-    span {
-        position: relative;
-        top: 26px;
-        margin-top: -10px;
-        background-color: #fff;
-        padding: 5px;
-        font-size: 13px;
-        color: #949494;
-        z-index: 1;
-    }
+    min-height: 100vh;
+    position: relative;
+    z-index: 1;
 }
 
 .login-bg {
-    background: #000 !important;
+    background: #0a0c18 !important;
     background-image: none !important;
 }
 
+::ng-deep .auth-card {
+    background: #111320 !important;
+    border: 1px solid rgba(255,255,255,0.09) !important;
+    box-shadow: 0 8px 40px rgba(0,0,0,.7) !important;
+}
 
-/* responsive */
+.auth-sub {
+    color: #64748b !important;
+}
 
-@media only screen and (max-width: 991px) {
-    .auth-box {
-        height: 100%;
-  }
-
+/* Override mat-form-field label/input colours on dark card */
+::ng-deep .auth-card {
+    .mat-mdc-text-field-wrapper { background: rgba(255,255,255,0.04) !important; }
+    .mdc-floating-label, .mat-mdc-floating-label { color: #64748b !important; }
+    .mdc-text-field--outlined:not(.mdc-text-field--disabled) .mdc-notched-outline__leading,
+    .mdc-text-field--outlined:not(.mdc-text-field--disabled) .mdc-notched-outline__notch,
+    .mdc-text-field--outlined:not(.mdc-text-field--disabled) .mdc-notched-outline__trailing {
+        border-color: rgba(255,255,255,0.15) !important;
+    }
+    input.mat-mdc-input-element { color: #e2e8f0 !important; caret-color: #2159d5; }
+    .mat-mdc-icon-button { color: #64748b !important; }
 }

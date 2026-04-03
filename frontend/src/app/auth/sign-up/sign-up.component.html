@@ -1,20 +1,21 @@
 <div class="signup-bg position-fixed top-0 start-0 end-0 bottom-0"></div>
 
-<div class="container my-5">
-  <div class="row g-4">
-    <div class="col-12 col-xl-5 mx-auto">
-      <mat-card class="rounded-4">
-        <mat-card-content class="p-5">
+<div class="signup-wrap">
+  <div class="container">
+    <div class="row g-4">
+      <div class="col-12 col-xl-5 mx-auto">
+        <mat-card class="rounded-4 auth-card">
+          <mat-card-content class="p-5">
 
-          <div class="text-center mb-4">
-            <a routerLink="/auth/landing"
-               style="font-family:'Manrope',sans-serif;font-size:24px;font-weight:800;
-                      color:#ffffff;letter-spacing:3px;text-transform:uppercase;
-                      text-decoration:none;display:inline-block;margin-bottom:8px;">
-              ARKMURUS
-            </a>
-            <p class="mb-0 text-muted" style="font-size:13px;">Create your analyst account</p>
-          </div>
+            <div class="text-center mb-4">
+              <a routerLink="/auth/landing"
+                 style="font-family:'Manrope',sans-serif;font-size:24px;font-weight:800;
+                        color:#e2e8f0;letter-spacing:3px;text-transform:uppercase;
+                        text-decoration:none;display:inline-block;margin-bottom:8px;">
+                ARKMURUS
+              </a>
+              <p class="mb-0 auth-sub" style="font-size:13px;">Create your analyst account</p>
+            </div>
 
           <!-- Pending approval screen -->
           <div *ngIf="pendingApproval" style="text-align:center;padding:16px 0">
@@ -41,8 +42,10 @@
                 <span style="color:#cbd5e1;font-size:13px;">You will receive an email once your account is activated.</span>
               </div>
             </div>
-            <a routerLink="/auth/sign-in" mat-flat-button color="primary"
-               style="width:100%;padding:10px;font-size:14px;font-weight:600;text-decoration:none">
+            <a routerLink="/auth/sign-in"
+               style="display:block;text-align:center;width:100%;padding:12px;font-size:14px;
+                      font-weight:600;text-decoration:none;border-radius:8px;
+                      background:#2159d5;color:#fff;box-shadow:0 4px 16px rgba(33,89,213,.35)">
               Back to Sign In
             </a>
           </div>
@@ -119,8 +122,9 @@
           </form>
           </div><!-- /!pendingApproval -->
 
-        </mat-card-content>
-      </mat-card>
+          </mat-card-content>
+        </mat-card>
+      </div>
     </div>
   </div>
 </div>
