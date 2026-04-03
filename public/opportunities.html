@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Opportunities — ARKMURUS</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/crucix.css">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+<main id="app-main">
+  <div class="sc-page-header">
+    <h1 class="sc-page-title"><i class="bi bi-briefcase"></i> Procurement Opportunities</h1>
+    <p class="sc-page-sub">Scored market opportunities ranked by procurement potential</p>
+  </div>
+
+  <div id="opps-loading" class="sc-loading-state"><div class="sc-spinner"></div>Loading opportunities…</div>
+
+  <div id="opps-content" style="display:none">
+    <div id="opps-grid" class="sc-grid-3"></div>
+  </div>
+</main>
+
+<script src="vendor/jquery.min.js"></script>
+<script src="js/app.js"></script>
+<script src="js/sidebar.js"></script>
+<script>
+Auth.requireAuth();
+Sidebar.init('opportunities');
+
+async function load() {
+  const data = await API.get('/api/opportunities');
+  document.getElementById('opps-loading').style.display = 'none';
+  document.getElementById('opps-content').style.display = '';
+  const opps = (data||[]);
+  if (!opps.length) {
+    document.getElementById('opps-grid').innerHTML = '<p class="text-muted">No opportunities available.</p>';
+    return;
+  }
+  document.getElementById('opps-grid').innerHTML = opps.map(o => {
+    const compliance = o.complianceStatus === 'CLEAR' ? 'sc-badge-green' : 'sc-badge-red';
+    const tier = o.tier === 1 ? 'sc-badge-prime' : o.tier === 2 ? 'sc-badge-blue' : 'sc-badge-muted';
+    return `<div class="sc-card">
+      <div class="sc-card-header">
+        <div class="sc-card-title" style="font-size:15px">
+          ${o.lusophone?'<i class="bi bi-flag"></i>':''} ${escHtml(o.market)}
+        </div>
+        <span class="sc-badge ${tier}">Tier ${o.tier||'—'}</span>
+      </div>
+      <div class="sc-card-body">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+          <div style="font-size:36px;font-weight:800;color:#913BFF">${o.score||0}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.4)">/ 100<br>Score</div>
+        </div>
+        ${o.conflict?`<div style="font-size:12px;color:rgba(255,255,255,.55);margin-bottom:8px">
+          <i class="bi bi-exclamation-triangle text-orange"></i>
+          ${o.conflict.events||0} events · ${o.conflict.fatalities||0} fatalities
+        </div>`:''}
+        ${(o.procurementNeeds||[]).length?`<div style="margin-bottom:10px">
+          ${o.procurementNeeds.slice(0,4).map(n=>`<span class="sc-badge sc-badge-muted" style="margin:2px">${escHtml(n)}</span>`).join('')}
+        </div>`:''}
+        <div class="d-flex align-center gap-8">
+          <span class="sc-badge ${compliance}">${escHtml(o.complianceStatus||'—')}</span>
+          ${o.winProb?`<span style="font-size:12px;color:rgba(255,255,255,.45)">Win: ${Math.round(o.winProb*100)}%</span>`:''}
+        </div>
+        ${o.summary?`<p style="font-size:12px;color:rgba(255,255,255,.5);margin-top:10px;line-height:1.5">${escHtml(truncate(o.summary,140))}</p>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+load();
+</script>
+</body>
+</html>

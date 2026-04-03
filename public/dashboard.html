@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Intelligence Brief — ARKMURUS</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/crucix.css">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+
+<main id="app-main">
+
+  <!-- Page Header -->
+  <div class="sc-page-header">
+    <h1 class="sc-page-title"><i class="bi bi-radar"></i> Intelligence Brief</h1>
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <span class="sc-page-sub" id="last-updated">Loading…</span>
+      <button class="sc-btn sc-btn-primary sc-btn-sm" id="btn-sweep" onclick="runSweep()">
+        <i class="bi bi-arrow-repeat"></i> Run Sweep
+      </button>
+    </div>
+  </div>
+
+  <!-- KPI Tiles -->
+  <div class="sc-grid-4 mb-24" id="kpi-row">
+    <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-compass"></i></div><div><div class="sc-stat-value" id="kpi-direction">—</div><div class="sc-stat-label">Market Direction</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-bar-chart-line"></i></div><div><div class="sc-stat-value" id="kpi-vix">—</div><div class="sc-stat-label">VIX</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-fuel-pump"></i></div><div><div class="sc-stat-value" id="kpi-brent">—</div><div class="sc-stat-label">Brent Crude</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-satellite"></i></div><div><div class="sc-stat-value" id="kpi-osint">—</div><div class="sc-stat-label">OSINT Signals</div></div></div>
+  </div>
+
+  <!-- Main two-col -->
+  <div class="sc-grid-2 mb-24">
+    <!-- Situation Awareness -->
+    <div class="sc-card">
+      <div class="sc-card-header">
+        <div class="sc-card-title"><i class="bi bi-exclamation-triangle"></i> Situation Awareness</div>
+      </div>
+      <div class="sc-card-body" id="correlations-list" style="max-height:420px;overflow-y:auto">
+        <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
+      </div>
+    </div>
+
+    <!-- OSINT Signals -->
+    <div class="sc-card">
+      <div class="sc-card-header">
+        <div class="sc-card-title"><i class="bi bi-broadcast"></i> OSINT Signals</div>
+      </div>
+      <div class="sc-card-body" id="osint-list" style="max-height:420px;overflow-y:auto">
+        <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leverageable Ideas -->
+  <div class="sc-card mb-24">
+    <div class="sc-card-header">
+      <div class="sc-card-title"><i class="bi bi-lightbulb"></i> Leverageable Ideas</div>
+      <span class="sc-badge sc-badge-muted" id="ideas-source"></span>
+    </div>
+    <div class="sc-card-body" id="ideas-list">
+      <div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div>
+    </div>
+  </div>
+
+  <!-- Opportunities preview -->
+  <div class="sc-card mb-24" id="opps-section" style="display:none">
+    <div class="sc-card-header">
+      <div class="sc-card-title"><i class="bi bi-briefcase"></i> Procurement Opportunities</div>
+      <a href="/opportunities.html" class="sc-btn sc-btn-outline sc-btn-sm ms-auto">View all</a>
+    </div>
+    <div class="sc-card-body" style="padding:0">
+      <table class="sc-table" id="opps-table">
+        <thead><tr><th>Market</th><th>Score</th><th>Compliance</th><th>Procurement Needs</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Lusophone Defence -->
+  <div class="sc-card mb-24" id="defence-section" style="display:none">
+    <div class="sc-card-header">
+      <div class="sc-card-title"><i class="bi bi-flag"></i> Lusophone &amp; Africa Defence</div>
+    </div>
+    <div class="sc-card-body" id="defence-list" style="max-height:420px;overflow-y:auto"></div>
+  </div>
+
+</main>
+
+<script src="vendor/jquery.min.js"></script>
+<script src="fonts/bootstrap-icons/font-css.css" type="text/plain" id="biCss"></script>
+<script src="js/app.js"></script>
+<script src="js/sidebar.js"></script>
+<script>
+Auth.requireAuth();
+Sidebar.init('brief');
+
+async function loadData() {
+  const data = await API.get('/api/data');
+  if (!data) return;
+
+  // KPIs
+  const d = data.direction || 'neutral';
+  document.getElementById('kpi-direction').textContent = d.toUpperCase();
+  document.getElementById('kpi-direction').style.color =
+    d === 'risk-off' ? '#ef4444' : d === 'risk-on' ? '#22c55e' : '#FF7A41';
+  document.getElementById('kpi-vix').textContent = data.vix ?? '—';
+  document.getElementById('kpi-brent').textContent = data.brent ? `$${data.brent}` : '—';
+  document.getElementById('kpi-osint').textContent = (data.urgentPosts || []).length;
+
+  // Last updated
+  document.getElementById('last-updated').textContent =
+    data.lastUpdated ? `Updated: ${fmtDateTime(data.lastUpdated)} · ${data.sourcesOk||0}/${data.sourcesTotal||0} sources` : '';
+
+  // Correlations
+  const corrEl = document.getElementById('correlations-list');
+  const corrs = data.correlations || [];
+  if (!corrs.length) {
+    corrEl.innerHTML = '<p class="text-muted" style="padding:8px">No critical correlations detected.</p>';
+  } else {
+    corrEl.innerHTML = corrs.slice(0,6).map(c => `
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;margin-bottom:10px;overflow:hidden">
+        <div style="background:${c.severity==='critical'?'rgba(239,68,68,0.12)':'rgba(255,122,65,0.10)'};padding:8px 12px;display:flex;align-items:center;gap:8px">
+          <i class="bi ${c.severity==='critical'?'bi-exclamation-octagon':'bi-exclamation-triangle'}" style="color:${c.severity==='critical'?'#ef4444':'#FF7A41'}"></i>
+          <strong style="color:#fff;font-size:13px">${escHtml(c.region)}</strong>
+          <span class="sc-badge ${c.severity==='critical'?'sc-badge-red':'sc-badge-orange'} ms-auto">${escHtml(c.severity||'').toUpperCase()}</span>
+        </div>
+        <div style="padding:10px 12px">
+          ${(c.topSignals||[]).slice(0,2).map(s=>`
+            <p style="font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:6px;line-height:1.5">${escHtml(truncate(s.text,200))}</p>
+          `).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  // OSINT
+  const osintEl = document.getElementById('osint-list');
+  const posts = data.urgentPosts || [];
+  if (!posts.length) {
+    osintEl.innerHTML = '<p class="text-muted" style="padding:8px">No urgent signals this sweep.</p>';
+  } else {
+    osintEl.innerHTML = posts.slice(0,8).map(p => `
+      <div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:11px;font-weight:700;color:#913BFF">${escHtml(p.channel||'OSINT')}</span>
+          <span style="font-size:11px;color:rgba(255,255,255,0.35)">${p.date?fmtDateTime(p.date):''}</span>
+        </div>
+        <p style="font-size:13px;color:rgba(255,255,255,0.72);line-height:1.55;margin:0">${escHtml(truncate(p.text||'',200))}</p>
+      </div>`).join('');
+  }
+
+  // Ideas
+  const ideasEl = document.getElementById('ideas-list');
+  const ideas = data.ideas || [];
+  if (data.ideasSource) document.getElementById('ideas-source').textContent = data.ideasSource === 'llm' ? 'AI-generated' : data.ideasSource;
+  if (!ideas.length) {
+    ideasEl.innerHTML = '<p class="text-muted">No ideas generated — enable LLM via ANTHROPIC_API_KEY.</p>';
+  } else {
+    ideasEl.innerHTML = `<div class="sc-grid-3">${ideas.map(idea => {
+      const col = idea.type==='LONG'?'green':idea.type==='SHORT'?'red':'muted';
+      return `<div class="sc-card" style="border-left:3px solid var(--sc-${col==='muted'?'muted':col})">
+        <div class="sc-card-body">
+          <div style="display:flex;gap:6px;margin-bottom:8px">
+            <span class="sc-badge sc-badge-${col}">${escHtml(idea.type||'')}</span>
+            <span class="sc-badge sc-badge-muted">${escHtml(idea.confidence||'')}</span>
+          </div>
+          <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:6px">${escHtml(idea.title||'')}</div>
+          ${idea.ticker?`<div style="font-size:13px;color:var(--sc-prime);font-weight:700;margin-bottom:4px">${escHtml(idea.ticker)}</div>`:''}
+          <div style="font-size:12px;color:rgba(255,255,255,0.55)">${escHtml(truncate(idea.rationale||'',130))}</div>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+  }
+
+  // Opportunities
+  const opps = data.opportunities || [];
+  if (opps.length) {
+    document.getElementById('opps-section').style.display = '';
+    const tbody = document.querySelector('#opps-table tbody');
+    tbody.innerHTML = opps.slice(0,5).map(o => `
+      <tr>
+        <td><strong>${escHtml(o.market)}</strong>${o.lusophone?'<i class="bi bi-flag ms-1 text-prime" title="Lusophone"></i>':''}</td>
+        <td><span class="sc-badge sc-badge-prime">${o.score}/100</span></td>
+        <td><span class="sc-badge ${o.complianceStatus==='CLEAR'?'sc-badge-green':'sc-badge-red'}">${escHtml(o.complianceStatus||'')}</span></td>
+        <td style="font-size:12px">${(o.procurementNeeds||[]).slice(0,3).join(', ')}</td>
+      </tr>`).join('');
+  }
+
+  // Defence signals
+  const def = data.defenceSignals || data.defenceUpdates || [];
+  if (def.length) {
+    document.getElementById('defence-section').style.display = '';
+    document.getElementById('defence-list').innerHTML = def.slice(0,5).map(s => `
+      <div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <div style="font-size:13px;font-weight:600;color:#913BFF;margin-bottom:4px">${escHtml(s.title||'')}</div>
+        <p style="font-size:12px;color:rgba(255,255,255,0.6);line-height:1.5;margin:0">${escHtml(truncate(s.content||s.description||'',200))}</p>
+      </div>`).join('');
+  }
+}
+
+async function runSweep() {
+  const btn = document.getElementById('btn-sweep');
+  btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Sweeping…'; btn.disabled = true;
+  await API.post('/api/sweep', {});
+  await loadData();
+  btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
+  Toast.show('Sweep complete', 'success');
+}
+
+loadData();
+</script>
+<style>.spin{animation:spin .8s linear infinite}</style>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create Account — ARKMURUS Intelligence</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/crucix.css">
+  <style>
+    body { background: #0f0a1e; }
+    .auth-page { display: flex; min-height: 100vh; }
+    .auth-left {
+      width: 45%; min-height: 100vh; background: #180e32;
+      display: none; align-items: center; justify-content: center;
+      position: relative; overflow: hidden; padding: 48px;
+    }
+    @media(min-width:900px){ .auth-left { display: flex; } }
+    .auth-left::before {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(145deg, rgba(145,59,255,.12), rgba(0,102,255,.08));
+    }
+    .auth-glow { position: absolute; border-radius: 50%; pointer-events: none; }
+    .auth-glow-1 { width:380px;height:380px;background:radial-gradient(circle,rgba(145,59,255,.2) 0%,transparent 70%);top:-60px;right:-60px; }
+    .auth-glow-2 { width:240px;height:240px;background:radial-gradient(circle,rgba(0,102,255,.15) 0%,transparent 70%);bottom:40px;left:20px; }
+    .auth-left-content { position:relative;z-index:1;max-width:380px; }
+    .auth-logo { display:flex;align-items:center;gap:12px;margin-bottom:36px; }
+    .auth-logo-mark { width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#913BFF,#0066FF);box-shadow:0 0 20px rgba(145,59,255,.5); }
+    .auth-logo span { font-size:16px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#fff; }
+    .auth-tagline { font-size:32px;font-weight:700;line-height:1.25;color:#fff;margin-bottom:16px; }
+    .auth-tagline span { background:linear-gradient(90deg,#913BFF,#0066FF);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text; }
+    .auth-desc { font-size:14px;color:rgba(255,255,255,.55);line-height:1.75;margin-bottom:28px; }
+    .auth-features { display:flex;flex-direction:column;gap:10px; }
+    .auth-feature { display:flex;align-items:center;gap:10px;font-size:13px;color:rgba(255,255,255,.6); }
+    .auth-feature-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#913BFF;box-shadow:0 0 8px rgba(145,59,255,.7); }
+    .auth-feature-dot.blue { background:#0066FF;box-shadow:0 0 8px rgba(0,102,255,.7); }
+    .auth-feature-dot.green { background:#22c55e;box-shadow:0 0 8px rgba(34,197,94,.7); }
+    .auth-right { flex:1;display:flex;align-items:center;justify-content:center;padding:40px 5%;min-height:100vh; }
+    .auth-form-wrap { width:100%;max-width:440px; }
+    .auth-mobile-logo { display:flex;align-items:center;gap:10px;margin-bottom:28px; }
+    @media(min-width:900px){ .auth-mobile-logo { display:none; } }
+    .auth-logo-mark-sm { width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,#913BFF,#0066FF);box-shadow:0 0 12px rgba(145,59,255,.5); }
+    .auth-mobile-logo span { font-size:15px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#fff; }
+    .auth-title { font-size:26px;font-weight:700;color:#fff;margin-bottom:5px; }
+    .auth-sub { font-size:14px;color:rgba(255,255,255,.4);margin-bottom:26px; }
+    .auth-link { color:#913BFF;font-size:13px;font-weight:500; }
+    .auth-link:hover { color:#0066FF; }
+    .auth-footer { text-align:center;font-size:14px;color:rgba(255,255,255,.4);margin-top:20px; }
+    .sc-btn-primary.w-full { width:100%;justify-content:center; }
+    /* Pending state */
+    .pending-wrap { text-align:center; }
+    .pending-icon { width:70px;height:70px;border-radius:18px;background:rgba(145,59,255,.15);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:34px; }
+    .pending-checklist { background:rgba(145,59,255,.07);border:1px solid rgba(145,59,255,.2);border-radius:12px;padding:16px 20px;margin-bottom:22px;text-align:left; }
+    .pending-check { display:flex;align-items:flex-start;gap:10px;font-size:13px;color:rgba(255,255,255,.65);margin-bottom:10px; }
+    .pending-check:last-child { margin-bottom:0; }
+    .pending-check .icon { color:#22c55e;font-size:16px;flex-shrink:0;margin-top:1px; }
+  </style>
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-left">
+    <div class="auth-glow auth-glow-1"></div>
+    <div class="auth-glow auth-glow-2"></div>
+    <div class="auth-left-content">
+      <div class="auth-logo">
+        <div class="auth-logo-mark"></div>
+        <span>ARKMURUS</span>
+      </div>
+      <h2 class="auth-tagline">Join the intelligence<br><span>network.</span></h2>
+      <p class="auth-desc">Access real-time defense intelligence, procurement leads, and compliance tools — built for professionals in defense and security markets.</p>
+      <div class="auth-features">
+        <div class="auth-feature"><div class="auth-feature-dot"></div>Curated defense contract alerts</div>
+        <div class="auth-feature"><div class="auth-feature-dot blue"></div>Sanctions &amp; export control screening</div>
+        <div class="auth-feature"><div class="auth-feature-dot green"></div>Secure, admin-verified access</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="auth-right">
+    <div class="auth-form-wrap">
+      <div class="auth-mobile-logo">
+        <div class="auth-logo-mark-sm"></div>
+        <span>ARKMURUS</span>
+      </div>
+
+      <!-- Pending screen -->
+      <div id="pending-screen" style="display:none" class="pending-wrap">
+        <div class="pending-icon">⏳</div>
+        <h3 style="color:#fff;margin-bottom:8px">Account Created</h3>
+        <p id="pending-msg" style="color:rgba(255,255,255,.55);font-size:14px;margin-bottom:22px"></p>
+        <div class="pending-checklist">
+          <div class="pending-check"><span class="icon">✓</span>Account created and in the approval queue</div>
+          <div class="pending-check"><span class="icon">✓</span>Administrator notified — will review your request</div>
+          <div class="pending-check"><span class="icon">✓</span>You'll receive an email once your account is activated</div>
+        </div>
+        <a href="/signin.html" class="sc-btn sc-btn-primary w-full">Back to Sign In</a>
+      </div>
+
+      <!-- Registration form -->
+      <div id="register-screen">
+        <h2 class="auth-title">Create account</h2>
+        <p class="auth-sub">Set up your analyst profile</p>
+
+        <div id="error-msg" class="sc-alert sc-alert-danger" style="display:none"></div>
+        <div id="success-msg" class="sc-alert sc-alert-success" style="display:none"></div>
+
+        <div class="sc-field">
+          <label>Full Name</label>
+          <input type="text" id="fullName" placeholder="John Smith" autocomplete="name">
+        </div>
+        <div class="sc-field">
+          <label>Username</label>
+          <input type="text" id="username" placeholder="jsmith_analyst" autocomplete="username">
+        </div>
+        <div class="sc-field">
+          <label>Email address</label>
+          <input type="email" id="email" placeholder="you@organisation.com" autocomplete="email">
+        </div>
+        <div class="sc-field">
+          <label>Password</label>
+          <input type="password" id="password" placeholder="Min. 8 characters" autocomplete="new-password">
+        </div>
+        <div class="sc-field">
+          <label>Confirm Password</label>
+          <input type="password" id="confirmPassword" placeholder="Re-enter password" autocomplete="new-password">
+        </div>
+
+        <button class="sc-btn sc-btn-primary w-full" id="btn-register" onclick="doRegister()">Create Account</button>
+        <p class="auth-footer">Already have an account? <a href="signin.html" class="auth-link">Sign in</a></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/jquery.min.js"></script>
+<script src="js/app.js"></script>
+<script>
+  if (Auth.isLoggedIn()) window.location.href = '/dashboard.html';
+
+  async function doRegister() {
+    const btn = document.getElementById('btn-register');
+    const fullName = document.getElementById('fullName').value.trim();
+    const username = document.getElementById('username').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const confirmPassword = document.getElementById('confirmPassword').value;
+
+    hideMessages();
+    if (!fullName||!username||!email||!password) return showError('All fields are required.');
+    if (password.length < 8) return showError('Password must be at least 8 characters.');
+    if (password !== confirmPassword) return showError('Passwords do not match.');
+
+    btn.textContent = 'Creating account…'; btn.disabled = true;
+    const { ok, data } = await API.post('/api/auth/register', { fullName, username, email, password });
+    btn.textContent = 'Create Account'; btn.disabled = false;
+
+    if (!ok) return showError(data.error || 'Registration failed.');
+
+    document.getElementById('register-screen').style.display = 'none';
+    document.getElementById('pending-screen').style.display = 'block';
+    document.getElementById('pending-msg').textContent =
+      `Hi ${fullName}, your account is pending admin approval.`;
+  }
+
+  function showError(m){ const e=document.getElementById('error-msg'); e.textContent=m; e.style.display='flex'; }
+  function hideMessages(){
+    document.getElementById('error-msg').style.display='none';
+    document.getElementById('success-msg').style.display='none';
+  }
+</script>
+</body>
+</html>

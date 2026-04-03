@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Explorer — ARKMURUS</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/crucix.css">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    .result-card { background:#1d1245; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:16px; margin-bottom:10px; }
+    .result-title { font-size:14px; font-weight:600; color:#fff; margin-bottom:6px; }
+    .result-source { font-size:11px; color:#913BFF; font-weight:700; }
+    .result-text { font-size:13px; color:rgba(255,255,255,0.65); line-height:1.55; margin:6px 0; }
+    .search-bar { display:flex; gap:10px; margin-bottom:24px; }
+    .search-bar input { flex:1; }
+    .filter-row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+  </style>
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+<main id="app-main">
+  <div class="sc-page-header">
+    <h1 class="sc-page-title"><i class="bi bi-globe2"></i> Intelligence Explorer</h1>
+    <p class="sc-page-sub">Search across all intelligence sources</p>
+  </div>
+
+  <div class="sc-card mb-24">
+    <div class="sc-card-body">
+      <div class="search-bar">
+        <div class="sc-field" style="margin:0;flex:1">
+          <input type="text" id="search-input" placeholder="Search companies, entities, countries, topics…" onkeydown="if(event.key==='Enter')doSearch()">
+        </div>
+        <button class="sc-btn sc-btn-primary" onclick="doSearch()"><i class="bi bi-search"></i> Search</button>
+      </div>
+      <div class="filter-row" id="filter-row"></div>
+    </div>
+  </div>
+
+  <div id="search-results">
+    <div style="text-align:center;padding:60px;color:rgba(255,255,255,0.3)">
+      <i class="bi bi-search" style="font-size:48px;display:block;margin-bottom:12px"></i>
+      Enter a search term to explore intelligence data
+    </div>
+  </div>
+</main>
+
+<script src="vendor/jquery.min.js"></script>
+<script src="js/app.js"></script>
+<script src="js/sidebar.js"></script>
+<script>
+Auth.requireAuth();
+Sidebar.init('explorer');
+
+// Restore last search
+const lastQuery = sessionStorage.getItem('explorer-query');
+if (lastQuery) { document.getElementById('search-input').value = lastQuery; doSearch(); }
+
+async function doSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  sessionStorage.setItem('explorer-query', q);
+  const el = document.getElementById('search-results');
+  el.innerHTML = '<div class="sc-loading-state"><div class="sc-spinner"></div>Searching…</div>';
+
+  const data = await API.get(`/api/search?q=${encodeURIComponent(q)}`);
+  if (!data) return;
+
+  const results = data.results || data.items || data || [];
+  if (!results.length) {
+    el.innerHTML = '<p class="text-muted" style="text-align:center;padding:40px">No results found for "' + escHtml(q) + '"</p>';
+    return;
+  }
+
+  el.innerHTML = `<div style="margin-bottom:12px;font-size:13px;color:rgba(255,255,255,.4)">${results.length} result${results.length!==1?'s':''} for <strong style="color:#913BFF">"${escHtml(q)}"</strong></div>` +
+    results.map(r => `
+    <div class="result-card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span class="result-source">${escHtml(r.source||r.type||'')}</span>
+        ${r.date?`<span style="font-size:11px;color:rgba(255,255,255,.3)">${fmtDate(r.date)}</span>`:''}
+        ${r.url?`<a href="${escHtml(r.url)}" target="_blank" rel="noopener" style="margin-left:auto;font-size:12px;color:#913BFF"><i class="bi bi-box-arrow-up-right"></i></a>`:''}
+      </div>
+      <div class="result-title">${escHtml(r.title||r.name||'')}</div>
+      <div class="result-text">${escHtml(truncate(r.text||r.description||r.summary||'',250))}</div>
+      ${(r.tags||[]).length?`<div>${r.tags.map(t=>`<span class="sc-badge sc-badge-muted" style="margin:2px">${escHtml(t)}</span>`).join('')}</div>`:''}
+    </div>`).join('');
+}
+</script>
+</body>
+</html>

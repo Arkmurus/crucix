@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Source Health — ARKMURUS</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/crucix.css">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+<main id="app-main">
+  <div class="sc-page-header">
+    <h1 class="sc-page-title"><i class="bi bi-activity"></i> Source Health</h1>
+    <p class="sc-page-sub">Real-time status of all intelligence data sources</p>
+  </div>
+
+  <!-- Summary row -->
+  <div class="sc-grid-4 mb-24">
+    <div class="sc-stat"><div class="sc-stat-icon green"><i class="bi bi-check-circle"></i></div><div><div class="sc-stat-value" id="src-ok">—</div><div class="sc-stat-label">Active Sources</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon red"><i class="bi bi-x-circle"></i></div><div><div class="sc-stat-value" id="src-err">—</div><div class="sc-stat-label">Failed Sources</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon orange"><i class="bi bi-exclamation-triangle"></i></div><div><div class="sc-stat-value" id="src-warn">—</div><div class="sc-stat-label">Degraded</div></div></div>
+    <div class="sc-stat"><div class="sc-stat-icon blue"><i class="bi bi-clock"></i></div><div><div class="sc-stat-value" id="src-last">—</div><div class="sc-stat-label">Last Sweep</div></div></div>
+  </div>
+
+  <div class="sc-card">
+    <div class="sc-card-header">
+      <div class="sc-card-title"><i class="bi bi-database"></i> All Sources</div>
+    </div>
+    <div style="padding:0">
+      <table class="sc-table" id="src-table">
+        <thead><tr><th>Source</th><th>Status</th><th>Records</th><th>Last Check</th><th>Error</th></tr></thead>
+        <tbody id="src-body"><tr><td colspan="5" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="vendor/jquery.min.js"></script>
+<script src="js/app.js"></script>
+<script src="js/sidebar.js"></script>
+<script>
+Auth.requireAuth();
+Sidebar.init('sources');
+
+async function loadSources() {
+  const data = await API.get('/api/source-health');
+  if (!data) return;
+  const sources = data.sources || [];
+  const ok   = sources.filter(s=>s.status==='ok').length;
+  const err  = sources.filter(s=>s.status==='error').length;
+  const warn = sources.filter(s=>s.status==='warning'||s.status==='degraded').length;
+  document.getElementById('src-ok').textContent  = ok;
+  document.getElementById('src-err').textContent = err;
+  document.getElementById('src-warn').textContent= warn;
+  document.getElementById('src-last').textContent= data.lastUpdated ? fmtDateTime(data.lastUpdated) : '—';
+
+  document.getElementById('src-body').innerHTML = sources.map(s => {
+    const dot = s.status==='ok'?'ok':s.status==='error'?'error':'warn';
+    return `<tr>
+      <td><strong>${escHtml(s.name||s.source||s.id||'')}</strong></td>
+      <td><span class="status-dot ${dot}" style="margin-right:6px"></span><span style="font-size:12px;text-transform:capitalize">${escHtml(s.status||'')}</span></td>
+      <td>${s.count ?? s.records ?? '—'}</td>
+      <td style="font-size:12px;color:rgba(255,255,255,.4)">${s.lastCheck||s.checkedAt?fmtDateTime(s.lastCheck||s.checkedAt):'—'}</td>
+      <td style="font-size:12px;color:#f87171">${escHtml(s.error||s.errorMsg||'')}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,.4);padding:30px">No source data available</td></tr>';
+}
+
+loadSources();
+</script>
+</body>
+</html>

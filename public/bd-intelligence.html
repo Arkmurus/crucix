@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BD Intelligence — ARKMURUS</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/crucix.css">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    .bd-tabs { display:flex; gap:2px; border-bottom:1px solid rgba(255,255,255,0.08); margin-bottom:20px; flex-wrap:wrap; }
+    .bd-tab { background:none; border:none; border-bottom:2px solid transparent; color:rgba(255,255,255,0.45); font-size:13px; font-weight:500; padding:10px 16px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all .15s; white-space:nowrap; }
+    .bd-tab:hover { color:rgba(255,255,255,0.8); }
+    .bd-tab.active { color:#fff; border-bottom-color:#913BFF; font-weight:600; }
+    .bd-tab i { font-size:15px; }
+    .bd-panel { display:none; } .bd-panel.active { display:block; }
+    .intel-card { background:#1d1245; border:1px solid rgba(255,255,255,0.08); border-left:4px solid #913BFF; border-radius:12px; margin-bottom:12px; overflow:hidden; transition:transform .18s, box-shadow .18s; }
+    .intel-card:hover { transform:translateY(-2px); box-shadow:0 6px 24px rgba(145,59,255,0.2); }
+    .ic-top { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:12px 16px 8px; }
+    .ic-body { padding:0 16px 12px; }
+    .ic-title { font-size:14px; font-weight:600; color:#fff; line-height:1.5; margin-bottom:5px; }
+    .ic-text { font-size:12px; color:rgba(255,255,255,0.6); line-height:1.55; }
+    .ic-foot { display:flex; align-items:center; gap:10px; padding:8px 16px 10px; border-top:1px solid rgba(255,255,255,0.05); font-size:12px; flex-wrap:wrap; }
+    .ic-row { display:flex; align-items:baseline; gap:6px; font-size:13px; color:rgba(255,255,255,0.8); margin-top:4px; }
+    .ic-lbl { font-size:11px; color:rgba(255,255,255,0.35); font-weight:600; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; }
+    .ic-nextstep { display:flex; align-items:flex-start; gap:6px; margin-top:8px; padding:8px 10px; background:rgba(255,213,79,0.07); border-left:3px solid rgba(255,213,79,0.4); border-radius:0 6px 6px 0; font-size:12px; color:#fff9c4; }
+    .ic-share { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:rgba(255,255,255,0.5); cursor:pointer; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-size:14px; transition:all .15s; margin-left:auto; flex-shrink:0; }
+    .ic-share:hover { background:rgba(145,59,255,0.15); color:#913BFF; }
+    /* Share sheet */
+    .share-sheet { position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:999; display:none; align-items:flex-end; justify-content:center; padding:20px; }
+    .share-sheet.open { display:flex; }
+    @media(min-width:600px){ .share-sheet { align-items:center; } }
+    .share-panel { background:#1d1245; border:1px solid rgba(255,255,255,0.1); border-radius:16px 16px 0 0; width:100%; max-width:420px; }
+    @media(min-width:600px){ .share-panel { border-radius:16px; } }
+    .share-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid rgba(255,255,255,0.07); font-size:14px; font-weight:600; color:#fff; }
+    .share-preview { padding:10px 18px; font-size:12px; color:rgba(255,255,255,0.45); font-style:italic; line-height:1.5; background:rgba(0,0,0,0.2); border-bottom:1px solid rgba(255,255,255,0.05); }
+    .share-btns { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; padding:16px 18px 8px; }
+    .share-btn { display:flex; flex-direction:column; align-items:center; gap:6px; padding:12px 8px; border-radius:10px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.04); color:rgba(255,255,255,0.6); cursor:pointer; font-size:11px; font-weight:600; transition:all .15s; }
+    .share-btn:hover { transform:translateY(-2px); }
+    .share-btn.wa:hover { background:rgba(37,211,102,0.15); color:#25d366; }
+    .share-btn.tg:hover { background:rgba(36,161,222,0.15); color:#24a1de; }
+    .share-btn.em:hover { background:rgba(0,102,255,0.15); color:#64b5f6; }
+    .share-btn.cp:hover { background:rgba(145,59,255,0.15); color:#913BFF; }
+    .share-copy-btn { display:flex; align-items:center; justify-content:center; margin:8px 18px 16px; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.6); cursor:pointer; font-size:13px; font-weight:600; transition:all .15s; width:calc(100% - 36px); }
+    .share-copy-btn:hover { background:rgba(145,59,255,0.15); color:#913BFF; }
+  </style>
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+<main id="app-main">
+  <div class="sc-page-header" style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+    <div>
+      <h1 class="sc-page-title"><i class="bi bi-graph-up-arrow"></i> BD &amp; Strategy Intelligence</h1>
+      <p class="sc-page-sub" id="bd-sub">Loading…</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-left:auto" id="bd-stats"></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="bd-tabs">
+    <button class="bd-tab active" onclick="switchTab('leads',this)"><i class="bi bi-lightning"></i> Leads <span class="sc-badge sc-badge-prime" id="cnt-leads">0</span></button>
+    <button class="bd-tab" onclick="switchTab('tenders',this)"><i class="bi bi-file-earmark-text"></i> Tenders <span class="sc-badge sc-badge-blue" id="cnt-tenders">0</span></button>
+    <button class="bd-tab" onclick="switchTab('ideas',this)"><i class="bi bi-lightbulb"></i> Ideas <span class="sc-badge sc-badge-orange" id="cnt-ideas">0</span></button>
+    <button class="bd-tab" onclick="switchTab('pipeline',this)"><i class="bi bi-kanban"></i> Pipeline <span class="sc-badge sc-badge-green" id="cnt-pipeline">0</span></button>
+    <button class="bd-tab" onclick="switchTab('ml',this)"><i class="bi bi-cpu"></i> ML Leads <span class="sc-badge sc-badge-muted" id="cnt-ml">0</span></button>
+  </div>
+
+  <div id="panel-leads"    class="bd-panel active"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
+  <div id="panel-tenders"  class="bd-panel"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
+  <div id="panel-ideas"    class="bd-panel"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
+  <div id="panel-pipeline" class="bd-panel"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
+  <div id="panel-ml"       class="bd-panel"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
+</main>
+
+<!-- Share sheet -->
+<div class="share-sheet" id="share-sheet" onclick="closeShare(event)">
+  <div class="share-panel" onclick="event.stopPropagation()">
+    <div class="share-header">
+      <span>Share Intelligence</span>
+      <button onclick="closeShare()" style="background:rgba(255,255,255,0.07);border:none;color:rgba(255,255,255,0.6);border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">×</button>
+    </div>
+    <div class="share-preview" id="share-preview"></div>
+    <div class="share-btns">
+      <button class="share-btn wa" onclick="shareVia('wa')"><span style="font-size:22px">📱</span>WhatsApp</button>
+      <button class="share-btn tg" onclick="shareVia('tg')"><span style="font-size:22px">✈️</span>Telegram</button>
+      <button class="share-btn em" onclick="shareVia('em')"><span style="font-size:22px">📧</span>Email</button>
+      <button class="share-btn cp" onclick="copyText()"><span style="font-size:22px">📋</span>Copy</button>
+    </div>
+    <button class="share-copy-btn" onclick="copyText()"><i class="bi bi-clipboard"></i>&nbsp; Copy full text</button>
+  </div>
+</div>
+
+<script src="vendor/jquery.min.js"></script>
+<script src="js/app.js"></script>
+<script src="js/sidebar.js"></script>
+<script>
+Auth.requireAuth();
+Sidebar.init('bd');
+
+let bdData = null;
+let shareText = '';
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.bd-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.bd-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+function openShare(text, url) {
+  shareText = text + (url ? '\n\n' + url : '') + '\n\n— CRUCIX Intelligence · intel.sursec.co.uk';
+  document.getElementById('share-preview').textContent = truncate(shareText, 180);
+  document.getElementById('share-sheet').classList.add('open');
+}
+function closeShare(e) {
+  if (!e || e.target.id === 'share-sheet' || !e.target.closest('.share-panel'))
+    document.getElementById('share-sheet').classList.remove('open');
+}
+function shareVia(type) {
+  const enc = encodeURIComponent(shareText);
+  const urls = {
+    wa: `https://wa.me/?text=${enc}`,
+    tg: `https://t.me/share/url?url=${encodeURIComponent('intel.sursec.co.uk')}&text=${enc}`,
+    em: `mailto:?subject=CRUCIX%20Intelligence&body=${enc}`,
+  };
+  if (urls[type]) window.open(urls[type], '_blank');
+}
+function copyText() {
+  navigator.clipboard.writeText(shareText).then(() => Toast.show('Copied to clipboard', 'success'));
+}
+
+function chip(text, cls='sc-badge-muted') {
+  return `<span class="sc-badge ${cls}" style="margin:1px">${escHtml(text)}</span>`;
+}
+
+function renderCard(title, meta, summary, nextstep, url, shareTextFn) {
+  return `<div class="intel-card">
+    <div class="ic-top">${meta}<button class="ic-share" onclick="openShare('${escHtml((shareTextFn||title).replace(/'/g,"\\'"))}','${escHtml(url||'')}')"><i class="bi bi-share"></i></button></div>
+    <div class="ic-body">
+      <div class="ic-title">${escHtml(title)}</div>
+      ${summary?`<div class="ic-text">${escHtml(truncate(summary,200))}</div>`:''}
+      ${nextstep?`<div class="ic-nextstep"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ffd54f;font-size:14px"></i>${escHtml(nextstep)}</div>`:''}
+    </div>
+    ${url?`<div class="ic-foot"><a href="${escHtml(url)}" target="_blank" rel="noopener" style="font-size:12px;color:#913BFF"><i class="bi bi-box-arrow-up-right"></i> Source</a></div>`:''}
+  </div>`;
+}
+
+async function load() {
+  const data = await API.get('/api/bd-intelligence');
+  if (!data) return;
+  bdData = data;
+
+  const leads    = data.leads || [];
+  const tenders  = data.tenders || [];
+  const ideas    = data.ideas || [];
+  const ml       = data.mlLeads || [];
+
+  document.getElementById('cnt-leads').textContent    = leads.length;
+  document.getElementById('cnt-tenders').textContent  = tenders.length;
+  document.getElementById('cnt-ideas').textContent    = ideas.length;
+  document.getElementById('cnt-ml').textContent       = ml.length;
+
+  document.getElementById('bd-sub').textContent =
+    `${leads.length} leads · ${tenders.length} tenders · ${ideas.length} ideas`;
+
+  // Stats
+  const highPrio = leads.filter(l=>(l.score||0)>=80).length;
+  document.getElementById('bd-stats').innerHTML = [
+    ['Leads', leads.length, '#913BFF'],
+    ['Tenders', tenders.length, '#0066FF'],
+    ['High Priority', highPrio, '#22c55e'],
+    ['ML Leads', ml.length, '#FF7A41'],
+  ].map(([lbl,val,col]) =>
+    `<div style="background:#1d1245;border:1px solid rgba(255,255,255,0.07);border-top:3px solid ${col};border-radius:8px;padding:8px 14px;text-align:center;min-width:70px">
+      <div style="font-size:1.3rem;font-weight:800;color:${col}">${val}</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.5px;margin-top:2px">${lbl}</div>
+    </div>`
+  ).join('');
+
+  // Leads panel
+  document.getElementById('panel-leads').innerHTML = leads.length ? leads.map(l =>
+    renderCard(
+      l.company || l.title || 'Unknown',
+      `${chip(l.country||'',l.score>=80?'sc-badge-prime':'sc-badge-muted')}${l.score?chip(`Score: ${l.score}`, l.score>=80?'sc-badge-prime':'sc-badge-blue'):''}${l.category?chip(l.category):''}`,
+      l.summary || l.description,
+      l.nextStep,
+      l.url,
+      `LEAD: ${l.company||l.title||'Unknown'} | ${l.country||''} | Score: ${l.score||'—'}\n${l.summary||''}`
+    )
+  ).join('') : '<p class="text-muted">No leads available.</p>';
+
+  // Tenders panel
+  document.getElementById('panel-tenders').innerHTML = tenders.length ? tenders.map(t =>
+    renderCard(
+      t.title || t.subject || 'Tender',
+      `${chip(t.country||t.market||'',t.status==='open'?'sc-badge-green':'sc-badge-muted')}${t.value?chip(`$${Math.round((t.value||0)/1e6)}M`,'sc-badge-orange'):''}${t.deadline?chip('Deadline: '+fmtDate(t.deadline),'sc-badge-muted'):''}`,
+      t.description || t.summary,
+      t.nextStep,
+      t.url,
+      `TENDER: ${t.title||''} | ${t.country||t.market||''}\n${t.description||''}`
+    )
+  ).join('') : '<p class="text-muted">No tenders available.</p>';
+
+  // Ideas panel
+  document.getElementById('panel-ideas').innerHTML = ideas.length ? ideas.map(i =>
+    renderCard(
+      i.title || 'Strategic Idea',
+      `${chip(i.type||'IDEA', i.type==='LONG'?'sc-badge-green':i.type==='SHORT'?'sc-badge-red':'sc-badge-orange')}${i.confidence?chip(i.confidence,'sc-badge-muted'):''}${i.horizon?chip(i.horizon,'sc-badge-muted'):''}`,
+      i.rationale || i.summary,
+      i.nextStep,
+      null,
+      `IDEA: ${i.title||''} [${i.type||''}]\n${i.rationale||''}`
+    )
+  ).join('') : '<p class="text-muted">No ideas generated. Enable LLM via ANTHROPIC_API_KEY.</p>';
+
+  // ML Leads panel
+  document.getElementById('panel-ml').innerHTML = ml.length ? ml.map(m =>
+    renderCard(
+      m.company || m.title || 'ML Lead',
+      `${chip('ML Lead','sc-badge-muted')}${m.country?chip(m.country,'sc-badge-muted'):''}${m.score?chip(`${Math.round(m.score*100)}% match`,'sc-badge-prime'):''}`,
+      m.summary || m.description,
+      m.nextStep,
+      m.url,
+      `ML LEAD: ${m.company||m.title||''}\n${m.summary||''}`
+    )
+  ).join('') : '<p class="text-muted">No ML leads available.</p>';
+
+  // Pipeline
+  loadPipeline();
+}
+
+async function loadPipeline() {
+  const data = await API.get('/api/bd-intelligence/pipeline');
+  const deals = data || [];
+  document.getElementById('cnt-pipeline').textContent = deals.length;
+  document.getElementById('panel-pipeline').innerHTML = deals.length ?
+    `<div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Deal</th><th>Market</th><th>Stage</th><th>Value</th><th>Win Prob</th></tr></thead><tbody>
+    ${deals.map(d=>`<tr>
+      <td><strong>${escHtml(d.title||d.company||'')}</strong></td>
+      <td>${escHtml(d.market||d.country||'')}</td>
+      <td>${chip(d.stage||'prospect','sc-badge-muted')}</td>
+      <td>${d.value?`$${Math.round(d.value/1e6)}M`:'—'}</td>
+      <td>${d.winProb?`${Math.round(d.winProb*100)}%`:'—'}</td>
+    </tr>`).join('')}
+    </tbody></table></div>` :
+    '<p class="text-muted">No deals in pipeline yet.</p>';
+}
+
+load();
+</script>
+</body>
+</html>

@@ -742,19 +742,11 @@ setTelegramLLM(llmProvider);
 
 // Site access is protected by the Angular JWT auth layer — no HTTP Basic Auth needed.
 
-// Angular dashboard — served at root / (must be before dashboard/public static)
-const ANGULAR_DIST = join(ROOT, 'frontend', 'dist', 'crucix-admin');
-if (existsSync(ANGULAR_DIST)) {
-  app.use(express.static(ANGULAR_DIST));
-  // Angular client-side routing: catch all non-API routes and serve index.html
-  app.get('/*path', (req, res, next) => {
-    if (req.path.startsWith('/api/') || req.path === '/events' || req.path === '/webhook') return next();
-    res.sendFile(join(ANGULAR_DIST, 'index.html'));
-  });
-  console.log('[Crucix] Angular dashboard live at /');
-} else {
-  app.use(express.static(join(ROOT, 'dashboard/public')));
-}
+// Static HTML dashboard — served from public/
+const PUBLIC_DIR = join(ROOT, 'public');
+app.use(express.static(PUBLIC_DIR));
+app.get('/', (req, res) => res.redirect('/signin.html'));
+console.log('[Crucix] Static dashboard live at /');
 
 app.get('/api/data', requireAuth, (req, res) => {
   if (!currentData) return res.status(503).json({ error: 'No data yet — first sweep in progress' });

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In — ARKMURUS Intelligence</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/crucix.css">
+  <style>
+    body { background: #0f0a1e; }
+
+    .auth-page { display: flex; min-height: 100vh; }
+
+    /* Left panel */
+    .auth-left {
+      width: 48%; min-height: 100vh;
+      background: #180e32;
+      display: none;
+      align-items: center; justify-content: center;
+      position: relative; overflow: hidden; padding: 48px;
+    }
+    @media(min-width:900px){ .auth-left { display: flex; } }
+    .auth-left::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(145deg, rgba(145,59,255,.12) 0%, rgba(0,102,255,.08) 100%);
+    }
+    .auth-glow-1 {
+      position: absolute; width: 400px; height: 400px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(145,59,255,.2) 0%, transparent 70%);
+      top: -80px; right: -80px; pointer-events: none;
+    }
+    .auth-glow-2 {
+      position: absolute; width: 260px; height: 260px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(0,102,255,.15) 0%, transparent 70%);
+      bottom: 40px; left: 20px; pointer-events: none;
+    }
+    .auth-left-content { position: relative; z-index: 1; max-width: 420px; }
+    .auth-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
+    .auth-logo-mark {
+      width: 36px; height: 36px; border-radius: 9px;
+      background: linear-gradient(135deg, #913BFF, #0066FF);
+      box-shadow: 0 0 22px rgba(145,59,255,.5); flex-shrink: 0;
+    }
+    .auth-logo span { font-size: 16px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; color: #fff; }
+    .auth-tagline { font-size: 36px; font-weight: 700; line-height: 1.25; color: #fff; margin-bottom: 18px; }
+    .auth-tagline span {
+      background: linear-gradient(90deg, #913BFF, #0066FF);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .auth-desc { font-size: 14px; color: rgba(255,255,255,.58); line-height: 1.75; margin-bottom: 32px; }
+    .auth-features { display: flex; flex-direction: column; gap: 11px; }
+    .auth-feature { display: flex; align-items: center; gap: 10px; font-size: 13px; color: rgba(255,255,255,.6); }
+    .auth-feature-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: #913BFF; box-shadow: 0 0 8px rgba(145,59,255,.7);
+    }
+    .auth-feature-dot.blue  { background: #0066FF; box-shadow: 0 0 8px rgba(0,102,255,.7); }
+    .auth-feature-dot.green { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,.7); }
+
+    /* Right panel */
+    .auth-right {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      padding: 48px 5%; min-height: 100vh;
+    }
+    .auth-form-wrap { width: 100%; max-width: 420px; }
+    .auth-mobile-logo {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 32px;
+    }
+    @media(min-width:900px){ .auth-mobile-logo { display: none; } }
+    .auth-mobile-logo .auth-logo-mark-sm {
+      width: 28px; height: 28px; border-radius: 7px;
+      background: linear-gradient(135deg, #913BFF, #0066FF);
+      box-shadow: 0 0 14px rgba(145,59,255,.5);
+    }
+    .auth-mobile-logo span { font-size: 15px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #fff; }
+    .auth-title { font-size: 30px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+    .auth-sub { font-size: 14px; color: rgba(255,255,255,.45); margin-bottom: 30px; }
+    .auth-link { color: #913BFF; font-size: 13px; font-weight: 500; }
+    .auth-link:hover { color: #0066FF; }
+    .auth-footer { text-align: center; font-size: 14px; color: rgba(255,255,255,.4); margin-top: 22px; }
+    .btn-loading { opacity: .7; pointer-events: none; }
+    .sc-btn-primary.w-full { width: 100%; justify-content: center; }
+    .forgot-row { display: flex; justify-content: flex-end; margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+
+<div class="auth-page">
+
+  <!-- Left -->
+  <div class="auth-left">
+    <div class="auth-glow-1"></div>
+    <div class="auth-glow-2"></div>
+    <div class="auth-left-content">
+      <div class="auth-logo">
+        <div class="auth-logo-mark"></div>
+        <span>ARKMURUS</span>
+      </div>
+      <h2 class="auth-tagline">Defense Intelligence.<br><span>Precision. Edge.</span></h2>
+      <p class="auth-desc">
+        Real-time geopolitical intelligence, procurement opportunities and compliance
+        screening — purpose-built for defense and security markets.
+      </p>
+      <div class="auth-features">
+        <div class="auth-feature"><div class="auth-feature-dot"></div>Live conflict &amp; sanctions monitoring</div>
+        <div class="auth-feature"><div class="auth-feature-dot blue"></div>BD leads &amp; tender tracking</div>
+        <div class="auth-feature"><div class="auth-feature-dot green"></div>AI-powered intelligence briefs</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right -->
+  <div class="auth-right">
+    <div class="auth-form-wrap">
+      <div class="auth-mobile-logo">
+        <div class="auth-logo-mark-sm"></div>
+        <span>ARKMURUS</span>
+      </div>
+
+      <h2 class="auth-title">Welcome back</h2>
+      <p class="auth-sub">Sign in to your intelligence platform</p>
+
+      <div id="error-msg" class="sc-alert sc-alert-danger" style="display:none"></div>
+
+      <!-- Step 1: credentials -->
+      <div id="step-credentials">
+        <div class="sc-field">
+          <label>Email address</label>
+          <input type="email" id="email" placeholder="you@organisation.com" autocomplete="email">
+        </div>
+        <div class="sc-field">
+          <label>Password</label>
+          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <div class="forgot-row">
+          <a href="forgot-password.html" class="auth-link">Forgot password?</a>
+        </div>
+        <button class="sc-btn sc-btn-primary w-full" id="btn-login" onclick="doLogin()">Sign In</button>
+        <p class="auth-footer">
+          Don't have an account? <a href="signup.html" class="auth-link">Create account</a>
+        </p>
+      </div>
+
+      <!-- Step 2: 2FA -->
+      <div id="step-2fa" style="display:none;text-align:center">
+        <div style="width:64px;height:64px;border-radius:16px;background:rgba(145,59,255,.15);
+                    display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:30px">🔐</div>
+        <h4 style="color:#fff;margin-bottom:8px">Two-Factor Auth</h4>
+        <p style="color:rgba(255,255,255,.45);font-size:14px;margin-bottom:24px">Enter the 6-digit code from your authenticator app</p>
+        <div class="sc-field">
+          <label>Authenticator Code</label>
+          <input type="text" id="twofa-code" placeholder="000000" maxlength="6" inputmode="numeric"
+                 style="text-align:center;font-size:22px;letter-spacing:6px;font-weight:700">
+        </div>
+        <button class="sc-btn sc-btn-primary w-full" id="btn-2fa" onclick="do2FA()" style="margin-top:8px">Verify Code</button>
+        <button class="sc-btn sc-btn-outline w-full" onclick="backToCredentials()" style="margin-top:10px;justify-content:center">← Back</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/jquery.min.js"></script>
+<script src="js/app.js"></script>
+<script>
+  // If already logged in, redirect to dashboard
+  if (Auth.isLoggedIn()) window.location.href = '/dashboard.html';
+
+  let tempToken = null;
+
+  async function doLogin() {
+    const btn = document.getElementById('btn-login');
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    if (!email || !password) return showError('Please enter your email and password.');
+
+    btn.textContent = 'Signing in…'; btn.disabled = true;
+    hideError();
+
+    const { ok, data } = await API.post('/api/auth/login', { email, password });
+    btn.textContent = 'Sign In'; btn.disabled = false;
+
+    if (!ok) return showError(data.error || 'Login failed. Check your credentials.');
+
+    if (data.requiresTwoFactor) {
+      tempToken = data.tempToken;
+      document.getElementById('step-credentials').style.display = 'none';
+      document.getElementById('step-2fa').style.display = 'block';
+      return;
+    }
+
+    localStorage.setItem('crucix_token', data.token);
+    if (data.user) localStorage.setItem('crucix_user', JSON.stringify(data.user));
+    window.location.href = '/dashboard.html';
+  }
+
+  async function do2FA() {
+    const btn = document.getElementById('btn-2fa');
+    const code = document.getElementById('twofa-code').value.trim();
+    if (!code) return showError('Enter the 6-digit code.');
+
+    btn.textContent = 'Verifying…'; btn.disabled = true;
+    const { ok, data } = await API.post('/api/auth/2fa/authenticate', { tempToken, code });
+    btn.textContent = 'Verify Code'; btn.disabled = false;
+
+    if (!ok) return showError(data.error || 'Invalid code.');
+    localStorage.setItem('crucix_token', data.token);
+    if (data.user) localStorage.setItem('crucix_user', JSON.stringify(data.user));
+    window.location.href = '/dashboard.html';
+  }
+
+  function backToCredentials() {
+    document.getElementById('step-2fa').style.display = 'none';
+    document.getElementById('step-credentials').style.display = 'block';
+    hideError();
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-msg');
+    el.textContent = msg; el.style.display = 'flex';
+  }
+  function hideError() {
+    document.getElementById('error-msg').style.display = 'none';
+  }
+
+  // Enter key support
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      if (document.getElementById('step-2fa').style.display !== 'none') do2FA();
+      else doLogin();
+    }
+  });
+</script>
+</body>
+</html>
