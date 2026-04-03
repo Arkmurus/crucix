@@ -18,6 +18,7 @@ interface ChatMessage {
 })
 export class AriaComponent implements OnInit, AfterViewChecked {
   @ViewChild('chatScroll') chatScroll!: ElementRef;
+  @ViewChild('msgInput')   msgInput!: ElementRef;
 
   identity: any = null;
   thoughts: any[] = [];
@@ -26,22 +27,22 @@ export class AriaComponent implements OnInit, AfterViewChecked {
   messages: ChatMessage[] = [];
   inputText = '';
   sending = false;
-  activeTab: 'chat' | 'identity' | 'thoughts' | 'curiosity' = 'chat';
-  thinkMode = false; // deep reasoning vs fast chat
+  thinkMode = false;
   sessionId = `aria_${Date.now()}`;
+  sidePanel: 'identity' | 'thoughts' | 'curiosity' | null = null;
+
   private shouldScroll = false;
 
   constructor(private api: CrucixApiService) {}
 
   ngOnInit(): void {
-    this.api.getAriaIdentity().subscribe(id => { this.identity = id; });
-    this.api.getAriaThoughts().subscribe(t => { this.thoughts = t || []; });
-    this.api.getAriaCuriosity().subscribe(c => { this.curiosity = c?.open_threads || []; });
+    this.api.getAriaIdentity().subscribe(id  => { this.identity  = id; });
+    this.api.getAriaThoughts().subscribe(t   => { this.thoughts  = t || []; });
+    this.api.getAriaCuriosity().subscribe(c  => { this.curiosity = c?.open_threads || []; });
 
-    // Welcome message
     this.messages = [{
       role: 'aria',
-      content: 'I am ARIA — Arkmurus Research Intelligence Agent. I reason about defence procurement intelligence, Lusophone Africa markets, and export control compliance. Ask me anything, or use Think Mode for deep multi-step analysis.',
+      content: 'I am ARIA — Arkmurus Research Intelligence Agent. I reason about defence procurement intelligence, Lusophone Africa markets, and export control compliance.\n\nAsk me anything, or switch to Think Mode for deep 6-step analysis with self-critique.',
       timestamp: new Date().toISOString(),
     }];
   }
@@ -54,6 +55,10 @@ export class AriaComponent implements OnInit, AfterViewChecked {
     }
   }
 
+  togglePanel(panel: 'identity' | 'thoughts' | 'curiosity'): void {
+    this.sidePanel = this.sidePanel === panel ? null : panel;
+  }
+
   send(): void {
     const msg = this.inputText.trim();
     if (!msg || this.sending) return;
@@ -64,17 +69,20 @@ export class AriaComponent implements OnInit, AfterViewChecked {
     this.sending = true;
     this.shouldScroll = true;
 
+    // Reset textarea height
+    if (this.msgInput) {
+      this.msgInput.nativeElement.style.height = 'auto';
+    }
+
     if (this.thinkMode) {
-      this.api.ariaThink(msg, {}, false).subscribe(res => {
-        this.replaceThinking(res);
-        this.sending = false;
-        this.shouldScroll = true;
+      this.api.ariaThink(msg, {}, false).subscribe({
+        next: res  => { this.replaceThinking(res); this.sending = false; this.shouldScroll = true; },
+        error: err => { this.replaceThinking({ error: err.message || 'Request failed' }); this.sending = false; },
       });
     } else {
-      this.api.ariaChat(msg, this.sessionId).subscribe(res => {
-        this.replaceThinking({ response: res.response, fallback: res.fallback });
-        this.sending = false;
-        this.shouldScroll = true;
+      this.api.ariaChat(msg, this.sessionId).subscribe({
+        next: res  => { this.replaceThinking({ response: res.response, fallback: res.fallback }); this.sending = false; this.shouldScroll = true; },
+        error: err => { this.replaceThinking({ error: err.message || 'Request failed' }); this.sending = false; },
       });
     }
   }
@@ -87,35 +95,37 @@ export class AriaComponent implements OnInit, AfterViewChecked {
     if (idx === -1) return;
 
     if (res.error) {
-      this.messages[idx] = { role: 'aria', content: res.error, timestamp: new Date().toISOString() };
+      this.messages[idx] = { role: 'aria', content: `⚠ ${res.error}`, timestamp: new Date().toISOString() };
       return;
     }
 
-    // Deep think response
     if (res.conclusion) {
       const c = res.conclusion;
       const m = res.metacognition || {};
-      const content = [
-        c.statement || JSON.stringify(c),
-        c.key_assumption ? `\n\nKey assumption: ${c.key_assumption}` : '',
-        c.action?.what ? `\n\nAction: ${c.action.what}` : '',
-        m.biggest_gap ? `\n\nBiggest gap: ${m.biggest_gap}` : '',
-      ].join('');
-      this.messages[idx] = {
-        role: 'aria', content,
-        timestamp: new Date().toISOString(),
-        confidence: c.confidence,
-        epistemic: c.epistemic_status,
-        selfGrade: m.self_grade,
-      };
-    } else {
-      // Chat response
+      const parts: string[] = [c.statement || JSON.stringify(c)];
+      if (c.key_assumption)   parts.push(`\n\n**Key assumption:** ${c.key_assumption}`);
+      if (c.action?.what)     parts.push(`\n\n**Action:** ${c.action.what}`);
+      if (m.biggest_gap)      parts.push(`\n\n**Biggest gap:** ${m.biggest_gap}`);
       this.messages[idx] = {
         role: 'aria',
-        content: res.response || 'No response',
+        content:    parts.join(''),
+        timestamp:  new Date().toISOString(),
+        confidence: c.confidence,
+        epistemic:  c.epistemic_status,
+        selfGrade:  m.self_grade,
+      };
+    } else {
+      this.messages[idx] = {
+        role: 'aria',
+        content:   res.response || 'No response received.',
         timestamp: new Date().toISOString(),
       };
     }
+  }
+
+  autoGrow(el: HTMLTextAreaElement): void {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
   }
 
   onKeydown(event: KeyboardEvent): void {
@@ -123,6 +133,21 @@ export class AriaComponent implements OnInit, AfterViewChecked {
       event.preventDefault();
       this.send();
     }
+  }
+
+  clearChat(): void {
+    this.sessionId = `aria_${Date.now()}`;
+    this.messages = [{
+      role: 'aria',
+      content: 'New session started. What would you like to explore?',
+      timestamp: new Date().toISOString(),
+    }];
+  }
+
+  formatTime(iso: string): string {
+    try {
+      return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    } catch { return ''; }
   }
 
   epistemicColor(e: string): string {
@@ -144,14 +169,5 @@ export class AriaComponent implements OnInit, AfterViewChecked {
     if (c >= 70) return '#4caf50';
     if (c >= 45) return '#ff9800';
     return '#ef5350';
-  }
-
-  clearChat(): void {
-    this.sessionId = `aria_${Date.now()}`;
-    this.messages = [{
-      role: 'aria',
-      content: 'New session started. What would you like to explore?',
-      timestamp: new Date().toISOString(),
-    }];
   }
 }
