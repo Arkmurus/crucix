@@ -42,6 +42,7 @@ import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pus
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { storeMessage, getConversation, markRead, getConversationSummaries, unreadCount } from './lib/messages.mjs';
+import { ariaChat as ariaLocalChat, ariaThink as ariaLocalThink } from './lib/aria/aria.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -1177,8 +1178,21 @@ const BRAIN_URL = process.env.BRAIN_SERVICE_URL; // e.g. https://crucix-brain.on
 app.get('/api/aria/identity', requireAuth, async (req, res) => {
   try {
     const identity = await redisGet('crucix:brain:aria:identity');
-    if (!identity) return res.json({ name: 'ARIA', status: 'not_yet_deployed', age_days: 0 });
-    res.json(identity);
+    if (!identity) {
+      // Brain service not yet deployed — return local identity based on LLM config
+      return res.json({
+        name: 'ARIA',
+        full_name: 'Arkmurus Research Intelligence Agent',
+        status: llmProvider?.isConfigured ? 'online' : 'no_llm',
+        mode: 'local',
+        llm_provider: llmProvider?.name || null,
+        age_days: 0,
+        total_sweeps: 0,
+        total_leads: 0,
+        domain: 'Defence procurement, Lusophone Africa, Export controls',
+      });
+    }
+    res.json({ ...identity, status: 'online', mode: 'brain' });
   } catch { res.json({ name: 'ARIA', status: 'unavailable' }); }
 });
 
@@ -1202,45 +1216,51 @@ app.get('/api/aria/curiosity', requireAuth, async (req, res) => {
   } catch { res.json({ open_threads: [] }); }
 });
 
-// Proxy chat/think to brain service if configured, else return helpful stub
+// ARIA chat — local LLM primary, brain service proxy secondary (if BRAIN_SERVICE_URL set)
 app.post('/api/aria/chat', requireAuth, async (req, res) => {
   const { message, session_id } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
+
+  const sid = session_id || `${req.user?.id || 'anon'}_${Date.now()}`;
+
+  // Try brain service first if configured
   if (BRAIN_URL) {
     try {
       const r = await fetch(`${BRAIN_URL}/api/aria/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, session_id: session_id || req.user?.id || 'default' }),
+        body: JSON.stringify({ message, session_id: sid }),
         signal: AbortSignal.timeout(30000),
       });
       if (r.ok) return res.json(await r.json());
-    } catch (e) { console.warn('[ARIA proxy] brain service unreachable:', e.message); }
+    } catch (e) { console.warn('[ARIA proxy] brain service unreachable, using local LLM:', e.message); }
   }
-  // Fallback: use local LLM with ARIA system prompt embedded in Redis identity
-  res.json({
-    response: `ARIA brain service not yet connected. Set BRAIN_SERVICE_URL in environment to enable live reasoning. Message received: "${message.slice(0, 100)}"`,
-    session_id: session_id || 'default',
-    aria_age_days: 0,
-    fallback: true,
-  });
+
+  // Local LLM — works with any configured LLM_PROVIDER
+  const result = await ariaLocalChat(message, sid, llmProvider);
+  res.json(result);
 });
 
 app.post('/api/aria/think', requireAuth, async (req, res) => {
   const { question, context, fast } = req.body || {};
   if (!question) return res.status(400).json({ error: 'question required' });
+
+  // Try brain service first if configured
   if (BRAIN_URL) {
     try {
       const r = await fetch(`${BRAIN_URL}/api/aria/think`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question, context: context || {}, fast: fast || false }),
-        signal: AbortSignal.timeout(60000), // deep reasoning takes up to 60s
+        signal: AbortSignal.timeout(60000),
       });
       if (r.ok) return res.json(await r.json());
-    } catch (e) { console.warn('[ARIA proxy] think failed:', e.message); }
+    } catch (e) { console.warn('[ARIA proxy] think failed, using local LLM:', e.message); }
   }
-  res.status(503).json({ error: 'ARIA brain service not connected. Deploy brain service and set BRAIN_SERVICE_URL.' });
+
+  // Local LLM deep reasoning
+  const result = await ariaLocalThink(question, context || {}, llmProvider);
+  res.json(result);
 });
 
 // ── Self-update API ───────────────────────────────────────────────────────────

@@ -9,14 +9,15 @@
         <div class="aria-subtitle">Arkmurus Research Intelligence Agent</div>
       </div>
     </div>
-    <div class="aria-stats" *ngIf="identity && identity.status !== 'not_yet_deployed'">
-      <span class="stat">{{ identity.age_days }}d old</span>
-      <span class="stat">{{ identity.total_sweeps || 0 }} sweeps</span>
-      <span class="stat">{{ identity.total_leads || 0 }} leads</span>
+    <div class="aria-stats" *ngIf="identity && identity.status === 'online'">
+      <span class="stat" *ngIf="identity.mode === 'brain'">{{ identity.age_days }}d old</span>
+      <span class="stat" *ngIf="identity.mode === 'brain'">{{ identity.total_sweeps || 0 }} sweeps</span>
+      <span class="stat" *ngIf="identity.mode === 'brain'">{{ identity.total_leads || 0 }} leads</span>
+      <span class="stat" *ngIf="identity.mode === 'local'" style="color:#ce93d8">{{ identity.llm_provider }}</span>
       <span class="stat online">● online</span>
     </div>
-    <div class="aria-stats" *ngIf="!identity || identity.status === 'not_yet_deployed'">
-      <span class="stat offline">● brain not deployed</span>
+    <div class="aria-stats" *ngIf="!identity || identity.status === 'no_llm'">
+      <span class="stat offline">● no LLM configured</span>
     </div>
   </div>
 
@@ -113,13 +114,13 @@
   <!-- ── IDENTITY TAB ── -->
   <div *ngIf="activeTab==='identity'" class="content-panel">
 
-    <div *ngIf="!identity || identity.status === 'not_yet_deployed'" class="deploy-notice">
+    <div *ngIf="!identity || identity.status === 'no_llm'" class="deploy-notice">
       <mat-icon style="color:#ff6f00;font-size:32px;width:32px;height:32px;display:block;margin:0 auto 12px">cloud_off</mat-icon>
-      <div style="font-size:0.9rem;color:#ff9800;font-weight:600;margin-bottom:8px">Brain service not yet deployed</div>
-      <div style="font-size:0.82rem;color:#78909c">ARIA's identity will appear here once the brain service is running on Render. Deploy the <code>crucix-brain</code> service with your DEEPSEEK_API_KEY and REDIS_URL.</div>
+      <div style="font-size:0.9rem;color:#ff9800;font-weight:600;margin-bottom:8px">No LLM configured</div>
+      <div style="font-size:0.82rem;color:#78909c">Set <code>LLM_PROVIDER</code> and <code>LLM_API_KEY</code> in your environment to enable ARIA. Supports Anthropic, OpenAI, DeepSeek, Gemini, Mistral, and Ollama.</div>
     </div>
 
-    <div *ngIf="identity && identity.status !== 'not_yet_deployed'">
+    <div *ngIf="identity && identity.status === 'online'">
       <mat-card class="identity-card">
         <mat-card-content style="padding:20px">
           <div class="identity-header">
@@ -130,7 +131,8 @@
             </div>
           </div>
 
-          <div class="row g-3 mt-2">
+          <!-- Brain mode stats -->
+          <div *ngIf="identity.mode === 'brain'" class="row g-3 mt-2">
             <div class="col-6 col-md-3">
               <div class="stat-box">
                 <div class="stat-val">{{ identity.age_days }}</div>
@@ -156,17 +158,29 @@
               </div>
             </div>
           </div>
+          <!-- Local LLM mode info -->
+          <div *ngIf="identity.mode === 'local'" style="margin-top:12px;padding:10px 12px;background:rgba(156,39,176,0.08);border:1px solid rgba(156,39,176,0.2);border-radius:6px">
+            <div style="font-size:0.78rem;color:#ce93d8;font-weight:600;margin-bottom:4px">Running via {{ identity.llm_provider }}</div>
+            <div style="font-size:0.8rem;color:#78909c;line-height:1.6">ARIA is fully operational in chat and think mode. Deploy the brain service (Render + DEEPSEEK_API_KEY) to unlock autonomous sweeps, persistent memory, curiosity threads, and lead scoring.</div>
+          </div>
         </mat-card-content>
       </mat-card>
 
       <div class="row g-3 mt-1">
-        <div class="col-md-6" *ngIf="identity.domains_mastered?.length">
-          <div class="section-label">Domain Expertise</div>
-          <div *ngFor="let d of identity.domains_mastered" class="list-item">
-            <mat-icon style="font-size:13px;width:13px;height:13px;color:#4caf50;margin-right:6px">check_circle</mat-icon>{{ d }}
-          </div>
-        </div>
         <div class="col-md-6">
+          <div class="section-label">Domain Expertise</div>
+          <ng-container *ngIf="identity.domains_mastered?.length; else localDomains">
+            <div *ngFor="let d of identity.domains_mastered" class="list-item">
+              <mat-icon style="font-size:13px;width:13px;height:13px;color:#4caf50;margin-right:6px">check_circle</mat-icon>{{ d }}
+            </div>
+          </ng-container>
+          <ng-template #localDomains>
+            <div *ngFor="let d of ['Defence procurement & arms brokering','Lusophone Africa — Angola, Mozambique, Cape Verde, Guinea-Bissau','Export controls — UK ECJU, ITAR/EAR, EU dual-use, OFAC','CPLP security framework & SADC architecture','SIPRI arms transfer analysis','Geopolitical OSINT synthesis']" class="list-item">
+              <mat-icon style="font-size:13px;width:13px;height:13px;color:#4caf50;margin-right:6px">check_circle</mat-icon>{{ d }}
+            </div>
+          </ng-template>
+        </div>
+        <div class="col-md-6" *ngIf="identity.mode === 'brain'">
           <div class="section-label">Self-Awareness</div>
           <div class="list-item strength">
             <mat-icon style="font-size:13px;width:13px;height:13px;color:#42a5f5;margin-right:6px">star</mat-icon>
