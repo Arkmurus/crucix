@@ -1,0 +1,243 @@
+<div class="aria-container">
+
+  <!-- Header -->
+  <div class="aria-header">
+    <div class="aria-logo">
+      <mat-icon class="aria-icon">psychology</mat-icon>
+      <div>
+        <div class="aria-name">ARIA</div>
+        <div class="aria-subtitle">Arkmurus Research Intelligence Agent</div>
+      </div>
+    </div>
+    <div class="aria-stats" *ngIf="identity && identity.status !== 'not_yet_deployed'">
+      <span class="stat">{{ identity.age_days }}d old</span>
+      <span class="stat">{{ identity.total_sweeps || 0 }} sweeps</span>
+      <span class="stat">{{ identity.total_leads || 0 }} leads</span>
+      <span class="stat online">● online</span>
+    </div>
+    <div class="aria-stats" *ngIf="!identity || identity.status === 'not_yet_deployed'">
+      <span class="stat offline">● brain not deployed</span>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="aria-tabs">
+    <button class="aria-tab" [class.active]="activeTab==='chat'" (click)="activeTab='chat'">
+      <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:5px">chat</mat-icon>Chat
+    </button>
+    <button class="aria-tab" [class.active]="activeTab==='identity'" (click)="activeTab='identity'">
+      <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:5px">person</mat-icon>Identity
+    </button>
+    <button class="aria-tab" [class.active]="activeTab==='thoughts'" (click)="activeTab='thoughts'">
+      <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:5px">lightbulb</mat-icon>
+      Thoughts
+      <span *ngIf="thoughts.length > 0" class="badge ms-1" style="background:#7b1fa2;font-size:0.65rem">{{ thoughts.length }}</span>
+    </button>
+    <button class="aria-tab" [class.active]="activeTab==='curiosity'" (click)="activeTab='curiosity'">
+      <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:5px">help_outline</mat-icon>
+      Open Questions
+      <span *ngIf="curiosity.length > 0" class="badge ms-1" style="background:#1976d2;font-size:0.65rem">{{ curiosity.length }}</span>
+    </button>
+  </div>
+
+  <!-- ── CHAT TAB ── -->
+  <div *ngIf="activeTab==='chat'" class="chat-panel">
+
+    <div class="chat-toolbar">
+      <div class="think-toggle">
+        <span style="font-size:0.75rem;color:#90a4ae">Mode:</span>
+        <button class="mode-btn" [class.active]="!thinkMode" (click)="thinkMode=false">Fast Chat</button>
+        <button class="mode-btn" [class.active]="thinkMode"  (click)="thinkMode=true">
+          <mat-icon style="font-size:13px;width:13px;height:13px;vertical-align:middle;margin-right:3px">psychology</mat-icon>
+          Think Mode
+        </button>
+      </div>
+      <button class="mode-btn" (click)="clearChat()" style="margin-left:auto">New Session</button>
+    </div>
+
+    <div class="chat-messages" #chatScroll>
+      <div *ngFor="let msg of messages" class="msg-row" [class.user-row]="msg.role==='user'">
+
+        <!-- ARIA message -->
+        <div *ngIf="msg.role==='aria'" class="aria-bubble">
+          <div class="aria-avatar">
+            <mat-icon style="font-size:16px;width:16px;height:16px;color:#b39ddb">psychology</mat-icon>
+          </div>
+          <div class="bubble-content">
+            <!-- Thinking indicator -->
+            <div *ngIf="msg.isThinking" class="thinking-dots">
+              <span></span><span></span><span></span>
+            </div>
+            <!-- Regular message -->
+            <div *ngIf="!msg.isThinking" style="white-space:pre-wrap;line-height:1.6;font-size:0.87rem;color:#e0e0e0">{{ msg.content }}</div>
+            <!-- Metadata badges -->
+            <div *ngIf="!msg.isThinking && (msg.confidence || msg.epistemic || msg.selfGrade)" class="msg-meta">
+              <span *ngIf="msg.epistemic" class="meta-badge"
+                    [style.color]="epistemicColor(msg.epistemic)"
+                    [style.border-color]="epistemicColor(msg.epistemic)">{{ msg.epistemic }}</span>
+              <span *ngIf="msg.confidence" class="meta-badge"
+                    [style.color]="confidenceColor(msg.confidence)"
+                    [style.border-color]="confidenceColor(msg.confidence)">{{ msg.confidence }}/100 confidence</span>
+              <span *ngIf="msg.selfGrade" class="meta-badge"
+                    [style.color]="gradeColor(msg.selfGrade)"
+                    [style.border-color]="gradeColor(msg.selfGrade)">Grade: {{ msg.selfGrade }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- User message -->
+        <div *ngIf="msg.role==='user'" class="user-bubble">
+          <div style="white-space:pre-wrap;font-size:0.87rem">{{ msg.content }}</div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="chat-input-area">
+      <div *ngIf="thinkMode" class="think-notice">
+        <mat-icon style="font-size:13px;width:13px;height:13px;vertical-align:middle;color:#ff6f00;margin-right:4px">psychology</mat-icon>
+        <span style="font-size:0.75rem;color:#ff9800">Think Mode — ARIA will reason in 6 steps with self-critique. Takes 20–60s.</span>
+      </div>
+      <div class="input-row">
+        <textarea class="chat-input" [(ngModel)]="inputText" (keydown)="onKeydown($event)"
+                  [placeholder]="thinkMode ? 'Ask ARIA to think deeply about a question...' : 'Ask ARIA anything about defence intelligence, markets, compliance...'"
+                  rows="2" [disabled]="sending"></textarea>
+        <button class="send-btn" (click)="send()" [disabled]="sending || !inputText.trim()">
+          <mat-icon>{{ sending ? 'hourglass_empty' : 'send' }}</mat-icon>
+        </button>
+      </div>
+      <div style="font-size:0.68rem;color:#37474f;margin-top:4px;padding:0 4px">Enter to send · Shift+Enter for new line</div>
+    </div>
+  </div>
+
+  <!-- ── IDENTITY TAB ── -->
+  <div *ngIf="activeTab==='identity'" class="content-panel">
+
+    <div *ngIf="!identity || identity.status === 'not_yet_deployed'" class="deploy-notice">
+      <mat-icon style="color:#ff6f00;font-size:32px;width:32px;height:32px;display:block;margin:0 auto 12px">cloud_off</mat-icon>
+      <div style="font-size:0.9rem;color:#ff9800;font-weight:600;margin-bottom:8px">Brain service not yet deployed</div>
+      <div style="font-size:0.82rem;color:#78909c">ARIA's identity will appear here once the brain service is running on Render. Deploy the <code>crucix-brain</code> service with your DEEPSEEK_API_KEY and REDIS_URL.</div>
+    </div>
+
+    <div *ngIf="identity && identity.status !== 'not_yet_deployed'">
+      <mat-card class="identity-card">
+        <mat-card-content style="padding:20px">
+          <div class="identity-header">
+            <mat-icon style="font-size:40px;width:40px;height:40px;color:#7b1fa2">psychology</mat-icon>
+            <div>
+              <div class="identity-name">{{ identity.name || 'ARIA' }}</div>
+              <div class="identity-fullname">{{ identity.full_name || 'Arkmurus Research Intelligence Agent' }}</div>
+            </div>
+          </div>
+
+          <div class="row g-3 mt-2">
+            <div class="col-6 col-md-3">
+              <div class="stat-box">
+                <div class="stat-val">{{ identity.age_days }}</div>
+                <div class="stat-lbl">days old</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="stat-box">
+                <div class="stat-val">{{ identity.total_sweeps || 0 }}</div>
+                <div class="stat-lbl">sweeps</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="stat-box">
+                <div class="stat-val">{{ identity.total_thoughts || 0 }}</div>
+                <div class="stat-lbl">thoughts</div>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="stat-box">
+                <div class="stat-val">{{ identity.total_leads || 0 }}</div>
+                <div class="stat-lbl">leads</div>
+              </div>
+            </div>
+          </div>
+        </mat-card-content>
+      </mat-card>
+
+      <div class="row g-3 mt-1">
+        <div class="col-md-6" *ngIf="identity.domains_mastered?.length">
+          <div class="section-label">Domain Expertise</div>
+          <div *ngFor="let d of identity.domains_mastered" class="list-item">
+            <mat-icon style="font-size:13px;width:13px;height:13px;color:#4caf50;margin-right:6px">check_circle</mat-icon>{{ d }}
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="section-label">Self-Awareness</div>
+          <div class="list-item strength">
+            <mat-icon style="font-size:13px;width:13px;height:13px;color:#42a5f5;margin-right:6px">star</mat-icon>
+            <span style="color:#90a4ae;margin-right:4px">Strongest:</span>{{ identity.strongest_skill }}
+          </div>
+          <div class="list-item weakness">
+            <mat-icon style="font-size:13px;width:13px;height:13px;color:#ef5350;margin-right:6px">warning</mat-icon>
+            <span style="color:#90a4ae;margin-right:4px">Admitted weakness:</span>{{ identity.admitted_weakness }}
+          </div>
+          <div *ngFor="let b of (identity.known_biases || [])" class="list-item" style="font-size:0.78rem;color:#78909c">
+            <mat-icon style="font-size:12px;width:12px;height:12px;color:#ff9800;margin-right:6px">info</mat-icon>{{ b }}
+          </div>
+        </div>
+      </div>
+
+      <div *ngIf="identity.learning_log?.length" class="mt-3">
+        <div class="section-label">Recent Learning</div>
+        <div *ngFor="let l of (identity.learning_log | slice:-5).reverse()" class="learning-entry">
+          <span style="color:#546e7a;font-size:0.7rem;margin-right:8px">{{ l.date }}</span>
+          <span style="color:#b0bec5;font-size:0.82rem">{{ l.learned }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── THOUGHTS TAB ── -->
+  <div *ngIf="activeTab==='thoughts'" class="content-panel">
+    <div *ngIf="thoughts.length === 0" class="empty-state">
+      ARIA has not yet completed any deep reasoning cycles. Run a sweep with Think Mode to generate thoughts.
+    </div>
+    <div *ngFor="let t of thoughts" class="thought-card">
+      <div class="thought-header">
+        <span class="thought-q">{{ t.question }}</span>
+        <span *ngIf="t.confidence" class="meta-badge ms-auto" [style.color]="confidenceColor(t.confidence)"
+              [style.border-color]="confidenceColor(t.confidence)">{{ t.confidence }}/100</span>
+      </div>
+      <div *ngIf="t.conclusion?.statement" style="font-size:0.84rem;color:#cfd8dc;margin:8px 0;line-height:1.55">
+        {{ t.conclusion.statement | slice:0:300 }}{{ t.conclusion.statement?.length > 300 ? '…' : '' }}
+      </div>
+      <div *ngIf="t.conclusion?.action?.what" class="action-line">
+        <mat-icon style="font-size:12px;width:12px;height:12px;color:#81c784;margin-right:4px">arrow_forward</mat-icon>
+        {{ t.conclusion.action.what | slice:0:200 }}
+      </div>
+      <div class="thought-footer">
+        <span *ngIf="t.conclusion?.epistemic_status" class="meta-badge" style="font-size:0.62rem"
+              [style.color]="epistemicColor(t.conclusion.epistemic_status)"
+              [style.border-color]="epistemicColor(t.conclusion.epistemic_status)">
+          {{ t.conclusion.epistemic_status }}
+        </span>
+        <span *ngIf="t.metacognition?.self_grade" class="meta-badge" style="font-size:0.62rem"
+              [style.color]="gradeColor(t.metacognition.self_grade)"
+              [style.border-color]="gradeColor(t.metacognition.self_grade)">
+          Grade: {{ t.metacognition.self_grade }}
+        </span>
+        <span style="font-size:0.68rem;color:#37474f;margin-left:auto">{{ t.created_at | date:'dd/MM HH:mm' }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CURIOSITY TAB ── -->
+  <div *ngIf="activeTab==='curiosity'" class="content-panel">
+    <div style="font-size:0.78rem;color:#78909c;margin-bottom:12px">
+      ARIA generates these questions herself — they are things the signal stream raises but doesn't answer. Highest-priority intelligence gaps.
+    </div>
+    <div *ngIf="curiosity.length === 0" class="empty-state">
+      No open curiosity threads yet. Run a sweep and ARIA will generate the questions she thinks matter most.
+    </div>
+    <div *ngFor="let t of curiosity; let i = index" class="curiosity-card">
+      <div style="font-size:0.7rem;color:#546e7a;margin-bottom:4px">OPEN QUESTION {{ i + 1 }} · raised {{ t.raised_at }}</div>
+      <div style="font-size:0.9rem;color:#e0e0e0;font-weight:500;line-height:1.5">{{ t.question }}</div>
+    </div>
+  </div>
+
+</div>

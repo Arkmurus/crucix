@@ -156,6 +156,33 @@ export class CrucixApiService {
       .pipe(catchError(() => of([])));
   }
 
+  // ── ARIA endpoints ──────────────────────────────────────────────────────────
+
+  getAriaIdentity(): Observable<any> {
+    return this.http.get(`${this.base}/api/aria/identity`)
+      .pipe(catchError(() => of({ name: 'ARIA', status: 'unavailable', age_days: 0 })));
+  }
+
+  getAriaThoughts(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.base}/api/aria/thoughts`)
+      .pipe(catchError(() => of([])));
+  }
+
+  getAriaCuriosity(): Observable<any> {
+    return this.http.get(`${this.base}/api/aria/curiosity`)
+      .pipe(catchError(() => of({ open_threads: [] })));
+  }
+
+  ariaChat(message: string, sessionId?: string): Observable<any> {
+    return this.http.post(`${this.base}/api/aria/chat`, { message, session_id: sessionId })
+      .pipe(catchError(err => of({ response: 'ARIA is unavailable. ' + (err.error?.error || ''), fallback: true })));
+  }
+
+  ariaThink(question: string, context?: any, fast = false): Observable<any> {
+    return this.http.post(`${this.base}/api/aria/think`, { question, context: context || {}, fast })
+      .pipe(catchError(err => of({ error: err.error?.error || 'ARIA brain service not connected' })));
+  }
+
   // ── Actions ─────────────────────────────────────────────────────────────────
 
   triggerSweep(): Observable<any> {

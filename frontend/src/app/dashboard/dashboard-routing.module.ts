@@ -7,6 +7,7 @@ import { SourcesComponent } from './sources/sources.component';
 import { ExplorerComponent } from './explorer/explorer.component';
 import { BdIntelligenceComponent } from './bd-intelligence/bd-intelligence.component';
 import { SearchComponent } from './search/search.component';
+import { AriaComponent } from './aria/aria.component';
 
 const routes: Routes = [
   {
@@ -18,6 +19,7 @@ const routes: Routes = [
       { path: 'sources',        component: SourcesComponent,       data: { title: 'Source Health' } },
       { path: 'explorer',       component: ExplorerComponent,      data: { title: 'Intelligence Explorer' } },
       { path: 'search',         component: SearchComponent,        data: { title: 'Entity Search' } },
+      { path: 'aria',           component: AriaComponent,          data: { title: 'ARIA Intelligence Agent' } },
     ]
   }
 ];

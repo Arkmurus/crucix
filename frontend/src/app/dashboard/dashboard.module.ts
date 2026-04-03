@@ -16,6 +16,7 @@ import { SourcesComponent } from './sources/sources.component';
 import { ExplorerComponent } from './explorer/explorer.component';
 import { BdIntelligenceComponent } from './bd-intelligence/bd-intelligence.component';
 import { SearchComponent } from './search/search.component';
+import { AriaComponent } from './aria/aria.component';
 import { FormsModule } from '@angular/forms';
 
 @NgModule({
@@ -28,6 +29,7 @@ import { FormsModule } from '@angular/forms';
     ExplorerComponent,
     BdIntelligenceComponent,
     SearchComponent,
+    AriaComponent,
   ],
   imports: [
     CommonModule,

@@ -1155,6 +1155,94 @@ app.get('/api/brain/history', requireAuth, async (req, res) => {
   }
 });
 
+// ── ARIA endpoints — read identity/thoughts from Redis; proxy chat to brain ──
+
+async function upstashLRange(key, start = 0, stop = 9) {
+  const REDIS_URL   = process.env.UPSTASH_REDIS_URL;
+  const REDIS_TOKEN = process.env.UPSTASH_REDIS_TOKEN;
+  if (!REDIS_URL || !REDIS_TOKEN) return [];
+  try {
+    const r = await fetch(`${REDIS_URL}/lrange/${encodeURIComponent(key)}/${start}/${stop}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.result || []).map(s => { try { return JSON.parse(s); } catch { return s; } });
+  } catch { return []; }
+}
+
+const BRAIN_URL = process.env.BRAIN_SERVICE_URL; // e.g. https://crucix-brain.onrender.com
+
+app.get('/api/aria/identity', requireAuth, async (req, res) => {
+  try {
+    const identity = await redisGet('crucix:brain:aria:identity');
+    if (!identity) return res.json({ name: 'ARIA', status: 'not_yet_deployed', age_days: 0 });
+    res.json(identity);
+  } catch { res.json({ name: 'ARIA', status: 'unavailable' }); }
+});
+
+app.get('/api/aria/thoughts', requireAuth, async (req, res) => {
+  try {
+    const thoughtIds = await upstashLRange('crucix:brain:aria:thoughts', 0, 9);
+    const thoughts   = await Promise.all(
+      (Array.isArray(thoughtIds) ? thoughtIds : []).map(id =>
+        typeof id === 'string' ? redisGet(`crucix:brain:aria:thought:${id}`) : Promise.resolve(id)
+      )
+    );
+    res.json(thoughts.filter(Boolean));
+  } catch { res.json([]); }
+});
+
+app.get('/api/aria/curiosity', requireAuth, async (req, res) => {
+  try {
+    const identity = await redisGet('crucix:brain:aria:identity');
+    const threads  = (identity?.curiosity_threads || []).filter(t => !t.resolved);
+    res.json({ open_threads: threads });
+  } catch { res.json({ open_threads: [] }); }
+});
+
+// Proxy chat/think to brain service if configured, else return helpful stub
+app.post('/api/aria/chat', requireAuth, async (req, res) => {
+  const { message, session_id } = req.body || {};
+  if (!message) return res.status(400).json({ error: 'message required' });
+  if (BRAIN_URL) {
+    try {
+      const r = await fetch(`${BRAIN_URL}/api/aria/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, session_id: session_id || req.user?.id || 'default' }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (r.ok) return res.json(await r.json());
+    } catch (e) { console.warn('[ARIA proxy] brain service unreachable:', e.message); }
+  }
+  // Fallback: use local LLM with ARIA system prompt embedded in Redis identity
+  res.json({
+    response: `ARIA brain service not yet connected. Set BRAIN_SERVICE_URL in environment to enable live reasoning. Message received: "${message.slice(0, 100)}"`,
+    session_id: session_id || 'default',
+    aria_age_days: 0,
+    fallback: true,
+  });
+});
+
+app.post('/api/aria/think', requireAuth, async (req, res) => {
+  const { question, context, fast } = req.body || {};
+  if (!question) return res.status(400).json({ error: 'question required' });
+  if (BRAIN_URL) {
+    try {
+      const r = await fetch(`${BRAIN_URL}/api/aria/think`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, context: context || {}, fast: fast || false }),
+        signal: AbortSignal.timeout(60000), // deep reasoning takes up to 60s
+      });
+      if (r.ok) return res.json(await r.json());
+    } catch (e) { console.warn('[ARIA proxy] think failed:', e.message); }
+  }
+  res.status(503).json({ error: 'ARIA brain service not connected. Deploy brain service and set BRAIN_SERVICE_URL.' });
+});
+
 // ── Self-update API ───────────────────────────────────────────────────────────
 
 app.get('/api/self/staged', requireAdmin, (req, res) => {
