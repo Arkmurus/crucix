@@ -10,7 +10,7 @@ import { exec } from 'child_process';
 import cron from 'node-cron';
 import config from './crucix.config.mjs';
 import { getLocale, currentLanguage, getSupportedLocales } from './lib/i18n.mjs';
-import { fullBriefing } from './apis/briefing.mjs';
+import { fullBriefing, pushSignalsToBrain } from './apis/briefing.mjs';
 import { synthesize, generateIdeas } from './dashboard/inject.mjs';
 import { MemoryManager } from './lib/delta/index.mjs';
 import { createLLMProvider } from './lib/llm/index.mjs';
@@ -1090,6 +1090,73 @@ app.post('/api/explorer/run', requireAuth, async (req, res) => {
   }
 });
 
+// ── Brain ML endpoints — read from shared Redis (Python brain writes, Node reads) ──
+
+app.get('/api/brain/leads', requireAuth, async (req, res) => {
+  try {
+    // Brain stores leads as a Redis list (LPUSH, newest first)
+    // Each element is a JSON string — we parse and return up to 20
+    const raw = await redisGet('crucix:brain:generated_leads');
+    // redisGet uses GET (for strings); brain uses LRANGE for lists.
+    // We need LRANGE — call the Upstash REST directly.
+    const REDIS_URL   = process.env.UPSTASH_REDIS_URL;
+    const REDIS_TOKEN = process.env.UPSTASH_REDIS_TOKEN;
+    if (!REDIS_URL || !REDIS_TOKEN) return res.json([]);
+    const r = await fetch(`${REDIS_URL}/lrange/crucix:brain:generated_leads/0/19`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) return res.json([]);
+    const data = await r.json();
+    const leads = (data.result || []).map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
+    res.json(leads);
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+app.get('/api/brain/brief', requireAuth, async (req, res) => {
+  try {
+    const brief = await redisGet('crucix:brain:bd_brief:latest');
+    if (!brief) return res.status(404).json({ error: 'No brief generated yet. Brain sweep required.' });
+    res.json(brief);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/brain/status', requireAuth, async (req, res) => {
+  try {
+    const lastRun = await redisGet('crucix:brain:last_run');
+    res.json({ last_run: lastRun, service: 'crucix-brain' });
+  } catch (e) {
+    res.json({ last_run: null });
+  }
+});
+
+app.get('/api/brain/history', requireAuth, async (req, res) => {
+  try {
+    const REDIS_URL   = process.env.UPSTASH_REDIS_URL;
+    const REDIS_TOKEN = process.env.UPSTASH_REDIS_TOKEN;
+    if (!REDIS_URL || !REDIS_TOKEN) return res.json([]);
+    // Get list of run IDs
+    const r = await fetch(`${REDIS_URL}/lrange/crucix:brain:run_history/0/9`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) return res.json([]);
+    const data   = await r.json();
+    const runIds = data.result || [];
+    // Fetch individual run reports
+    const reports = await Promise.all(runIds.map(rid => redisGet(`crucix:brain:run:${rid}`)));
+    res.json(reports.filter(Boolean));
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+// ── Self-update API ───────────────────────────────────────────────────────────
+
 app.get('/api/self/staged', requireAdmin, (req, res) => {
   res.json({ staged: getStagedModules() });
 });
@@ -1707,6 +1774,9 @@ async function runSweepCycle() {
 
   try {
     const rawData = await fullBriefing();
+
+    // Push top defence/procurement signals into the Python brain queue (fire-and-forget)
+    pushSignalsToBrain(rawData).catch(() => {});
 
     console.log('[Crucix] Fetching extended intelligence sources...');
     const [unscData, centralBanksData, thinkTanksData, tradeData, opensanctionsData] =

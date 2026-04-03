@@ -134,6 +134,28 @@ export class CrucixApiService {
       .pipe(catchError(() => of({ log: [] })));
   }
 
+  // ── Brain ML endpoints ──────────────────────────────────────────────────────
+
+  getBrainLeads(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.base}/api/brain/leads`)
+      .pipe(catchError(() => of([])));
+  }
+
+  getBrainBrief(): Observable<any> {
+    return this.http.get(`${this.base}/api/brain/brief`)
+      .pipe(catchError(() => of(null)));
+  }
+
+  getBrainStatus(): Observable<any> {
+    return this.http.get(`${this.base}/api/brain/status`)
+      .pipe(catchError(() => of({ last_run: null })));
+  }
+
+  getBrainHistory(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.base}/api/brain/history`)
+      .pipe(catchError(() => of([])));
+  }
+
   // ── Actions ─────────────────────────────────────────────────────────────────
 
   triggerSweep(): Observable<any> {

@@ -5,6 +5,7 @@
 
 import './utils/env.mjs'; // Load API keys from .env
 import { pathToFileURL } from 'node:url';
+import { redisPush } from '../lib/persist/store.mjs';
 
 // === Tier 1: Core OSINT & Geopolitical ===
 import { fetchGDELT as gdelt } from './sources/gdelt.mjs';
@@ -315,10 +316,77 @@ export async function fullBriefing() {
   return output;
 }
 
+// ── Brain signal bridge ──────────────────────────────────────────────────────
+// After a sweep, push top procurement/defence signals into the Python brain queue.
+// The brain reads from crucix:brain:incoming_signals and generates ML leads.
+
+const BRAIN_SIGNAL_KEY   = 'crucix:brain:incoming_signals';
+const BRAIN_SIGNAL_LIMIT = 30; // max signals pushed per sweep
+
+// Source names that carry defence/procurement intelligence
+const BRAIN_SOURCE_WHITELIST = new Set([
+  'ProcurementTenders', 'ProcurementPortals', 'DefenseEvents', 'Defense News',
+  'SIPRI Arms', 'ExportControlIntel', 'Lusophone', 'AfDB', 'ACLED',
+  'ReliefWeb', 'Arkumurus', 'CounterpartyRisk', 'ExportControls',
+  'Sanctions', 'OpenSanctions', 'OFAC', 'EuDualUse', 'CyberThreats',
+]);
+
+// Map a raw signal/update from a source to the brain signal schema
+function tobrainSignal(item, sourceName) {
+  return {
+    title:        item.title || item.headline || item.text || '',
+    content:      item.summary || item.description || item.text || item.title || '',
+    source:       sourceName,
+    url:          item.url || item.link || item.portalUrl || '',
+    market:       item.market || item.country || item.region || 'unknown',
+    published_at: item.timestamp || item.pubDate || item.date || new Date().toISOString(),
+    keywords:     item.keywords || item.tags || [],
+    urgency:      item.urgency || item.priority || 'MEDIUM',
+  };
+}
+
+export async function pushSignalsToBrain(sweepOutput) {
+  try {
+    const signals = [];
+    const sources = sweepOutput?.sources || {};
+
+    for (const [sourceName, sourceData] of Object.entries(sources)) {
+      if (!BRAIN_SOURCE_WHITELIST.has(sourceName)) continue;
+      if (!sourceData) continue;
+
+      // Collect updates + signals from this source
+      const items = [
+        ...(sourceData.updates || []),
+        ...(sourceData.signals || []),
+        ...(sourceData.tenders || []),
+        ...(sourceData.events  || []),
+      ];
+
+      for (const item of items.slice(0, 5)) { // max 5 per source
+        const s = tobrainSignal(item, sourceName);
+        if (s.title || s.content) signals.push(s);
+        if (signals.length >= BRAIN_SIGNAL_LIMIT) break;
+      }
+      if (signals.length >= BRAIN_SIGNAL_LIMIT) break;
+    }
+
+    if (signals.length === 0) return;
+
+    // Push all signals to the brain queue (fire-and-forget)
+    await Promise.all(signals.map(s => redisPush(BRAIN_SIGNAL_KEY, s)));
+    console.error(`[Crucix Brain] Pushed ${signals.length} signals to brain queue`);
+  } catch (e) {
+    // Non-fatal — brain integration should never break the sweep
+    console.error('[Crucix Brain] Signal push failed (non-fatal):', e.message);
+  }
+}
+
 // Run and output when executed directly
 const entryHref = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;
 
 if (entryHref && import.meta.url === entryHref) {
   const data = await fullBriefing();
+  // Also push signals to brain when run from CLI
+  pushSignalsToBrain(data).catch(() => {});
   console.log(JSON.stringify(data, null, 2));
 }

@@ -75,6 +75,12 @@
         <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:4px;color:#00897b">gavel</mat-icon>
         Compliance Screen
       </button>
+      <button class="bd-tab" [class.active]="activeTab==='mlleads'" (click)="activeTab='mlleads'"
+              style="border-color:#7c4dff">
+        <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:4px;color:#7c4dff">smart_toy</mat-icon>
+        ML Leads
+        <span *ngIf="mlLeads.length > 0" class="badge ms-1" style="background:#7c4dff;font-size:0.7rem">{{ mlLeads.length }}</span>
+      </button>
     </div>
 
     <!-- ── SALES LEADS tab ── -->
@@ -798,6 +804,91 @@
       </div>
 
     </div><!-- /compliance tab -->
+
+    <!-- ── ML LEADS tab ── -->
+    <div *ngIf="activeTab==='mlleads'">
+
+      <div class="mb-3 d-flex align-items-center gap-3 flex-wrap">
+        <div>
+          <span style="font-size:0.78rem;color:#90a4ae">Python brain ML-generated leads — powered by DeepSeek + GradientBoosting</span>
+          <span *ngIf="brainStatus?.last_run" style="font-size:0.72rem;color:#546e7a;margin-left:10px">
+            Last run: {{ brainStatus.last_run | date:'dd/MM HH:mm' }}
+          </span>
+        </div>
+      </div>
+
+      <div *ngIf="mlLeadsLoading" class="text-center py-4">
+        <mat-spinner diameter="30" class="mx-auto"></mat-spinner>
+      </div>
+
+      <div *ngIf="!mlLeadsLoading && mlLeads.length === 0" class="alert alert-info" style="font-size:0.85rem">
+        No ML leads yet. The Python brain service needs to run at least one sweep. Ensure <code>REDIS_URL</code> is configured and the brain service is deployed.
+      </div>
+
+      <div *ngFor="let lead of mlLeads" class="mb-3">
+        <mat-card [style.border-left]="'4px solid ' + mlUrgencyColor(lead.urgency)"
+                  style="background:#1e1e1e">
+          <mat-card-content style="padding:16px">
+
+            <!-- Header row -->
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <span class="badge" [style.background]="mlUrgencyColor(lead.urgency)" style="color:#fff;font-size:0.7rem">
+                {{ lead.urgency || 'MEDIUM' }}
+              </span>
+              <span class="badge" style="background:#37474f;color:#ecf0f1;font-size:0.7rem">ML</span>
+              <strong style="color:#ecf0f1;font-size:0.92rem">{{ lead.market }}</strong>
+              <span style="margin-left:auto;font-size:0.75rem;color:#90a4ae">
+                Win probability:
+                <span [style.color]="mlWinProbColor(lead)" style="font-weight:700;font-size:0.88rem">
+                  {{ mlWinProbPct(lead) }}%
+                </span>
+              </span>
+            </div>
+
+            <!-- Signal title -->
+            <div *ngIf="lead.signal_title" style="color:#cfd8dc;font-size:0.88rem;margin-bottom:8px">
+              {{ lead.signal_title }}
+            </div>
+
+            <!-- Lead action -->
+            <div *ngIf="lead.lead_action" class="mb-2 p-2 rounded" style="background:#1b3a2d;border-left:3px solid #4caf50">
+              <span style="color:#81c784;font-size:0.75rem;font-weight:600">ACTION: </span>
+              <span style="color:#e0e0e0;font-size:0.85rem">{{ lead.lead_action }}</span>
+            </div>
+
+            <!-- OEM matches + compliance flags -->
+            <div class="row g-2 mb-2" style="font-size:0.8rem">
+              <div *ngIf="lead.oem_match_needed?.length" class="col-12 col-md-6">
+                <span style="color:#90a4ae">OEM needed: </span>
+                <span style="color:#80deea">{{ lead.oem_match_needed.join(', ') }}</span>
+              </div>
+              <div *ngIf="lead.compliance_flags?.length" class="col-12 col-md-6">
+                <span style="color:#ff8a65;font-weight:600">Compliance: </span>
+                <span style="color:#ffccbc">{{ lead.compliance_flags.join(', ') }}</span>
+              </div>
+            </div>
+
+            <!-- Reasoning -->
+            <div *ngIf="lead.reasoning" style="color:#90a4ae;font-size:0.78rem;font-style:italic;border-top:1px solid #263238;padding-top:8px;margin-top:8px">
+              {{ lead.reasoning | slice:0:280 }}{{ lead.reasoning.length > 280 ? '...' : '' }}
+            </div>
+
+            <!-- Footer -->
+            <div class="d-flex align-items-center gap-3 mt-2" style="font-size:0.75rem;color:#546e7a">
+              <span>Confidence: {{ lead.confidence }}/100</span>
+              <span *ngIf="lead.source">Source: {{ lead.source }}</span>
+              <a *ngIf="lead.source_url" [href]="lead.source_url" target="_blank" rel="noopener"
+                 style="color:#42a5f5;text-decoration:none;margin-left:auto">
+                <mat-icon style="font-size:12px;width:12px;height:12px;vertical-align:middle">open_in_new</mat-icon>
+                Source
+              </a>
+            </div>
+
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+    </div><!-- /mlleads tab -->
 
   </div>
 </div>

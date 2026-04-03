@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: crucix-brain
+    runtime: docker
+    dockerfilePath: ./brain/Dockerfile
+    dockerContext: ./brain
+    plan: starter
+    region: frankfurt
+    envVars:
+      - key: REDIS_URL
+        sync: false          # set in Render dashboard — same Redis as main app
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: BRAIN_PORT
+        value: "5001"
+      - key: BRAIN_SWEEP_HOURS
+        value: "6"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    healthCheckPath: /health
+    autoDeploy: true

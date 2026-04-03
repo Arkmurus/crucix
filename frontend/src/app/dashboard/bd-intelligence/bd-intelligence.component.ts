@@ -11,10 +11,15 @@ const STAGES = ['IDENTIFIED', 'QUALIFYING', 'ENGAGED', 'PROPOSAL', 'NEGOTIATING'
 export class BdIntelligenceComponent implements OnInit {
   loading = true;
   bd: any = null;
-  activeTab: 'leads' | 'tenders' | 'ideas' | 'pipeline' | 'strategy' | 'brain' | 'compliance' = 'tenders';
+  activeTab: 'leads' | 'tenders' | 'ideas' | 'pipeline' | 'strategy' | 'brain' | 'compliance' | 'mlleads' = 'tenders';
   stageOptions = STAGES;
   updatingStage: string | null = null;
   feedbackSent: Set<string> = new Set();
+
+  // Brain ML Leads
+  mlLeads: any[] = [];
+  mlLeadsLoading = true;
+  brainStatus: any = null;
 
   // Compliance screener state
   complianceForm = { sellerCountry: '', buyerCountry: '', productCategory: '', dealValueUSD: null as number | null };
@@ -45,6 +50,8 @@ export class BdIntelligenceComponent implements OnInit {
       else if (!res?.tenders?.length && !res?.ideas?.length && res?.pipeline?.length) this.activeTab = 'pipeline';
     });
     this.api.getComplianceProducts().subscribe(p => { this.complianceProducts = p || []; });
+    this.api.getBrainLeads().subscribe(leads => { this.mlLeads = leads || []; this.mlLeadsLoading = false; });
+    this.api.getBrainStatus().subscribe(s => { this.brainStatus = s; });
   }
 
   get tenders() { return this.bd?.tenders || []; }
@@ -64,6 +71,24 @@ export class BdIntelligenceComponent implements OnInit {
   get brain() { return this.bd?.brain || null; }
   get learning() { return this.bd?.learning || null; }
   get counts() { return this.bd?.counts || {}; }
+
+  mlWinProbPct(lead: any): number {
+    const wp = lead?.win_probability ?? 0;
+    return Math.round(wp * 100);
+  }
+
+  mlWinProbColor(lead: any): string {
+    const pct = this.mlWinProbPct(lead);
+    if (pct >= 60) return '#4caf50';
+    if (pct >= 35) return '#ff9800';
+    return '#ef5350';
+  }
+
+  mlUrgencyColor(urgency: string): string {
+    if (urgency === 'HIGH') return '#f44336';
+    if (urgency === 'MEDIUM') return '#ff9800';
+    return '#78909c';
+  }
 
   tierColor(priority: string): string {
     return priority === 'HIGH' ? '#f44336' : priority === 'MEDIUM' ? '#ff9800' : '#78909c';
