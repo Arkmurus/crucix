@@ -1289,8 +1289,8 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
     } catch (e) { console.warn('[ARIA proxy] brain service unreachable, using local LLM:', e.message); }
   }
 
-  // Local LLM — works with any configured LLM_PROVIDER
-  const result = await ariaLocalChat(message, sid, llmProvider);
+  // Local LLM — inject live intelligence so ARIA can reference real data
+  const result = await ariaLocalChat(message, sid, llmProvider, currentData);
   res.json(result);
 });
 
@@ -1311,8 +1311,8 @@ app.post('/api/aria/think', requireAuth, async (req, res) => {
     } catch (e) { console.warn('[ARIA proxy] think failed, using local LLM:', e.message); }
   }
 
-  // Local LLM deep reasoning
-  const result = await ariaLocalThink(question, context || {}, llmProvider);
+  // Local LLM deep reasoning — inject live intelligence
+  const result = await ariaLocalThink(question, context || {}, llmProvider, currentData);
   res.json(result);
 });
 

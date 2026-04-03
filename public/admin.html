@@ -4,8 +4,8 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/crucix.css">
+  
+  <link rel="stylesheet" href="css/crucix.css?v=3">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     .user-card { background:#1d1245; border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:10px; overflow:hidden; }
@@ -51,10 +51,8 @@
   <div id="tab-pending" class="tab-panel"><div class="sc-loading-state"><div class="sc-spinner"></div></div></div>
   <div id="tab-audit"   class="tab-panel"><div class="sc-loading-state"><div class="sc-spinner"></div></div></div>
 </main>
-
-<script src="vendor/jquery.min.js"></script>
-<script src="js/app.js"></script>
-<script src="js/sidebar.js"></script>
+<script src="js/app.js?v=3"></script>
+<script src="js/sidebar.js?v=3"></script>
 <script>
 if (!Auth.requireAdmin()) throw new Error('Not admin');
 Sidebar.init('admin');
