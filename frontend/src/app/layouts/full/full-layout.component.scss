@@ -1,12 +1,24 @@
 .main-content {
-    padding: 1.5rem 1.5rem 4rem 1.5rem;
-    margin-left: 260px;
-    margin-top: 65px;
-    min-height: calc(100vh - 65px);
+  padding: 24px 24px 60px 24px;
+  margin-left: 260px;
+  margin-top: 65px;
+  min-height: calc(100vh - 65px);
+  background: #0f0a1e;
+  transition: margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .test-2 {
-    margin-left: 0px !important;
+  margin-left: 0px !important;
 }
 
-
+// ── Mobile overlay backdrop ─────────────────────────────────────────────────
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(2px);
+  z-index: 9;
+  display: none;
+  cursor: pointer;
+}
+.overlay.show { display: block; }

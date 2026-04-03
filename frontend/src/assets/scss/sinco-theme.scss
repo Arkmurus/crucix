@@ -1,0 +1,574 @@
+/**
+ * CRUCIX — Sinco Dark Theme
+ * Adapted from Sinco Data Science & Analytics HTML5 Template (dark version)
+ * Primary: #913BFF · Blue: #0066FF · Bg: #0f0a1e
+ */
+
+// ── Design Tokens ──────────────────────────────────────────────────────────
+:root {
+  --sc-bg:          #0f0a1e;
+  --sc-bg2:         #180e32;
+  --sc-card:        #1d1245;
+  --sc-card-alt:    #2a1760;
+  --sc-panel:       #211456;
+  --sc-prime:       #913BFF;
+  --sc-prime-dark:  #7736FF;
+  --sc-blue:        #0066FF;
+  --sc-orange:      #FF7A41;
+  --sc-green:       #22c55e;
+  --sc-red:         #ef4444;
+  --sc-text:        rgba(255,255,255,0.72);
+  --sc-text-muted:  rgba(255,255,255,0.45);
+  --sc-heading:     #ffffff;
+  --sc-border:      rgba(255,255,255,0.10);
+  --sc-border-hi:   rgba(145,59,255,0.35);
+  --sc-shadow:      0 4px 24px rgba(0,0,0,0.55);
+  --sc-shadow-card: 0 2px 16px rgba(0,0,0,0.45);
+  --sc-radius:      14px;
+  --sc-radius-sm:   8px;
+  --sc-radius-lg:   20px;
+  --sc-transition:  all 0.3s ease-in-out;
+}
+
+// ── Scrollbar ───────────────────────────────────────────────────────────────
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--sc-bg); }
+::-webkit-scrollbar-thumb { background: var(--sc-prime); border-radius: 3px; }
+
+// ── Global Body Override ────────────────────────────────────────────────────
+body {
+  background: var(--sc-bg) !important;
+  color: var(--sc-text) !important;
+  font-family: 'Roboto', 'Segoe UI', sans-serif !important;
+}
+
+// ── Typography ──────────────────────────────────────────────────────────────
+h1, h2, h3, h4, h5, h6,
+.mat-headline-1, .mat-headline-2, .mat-headline-3, .mat-headline-4,
+.mat-headline-5, .mat-headline-6, .mat-title {
+  color: var(--sc-heading) !important;
+}
+
+// ── Sinco Buttons ──────────────────────────────────────────────────────────
+.sc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 13px 32px;
+  border-radius: var(--sc-radius-sm);
+  border: none;
+  cursor: pointer;
+  transition: var(--sc-transition);
+  text-decoration: none;
+
+  &.sc-btn-primary {
+    background: var(--sc-prime);
+    color: #fff;
+    &:hover { background: var(--sc-blue); }
+  }
+  &.sc-btn-outline {
+    background: transparent;
+    color: #fff;
+    border: 2px solid rgba(255,255,255,0.7);
+    &:hover { background: var(--sc-prime); border-color: var(--sc-prime); }
+  }
+  &.sc-btn-blue {
+    background: var(--sc-blue);
+    color: #fff;
+    &:hover { background: var(--sc-prime); }
+  }
+  &.sc-btn-sm {
+    padding: 8px 18px;
+    font-size: 13px;
+  }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+// ── Sinco Cards ─────────────────────────────────────────────────────────────
+.sc-card {
+  background: var(--sc-card);
+  border-radius: var(--sc-radius);
+  border: 1px solid var(--sc-border);
+  box-shadow: var(--sc-shadow-card);
+  transition: var(--sc-transition);
+  position: relative;
+  overflow: hidden;
+
+  &:hover { box-shadow: 0 6px 32px rgba(145,59,255,0.18); }
+
+  .sc-card-header {
+    padding: 20px 24px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .sc-card-body { padding: 20px 24px; }
+  .sc-card-footer {
+    padding: 12px 24px;
+    border-top: 1px solid var(--sc-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  &.sc-card-alt { background: var(--sc-card-alt); }
+
+  // accent glow bar on left edge
+  &.sc-card-accent::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--sc-prime);
+    border-radius: var(--sc-radius) 0 0 var(--sc-radius);
+  }
+  &.sc-card-accent-blue::before { background: var(--sc-blue); }
+  &.sc-card-accent-green::before { background: var(--sc-green); }
+  &.sc-card-accent-orange::before { background: var(--sc-orange); }
+}
+
+// ── Stat Tile ───────────────────────────────────────────────────────────────
+.sc-stat {
+  background: var(--sc-card);
+  border-radius: var(--sc-radius);
+  border: 1px solid var(--sc-border);
+  padding: 20px 22px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: var(--sc-transition);
+  position: relative;
+  overflow: hidden;
+
+  &:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(145,59,255,0.2); }
+
+  .sc-stat-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 24px;
+    background: rgba(145,59,255,0.15);
+    color: var(--sc-prime);
+
+    &.blue   { background: rgba(0,102,255,0.15);   color: var(--sc-blue); }
+    &.green  { background: rgba(34,197,94,0.15);   color: var(--sc-green); }
+    &.orange { background: rgba(255,122,65,0.15);  color: var(--sc-orange); }
+    &.red    { background: rgba(239,68,68,0.15);   color: var(--sc-red); }
+  }
+
+  .sc-stat-body {
+    flex: 1;
+    min-width: 0;
+
+    .sc-stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--sc-heading);
+      line-height: 1.1;
+    }
+    .sc-stat-label {
+      font-size: 13px;
+      color: var(--sc-text-muted);
+      margin-top: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sc-stat-delta {
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 4px;
+      &.up   { color: var(--sc-green); }
+      &.down { color: var(--sc-red); }
+    }
+  }
+
+  // glowing right gradient
+  &::after {
+    content: '';
+    position: absolute;
+    right: -10px; top: -10px;
+    width: 70px; height: 70px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(145,59,255,0.15) 0%, transparent 70%);
+    pointer-events: none;
+  }
+}
+
+// ── Badge / Tag ─────────────────────────────────────────────────────────────
+.sc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.5;
+
+  &.prime  { background: rgba(145,59,255,0.18); color: var(--sc-prime); }
+  &.blue   { background: rgba(0,102,255,0.18);  color: var(--sc-blue); }
+  &.green  { background: rgba(34,197,94,0.18);  color: var(--sc-green); }
+  &.orange { background: rgba(255,122,65,0.18); color: var(--sc-orange); }
+  &.red    { background: rgba(239,68,68,0.18);  color: var(--sc-red); }
+  &.muted  { background: rgba(255,255,255,0.08); color: var(--sc-text-muted); }
+}
+
+// ── Form Fields — Override Angular Material ──────────────────────────────────
+.sc-form {
+  .sc-field {
+    position: relative;
+    margin-bottom: 20px;
+
+    label {
+      display: block;
+      font-size: 14px;
+      color: rgba(255,255,255,0.65);
+      margin-bottom: 6px;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      background: rgba(255,255,255,0.06);
+      border: 2px solid rgba(255,255,255,0.15);
+      border-radius: var(--sc-radius-sm);
+      color: #fff;
+      padding: 13px 18px;
+      font-size: 15px;
+      transition: var(--sc-transition);
+      outline: none;
+      line-height: 1.4;
+
+      &:focus {
+        border-color: var(--sc-prime);
+        background: rgba(145,59,255,0.08);
+      }
+      &::placeholder { color: rgba(255,255,255,0.3); }
+    }
+
+    &.has-icon input { padding-right: 48px; }
+
+    .field-icon {
+      position: absolute;
+      right: 14px;
+      bottom: 14px;
+      color: rgba(255,255,255,0.5);
+      cursor: pointer;
+      font-size: 20px;
+    }
+  }
+
+  // Angular Material overrides inside sc-form context
+  ::ng-deep mat-form-field {
+    .mat-mdc-text-field-wrapper { background: rgba(255,255,255,0.05) !important; }
+    .mdc-notched-outline__leading,
+    .mdc-notched-outline__notch,
+    .mdc-notched-outline__trailing {
+      border-color: rgba(255,255,255,0.18) !important;
+    }
+    &.mat-focused .mdc-notched-outline__leading,
+    &.mat-focused .mdc-notched-outline__notch,
+    &.mat-focused .mdc-notched-outline__trailing {
+      border-color: var(--sc-prime) !important;
+    }
+    .mdc-floating-label { color: rgba(255,255,255,0.55) !important; }
+    input.mat-mdc-input-element { color: #fff !important; caret-color: var(--sc-prime); }
+    .mat-mdc-form-field-icon-suffix button { color: rgba(255,255,255,0.6) !important; }
+  }
+}
+
+// Global mat-form-field dark overrides (applies everywhere)
+::ng-deep .mat-mdc-form-field {
+  .mat-mdc-text-field-wrapper { background: rgba(255,255,255,0.05) !important; }
+  .mdc-notched-outline__leading,
+  .mdc-notched-outline__notch,
+  .mdc-notched-outline__trailing {
+    border-color: rgba(255,255,255,0.15) !important;
+  }
+  &.mat-focused .mdc-notched-outline__leading,
+  &.mat-focused .mdc-notched-outline__notch,
+  &.mat-focused .mdc-notched-outline__trailing {
+    border-color: var(--sc-prime) !important;
+  }
+  .mdc-floating-label { color: rgba(255,255,255,0.5) !important; }
+  input.mat-mdc-input-element,
+  textarea.mat-mdc-input-element { color: #fff !important; caret-color: var(--sc-prime); }
+  .mat-mdc-select-value-text { color: #fff !important; }
+  .mat-mdc-form-field-icon-suffix button { color: rgba(255,255,255,0.6) !important; }
+  .mat-mdc-form-field-error { color: #ff6b6b; }
+}
+
+// ── Material Card Override ───────────────────────────────────────────────────
+::ng-deep .mat-mdc-card {
+  background: var(--sc-card) !important;
+  color: var(--sc-text) !important;
+  border: 1px solid var(--sc-border) !important;
+  box-shadow: var(--sc-shadow-card) !important;
+}
+
+// ── Material Button Overrides ────────────────────────────────────────────────
+::ng-deep .mat-mdc-raised-button.mat-primary,
+::ng-deep .mat-mdc-flat-button.mat-primary {
+  background: var(--sc-prime) !important;
+  color: #fff !important;
+  &:hover { background: var(--sc-blue) !important; }
+}
+
+// ── Material Menu ───────────────────────────────────────────────────────────
+::ng-deep .mat-mdc-menu-panel {
+  background: var(--sc-card-alt) !important;
+  border: 1px solid var(--sc-border) !important;
+  box-shadow: var(--sc-shadow) !important;
+
+  .mat-mdc-menu-item {
+    color: var(--sc-text) !important;
+    &:hover { background: rgba(145,59,255,0.12) !important; }
+  }
+  .mat-mdc-menu-item .mat-icon { color: var(--sc-text-muted) !important; }
+  mat-divider { border-color: var(--sc-border) !important; }
+}
+
+// ── Material Tab / Expansion ─────────────────────────────────────────────────
+::ng-deep .mat-expansion-panel {
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--sc-text) !important;
+  border-bottom: 1px solid var(--sc-border);
+
+  .mat-expansion-panel-header {
+    color: var(--sc-text) !important;
+    &:hover { background: rgba(145,59,255,0.08) !important; }
+    &.mat-expanded { color: var(--sc-heading) !important; }
+  }
+  .mat-expansion-indicator::after { color: var(--sc-text-muted) !important; }
+}
+
+::ng-deep .mat-mdc-tab-group {
+  .mat-mdc-tab-header { border-bottom: 1px solid var(--sc-border); }
+  .mat-mdc-tab { color: var(--sc-text-muted) !important; }
+  .mat-mdc-tab.mdc-tab--active { color: var(--sc-prime) !important; }
+  .mdc-tab-indicator__content--underline { border-color: var(--sc-prime) !important; }
+}
+
+// ── Material Dialog ──────────────────────────────────────────────────────────
+::ng-deep .mat-mdc-dialog-container {
+  background: var(--sc-card-alt) !important;
+  color: var(--sc-text) !important;
+  border: 1px solid var(--sc-border) !important;
+}
+
+// ── Material Checkbox / Slide Toggle ────────────────────────────────────────
+::ng-deep .mat-mdc-checkbox .mdc-checkbox__background { border-color: rgba(255,255,255,0.4) !important; }
+::ng-deep .mat-mdc-slide-toggle .mdc-switch__track { background: rgba(255,255,255,0.15) !important; }
+
+// ── Material Table ──────────────────────────────────────────────────────────
+::ng-deep .mat-mdc-table {
+  background: var(--sc-card) !important;
+  .mat-mdc-header-row { background: var(--sc-panel) !important; }
+  .mat-mdc-header-cell {
+    color: rgba(255,255,255,0.55) !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.6px !important;
+    border-bottom: 1px solid var(--sc-border) !important;
+  }
+  .mat-mdc-row {
+    color: var(--sc-text) !important;
+    border-bottom: 1px solid var(--sc-border) !important;
+    &:hover { background: rgba(145,59,255,0.07) !important; }
+  }
+  .mat-mdc-cell { color: var(--sc-text) !important; border-bottom: none !important; }
+}
+
+// ── Material Paginator ───────────────────────────────────────────────────────
+::ng-deep .mat-mdc-paginator {
+  background: var(--sc-panel) !important;
+  color: var(--sc-text) !important;
+  .mat-mdc-icon-button { color: var(--sc-text) !important; }
+}
+
+// ── Material List / Nav ──────────────────────────────────────────────────────
+::ng-deep .mat-mdc-list-item {
+  color: var(--sc-text) !important;
+  border-radius: var(--sc-radius-sm) !important;
+  margin: 2px 8px !important;
+
+  &:hover { background: rgba(145,59,255,0.10) !important; }
+  &.is-active {
+    background: rgba(145,59,255,0.18) !important;
+    color: #fff !important;
+    border-left: 3px solid var(--sc-prime) !important;
+    .mat-icon { color: var(--sc-prime) !important; }
+  }
+  .mat-icon { color: var(--sc-text-muted) !important; }
+}
+
+// ── Material Snackbar ────────────────────────────────────────────────────────
+::ng-deep .mat-mdc-snack-bar-container {
+  background: var(--sc-card-alt) !important;
+  color: #fff !important;
+}
+
+// ── Alert boxes ─────────────────────────────────────────────────────────────
+.sc-alert {
+  padding: 12px 16px;
+  border-radius: var(--sc-radius-sm);
+  font-size: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+
+  &.danger  { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; }
+  &.success { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #86efac; }
+  &.warning { background: rgba(255,122,65,0.15); border: 1px solid rgba(255,122,65,0.3); color: #fdba74; }
+  &.info    { background: rgba(0,102,255,0.15); border: 1px solid rgba(0,102,255,0.3); color: #93c5fd; }
+}
+
+// ── Page Header Section ──────────────────────────────────────────────────────
+.sc-page-header {
+  margin-bottom: 28px;
+
+  .sc-page-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--sc-heading);
+    margin: 0 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    .sc-page-title-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      background: rgba(145,59,255,0.18);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--sc-prime);
+    }
+  }
+  .sc-page-sub {
+    font-size: 13px;
+    color: var(--sc-text-muted);
+  }
+}
+
+// ── Grid Utilities ───────────────────────────────────────────────────────────
+.sc-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+.sc-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.sc-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+
+@media (max-width: 1200px) {
+  .sc-grid-4 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+  .sc-grid-2, .sc-grid-3, .sc-grid-4 { grid-template-columns: 1fr; }
+}
+
+// ── Separator / Divider ──────────────────────────────────────────────────────
+.sc-divider {
+  height: 1px;
+  background: var(--sc-border);
+  margin: 16px 0;
+}
+
+// ── Loading Spinner ──────────────────────────────────────────────────────────
+.sc-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(145,59,255,0.3);
+  border-top-color: var(--sc-prime);
+  border-radius: 50%;
+  animation: sc-spin 0.7s linear infinite;
+}
+@keyframes sc-spin { to { transform: rotate(360deg); } }
+
+// ── Glow Effects ─────────────────────────────────────────────────────────────
+.sc-glow-prime { box-shadow: 0 0 24px rgba(145,59,255,0.35); }
+.sc-glow-blue  { box-shadow: 0 0 24px rgba(0,102,255,0.35); }
+
+// ── Chart Container ──────────────────────────────────────────────────────────
+.sc-chart-wrap {
+  position: relative;
+  width: 100%;
+  min-height: 200px;
+
+  canvas { border-radius: var(--sc-radius-sm); }
+}
+
+// ── Alert-card (alerts/briefing) ─────────────────────────────────────────────
+.sc-alert-card {
+  background: var(--sc-card);
+  border-radius: var(--sc-radius);
+  border: 1px solid var(--sc-border);
+  padding: 16px 20px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  transition: var(--sc-transition);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+
+  &:hover { border-color: var(--sc-border-hi); background: var(--sc-card-alt); }
+
+  .sc-alert-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    font-size: 18px;
+    background: rgba(145,59,255,0.15);
+    color: var(--sc-prime);
+
+    &.flash  { background: rgba(239,68,68,0.15); color: var(--sc-red); }
+    &.high   { background: rgba(255,122,65,0.15); color: var(--sc-orange); }
+    &.medium { background: rgba(0,102,255,0.15); color: var(--sc-blue); }
+    &.low    { background: rgba(34,197,94,0.15); color: var(--sc-green); }
+  }
+
+  .sc-alert-body {
+    flex: 1; min-width: 0;
+
+    .sc-alert-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--sc-heading);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sc-alert-meta {
+      font-size: 12px;
+      color: var(--sc-text-muted);
+      margin-top: 3px;
+    }
+    .sc-alert-msg {
+      font-size: 13px;
+      color: var(--sc-text);
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+    .sc-alert-action {
+      font-size: 12px;
+      color: var(--sc-prime);
+      margin-top: 6px;
+      font-style: italic;
+    }
+  }
+}

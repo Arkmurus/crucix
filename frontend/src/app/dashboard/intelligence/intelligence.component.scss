@@ -1,14 +1,102 @@
-.kpi-card {
-  .kpi-label { font-size: 0.75rem; color: #9e9e9e; text-transform: uppercase; letter-spacing: 0.5px; }
-  .kpi-value { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+// ── Page header ──────────────────────────────────────────────────────────────
+.page-title {
+  color: #fff !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  mat-icon { color: #913BFF; }
 }
 
-.osint-item { font-size: 0.82rem; }
+// ── KPI Cards ────────────────────────────────────────────────────────────────
+.kpi-card {
+  background: #1d1245 !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 12px !important;
+  position: relative;
+  overflow: hidden;
 
-.idea-card { border-radius: 8px; }
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 3px;
+    background: linear-gradient(90deg, #913BFF, #0066FF);
+  }
+
+  .kpi-label {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .kpi-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: #fff;
+  }
+}
+
+// ── Correlation blocks ────────────────────────────────────────────────────────
+.corr-block {
+  background: #1d1245 !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+
+  // override the inline white bg
+  div[style*="background:#ffffff"],
+  div[style*="background: #ffffff"] {
+    background: rgba(255,255,255,0.04) !important;
+    color: rgba(255,255,255,0.8) !important;
+
+    // text inside
+    div { color: rgba(255,255,255,0.75) !important; }
+  }
+}
 
 .corr-item { height: auto !important; padding: 8px 0 !important; }
 
+// ── OSINT signals ─────────────────────────────────────────────────────────────
+.osint-item {
+  font-size: 0.82rem;
+
+  // override inline dark text color
+  div[style*="color:#1a1a2e"] { color: rgba(255,255,255,0.78) !important; }
+}
+
+// ── Idea cards ────────────────────────────────────────────────────────────────
+.idea-card {
+  background: #1d1245 !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+
+  ::ng-deep .mat-chip {
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    border-radius: 4px !important;
+    height: 22px !important;
+    min-height: 22px !important;
+  }
+}
+
+// ── Defence Intel ─────────────────────────────────────────────────────────────
+.border-bottom { border-bottom-color: rgba(255,255,255,0.07) !important; }
+
+// ── Mat Table ────────────────────────────────────────────────────────────────
+mat-table { font-size: 0.85rem; }
+
 .very-small { font-size: 14px; vertical-align: middle; }
 
-mat-table { font-size: 0.85rem; }
+// ── Utility overrides for inline dark text ───────────────────────────────────
+// text that was black on white is now light on dark
+span[style*="color:#1a1a2e"],
+div[style*="color:#1a1a2e"] {
+  color: rgba(255,255,255,0.78) !important;
+}
