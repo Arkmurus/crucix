@@ -35,7 +35,7 @@ async function load() {
   const data = await API.get('/api/opportunities');
   document.getElementById('opps-loading').style.display = 'none';
   document.getElementById('opps-content').style.display = '';
-  const opps = (data||[]);
+  const opps = data?.opportunities || (Array.isArray(data) ? data : []);
   if (!opps.length) {
     document.getElementById('opps-grid').innerHTML = '<p class="text-muted">No opportunities available.</p>';
     return;

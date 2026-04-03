@@ -30,6 +30,7 @@ const API = {
       headers: this.headers(),
       body: JSON.stringify(body)
     });
+    if (r.status === 401) { Auth.logout(); return { ok: false, status: 401, data: {} }; }
     return { ok: r.ok, status: r.status, data: await r.json() };
   },
 
@@ -39,6 +40,7 @@ const API = {
       headers: this.headers(),
       body: JSON.stringify(body)
     });
+    if (r.status === 401) { Auth.logout(); return { ok: false, data: {} }; }
     return { ok: r.ok, data: await r.json() };
   },
 
@@ -47,6 +49,7 @@ const API = {
       method: 'DELETE',
       headers: this.headers()
     });
+    if (r.status === 401) { Auth.logout(); return { ok: false, data: {} }; }
     return { ok: r.ok, data: await r.json() };
   }
 };

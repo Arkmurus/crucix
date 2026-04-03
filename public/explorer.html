@@ -67,7 +67,14 @@ async function doSearch() {
   const data = await API.get(`/api/search?q=${encodeURIComponent(q)}`);
   if (!data) return;
 
-  const results = data.results || data.items || data || [];
+  // API returns { results: { web, news, social, companies, reference, intel }, ... }
+  // Flatten all sub-arrays into one list
+  let results = [];
+  if (data.results && typeof data.results === 'object' && !Array.isArray(data.results)) {
+    results = Object.values(data.results).flat().filter(Boolean);
+  } else {
+    results = data.results || data.items || [];
+  }
   if (!results.length) {
     el.innerHTML = '<p class="text-muted" style="text-align:center;padding:40px">No results found for "' + escHtml(q) + '"</p>';
     return;

@@ -54,7 +54,11 @@ const Sidebar = {
         e.stopPropagation();
         dropdown.classList.toggle('open');
       });
-      document.addEventListener('click', () => dropdown.classList.remove('open'));
+      document.addEventListener('click', e => {
+        if (!e.target.closest('#nav-dropdown') && !e.target.closest('#nav-avatar')) {
+          dropdown.classList.remove('open');
+        }
+      });
     }
 
     // Logout

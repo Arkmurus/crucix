@@ -158,8 +158,9 @@
 
     document.getElementById('register-screen').style.display = 'none';
     document.getElementById('pending-screen').style.display = 'block';
-    document.getElementById('pending-msg').textContent =
-      `Hi ${fullName}, your account is pending admin approval.`;
+    document.getElementById('pending-msg').textContent = data.needsVerification
+      ? `Hi ${fullName}, please check your email for a 6-digit verification code to confirm your address.`
+      : `Hi ${fullName}, your access request has been submitted and is awaiting admin approval. You'll receive an email once your account is activated.`;
   }
 
   function showError(m){ const e=document.getElementById('error-msg'); e.textContent=m; e.style.display='flex'; }
