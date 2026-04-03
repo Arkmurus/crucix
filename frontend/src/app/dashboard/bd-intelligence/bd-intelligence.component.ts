@@ -11,9 +11,25 @@ const STAGES = ['IDENTIFIED', 'QUALIFYING', 'ENGAGED', 'PROPOSAL', 'NEGOTIATING'
 export class BdIntelligenceComponent implements OnInit {
   loading = true;
   bd: any = null;
-  activeTab: 'leads' | 'tenders' | 'ideas' | 'pipeline' | 'strategy' | 'brain' = 'tenders';
+  activeTab: 'leads' | 'tenders' | 'ideas' | 'pipeline' | 'strategy' | 'brain' | 'compliance' = 'tenders';
   stageOptions = STAGES;
   updatingStage: string | null = null;
+  feedbackSent: Set<string> = new Set();
+
+  // Compliance screener state
+  complianceForm = { sellerCountry: '', buyerCountry: '', productCategory: '', dealValueUSD: null as number | null };
+  complianceResult: any = null;
+  complianceLoading = false;
+  complianceProducts: any[] = [];
+
+  // Share brief
+  generatingShare = false;
+  shareUrl: string | null = null;
+
+  // Outcome modal state
+  outcomeModal: { deal: any; visible: boolean } = { deal: null, visible: false };
+  outcomeForm = { outcome: 'WON' as 'WON' | 'LOST' | 'NO_BID', reason: '' };
+  submittingOutcome = false;
 
   constructor(private api: CrucixApiService) {}
 
@@ -28,6 +44,7 @@ export class BdIntelligenceComponent implements OnInit {
       else if (!res?.tenders?.length && res?.ideas?.length) this.activeTab = 'ideas';
       else if (!res?.tenders?.length && !res?.ideas?.length && res?.pipeline?.length) this.activeTab = 'pipeline';
     });
+    this.api.getComplianceProducts().subscribe(p => { this.complianceProducts = p || []; });
   }
 
   get tenders() { return this.bd?.tenders || []; }
@@ -88,11 +105,85 @@ export class BdIntelligenceComponent implements OnInit {
     return map[stage] || '#546e7a';
   }
 
+  complianceStatusColor(status: string): string {
+    if (status === 'PROHIBITED') return '#b71c1c';
+    if (status === 'REQUIRES_APPROVAL') return '#f57c00';
+    return '#2e7d32';
+  }
+
   updateStage(deal: any, stage: string): void {
     this.updatingStage = deal.id;
     this.api.updateDealStage(deal.id, stage).subscribe(() => {
       deal.stage = stage;
       this.updatingStage = null;
+      // If terminal stage, prompt for outcome capture
+      if (stage === 'WON' || stage === 'LOST') {
+        this.outcomeModal = { deal, visible: true };
+        this.outcomeForm = { outcome: stage as 'WON' | 'LOST', reason: '' };
+      }
+    });
+  }
+
+  openOutcomeModal(deal: any): void {
+    this.outcomeModal = { deal, visible: true };
+    this.outcomeForm = { outcome: 'WON', reason: '' };
+  }
+
+  closeOutcomeModal(): void {
+    this.outcomeModal = { deal: null, visible: false };
+  }
+
+  submitOutcome(): void {
+    if (!this.outcomeModal.deal) return;
+    this.submittingOutcome = true;
+    const deal = this.outcomeModal.deal;
+    this.api.recordDealOutcome(deal.id, deal.market || deal.name || 'Unknown', deal.type || 'TENDER', this.outcomeForm.outcome, this.outcomeForm.reason)
+      .subscribe(() => {
+        this.submittingOutcome = false;
+        this.closeOutcomeModal();
+      });
+  }
+
+  sendFeedback(lead: any, feedback: 'positive' | 'negative'): void {
+    const key = lead.lead || lead.text || lead.title || '';
+    if (this.feedbackSent.has(key)) return;
+    this.feedbackSent.add(key);
+    this.api.sendLeadFeedback(key, lead.market || '', feedback).subscribe();
+  }
+
+  isFeedbackSent(lead: any): boolean {
+    const key = lead.lead || lead.text || lead.title || '';
+    return this.feedbackSent.has(key);
+  }
+
+  screenCompliance(): void {
+    if (!this.complianceForm.sellerCountry || !this.complianceForm.buyerCountry || !this.complianceForm.productCategory) return;
+    this.complianceLoading = true;
+    this.complianceResult = null;
+    this.api.screenCompliance(
+      this.complianceForm.sellerCountry.toUpperCase(),
+      this.complianceForm.buyerCountry.toUpperCase(),
+      this.complianceForm.productCategory,
+      this.complianceForm.dealValueUSD || undefined
+    ).subscribe(res => {
+      this.complianceResult = res;
+      this.complianceLoading = false;
+    });
+  }
+
+  clearCompliance(): void {
+    this.complianceResult = null;
+    this.complianceForm = { sellerCountry: '', buyerCountry: '', productCategory: '', dealValueUSD: null };
+  }
+
+  generateShareLink(): void {
+    this.generatingShare = true;
+    this.api.createShareBrief().subscribe(res => {
+      this.generatingShare = false;
+      if (res?.url) {
+        this.shareUrl = res.url;
+        try { navigator.clipboard.writeText(res.url); } catch {}
+      }
     });
   }
 }

@@ -32,7 +32,9 @@ import { analyzePatterns, formatPatternsForTelegram } from './lib/self/pattern_a
 import { runExploration, exploreQuery, formatExplorerFindingsForTelegram } from './lib/self/web_explorer.mjs';
 import { generateSourceModule, generateSourceFix, stageModule, getStagedModules, getStagedCode, formatStagedForTelegram } from './lib/self/code_generator.mjs';
 import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRestartFlag, triggerGracefulRestart, getAutoManagedModules } from './lib/self/updater.mjs';
-import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, formatBDSummaryForTelegram, initBDStore } from './lib/self/bd_intelligence.mjs';
+import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, recordOutcome, formatBDSummaryForTelegram, initBDStore } from './lib/self/bd_intelligence.mjs';
+import { screenDeal, getProductCategories } from './lib/compliance/screen.mjs';
+import { redisGet, redisSet, redisDel } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore } from './lib/auth/users.mjs';
 import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
@@ -863,6 +865,213 @@ app.post('/api/bd-intelligence/pipeline/:id/stage', requireAuth, (req, res) => {
   const result = updateDealStage(id, stage, notes || '');
   res.json(result);
 });
+
+app.post('/api/bd-intelligence/pipeline/:id/outcome', requireAuth, (req, res) => {
+  const { id } = req.params;
+  const { market, type, outcome, reason } = req.body || {};
+  if (!outcome || !['WON', 'LOST', 'NO_BID'].includes(outcome)) {
+    return res.status(400).json({ error: 'outcome must be WON, LOST, or NO_BID' });
+  }
+  try {
+    recordOutcome(id, market || 'Unknown', type || 'TENDER', outcome, reason || '');
+    res.json({ ok: true, dealId: id, outcome });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/bd-intelligence/feedback', requireAuth, (req, res) => {
+  // Thumbs up/down on brain leads or tenders
+  const { signalText, market, feedback, reason } = req.body || {};
+  if (!feedback || !['positive', 'negative'].includes(feedback)) {
+    return res.status(400).json({ error: 'feedback must be positive or negative' });
+  }
+  try {
+    const outcome = feedback === 'positive' ? 'confirmed' : 'dismissed';
+    // Reuse alert outcome recording to feed source weighting
+    const hash = Buffer.from((signalText || '').slice(0, 80)).toString('base64').slice(0, 16);
+    recordAlertOutcome(hash, signalText || '', outcome, { source: market, region: market, tier: 'bd' });
+    if (market && feedback === 'positive') {
+      recordOutcome(hash, market, 'LEAD', 'WON', reason || 'user confirmed lead');
+    } else if (market && feedback === 'negative') {
+      recordOutcome(hash, market, 'LEAD', 'LOST', reason || 'user dismissed lead');
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Compliance pre-screening ──────────────────────────────────────────────────
+app.post('/api/compliance/screen', requireAuth, (req, res) => {
+  const { sellerCountry, buyerCountry, productCategory, dealValueUSD, notes } = req.body || {};
+  if (!sellerCountry || !buyerCountry || !productCategory) {
+    return res.status(400).json({ error: 'sellerCountry, buyerCountry, productCategory required' });
+  }
+  try {
+    const result = screenDeal({ sellerCountry, buyerCountry, productCategory, dealValueUSD, notes, brokerCountry: 'GB' });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/compliance/products', requireAuth, (req, res) => {
+  res.json(getProductCategories());
+});
+
+// ── Shareable brief ───────────────────────────────────────────────────────────
+// In-memory fallback for share tokens when Redis not configured
+const _shareStore = new Map();
+
+app.post('/api/share/brief', requireAuth, async (req, res) => {
+  const bd = getBDIntelligence();
+  if (!bd) return res.status(503).json({ error: 'No BD data available — run a sweep first' });
+
+  const token    = [...Array(24)].map(() => Math.random().toString(36)[2]).join('');
+  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
+  const payload  = { bd, createdAt: new Date().toISOString(), expiresAt };
+
+  try {
+    await redisSet(`crucix:share:${token}`, payload, 7 * 24 * 3600);
+  } catch {
+    _shareStore.set(token, payload);
+    setTimeout(() => _shareStore.delete(token), 7 * 24 * 60 * 60 * 1000);
+  }
+
+  const host = req.get('host');
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  res.json({ token, url: `${proto}://${host}/s/${token}`, expiresAt: new Date(expiresAt).toISOString() });
+});
+
+app.get('/s/:token', async (req, res) => {
+  const { token } = req.params;
+  if (!/^[a-z0-9]{20,30}$/.test(token)) return res.status(400).send('Invalid token');
+
+  let payload;
+  try {
+    payload = await redisGet(`crucix:share:${token}`);
+  } catch {}
+  if (!payload) payload = _shareStore.get(token);
+  if (!payload || Date.now() > payload.expiresAt) return res.status(404).send('<h2>Brief not found or expired</h2>');
+
+  const { bd } = payload;
+  const hot  = (bd.brain?.salesLeads || []).filter(l => l.urgency === 'HOT');
+  const warm = (bd.brain?.salesLeads || []).filter(l => l.urgency === 'WARM');
+  const tenders = (bd.tenders || []).filter(t => t.leadQuality === 'HOT' || t.leadQuality === 'WARM');
+  const strat = bd.strategy;
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arkmurus BD Intelligence Brief</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f6fa; color: #1a2332; line-height: 1.6; }
+  .header { background: #1a2332; color: #fff; padding: 28px 40px; }
+  .header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.3px; }
+  .header .sub { font-size: 0.85rem; color: #90a4ae; margin-top: 4px; }
+  .container { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+  .section { margin-bottom: 28px; }
+  .section-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #78909c; margin-bottom: 12px; }
+  .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); padding: 16px 20px; margin-bottom: 10px; border-left: 4px solid #ccc; }
+  .card.hot { border-left-color: #e53935; }
+  .card.warm { border-left-color: #ff9800; }
+  .card.strategy { border-left-color: #7b1fa2; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.68rem; font-weight: 700; color: #fff; margin-right: 6px; }
+  .hot-badge { background: #e53935; }
+  .warm-badge { background: #ff9800; }
+  .label { font-size: 0.72rem; color: #78909c; }
+  .val { font-size: 0.85rem; color: #1a2332; margin-left: 6px; }
+  .title { font-size: 0.95rem; font-weight: 600; color: #1a2332; margin: 6px 0; }
+  .next-step { background: #f0faf4; border-left: 3px solid #4caf50; padding: 8px 12px; border-radius: 0 4px 4px 0; font-size: 0.82rem; color: #2e7d32; margin-top: 8px; }
+  .meta { font-size: 0.75rem; color: #90a4ae; margin-top: 6px; }
+  a { color: #1976d2; }
+  .footer { text-align: center; font-size: 0.72rem; color: #90a4ae; padding: 20px; border-top: 1px solid #e0e0e0; margin-top: 32px; }
+  .disclaimer { background: #fff8e1; border: 1px solid #ffe082; border-radius: 6px; padding: 10px 14px; font-size: 0.78rem; color: #5d4037; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Arkmurus BD Intelligence Brief</h1>
+  <div class="sub">Generated ${new Date(payload.createdAt).toUTCString()} &nbsp;·&nbsp; Valid 7 days</div>
+</div>
+<div class="container">
+
+${hot.length > 0 ? `
+<div class="section">
+  <div class="section-title">🔥 HOT Sales Leads — Act Now</div>
+  ${hot.map(l => `
+  <div class="card hot">
+    <span class="badge hot-badge">HOT</span>
+    <strong>${escHtml(l.market)}</strong>
+    ${l.estimatedValue ? `<span style="float:right;font-weight:700;color:#e53935">${escHtml(l.estimatedValue)}</span>` : ''}
+    <div class="title">${escHtml(l.lead)}</div>
+    ${l.procurementAuthority ? `<div><span class="label">Authority:</span><span class="val">${escHtml(l.procurementAuthority)}</span></div>` : ''}
+    ${l.oemRecommendation ? `<div><span class="label">OEM:</span><span class="val">${escHtml(l.oemRecommendation)}</span></div>` : ''}
+    ${l.nextStep ? `<div class="next-step"><strong>Next 48h:</strong> ${escHtml(l.nextStep)}</div>` : ''}
+    ${l.portalUrl ? `<div class="meta"><a href="${escHtml(l.portalUrl)}" target="_blank">Procurement Portal →</a></div>` : ''}
+  </div>`).join('')}
+</div>` : ''}
+
+${warm.length > 0 ? `
+<div class="section">
+  <div class="section-title">⚡ WARM Leads — Qualify This Week</div>
+  ${warm.map(l => `
+  <div class="card warm">
+    <span class="badge warm-badge">WARM</span>
+    <strong>${escHtml(l.market)}</strong>
+    ${l.estimatedValue ? `<span style="float:right;color:#ff9800;font-weight:600">${escHtml(l.estimatedValue)}</span>` : ''}
+    <div class="title">${escHtml(l.lead)}</div>
+    ${l.oemRecommendation ? `<div><span class="label">OEM:</span><span class="val">${escHtml(l.oemRecommendation)}</span></div>` : ''}
+    ${l.nextStep ? `<div class="meta">→ ${escHtml(l.nextStep)}</div>` : ''}
+  </div>`).join('')}
+</div>` : ''}
+
+${tenders.length > 0 ? `
+<div class="section">
+  <div class="section-title">Verified Tenders & Contracts</div>
+  ${tenders.map(t => `
+  <div class="card ${t.leadQuality === 'HOT' ? 'hot' : 'warm'}">
+    <span class="badge ${t.leadQuality === 'HOT' ? 'hot-badge' : 'warm-badge'}">${escHtml(t.leadQuality)}</span>
+    <span class="badge" style="background:#546e7a">${escHtml(t.type)}</span>
+    <strong>${escHtml(t.market)}</strong>
+    ${t.winProbability != null ? `<span style="float:right;font-weight:700;font-size:0.8rem">Win ${t.winProbability}%</span>` : ''}
+    <div class="title">${escHtml(t.title)}</div>
+    <div class="meta">${escHtml(t.source)} · ${escHtml(t.date || '')}
+    ${t.url ? ` · <a href="${escHtml(t.url)}" target="_blank">View Tender →</a>` : ''}</div>
+  </div>`).join('')}
+</div>` : ''}
+
+${strat?.topPriority ? `
+<div class="section">
+  <div class="section-title">AI Strategic Priority</div>
+  <div class="card strategy">
+    <div class="title">${escHtml(strat.topPriority.action || strat.topPriority.description || '')}</div>
+    ${strat.topPriority.whyNow ? `<div class="meta">Why now: ${escHtml(strat.topPriority.whyNow)}</div>` : ''}
+    ${strat.topPriority.firstStep ? `<div class="next-step">${escHtml(strat.topPriority.firstStep)}</div>` : ''}
+  </div>
+</div>` : ''}
+
+<div class="disclaimer">
+  This brief is confidential and intended for the named recipient only. Intelligence is AI-generated from open sources
+  and must be independently verified before commercial decisions. All export activity is subject to applicable licensing
+  and regulatory requirements.
+</div>
+</div>
+<div class="footer">Powered by Arkmurus Crucix Intelligence Platform &nbsp;·&nbsp; arkmurus.com</div>
+</body>
+</html>`;
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  res.send(html);
+});
+
+function escHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 app.get('/api/patterns', requireAuth, (req, res) => {
   res.json(getPatterns());

@@ -314,3 +314,67 @@ mat-card-content {
   flex-wrap: wrap;
   gap: 4px;
 }
+
+/* ── Feedback thumbs buttons ── */
+.feedback-btn {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 3px 7px;
+  font-size: 0.9rem;
+  line-height: 1;
+  transition: background 0.1s;
+
+  &.positive:hover { background: rgba(76,175,80,0.2); border-color: #4caf50; }
+  &.negative:hover { background: rgba(239,83,80,0.2); border-color: #ef5350; }
+}
+
+/* ── Compliance inputs ── */
+.compliance-input {
+  width: 100%;
+  background: #0d1520;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 4px;
+  color: #ecf0f1;
+  font-size: 0.85rem;
+  padding: 7px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+
+  &:focus { border-color: #00897b; }
+
+  option { background: #121c28; color: #ecf0f1; }
+}
+
+/* ── Outcome modal ── */
+.outcome-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.outcome-modal {
+  background: #1a2332;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  min-width: 380px;
+  max-width: 520px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+
+.outcome-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  font-size: 0.9rem;
+  color: #90caf9;
+  font-weight: 600;
+}

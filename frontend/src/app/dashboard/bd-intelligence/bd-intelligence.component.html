@@ -12,12 +12,22 @@
           As of {{ bd.computedAt | date:'dd/MM/yyyy HH:mm':'Europe/London' }}
         </small>
       </div>
-      <!-- Summary pills -->
-      <div *ngIf="!loading" class="d-flex gap-2 flex-wrap ms-auto">
+      <!-- Summary pills + share -->
+      <div *ngIf="!loading" class="d-flex gap-2 flex-wrap ms-auto align-items-center">
         <span class="badge bd-pill" style="background:#e53935">{{ counts.activeTenders || 0 }} TENDERS</span>
         <span class="badge bd-pill" style="background:#43a047">{{ counts.contractAwards || 0 }} AWARDS</span>
         <span class="badge bd-pill" style="background:#7b1fa2">{{ counts.strategicIdeas || 0 }} IDEAS</span>
         <span class="badge bd-pill" style="background:#1565c0">{{ counts.pipelineDeals || 0 }} PIPELINE</span>
+        <button class="stage-btn" (click)="generateShareLink()" [disabled]="generatingShare"
+                title="Create shareable brief link (7 days)"
+                style="padding:4px 10px;font-size:0.72rem;display:flex;align-items:center;gap:4px">
+          <mat-icon style="font-size:13px;width:13px;height:13px">share</mat-icon>
+          {{ generatingShare ? '...' : 'Share Brief' }}
+        </button>
+        <span *ngIf="shareUrl" style="font-size:0.7rem;color:#42a5f5;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              title="{{ shareUrl }}">
+          <a [href]="shareUrl" target="_blank" rel="noopener" style="color:#42a5f5">Brief link ↗</a>
+        </span>
       </div>
     </div>
   </div>
@@ -60,6 +70,11 @@
         <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:5px;color:#ff6f00">psychology</mat-icon>
         The Brain
       </button>
+      <button class="bd-tab" [class.active]="activeTab==='compliance'" (click)="activeTab='compliance'"
+              style="border-color:#00897b">
+        <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;margin-right:4px;color:#00897b">gavel</mat-icon>
+        Compliance Screen
+      </button>
     </div>
 
     <!-- ── SALES LEADS tab ── -->
@@ -101,12 +116,17 @@
                 <span style="color:#e0e0e0;font-size:0.85rem;margin-left:6px">{{ l.nextStep }}</span>
               </div>
 
-              <div *ngIf="l.portalUrl" class="mt-2">
-                <a [href]="l.portalUrl" target="_blank" rel="noopener"
+              <div class="d-flex align-items-center gap-2 mt-2">
+                <a *ngIf="l.portalUrl" [href]="l.portalUrl" target="_blank" rel="noopener"
                    style="color:#42a5f5;font-size:0.8rem;text-decoration:none">
                   <mat-icon style="font-size:12px;width:12px;height:12px;vertical-align:middle">open_in_new</mat-icon>
                   Procurement Portal
                 </a>
+                <div class="ms-auto d-flex gap-1" *ngIf="!isFeedbackSent(l)">
+                  <button class="feedback-btn positive" title="Good lead — confirm" (click)="sendFeedback(l,'positive')">👍</button>
+                  <button class="feedback-btn negative" title="Not relevant — dismiss" (click)="sendFeedback(l,'negative')">👎</button>
+                </div>
+                <span *ngIf="isFeedbackSent(l)" style="font-size:0.72rem;color:#546e7a;margin-left:auto">✓ feedback sent</span>
               </div>
             </mat-card-content>
           </mat-card>
@@ -161,10 +181,17 @@
                 OEM: {{ l.oemRecommendation }}
               </div>
               <div *ngIf="l.nextStep" style="color:#80cbc4;font-size:0.8rem">→ {{ l.nextStep }}</div>
-              <a *ngIf="l.portalUrl" [href]="l.portalUrl" target="_blank" rel="noopener"
-                 style="color:#42a5f5;font-size:0.75rem;text-decoration:none;display:block;margin-top:6px">
-                Procurement Portal →
-              </a>
+              <div class="d-flex align-items-center mt-2">
+                <a *ngIf="l.portalUrl" [href]="l.portalUrl" target="_blank" rel="noopener"
+                   style="color:#42a5f5;font-size:0.75rem;text-decoration:none">
+                  Procurement Portal →
+                </a>
+                <div class="ms-auto d-flex gap-1" *ngIf="!isFeedbackSent(l)">
+                  <button class="feedback-btn positive" title="Good lead" (click)="sendFeedback(l,'positive')">👍</button>
+                  <button class="feedback-btn negative" title="Not relevant" (click)="sendFeedback(l,'negative')">👎</button>
+                </div>
+                <span *ngIf="isFeedbackSent(l)" style="font-size:0.72rem;color:#546e7a;margin-left:auto">✓ sent</span>
+              </div>
             </mat-card-content>
           </mat-card>
         </div>
@@ -378,6 +405,11 @@
                         [disabled]="updatingStage === deal.id"
                         (click)="updateStage(deal, s)">{{ s }}</button>
               </div>
+              <button class="feedback-btn positive ms-auto" title="Record deal outcome for learning" (click)="openOutcomeModal(deal)"
+                      style="font-size:0.72rem;padding:3px 8px;border-radius:4px">
+                <mat-icon style="font-size:12px;width:12px;height:12px;vertical-align:middle">how_to_reg</mat-icon>
+                Record Outcome
+              </button>
             </div>
           </mat-card-content>
         </mat-card>
@@ -620,5 +652,190 @@
 
     </div><!-- /brain tab -->
 
+    <!-- ── COMPLIANCE SCREEN tab ── -->
+    <div *ngIf="activeTab==='compliance'">
+
+      <div class="mb-3" style="font-size:0.82rem;color:#80cbc4">
+        Pre-screen a deal for UK ECJU licensing, ITAR/EAR, EU dual-use, and embargo status before committing resources.
+      </div>
+
+      <mat-card style="border-left:4px solid #00897b;background:#1a2a28;margin-bottom:20px">
+        <mat-card-content style="padding:18px">
+          <div class="section-label mb-3" style="color:#00897b">Deal Compliance Pre-Screen</div>
+
+          <div class="row g-3">
+            <div class="col-6 col-md-3">
+              <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:4px">OEM / Seller Country (ISO2)</label>
+              <input class="compliance-input" [(ngModel)]="complianceForm.sellerCountry" placeholder="e.g. ZA, FR, IL" maxlength="2" />
+            </div>
+            <div class="col-6 col-md-3">
+              <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:4px">Buyer Country (ISO2)</label>
+              <input class="compliance-input" [(ngModel)]="complianceForm.buyerCountry" placeholder="e.g. AO, MZ, NG" maxlength="2" />
+            </div>
+            <div class="col-12 col-md-4">
+              <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:4px">Product Category</label>
+              <select class="compliance-input" [(ngModel)]="complianceForm.productCategory">
+                <option value="">-- select --</option>
+                <option *ngFor="let p of complianceProducts" [value]="p.key">{{ p.desc }} ({{ p.mlCode || p.eccn }})</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-2">
+              <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:4px">Deal Value (USD)</label>
+              <input class="compliance-input" [(ngModel)]="complianceForm.dealValueUSD" type="number" placeholder="optional" />
+            </div>
+          </div>
+
+          <div class="d-flex gap-2 mt-3">
+            <button class="stage-btn active" [disabled]="complianceLoading || !complianceForm.sellerCountry || !complianceForm.buyerCountry || !complianceForm.productCategory"
+                    (click)="screenCompliance()" style="background:#00695c;border-color:#00897b;color:#fff;padding:6px 16px">
+              <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px">search</mat-icon>
+              {{ complianceLoading ? 'Screening...' : 'Screen Deal' }}
+            </button>
+            <button *ngIf="complianceResult" class="stage-btn" (click)="clearCompliance()" style="padding:6px 12px">Clear</button>
+          </div>
+        </mat-card-content>
+      </mat-card>
+
+      <!-- Result -->
+      <div *ngIf="complianceResult && !complianceResult.error">
+        <mat-card [style.border-left]="'5px solid ' + complianceStatusColor(complianceResult.status)"
+                  style="background:#1e1e1e;margin-bottom:16px">
+          <mat-card-content style="padding:18px">
+
+            <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+              <span class="badge" [style.background]="complianceStatusColor(complianceResult.status)"
+                    style="color:#fff;font-size:0.85rem;padding:6px 14px">{{ complianceResult.status }}</span>
+              <span style="color:#ecf0f1;font-size:0.88rem">{{ complianceResult.deal.product }}</span>
+              <span style="color:#90a4ae;font-size:0.82rem">
+                {{ complianceResult.deal.sellerCountry }} → {{ complianceResult.deal.buyerCountry }}
+              </span>
+              <span *ngIf="complianceResult.deal.mlCode" style="color:#78909c;font-size:0.75rem">{{ complianceResult.deal.mlCode }}</span>
+            </div>
+
+            <div style="color:#e0e0e0;font-size:0.88rem;margin-bottom:16px;padding:10px;background:#111;border-radius:4px">
+              {{ complianceResult.summary }}
+            </div>
+
+            <!-- Licensing grid -->
+            <div class="row g-2 mb-3">
+              <div class="col-12 col-md-4">
+                <div style="background:#0d1f1a;border-radius:4px;padding:10px">
+                  <div style="font-size:0.7rem;color:#00897b;font-weight:700;letter-spacing:0.5px;margin-bottom:4px">UK ECJU</div>
+                  <div style="font-size:0.82rem;color:#e0e0e0">{{ complianceResult.licensing.uk.label }}</div>
+                  <div *ngIf="complianceResult.licensing.uk.embargoed" style="color:#ef5350;font-size:0.75rem;margin-top:4px">EMBARGOED</div>
+                </div>
+              </div>
+              <div class="col-12 col-md-4">
+                <div style="background:#1a1a0d;border-radius:4px;padding:10px">
+                  <div style="font-size:0.7rem;color:#ffd54f;font-weight:700;letter-spacing:0.5px;margin-bottom:4px">US ITAR/EAR</div>
+                  <div style="font-size:0.82rem;color:#e0e0e0">{{ complianceResult.licensing.us.label }}</div>
+                  <div *ngIf="complianceResult.licensing.us.embargoed" style="color:#ef5350;font-size:0.75rem;margin-top:4px">ITAR 126.1 EMBARGO</div>
+                </div>
+              </div>
+              <div class="col-12 col-md-4">
+                <div style="background:#0d1a1f;border-radius:4px;padding:10px">
+                  <div style="font-size:0.7rem;color:#42a5f5;font-weight:700;letter-spacing:0.5px;margin-bottom:4px">EU DUAL-USE</div>
+                  <div style="font-size:0.82rem;color:#e0e0e0">{{ complianceResult.licensing.eu.label }}</div>
+                  <div *ngIf="complianceResult.licensing.eu.embargoed" style="color:#ef5350;font-size:0.75rem;margin-top:4px">EU EMBARGO</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- UN embargo -->
+            <div *ngIf="complianceResult.licensing.un.embargoed" class="mb-3 p-2 rounded" style="background:#2a0d0d;border:1px solid #b71c1c">
+              <mat-icon style="font-size:15px;width:15px;height:15px;vertical-align:middle;color:#ef5350;margin-right:4px">block</mat-icon>
+              <strong style="color:#ef5350;font-size:0.82rem">UN Security Council Arms Embargo</strong>
+              <span style="color:#ef9a9a;font-size:0.8rem;margin-left:6px">— deal prohibited under international law</span>
+            </div>
+
+            <!-- EUC required -->
+            <div *ngIf="complianceResult.eucRequired" class="mb-3" style="font-size:0.82rem;color:#fff9c4">
+              <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#ffd54f;margin-right:4px">description</mat-icon>
+              End-User Certificate (EUC) required
+              <span style="color:#90a4ae;margin-left:4px">· Buyer risk level: {{ complianceResult.buyerRisk }}</span>
+            </div>
+
+            <!-- Issues & Warnings -->
+            <div *ngIf="complianceResult.issues?.length" class="mb-3">
+              <div *ngFor="let issue of complianceResult.issues"
+                   class="mb-1 p-2 rounded" style="background:#2a0d0d;font-size:0.8rem">
+                <span class="badge" style="background:#b71c1c;font-size:0.68rem;margin-right:6px">{{ issue.code }}</span>
+                <span style="color:#ffcdd2">{{ issue.text }}</span>
+              </div>
+            </div>
+            <div *ngIf="complianceResult.warnings?.length" class="mb-3">
+              <div *ngFor="let w of complianceResult.warnings"
+                   class="mb-1 p-2 rounded" style="background:#1f1a0d;font-size:0.8rem">
+                <span class="badge" style="background:#f57c00;font-size:0.68rem;margin-right:6px">{{ w.code }}</span>
+                <span style="color:#ffe0b2">{{ w.text }}</span>
+              </div>
+            </div>
+
+            <!-- Required Actions -->
+            <div *ngIf="complianceResult.actions?.length" class="mb-3">
+              <div style="font-size:0.75rem;color:#90a4ae;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Required Actions</div>
+              <ol style="margin:0;padding-left:20px">
+                <li *ngFor="let a of complianceResult.actions" style="font-size:0.82rem;color:#c8e6c9;margin-bottom:4px">{{ a }}</li>
+              </ol>
+            </div>
+
+            <!-- OEM Strategy -->
+            <div *ngIf="complianceResult.oemStrategy" class="action-step" style="background:#0d1a2a">
+              <mat-icon style="font-size:13px;width:13px;height:13px;color:#64b5f6;margin-right:4px">lightbulb</mat-icon>
+              <span style="font-size:0.82rem;color:#bbdefb"><strong>OEM Strategy:</strong> {{ complianceResult.oemStrategy }}</span>
+            </div>
+
+            <div style="font-size:0.7rem;color:#37474f;margin-top:12px;border-top:1px solid rgba(255,255,255,0.05);padding-top:8px">
+              {{ complianceResult.disclaimer }}
+            </div>
+
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <div *ngIf="complianceResult?.error" class="alert alert-danger" style="font-size:0.82rem">
+        {{ complianceResult.error }}
+      </div>
+
+    </div><!-- /compliance tab -->
+
+  </div>
+</div>
+
+<!-- ── Outcome Capture Modal ── -->
+<div *ngIf="outcomeModal.visible" class="outcome-modal-overlay" (click)="closeOutcomeModal()">
+  <div class="outcome-modal" (click)="$event.stopPropagation()">
+    <div class="outcome-modal-header">
+      <span>Record Deal Outcome</span>
+      <button class="stage-btn" (click)="closeOutcomeModal()" style="padding:2px 8px;font-size:0.8rem">✕</button>
+    </div>
+    <div style="padding:16px">
+      <div style="font-size:0.88rem;color:#ecf0f1;margin-bottom:12px;font-weight:600">
+        {{ outcomeModal.deal?.title | slice:0:80 }}
+      </div>
+      <div class="mb-3">
+        <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:6px">Outcome</label>
+        <div class="d-flex gap-2">
+          <button class="stage-btn" [class.active]="outcomeForm.outcome==='WON'"
+                  (click)="outcomeForm.outcome='WON'" style="background:#1b3a2d;border-color:#4caf50;color:#81c784">WON</button>
+          <button class="stage-btn" [class.active]="outcomeForm.outcome==='LOST'"
+                  (click)="outcomeForm.outcome='LOST'" style="background:#2a0d0d;border-color:#ef5350;color:#ef9a9a">LOST</button>
+          <button class="stage-btn" [class.active]="outcomeForm.outcome==='NO_BID'"
+                  (click)="outcomeForm.outcome='NO_BID'" style="background:#1a1a1a;border-color:#546e7a;color:#90a4ae">NO BID</button>
+        </div>
+      </div>
+      <div class="mb-3">
+        <label style="font-size:0.78rem;color:#90a4ae;display:block;margin-bottom:4px">Reason (optional — improves future predictions)</label>
+        <textarea class="compliance-input" [(ngModel)]="outcomeForm.reason" rows="2"
+                  placeholder="e.g. Lost on price to Elbit, Won through MoD contact, Pulled out — sanctions risk"></textarea>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="stage-btn active" [disabled]="submittingOutcome" (click)="submitOutcome()"
+                style="padding:6px 16px;background:#1565c0;border-color:#1976d2;color:#fff">
+          {{ submittingOutcome ? 'Saving...' : 'Save Outcome' }}
+        </button>
+        <button class="stage-btn" (click)="closeOutcomeModal()" style="padding:6px 12px">Cancel</button>
+      </div>
+    </div>
   </div>
 </div>

@@ -77,6 +77,31 @@ export class CrucixApiService {
       .pipe(catchError(err => of({ ok: false, error: err.message })));
   }
 
+  recordDealOutcome(dealId: string, market: string, type: string, outcome: 'WON' | 'LOST' | 'NO_BID', reason?: string): Observable<any> {
+    return this.http.post(`${this.base}/api/bd-intelligence/pipeline/${dealId}/outcome`, { market, type, outcome, reason })
+      .pipe(catchError(err => of({ ok: false, error: err.message })));
+  }
+
+  sendLeadFeedback(signalText: string, market: string, feedback: 'positive' | 'negative', reason?: string): Observable<any> {
+    return this.http.post(`${this.base}/api/bd-intelligence/feedback`, { signalText, market, feedback, reason })
+      .pipe(catchError(() => of({ ok: false })));
+  }
+
+  screenCompliance(sellerCountry: string, buyerCountry: string, productCategory: string, dealValueUSD?: number): Observable<any> {
+    return this.http.post(`${this.base}/api/compliance/screen`, { sellerCountry, buyerCountry, productCategory, dealValueUSD })
+      .pipe(catchError(err => of({ error: err.error?.error || 'Screen failed' })));
+  }
+
+  getComplianceProducts(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.base}/api/compliance/products`)
+      .pipe(catchError(() => of([])));
+  }
+
+  createShareBrief(): Observable<any> {
+    return this.http.post(`${this.base}/api/share/brief`, {})
+      .pipe(catchError(err => of({ error: err.error?.error || 'Failed to create share link' })));
+  }
+
   getExplorerFindings(): Observable<any> {
     return this.http.get(`${this.base}/api/explorer`)
       .pipe(catchError(() => of({ findings: [] })));
