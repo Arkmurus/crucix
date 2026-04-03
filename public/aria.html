@@ -4,8 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ARIA — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/crucix.css">
+  <link rel="stylesheet" href="css/crucix.css?v=3">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
     /* ── Layout shell ─────────────────────────────────────────────── */
@@ -246,6 +245,8 @@
     }
 
     .think-label i { font-size: 11px; }
+
+    .aria-msg-text em { font-style: italic; }
 
     /* ── Thinking animation ──────────────────────────────────────── */
     .thinking-wrap {
@@ -658,9 +659,8 @@
 </div>
 </main>
 
-<script src="vendor/jquery.min.js"></script>
-<script src="js/app.js"></script>
-<script src="js/sidebar.js"></script>
+<script src="js/app.js?v=3"></script>
+<script src="js/sidebar.js?v=3"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('aria');
@@ -868,12 +868,24 @@ function now() {
   return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
-// Light Markdown formatting for ARIA responses
+// Markdown formatting for ARIA responses
 function formatAriaText(text) {
-  return escHtml(text)
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`(.+?)`/g, '<code>$1</code>')
-    .replace(/\n/g, '<br>');
+  if (!text) return '';
+  var s = escHtml(text);
+  // Headers
+  s = s.replace(/^### (.+)$/gm, '<strong style="color:#c4b5fd;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;display:block;margin:12px 0 6px">$1</strong>');
+  s = s.replace(/^## (.+)$/gm, '<strong style="color:#e9e3ff;font-size:15px;display:block;margin:14px 0 6px">$1</strong>');
+  // Bold / italic / code
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*(.+?)\*/g, '<em style="color:rgba(255,255,255,0.7)">$1</em>');
+  s = s.replace(/`(.+?)`/g, '<code>$1</code>');
+  // Bullet lists
+  s = s.replace(/^[-•] (.+)$/gm, '<div style="display:flex;gap:8px;margin:3px 0"><span style="color:#7c3aed;flex-shrink:0">&#x2022;</span><span>$1</span></div>');
+  // Numbered lists
+  s = s.replace(/^(\d+)\. (.+)$/gm, '<div style="display:flex;gap:8px;margin:3px 0"><span style="color:#7c3aed;font-weight:700;flex-shrink:0;min-width:16px">$1.</span><span>$2</span></div>');
+  // Line breaks
+  s = s.replace(/\n/g, '<br>');
+  return s;
 }
 
 // ── Send ───────────────────────────────────────────────────────────────────────
@@ -895,14 +907,31 @@ async function sendMsg() {
       ? { question: text, context: {}, fast: false, session_id: sessionId }
       : { message: text, session_id: sessionId };
 
-    const { ok, data } = await API.post(endpoint, payload);
+    var result = await API.post(endpoint, payload);
     removeThinking();
 
-    if (!ok || !data) {
-      appendAriaMsg('I encountered an error processing your request. Please try again.', false);
+    if (!result.ok || !result.data) {
+      var errMsg = (result.data && result.data.error) ? result.data.error : 'I encountered an error processing your request. Please try again.';
+      appendAriaMsg(errMsg, false);
+    } else if (thinkMode) {
+      // Think mode returns structured response
+      var d = result.data;
+      var reply = '';
+      if (d.conclusion && d.conclusion.statement) {
+        reply = '## Conclusion\n' + d.conclusion.statement;
+        if (d.conclusion.epistemic_status) reply += '\n\n**Confidence:** ' + (d.conclusion.confidence || '—') + '% (' + d.conclusion.epistemic_status + ')';
+        if (d.orientation) reply = '## Orientation\n' + d.orientation + '\n\n' + reply;
+        if (d.reasoning)   reply = reply + '\n\n## Reasoning\n' + d.reasoning;
+        if (d.conclusion.action && d.conclusion.action.what) reply += '\n\n## Recommended Action\n' + d.conclusion.action.what;
+        if (d.metacognition && d.metacognition.biggest_gap) reply += '\n\n**Gap:** ' + d.metacognition.biggest_gap;
+      } else {
+        reply = d.full_text || d.response || d.answer || d.text || 'No response received.';
+      }
+      appendAriaMsg(reply, true);
     } else {
-      const reply = data.reply || data.answer || data.content || data.message || data.text || '';
-      appendAriaMsg(reply || 'No response received.', thinkMode);
+      // Chat mode — field is "response"
+      var chatReply = result.data.response || result.data.reply || result.data.answer || result.data.content || result.data.message || result.data.text || '';
+      appendAriaMsg(chatReply || 'No response received.', false);
     }
   } catch (err) {
     removeThinking();
