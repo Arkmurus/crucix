@@ -2356,17 +2356,15 @@ async function start() {
 
     setInterval(runSweepCycle, config.refreshIntervalMinutes * 60 * 1000);
 
-    // Self-ping every 4 minutes — keeps free-tier hosts (Render etc.) awake.
-    // On paid/VPS hosts (Seenode etc.) this is harmless but not needed.
-    if (process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.SELF_PING === 'true') {
-      const selfUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}`;
-      setInterval(async () => {
-        try {
-          await fetch(`${selfUrl}/api/health`, { signal: AbortSignal.timeout(10000) });
-        } catch {}
-      }, 4 * 60 * 1000);
-      console.log('[Crucix] Self-ping enabled');
-    }
+    // Self-ping every 4 minutes — keeps the server awake on all hosting platforms.
+    // Always enabled — prevents Seenode/Render/Railway from sleeping the process.
+    const selfUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}`;
+    setInterval(async () => {
+      try {
+        await fetch(`${selfUrl}/api/health`, { signal: AbortSignal.timeout(10000) });
+      } catch {}
+    }, 4 * 60 * 1000);
+    console.log('[Crucix] Self-ping enabled (every 4min) — server will stay awake 24/7');
 
     cron.schedule('0 7 * * *', async () => {
       console.log('[Crucix] Sending morning digest...');
