@@ -177,12 +177,37 @@ async function fetchEUTED() {
   }
 }
 
+// ── DefenceWeb Africa: direct RSS + Google News ───────────────────────────────
+// defenceweb.co.za is the primary Africa defence news source; fetch directly first
+async function fetchDefenceWeb() {
+  const feeds = [
+    'https://www.defenceweb.co.za/feed/',
+    'https://www.defenceweb.co.za/category/industry/tenders/feed/',
+    'https://www.defenceweb.co.za/category/joint/joint-procurement/feed/',
+  ];
+  const items = [];
+  for (const feedUrl of feeds) {
+    const fetched = await fetchRSS(feedUrl, 'DefenceWeb Africa');
+    items.push(...fetched);
+    if (items.length >= 20) break;
+  }
+  // Also try Google News if direct feeds fail
+  if (items.length === 0) {
+    const gnUrl = `https://news.google.com/rss/search?q=site:defenceweb.co.za+contract+OR+tender+OR+procurement&hl=en-US&gl=ZA&ceid=ZA:en`;
+    const gnItems = await fetchRSS(gnUrl, 'DefenceWeb Africa');
+    items.push(...gnItems);
+  }
+  console.log(`[Procurement] DefenceWeb: ${items.length} items`);
+  return items.slice(0, 15);
+}
+
 // ── Africa defense procurement — Google News RSS ─────────────────────────────
 async function fetchAfricaDefenseProcurement() {
   const queries = [
     '"Africa" defense procurement contract 2026',
     'Angola OR Mozambique military procurement contract',
     'SADC OR "African Union" defense acquisition 2026',
+    'breakingdefense.com Africa OR Angola OR Mozambique',
   ];
   const items = [];
   for (const q of queries) {
@@ -263,9 +288,10 @@ async function fetchWorldBankProcurement() {
 export async function briefing() {
   console.log('[Procurement] Fetching live procurement tenders and FMS notifications...');
 
-  const [dsca, ted, africa, un, wb] = await Promise.allSettled([
+  const [dsca, ted, dw, africa, un, wb] = await Promise.allSettled([
     fetchDSCA(),
     fetchEUTED(),
+    fetchDefenceWeb(),
     fetchAfricaDefenseProcurement(),
     fetchUNProcurement(),
     fetchWorldBankProcurement(),
@@ -274,6 +300,7 @@ export async function briefing() {
   const allItems = [
     ...(dsca.status   === 'fulfilled' ? dsca.value   : []),
     ...(ted.status    === 'fulfilled' ? ted.value    : []),
+    ...(dw.status     === 'fulfilled' ? dw.value     : []),
     ...(africa.status === 'fulfilled' ? africa.value : []),
     ...(un.status     === 'fulfilled' ? un.value     : []),
     ...(wb.status     === 'fulfilled' ? wb.value     : []),
@@ -318,33 +345,57 @@ export async function briefing() {
     })),
   ];
 
+  // Build full item records for lusophone/africa sub-arrays (used by BD intelligence)
+  const lusiItems = lusophone.map(i => ({
+    title:     i.title,
+    content:   i.description,
+    text:      i.description,
+    source:    i.source,
+    url:       i.url,
+    link:      i.url,
+    timestamp: i.pubDate ? new Date(i.pubDate).getTime() || Date.now() : Date.now(),
+  }));
+  const africaItems = african.filter(i => !lusophone.includes(i)).map(i => ({
+    title:     i.title,
+    content:   i.description,
+    text:      i.description,
+    source:    i.source,
+    url:       i.url,
+    link:      i.url,
+    timestamp: i.pubDate ? new Date(i.pubDate).getTime() || Date.now() : Date.now(),
+  }));
+
   const sourceStatus = {
-    'DSCA/FMS':   dsca.status   === 'fulfilled' && dsca.value.length   > 0 ? 'ok' : 'failed',
-    'EU TED':     ted.status    === 'fulfilled' && ted.value.length    > 0 ? 'ok' : 'failed',
-    'Africa News': africa.status === 'fulfilled' && africa.value.length > 0 ? 'ok' : 'failed',
-    'UN':         un.status     === 'fulfilled' && un.value.length     > 0 ? 'ok' : 'failed',
-    'World Bank': wb.status     === 'fulfilled' && wb.value.length     > 0 ? 'ok' : 'failed',
+    'DSCA/FMS':    dsca.status    === 'fulfilled' && dsca.value.length    > 0 ? 'ok' : 'failed',
+    'EU TED':      ted.status     === 'fulfilled' && ted.value.length     > 0 ? 'ok' : 'failed',
+    'DefenceWeb':  dw.status      === 'fulfilled' && dw.value.length      > 0 ? 'ok' : 'failed',
+    'Africa News': africa.status  === 'fulfilled' && africa.value.length  > 0 ? 'ok' : 'failed',
+    'UN':          un.status      === 'fulfilled' && un.value.length      > 0 ? 'ok' : 'failed',
+    'World Bank':  wb.status      === 'fulfilled' && wb.value.length      > 0 ? 'ok' : 'failed',
   };
 
   const okCount = Object.values(sourceStatus).filter(s => s === 'ok').length;
-  console.log(`[Procurement] ${top.length} tenders · ${lusophone.length} Lusophone · ${african.length} African · ${okCount}/5 sources OK`);
+  console.log(`[Procurement] ${top.length} tenders · ${lusophone.length} Lusophone · ${african.length} African · ${okCount}/6 sources OK`);
 
   return {
     source:    'Procurement Tenders',
     timestamp: new Date().toISOString(),
     updates,
     signals,
+    lusophone: lusiItems,   // full item records for BD intelligence
+    africa:    africaItems, // full item records for BD intelligence
     sourceStatus,
     counts: {
       total:     top.length,
       lusophone: lusophone.length,
       african:   african.length,
       bySource: {
-        dsca:   dsca.status   === 'fulfilled' ? dsca.value.length   : 0,
-        ted:    ted.status    === 'fulfilled' ? ted.value.length    : 0,
-        africa: africa.status === 'fulfilled' ? africa.value.length : 0,
-        un:     un.status     === 'fulfilled' ? un.value.length     : 0,
-        wb:     wb.status     === 'fulfilled' ? wb.value.length     : 0,
+        dsca:        dsca.status    === 'fulfilled' ? dsca.value.length    : 0,
+        ted:         ted.status     === 'fulfilled' ? ted.value.length     : 0,
+        defenceweb:  dw.status      === 'fulfilled' ? dw.value.length      : 0,
+        africa:      africa.status  === 'fulfilled' ? africa.value.length  : 0,
+        un:          un.status      === 'fulfilled' ? un.value.length      : 0,
+        wb:          wb.status      === 'fulfilled' ? wb.value.length      : 0,
       },
     },
   };

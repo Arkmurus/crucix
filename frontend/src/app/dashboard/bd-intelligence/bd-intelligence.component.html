@@ -429,6 +429,30 @@
         </mat-card>
       </div>
 
+      <!-- Win Probability Trends -->
+      <div *ngIf="learning?.trendSummary?.length" class="mb-3">
+        <div class="section-label mb-2">
+          <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;color:#78909c;margin-right:5px">trending_up</mat-icon>
+          WIN PROBABILITY TRENDS (30-DAY)
+        </div>
+        <mat-card class="tender-card" style="border-left:4px solid #37474f">
+          <mat-card-content style="padding:12px 14px">
+            <div *ngFor="let t of learning.trendSummary" class="d-flex align-items-center gap-3 mb-2"
+                 style="border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:8px">
+              <span style="font-size:0.82rem;color:#90caf9;min-width:120px;font-weight:600">{{ t.market }}</span>
+              <span class="win-prob-badge"
+                    [style.color]="winProbColor(t.latest)"
+                    [style.border-color]="winProbColor(t.latest)">{{ t.latest }}%</span>
+              <span style="font-size:0.75rem"
+                    [style.color]="t.direction === 'rising' ? '#4caf50' : t.direction === 'falling' ? '#ef5350' : '#78909c'">
+                {{ t.direction === 'rising' ? '↑ rising' : t.direction === 'falling' ? '↓ falling' : '→ stable' }}
+              </span>
+              <span style="font-size:0.7rem;color:#546e7a;margin-left:auto">{{ t.trend.length }} data points</span>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
       <!-- Learning Stats footer -->
       <div *ngIf="learning" class="brain-learning-footer">
         <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px;color:#78909c">history</mat-icon>
