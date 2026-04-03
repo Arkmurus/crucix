@@ -20,7 +20,7 @@
     <h1 class="sc-page-title"><i class="bi bi-radar"></i> Intelligence Brief</h1>
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
       <span class="sc-page-sub" id="last-updated">Loading…</span>
-      <button class="sc-btn sc-btn-primary sc-btn-sm" id="btn-sweep" onclick="runSweep()">
+      <button type="button" class="sc-btn sc-btn-primary sc-btn-sm" id="btn-sweep">
         <i class="bi bi-arrow-repeat"></i> Run Sweep
       </button>
     </div>
@@ -204,24 +204,36 @@ async function loadData() {
   }
 }
 
+document.getElementById('btn-sweep').addEventListener('click', runSweep);
+
 async function runSweep() {
-  const btn = document.getElementById('btn-sweep');
-  btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Sweeping…'; btn.disabled = true;
+  var btn = document.getElementById('btn-sweep');
+  if (btn.disabled) return;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Triggering…'; btn.disabled = true;
+
   try {
-    const result = await API.post('/api/sweep', {});
-    if (result && result.data && result.data.message === 'Sweep already in progress') {
-      Toast.show('Sweep already running — please wait', 'info');
-      btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
-      return;
+    // Check if sweep already running
+    var health = await API.get('/api/health');
+    if (health && health.sweepInProgress) {
+      Toast.show('Sweep already running — waiting for it to finish…', 'info');
+    } else {
+      var result = await API.post('/api/sweep', {});
+      if (!result.ok) {
+        Toast.show((result.data && result.data.error) || 'Failed to trigger sweep', 'error');
+        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
+        return;
+      }
+      Toast.show('Sweep triggered — monitoring progress…', 'info');
     }
-    // Sweep is async on the server — poll /api/health until sweepInProgress goes false
-    let waited = 0;
-    const poll = setInterval(async () => {
+
+    // Poll /api/health until sweepInProgress goes false
+    var waited = 0;
+    var poll = setInterval(async function() {
       waited += 3;
       btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Sweeping… ' + waited + 's';
       try {
-        const health = await API.get('/api/health');
-        if (!health || !health.sweepInProgress || waited >= 120) {
+        var h = await API.get('/api/health');
+        if (!h || !h.sweepInProgress || waited >= 180) {
           clearInterval(poll);
           await loadData();
           btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
@@ -230,6 +242,7 @@ async function runSweep() {
       } catch (e) {
         clearInterval(poll);
         btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
+        Toast.show('Lost connection — refresh the page', 'error');
       }
     }, 3000);
   } catch (e) {
