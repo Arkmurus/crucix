@@ -1,7 +1,8 @@
 .main-content {
-    padding: 1.5rem 1.5rem 1.5rem 1.5rem;
+    padding: 1.5rem 1.5rem 4rem 1.5rem;
     margin-left: 260px;
     margin-top: 65px;
+    min-height: calc(100vh - 65px);
 }
 
 .test-2 {

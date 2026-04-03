@@ -5,12 +5,12 @@
 @import './grid-and-utilities/color.scss';
 @import './dark.scss';
 
-html,
-body {
+html {
     height: 100%;
 }
 
 body {
+    min-height: 100%;
     position: relative;
     color: #636363;
     font-family: Roboto, "Helvetica Neue", sans-serif;
