@@ -59,18 +59,18 @@
 
   <!-- Tabs -->
   <div class="bd-tabs">
-    <button class="bd-tab active" onclick="switchTab('leads',this)"><i class="bi bi-lightning"></i> Leads <span class="sc-badge sc-badge-prime" id="cnt-leads">0</span></button>
+    <button class="bd-tab active" onclick="switchTab('brain',this)"><i class="bi bi-cpu"></i> Brain Strategy <span class="sc-badge sc-badge-prime" id="cnt-brain">0</span></button>
+    <button class="bd-tab" onclick="switchTab('leads',this)"><i class="bi bi-lightning"></i> Sales Leads <span class="sc-badge sc-badge-orange" id="cnt-leads">0</span></button>
     <button class="bd-tab" onclick="switchTab('tenders',this)"><i class="bi bi-file-earmark-text"></i> Tenders <span class="sc-badge sc-badge-blue" id="cnt-tenders">0</span></button>
-    <button class="bd-tab" onclick="switchTab('ideas',this)"><i class="bi bi-lightbulb"></i> Ideas <span class="sc-badge sc-badge-orange" id="cnt-ideas">0</span></button>
-    <button class="bd-tab" onclick="switchTab('pipeline',this)"><i class="bi bi-kanban"></i> Pipeline <span class="sc-badge sc-badge-green" id="cnt-pipeline">0</span></button>
-    <button class="bd-tab" onclick="switchTab('ml',this)"><i class="bi bi-cpu"></i> ML Leads <span class="sc-badge sc-badge-muted" id="cnt-ml">0</span></button>
+    <button class="bd-tab" onclick="switchTab('ideas',this)"><i class="bi bi-lightbulb"></i> Ideas <span class="sc-badge sc-badge-green" id="cnt-ideas">0</span></button>
+    <button class="bd-tab" onclick="switchTab('pipeline',this)"><i class="bi bi-kanban"></i> Pipeline <span class="sc-badge sc-badge-muted" id="cnt-pipeline">0</span></button>
   </div>
 
-  <div id="panel-leads"    class="bd-panel active"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
+  <div id="panel-brain"    class="bd-panel active"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
+  <div id="panel-leads"    class="bd-panel"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
   <div id="panel-tenders"  class="bd-panel"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
   <div id="panel-ideas"    class="bd-panel"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
   <div id="panel-pipeline" class="bd-panel"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
-  <div id="panel-ml"       class="bd-panel"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
 </main>
 
 <!-- Share sheet -->
@@ -145,86 +145,126 @@ function renderCard(title, meta, summary, nextstep, url, shareTextFn) {
 }
 
 async function load() {
-  const data = await API.get('/api/bd-intelligence');
-  if (!data) return;
+  var data = await API.get('/api/bd-intelligence');
+  if (!data) { document.getElementById('bd-sub').textContent = 'No data — run a sweep first'; return; }
   bdData = data;
 
-  const tenders  = data.tenders || [];
-  const ideas    = data.ideas || [];
-  // Leads = hot/warm tenders (qualified opportunities)
-  const leads    = tenders.filter(t => t.urgency === 'HOT' || t.urgency === 'WARM' || (t.score || 0) >= 70);
-  // ML leads = ideas flagged as proactive/strategic
-  const ml       = ideas.filter(i => i.type === 'PROACTIVE' || i.horizon === 'short');
+  var tenders = data.tenders || [];
+  var ideas   = data.ideas || [];
+  var brain   = data.brain || null;
+  var brainLeads = (brain && brain.salesLeads) ? brain.salesLeads : [];
 
-  document.getElementById('cnt-leads').textContent    = leads.length;
+  // Qualified leads = HOT/WARM tenders (field is leadQuality, not urgency)
+  var leads = tenders.filter(function(t) { return t.leadQuality === 'HOT' || t.leadQuality === 'WARM'; });
+  // Combine with brain-generated sales leads
+  var allLeads = leads.concat(brainLeads.map(function(l) {
+    return { title: l.lead || '', market: l.market || '', leadQuality: l.urgency || 'WARM', type: l.type || 'STRATEGIC', summary: (l.oemRecommendation || '') + ' ' + (l.estimatedValue || ''), nextStep: l.nextStep || '', url: l.portalUrl || '', source: 'Brain' };
+  }));
+
+  document.getElementById('cnt-brain').textContent   = brain ? '1' : '0';
+  document.getElementById('cnt-leads').textContent    = allLeads.length;
   document.getElementById('cnt-tenders').textContent  = tenders.length;
   document.getElementById('cnt-ideas').textContent    = ideas.length;
-  document.getElementById('cnt-ml').textContent       = ml.length;
 
   document.getElementById('bd-sub').textContent =
-    `${leads.length} qualified leads · ${tenders.length} tenders · ${ideas.length} ideas`;
+    allLeads.length + ' sales leads · ' + tenders.length + ' tenders · ' + ideas.length + ' ideas';
 
   // Stats
-  const highPrio = tenders.filter(t => t.urgency === 'HOT').length;
+  var hotCount = tenders.filter(function(t) { return t.leadQuality === 'HOT'; }).length + brainLeads.filter(function(l) { return l.urgency === 'HOT'; }).length;
   document.getElementById('bd-stats').innerHTML = [
-    ['Qual. Leads', leads.length, '#913BFF'],
+    ['Sales Leads', allLeads.length, '#913BFF'],
     ['All Tenders', tenders.length, '#0066FF'],
-    ['HOT Priority', highPrio, '#22c55e'],
-    ['Proactive', ml.length, '#FF7A41'],
-  ].map(([lbl,val,col]) =>
-    `<div style="background:#1d1245;border:1px solid rgba(255,255,255,0.07);border-top:3px solid ${col};border-radius:8px;padding:8px 14px;text-align:center;min-width:70px">
-      <div style="font-size:1.3rem;font-weight:800;color:${col}">${val}</div>
-      <div style="font-size:10px;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.5px;margin-top:2px">${lbl}</div>
-    </div>`
-  ).join('');
+    ['HOT Priority', hotCount, '#ef4444'],
+    ['Brain Ideas', brainLeads.length, '#FF7A41'],
+  ].map(function(a) { var lbl=a[0],val=a[1],col=a[2]; return '<div style="background:#1d1245;border:1px solid rgba(255,255,255,0.07);border-top:3px solid '+col+';border-radius:8px;padding:8px 14px;text-align:center;min-width:70px"><div style="font-size:1.3rem;font-weight:800;color:'+col+'">'+val+'</div><div style="font-size:10px;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.5px;margin-top:2px">'+lbl+'</div></div>'; }).join('');
 
-  // Leads panel (qualified tenders)
-  document.getElementById('panel-leads').innerHTML = leads.length ? leads.map(l =>
-    renderCard(
-      l.title || l.company || 'Unknown',
-      `${chip(l.market||l.country||'', l.urgency==='HOT'?'sc-badge-prime':'sc-badge-muted')}${l.urgency?chip(l.urgency, l.urgency==='HOT'?'sc-badge-prime':l.urgency==='WARM'?'sc-badge-orange':'sc-badge-muted'):''}${l.type?chip(l.type,'sc-badge-blue'):''}`,
-      l.summary || l.description,
-      l.nextStep,
-      l.url,
-      `LEAD: ${l.title||'Unknown'} | ${l.market||l.country||''} | ${l.urgency||'—'}\n${l.summary||''}`
-    )
-  ).join('') : '<p class="text-muted">No qualified leads yet — leads appear when tenders score HOT or WARM.</p>';
+  // ── Brain Strategy panel ──
+  if (brain) {
+    var bHtml = '';
+    // Weekly priority
+    if (brain.weeklyPriority && brain.weeklyPriority.action) {
+      var wp = brain.weeklyPriority;
+      bHtml += '<div class="intel-card" style="border-left-color:#ef4444"><div class="ic-top">' + chip('TOP PRIORITY','sc-badge-prime') + chip(wp.market||'','sc-badge-blue') + '</div><div class="ic-body"><div class="ic-title">' + escHtml(wp.action) + '</div>';
+      if (wp.whyNow) bHtml += '<div class="ic-text" style="margin-top:4px"><strong>Why now:</strong> ' + escHtml(wp.whyNow) + '</div>';
+      if (wp.firstStep) bHtml += '<div class="ic-nextstep"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ffd54f;font-size:14px"></i>' + escHtml(wp.firstStep) + '</div>';
+      bHtml += '</div></div>';
+    }
+    // Action plan
+    if (brain.actionPlan && brain.actionPlan.length) {
+      bHtml += '<h4 style="color:rgba(255,255,255,0.5);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Action Plan</h4>';
+      brain.actionPlan.forEach(function(a) {
+        bHtml += '<div class="intel-card"><div class="ic-top">' + chip(a.market||'','sc-badge-blue') + (a.winProb ? chip('Win: '+a.winProb+'%','sc-badge-green') : '') + '</div><div class="ic-body"><div class="ic-title">' + escHtml(a.deal||'') + '</div>';
+        if (a.steps && a.steps.length) bHtml += '<div class="ic-text">' + a.steps.map(function(s,i){return (i+1)+'. '+escHtml(s);}).join('<br>') + '</div>';
+        if (a.deadline) bHtml += '<div class="ic-text" style="margin-top:4px"><strong>Deadline:</strong> '+escHtml(a.deadline)+'</div>';
+        bHtml += '</div></div>';
+      });
+    }
+    // Market intelligence
+    if (brain.marketIntelligence && brain.marketIntelligence.length) {
+      bHtml += '<h4 style="color:rgba(255,255,255,0.5);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Market Intelligence</h4>';
+      brain.marketIntelligence.forEach(function(m) {
+        bHtml += renderCard(m.market + ' — ' + (m.signal||''), chip(m.market||'','sc-badge-blue'), m.recommendation || '', '', '', '');
+      });
+    }
+    // Knowledge gaps
+    if (brain.knowledgeGaps && brain.knowledgeGaps.length) {
+      bHtml += '<h4 style="color:rgba(255,255,255,0.5);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Knowledge Gaps</h4>';
+      brain.knowledgeGaps.forEach(function(g) {
+        bHtml += '<div class="intel-card" style="border-left-color:#FF7A41"><div class="ic-body"><div class="ic-title">' + escHtml(g.question||'') + '</div><div class="ic-text">' + escHtml(g.howToFind||'') + '</div></div></div>';
+      });
+    }
+    // Self learning
+    if (brain.selfLearning) {
+      var sl = brain.selfLearning;
+      bHtml += '<h4 style="color:rgba(255,255,255,0.5);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Brain Learning</h4>';
+      bHtml += '<div class="intel-card" style="border-left-color:#22c55e"><div class="ic-body">';
+      if (sl.strategyAdjustment) bHtml += '<div class="ic-text"><strong>Strategy:</strong> '+escHtml(sl.strategyAdjustment)+'</div>';
+      if (sl.nextSweepFocus) bHtml += '<div class="ic-text" style="margin-top:6px"><strong>Next focus:</strong> '+escHtml(sl.nextSweepFocus)+'</div>';
+      if (sl.patternsObserved && sl.patternsObserved.length) bHtml += '<div class="ic-text" style="margin-top:6px"><strong>Patterns:</strong> '+sl.patternsObserved.map(function(p){return escHtml(p);}).join('; ')+'</div>';
+      bHtml += '</div></div>';
+    }
+    if (brain.confidence != null) bHtml += '<div style="text-align:right;font-size:11px;color:rgba(255,255,255,0.25);margin-top:8px">Brain confidence: '+Math.round(brain.confidence*100)+'%</div>';
+    document.getElementById('panel-brain').innerHTML = bHtml || '<p class="text-muted">Brain analysis available after next sweep.</p>';
+  } else {
+    document.getElementById('panel-brain').innerHTML = '<p class="text-muted">Brain strategy not available — requires LLM to be configured and a completed sweep.</p>';
+  }
 
-  // Tenders panel
-  document.getElementById('panel-tenders').innerHTML = tenders.length ? tenders.map(t =>
-    renderCard(
-      t.title || t.subject || 'Tender',
-      `${chip(t.country||t.market||'',t.status==='open'?'sc-badge-green':'sc-badge-muted')}${t.value?chip(`$${Math.round((t.value||0)/1e6)}M`,'sc-badge-orange'):''}${t.deadline?chip('Deadline: '+fmtDate(t.deadline),'sc-badge-muted'):''}`,
-      t.description || t.summary,
-      t.nextStep,
-      t.url,
-      `TENDER: ${t.title||''} | ${t.country||t.market||''}\n${t.description||''}`
-    )
-  ).join('') : '<p class="text-muted">No tenders available.</p>';
+  // ── Sales Leads panel (qualified tenders + brain leads) ──
+  document.getElementById('panel-leads').innerHTML = allLeads.length ? allLeads.map(function(l) {
+    return renderCard(
+      l.title || l.lead || 'Unknown',
+      chip(l.market||'', l.leadQuality==='HOT'?'sc-badge-prime':'sc-badge-blue') + (l.leadQuality?chip(l.leadQuality, l.leadQuality==='HOT'?'sc-badge-prime':l.leadQuality==='WARM'?'sc-badge-orange':'sc-badge-muted'):'') + (l.type?chip(l.type,'sc-badge-blue'):'') + (l.source==='Brain'?chip('AI','sc-badge-muted'):''),
+      l.summary || l.description || '',
+      l.nextStep || '',
+      l.url || '',
+      'LEAD: '+(l.title||l.lead||'')+' | '+(l.market||'')+' | '+(l.leadQuality||'')+'\n'+(l.summary||'')
+    );
+  }).join('') : '<p class="text-muted">No qualified leads yet — leads appear when tenders score HOT or WARM, or when the brain generates sales leads.</p>';
 
-  // Ideas panel
-  document.getElementById('panel-ideas').innerHTML = ideas.length ? ideas.map(i =>
-    renderCard(
-      i.title || 'Strategic Idea',
-      `${chip(i.type||'IDEA', i.type==='LONG'?'sc-badge-green':i.type==='SHORT'?'sc-badge-red':'sc-badge-orange')}${i.confidence?chip(i.confidence,'sc-badge-muted'):''}${i.horizon?chip(i.horizon,'sc-badge-muted'):''}`,
-      i.rationale || i.summary,
-      i.nextStep,
-      null,
-      `IDEA: ${i.title||''} [${i.type||''}]\n${i.rationale||''}`
-    )
-  ).join('') : '<p class="text-muted">No ideas generated. Enable LLM via ANTHROPIC_API_KEY.</p>';
+  // ── Tenders panel ──
+  document.getElementById('panel-tenders').innerHTML = tenders.length ? tenders.map(function(t) {
+    var qBadge = t.leadQuality==='HOT'?'sc-badge-prime':t.leadQuality==='WARM'?'sc-badge-orange':'sc-badge-muted';
+    return renderCard(
+      t.title || 'Tender',
+      chip(t.market||'','sc-badge-blue') + chip(t.type||'TENDER','sc-badge-muted') + (t.leadQuality?chip(t.leadQuality,qBadge):'') + (t.score?chip('Score: '+t.score,'sc-badge-muted'):'') + (t.winProbability?chip('Win: '+t.winProbability+'%','sc-badge-green'):''),
+      t.summary || '',
+      '',
+      t.url || '',
+      'TENDER: '+(t.title||'')+' | '+(t.market||'')+'\n'+(t.summary||'')
+    );
+  }).join('') : '<p class="text-muted">No tenders found — tenders are extracted from procurement feeds during sweeps.</p>';
 
-  // Proactive leads panel (strategic ideas with short horizon)
-  document.getElementById('panel-ml').innerHTML = ml.length ? ml.map(m =>
-    renderCard(
-      m.title || 'Strategic Lead',
-      `${chip(m.type||'PROACTIVE','sc-badge-orange')}${m.confidence?chip(m.confidence,'sc-badge-muted'):''}${m.horizon?chip(m.horizon,'sc-badge-muted'):''}`,
-      m.rationale || m.summary,
-      m.nextStep,
-      null,
-      `PROACTIVE: ${m.title||''} [${m.type||''}]\n${m.rationale||''}`
-    )
-  ).join('') : '<p class="text-muted">No proactive leads yet — generated by LLM when enabled.</p>';
+  // ── Ideas panel ──
+  document.getElementById('panel-ideas').innerHTML = ideas.length ? ideas.map(function(i) {
+    return renderCard(
+      i.market + ' — ' + (i.type || 'Strategic Idea'),
+      chip(i.market||'','sc-badge-blue') + (i.lusophone?chip('Lusophone','sc-badge-prime'):'') + chip('Score: '+i.score,'sc-badge-muted') + (i.devFinance?chip('Dev Finance','sc-badge-green'):''),
+      i.rationale || '',
+      i.actionStep || '',
+      (i.sources && i.sources[0]) ? i.sources[0].url : '',
+      'IDEA: '+(i.market||'')+' — '+(i.type||'')+'\n'+(i.rationale||'')
+    );
+  }).join('') : '<p class="text-muted">No strategic ideas — ideas are generated from multi-source intelligence convergence.</p>';
 
   // Pipeline
   loadPipeline();
