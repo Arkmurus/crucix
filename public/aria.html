@@ -8,41 +8,542 @@
   <link rel="stylesheet" href="css/crucix.css">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
-    #app-main { padding: 0; display: flex; flex-direction: column; height: calc(100vh - var(--header-h)); overflow: hidden; }
-    .aria-shell { display: flex; flex-direction: column; height: 100%; background: #0f0a1e; }
-    .aria-header { display:flex; align-items:center; gap:10px; padding:0 20px; height:50px; background:#13092a; border-bottom:1px solid rgba(255,255,255,0.07); flex-shrink:0; }
-    .aria-avatar { width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#913BFF,#0066FF);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0; }
-    .aria-title { font-size:13px;font-weight:700;letter-spacing:2px;color:#ce93d8; }
-    .aria-desc { font-size:11px;color:rgba(255,255,255,.35); }
-    .aria-status { display:flex;align-items:center;gap:5px;font-size:11px;color:#22c55e;margin-left:auto; }
-    .aria-status-dot { width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.4);animation:pulse 2s infinite; }
-    @keyframes pulse { 70%{box-shadow:0 0 0 6px rgba(34,197,94,0)} 100%{box-shadow:0 0 0 0 rgba(34,197,94,0)} }
-    .messages { flex:1;overflow-y:auto;padding:20px 0;display:flex;flex-direction:column;gap:4px; }
-    .msg-wrap { padding:4px 24px; animation:fadeUp .2s ease; }
-    @keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
-    .msg-aria { display:flex;gap:10px;align-items:flex-start;max-width:800px; }
-    .aria-dot { width:8px;height:8px;border-radius:50%;background:#913BFF;margin-top:8px;flex-shrink:0; }
-    .aria-text { font-size:14px;line-height:1.75;color:rgba(255,255,255,.85);white-space:pre-wrap;word-break:break-word; }
-    .msg-user { display:flex;justify-content:flex-end; }
-    .user-bubble { max-width:70%;background:rgba(145,59,255,.18);border:1px solid rgba(145,59,255,.3);border-radius:16px 16px 4px 16px;padding:10px 14px; }
-    .user-text { font-size:14px;line-height:1.6;color:rgba(255,255,255,.88);white-space:pre-wrap;word-break:break-word; }
-    .msg-time { font-size:10px;color:rgba(255,255,255,.2);margin-top:4px; }
-    .user-time { text-align:right; }
-    .thinking-bar { display:flex;gap:4px;padding:6px 0; }
-    .thinking-bar span { width:4px;height:4px;border-radius:50%;background:#913BFF;animation:bp 1.2s ease-in-out infinite; }
-    .thinking-bar span:nth-child(2){animation-delay:.15s} .thinking-bar span:nth-child(3){animation-delay:.3s}
-    @keyframes bp { 0%,80%,100%{opacity:.2;transform:scaleY(.6)} 40%{opacity:1;transform:scaleY(1)} }
-    .input-bar { padding:12px 20px 16px;flex-shrink:0;border-top:1px solid rgba(255,255,255,.06);background:#13092a; }
-    .input-wrap { background:#1d1245;border:1px solid rgba(255,255,255,.1);border-radius:12px;transition:border-color .2s; }
-    .input-wrap:focus-within { border-color:#913BFF;box-shadow:0 0 0 2px rgba(145,59,255,.15); }
-    .chat-ta { display:block;width:100%;background:transparent;border:none;outline:none;color:#fff;font-size:14px;line-height:1.6;padding:12px 16px 8px;resize:none;font-family:inherit;min-height:24px;max-height:140px;overflow-y:auto; }
-    .chat-ta::placeholder { color:rgba(255,255,255,.25); }
-    .input-foot { display:flex;align-items:center;justify-content:space-between;padding:0 12px 10px 16px; }
-    .input-hint { font-size:11px;color:rgba(255,255,255,.2); }
-    .send-btn { width:32px;height:32px;border-radius:8px;border:none;background:rgba(255,255,255,.06);color:rgba(255,255,255,.4);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:all .15s; }
-    .send-btn.ready { background:#913BFF;color:#fff;box-shadow:0 2px 10px rgba(145,59,255,.5); }
-    .send-btn.ready:hover { background:#0066FF; }
-    .send-btn:disabled { opacity:.35;cursor:not-allowed; }
+    /* ── Layout shell ─────────────────────────────────────────────── */
+    #app-main {
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - var(--header-h));
+      overflow: hidden;
+      position: relative;
+    }
+
+    .aria-shell {
+      display: flex;
+      flex-direction: row;
+      height: 100%;
+      overflow: hidden;
+      background: #0c0919;
+    }
+
+    /* ── Chat column ─────────────────────────────────────────────── */
+    .aria-chat-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    /* ── Top bar ─────────────────────────────────────────────────── */
+    .aria-topbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 20px;
+      height: 52px;
+      background: rgba(12,9,25,0.95);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      flex-shrink: 0;
+      backdrop-filter: blur(8px);
+    }
+
+    .aria-logo {
+      width: 30px; height: 30px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, #7c3aed, #2563eb);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 900; color: #fff;
+      flex-shrink: 0;
+      box-shadow: 0 0 16px rgba(124,58,237,0.4);
+    }
+
+    .aria-topbar-name {
+      font-size: 13px; font-weight: 800;
+      letter-spacing: 2.5px; color: #d4c5f9;
+      text-transform: uppercase;
+    }
+
+    .aria-status-pill {
+      display: flex; align-items: center; gap: 5px;
+      background: rgba(34,197,94,0.1);
+      border: 1px solid rgba(34,197,94,0.2);
+      border-radius: 20px;
+      padding: 3px 9px;
+      font-size: 11px; font-weight: 600; color: #22c55e;
+    }
+
+    .aria-status-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #22c55e;
+      animation: pulse-dot 2.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.75); }
+    }
+
+    .aria-mode-pill {
+      display: flex; align-items: center; gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+      cursor: pointer; user-select: none;
+      transition: all 0.2s;
+    }
+
+    .aria-mode-pill.fast {
+      background: rgba(37,99,235,0.12);
+      border: 1px solid rgba(37,99,235,0.25);
+      color: #93c5fd;
+    }
+
+    .aria-mode-pill.think {
+      background: rgba(124,58,237,0.18);
+      border: 1px solid rgba(124,58,237,0.4);
+      color: #c4b5fd;
+      box-shadow: 0 0 12px rgba(124,58,237,0.2);
+    }
+
+    .aria-mode-pill i { font-size: 12px; }
+
+    .aria-topbar-actions {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .topbar-btn {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 7px;
+      background: rgba(255,255,255,0.04);
+      color: rgba(255,255,255,0.5);
+      font-size: 12px; font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .topbar-btn:hover {
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.8);
+      border-color: rgba(255,255,255,0.18);
+    }
+
+    .topbar-btn.active {
+      background: rgba(124,58,237,0.14);
+      border-color: rgba(124,58,237,0.35);
+      color: #c4b5fd;
+    }
+
+    .session-count {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 18px; height: 18px;
+      background: rgba(124,58,237,0.25);
+      border-radius: 9px;
+      font-size: 10px; font-weight: 700; color: #a78bfa;
+      padding: 0 4px;
+    }
+
+    /* ── Messages area ───────────────────────────────────────────── */
+    .aria-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 0 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      scroll-behavior: smooth;
+    }
+
+    .aria-messages::-webkit-scrollbar { width: 4px; }
+    .aria-messages::-webkit-scrollbar-track { background: transparent; }
+    .aria-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+    /* Message wrapper */
+    .msg-row {
+      padding: 3px 28px;
+      display: flex;
+      animation: msg-in 0.18s ease;
+    }
+
+    @keyframes msg-in {
+      from { opacity: 0; transform: translateY(5px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg-row.aria-row { align-items: flex-start; }
+    .msg-row.user-row { justify-content: flex-end; }
+
+    /* ARIA message */
+    .aria-msg-inner {
+      display: flex; gap: 10px; align-items: flex-start;
+      max-width: min(680px, 85%);
+    }
+
+    .aria-msg-avatar {
+      width: 24px; height: 24px; border-radius: 7px;
+      background: linear-gradient(135deg, #7c3aed, #2563eb);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 900; color: #fff;
+      flex-shrink: 0; margin-top: 3px;
+    }
+
+    .aria-msg-body {}
+
+    .aria-msg-text {
+      font-size: 14px; line-height: 1.78;
+      color: rgba(255,255,255,0.87);
+      white-space: pre-wrap; word-break: break-word;
+    }
+
+    .aria-msg-text code {
+      background: rgba(124,58,237,0.15);
+      border: 1px solid rgba(124,58,237,0.2);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #c4b5fd;
+    }
+
+    .aria-msg-text strong { color: #e9e3ff; }
+
+    /* User bubble */
+    .user-bubble {
+      max-width: min(560px, 80%);
+      background: rgba(124,58,237,0.14);
+      border: 1px solid rgba(124,58,237,0.25);
+      border-radius: 18px 18px 4px 18px;
+      padding: 10px 14px;
+    }
+
+    .user-bubble-text {
+      font-size: 14px; line-height: 1.65;
+      color: rgba(255,255,255,0.9);
+      white-space: pre-wrap; word-break: break-word;
+    }
+
+    /* Timestamp — only on hover */
+    .msg-time {
+      font-size: 10px;
+      color: transparent;
+      margin-top: 4px;
+      transition: color 0.15s;
+      user-select: none;
+    }
+
+    .msg-row:hover .msg-time { color: rgba(255,255,255,0.22); }
+    .user-row:hover .msg-time { text-align: right; }
+
+    /* ── Think mode indicator on ARIA messages ───────────────────── */
+    .think-label {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+      color: #a78bfa; text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+
+    .think-label i { font-size: 11px; }
+
+    /* ── Thinking animation ──────────────────────────────────────── */
+    .thinking-wrap {
+      padding: 3px 28px;
+      display: flex;
+      align-items: flex-start;
+      animation: msg-in 0.18s ease;
+    }
+
+    .thinking-inner {
+      display: flex; gap: 10px; align-items: center;
+    }
+
+    .thinking-avatar {
+      width: 24px; height: 24px; border-radius: 7px;
+      background: linear-gradient(135deg, #7c3aed, #2563eb);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 900; color: #fff;
+      flex-shrink: 0;
+    }
+
+    .thinking-dots {
+      display: flex; gap: 4px; align-items: center;
+      height: 20px;
+    }
+
+    .thinking-dots span {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: #7c3aed;
+      animation: thinking-bounce 1.3s ease-in-out infinite;
+    }
+
+    .thinking-dots span:nth-child(2) { animation-delay: 0.14s; background: #5b21b6; }
+    .thinking-dots span:nth-child(3) { animation-delay: 0.28s; background: #2563eb; }
+
+    @keyframes thinking-bounce {
+      0%, 70%, 100% { transform: scale(0.7); opacity: 0.4; }
+      35% { transform: scale(1.15); opacity: 1; }
+    }
+
+    .thinking-label {
+      font-size: 11px; color: rgba(255,255,255,0.3);
+      font-style: italic; margin-left: 2px;
+    }
+
+    /* ── Empty / welcome state ───────────────────────────────────── */
+    .aria-welcome {
+      flex: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 40px 24px;
+      text-align: center;
+    }
+
+    .welcome-glow {
+      width: 64px; height: 64px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #7c3aed, #2563eb);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px; font-weight: 900; color: #fff;
+      box-shadow: 0 0 40px rgba(124,58,237,0.35);
+      margin-bottom: 20px;
+    }
+
+    .welcome-title {
+      font-size: 20px; font-weight: 800;
+      color: rgba(255,255,255,0.92);
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .welcome-sub {
+      font-size: 13px; color: rgba(255,255,255,0.35);
+      line-height: 1.6; max-width: 380px;
+      margin-bottom: 28px;
+    }
+
+    .welcome-chips {
+      display: flex; flex-wrap: wrap;
+      gap: 8px; justify-content: center;
+      max-width: 500px;
+    }
+
+    .chip {
+      background: rgba(124,58,237,0.1);
+      border: 1px solid rgba(124,58,237,0.2);
+      border-radius: 20px;
+      padding: 7px 14px;
+      font-size: 12px; color: rgba(255,255,255,0.6);
+      cursor: pointer; transition: all 0.15s;
+    }
+
+    .chip:hover {
+      background: rgba(124,58,237,0.2);
+      border-color: rgba(124,58,237,0.4);
+      color: rgba(255,255,255,0.85);
+    }
+
+    /* ── Input bar ───────────────────────────────────────────────── */
+    .aria-input-area {
+      flex-shrink: 0;
+      padding: 10px 20px 14px;
+      background: rgba(12,9,25,0.95);
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .input-card {
+      background: #13102a;
+      border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 14px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      overflow: hidden;
+    }
+
+    .input-card.focused {
+      border-color: rgba(124,58,237,0.45);
+      box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+    }
+
+    .input-card.think-active {
+      border-color: rgba(124,58,237,0.55);
+      box-shadow: 0 0 0 3px rgba(124,58,237,0.15),
+                  0 0 20px rgba(124,58,237,0.1);
+    }
+
+    #chat-input {
+      display: block; width: 100%;
+      background: transparent; border: none; outline: none;
+      color: rgba(255,255,255,0.9);
+      font-size: 14px; line-height: 1.65;
+      padding: 14px 16px 6px;
+      resize: none;
+      font-family: inherit;
+      min-height: 22px; max-height: 150px;
+      overflow-y: auto;
+    }
+
+    #chat-input::placeholder { color: rgba(255,255,255,0.22); }
+
+    .input-toolbar {
+      display: flex; align-items: center;
+      padding: 6px 10px 10px 12px;
+      gap: 6px;
+    }
+
+    .mode-toggle-btn {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 11px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      background: transparent;
+      color: rgba(255,255,255,0.38);
+      font-size: 11px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .mode-toggle-btn:hover {
+      border-color: rgba(124,58,237,0.35);
+      color: rgba(255,255,255,0.6);
+    }
+
+    .mode-toggle-btn.active {
+      background: rgba(124,58,237,0.18);
+      border-color: rgba(124,58,237,0.4);
+      color: #c4b5fd;
+    }
+
+    .mode-toggle-btn i { font-size: 12px; }
+
+    .input-hint {
+      margin-left: auto;
+      font-size: 10px; color: rgba(255,255,255,0.16);
+    }
+
+    .send-btn {
+      width: 34px; height: 34px;
+      border-radius: 9px; border: none;
+      background: rgba(255,255,255,0.05);
+      color: rgba(255,255,255,0.3);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+
+    .send-btn.ready {
+      background: linear-gradient(135deg, #7c3aed, #2563eb);
+      color: #fff;
+      box-shadow: 0 2px 12px rgba(124,58,237,0.45);
+    }
+
+    .send-btn.ready:hover {
+      box-shadow: 0 2px 18px rgba(124,58,237,0.6);
+      transform: translateY(-1px);
+    }
+
+    .send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* ── Right info panel ────────────────────────────────────────── */
+    .aria-panel {
+      width: 280px;
+      flex-shrink: 0;
+      background: rgba(15,10,28,0.98);
+      border-left: 1px solid rgba(255,255,255,0.06);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      transition: width 0.25s ease, opacity 0.25s ease;
+    }
+
+    .aria-panel.closed {
+      width: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .panel-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: rgba(255,255,255,0.3);
+      flex-shrink: 0;
+    }
+
+    .panel-scroll {
+      flex: 1; overflow-y: auto; padding: 12px;
+    }
+
+    .panel-scroll::-webkit-scrollbar { width: 3px; }
+    .panel-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); }
+
+    .panel-section {
+      margin-bottom: 18px;
+    }
+
+    .panel-section-title {
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: rgba(255,255,255,0.25);
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .panel-field {
+      margin-bottom: 8px;
+    }
+
+    .panel-label {
+      font-size: 10px; color: rgba(255,255,255,0.25);
+      margin-bottom: 2px;
+    }
+
+    .panel-value {
+      font-size: 12px; color: rgba(255,255,255,0.65);
+      line-height: 1.5;
+    }
+
+    .panel-thought {
+      background: rgba(124,58,237,0.08);
+      border: 1px solid rgba(124,58,237,0.15);
+      border-radius: 7px;
+      padding: 8px 10px;
+      margin-bottom: 7px;
+      font-size: 12px; color: rgba(255,255,255,0.55);
+      line-height: 1.5;
+    }
+
+    .panel-thread {
+      background: rgba(245,158,11,0.07);
+      border: 1px solid rgba(245,158,11,0.14);
+      border-radius: 7px;
+      padding: 8px 10px;
+      margin-bottom: 7px;
+      font-size: 12px; color: rgba(255,255,255,0.55);
+      line-height: 1.5;
+    }
+
+    .panel-empty {
+      font-size: 12px; color: rgba(255,255,255,0.2);
+      text-align: center; padding: 12px 0;
+    }
+
+    /* ── Responsive ──────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .aria-panel { display: none; }
+      .msg-row { padding: 3px 14px; }
+      .thinking-wrap { padding: 3px 14px; }
+      .aria-topbar { padding: 0 14px; }
+      .aria-input-area { padding: 8px 12px 12px; }
+      .input-hint { display: none; }
+    }
+
+    @media (max-width: 480px) {
+      .topbar-btn span { display: none; }
+    }
   </style>
 </head>
 <body>
@@ -50,38 +551,110 @@
 <div id="header-placeholder"></div>
 <main id="app-main">
 <div class="aria-shell">
-  <div class="aria-header">
-    <div class="aria-avatar">A</div>
-    <div>
-      <div class="aria-title">ARIA</div>
-      <div class="aria-desc">Arkmurus Research Intelligence Agent</div>
-    </div>
-    <div class="aria-status">
-      <div class="aria-status-dot"></div>Online
-    </div>
-  </div>
 
-  <div class="messages" id="messages">
-    <div class="msg-wrap">
-      <div class="msg-aria">
-        <div class="aria-dot"></div>
-        <div>
-          <div class="aria-text">Hello. I'm ARIA — your intelligence assistant. Ask me anything about defense markets, procurement opportunities, compliance, or the latest intelligence brief.</div>
-          <div class="msg-time">Now</div>
+  <!-- ── Chat column ── -->
+  <div class="aria-chat-col">
+
+    <!-- Top bar -->
+    <div class="aria-topbar">
+      <div class="aria-logo">A</div>
+      <div class="aria-topbar-name">ARIA</div>
+      <div class="aria-status-pill">
+        <div class="aria-status-dot"></div>
+        <span>Online</span>
+      </div>
+      <div class="aria-mode-pill fast" id="mode-pill" title="Click to toggle Think Mode" onclick="toggleThinkMode()">
+        <i class="bi bi-lightning-fill"></i>
+        <span id="mode-label">Fast</span>
+      </div>
+      <div class="aria-topbar-actions">
+        <button class="topbar-btn" id="panel-toggle-btn" onclick="togglePanel()" title="Identity & Insights">
+          <i class="bi bi-layout-sidebar-reverse"></i>
+          <span>Intel</span>
+        </button>
+        <button class="topbar-btn" onclick="newSession()" title="New session">
+          <i class="bi bi-plus-lg"></i>
+          <span>New</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="aria-messages" id="messages">
+
+      <!-- Welcome state (shown when no messages) -->
+      <div class="aria-welcome" id="welcome-screen">
+        <div class="welcome-glow">A</div>
+        <div class="welcome-title">ARIA</div>
+        <div class="welcome-sub">
+          Arkmurus Research Intelligence Agent — your defence market analyst.
+          Ask about procurement, market intelligence, compliance, or strategic analysis.
+        </div>
+        <div class="welcome-chips">
+          <div class="chip" onclick="useChip(this)">What are the top procurement opportunities this week?</div>
+          <div class="chip" onclick="useChip(this)">Summarise the latest Lusophone Africa intelligence</div>
+          <div class="chip" onclick="useChip(this)">Which markets have active tenders right now?</div>
+          <div class="chip" onclick="useChip(this)">Brief me on Angola's defence procurement pipeline</div>
+          <div class="chip" onclick="useChip(this)">Any export control alerts I should know about?</div>
+          <div class="chip" onclick="useChip(this)">What's our top strategic priority this week?</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Input area -->
+    <div class="aria-input-area">
+      <div class="input-card" id="input-card">
+        <textarea
+          id="chat-input"
+          placeholder="Ask ARIA anything about intelligence, markets, compliance…"
+          rows="1"
+          oninput="handleInput()"
+          onkeydown="handleKey(event)"
+          onfocus="document.getElementById('input-card').classList.add('focused')"
+          onblur="document.getElementById('input-card').classList.remove('focused')"
+        ></textarea>
+        <div class="input-toolbar">
+          <button class="mode-toggle-btn" id="mode-toggle" onclick="toggleThinkMode()" title="Toggle Think Mode">
+            <i class="bi bi-cpu"></i>
+            <span>Think Mode</span>
+          </button>
+          <span class="input-hint">Enter to send &nbsp;·&nbsp; Shift+Enter for new line</span>
+          <button class="send-btn" id="send-btn" onclick="sendMsg()" disabled>
+            <i class="bi bi-send-fill"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <!-- /Chat column -->
+
+  <!-- ── Right info panel ── -->
+  <div class="aria-panel closed" id="aria-panel">
+    <div class="panel-header">Intelligence Context</div>
+    <div class="panel-scroll" id="panel-content">
+      <div class="panel-section">
+        <div class="panel-section-title">Identity</div>
+        <div id="panel-identity">
+          <div class="panel-empty">Loading…</div>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Active Thoughts</div>
+        <div id="panel-thoughts">
+          <div class="panel-empty">Loading…</div>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">Open Questions</div>
+        <div id="panel-curiosity">
+          <div class="panel-empty">Loading…</div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="input-bar">
-    <div class="input-wrap">
-      <textarea class="chat-ta" id="chat-input" placeholder="Ask ARIA anything about intelligence, markets, compliance…" rows="1" oninput="autoResize(this);checkBtn()" onkeydown="handleKey(event)"></textarea>
-      <div class="input-foot">
-        <span class="input-hint">Shift+Enter for new line · Enter to send</span>
-        <button class="send-btn" id="send-btn" onclick="sendMsg()" disabled><i class="bi bi-send"></i></button>
-      </div>
-    </div>
-  </div>
 </div>
 </main>
 
@@ -92,82 +665,255 @@
 Auth.requireAuth();
 Sidebar.init('aria');
 
-const messages = [];
+// ── State ──────────────────────────────────────────────────────────────────────
+let sessionId   = genSessionId();
+let msgCount    = 0;
+let thinkMode   = false;
+let panelOpen   = false;
+let panelLoaded = false;
+let isSending   = false;
 
-function autoResize(ta) {
-  ta.style.height = 'auto';
-  ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+function genSessionId() {
+  return 'aria_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
 }
 
-function checkBtn() {
-  const v = document.getElementById('chat-input').value.trim();
+// ── Mode toggle ────────────────────────────────────────────────────────────────
+function toggleThinkMode() {
+  thinkMode = !thinkMode;
+  const pill      = document.getElementById('mode-pill');
+  const label     = document.getElementById('mode-label');
+  const toggle    = document.getElementById('mode-toggle');
+  const inputCard = document.getElementById('input-card');
+
+  if (thinkMode) {
+    pill.className      = 'aria-mode-pill think';
+    pill.innerHTML      = '<i class="bi bi-cpu"></i><span id="mode-label">Think</span>';
+    toggle.classList.add('active');
+    inputCard.classList.add('think-active');
+  } else {
+    pill.className      = 'aria-mode-pill fast';
+    pill.innerHTML      = '<i class="bi bi-lightning-fill"></i><span id="mode-label">Fast</span>';
+    toggle.classList.remove('active');
+    inputCard.classList.remove('think-active');
+  }
+}
+
+// ── Panel ──────────────────────────────────────────────────────────────────────
+function togglePanel() {
+  panelOpen = !panelOpen;
+  const panel = document.getElementById('aria-panel');
+  const btn   = document.getElementById('panel-toggle-btn');
+  panel.classList.toggle('closed', !panelOpen);
+  btn.classList.toggle('active', panelOpen);
+  if (panelOpen && !panelLoaded) loadPanel();
+}
+
+async function loadPanel() {
+  panelLoaded = true;
+
+  // Identity
+  try {
+    const id = await API.get('/api/aria/identity');
+    const el = document.getElementById('panel-identity');
+    if (id) {
+      el.innerHTML = `
+        ${field('Name', id.name || 'ARIA')}
+        ${field('Domain', id.domain || 'Defence procurement, Lusophone Africa')}
+        ${field('Analyses', id.total_analyses || 0)}
+        ${field('Briefs', id.total_briefings || 0)}
+        ${field('Leads', id.total_leads || 0)}
+        ${id.last_active ? field('Last Active', fmtDateTime(id.last_active)) : ''}
+      `;
+    } else {
+      el.innerHTML = `<div class="panel-empty">Not available</div>`;
+    }
+  } catch {
+    document.getElementById('panel-identity').innerHTML = `<div class="panel-empty">Unavailable</div>`;
+  }
+
+  // Thoughts
+  try {
+    const thoughts = await API.get('/api/aria/thoughts');
+    const el = document.getElementById('panel-thoughts');
+    if (thoughts && thoughts.length) {
+      el.innerHTML = thoughts.slice(0, 5).map(t => `
+        <div class="panel-thought">${escHtml(t.thought || t.content || t)}</div>
+      `).join('');
+    } else {
+      el.innerHTML = `<div class="panel-empty">No active thoughts</div>`;
+    }
+  } catch {
+    document.getElementById('panel-thoughts').innerHTML = `<div class="panel-empty">Unavailable</div>`;
+  }
+
+  // Curiosity
+  try {
+    const data = await API.get('/api/aria/curiosity');
+    const threads = data?.open_threads || [];
+    const el = document.getElementById('panel-curiosity');
+    if (threads.length) {
+      el.innerHTML = threads.slice(0, 5).map(t => `
+        <div class="panel-thread">${escHtml(t.question || t)}</div>
+      `).join('');
+    } else {
+      el.innerHTML = `<div class="panel-empty">No open questions</div>`;
+    }
+  } catch {
+    document.getElementById('panel-curiosity').innerHTML = `<div class="panel-empty">Unavailable</div>`;
+  }
+}
+
+function field(label, value) {
+  return `<div class="panel-field">
+    <div class="panel-label">${escHtml(label)}</div>
+    <div class="panel-value">${escHtml(String(value))}</div>
+  </div>`;
+}
+
+// ── Input handlers ─────────────────────────────────────────────────────────────
+function handleInput() {
+  const ta  = document.getElementById('chat-input');
   const btn = document.getElementById('send-btn');
-  btn.disabled = !v;
-  btn.className = v ? 'send-btn ready' : 'send-btn';
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 150) + 'px';
+  const hasText = ta.value.trim().length > 0;
+  btn.disabled = !hasText || isSending;
+  btn.className = (hasText && !isSending) ? 'send-btn ready' : 'send-btn';
 }
 
 function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!document.getElementById('send-btn').disabled) sendMsg(); }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!document.getElementById('send-btn').disabled) sendMsg();
+  }
 }
 
-function appendMsg(role, text) {
-  const el = document.getElementById('messages');
-  const time = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
-  const div = document.createElement('div');
-  div.className = 'msg-wrap';
-  if (role === 'user') {
-    div.innerHTML = `<div class="msg-user"><div class="user-bubble"><div class="user-text">${escHtml(text)}</div><div class="msg-time user-time">${time}</div></div></div>`;
-  } else {
-    div.innerHTML = `<div class="msg-aria"><div class="aria-dot"></div><div><div class="aria-text" id="last-aria"></div><div class="msg-time">${time}</div></div></div>`;
-  }
+function useChip(el) {
+  const ta = document.getElementById('chat-input');
+  ta.value = el.textContent.trim();
+  ta.focus();
+  handleInput();
+}
+
+function newSession() {
+  sessionId = genSessionId();
+  msgCount  = 0;
+  const el  = document.getElementById('messages');
+  // Remove all messages except welcome screen
+  el.querySelectorAll('.msg-row, .thinking-wrap').forEach(n => n.remove());
+  document.getElementById('welcome-screen').style.display = '';
+}
+
+// ── Render helpers ─────────────────────────────────────────────────────────────
+function appendUserMsg(text) {
+  document.getElementById('welcome-screen').style.display = 'none';
+  const el   = document.getElementById('messages');
+  const time = now();
+  const div  = document.createElement('div');
+  div.className = 'msg-row user-row';
+  div.innerHTML = `
+    <div class="user-bubble">
+      <div class="user-bubble-text">${escHtml(text)}</div>
+      <div class="msg-time user-time">${time}</div>
+    </div>`;
   el.appendChild(div);
-  el.scrollTop = el.scrollHeight;
-  return div;
+  scrollBottom();
+  msgCount++;
+}
+
+function appendAriaMsg(text, wasThinking) {
+  const el   = document.getElementById('messages');
+  const time = now();
+  const div  = document.createElement('div');
+  div.className = 'msg-row aria-row';
+  div.innerHTML = `
+    <div class="aria-msg-inner">
+      <div class="aria-msg-avatar">A</div>
+      <div class="aria-msg-body">
+        ${wasThinking ? '<div class="think-label"><i class="bi bi-cpu"></i> Deep analysis</div>' : ''}
+        <div class="aria-msg-text">${formatAriaText(text)}</div>
+        <div class="msg-time">${time}</div>
+      </div>
+    </div>`;
+  el.appendChild(div);
+  scrollBottom();
+  msgCount++;
 }
 
 function showThinking() {
-  const el = document.getElementById('messages');
+  removeThinking();
+  const el  = document.getElementById('messages');
   const div = document.createElement('div');
-  div.className = 'msg-wrap'; div.id = 'thinking';
-  div.innerHTML = `<div class="msg-aria"><div class="aria-dot" style="animation:dot-breathe 1.4s ease-in-out infinite"></div><div class="thinking-bar"><span></span><span></span><span></span></div></div>`;
-  el.appendChild(div); el.scrollTop = el.scrollHeight;
+  div.className = 'thinking-wrap'; div.id = 'thinking-indicator';
+  div.innerHTML = `
+    <div class="thinking-inner">
+      <div class="thinking-avatar">A</div>
+      <div class="thinking-dots"><span></span><span></span><span></span></div>
+      <span class="thinking-label">${thinkMode ? 'Analysing…' : 'Thinking…'}</span>
+    </div>`;
+  el.appendChild(div);
+  scrollBottom();
 }
 
+function removeThinking() {
+  document.getElementById('thinking-indicator')?.remove();
+}
+
+function scrollBottom() {
+  const el = document.getElementById('messages');
+  el.scrollTop = el.scrollHeight;
+}
+
+function now() {
+  return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Light Markdown formatting for ARIA responses
+function formatAriaText(text) {
+  return escHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br>');
+}
+
+// ── Send ───────────────────────────────────────────────────────────────────────
 async function sendMsg() {
-  const input = document.getElementById('chat-input');
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = ''; input.style.height = 'auto'; checkBtn();
+  const ta   = document.getElementById('chat-input');
+  const text = ta.value.trim();
+  if (!text || isSending) return;
 
-  appendMsg('user', text);
-  messages.push({ role: 'user', content: text });
+  isSending = true;
+  ta.value = ''; ta.style.height = 'auto';
+  handleInput();
 
-  const btn = document.getElementById('send-btn');
-  btn.disabled = true; btn.className = 'send-btn';
+  appendUserMsg(text);
   showThinking();
 
   try {
-    const { ok, data } = await API.post('/api/aria/chat', { messages, context: 'dashboard' });
-    document.getElementById('thinking')?.remove();
+    const endpoint = thinkMode ? '/api/aria/think' : '/api/aria/chat';
+    const payload  = thinkMode
+      ? { question: text, context: {}, fast: false, session_id: sessionId }
+      : { message: text, session_id: sessionId };
+
+    const { ok, data } = await API.post(endpoint, payload);
+    removeThinking();
 
     if (!ok || !data) {
-      appendMsg('aria', 'Sorry, I encountered an error. Please try again.');
+      appendAriaMsg('I encountered an error processing your request. Please try again.', false);
     } else {
-      const reply = data.reply || data.content || data.message || '';
-      appendMsg('aria', reply);
-      messages.push({ role: 'assistant', content: reply });
-      if (messages.length > 40) messages.splice(0, 2); // keep context manageable
+      const reply = data.reply || data.answer || data.content || data.message || data.text || '';
+      appendAriaMsg(reply || 'No response received.', thinkMode);
     }
-  } catch (e) {
-    document.getElementById('thinking')?.remove();
-    appendMsg('aria', 'Connection error. Please try again.');
+  } catch (err) {
+    removeThinking();
+    appendAriaMsg('Connection error. Please check your network and try again.', false);
+    console.error('[ARIA]', err);
+  } finally {
+    isSending = false;
+    handleInput();
+    document.getElementById('chat-input').focus();
   }
-
-  btn.disabled = false; checkBtn();
 }
 </script>
-<style>
-@keyframes dot-breathe { 0%,100%{background:#4a148c;transform:scale(.8)} 50%{background:#ce93d8;transform:scale(1.2)} }
-</style>
 </body>
 </html>
