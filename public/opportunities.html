@@ -42,13 +42,15 @@ async function load() {
   }
   document.getElementById('opps-grid').innerHTML = opps.map(o => {
     const compliance = o.complianceStatus === 'CLEAR' ? 'sc-badge-green' : 'sc-badge-red';
-    const tier = o.tier === 1 ? 'sc-badge-prime' : o.tier === 2 ? 'sc-badge-blue' : 'sc-badge-muted';
+    const tierStr = (o.tier || '').toUpperCase();
+    const tierCls = tierStr === 'HIGH' ? 'sc-badge-prime' : tierStr === 'MEDIUM' ? 'sc-badge-blue' : 'sc-badge-muted';
+    const note = o.notes || o.summary || '';
     return `<div class="sc-card">
       <div class="sc-card-header">
         <div class="sc-card-title" style="font-size:15px">
           ${o.lusophone?'<i class="bi bi-flag"></i>':''} ${escHtml(o.market)}
         </div>
-        <span class="sc-badge ${tier}">Tier ${o.tier||'—'}</span>
+        <span class="sc-badge ${tierCls}">Tier ${escHtml(tierStr||'—')}</span>
       </div>
       <div class="sc-card-body">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
@@ -56,17 +58,21 @@ async function load() {
           <div style="font-size:11px;color:rgba(255,255,255,.4)">/ 100<br>Score</div>
         </div>
         ${o.conflict?`<div style="font-size:12px;color:rgba(255,255,255,.55);margin-bottom:8px">
-          <i class="bi bi-exclamation-triangle text-orange"></i>
-          ${o.conflict.events||0} events · ${o.conflict.fatalities||0} fatalities
+          <i class="bi bi-exclamation-triangle" style="color:#FF7A41"></i>
+          ${o.conflict.events||0} conflict events · ${o.conflict.fatalities||0} fatalities
         </div>`:''}
         ${(o.procurementNeeds||[]).length?`<div style="margin-bottom:10px">
           ${o.procurementNeeds.slice(0,4).map(n=>`<span class="sc-badge sc-badge-muted" style="margin:2px">${escHtml(n)}</span>`).join('')}
         </div>`:''}
-        <div class="d-flex align-center gap-8">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span class="sc-badge ${compliance}">${escHtml(o.complianceStatus||'—')}</span>
-          ${o.winProb?`<span style="font-size:12px;color:rgba(255,255,255,.45)">Win: ${Math.round(o.winProb*100)}%</span>`:''}
+          ${o.devFinanceActivity?`<span class="sc-badge sc-badge-blue" style="font-size:11px">Dev Finance</span>`:''}
+          ${o.explorerSignals>0?`<span class="sc-badge sc-badge-muted" style="font-size:11px">${o.explorerSignals} intel signal${o.explorerSignals!==1?'s':''}</span>`:''}
         </div>
-        ${o.summary?`<p style="font-size:12px;color:rgba(255,255,255,.5);margin-top:10px;line-height:1.5">${escHtml(truncate(o.summary,140))}</p>`:''}
+        ${note?`<p style="font-size:12px;color:rgba(255,255,255,.55);margin-top:12px;line-height:1.6;border-top:1px solid rgba(255,255,255,.06);padding-top:10px">${escHtml(truncate(note,180))}</p>`:''}
+        ${(o.sources||[]).length?`<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">
+          ${o.sources.slice(0,3).map(s=>s.url?`<a href="${escHtml(s.url)}" target="_blank" rel="noopener" style="font-size:11px;color:#913BFF;text-decoration:none" title="${escHtml(s.title||'')}"><i class="bi bi-box-arrow-up-right"></i> ${escHtml(s.type||'source')}</a>`:'').join('')}
+        </div>`:''}
       </div>
     </div>`;
   }).join('');
