@@ -41,10 +41,10 @@
 
   <div id="msg-bar" style="display:none"></div>
 
-  <div class="tab-btns">
-    <button class="tab-btn active" onclick="switchTab('all',this)">All Users <span class="sc-badge sc-badge-muted" id="cnt-all">0</span></button>
-    <button class="tab-btn" onclick="switchTab('pending',this)">Pending <span class="sc-badge sc-badge-orange" id="cnt-pending">0</span></button>
-    <button class="tab-btn" onclick="switchTab('audit',this)">Audit Log</button>
+  <div class="tab-btns" id="tab-btns">
+    <button class="tab-btn active" data-tab="all">All Users <span class="sc-badge sc-badge-muted" id="cnt-all">0</span></button>
+    <button class="tab-btn" data-tab="pending">Pending <span class="sc-badge sc-badge-orange" id="cnt-pending">0</span></button>
+    <button class="tab-btn" data-tab="audit">Audit Log</button>
   </div>
 
   <div id="tab-all"     class="tab-panel active"><div class="sc-loading-state"><div class="sc-spinner"></div></div></div>
@@ -57,13 +57,16 @@
 if (!Auth.requireAdmin()) throw new Error('Not admin');
 Sidebar.init('admin');
 
-function switchTab(name, btn) {
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+document.getElementById('tab-btns').addEventListener('click', function(e) {
+  var btn = e.target.closest('[data-tab]');
+  if (!btn) return;
+  var name = btn.getAttribute('data-tab');
+  document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
   btn.classList.add('active');
   document.getElementById('tab-'+name).classList.add('active');
   if (name === 'audit') loadAudit();
-}
+});
 
 function showMsg(msg, type='success') {
   const el = document.getElementById('msg-bar');
@@ -73,30 +76,32 @@ function showMsg(msg, type='success') {
 }
 
 function userCard(u) {
-  const initials = Auth.initials({fullName: u.fullName, username: u.username});
-  const statusClass = u.status==='active'?'sc-badge-green':u.status==='pending'?'sc-badge-orange':'sc-badge-red';
-  return `<div class="user-card ${u.status==='pending'?'pending':''}" id="user-${u.id}">
-    <div class="user-main">
-      <div class="user-av">${initials}</div>
-      <div style="flex:1;min-width:0">
-        <div class="user-name">${escHtml(u.fullName||u.username||'')}</div>
-        <div class="user-meta">${escHtml(u.email||'')} · @${escHtml(u.username||'')}</div>
-      </div>
-      <span class="sc-badge ${statusClass}">${escHtml(u.status||'')}</span>
-      <select class="role-sel" onchange="changeRole('${u.id}',this.value)">
-        ${['viewer','analyst','admin'].map(r=>`<option value="${r}"${u.role===r?' selected':''}>${r}</option>`).join('')}
-      </select>
-    </div>
-    <div class="user-actions">
-      ${(u.status==='pending_approval'||u.status==='pending_verification')?`
-        <button class="action-btn approve" onclick="approveUser('${u.id}')"><i class="bi bi-check-lg"></i> Approve</button>
-        <button class="action-btn reject" onclick="rejectUser('${u.id}')"><i class="bi bi-x-lg"></i> Reject</button>
-      `:''}
-      ${u.status==='active'?`<button class="action-btn logout-btn" onclick="forceLogout('${u.id}')"><i class="bi bi-box-arrow-right"></i> Force Logout</button>`:''}
-      <button class="action-btn delete" onclick="deleteUser('${u.id}')"><i class="bi bi-trash"></i> Delete</button>
-      ${u.lastLogin?`<span style="font-size:11px;color:rgba(255,255,255,.3);margin-left:auto">Last login: ${fmtDateTime(u.lastLogin)}</span>`:''}
-    </div>
-  </div>`;
+  var initials = Auth.initials({fullName: u.fullName, username: u.username});
+  var statusClass = u.status==='active'?'sc-badge-green':(u.status==='pending_approval'||u.status==='pending_verification')?'sc-badge-orange':'sc-badge-red';
+  var actions = '';
+  if (u.status==='pending_approval'||u.status==='pending_verification') {
+    actions += '<button type="button" class="action-btn approve" data-action="approve" data-id="'+u.id+'"><i class="bi bi-check-lg"></i> Approve</button>';
+    actions += '<button type="button" class="action-btn reject" data-action="reject" data-id="'+u.id+'"><i class="bi bi-x-lg"></i> Reject</button>';
+  }
+  if (u.status==='active') {
+    actions += '<button type="button" class="action-btn logout-btn" data-action="force-logout" data-id="'+u.id+'"><i class="bi bi-box-arrow-right"></i> Force Logout</button>';
+  }
+  actions += '<button type="button" class="action-btn delete" data-action="delete" data-id="'+u.id+'"><i class="bi bi-trash"></i> Delete</button>';
+  var login = u.lastLogin ? '<span style="font-size:11px;color:rgba(255,255,255,.3);margin-left:auto">Last login: '+fmtDateTime(u.lastLogin)+'</span>' : '';
+  return '<div class="user-card" id="user-'+u.id+'">'+
+    '<div class="user-main">'+
+      '<div class="user-av">'+initials+'</div>'+
+      '<div style="flex:1;min-width:0">'+
+        '<div class="user-name">'+escHtml(u.fullName||u.username||'')+'</div>'+
+        '<div class="user-meta">'+escHtml(u.email||'')+' · @'+escHtml(u.username||'')+'</div>'+
+      '</div>'+
+      '<span class="sc-badge '+statusClass+'">'+escHtml(u.status||'')+'</span>'+
+      '<select class="role-sel" data-action="role" data-id="'+u.id+'">'+
+        ['viewer','analyst','admin'].map(function(r){return '<option value="'+r+'"'+(u.role===r?' selected':'')+'>'+r+'</option>';}).join('')+
+      '</select>'+
+    '</div>'+
+    '<div class="user-actions">'+actions+login+'</div>'+
+  '</div>';
 }
 
 let allUsers = [];
@@ -111,49 +116,61 @@ async function loadUsers() {
   document.getElementById('tab-pending').innerHTML = pending.length ? pending.map(userCard).join('') : '<p class="text-muted" style="padding:20px">No pending accounts.</p>';
 }
 
-async function approveUser(id) {
-  try {
-    var r = await fetch('/api/admin/users/' + id + '/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('crucix_token') },
-      body: '{}'
-    });
-    var data = {};
-    try { data = await r.json(); } catch(e) { data = {}; }
-    if (r.ok) { showMsg('User approved — welcome email sent'); loadUsers(); }
-    else { showMsg((data.error || 'Approve failed — HTTP ' + r.status), 'error'); }
-  } catch (e) { showMsg('Network error: ' + e.message, 'error'); }
-}
+// Event delegation — no inline onclick needed (CSP-safe)
+document.addEventListener('click', async function(e) {
+  var btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  var action = btn.getAttribute('data-action');
+  var id = btn.getAttribute('data-id');
+  if (!action || !id) return;
 
-async function rejectUser(id) {
-  if (!confirm('Reject and remove this user?')) return;
+  var token = localStorage.getItem('crucix_token');
+  var headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
+
+  if (action === 'approve') {
+    btn.textContent = 'Approving...'; btn.disabled = true;
+    try {
+      var r = await fetch('/api/admin/users/' + id + '/approve', { method: 'POST', headers: headers, body: '{}' });
+      var d = {}; try { d = await r.json(); } catch(x) {}
+      if (r.ok) { showMsg('User approved — welcome email sent'); loadUsers(); }
+      else { showMsg((d.error || 'Failed — HTTP ' + r.status), 'error'); btn.textContent = 'Approve'; btn.disabled = false; }
+    } catch (x) { showMsg('Network error', 'error'); btn.textContent = 'Approve'; btn.disabled = false; }
+  }
+  else if (action === 'reject') {
+    if (!confirm('Reject and remove this user?')) return;
+    try {
+      var r2 = await fetch('/api/admin/users/' + id + '/reject', { method: 'POST', headers: headers, body: '{}' });
+      if (r2.ok) { showMsg('User rejected'); loadUsers(); } else showMsg('Reject failed', 'error');
+    } catch (x) { showMsg('Network error', 'error'); }
+  }
+  else if (action === 'force-logout') {
+    try {
+      var r3 = await fetch('/api/admin/users/' + id + '/force-logout', { method: 'POST', headers: headers, body: '{}' });
+      if (r3.ok) showMsg('User logged out'); else showMsg('Failed', 'error');
+    } catch (x) { showMsg('Network error', 'error'); }
+  }
+  else if (action === 'delete') {
+    if (!confirm('Permanently delete this user?')) return;
+    try {
+      var r4 = await fetch('/api/admin/users/' + id, { method: 'DELETE', headers: headers });
+      if (r4.ok) { showMsg('User deleted'); loadUsers(); } else showMsg('Delete failed', 'error');
+    } catch (x) { showMsg('Network error', 'error'); }
+  }
+});
+
+document.addEventListener('change', async function(e) {
+  if (!e.target.matches('[data-action="role"]')) return;
+  var id = e.target.getAttribute('data-id');
+  var role = e.target.value;
   try {
-    var r = await fetch('/api/admin/users/' + id + '/reject', {
-      method: 'POST',
+    var r = await fetch('/api/admin/users/' + id, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('crucix_token') },
-      body: '{}'
+      body: JSON.stringify({ role: role })
     });
-    var data = {};
-    try { data = await r.json(); } catch(e) { data = {}; }
-    if (r.ok) { showMsg('User rejected'); loadUsers(); }
-    else { showMsg('Reject failed: ' + (data.error || 'HTTP ' + r.status), 'error'); }
-  } catch (e) { showMsg('Network error: ' + e.message, 'error'); }
-}
-async function forceLogout(id) {
-  try {
-    var r = await API.post('/api/admin/users/' + id + '/force-logout', {});
-    if (r.ok) showMsg('User logged out'); else showMsg('Failed', 'error');
-  } catch (e) { showMsg('Error: ' + e.message, 'error'); }
-}
-async function deleteUser(id) {
-  if (!confirm('Permanently delete this user?')) return;
-  const { ok, data } = await API.del(`/api/admin/users/${id}`);
-  if (ok) { showMsg('User deleted'); loadUsers(); } else showMsg(data.error||'Failed','error');
-}
-async function changeRole(id, role) {
-  const { ok, data } = await API.put(`/api/admin/users/${id}`, { role });
-  if (ok) showMsg('Role updated'); else showMsg(data.error||'Failed','error');
-}
+    if (r.ok) showMsg('Role updated to ' + role); else showMsg('Role change failed', 'error');
+  } catch (x) { showMsg('Network error', 'error'); }
+});
 
 async function loadAudit() {
   const el = document.getElementById('tab-audit');
