@@ -36,7 +36,7 @@ import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage,
 import { screenDeal, getProductCategories } from './lib/compliance/screen.mjs';
 import { redisGet, redisSet, redisDel } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore } from './lib/auth/users.mjs';
-import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail } from './lib/auth/email.mjs';
+import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
 import { createServer } from 'http';
@@ -1426,6 +1426,9 @@ app.post('/api/auth/register', async (req, res) => {
       updateUser(rawUser.id, { status: 'pending_approval', verificationCode: null, verificationExpiry: null });
       console.log(`[Auth] New registration (no SMTP — skipping email verify, pending admin approval): ${email}`);
 
+      // Notify user that their request is under review
+      await sendPendingApprovalEmail(email, rawUser.fullName).catch(() => {});
+
       // Notify admin via Telegram
       if (telegramAlerter?.isConfigured) {
         telegramAlerter.sendMessage(
@@ -1567,6 +1570,9 @@ app.post('/api/auth/verify-email', async (req, res) => {
     }
 
     updateUser(user.id, { status: 'pending_approval', verificationCode: null, verificationExpiry: null });
+    // Notify user that their request is under review
+    await sendPendingApprovalEmail(email, user.fullName).catch(() => {});
+    // Notify admin
     await sendAdminNotification(
       'New user registration — approval required',
       `<p>A new user has verified their email and is awaiting your approval:</p>
@@ -1577,7 +1583,7 @@ app.post('/api/auth/verify-email', async (req, res) => {
        </ul>
        <p>Log in to the admin panel and go to <strong>Admin &rarr; Users</strong> to approve or reject this account.</p>`
     ).catch(() => {});
-    // Also notify via Telegram (in case SMTP is unreliable)
+    // Also notify via Telegram
     if (telegramAlerter?.isConfigured) {
       telegramAlerter.sendMessage(
         `👤 *User Verified — Approval Required*\n\nName: ${user.fullName}\nEmail: ${email}\nUsername: @${user.username}\n\nGo to Admin → Users to approve or reject.`
@@ -1781,6 +1787,37 @@ app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to update user' });
+  }
+});
+
+app.post('/api/admin/users/:id/approve', requireAdmin, async (req, res) => {
+  try {
+    const target = findUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (target.status === 'active') return res.status(400).json({ error: 'User is already active' });
+    updateUser(target.id, { status: 'active' });
+    await sendWelcomeEmail(target.email, target.fullName).catch(() => {});
+    const admin = findUserById(req.user.userId);
+    logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'approve', targetId: target.id, targetEmail: target.email, targetName: target.fullName });
+    console.log(`[Auth] User approved: ${target.email} by ${admin?.email || req.user.userId}`);
+    res.json({ ok: true, message: `${target.fullName} approved — welcome email sent` });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to approve user' });
+  }
+});
+
+app.post('/api/admin/users/:id/reject', requireAdmin, async (req, res) => {
+  try {
+    const target = findUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    await sendRejectionEmail(target.email, target.fullName).catch(() => {});
+    const admin = findUserById(req.user.userId);
+    logAudit({ adminId: req.user.userId, adminEmail: admin?.email || '', action: 'reject', targetId: target.id, targetEmail: target.email, targetName: target.fullName });
+    console.log(`[Auth] User rejected and removed: ${target.email} by ${admin?.email || req.user.userId}`);
+    deleteUser(target.id);
+    res.json({ ok: true, message: `${target.fullName} rejected — rejection email sent` });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to reject user' });
   }
 });
 
