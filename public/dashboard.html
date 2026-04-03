@@ -209,10 +209,36 @@ async function loadData() {
 async function runSweep() {
   const btn = document.getElementById('btn-sweep');
   btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Sweeping…'; btn.disabled = true;
-  await API.post('/api/sweep', {});
-  await loadData();
-  btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
-  Toast.show('Sweep complete', 'success');
+  try {
+    const result = await API.post('/api/sweep', {});
+    if (result && result.data && result.data.message === 'Sweep already in progress') {
+      Toast.show('Sweep already running — please wait', 'info');
+      btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
+      return;
+    }
+    // Sweep is async on the server — poll /api/health until sweepInProgress goes false
+    let waited = 0;
+    const poll = setInterval(async () => {
+      waited += 3;
+      btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Sweeping… ' + waited + 's';
+      try {
+        const health = await API.get('/api/health');
+        if (!health || !health.sweepInProgress || waited >= 120) {
+          clearInterval(poll);
+          await loadData();
+          btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
+          Toast.show('Intelligence updated', 'success');
+        }
+      } catch (e) {
+        clearInterval(poll);
+        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
+      }
+    }, 3000);
+  } catch (e) {
+    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Run Sweep'; btn.disabled = false;
+    Toast.show('Sweep failed — try again', 'error');
+    console.error('runSweep error:', e);
+  }
 }
 
 loadData();
