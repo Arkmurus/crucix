@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Create Account — ARKMURUS Intelligence</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/crucix.css">
+  <link rel="stylesheet" href="css/crucix.css?v=3">
   <style>
-    body { background: #0f0a1e; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { background: #0f0a1e; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: #fff; }
     .auth-page { display: flex; min-height: 100vh; }
     .auth-left {
       width: 45%; min-height: 100vh; background: #180e32;
@@ -43,17 +43,16 @@
     .auth-mobile-logo span { font-size:15px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#fff; }
     .auth-title { font-size:26px;font-weight:700;color:#fff;margin-bottom:5px; }
     .auth-sub { font-size:14px;color:rgba(255,255,255,.4);margin-bottom:26px; }
-    .auth-link { color:#913BFF;font-size:13px;font-weight:500; }
+    .auth-link { color:#913BFF;font-size:13px;font-weight:500;text-decoration:none; }
     .auth-link:hover { color:#0066FF; }
     .auth-footer { text-align:center;font-size:14px;color:rgba(255,255,255,.4);margin-top:20px; }
-    .sc-btn-primary.w-full { width:100%;justify-content:center; }
-    /* Pending state */
+    .w-full { width:100% !important;justify-content:center !important; }
     .pending-wrap { text-align:center; }
     .pending-icon { width:70px;height:70px;border-radius:18px;background:rgba(145,59,255,.15);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:34px; }
     .pending-checklist { background:rgba(145,59,255,.07);border:1px solid rgba(145,59,255,.2);border-radius:12px;padding:16px 20px;margin-bottom:22px;text-align:left; }
     .pending-check { display:flex;align-items:flex-start;gap:10px;font-size:13px;color:rgba(255,255,255,.65);margin-bottom:10px; }
     .pending-check:last-child { margin-bottom:0; }
-    .pending-check .icon { color:#22c55e;font-size:16px;flex-shrink:0;margin-top:1px; }
+    .pending-check .chk { color:#22c55e;font-size:16px;flex-shrink:0;margin-top:1px; }
   </style>
 </head>
 <body>
@@ -85,13 +84,13 @@
 
       <!-- Pending screen -->
       <div id="pending-screen" style="display:none" class="pending-wrap">
-        <div class="pending-icon">⏳</div>
+        <div class="pending-icon">&#9203;</div>
         <h3 style="color:#fff;margin-bottom:8px">Account Created</h3>
         <p id="pending-msg" style="color:rgba(255,255,255,.55);font-size:14px;margin-bottom:22px"></p>
         <div class="pending-checklist">
-          <div class="pending-check"><span class="icon">✓</span>Account created and in the approval queue</div>
-          <div class="pending-check"><span class="icon">✓</span>Administrator notified — will review your request</div>
-          <div class="pending-check"><span class="icon">✓</span>You'll receive an email once your account is activated</div>
+          <div class="pending-check"><span class="chk">&#10003;</span>Account created and in the approval queue</div>
+          <div class="pending-check"><span class="chk">&#10003;</span>Administrator notified — will review your request</div>
+          <div class="pending-check"><span class="chk">&#10003;</span>You'll receive an email once your account is activated</div>
         </div>
         <a href="/signin.html" class="sc-btn sc-btn-primary w-full">Back to Sign In</a>
       </div>
@@ -101,8 +100,7 @@
         <h2 class="auth-title">Create account</h2>
         <p class="auth-sub">Set up your analyst profile</p>
 
-        <div id="error-msg" class="sc-alert sc-alert-danger" style="display:none"></div>
-        <div id="success-msg" class="sc-alert sc-alert-success" style="display:none"></div>
+        <div id="error-msg" style="display:none;padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:16px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fca5a5"></div>
 
         <div class="sc-field">
           <label>Full Name</label>
@@ -125,55 +123,81 @@
           <input type="password" id="confirmPassword" placeholder="Re-enter password" autocomplete="new-password">
         </div>
 
-        <button class="sc-btn sc-btn-primary w-full" id="btn-register" onclick="doRegister()">Create Account</button>
+        <button type="button" class="sc-btn sc-btn-primary w-full" id="btn-register">Create Account</button>
         <p class="auth-footer">Already have an account? <a href="signin.html" class="auth-link">Sign in</a></p>
       </div>
     </div>
   </div>
 </div>
 
-<script src="vendor/jquery.min.js"></script>
-<script src="js/app.js"></script>
+<script src="js/app.js?v=3"></script>
 <script>
-  if (Auth.isLoggedIn()) window.location.href = '/dashboard.html';
+(function() {
+  'use strict';
+
+  if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
+    window.location.href = '/dashboard.html';
+    return;
+  }
+
+  function showError(msg) {
+    var el = document.getElementById('error-msg');
+    if (!el) { console.error('Register error:', msg); return; }
+    el.textContent = msg;
+    el.style.display = 'block';
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function hideError() {
+    var el = document.getElementById('error-msg');
+    if (el) el.style.display = 'none';
+  }
 
   async function doRegister() {
-    const btn = document.getElementById('btn-register');
-    const fullName = document.getElementById('fullName').value.trim();
-    const username = document.getElementById('username').value.trim();
-    const email = document.getElementById('email').value.trim();
-    const password = document.getElementById('password').value;
-    const confirmPassword = document.getElementById('confirmPassword').value;
+    var btn = document.getElementById('btn-register');
+    var fullName = document.getElementById('fullName').value.trim();
+    var username = document.getElementById('username').value.trim();
+    var email = document.getElementById('email').value.trim();
+    var password = document.getElementById('password').value;
+    var confirmPassword = document.getElementById('confirmPassword').value;
 
-    hideMessages();
-    if (!fullName||!username||!email||!password) return showError('All fields are required.');
-    if (password.length < 8) return showError('Password must be at least 8 characters.');
-    if (password !== confirmPassword) return showError('Passwords do not match.');
+    hideError();
+    if (!fullName || !username || !email || !password) { showError('All fields are required.'); return; }
+    if (password.length < 8) { showError('Password must be at least 8 characters.'); return; }
+    if (password !== confirmPassword) { showError('Passwords do not match.'); return; }
 
-    btn.textContent = 'Creating account…'; btn.disabled = true;
+    btn.textContent = 'Creating account\u2026'; btn.disabled = true;
+
     try {
-      const { ok, data } = await API.post('/api/auth/register', { fullName, username, email, password });
+      var result = await API.post('/api/auth/register', {
+        fullName: fullName, username: username, email: email, password: password
+      });
       btn.textContent = 'Create Account'; btn.disabled = false;
 
-      if (!ok) return showError(data.error || 'Registration failed.');
+      if (!result.ok) {
+        showError((result.data && result.data.error) ? result.data.error : 'Registration failed.');
+        return;
+      }
 
       document.getElementById('register-screen').style.display = 'none';
       document.getElementById('pending-screen').style.display = 'block';
-      document.getElementById('pending-msg').textContent = data.needsVerification
-        ? `Hi ${fullName}, please check your email for a 6-digit verification code to confirm your address.`
-        : `Hi ${fullName}, your access request has been submitted and is awaiting admin approval. You'll receive an email once your account is activated.`;
+      var msg = result.data.needsVerification
+        ? 'Hi ' + fullName + ', please check your email for a 6-digit verification code to confirm your address.'
+        : 'Hi ' + fullName + ', your access request has been submitted and is awaiting admin approval. You\'ll receive an email once your account is activated.';
+      document.getElementById('pending-msg').textContent = msg;
     } catch (e) {
       btn.textContent = 'Create Account'; btn.disabled = false;
-      showError('Unexpected error. Please try again.');
+      showError('Unexpected error — please try again.');
       console.error('doRegister error:', e);
     }
   }
 
-  function showError(m){ const e=document.getElementById('error-msg'); e.textContent=m; e.style.display='flex'; }
-  function hideMessages(){
-    document.getElementById('error-msg').style.display='none';
-    document.getElementById('success-msg').style.display='none';
-  }
+  document.getElementById('btn-register').addEventListener('click', doRegister);
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') doRegister();
+  });
+})();
 </script>
 </body>
 </html>

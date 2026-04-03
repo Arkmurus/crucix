@@ -5,25 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sign In — ARKMURUS Intelligence</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/crucix.css">
+  <link rel="stylesheet" href="css/crucix.css?v=3">
   <style>
-    body { background: #0f0a1e; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { background: #0f0a1e; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: #fff; }
 
     .auth-page { display: flex; min-height: 100vh; }
 
-    /* Left panel */
     .auth-left {
-      width: 48%; min-height: 100vh;
-      background: #180e32;
-      display: none;
-      align-items: center; justify-content: center;
+      width: 48%; min-height: 100vh; background: #180e32;
+      display: none; align-items: center; justify-content: center;
       position: relative; overflow: hidden; padding: 48px;
     }
     @media(min-width:900px){ .auth-left { display: flex; } }
     .auth-left::before {
-      content: '';
-      position: absolute; inset: 0;
+      content: ''; position: absolute; inset: 0;
       background: linear-gradient(145deg, rgba(145,59,255,.12) 0%, rgba(0,102,255,.08) 100%);
     }
     .auth-glow-1 {
@@ -59,15 +55,12 @@
     .auth-feature-dot.blue  { background: #0066FF; box-shadow: 0 0 8px rgba(0,102,255,.7); }
     .auth-feature-dot.green { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,.7); }
 
-    /* Right panel */
     .auth-right {
       flex: 1; display: flex; align-items: center; justify-content: center;
       padding: 48px 5%; min-height: 100vh;
     }
     .auth-form-wrap { width: 100%; max-width: 420px; }
-    .auth-mobile-logo {
-      display: flex; align-items: center; gap: 10px; margin-bottom: 32px;
-    }
+    .auth-mobile-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 32px; }
     @media(min-width:900px){ .auth-mobile-logo { display: none; } }
     .auth-mobile-logo .auth-logo-mark-sm {
       width: 28px; height: 28px; border-radius: 7px;
@@ -77,19 +70,16 @@
     .auth-mobile-logo span { font-size: 15px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #fff; }
     .auth-title { font-size: 30px; font-weight: 700; color: #fff; margin-bottom: 6px; }
     .auth-sub { font-size: 14px; color: rgba(255,255,255,.45); margin-bottom: 30px; }
-    .auth-link { color: #913BFF; font-size: 13px; font-weight: 500; }
+    .auth-link { color: #913BFF; font-size: 13px; font-weight: 500; text-decoration: none; }
     .auth-link:hover { color: #0066FF; }
     .auth-footer { text-align: center; font-size: 14px; color: rgba(255,255,255,.4); margin-top: 22px; }
-    .btn-loading { opacity: .7; pointer-events: none; }
-    .sc-btn-primary.w-full { width: 100%; justify-content: center; }
+    .w-full { width: 100% !important; justify-content: center !important; }
     .forgot-row { display: flex; justify-content: flex-end; margin-bottom: 18px; }
   </style>
 </head>
 <body>
 
 <div class="auth-page">
-
-  <!-- Left -->
   <div class="auth-left">
     <div class="auth-glow-1"></div>
     <div class="auth-glow-2"></div>
@@ -99,10 +89,7 @@
         <span>ARKMURUS</span>
       </div>
       <h2 class="auth-tagline">Defense Intelligence.<br><span>Precision. Edge.</span></h2>
-      <p class="auth-desc">
-        Real-time geopolitical intelligence, procurement opportunities and compliance
-        screening — purpose-built for defense and security markets.
-      </p>
+      <p class="auth-desc">Real-time geopolitical intelligence, procurement opportunities and compliance screening — purpose-built for defense and security markets.</p>
       <div class="auth-features">
         <div class="auth-feature"><div class="auth-feature-dot"></div>Live conflict &amp; sanctions monitoring</div>
         <div class="auth-feature"><div class="auth-feature-dot blue"></div>BD leads &amp; tender tracking</div>
@@ -111,7 +98,6 @@
     </div>
   </div>
 
-  <!-- Right -->
   <div class="auth-right">
     <div class="auth-form-wrap">
       <div class="auth-mobile-logo">
@@ -122,9 +108,8 @@
       <h2 class="auth-title">Welcome back</h2>
       <p class="auth-sub">Sign in to your intelligence platform</p>
 
-      <div id="error-msg" class="sc-alert sc-alert-danger" style="display:none"></div>
+      <div id="error-msg" style="display:none;padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:16px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fca5a5"></div>
 
-      <!-- Step 1: credentials -->
       <div id="step-credentials">
         <div class="sc-field">
           <label>Email address</label>
@@ -137,87 +122,104 @@
         <div class="forgot-row">
           <a href="forgot-password.html" class="auth-link">Forgot password?</a>
         </div>
-        <button class="sc-btn sc-btn-primary w-full" id="btn-login" onclick="doLogin()">Sign In</button>
-        <p class="auth-footer">
-          Don't have an account? <a href="signup.html" class="auth-link">Create account</a>
-        </p>
+        <button type="button" class="sc-btn sc-btn-primary w-full" id="btn-login">Sign In</button>
+        <p class="auth-footer">Don't have an account? <a href="signup.html" class="auth-link">Create account</a></p>
       </div>
 
-      <!-- Step 2: 2FA -->
       <div id="step-2fa" style="display:none;text-align:center">
-        <div style="width:64px;height:64px;border-radius:16px;background:rgba(145,59,255,.15);
-                    display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:30px">🔐</div>
+        <div style="width:64px;height:64px;border-radius:16px;background:rgba(145,59,255,.15);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:30px">🔐</div>
         <h4 style="color:#fff;margin-bottom:8px">Two-Factor Auth</h4>
         <p style="color:rgba(255,255,255,.45);font-size:14px;margin-bottom:24px">Enter the 6-digit code from your authenticator app</p>
         <div class="sc-field">
           <label>Authenticator Code</label>
-          <input type="text" id="twofa-code" placeholder="000000" maxlength="6" inputmode="numeric"
-                 style="text-align:center;font-size:22px;letter-spacing:6px;font-weight:700">
+          <input type="text" id="twofa-code" placeholder="000000" maxlength="6" inputmode="numeric" style="text-align:center;font-size:22px;letter-spacing:6px;font-weight:700">
         </div>
-        <button class="sc-btn sc-btn-primary w-full" id="btn-2fa" onclick="do2FA()" style="margin-top:8px">Verify Code</button>
-        <button class="sc-btn sc-btn-outline w-full" onclick="backToCredentials()" style="margin-top:10px;justify-content:center">← Back</button>
+        <button type="button" class="sc-btn sc-btn-primary w-full" id="btn-2fa" style="margin-top:8px">Verify Code</button>
+        <button type="button" class="sc-btn sc-btn-outline w-full" id="btn-back" style="margin-top:10px">← Back</button>
       </div>
     </div>
   </div>
 </div>
 
-<script src="vendor/jquery.min.js"></script>
-<script src="js/app.js"></script>
+<script src="js/app.js?v=3"></script>
 <script>
-  // If already logged in, redirect to dashboard
-  if (Auth.isLoggedIn()) window.location.href = '/dashboard.html';
+(function() {
+  'use strict';
 
-  let preToken = null;
+  // Redirect if already logged in
+  if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
+    window.location.href = '/dashboard.html';
+    return;
+  }
+
+  var preToken = null;
+
+  function showError(msg) {
+    var el = document.getElementById('error-msg');
+    if (!el) { console.error('Auth error:', msg); return; }
+    el.textContent = msg;
+    el.style.display = 'block';
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function hideError() {
+    var el = document.getElementById('error-msg');
+    if (el) el.style.display = 'none';
+  }
 
   async function doLogin() {
-    const btn = document.getElementById('btn-login');
-    const email = document.getElementById('email').value.trim();
-    const password = document.getElementById('password').value;
-    if (!email || !password) return showError('Please enter your email and password.');
+    var btn = document.getElementById('btn-login');
+    var email = document.getElementById('email').value.trim();
+    var password = document.getElementById('password').value;
 
-    btn.textContent = 'Signing in…'; btn.disabled = true;
+    if (!email || !password) { showError('Please enter your email and password.'); return; }
+
+    btn.textContent = 'Signing in\u2026'; btn.disabled = true;
     hideError();
 
     try {
-      const { ok, data } = await API.post('/api/auth/login', { email, password });
+      var result = await API.post('/api/auth/login', { email: email, password: password });
       btn.textContent = 'Sign In'; btn.disabled = false;
 
-      if (!ok) return showError(data.error || 'Login failed. Check your credentials.');
+      if (!result.ok) {
+        showError((result.data && result.data.error) ? result.data.error : 'Login failed. Check your credentials.');
+        return;
+      }
 
-      if (data.requires2FA) {
-        preToken = data.preToken;
+      if (result.data.requires2FA) {
+        preToken = result.data.preToken;
         document.getElementById('step-credentials').style.display = 'none';
         document.getElementById('step-2fa').style.display = 'block';
         return;
       }
 
-      localStorage.setItem('crucix_token', data.token);
-      if (data.user) localStorage.setItem('crucix_user', JSON.stringify(data.user));
+      localStorage.setItem('crucix_token', result.data.token);
+      if (result.data.user) localStorage.setItem('crucix_user', JSON.stringify(result.data.user));
       window.location.href = '/dashboard.html';
     } catch (e) {
       btn.textContent = 'Sign In'; btn.disabled = false;
-      showError('Unexpected error. Please try again.');
+      showError('Unexpected error — please try again.');
       console.error('doLogin error:', e);
     }
   }
 
   async function do2FA() {
-    const btn = document.getElementById('btn-2fa');
-    const code = document.getElementById('twofa-code').value.trim();
-    if (!code) return showError('Enter the 6-digit code.');
+    var btn = document.getElementById('btn-2fa');
+    var code = document.getElementById('twofa-code').value.trim();
+    if (!code) { showError('Enter the 6-digit code.'); return; }
 
-    btn.textContent = 'Verifying…'; btn.disabled = true;
+    btn.textContent = 'Verifying\u2026'; btn.disabled = true;
     try {
-      const { ok, data } = await API.post('/api/auth/2fa/authenticate', { preToken, code });
+      var result = await API.post('/api/auth/2fa/authenticate', { preToken: preToken, code: code });
       btn.textContent = 'Verify Code'; btn.disabled = false;
 
-      if (!ok) return showError(data.error || 'Invalid code.');
-      localStorage.setItem('crucix_token', data.token);
-      if (data.user) localStorage.setItem('crucix_user', JSON.stringify(data.user));
+      if (!result.ok) { showError((result.data && result.data.error) ? result.data.error : 'Invalid code.'); return; }
+      localStorage.setItem('crucix_token', result.data.token);
+      if (result.data.user) localStorage.setItem('crucix_user', JSON.stringify(result.data.user));
       window.location.href = '/dashboard.html';
     } catch (e) {
       btn.textContent = 'Verify Code'; btn.disabled = false;
-      showError('Unexpected error. Please try again.');
+      showError('Unexpected error — please try again.');
       console.error('do2FA error:', e);
     }
   }
@@ -228,21 +230,18 @@
     hideError();
   }
 
-  function showError(msg) {
-    const el = document.getElementById('error-msg');
-    el.textContent = msg; el.style.display = 'flex';
-  }
-  function hideError() {
-    document.getElementById('error-msg').style.display = 'none';
-  }
+  // Wire up events after DOM is ready
+  document.getElementById('btn-login').addEventListener('click', doLogin);
+  document.getElementById('btn-2fa').addEventListener('click', do2FA);
+  document.getElementById('btn-back').addEventListener('click', backToCredentials);
 
-  // Enter key support
-  document.addEventListener('keydown', e => {
+  document.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') {
       if (document.getElementById('step-2fa').style.display !== 'none') do2FA();
       else doLogin();
     }
   });
+})();
 </script>
 </body>
 </html>
