@@ -409,7 +409,7 @@ if (telegramAlerter.isConfigured) {
     const opps = stored.opportunities || [];
     // Refresh from current data if available
     if (currentData) {
-      const fresh = detectOpportunities(currentData);
+      const fresh = await detectOpportunities(currentData);
       return formatOpportunitiesForTelegram(fresh);
     }
     return formatOpportunitiesForTelegram(opps);
@@ -898,7 +898,7 @@ app.post('/api/learning/outcome', requireAuth, (req, res) => {
 
 app.get('/api/opportunities', requireAuth, (req, res) => {
   if (currentData) {
-    const fresh = detectOpportunities(currentData);
+    const fresh = await detectOpportunities(currentData);
     return res.json({ opportunities: fresh, source: 'live', asOf: lastSweepTime });
   }
   const stored = getOpportunities();
