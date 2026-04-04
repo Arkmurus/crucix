@@ -727,6 +727,55 @@ if (telegramAlerter.isConfigured) {
     } catch (e) { return `⚠️ Screen failed: ${e.message}`; }
   });
 
+  telegramAlerter.onCommand('/report', async (args) => {
+    const parts = (args || '').trim().split(' ');
+    const type = parts[0]?.toLowerCase();
+    if (type === 'monthly') {
+      try {
+        const { generateMonthlyBrief } = await import('./lib/reports/pdf_generator.mjs');
+        const pdf = await generateMonthlyBrief(currentData || {});
+        const month = new Date().toISOString().slice(0, 7);
+        // Send as document via Telegram API
+        const FormData = (await import('undici')).FormData || globalThis.FormData;
+        if (!FormData) return '⚠️ PDF generated but cannot send via Telegram (FormData not available). Download from: /api/report/monthly';
+        const form = new FormData();
+        form.append('chat_id', config.telegram.chatId);
+        form.append('caption', `📎 ARKMURUS Monthly Intelligence Brief — ${month}`);
+        form.append('document', new Blob([pdf], { type: 'application/pdf' }), `ARKMURUS_Brief_${month}.pdf`);
+        await fetch(`https://api.telegram.org/bot${config.telegram.botToken}/sendDocument`, { method: 'POST', body: form });
+        return null;
+      } catch (e) {
+        return `⚠️ Report failed: ${e.message}\nDownload from web: /api/report/monthly`;
+      }
+    }
+    if (type === 'approach') {
+      const market = parts[1] || '';
+      if (!market) return '⚠️ Usage: /report approach [market] [product]';
+      try {
+        const { generateApproachPack } = await import('./lib/reports/pdf_generator.mjs');
+        const { generateApproach } = await import('./lib/aria/approach.mjs');
+        const { generateGTMStrategy } = await import('./lib/aria/gtm_strategy.mjs');
+        const { getContactsByCountry } = await import('./lib/aria/contacts.mjs');
+        const product = parts.slice(2).join(' ') || '';
+        const approach = generateApproach(market, product, '');
+        const gtm = generateGTMStrategy(market);
+        const contacts = getContactsByCountry(market);
+        const pdf = await generateApproachPack(market, product, approach, gtm, contacts);
+        const FormData = (await import('undici')).FormData || globalThis.FormData;
+        if (!FormData) return `⚠️ PDF ready but cannot send. Download from web: POST /api/report/approach {market: "${market}"}`;
+        const form = new FormData();
+        form.append('chat_id', config.telegram.chatId);
+        form.append('caption', `📎 ARKMURUS Approach Pack — ${market}`);
+        form.append('document', new Blob([pdf], { type: 'application/pdf' }), `ARKMURUS_Approach_${market}.pdf`);
+        await fetch(`https://api.telegram.org/bot${config.telegram.botToken}/sendDocument`, { method: 'POST', body: form });
+        return null;
+      } catch (e) {
+        return `⚠️ Approach PDF failed: ${e.message}`;
+      }
+    }
+    return '📄 Usage:\n/report monthly — Monthly intelligence brief PDF\n/report approach [market] [product] — Approach pack PDF';
+  });
+
   telegramAlerter.onCommand('/conf', async () => {
     try {
       const { searchKnowledge } = await import('./lib/aria/knowledge.mjs');
@@ -1471,6 +1520,37 @@ app.get('/api/admin/dlq', requireAdmin, async (req, res) => {
     const { getDLQ } = await import('./lib/orchestrator/retry.mjs');
     res.json({ queue: getDLQ() });
   } catch { res.json({ queue: [] }); }
+});
+
+// PDF Report Generation
+app.get('/api/report/monthly', requireAuth, async (req, res) => {
+  try {
+    const { generateMonthlyBrief } = await import('./lib/reports/pdf_generator.mjs');
+    const data = currentData || {};
+    const pdf = await generateMonthlyBrief(data);
+    const month = new Date().toISOString().slice(0, 7);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="ARKMURUS_Brief_${month}.pdf"`);
+    res.send(pdf);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/report/approach', requireAuth, async (req, res) => {
+  try {
+    const { market, product } = req.body || {};
+    if (!market) return res.status(400).json({ error: 'market required' });
+    const { generateApproachPack } = await import('./lib/reports/pdf_generator.mjs');
+    const { generateApproach } = await import('./lib/aria/approach.mjs');
+    const { generateGTMStrategy } = await import('./lib/aria/gtm_strategy.mjs');
+    const { getContactsByCountry } = await import('./lib/aria/contacts.mjs');
+    const approach = generateApproach(market, product || '', '');
+    const gtm = generateGTMStrategy(market);
+    const contacts = getContactsByCountry(market);
+    const pdf = await generateApproachPack(market, product || '', approach, gtm, contacts);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="ARKMURUS_Approach_${market}.pdf"`);
+    res.send(pdf);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Go-To-Market Strategy API
