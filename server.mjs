@@ -142,6 +142,7 @@ import('./lib/aria/knowledge.mjs').then(async (m) => {
   seedKnowledgeBase();
 }).catch(err => console.error('[ARIA KB] init failed:', err.message));
 import('./lib/aria/intel_ledger.mjs').then(m => m.initLedger()).catch(err => console.error('[Intel Ledger] init failed:', err.message));
+import('./lib/aria/contacts.mjs').then(m => m.initContacts()).catch(err => console.error('[Contacts] init failed:', err.message));
 
 // === SMTP Diagnostics ===
 const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
@@ -1309,6 +1310,42 @@ app.get('/api/aria/ledger/country/:country', requireAuth, async (req, res) => {
     const { getCountrySituation } = await import('./lib/aria/intel_ledger.mjs');
     const sit = getCountrySituation(req.params.country);
     res.json(sit || { country: req.params.country, signalCount: 0, recentSignals: [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Contact Intelligence API
+app.get('/api/aria/contacts', requireAuth, async (req, res) => {
+  try {
+    const { getAllContacts } = await import('./lib/aria/contacts.mjs');
+    res.json({ contacts: getAllContacts() });
+  } catch (e) { res.json({ contacts: [] }); }
+});
+
+app.get('/api/aria/contacts/country/:country', requireAuth, async (req, res) => {
+  try {
+    const { getContactsByCountry } = await import('./lib/aria/contacts.mjs');
+    res.json({ contacts: getContactsByCountry(req.params.country) });
+  } catch (e) { res.json({ contacts: [] }); }
+});
+
+app.post('/api/aria/contacts', requireAuth, async (req, res) => {
+  try {
+    const { addContact } = await import('./lib/aria/contacts.mjs');
+    const { name, country, role, title, organisation, influence, notes } = req.body || {};
+    if (!name || !country) return res.status(400).json({ error: 'name and country required' });
+    addContact({ name, country, role, title, organisation, influence, notes });
+    res.json({ ok: true, message: 'Contact added' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Approach Strategy Generator API
+app.post('/api/aria/approach', requireAuth, async (req, res) => {
+  try {
+    const { generateApproach } = await import('./lib/aria/approach.mjs');
+    const { market, product, context } = req.body || {};
+    if (!market) return res.status(400).json({ error: 'market required' });
+    const strategy = generateApproach(market, product || '', context || '');
+    res.json(strategy);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
