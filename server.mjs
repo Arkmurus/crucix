@@ -136,6 +136,7 @@ const telegramAlerter = new TelegramAlerter(config.telegram);
 // === Auth & Push Initialization ===
 initAdminUser().catch(err => console.error('[Auth] initAdminUser failed:', err.message));
 initVapid().catch(err => console.error('[Push] initVapid failed:', err.message));
+import('./lib/aria/knowledge.mjs').then(m => m.initKnowledgeBase()).catch(err => console.error('[ARIA KB] init failed:', err.message));
 
 // === SMTP Diagnostics ===
 const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
@@ -1271,6 +1272,34 @@ app.get('/api/aria/curiosity', requireAuth, async (req, res) => {
     const threads  = (identity?.curiosity_threads || []).filter(t => !t.resolved);
     res.json({ open_threads: threads });
   } catch { res.json({ open_threads: [] }); }
+});
+
+// ARIA Knowledge Base API
+app.get('/api/aria/knowledge', requireAuth, async (req, res) => {
+  try {
+    const { getKBStats } = await import('./lib/aria/knowledge.mjs');
+    res.json(getKBStats());
+  } catch { res.json({ totalFacts: 0, totalQueries: 0, totalLearnings: 0 }); }
+});
+
+app.post('/api/aria/knowledge/fact', requireAuth, async (req, res) => {
+  try {
+    const { topic, content, confidence } = req.body || {};
+    if (!topic || !content) return res.status(400).json({ error: 'topic and content required' });
+    const { storeFact } = await import('./lib/aria/knowledge.mjs');
+    storeFact(topic, content, 'user', confidence || 'CONFIRMED');
+    res.json({ ok: true, message: 'Fact stored' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/aria/knowledge/learn', requireAuth, async (req, res) => {
+  try {
+    const { correction, context } = req.body || {};
+    if (!correction) return res.status(400).json({ error: 'correction required' });
+    const { storeLearning } = await import('./lib/aria/knowledge.mjs');
+    storeLearning(correction, context || '');
+    res.json({ ok: true, message: 'Learning stored' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ARIA chat — local LLM primary, brain service proxy secondary (if BRAIN_SERVICE_URL set)
