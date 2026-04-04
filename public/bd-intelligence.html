@@ -74,20 +74,20 @@
 </main>
 
 <!-- Share sheet -->
-<div class="share-sheet" id="share-sheet" onclick="closeShare(event)">
-  <div class="share-panel" onclick="event.stopPropagation()">
+<div class="share-sheet" id="share-sheet">
+  <div class="share-panel" id="share-panel">
     <div class="share-header">
       <span>Share Intelligence</span>
-      <button onclick="closeShare()" style="background:rgba(255,255,255,0.07);border:none;color:rgba(255,255,255,0.6);border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">×</button>
+      <button data-share="close" style="background:rgba(255,255,255,0.07);border:none;color:rgba(255,255,255,0.6);border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">×</button>
     </div>
     <div class="share-preview" id="share-preview"></div>
     <div class="share-btns">
-      <button class="share-btn wa" onclick="shareVia('wa')"><span style="font-size:22px">📱</span>WhatsApp</button>
-      <button class="share-btn tg" onclick="shareVia('tg')"><span style="font-size:22px">✈️</span>Telegram</button>
-      <button class="share-btn em" onclick="shareVia('em')"><span style="font-size:22px">📧</span>Email</button>
-      <button class="share-btn cp" onclick="copyText()"><span style="font-size:22px">📋</span>Copy</button>
+      <button class="share-btn wa" data-share="wa"><span style="font-size:22px">📱</span>WhatsApp</button>
+      <button class="share-btn tg" data-share="tg"><span style="font-size:22px">✈️</span>Telegram</button>
+      <button class="share-btn em" data-share="em"><span style="font-size:22px">📧</span>Email</button>
+      <button class="share-btn cp" data-share="copy"><span style="font-size:22px">📋</span>Copy</button>
     </div>
-    <button class="share-copy-btn" onclick="copyText()"><i class="bi bi-clipboard"></i>&nbsp; Copy full text</button>
+    <button class="share-copy-btn" data-share="copy"><i class="bi bi-clipboard"></i>&nbsp; Copy full text</button>
   </div>
 </div>
 <script src="js/app.js?v=3"></script>
@@ -115,22 +115,30 @@ function openShare(text, url) {
   document.getElementById('share-preview').textContent = truncate(shareText, 180);
   document.getElementById('share-sheet').classList.add('open');
 }
-function closeShare(e) {
-  if (!e || e.target.id === 'share-sheet' || !e.target.closest('.share-panel'))
-    document.getElementById('share-sheet').classList.remove('open');
-}
-function shareVia(type) {
-  const enc = encodeURIComponent(shareText);
-  const urls = {
-    wa: `https://wa.me/?text=${enc}`,
-    tg: `https://t.me/share/url?url=${encodeURIComponent('intel.sursec.co.uk')}&text=${enc}`,
-    em: `mailto:?subject=CRUCIX%20Intelligence&body=${enc}`,
-  };
-  if (urls[type]) window.open(urls[type], '_blank');
-}
-function copyText() {
-  navigator.clipboard.writeText(shareText).then(() => Toast.show('Copied to clipboard', 'success'));
-}
+
+// Intel card share button delegation
+document.addEventListener('click', function(e) {
+  var shareBtn = e.target.closest('[data-sharetext]');
+  if (shareBtn) {
+    openShare(shareBtn.getAttribute('data-sharetext'), shareBtn.getAttribute('data-shareurl'));
+  }
+});
+
+// Share sheet event delegation
+document.getElementById('share-sheet').addEventListener('click', function(e) {
+  var btn = e.target.closest('[data-share]');
+  if (btn) {
+    var action = btn.getAttribute('data-share');
+    if (action === 'close') { document.getElementById('share-sheet').classList.remove('open'); return; }
+    if (action === 'copy') { navigator.clipboard.writeText(shareText).then(function() { Toast.show('Copied', 'success'); }); return; }
+    var enc = encodeURIComponent(shareText);
+    var urls = { wa: 'https://wa.me/?text=' + enc, tg: 'https://t.me/share/url?url=' + encodeURIComponent('intel.sursec.co.uk') + '&text=' + enc, em: 'mailto:?subject=CRUCIX%20Intelligence&body=' + enc };
+    if (urls[action]) window.open(urls[action], '_blank');
+    return;
+  }
+  // Click on backdrop (outside panel) closes the sheet
+  if (!e.target.closest('#share-panel')) document.getElementById('share-sheet').classList.remove('open');
+});
 
 function chip(text, cls='sc-badge-muted') {
   return `<span class="sc-badge ${cls}" style="margin:1px">${escHtml(text)}</span>`;
@@ -138,7 +146,7 @@ function chip(text, cls='sc-badge-muted') {
 
 function renderCard(title, meta, summary, nextstep, url, shareTextFn) {
   return `<div class="intel-card">
-    <div class="ic-top">${meta}<button class="ic-share" onclick="openShare('${escHtml((shareTextFn||title).replace(/'/g,"\\'"))}','${escHtml(url||'')}')"><i class="bi bi-share"></i></button></div>
+    <div class="ic-top">${meta}<button class="ic-share" data-sharetext="${escHtml(shareTextFn||title)}" data-shareurl="${escHtml(url||'')}"><i class="bi bi-share"></i></button></div>
     <div class="ic-body">
       <div class="ic-title">${escHtml(title)}</div>
       ${summary?`<div class="ic-text">${escHtml(truncate(summary,200))}</div>`:''}
