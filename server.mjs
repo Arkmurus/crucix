@@ -1350,6 +1350,39 @@ app.post('/api/aria/approach', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Go-To-Market Strategy API
+app.get('/api/aria/gtm/:market', requireAuth, async (req, res) => {
+  try {
+    const { generateGTMStrategy } = await import('./lib/aria/gtm_strategy.mjs');
+    const strategy = generateGTMStrategy(req.params.market);
+    res.json(strategy || { error: 'Market not found' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// On-demand research trigger — immediately explores a specific topic
+app.post('/api/aria/research', requireAuth, async (req, res) => {
+  try {
+    const { topic, market, urgency } = req.body || {};
+    if (!topic) return res.status(400).json({ error: 'topic required' });
+    const queries = [
+      topic + ' defence procurement 2026',
+      topic + ' military tender contract',
+      (market ? market + ' ' : '') + topic + ' latest news',
+    ];
+    const { runExploration } = await import('./lib/self/web_explorer.mjs');
+    const findings = await runExploration(llmProvider, { queries });
+    // Store findings to knowledge base
+    try {
+      const { storeFact, recordQuery } = await import('./lib/aria/knowledge.mjs');
+      for (const ins of (findings.insights || []).slice(0, 3)) {
+        storeFact(topic + ' — ' + (ins.title || '').slice(0, 40), (ins.summary || ins.title || '').slice(0, 300), 'research', 'ASSESSED');
+      }
+      recordQuery(topic, (findings.insights?.[0]?.summary || '').slice(0, 200), market || '');
+    } catch {}
+    res.json({ ok: true, insights: findings.insights?.length || 0, salesIdeas: findings.salesIdeas?.length || 0, findings });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/aria/knowledge/learn', requireAuth, async (req, res) => {
   try {
     const { correction, context } = req.body || {};
@@ -2502,8 +2535,11 @@ async function start() {
         }
       } catch (e) { console.error('[Self] Web exploration failed:', e.message); }
     };
+    // 4x daily exploration: 06:00, 10:00, 14:00, 18:00 London (was 2x — now 24/7 coverage)
     cron.schedule('0 6 * * *',  runDailyExploration, { timezone: 'Europe/London' });
+    cron.schedule('0 10 * * *', runDailyExploration, { timezone: 'Europe/London' });
     cron.schedule('0 14 * * *', runDailyExploration, { timezone: 'Europe/London' });
+    cron.schedule('0 18 * * *', runDailyExploration, { timezone: 'Europe/London' });
 
     // Daily autonomous maintenance — 02:00 London
     // 1) Auto-disables sources with ≥90% failure rate (≥20 sweeps of data)
