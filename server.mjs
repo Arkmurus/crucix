@@ -1522,6 +1522,28 @@ app.get('/api/admin/dlq', requireAdmin, async (req, res) => {
   } catch { res.json({ queue: [] }); }
 });
 
+// Training Data API (for future proprietary LLM)
+app.get('/api/aria/training-data/stats', requireAdmin, async (req, res) => {
+  try {
+    const { getTrainingStats } = await import('./lib/aria/training_data.mjs');
+    res.json(getTrainingStats());
+  } catch (e) { res.json({ conversations: 0, error: e.message }); }
+});
+
+app.get('/api/aria/training-data/export', requireAdmin, async (req, res) => {
+  try {
+    const { exportTrainingData } = await import('./lib/aria/training_data.mjs');
+    const data = exportTrainingData();
+    if (req.query.format === 'jsonl') {
+      res.setHeader('Content-Type', 'application/jsonl');
+      res.setHeader('Content-Disposition', 'attachment; filename="aria_training_data.jsonl"');
+      res.send(data.data.map(d => JSON.stringify(d)).join('\n'));
+    } else {
+      res.json(data);
+    }
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // PDF Report Generation
 app.get('/api/report/monthly', requireAuth, async (req, res) => {
   try {
