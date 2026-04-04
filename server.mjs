@@ -52,6 +52,7 @@ import { startExplorerScheduler } from './lib/self/explorerScheduler.mjs';
 import { redisAdapter } from './lib/persist/redisAdapter.mjs';
 import { reliableRun } from './lib/orchestrator/retry.mjs';
 import ariaWhatsApp from './lib/whatsapp/ariaWhatsApp.mjs';
+import { mountWAListener } from './lib/whatsapp/waListener.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -3064,27 +3065,8 @@ if (ZOOM_BOT_URL) {
   console.log(`[Init] Zoom bot proxy → ${ZOOM_BOT_URL}`);
 }
 
-// ── WhatsApp Listener proxy — forward /api/wa-listener/* to Baileys service ──
-const WA_LISTENER_URL = process.env.WA_LISTENER_URL;
-if (WA_LISTENER_URL) {
-  const waListenerProxy = async (req, res) => {
-    const path = req.url;
-    try {
-      const opts = { method: req.method, headers: { 'Content-Type': 'application/json' } };
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        opts.body = JSON.stringify(req.body || {});
-      }
-      if (req.headers.authorization) opts.headers['Authorization'] = req.headers.authorization;
-      const upstream = await fetch(`${WA_LISTENER_URL}${path}`, opts);
-      const data = await upstream.json();
-      res.status(upstream.status).json(data);
-    } catch (e) {
-      res.status(502).json({ error: 'WA Listener service unreachable', detail: e.message });
-    }
-  };
-  app.use('/api/wa-listener', waListenerProxy);
-  console.log(`[Init] WA Listener proxy → ${WA_LISTENER_URL}`);
-}
+// ── WhatsApp Listener (Baileys) — runs inside this process ──────────────────
+mountWAListener(app);
 
 // ── Express error handler — MUST be last middleware ──────────────────────────
 app.use(errorTracker.expressMiddleware());
