@@ -229,42 +229,51 @@ async function load() {
     document.getElementById('panel-brain').innerHTML = '<p class="text-muted">Brain strategy not available — requires LLM to be configured and a completed sweep.</p>';
   }
 
-  // ── Sales Leads panel (qualified tenders + brain leads) ──
-  document.getElementById('panel-leads').innerHTML = allLeads.length ? allLeads.map(function(l) {
-    return renderCard(
-      l.title || l.lead || 'Unknown',
-      chip(l.market||'', l.leadQuality==='HOT'?'sc-badge-prime':'sc-badge-blue') + (l.leadQuality?chip(l.leadQuality, l.leadQuality==='HOT'?'sc-badge-prime':l.leadQuality==='WARM'?'sc-badge-orange':'sc-badge-muted'):'') + (l.type?chip(l.type,'sc-badge-blue'):'') + (l.source==='Brain'?chip('AI','sc-badge-muted'):''),
-      l.summary || l.description || '',
-      l.nextStep || '',
-      l.url || '',
-      'LEAD: '+(l.title||l.lead||'')+' | '+(l.market||'')+' | '+(l.leadQuality||'')+'\n'+(l.summary||'')
-    );
-  }).join('') : '<p class="text-muted">No qualified leads yet — leads appear when tenders score HOT or WARM, or when the brain generates sales leads.</p>';
+  // ── Sales Leads panel (grid cards like opportunities) ──
+  document.getElementById('panel-leads').innerHTML = allLeads.length ? '<div class="sc-grid-3">' + allLeads.map(function(l) {
+    var qCol = l.leadQuality==='HOT'?'#ef4444':l.leadQuality==='WARM'?'#FF7A41':'#913BFF';
+    var qBadge = l.leadQuality==='HOT'?'sc-badge-prime':l.leadQuality==='WARM'?'sc-badge-orange':'sc-badge-muted';
+    return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
+      escHtml(l.market||'Global') + '</div>' + chip(l.leadQuality||'LEAD',qBadge) + '</div><div class="sc-card-body">' +
+      '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px"><div style="font-size:28px;font-weight:800;color:'+qCol+'">' + escHtml(l.leadQuality||'—') + '</div>' +
+      (l.type ? '<div style="font-size:11px;color:rgba(255,255,255,.4)">'+escHtml(l.type)+'</div>' : '') +
+      (l.source==='Brain'?'<span class="sc-badge sc-badge-muted" style="font-size:10px">AI</span>':'') + '</div>' +
+      '<div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;line-height:1.5">' + escHtml(truncate(l.title||l.lead||'',120)) + '</div>' +
+      (l.summary||l.description ? '<p style="font-size:12px;color:rgba(255,255,255,.5);line-height:1.5;margin-bottom:8px">' + escHtml(truncate(l.summary||l.description||'',160)) + '</p>' : '') +
+      (l.nextStep ? '<div style="display:flex;align-items:flex-start;gap:6px;padding:8px 10px;background:rgba(255,213,79,0.07);border-left:3px solid rgba(255,213,79,0.4);border-radius:0 6px 6px 0;font-size:12px;color:#fff9c4;margin-top:8px"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ffd54f;font-size:13px;margin-top:1px"></i>' + escHtml(truncate(l.nextStep,150)) + '</div>' : '') +
+      (l.url ? '<div style="margin-top:8px"><a href="'+escHtml(l.url)+'" target="_blank" rel="noopener" style="font-size:12px;color:#913BFF"><i class="bi bi-box-arrow-up-right"></i> Source</a></div>' : '') +
+      '</div></div>';
+  }).join('') + '</div>' : '<p class="text-muted">No qualified leads yet — leads appear when tenders score HOT or WARM, or when the brain generates sales leads.</p>';
 
-  // ── Tenders panel ──
-  document.getElementById('panel-tenders').innerHTML = tenders.length ? tenders.map(function(t) {
+  // ── Tenders panel (grid cards) ──
+  document.getElementById('panel-tenders').innerHTML = tenders.length ? '<div class="sc-grid-3">' + tenders.map(function(t) {
     var qBadge = t.leadQuality==='HOT'?'sc-badge-prime':t.leadQuality==='WARM'?'sc-badge-orange':'sc-badge-muted';
-    return renderCard(
-      t.title || 'Tender',
-      chip(t.market||'','sc-badge-blue') + chip(t.type||'TENDER','sc-badge-muted') + (t.leadQuality?chip(t.leadQuality,qBadge):'') + (t.score?chip('Score: '+t.score,'sc-badge-muted'):'') + (t.winProbability?chip('Win: '+t.winProbability+'%','sc-badge-green'):''),
-      t.summary || '',
-      '',
-      t.url || '',
-      'TENDER: '+(t.title||'')+' | '+(t.market||'')+'\n'+(t.summary||'')
-    );
-  }).join('') : '<p class="text-muted">No tenders found — tenders are extracted from procurement feeds during sweeps.</p>';
+    return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
+      escHtml(t.market||'Global') + '</div>' + chip(t.type||'TENDER','sc-badge-blue') + '</div><div class="sc-card-body">' +
+      '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
+      '<div style="font-size:28px;font-weight:800;color:#913BFF">' + (t.score||0) + '</div>' +
+      '<div style="font-size:11px;color:rgba(255,255,255,.4)">/ 100<br>Score</div></div>' +
+      (t.leadQuality ? '<div style="margin-bottom:8px">' + chip(t.leadQuality,qBadge) + (t.winProbability?chip('Win: '+t.winProbability+'%','sc-badge-green'):'') + '</div>' : '') +
+      '<div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:6px;line-height:1.5">' + escHtml(truncate(t.title||'',120)) + '</div>' +
+      (t.summary ? '<p style="font-size:12px;color:rgba(255,255,255,.5);line-height:1.5;margin-bottom:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:8px">' + escHtml(truncate(t.summary,160)) + '</p>' : '') +
+      (t.url ? '<a href="'+escHtml(t.url)+'" target="_blank" rel="noopener" style="font-size:12px;color:#913BFF"><i class="bi bi-box-arrow-up-right"></i> Source</a>' : '') +
+      '</div></div>';
+  }).join('') + '</div>' : '<p class="text-muted">No tenders found — tenders are extracted from procurement feeds during sweeps.</p>';
 
-  // ── Ideas panel ──
-  document.getElementById('panel-ideas').innerHTML = ideas.length ? ideas.map(function(i) {
-    return renderCard(
-      i.market + ' — ' + (i.type || 'Strategic Idea'),
-      chip(i.market||'','sc-badge-blue') + (i.lusophone?chip('Lusophone','sc-badge-prime'):'') + chip('Score: '+i.score,'sc-badge-muted') + (i.devFinance?chip('Dev Finance','sc-badge-green'):''),
-      i.rationale || '',
-      i.actionStep || '',
-      (i.sources && i.sources[0]) ? i.sources[0].url : '',
-      'IDEA: '+(i.market||'')+' — '+(i.type||'')+'\n'+(i.rationale||'')
-    );
-  }).join('') : '<p class="text-muted">No strategic ideas — ideas are generated from multi-source intelligence convergence.</p>';
+  // ── Ideas panel (grid cards) ──
+  document.getElementById('panel-ideas').innerHTML = ideas.length ? '<div class="sc-grid-3">' + ideas.map(function(i) {
+    return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
+      (i.lusophone?'<i class="bi bi-flag"></i> ':'') + escHtml(i.market||'') + '</div>' + chip(i.type||'IDEA','sc-badge-orange') + '</div><div class="sc-card-body">' +
+      '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
+      '<div style="font-size:28px;font-weight:800;color:#913BFF">' + (i.score||0) + '</div>' +
+      '<div style="font-size:11px;color:rgba(255,255,255,.4)">/ 100<br>Score</div></div>' +
+      '<div style="font-size:12px;color:rgba(255,255,255,.55);margin-bottom:8px">' +
+        '<i class="bi bi-broadcast" style="color:#FF7A41"></i> ' + (i.signals||0) + ' signals' +
+        (i.devFinance ? ' · <span style="color:#22c55e">Dev Finance</span>' : '') + '</div>' +
+      (i.rationale ? '<p style="font-size:12px;color:rgba(255,255,255,.55);line-height:1.6;border-top:1px solid rgba(255,255,255,.06);padding-top:8px;margin-bottom:8px">' + escHtml(truncate(i.rationale,180)) + '</p>' : '') +
+      (i.actionStep ? '<div style="display:flex;align-items:flex-start;gap:6px;padding:8px 10px;background:rgba(255,213,79,0.07);border-left:3px solid rgba(255,213,79,0.4);border-radius:0 6px 6px 0;font-size:12px;color:#fff9c4"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ffd54f;font-size:13px;margin-top:1px"></i>' + escHtml(truncate(i.actionStep,150)) + '</div>' : '') +
+      '</div></div>';
+  }).join('') + '</div>' : '<p class="text-muted">No strategic ideas — ideas are generated from multi-source intelligence convergence.</p>';
 
   // Pipeline
   loadPipeline();
