@@ -54,7 +54,8 @@
     "discord.js": "^14.25.1",
     "@whiskeysockets/baileys": "^6.7.16",
     "qrcode-terminal": "^0.12.0",
-    "pino": "^9.6.0"
+    "pino": "^9.6.0",
+    "pdf-parse": "^1.1.1"
   },
   "overrides": {
     "undici": "^7.24.4"
