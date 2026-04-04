@@ -145,6 +145,8 @@ import('./lib/aria/knowledge.mjs').then(async (m) => {
 import('./lib/aria/intel_ledger.mjs').then(m => m.initLedger()).catch(err => console.error('[Intel Ledger] init failed:', err.message));
 import('./lib/aria/contacts.mjs').then(m => m.initContacts()).catch(err => console.error('[Contacts] init failed:', err.message));
 import('./lib/aria/competitors.mjs').then(m => m.initCompetitors()).catch(err => console.error('[Competitors] init failed:', err.message));
+import('./lib/aria/query_evolution.mjs').then(m => m.initEvolution()).catch(err => console.error('[QueryEvolution] init failed:', err.message));
+import('./lib/aria/prompt_optimizer.mjs').then(m => m.initOptimizer()).catch(err => console.error('[PromptOptimizer] init failed:', err.message));
 
 // === SMTP Diagnostics ===
 const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
@@ -2524,6 +2526,22 @@ async function start() {
       try { await sendMorningDigest(telegramAlerter, currentData); }
       catch (e) { console.error('[Digest] Failed:', e.message); }
       pushDigest('Morning Intelligence Brief', 'Your daily Arkmurus intelligence briefing is ready.', '/dashboard/brief').catch(e => console.warn('[Push] digest push failed:', e.message));
+    }, { timezone: 'Europe/London' });
+
+    // Weekly query evolution — Sunday 04:00 UTC
+    // Genetic algorithm: queries that produced leads survive, useless ones die
+    cron.schedule('0 4 * * 0', async () => {
+      console.log('[Evolution] Running weekly query evolution...');
+      try {
+        const { evolveGeneration, getEvolutionStats } = await import('./lib/aria/query_evolution.mjs');
+        evolveGeneration();
+        const stats = getEvolutionStats();
+        console.log(`[Evolution] Gen ${stats.generation} — ${stats.populationSize} queries, ${stats.totalHits} hits, ${stats.totalMisses} misses`);
+        if (telegramAlerter?.isConfigured) {
+          const top = stats.topQueries.slice(0, 3).map(q => `  "${q.query}" (fitness: ${q.fitness})`).join('\n');
+          await telegramAlerter.sendMessage(`🧬 *QUERY EVOLUTION — Gen ${stats.generation}*\n${stats.populationSize} queries, ${stats.totalHits} total hits\n\nTop performers:\n${top}`);
+        }
+      } catch (e) { console.error('[Evolution] Failed:', e.message); }
     }, { timezone: 'Europe/London' });
 
     // Weekly pattern analysis — Sunday 03:00 UTC
