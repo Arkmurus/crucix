@@ -32,7 +32,7 @@ import { analyzePatterns, formatPatternsForTelegram } from './lib/self/pattern_a
 import { runExploration, exploreQuery, formatExplorerFindingsForTelegram } from './lib/self/web_explorer.mjs';
 import { generateSourceModule, generateSourceFix, stageModule, getStagedModules, getStagedCode, formatStagedForTelegram } from './lib/self/code_generator.mjs';
 import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRestartFlag, triggerGracefulRestart, getAutoManagedModules } from './lib/self/updater.mjs';
-import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, recordOutcome, formatBDSummaryForTelegram, initBDStore } from './lib/self/bd_intelligence.mjs';
+import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, createDeal, recordOutcome, formatBDSummaryForTelegram, initBDStore } from './lib/self/bd_intelligence.mjs';
 import { screenDeal, getProductCategories } from './lib/compliance/screen.mjs';
 import { redisGet, redisSet, redisDel } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore } from './lib/auth/users.mjs';
@@ -710,8 +710,8 @@ if (telegramAlerter.isConfigured) {
       const opp = parts.slice(2).join(' ');
       if (!market || !opp) return '⚠️ Usage: /deal new [market] [opportunity]';
       try {
-        const result = updateDealStage(`new-${Date.now().toString(36)}`, 'IDENTIFIED', opp);
-        return `✅ Deal created for ${market}: ${opp.slice(0, 60)}`;
+        const result = createDeal(market, opp);
+        return `✅ Deal *${result.id}* created\n${market} | ${opp.slice(0, 60)}\nStage: IDENTIFIED`;
       } catch (e) { return `⚠️ Failed: ${e.message}`; }
     }
     return '⚠️ Usage: /deal | /deal new [market] [opp]';
