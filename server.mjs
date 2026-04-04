@@ -51,6 +51,7 @@ import { ProcurementDedup, SourcePruner } from './lib/sources/sourceMaintenance.
 import { startExplorerScheduler } from './lib/self/explorerScheduler.mjs';
 import { redisAdapter } from './lib/persist/redisAdapter.mjs';
 import { reliableRun } from './lib/orchestrator/retry.mjs';
+import ariaWhatsApp from './lib/whatsapp/ariaWhatsApp.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -876,6 +877,10 @@ app.use('/api/brain', express.json({ limit: '500kb' }));
 app.use('/api/',      express.json({ limit: '100kb' }));
 app.use('/api/',      express.urlencoded({ extended: true, limit: '50kb' }));
 app.use(express.json());  // fallback for non-API routes
+
+// ── WhatsApp (ARIA listens via Twilio) — mounted BEFORE rate limiting ───────
+// WhatsApp webhook uses urlencoded body (not JSON), parsed inside the router
+app.use('/api/whatsapp', ariaWhatsApp);
 
 // ── Rate limiting + XSS guard — BEFORE route registration ────────────────────
 applyRateLimiting(app);
@@ -2875,6 +2880,29 @@ async function start() {
 if (BRAIN_URL) {
   startExplorerScheduler(app, redisAdapter, notifyAdmin);
   console.log('[Init] Explorer auto-scheduler started (curiosity thread resolution)');
+}
+
+// ── Zoom bot proxy — forward /api/zoom/* to the Python Zoom service ─────────
+const ZOOM_BOT_URL = process.env.ZOOM_BOT_URL;
+if (ZOOM_BOT_URL) {
+  const zoomProxy = async (req, res) => {
+    const path = req.url;  // e.g. /health, /join, /active
+    try {
+      const opts = { method: req.method, headers: { 'Content-Type': 'application/json' } };
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        opts.body = JSON.stringify(req.body || {});
+      }
+      // Forward ARIA internal token for auth
+      if (req.headers.authorization) opts.headers['Authorization'] = req.headers.authorization;
+      const upstream = await fetch(`${ZOOM_BOT_URL}${path}`, opts);
+      const data = await upstream.json();
+      res.status(upstream.status).json(data);
+    } catch (e) {
+      res.status(502).json({ error: 'Zoom service unreachable', detail: e.message });
+    }
+  };
+  app.use('/api/zoom', zoomProxy);
+  console.log(`[Init] Zoom bot proxy → ${ZOOM_BOT_URL}`);
 }
 
 // ── Express error handler — MUST be last middleware ──────────────────────────
