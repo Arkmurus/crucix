@@ -623,6 +623,118 @@ if (telegramAlerter.isConfigured) {
     return null; // handleAriaCommand sends directly
   });
 
+  // ── New BD commands — OEM, HUMINT, Approach, Deal, Screen, Conference ──
+
+  telegramAlerter.onCommand('/oem', async (args) => {
+    if (!args?.trim()) return '⚠️ Usage: /oem [product] [market]\nExample: /oem UAV Angola';
+    try {
+      const { generateApproach } = await import('./lib/aria/approach.mjs');
+      const parts = args.trim().split(' ');
+      const product = parts[0];
+      const market = parts.slice(1).join(' ') || '';
+      const strategy = generateApproach(market || 'Angola', product, '');
+      if (!strategy.rankedOEMs?.length) return `No OEM matches for "${product}"`;
+      let msg = `🏭 *OEM MATCH — ${product.toUpperCase()}*${market ? ` | ${market}` : ''}\n\n`;
+      strategy.rankedOEMs.forEach((o, i) => {
+        msg += `*${i+1}. ${o.oem}* (${o.country}) ${o.itar ? '⚠️ITAR' : '✅non-ITAR'}\n`;
+        msg += `   Price: ${o.price} | Africa: ${o.africa}\n`;
+        msg += `   Products: ${o.products}\n\n`;
+      });
+      return msg;
+    } catch (e) { return `⚠️ OEM search failed: ${e.message}`; }
+  });
+
+  telegramAlerter.onCommand('/humint', async (args) => {
+    if (!args?.trim()) return '⚠️ Usage: /humint [market]\nExample: /humint Angola';
+    try {
+      const { getContactsByCountry } = await import('./lib/aria/contacts.mjs');
+      const contacts = getContactsByCountry(args.trim());
+      if (!contacts.length) return `No contacts found for ${args.trim()}. Add via /api/aria/contacts.`;
+      let msg = `👤 *DECISION MAKERS — ${args.trim().toUpperCase()}*\n${contacts.length} contacts\n\n`;
+      contacts.slice(0, 6).forEach(c => {
+        msg += `*${c.name}*\n`;
+        msg += `   ${c.title || c.role}\n`;
+        msg += `   ${c.organisation || ''}\n`;
+        if (c.influence) msg += `   Influence: ${c.influence}\n`;
+        if (c.notes) msg += `   _${(c.notes || '').slice(0, 100)}_\n`;
+        msg += '\n';
+      });
+      return msg;
+    } catch (e) { return `⚠️ HUMINT failed: ${e.message}`; }
+  });
+
+  telegramAlerter.onCommand('/approach', async (args) => {
+    if (!args?.trim()) return '⚠️ Usage: /approach [market] [product]\nExample: /approach Angola UAV';
+    try {
+      const { generateApproach } = await import('./lib/aria/approach.mjs');
+      const { generateGTMStrategy } = await import('./lib/aria/gtm_strategy.mjs');
+      const parts = args.trim().split(' ');
+      const market = parts[0];
+      const product = parts.slice(1).join(' ') || '';
+      const approach = generateApproach(market, product, '');
+      const gtm = generateGTMStrategy(market);
+      let msg = `⚙️ *APPROACH — ${market.toUpperCase()}*\n\n`;
+      msg += `Language: ${approach.profile.language} | Formality: ${approach.profile.formality}\n`;
+      msg += `Greeting: ${approach.profile.greeting}\n`;
+      if (gtm) msg += `Tier: *${gtm.tier}* | Time to deal: ${gtm.timeToFirstDeal}\n`;
+      msg += `\n*TOP OEMs:*\n`;
+      approach.rankedOEMs.slice(0, 3).forEach(o => {
+        msg += `  • ${o.oem} (${o.country}) — ${o.price} ${o.itar ? '⚠️ITAR' : ''}\n`;
+      });
+      msg += `\n*COMPLIANCE:*\n`;
+      approach.compliance.slice(0, 4).forEach(c => { msg += `  ✓ ${c}\n`; });
+      if (gtm?.playbook?.steps) {
+        msg += `\n*FIRST 3 STEPS:*\n`;
+        gtm.playbook.steps.slice(0, 3).forEach((s, i) => { msg += `  ${i+1}. ${s}\n`; });
+      }
+      return msg;
+    } catch (e) { return `⚠️ Approach failed: ${e.message}`; }
+  });
+
+  telegramAlerter.onCommand('/deal', async (args) => {
+    const parts = (args || '').trim().split(' ');
+    const sub = parts[0]?.toLowerCase();
+    if (!sub) {
+      // Show pipeline summary
+      const pipeline = getDealPipeline();
+      if (!pipeline.length) return '📊 Pipeline empty. Create a deal: /deal new [market] [opportunity]';
+      let msg = `📊 *BD PIPELINE* — ${pipeline.length} deals\n\n`;
+      pipeline.slice(0, 8).forEach(d => {
+        msg += `*${d.id || '?'}* | ${d.market} | ${d.stage}\n`;
+        msg += `  ${(d.title || d.opportunity || '').slice(0, 60)}\n\n`;
+      });
+      return msg;
+    }
+    if (sub === 'new') {
+      const market = parts[1] || '';
+      const opp = parts.slice(2).join(' ');
+      if (!market || !opp) return '⚠️ Usage: /deal new [market] [opportunity]';
+      try {
+        const result = updateDealStage(`new-${Date.now().toString(36)}`, 'IDENTIFIED', opp);
+        return `✅ Deal created for ${market}: ${opp.slice(0, 60)}`;
+      } catch (e) { return `⚠️ Failed: ${e.message}`; }
+    }
+    return '⚠️ Usage: /deal | /deal new [market] [opp]';
+  });
+
+  telegramAlerter.onCommand('/screen', async (args) => {
+    if (!args?.trim()) return '⚠️ Usage: /screen [entity name]';
+    try {
+      const { screenEntity } = await import('./lib/compliance/listRefresher.mjs');
+      const result = await screenEntity(args.trim());
+      const clean = result?.clean !== false;
+      return `${clean ? '✅' : '⛔'} *COMPLIANCE SCREEN — ${args.trim()}*\n\nResult: *${clean ? 'CLEAR' : 'FLAGGED'}*\n${result?.details || 'Pre-screen only. Legal review required before proceeding.'}`;
+    } catch (e) { return `⚠️ Screen failed: ${e.message}`; }
+  });
+
+  telegramAlerter.onCommand('/conf', async () => {
+    try {
+      const { searchKnowledge } = await import('./lib/aria/knowledge.mjs');
+      const result = searchKnowledge('defence exhibition conference 2026');
+      return result || '📅 Conference data available via ARIA. Ask: /aria What defence exhibitions should we attend?';
+    } catch { return '📅 Use /aria What defence exhibitions are coming up?'; }
+  });
+
   telegramAlerter.startPolling(config.telegram.botPollingInterval);
 }
 
