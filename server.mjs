@@ -50,6 +50,7 @@ import { errorTracker, configureTelemetry, SweepMonitor } from './lib/observabil
 import { ProcurementDedup, SourcePruner } from './lib/sources/sourceMaintenance.mjs';
 import { startExplorerScheduler } from './lib/self/explorerScheduler.mjs';
 import { redisAdapter } from './lib/persist/redisAdapter.mjs';
+import { reliableRun } from './lib/orchestrator/retry.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -1370,12 +1371,15 @@ app.get('/api/aria/gtm/:market', requireAuth, async (req, res) => {
 // On-demand research trigger — immediately explores a specific topic
 app.post('/api/aria/research', requireAuth, async (req, res) => {
   try {
-    const { topic, market, urgency } = req.body || {};
+    const { topic, market } = req.body || {};
     if (!topic) return res.status(400).json({ error: 'topic required' });
+    const safe = s => (s || '').trim().slice(0, 100).replace(/['"<>]/g, '');
+    const t = safe(topic);
+    const m = safe(market);
     const queries = [
-      topic + ' defence procurement 2026',
-      topic + ' military tender contract',
-      (market ? market + ' ' : '') + topic + ' latest news',
+      t + ' defence procurement 2026',
+      t + ' military tender contract',
+      (m ? m + ' ' : '') + t + ' latest news',
     ];
     const { runExploration } = await import('./lib/self/web_explorer.mjs');
     const findings = await runExploration(llmProvider, { queries });
@@ -2235,7 +2239,6 @@ async function runSweepCycle() {
     synthesized.entityTrajectory = analyzeEntityTrajectory(14);
 
     // Self-learning: detect sales opportunities on every sweep (with retry)
-    const { reliableRun } = await import('./lib/orchestrator/retry.mjs');
     const opportunities = await reliableRun('Opportunity Detection', detectOpportunities, [synthesized], {
       maxRetries: 1,
       onFailure: async (name, err) => {
