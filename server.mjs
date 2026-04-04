@@ -1350,6 +1350,14 @@ app.post('/api/aria/approach', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Orchestrator dead-letter queue (failed tasks)
+app.get('/api/admin/dlq', requireAdmin, async (req, res) => {
+  try {
+    const { getDLQ } = await import('./lib/orchestrator/retry.mjs');
+    res.json({ queue: getDLQ() });
+  } catch { res.json({ queue: [] }); }
+});
+
 // Go-To-Market Strategy API
 app.get('/api/aria/gtm/:market', requireAuth, async (req, res) => {
   try {
@@ -2226,16 +2234,17 @@ async function runSweepCycle() {
     // Entity trajectory — computed from archive history
     synthesized.entityTrajectory = analyzeEntityTrajectory(14);
 
-    // Self-learning: detect sales opportunities on every sweep
-    try {
-      const opportunities = await detectOpportunities(synthesized);
-      synthesized.opportunities = opportunities;
-      if (opportunities.length > 0) {
-        console.log(`[Self] ${opportunities.length} opportunity/ies detected (top: ${opportunities[0]?.market} score:${opportunities[0]?.score})`);
-      }
-    } catch (err) {
-      console.error('[Self] Opportunity detection failed (non-fatal):', err.message);
-      synthesized.opportunities = [];
+    // Self-learning: detect sales opportunities on every sweep (with retry)
+    const { reliableRun } = await import('./lib/orchestrator/retry.mjs');
+    const opportunities = await reliableRun('Opportunity Detection', detectOpportunities, [synthesized], {
+      maxRetries: 1,
+      onFailure: async (name, err) => {
+        if (telegramAlerter?.isConfigured) telegramAlerter.sendMessage(`⚠️ ${name} failed: ${err.message}`).catch(() => {});
+      },
+    });
+    synthesized.opportunities = opportunities || [];
+    if (opportunities?.length > 0) {
+      console.log(`[Self] ${opportunities.length} opportunity/ies detected (top: ${opportunities[0]?.market} score:${opportunities[0]?.score})`);
     }
 
     // Inject saved patterns + explorer findings into synthesized data for BD brain
@@ -2247,13 +2256,18 @@ async function runSweepCycle() {
       if (explorer?.findings) synthesized.explorerFindings = explorer;
     } catch (e) { console.warn('[Crucix] Pattern/explorer inject failed (non-fatal):', e.message); }
 
-    // BD Intelligence: real tenders + strategic ideas
-    try {
-      const bdResult = await runBDIntelligence(synthesized, null, llmProvider);
+    // BD Intelligence: real tenders + strategic ideas (with retry — most valuable output)
+    const bdResult = await reliableRun('BD Intelligence', runBDIntelligence, [synthesized, null, llmProvider], {
+      maxRetries: 2, delayMs: 5000,
+      onFailure: async (name, err) => {
+        if (telegramAlerter?.isConfigured) telegramAlerter.sendMessage(`🚨 ${name} FAILED after retries: ${err.message}`).catch(() => {});
+      },
+    });
+    if (bdResult) {
       synthesized.bdIntelligence = bdResult;
       console.log(`[BD] ${bdResult.counts.activeTenders} tenders · ${bdResult.counts.strategicIdeas} ideas · ${bdResult.counts.pipelineDeals} pipeline`);
-    } catch (err) {
-      console.error('[BD] BD intelligence failed (non-fatal):', err.message);
+    } else {
+      console.error('[BD] BD intelligence failed after retries — using cached data');
     }
 
     // Check restart flag — apply pending self-updates after sweep completes
