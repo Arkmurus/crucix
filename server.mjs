@@ -143,6 +143,7 @@ import('./lib/aria/knowledge.mjs').then(async (m) => {
 }).catch(err => console.error('[ARIA KB] init failed:', err.message));
 import('./lib/aria/intel_ledger.mjs').then(m => m.initLedger()).catch(err => console.error('[Intel Ledger] init failed:', err.message));
 import('./lib/aria/contacts.mjs').then(m => m.initContacts()).catch(err => console.error('[Contacts] init failed:', err.message));
+import('./lib/aria/competitors.mjs').then(m => m.initCompetitors()).catch(err => console.error('[Competitors] init failed:', err.message));
 
 // === SMTP Diagnostics ===
 const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
@@ -2237,6 +2238,12 @@ async function runSweepCycle() {
       const { ingestSweepSignals } = await import('./lib/aria/intel_ledger.mjs');
       ingestSweepSignals(currentData);
     } catch (e) { console.warn('[Intel Ledger] Ingest error (non-fatal):', e.message); }
+
+    // Scan for competitor movements
+    try {
+      const { scanForCompetitorMoves } = await import('./lib/aria/competitors.mjs');
+      scanForCompetitorMoves(currentData);
+    } catch (e) { console.warn('[Competitors] Scan error (non-fatal):', e.message); }
 
     if (telegramAlerter && telegramAlerter.isConfigured) {
       try {
