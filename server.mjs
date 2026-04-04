@@ -1522,6 +1522,20 @@ app.get('/api/admin/dlq', requireAdmin, async (req, res) => {
   } catch { res.json({ queue: [] }); }
 });
 
+// ARIA Correction API (user feedback for training quality)
+app.post('/api/aria/correct', requireAuth, async (req, res) => {
+  try {
+    const { originalQuery, originalResponse, correction, correctAnswer } = req.body || {};
+    if (!correction) return res.status(400).json({ error: 'correction required' });
+    const { recordCorrection } = await import('./lib/aria/training_data.mjs');
+    recordCorrection(originalQuery || '', originalResponse || '', correction, correctAnswer || '');
+    // Also store as learning in knowledge base
+    const { storeLearning } = await import('./lib/aria/knowledge.mjs');
+    storeLearning(correction, originalQuery || '');
+    res.json({ ok: true, message: 'Correction recorded — ARIA will learn from this' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Training Data API (for future proprietary LLM)
 app.get('/api/aria/training-data/stats', requireAdmin, async (req, res) => {
   try {
