@@ -24,8 +24,7 @@ REQUIREMENTS:
 ENV VARS (only ZOOM credentials are new — everything else already set):
   ZOOM_APP_CLIENT_ID       from https://marketplace.zoom.us
   ZOOM_APP_CLIENT_SECRET   from https://marketplace.zoom.us
-  BRAIN_SERVICE_URL        already set
-  ARIA_LLM_URL             already set
+  BRAIN_SERVICE_URL        already set (points back to main Crucix app)
   ARIA_INTERNAL_TOKEN      already set
   TELEGRAM_BOT_TOKEN       already set
   TELEGRAM_CHAT_ID         already set
@@ -33,7 +32,7 @@ ENV VARS (only ZOOM credentials are new — everything else already set):
 ═══════════════════════════════════════════════════════════════════════════
 """
 
-import os, json, re, asyncio, logging, threading, hmac, hashlib
+import os, json, re, asyncio, logging, threading, time
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 from functools import wraps
@@ -48,8 +47,7 @@ log = logging.getLogger("aria.zoom")
 
 ZOOM_CLIENT_ID     = os.getenv("ZOOM_APP_CLIENT_ID",    "")
 ZOOM_CLIENT_SECRET = os.getenv("ZOOM_APP_CLIENT_SECRET","")
-BRAIN_URL          = os.getenv("BRAIN_SERVICE_URL",     "http://localhost:5001")
-LLM_URL            = os.getenv("ARIA_LLM_URL",          "http://localhost:5050")
+BRAIN_URL          = os.getenv("BRAIN_SERVICE_URL",     "http://localhost:3117")
 INT_TOKEN          = os.getenv("ARIA_INTERNAL_TOKEN",   "aria-internal")
 TG_TOKEN           = os.getenv("TELEGRAM_BOT_TOKEN",    "")
 TG_CHAT_ID         = os.getenv("TELEGRAM_CHAT_ID",      "")
@@ -96,13 +94,11 @@ def detect_market(text):
 
 # ── API authentication ────────────────────────────────────────────────────────
 def require_internal_token(f):
-    """Validates ARIA_INTERNAL_TOKEN on API requests to prevent unauthorized access."""
+    """Validates ARIA_INTERNAL_TOKEN via Bearer header only."""
     @wraps(f)
     def decorated(*args, **kwargs):
         auth = freq.headers.get("Authorization", "")
         token = auth.replace("Bearer ", "") if auth.startswith("Bearer ") else ""
-        if not token:
-            token = freq.args.get("token", "")
         if not token or token != INT_TOKEN:
             return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
@@ -120,6 +116,8 @@ class MeetingSession:
         self.participants: Dict[str,str] = {}
         self.zoom_svc     = None
         self.cap_ctrl     = None
+        self._lock        = threading.Lock()
+        self.last_activity = time.time()
 
     # ── Join ──────────────────────────────────────────────────────────────────
     def join(self) -> bool:
@@ -161,9 +159,11 @@ class MeetingSession:
                 def onClosedCaptionMsgReceived(self, text:str, user_id:int, ts:int):
                     """Zoom calls this for every transcribed sentence."""
                     if not text.strip(): return
-                    speaker   = session_ref.participants.get(str(user_id),"Unknown")
-                    timestamp = datetime.now(timezone.utc).isoformat()
-                    session_ref.transcript.append((speaker, text.strip(), timestamp))
+                    with session_ref._lock:
+                        speaker   = session_ref.participants.get(str(user_id),"Unknown")
+                        timestamp = datetime.now(timezone.utc).isoformat()
+                        session_ref.transcript.append((speaker, text.strip(), timestamp))
+                        session_ref.last_activity = time.time()
                     log.info(f"  [{speaker}]: {text.strip()[:100]}")
                     threading.Thread(
                         target=session_ref._on_utterance,
@@ -175,7 +175,7 @@ class MeetingSession:
 
             self.cap_ctrl.SetEvent(CaptionHandler())
             try: self.cap_ctrl.StartReceiveClosedCaption()
-            except Exception: pass  # also triggers if host enables during meeting
+            except Exception: pass
 
         self.running = True
         log.info(f"✓ ARIA joined: {self.title} ({self.meeting_id})")
@@ -183,18 +183,20 @@ class MeetingSession:
 
     # ── Participant tracking ───────────────────────────────────────────────────
     def on_join(self, uid:int, name:str):
-        self.participants[str(uid)] = name
+        with self._lock:
+            self.participants[str(uid)] = name
         log.info(f"  + {name}")
         if name != BOT_NAME:
             self._chat("ARIA is present. I will flag compliance keywords and log intelligence signals in real time.")
 
     def on_leave(self, uid:int):
-        log.info(f"  - {self.participants.pop(str(uid),'?')} left")
+        with self._lock:
+            left = self.participants.pop(str(uid),'?')
+        log.info(f"  - {left} left")
 
     def on_end(self):
         self.running = False
         log.info("Meeting ended")
-        # Run debrief in a dedicated event loop (called from SDK callback thread)
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(self._debrief())
@@ -243,28 +245,35 @@ class MeetingSession:
     async def _signal(self, speaker:str, text:str, trigger:str):
         try:
             async with httpx.AsyncClient(timeout=5) as c:
-                await c.post(f"{BRAIN_URL}/api/brain/signal", json={
-                    "content":     text,
-                    "source":      f"zoom:{self.title}:{speaker}",
-                    "signal_type": "meeting_intelligence",
-                    "trigger":     trigger,
-                    "market":      detect_market(text),
-                })
-        except Exception: pass
+                await c.post(f"{BRAIN_URL}/api/brain/signal",
+                    headers={"Authorization": f"Bearer {INT_TOKEN}"},
+                    json={
+                        "content":     text,
+                        "source":      f"zoom:{self.title}:{speaker}",
+                        "signal_type": "meeting_intelligence",
+                        "trigger":     trigger,
+                        "market":      detect_market(text),
+                    })
+        except Exception as e:
+            log.warning(f"Signal failed: {e}")
 
     # ── Debrief ───────────────────────────────────────────────────────────────
     async def _debrief(self):
-        if not self.transcript:
+        with self._lock:
+            transcript_copy = list(self.transcript)
+            participants_copy = dict(self.participants)
+
+        if not transcript_copy:
             await self._tg(
                 f"📋 *{self.title}*\n_No transcript captured._\n"
                 "_Check: Zoom admin → Settings → In Meeting (Advanced) → Automated captions ON_"
             )
             return
 
-        participants = list(dict.fromkeys(s for s,_,_ in self.transcript))
+        participants = list(dict.fromkeys(s for s,_,_ in transcript_copy))
         formatted    = "\n".join(
             f"[{ts[11:16]}] {s}: {t}"
-            for s,t,ts in self.transcript
+            for s,t,ts in transcript_copy
         )[:12000]
 
         prompt = f"""You are ARIA. Analyse this Zoom meeting transcript.
@@ -278,65 +287,61 @@ Return JSON only:
 
         analysis = {}
         try:
-            async with httpx.AsyncClient(timeout=15) as c:
-                auth  = await c.post(f"{LLM_URL}/api/auth/login",
-                                     json={"email":"zoom@crucix.internal","password":INT_TOKEN})
-                token = auth.json().get("token","")
-
+            # Use /api/aria/chat (JSON, not streaming) via the main Crucix app
             async with httpx.AsyncClient(timeout=90) as c:
-                r = await c.post(f"{LLM_URL}/api/aria/chat/stream",
-                    headers={"Authorization":f"Bearer {token}"},
-                    json={"messages":[{"role":"user","content":prompt}],
-                          "stream":True,"temperature":0.1,"max_tokens":1500,
-                          "tools_enabled":False,"memory_enabled":True})
+                r = await c.post(f"{BRAIN_URL}/api/aria/chat",
+                    headers={"Content-Type": "application/json",
+                             "Authorization": f"Bearer {INT_TOKEN}"},
+                    json={"message": prompt, "session_id": f"zoom_{self.meeting_id}"})
 
-            full = ""
-            async for chunk in r.aiter_bytes():
-                for ln in chunk.decode(errors="ignore").split("\n"):
-                    if ln.startswith("data:"):
-                        try:
-                            ev = json.loads(ln[5:].strip())
-                            if ev.get("type")=="token": full += ev["content"]
-                        except Exception: pass
-
-            m = re.search(r"\{[\s\S]*\}", full)
-            if m: analysis = json.loads(m.group())
+            if r.status_code == 200:
+                data = r.json()
+                full = data.get("response", "") or data.get("answer", "")
+                m = re.search(r"\{[\s\S]*\}", full)
+                if m:
+                    analysis = json.loads(m.group())
+            else:
+                log.error(f"ARIA chat returned {r.status_code}")
+                analysis = {"summary": f"Debrief analysis unavailable (HTTP {r.status_code})", "action_items": []}
         except Exception as e:
             log.error(f"Debrief failed: {e}")
-            analysis = {"summary":f"Debrief failed: {e}","action_items":[]}
+            analysis = {"summary": f"Debrief failed: {e}", "action_items": []}
 
         # Auto-create deals
         auto = []
-        for sig in analysis.get("procurement_signals",[]):
+        for sig in analysis.get("procurement_signals", []):
             if sig.get("market") and sig.get("opportunity"):
                 try:
                     async with httpx.AsyncClient(timeout=8) as c:
                         r = await c.post(f"{BRAIN_URL}/api/brain/pipeline/create",
-                            json={"market":sig["market"],"opportunity":sig["opportunity"],
-                                  "note":f"From meeting: {self.title}"})
-                        if r.status_code==200:
-                            auto.append(f"Lead: {sig['market']} — {r.json().get('id','?')}")
-                except Exception: pass
+                            headers={"Authorization": f"Bearer {INT_TOKEN}"},
+                            json={"market": sig["market"], "opportunity": sig["opportunity"],
+                                  "note": f"From meeting: {self.title}"})
+                        if r.status_code == 200:
+                            auto.append(f"Lead: {sig['market']} — {r.json().get('id', '?')}")
+                except Exception as e:
+                    log.warning(f"Auto-create deal failed: {e}")
 
         await self._tg(_fmt(analysis, self.title, participants, auto, self.started_at))
 
         if rc:
-            key = f"crucix:meetings:{datetime.now().strftime('%Y%m%d_%H%M')}:{self.meeting_id}"
+            key = f"crucix:meetings:{self.started_at[:10].replace('-','')}:{self.meeting_id}"
             rc.setex(key, 30*86400, json.dumps({
-                "title":self.title,"date":self.started_at[:10],
-                "participants":participants,"transcript":self.transcript,
-                "analysis":analysis,"lines":len(self.transcript)
+                "title": self.title, "date": self.started_at[:10],
+                "participants": participants, "transcript": transcript_copy,
+                "analysis": analysis, "lines": len(transcript_copy)
             }))
-            log.info(f"Saved: {key} ({len(self.transcript)} lines)")
+            log.info(f"Saved: {key} ({len(transcript_copy)} lines)")
 
     async def _tg(self, text:str):
         if not TG_TOKEN or not TG_CHAT_ID: return
         try:
-            async with httpx.AsyncClient() as c:
+            async with httpx.AsyncClient(timeout=10) as c:
                 await c.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-                    json={"chat_id":TG_CHAT_ID,"text":text[:4096],
-                          "parse_mode":"Markdown","disable_web_page_preview":True})
-        except Exception: pass
+                    json={"chat_id": TG_CHAT_ID, "text": text[:4096],
+                          "parse_mode": "Markdown", "disable_web_page_preview": True})
+        except Exception as e:
+            log.warning(f"Telegram send failed: {e}")
 
 
 def _fmt(a:dict, title:str, parts:list, auto:list, started:str) -> str:
@@ -357,7 +362,7 @@ def _fmt(a:dict, title:str, parts:list, auto:list, started:str) -> str:
         msg += "\n"
     if a.get("compliance_flags"):
         msg += f"⚠️ *Compliance mentions:*\n"
-        for f in a["compliance_flags"]: msg += f"  • {f}\n"
+        for f_ in a["compliance_flags"]: msg += f"  • {f_}\n"
         msg += "_Legal review required._\n\n"
     if a.get("procurement_signals"):
         msg += "*Procurement signals:*\n"
@@ -378,10 +383,22 @@ def _fmt(a:dict, title:str, parts:list, auto:list, started:str) -> str:
 # ── Flask API ──────────────────────────────────────────────────────────────────
 app_api  = Flask("aria_zoom")
 sessions: Dict[str, MeetingSession] = {}
+_cleanup_lock = threading.Lock()
+
+def _cleanup_stale_sessions():
+    """Remove sessions that have been inactive for 12+ hours."""
+    cutoff = time.time() - 12 * 3600
+    with _cleanup_lock:
+        stale = [mid for mid, s in sessions.items()
+                 if not s.running and s.last_activity < cutoff]
+        for mid in stale:
+            del sessions[mid]
+            log.info(f"Cleaned up stale session: {mid}")
 
 @app_api.route("/join", methods=["POST"])
 @require_internal_token
 def api_join():
+    _cleanup_stale_sessions()
     d     = freq.json or {}
     url   = d.get("meeting_url","")
     title = d.get("title","Arkmurus Meeting")
@@ -389,12 +406,15 @@ def api_join():
     m = re.search(r"/j/(\d+)", url)
     if not m: return jsonify({"error":"Cannot parse meeting ID from URL"}),400
     mid   = m.group(1)
+    if mid in sessions and sessions[mid].running:
+        return jsonify({"error":"Already in this meeting","meeting_id":mid}),409
     pm    = re.search(r"[?&]pwd=([^&]+)", url)
     pwd   = d.get("password","") or (pm.group(1) if pm else "")
     sess  = MeetingSession(mid, pwd, title)
     def _join_and_store():
         if sess.join():
-            sessions[mid] = sess
+            with _cleanup_lock:
+                sessions[mid] = sess
     threading.Thread(target=_join_and_store, daemon=True).start()
     return jsonify({"status":"joining","meeting_id":mid,"bot_name":BOT_NAME})
 
@@ -403,7 +423,8 @@ def api_join():
 def api_leave():
     d   = freq.json or {}
     mid = d.get("meeting_id","")
-    s   = sessions.pop(mid, None)
+    with _cleanup_lock:
+        s = sessions.pop(mid, None)
     if s:
         s.running = False
         return jsonify({"status":"left","meeting_id":mid})
@@ -413,7 +434,7 @@ def api_leave():
 @require_internal_token
 def api_active():
     return jsonify({"count":len(sessions),"meetings":[
-        {"meeting_id":k,"title":v.title,"started":v.started_at,"lines":len(v.transcript)}
+        {"meeting_id":k,"title":v.title,"started":v.started_at,"lines":len(v.transcript),"running":v.running}
         for k,v in sessions.items()
     ]})
 
@@ -426,15 +447,19 @@ def api_transcript(mid):
             keys = rc.keys(f"crucix:meetings:*:{mid}")
             if keys: return jsonify(json.loads(rc.get(sorted(keys)[-1])))
         return jsonify({"error":"Not found"}),404
+    with s._lock:
+        transcript = list(s.transcript[-50:])
+        participants = list(s.participants.values())
     return jsonify({"meeting_id":mid,"title":s.title,
-                    "participants":list(s.participants.values()),
-                    "lines":len(s.transcript),"transcript":s.transcript[-50:]})
+                    "participants":participants,
+                    "lines":len(s.transcript),"transcript":transcript})
 
 @app_api.route("/health", methods=["GET"])
 def api_health():
     return jsonify({
         "status":"operational","bot":BOT_NAME,
-        "active":len(sessions),
+        "active":sum(1 for s in sessions.values() if s.running),
+        "total_sessions":len(sessions),
         "transcription":"Zoom built-in — no external service",
         "redis":"ok" if rc else "offline",
         "credentials_set":bool(ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET),
@@ -474,19 +499,3 @@ if __name__=="__main__":
 # redis>=5.0.0
 # flask>=3.0.0
 # python-dotenv>=1.0.0
-#
-# ──────────────────────────────────────────────────────────────────────────────
-# server.mjs (2 lines)
-# ──────────────────────────────────────────────────────────────────────────────
-# const ZOOM_BOT_URL = process.env.ZOOM_BOT_URL || 'http://localhost:5060';
-# app.use('/api/zoom', createProxyMiddleware({
-#   target: ZOOM_BOT_URL, changeOrigin: true,
-#   pathRewrite: { '^/api/zoom': '' }
-# }));
-#
-# ──────────────────────────────────────────────────────────────────────────────
-# Seenode env vars to add (only 3 new ones)
-# ──────────────────────────────────────────────────────────────────────────────
-# ZOOM_APP_CLIENT_ID     = from marketplace.zoom.us
-# ZOOM_APP_CLIENT_SECRET = from marketplace.zoom.us
-# ZOOM_BOT_URL           = https://your-zoom-bot.seenode.com

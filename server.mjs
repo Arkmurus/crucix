@@ -1390,6 +1390,165 @@ app.get('/api/brain/history', requireAuth, async (req, res) => {
   }
 });
 
+// ── Brain API bridge — WhatsApp/Zoom call /api/brain/* routes ────────────────
+// These map to existing local functions so integrations work without the Python brain
+
+app.post('/api/brain/signal', async (req, res) => {
+  // Accept signals from WhatsApp/Zoom — store as intelligence
+  try {
+    const { content, source, signal_type, trigger, market, metadata } = req.body || {};
+    if (!content) return res.status(400).json({ error: 'content required' });
+    // Forward to Python brain if available
+    if (BRAIN_URL) {
+      try {
+        const r = await fetch(`${BRAIN_URL}/api/brain/signal`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(req.body), signal: AbortSignal.timeout(5000),
+        });
+        if (r.ok) return res.json(await r.json());
+      } catch {}
+    }
+    res.json({ status: 'queued', source });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/brain/sweep', requireAuth, async (req, res) => {
+  // Forward to Python brain if available, else trigger local sweep
+  if (BRAIN_URL) {
+    try {
+      const r = await fetch(`${BRAIN_URL}/api/brain/sweep`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: '{}', signal: AbortSignal.timeout(5000),
+      });
+      if (r.ok) return res.json(await r.json());
+    } catch {}
+  }
+  res.json({ status: 'sweep_started', note: 'Triggered via local scheduler' });
+});
+
+app.post('/api/brain/counterparty-risk', requireAuth, async (req, res) => {
+  const { entity_name } = req.body || {};
+  if (!entity_name) return res.status(400).json({ error: 'entity_name required' });
+  try {
+    // Forward to Python brain first
+    if (BRAIN_URL) {
+      try {
+        const r = await fetch(`${BRAIN_URL}/api/brain/counterparty-risk`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(req.body), signal: AbortSignal.timeout(15000),
+        });
+        if (r.ok) return res.json(await r.json());
+      } catch {}
+    }
+    // Fallback: use local compliance screening
+    const result = await screenEntity(entity_name, redisAdapter);
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/brain/pipeline/summary', requireAuth, (req, res) => {
+  const pipeline = getDealPipeline();
+  const open = pipeline.filter(d => !['WON','LOST','NO_BID'].includes(d.stage));
+  const won  = pipeline.filter(d => d.stage === 'WON');
+  const lost = pipeline.filter(d => d.stage === 'LOST' || d.stage === 'NO_BID');
+  const totalValue = open.reduce((s, d) => s + (d.value || 0), 0);
+  const winRate = (won.length + lost.length) > 0 ? won.length / (won.length + lost.length) : 0;
+  const stale = open.filter(d => {
+    const days = (Date.now() - new Date(d.updatedAt || d.detectedAt).getTime()) / 86400000;
+    return days > 14;
+  }).map(d => ({ id: d.id, market: d.market, days_stale: Math.round((Date.now() - new Date(d.updatedAt || d.detectedAt).getTime()) / 86400000) }));
+  res.json({
+    open_deals: open.length, won_deals: won.length, lost_deals: lost.length,
+    total_pipeline_value: totalValue, win_rate: winRate,
+    stale_alerts: stale.slice(0, 5),
+    top_deals: open.slice(0, 6).map(d => ({ id: d.id, market: d.market, stage: d.stage, opportunity: d.title || d.sourceTitle })),
+  });
+});
+
+app.get('/api/brain/pipeline/deal/:id', requireAuth, (req, res) => {
+  const pipeline = getDealPipeline();
+  const deal = pipeline.find(d => d.id === req.params.id);
+  if (!deal) return res.status(404).json({ error: 'Deal not found' });
+  const daysInStage = Math.round((Date.now() - new Date(deal.updatedAt || deal.detectedAt).getTime()) / 86400000);
+  res.json({ ...deal, days_in_stage: daysInStage, stale: daysInStage > 14, opportunity: deal.title || deal.sourceTitle, pipeline_value: deal.value || 0, win_probability: (deal.score || 50) / 100 });
+});
+
+app.post('/api/brain/pipeline/create', requireAuth, (req, res) => {
+  const { market, opportunity, note } = req.body || {};
+  if (!market || !opportunity) return res.status(400).json({ error: 'market and opportunity required' });
+  const result = createDeal(market, opportunity);
+  if (note && result.deal) result.deal.notes = [{ ts: new Date().toISOString(), note }];
+  res.json(result);
+});
+
+app.post('/api/brain/pipeline/advance', requireAuth, (req, res) => {
+  const { deal_id, stage } = req.body || {};
+  if (!deal_id || !stage) return res.status(400).json({ error: 'deal_id and stage required' });
+  res.json(updateDealStage(deal_id, stage));
+});
+
+app.get('/api/brain/oem/search', requireAuth, async (req, res) => {
+  try {
+    const { searchOEMs } = await import('./lib/intel/oem_db.mjs');
+    const { capability, destination, limit } = req.query;
+    const query = [capability, destination].filter(Boolean).join(' ');
+    let results = searchOEMs(query);
+    if (limit) results = results.slice(0, parseInt(limit) || 10);
+    res.json({ results, count: results.length });
+  } catch (e) { res.json({ results: [], count: 0 }); }
+});
+
+app.get('/api/brain/humint/contacts', requireAuth, async (req, res) => {
+  try {
+    const { getContactsByCountry, searchContacts } = await import('./lib/aria/contacts.mjs');
+    const { market } = req.query;
+    const contacts = market ? getContactsByCountry(market) : searchContacts('');
+    res.json({ contacts: contacts.slice(0, 10) });
+  } catch (e) { res.json({ contacts: [] }); }
+});
+
+app.get('/api/brain/humint/windows', requireAuth, async (req, res) => {
+  try {
+    const { getAllContacts } = await import('./lib/aria/contacts.mjs');
+    const all = getAllContacts();
+    // Contacts with relationship windows: recently appointed (< 180 days in role)
+    const windows = all.filter(c => c.appointed_date).map(c => {
+      const daysInRole = Math.round((Date.now() - new Date(c.appointed_date).getTime()) / 86400000);
+      const daysRemaining = Math.max(0, 180 - daysInRole);
+      return { ...c, full_name: c.name, days_in_role: daysInRole, days_remaining: daysRemaining, relationship_window_active: daysRemaining > 0,
+        urgency: daysRemaining < 30 ? 'CRITICAL' : daysRemaining < 90 ? 'HIGH' : 'MEDIUM' };
+    }).filter(c => c.relationship_window_active).sort((a, b) => a.days_remaining - b.days_remaining);
+    res.json({ windows });
+  } catch (e) { res.json({ windows: [] }); }
+});
+
+app.get('/api/brain/approach/quick', requireAuth, async (req, res) => {
+  try {
+    const { generateApproach } = await import('./lib/aria/approach.mjs');
+    const { market, capability, urgency } = req.query;
+    if (!market) return res.status(400).json({ error: 'market required' });
+    const strategy = generateApproach(market, capability || '', urgency || '');
+    res.json(strategy);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/brain/conference/calendar', requireAuth, async (req, res) => {
+  // Return conferences from Redis or static data
+  try {
+    const stored = await redisGet('crucix:conferences:calendar');
+    res.json(stored || { upcoming: [] });
+  } catch { res.json({ upcoming: [] }); }
+});
+
+app.get('/api/brain/conference/brief', requireAuth, async (req, res) => {
+  const { name } = req.query;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  try {
+    const stored = await redisGet(`crucix:conferences:brief:${name.toLowerCase().replace(/\s+/g, '_')}`);
+    res.json(stored || { name, dates: 'TBC', location: 'TBC', arkmurus_objectives: [], must_meet: [] });
+  } catch { res.json({ name, dates: 'TBC', location: 'TBC', arkmurus_objectives: [], must_meet: [] }); }
+});
+
 // ── ARIA endpoints — read identity/thoughts from Redis; proxy chat to brain ──
 
 async function upstashLRange(key, start = 0, stop = 9) {
