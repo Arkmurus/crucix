@@ -136,7 +136,12 @@ const telegramAlerter = new TelegramAlerter(config.telegram);
 // === Auth & Push Initialization ===
 initAdminUser().catch(err => console.error('[Auth] initAdminUser failed:', err.message));
 initVapid().catch(err => console.error('[Push] initVapid failed:', err.message));
-import('./lib/aria/knowledge.mjs').then(m => m.initKnowledgeBase()).catch(err => console.error('[ARIA KB] init failed:', err.message));
+import('./lib/aria/knowledge.mjs').then(async (m) => {
+  await m.initKnowledgeBase();
+  const { seedKnowledgeBase } = await import('./lib/aria/seed_knowledge.mjs');
+  seedKnowledgeBase();
+}).catch(err => console.error('[ARIA KB] init failed:', err.message));
+import('./lib/aria/intel_ledger.mjs').then(m => m.initLedger()).catch(err => console.error('[Intel Ledger] init failed:', err.message));
 
 // === SMTP Diagnostics ===
 const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
@@ -1292,6 +1297,21 @@ app.post('/api/aria/knowledge/fact', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/aria/ledger', requireAuth, async (req, res) => {
+  try {
+    const { getLedgerStats } = await import('./lib/aria/intel_ledger.mjs');
+    res.json(getLedgerStats());
+  } catch { res.json({ totalSignals: 0 }); }
+});
+
+app.get('/api/aria/ledger/country/:country', requireAuth, async (req, res) => {
+  try {
+    const { getCountrySituation } = await import('./lib/aria/intel_ledger.mjs');
+    const sit = getCountrySituation(req.params.country);
+    res.json(sit || { country: req.params.country, signalCount: 0, recentSignals: [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/aria/knowledge/learn', requireAuth, async (req, res) => {
   try {
     const { correction, context } = req.body || {};
@@ -2174,6 +2194,12 @@ async function runSweepCycle() {
 
     memory.pruneAlertedSignals();
     currentData = synthesized;
+
+    // Store significant signals in Intel Ledger for ARIA long-term memory
+    try {
+      const { ingestSweepSignals } = await import('./lib/aria/intel_ledger.mjs');
+      ingestSweepSignals(currentData);
+    } catch (e) { console.warn('[Intel Ledger] Ingest error (non-fatal):', e.message); }
 
     if (telegramAlerter && telegramAlerter.isConfigured) {
       try {
