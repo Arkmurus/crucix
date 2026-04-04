@@ -58,12 +58,12 @@
   </div>
 
   <!-- Tabs -->
-  <div class="bd-tabs">
-    <button class="bd-tab active" onclick="switchTab('brain',this)"><i class="bi bi-cpu"></i> Brain Strategy <span class="sc-badge sc-badge-prime" id="cnt-brain">0</span></button>
-    <button class="bd-tab" onclick="switchTab('leads',this)"><i class="bi bi-lightning"></i> Sales Leads <span class="sc-badge sc-badge-orange" id="cnt-leads">0</span></button>
-    <button class="bd-tab" onclick="switchTab('tenders',this)"><i class="bi bi-file-earmark-text"></i> Tenders <span class="sc-badge sc-badge-blue" id="cnt-tenders">0</span></button>
-    <button class="bd-tab" onclick="switchTab('ideas',this)"><i class="bi bi-lightbulb"></i> Ideas <span class="sc-badge sc-badge-green" id="cnt-ideas">0</span></button>
-    <button class="bd-tab" onclick="switchTab('pipeline',this)"><i class="bi bi-kanban"></i> Pipeline <span class="sc-badge sc-badge-muted" id="cnt-pipeline">0</span></button>
+  <div class="bd-tabs" id="bd-tabs">
+    <button class="bd-tab active" data-tab="brain"><i class="bi bi-cpu"></i> Brain Strategy <span class="sc-badge sc-badge-prime" id="cnt-brain">0</span></button>
+    <button class="bd-tab" data-tab="leads"><i class="bi bi-lightning"></i> Sales Leads <span class="sc-badge sc-badge-orange" id="cnt-leads">0</span></button>
+    <button class="bd-tab" data-tab="tenders"><i class="bi bi-file-earmark-text"></i> Tenders <span class="sc-badge sc-badge-blue" id="cnt-tenders">0</span></button>
+    <button class="bd-tab" data-tab="ideas"><i class="bi bi-lightbulb"></i> Ideas <span class="sc-badge sc-badge-green" id="cnt-ideas">0</span></button>
+    <button class="bd-tab" data-tab="pipeline"><i class="bi bi-kanban"></i> Pipeline <span class="sc-badge sc-badge-muted" id="cnt-pipeline">0</span></button>
   </div>
 
   <div id="panel-brain"    class="bd-panel active"><div class="sc-loading-state"><div class="sc-spinner"></div>Loading…</div></div>
@@ -96,15 +96,19 @@
 Auth.requireAuth();
 Sidebar.init('bd');
 
-let bdData = null;
-let shareText = '';
+var bdData = null;
+var shareText = '';
 
-function switchTab(name, btn) {
-  document.querySelectorAll('.bd-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.bd-panel').forEach(p => p.classList.remove('active'));
+// Tab switching via event delegation
+document.getElementById('bd-tabs').addEventListener('click', function(e) {
+  var btn = e.target.closest('[data-tab]');
+  if (!btn) return;
+  var name = btn.getAttribute('data-tab');
+  document.querySelectorAll('.bd-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.bd-panel').forEach(function(p) { p.classList.remove('active'); });
   btn.classList.add('active');
   document.getElementById('panel-' + name).classList.add('active');
-}
+});
 
 function openShare(text, url) {
   shareText = text + (url ? '\n\n' + url : '') + '\n\n— CRUCIX Intelligence · intel.sursec.co.uk';

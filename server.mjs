@@ -2212,7 +2212,7 @@ async function runSweepCycle() {
       if (patterns?.patterns?.length) synthesized.patterns = patterns.patterns;
       const explorer = getExplorerFindings();
       if (explorer?.findings) synthesized.explorerFindings = explorer;
-    } catch {}
+    } catch (e) { console.warn('[Crucix] Pattern/explorer inject failed (non-fatal):', e.message); }
 
     // BD Intelligence: real tenders + strategic ideas
     try {

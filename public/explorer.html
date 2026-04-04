@@ -30,9 +30,9 @@
     <div class="sc-card-body">
       <div class="search-bar">
         <div class="sc-field" style="margin:0;flex:1">
-          <input type="text" id="search-input" placeholder="Search companies, entities, countries, topics…" onkeydown="if(event.key==='Enter')doSearch()">
+          <input type="text" id="search-input" placeholder="Search companies, entities, countries, topics…">
         </div>
-        <button class="sc-btn sc-btn-primary" onclick="doSearch()"><i class="bi bi-search"></i> Search</button>
+        <button type="button" class="sc-btn sc-btn-primary" id="btn-search"><i class="bi bi-search"></i> Search</button>
       </div>
       <div class="filter-row" id="filter-row"></div>
     </div>
@@ -50,6 +50,9 @@
 <script>
 Auth.requireAuth();
 Sidebar.init('explorer');
+
+document.getElementById('btn-search').addEventListener('click', doSearch);
+document.getElementById('search-input').addEventListener('keydown', function(e) { if (e.key === 'Enter') doSearch(); });
 
 // Restore last search
 const lastQuery = sessionStorage.getItem('explorer-query');
