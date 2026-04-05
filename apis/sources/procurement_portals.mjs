@@ -216,10 +216,28 @@ async function monitorMarket(market) {
 export async function briefing() {
   console.log(`[Portals] Monitoring ${PRIORITY_MARKETS.length} government procurement portals...`);
 
-  // Run all markets concurrently, capped by timeout
-  const results = await Promise.allSettled(
-    PRIORITY_MARKETS.map(m => monitorMarket(m))
+  // Run all markets concurrently with a 25s internal timeout
+  // This ensures we return results before the 30s source timeout kills us
+  const marketPromises = PRIORITY_MARKETS.map(m => monitorMarket(m));
+  const timeoutPromise = new Promise(resolve =>
+    setTimeout(() => resolve('TIMEOUT'), 25000)
   );
+
+  const raceResult = await Promise.race([
+    Promise.allSettled(marketPromises),
+    timeoutPromise,
+  ]);
+
+  // If timeout hit, collect whatever has resolved so far
+  let results;
+  if (raceResult === 'TIMEOUT') {
+    console.log('[Portals] 25s internal timeout — collecting partial results');
+    results = await Promise.allSettled(
+      marketPromises.map(p => Promise.race([p, new Promise(resolve => setTimeout(() => resolve({ market: { name: 'timeout' }, items: [], method: 'none' }), 100))]))
+    );
+  } else {
+    results = raceResult;
+  }
 
   const allItems = [];
   const sourceStatus = {};
