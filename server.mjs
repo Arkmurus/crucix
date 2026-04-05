@@ -1816,7 +1816,7 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, session_id: sid }),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(90000),
       });
       if (r.ok) return res.json(await r.json());
     } catch (e) { console.warn('[ARIA proxy] brain service unreachable, using local LLM:', e.message); }
