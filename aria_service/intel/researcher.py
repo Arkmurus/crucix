@@ -433,7 +433,7 @@ async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
 
 # ── Public: Autonomous research cycle ────────────────────────────────────────
 
-async def research_and_learn(llm: LLMProvider, max_articles: int = 12) -> dict:
+async def research_and_learn(llm: LLMProvider, max_articles: int = 15) -> dict:
     """
     ARIA's autonomous research cycle:
     1. Scan 30+ RSS feeds for relevant articles

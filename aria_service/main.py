@@ -65,11 +65,11 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning(f"LLM provider not configured — set LLM_PROVIDER + LLM_API_KEY")
 
-    # Start autonomous research scheduler (every 6 hours)
+    # Start autonomous research scheduler (every 30 minutes)
     research_task = None
     if llm and llm.is_configured:
         async def _research_loop():
-            await asyncio.sleep(120)  # Wait 2 min after startup before first research
+            await asyncio.sleep(60)  # Wait 1 min after startup before first research
             while True:
                 try:
                     logger.info("[Research] Starting autonomous research cycle...")
@@ -80,10 +80,10 @@ async def lifespan(app: FastAPI):
                     )
                 except Exception as e:
                     logger.warning(f"[Research] Cycle failed: {e}")
-                await asyncio.sleep(6 * 3600)  # Every 6 hours
+                await asyncio.sleep(30 * 60)  # Every 30 minutes
 
         research_task = asyncio.create_task(_research_loop())
-        logger.info("Research scheduler started (every 6h)")
+        logger.info("Research scheduler started (every 30min)")
 
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
     yield
