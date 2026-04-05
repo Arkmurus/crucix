@@ -53,6 +53,7 @@ import { redisAdapter } from './lib/persist/redisAdapter.mjs';
 import { reliableRun } from './lib/orchestrator/retry.mjs';
 import ariaWhatsApp from './lib/whatsapp/ariaWhatsApp.mjs';
 import { mountWAListener } from './lib/whatsapp/waListener.mjs';
+import { mountEmailReader } from './lib/aria/emailReader.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -3067,6 +3068,9 @@ if (ZOOM_BOT_URL) {
 
 // ── WhatsApp Listener (Baileys) — runs inside this process ──────────────────
 mountWAListener(app);
+
+// ── Email Intelligence Reader (LinkedIn alerts, Google Alerts, tender notifications) ──
+mountEmailReader(app);
 
 // ── Express error handler — MUST be last middleware ──────────────────────────
 app.use(errorTracker.expressMiddleware());
