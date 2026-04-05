@@ -25,6 +25,7 @@ from ..intel import (
 from ..intel.researcher import (
     research_and_learn,
     read_article,
+    read_document,
     validate_hypothesis,
     get_hypotheses,
     get_research_summary,
@@ -282,6 +283,21 @@ async def read_article_ep(request: Request):
         raise HTTPException(status_code=400, detail="url required")
     llm = get_llm(request)
     result = await read_article(llm, url, context)
+    return result
+
+
+# 25. POST /api/aria/read-document — Read a document (text content from any format)
+@router.post("/read-document")
+async def read_document_ep(request: Request):
+    body = await request.json()
+    content = body.get("content", "")
+    filename = body.get("filename", "unknown")
+    source = body.get("source", "document")
+    context = body.get("context", "")
+    if not content or len(content) < 30:
+        raise HTTPException(status_code=400, detail="content required (min 30 chars)")
+    llm = get_llm(request)
+    result = await read_document(llm, content, filename, source, context)
     return result
 
 

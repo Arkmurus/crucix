@@ -431,6 +431,74 @@ async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
     }
 
 
+# ── Public: Read a document (PDF, DOCX, text — already extracted) ────────────
+
+async def read_document(
+    llm: LLMProvider,
+    content: str,
+    filename: str = "unknown",
+    source: str = "document",
+    context: str = "",
+) -> dict:
+    """
+    Read a document's extracted text and learn from it.
+    Handles any format — the text extraction happens on the Node.js side
+    (WhatsApp/email already extract PDF, DOCX, TXT, CSV content).
+    """
+    if not llm or not llm.is_configured:
+        return {"error": "LLM not configured"}
+
+    t_start = time.time()
+    logger.info(f"ARIA reading document: {filename} ({len(content)} chars) from {source}")
+
+    # For long documents, process in chunks
+    chunks = []
+    if len(content) > 5000:
+        # Split into ~4000 char chunks with overlap
+        for i in range(0, len(content), 3500):
+            chunk = content[i:i + 4500]
+            if len(chunk) > 100:
+                chunks.append(chunk)
+    else:
+        chunks = [content]
+
+    total_facts = 0
+    total_hyp = 0
+    all_facts: list[dict] = []
+    hypotheses = await _load_hypotheses()
+
+    for i, chunk in enumerate(chunks[:5]):  # Max 5 chunks per document
+        doc_text = f"Document: {filename}\nSource: {source}\n"
+        if context:
+            doc_text += f"Context: {context}\n"
+        doc_text += f"Content (part {i + 1}/{min(len(chunks), 5)}):\n{chunk}"
+
+        existing_kb = search_knowledge(chunk[:200])
+        parsed = await _analyse_article(llm, doc_text, f"{source}:{filename}", existing_kb, hypotheses)
+
+        if parsed:
+            fl, hg = await _process_analysis(parsed, f"{source}:{filename}", hypotheses)
+            total_facts += fl
+            total_hyp += hg
+            all_facts.extend(parsed.get("facts", []))
+
+    await _save_hypotheses(hypotheses)
+
+    duration = int((time.time() - t_start) * 1000)
+    logger.info(f"Document read: {filename} → {total_facts} facts, {total_hyp} hypotheses ({duration}ms)")
+
+    return {
+        "filename": filename,
+        "source": source,
+        "content_length": len(content),
+        "chunks_processed": min(len(chunks), 5),
+        "facts_learned": total_facts,
+        "hypotheses_generated": total_hyp,
+        "facts": all_facts,
+        "duration_ms": duration,
+    }
+
+
 # ── Public: Autonomous research cycle ────────────────────────────────────────
 
 async def research_and_learn(llm: LLMProvider, max_articles: int = 15) -> dict:
