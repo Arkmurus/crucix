@@ -56,6 +56,28 @@ SEED_CONTACTS = [
     {"name": "Rodrigo Ferreira Campos", "country": "Brazil", "organisation": "Embraer Defence", "role": "oem_sales", "title": "Regional Director Africa & CPLP", "influence": "HIGH", "appointedDate": "2024-02-01"},
     {"name": "Cel. Marco Aurélio da Costa", "country": "Brazil", "organisation": "Brazilian MoD", "role": "defence_attache", "title": "Defence Cooperation Coordinator Lusophone Africa", "influence": "MEDIUM", "appointedDate": "2024-04-01"},
     {"name": "Col. Mustafa Demir", "country": "Turkey", "organisation": "Turkish Embassy Angola", "role": "defence_attache", "title": "Defence Attaché Angola", "influence": "MEDIUM", "appointedDate": "2025-01-20"},
+    # Saudi Arabia
+    {"name": "Eng. Ahmad Al-Ohali", "country": "Saudi Arabia", "organisation": "GAMI", "role": "procurement_authority", "title": "Governor, General Authority for Military Industries", "influence": "CRITICAL", "appointedDate": "2024-01-01"},
+    {"name": "Prince Fahad bin Abdulrahman", "country": "Saudi Arabia", "organisation": "Ministry of Defence", "role": "minister", "title": "Deputy Minister of Defence", "influence": "CRITICAL", "appointedDate": "2024-06-01"},
+    # UAE
+    {"name": "Faisal Al Bannai", "country": "UAE", "organisation": "EDGE Group", "role": "procurement_authority", "title": "CEO & Managing Director, EDGE Group", "influence": "CRITICAL", "appointedDate": "2023-01-01"},
+    {"name": "Staff Maj Gen Pilot Ibrahim Al Alawi", "country": "UAE", "organisation": "UAE Armed Forces", "role": "chief_of_staff", "title": "Chief of Staff, UAE Armed Forces", "influence": "CRITICAL", "appointedDate": "2024-03-01"},
+    # Indonesia
+    {"name": "Prabowo Subianto", "country": "Indonesia", "organisation": "Ministry of Defence", "role": "minister", "title": "President (former Defence Minister)", "influence": "CRITICAL", "appointedDate": "2024-10-20"},
+    {"name": "Gen. Agus Subiyanto", "country": "Indonesia", "organisation": "TNI", "role": "chief_of_staff", "title": "Commander, Indonesian National Armed Forces", "influence": "CRITICAL", "appointedDate": "2024-01-01"},
+    # Philippines
+    {"name": "Gilberto Teodoro Jr", "country": "Philippines", "organisation": "Department of National Defense", "role": "minister", "title": "Secretary of National Defense", "influence": "CRITICAL", "appointedDate": "2023-06-13"},
+    {"name": "Gen. Romeo Brawner Jr", "country": "Philippines", "organisation": "AFP", "role": "chief_of_staff", "title": "Chief of Staff, Armed Forces of Philippines", "influence": "CRITICAL", "appointedDate": "2024-01-01"},
+    # Poland
+    {"name": "Wladyslaw Kosiniak-Kamysz", "country": "Poland", "organisation": "Ministry of National Defence", "role": "minister", "title": "Minister of National Defence", "influence": "CRITICAL", "appointedDate": "2023-12-13"},
+    # India
+    {"name": "Rajnath Singh", "country": "India", "organisation": "Ministry of Defence", "role": "minister", "title": "Minister of Defence", "influence": "CRITICAL", "appointedDate": "2024-06-10"},
+    # Ghana
+    {"name": "Edward Bawa", "country": "Ghana", "organisation": "Ministry of Defence", "role": "minister", "title": "Minister of Defence", "influence": "CRITICAL", "appointedDate": "2025-01-07"},
+    # Senegal
+    {"name": "Birame Diop", "country": "Senegal", "organisation": "Ministry of Armed Forces", "role": "minister", "title": "Minister of Armed Forces", "influence": "CRITICAL", "appointedDate": "2024-04-05"},
+    # Ethiopia
+    {"name": "Abraham Belay", "country": "Ethiopia", "organisation": "Ministry of Defence", "role": "minister", "title": "Minister of Defence", "influence": "CRITICAL", "appointedDate": "2024-07-01"},
 ]
 
 

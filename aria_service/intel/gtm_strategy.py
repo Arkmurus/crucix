@@ -59,6 +59,17 @@ MARKETS = {
     "Philippines": {"tier": "COLD_ENTRY", "exhibition": "ADAS (Manila)", "language": "English", "best_oem": "Various (diversifying from US FMS)", "offset": "Informal", "key_relationship": "DND Procurement"},
     "Saudi Arabia": {"tier": "COLD_ENTRY", "exhibition": "IDEX/WDS", "language": "Arabic/English", "best_oem": "European primes", "offset": "50-60% via GAMI", "key_relationship": "GAMI gatekeeper"},
     "UAE": {"tier": "COLD_ENTRY", "exhibition": "IDEX", "language": "Arabic/English", "best_oem": "EDGE subsidiary + OEM", "offset": "60% Tawazun", "key_relationship": "EDGE Group"},
+    "India": {"tier": "COLD_ENTRY", "exhibition": "DefExpo (Feb)", "language": "English", "best_oem": "European non-ITAR", "offset": "30%+ Make in India", "key_relationship": "MoD Acquisition Wing"},
+    "Poland": {"tier": "COLD_ENTRY", "exhibition": "MSPO Kielce (Sep)", "language": "English/Polish", "best_oem": "Hanwha, Lockheed, BAE", "offset": "Industrial cooperation", "key_relationship": "Armament Agency"},
+    "Egypt": {"tier": "COLD_ENTRY", "exhibition": "EDEX (Dec)", "language": "Arabic/English", "best_oem": "European + Korean", "offset": "Arab Industrial Organisation", "key_relationship": "MoD Procurement"},
+    "Morocco": {"tier": "COLD_ENTRY", "exhibition": "None regular", "language": "French/Arabic", "best_oem": "French/US", "offset": "Informal", "key_relationship": "Royal Armed Forces HQ"},
+    "Colombia": {"tier": "COLD_ENTRY", "exhibition": "ExpoDefensa (Dec)", "language": "Spanish", "best_oem": "US/Israeli/European", "offset": "Informal", "key_relationship": "MoD Acquisition"},
+    "Australia": {"tier": "COLD_ENTRY", "exhibition": "Land Forces (Oct)", "language": "English", "best_oem": "AUKUS partners", "offset": "AIC programme", "key_relationship": "CASG"},
+    "Japan": {"tier": "COLD_ENTRY", "exhibition": "DSEI Japan (Mar)", "language": "English/Japanese", "best_oem": "US alliance only", "offset": "Licensed production", "key_relationship": "ATLA"},
+    "Turkey": {"tier": "COLD_ENTRY", "exhibition": "IDEF Istanbul (May)", "language": "English/Turkish", "best_oem": "Domestic SSB", "offset": "Co-production", "key_relationship": "SSB (Defence Industry Agency)"},
+    "Vietnam": {"tier": "COLD_ENTRY", "exhibition": "None regular", "language": "English/Vietnamese", "best_oem": "Israeli/Indian/Korean", "offset": "Informal", "key_relationship": "General Dept of Defence Industry"},
+    "Romania": {"tier": "COLD_ENTRY", "exhibition": "BSDA Bucharest (Jun)", "language": "English/Romanian", "best_oem": "NATO-standard", "offset": "Industrial cooperation", "key_relationship": "MoD DPA"},
+    "South Korea": {"tier": "COLD_ENTRY", "exhibition": "ADEX Seoul (Oct)", "language": "English/Korean", "best_oem": "Domestic DAPA", "offset": "Technology transfer", "key_relationship": "DAPA"},
 }
 
 
