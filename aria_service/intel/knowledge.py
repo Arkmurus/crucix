@@ -15,9 +15,9 @@ from . import redis_store as rs
 logger = logging.getLogger("aria.intel.knowledge")
 
 KEY = "crucix:aria:knowledge"
-MAX_FACTS = 500
-MAX_QUERIES = 500
-MAX_LEARNINGS = 200
+MAX_FACTS = 5000
+MAX_QUERIES = 5000
+MAX_LEARNINGS = 2000
 
 _cache: dict[str, list] | None = None
 

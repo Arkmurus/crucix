@@ -179,7 +179,7 @@ async def _load_hypotheses() -> list[dict]:
 
 
 async def _save_hypotheses(hypotheses: list[dict]) -> None:
-    await rs.set_json(HYPOTHESIS_KEY, hypotheses[:50])
+    await rs.set_json(HYPOTHESIS_KEY, hypotheses[:200])
 
 
 async def _get_read_urls() -> set:
@@ -191,7 +191,7 @@ async def _mark_read(url: str) -> None:
     urls = await _get_read_urls()
     urls.add(url)
     # Keep last 500
-    url_list = list(urls)[-500:]
+    url_list = list(urls)[-5000:]
     await rs.set_json(ARTICLES_READ_KEY, url_list)
 
 
@@ -467,7 +467,7 @@ async def read_document(
     all_facts: list[dict] = []
     hypotheses = await _load_hypotheses()
 
-    for i, chunk in enumerate(chunks[:5]):  # Max 5 chunks per document
+    for i, chunk in enumerate(chunks):  # No limit — process entire document
         doc_text = f"Document: {filename}\nSource: {source}\n"
         if context:
             doc_text += f"Context: {context}\n"
@@ -501,7 +501,7 @@ async def read_document(
 
 # ── Public: Autonomous research cycle ────────────────────────────────────────
 
-async def research_and_learn(llm: LLMProvider, max_articles: int = 15) -> dict:
+async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
     """
     ARIA's autonomous research cycle:
     1. Scan 30+ RSS feeds for relevant articles
@@ -530,7 +530,7 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 15) -> dict:
     # ── Step 2: Web search on rotating topics ─────────────────────────────
     # Pick 3 search queries based on current hour (rotates through all 20)
     hour = datetime.now(timezone.utc).hour
-    search_indices = [(hour * 3 + i) % len(WEB_SEARCH_QUERIES) for i in range(3)]
+    search_indices = [(hour * 5 + i) % len(WEB_SEARCH_QUERIES) for i in range(5)]
     for idx in search_indices:
         query = WEB_SEARCH_QUERIES[idx]
         results = await _web_search(query)
