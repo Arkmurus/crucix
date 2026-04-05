@@ -30,6 +30,12 @@ from ..intel.researcher import (
     get_hypotheses,
     get_research_summary,
 )
+from ..intel.deep_researcher import (
+    crawl_website,
+    investigate,
+    analyse_scenarios,
+    build_profile,
+)
 
 router = APIRouter(prefix="/api/aria", tags=["aria"])
 
@@ -324,3 +330,54 @@ async def validate_hypothesis_ep(request: Request):
 async def research_summary_ep(request: Request):
     llm = get_llm(request)
     return await get_research_summary(llm)
+
+
+# ── Deep Research Endpoints ──────────────────────────────────────────────────
+
+# 26. POST /api/aria/crawl — Crawl a website, follow links, read everything
+@router.post("/crawl")
+async def crawl_ep(request: Request):
+    body = await request.json()
+    url = body.get("url", "")
+    max_pages = body.get("max_pages", 20)
+    context = body.get("context", "")
+    if not url:
+        raise HTTPException(status_code=400, detail="url required")
+    llm = get_llm(request)
+    return await crawl_website(llm, url, max_pages, context)
+
+
+# 27. POST /api/aria/investigate — Deep multi-source investigation
+@router.post("/investigate")
+async def investigate_ep(request: Request):
+    body = await request.json()
+    topic = body.get("topic", "")
+    depth = body.get("depth", "thorough")
+    if not topic:
+        raise HTTPException(status_code=400, detail="topic required")
+    llm = get_llm(request)
+    return await investigate(llm, topic, depth)
+
+
+# 28. POST /api/aria/scenarios — Strategic scenario analysis
+@router.post("/scenarios")
+async def scenarios_ep(request: Request):
+    body = await request.json()
+    situation = body.get("situation", "")
+    num_scenarios = body.get("num_scenarios", 4)
+    if not situation:
+        raise HTTPException(status_code=400, detail="situation required")
+    llm = get_llm(request)
+    return await analyse_scenarios(llm, situation, num_scenarios)
+
+
+# 29. POST /api/aria/profile — Build intelligence profile on entity
+@router.post("/profile")
+async def profile_ep(request: Request):
+    body = await request.json()
+    entity = body.get("entity", "")
+    profile_type = body.get("type", "auto")
+    if not entity:
+        raise HTTPException(status_code=400, detail="entity required")
+    llm = get_llm(request)
+    return await build_profile(llm, entity, profile_type)
