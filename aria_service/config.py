@@ -23,8 +23,14 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379", alias="REDIS_URL")
 
     # ── Server ───────────────────────────────────────────────────────────────
+    # Reads ARIA_PORT first, then falls back to PORT (Render sets PORT dynamically)
     port: int = Field(default=8000, alias="ARIA_PORT")
     host: str = Field(default="0.0.0.0", alias="ARIA_HOST")
+
+    @property
+    def effective_port(self) -> int:
+        import os
+        return int(os.getenv("PORT", str(self.port)))
 
     # ── Auth ─────────────────────────────────────────────────────────────────
     api_key: str = Field(default="", alias="ARIA_API_KEY")

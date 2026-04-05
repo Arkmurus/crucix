@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning(f"LLM provider not configured — set LLM_PROVIDER + LLM_API_KEY")
 
-    logger.info(f"ARIA Service ready on {settings.host}:{settings.port}")
+    logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────
@@ -123,6 +123,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "aria_service.main:app",
         host=settings.host,
-        port=settings.port,
+        port=settings.effective_port,
         reload=False,
     )

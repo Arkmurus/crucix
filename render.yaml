@@ -19,7 +19,26 @@ services:
         fromGroup: crucix-secrets
       - key: TELEGRAM_CHAT_ID
         fromGroup: crucix-secrets
+      - key: ARIA_SERVICE_URL
+        fromGroup: crucix-secrets
     disk:
       name: runs-data
       mountPath: /app/runs
       sizeGB: 1
+
+  - type: web
+    name: crucix-aria
+    runtime: docker
+    plan: free
+    dockerfilePath: aria_service/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ARIA_PORT
+        value: "8000"
+      - key: LLM_PROVIDER
+        fromGroup: crucix-secrets
+      - key: LLM_API_KEY
+        fromGroup: crucix-secrets
+      - key: REDIS_URL
+        fromGroup: crucix-secrets
