@@ -22,6 +22,12 @@ from ..intel import (
     training_data,
     redis_store as rs,
 )
+from ..intel.researcher import (
+    research_and_learn,
+    validate_hypothesis,
+    get_hypotheses,
+    get_research_summary,
+)
 
 router = APIRouter(prefix="/api/aria", tags=["aria"])
 
@@ -253,3 +259,38 @@ async def think_ep(req: ThinkRequest, request: Request):
     intel = get_intel_data(request)
     result = await aria_think(req.question, req.context, llm, intel)
     return result
+
+
+# ── Research & Learning Endpoints ────────────────────────────────────────────
+
+# 20. POST /api/aria/research/auto — Run autonomous research cycle
+@router.post("/research/auto")
+async def research_auto_ep(request: Request):
+    llm = get_llm(request)
+    result = await research_and_learn(llm)
+    return result
+
+
+# 21. GET /api/aria/hypotheses — ARIA's current hypotheses
+@router.get("/hypotheses")
+async def hypotheses_ep():
+    return {"hypotheses": await get_hypotheses()}
+
+
+# 22. POST /api/aria/hypotheses/validate — Validate a specific hypothesis
+@router.post("/hypotheses/validate")
+async def validate_hypothesis_ep(request: Request):
+    body = await request.json()
+    hypothesis = body.get("hypothesis", "")
+    if not hypothesis:
+        raise HTTPException(status_code=400, detail="hypothesis required")
+    llm = get_llm(request)
+    result = await validate_hypothesis(llm, hypothesis)
+    return result
+
+
+# 23. GET /api/aria/research/summary — What ARIA has learned
+@router.get("/research/summary")
+async def research_summary_ep(request: Request):
+    llm = get_llm(request)
+    return await get_research_summary(llm)

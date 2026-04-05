@@ -11,6 +11,7 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -21,6 +22,7 @@ from .config import settings
 from .llm.factory import create_llm_provider
 from .intel import redis_store as rs
 from .intel import knowledge, intel_ledger, contacts, competitors, training_data
+from .intel.researcher import research_and_learn
 from .routes.aria import router as aria_router
 
 logging.basicConfig(
@@ -63,10 +65,32 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning(f"LLM provider not configured — set LLM_PROVIDER + LLM_API_KEY")
 
+    # Start autonomous research scheduler (every 6 hours)
+    research_task = None
+    if llm and llm.is_configured:
+        async def _research_loop():
+            await asyncio.sleep(120)  # Wait 2 min after startup before first research
+            while True:
+                try:
+                    logger.info("[Research] Starting autonomous research cycle...")
+                    result = await research_and_learn(llm)
+                    logger.info(
+                        f"[Research] Complete: {result.get('facts_learned', 0)} facts, "
+                        f"{result.get('hypotheses_generated', 0)} hypotheses"
+                    )
+                except Exception as e:
+                    logger.warning(f"[Research] Cycle failed: {e}")
+                await asyncio.sleep(6 * 3600)  # Every 6 hours
+
+        research_task = asyncio.create_task(_research_loop())
+        logger.info("Research scheduler started (every 6h)")
+
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────
+    if research_task:
+        research_task.cancel()
     logger.info("ARIA Service shutting down")
 
 
