@@ -24,6 +24,7 @@ from ..intel import (
 )
 from ..intel.researcher import (
     research_and_learn,
+    read_article,
     validate_hypothesis,
     get_hypotheses,
     get_research_summary,
@@ -268,6 +269,19 @@ async def think_ep(req: ThinkRequest, request: Request):
 async def research_auto_ep(request: Request):
     llm = get_llm(request)
     result = await research_and_learn(llm)
+    return result
+
+
+# 24. POST /api/aria/read — Read a specific article URL
+@router.post("/read")
+async def read_article_ep(request: Request):
+    body = await request.json()
+    url = body.get("url", "")
+    context = body.get("context", "")
+    if not url:
+        raise HTTPException(status_code=400, detail="url required")
+    llm = get_llm(request)
+    result = await read_article(llm, url, context)
     return result
 
 

@@ -5,6 +5,11 @@ ARIA doesn't just respond to questions — she actively reads defence/security a
 extracts intelligence, cross-references with existing knowledge, validates or challenges
 her own hypotheses, and grows her domain expertise over time.
 
+Three modes of learning:
+1. AUTONOMOUS — scans 30+ RSS feeds + web searches every 6 hours
+2. ON-DEMAND — reads any article URL you give her
+3. WHATSAPP — reads articles shared via WhatsApp links
+
 This is what makes ARIA a learning analyst, not a chatbot.
 """
 from __future__ import annotations
@@ -26,66 +31,146 @@ from .intel_ledger import _cache as ledger_cache
 
 logger = logging.getLogger("aria.researcher")
 
-# ── Defence & Security Research Sources ──────────────────────────────────────
+# ── GLOBAL Defence & Security Research Sources ───────────────────────────────
 
 RESEARCH_FEEDS = [
-    # Tier 1: Core defence procurement intelligence
+    # ── Global Defence Procurement ────────────────────────────────────────
     {"name": "Defense News", "url": "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml", "category": "defence_procurement"},
     {"name": "Janes", "url": "https://www.janes.com/feeds/news", "category": "defence_industry"},
-    {"name": "SIPRI Blog", "url": "https://www.sipri.org/rss.xml", "category": "arms_trade"},
-    {"name": "DefenceWeb", "url": "https://www.defenceweb.co.za/feed/", "category": "africa_defence"},
     {"name": "Defense One", "url": "https://www.defenseone.com/rss/", "category": "defence_policy"},
-    {"name": "Naval News", "url": "https://www.navalnews.com/feed/", "category": "naval"},
     {"name": "The Defense Post", "url": "https://www.thedefensepost.com/feed/", "category": "defence_news"},
     {"name": "Army Recognition", "url": "https://www.armyrecognition.com/rss", "category": "land_systems"},
+    {"name": "Naval News", "url": "https://www.navalnews.com/feed/", "category": "naval"},
+    {"name": "Air Force Technology", "url": "https://www.airforce-technology.com/feed/", "category": "aerospace"},
+    {"name": "Army Technology", "url": "https://www.army-technology.com/feed/", "category": "land_systems"},
+    {"name": "Naval Technology", "url": "https://www.naval-technology.com/feed/", "category": "naval"},
+    {"name": "Shephard Media", "url": "https://www.shephardmedia.com/feed/", "category": "defence_industry"},
 
-    # Tier 2: Geopolitics & security
-    {"name": "ISS Africa", "url": "https://issafrica.org/iss-today/feed", "category": "africa_security"},
-    {"name": "IISS", "url": "https://www.iiss.org/rss", "category": "strategic_studies"},
-    {"name": "War on the Rocks", "url": "https://warontherocks.com/feed/", "category": "strategy"},
-    {"name": "RUSI", "url": "https://www.rusi.org/rss.xml", "category": "defence_research"},
-    {"name": "Chatham House", "url": "https://www.chathamhouse.org/rss.xml", "category": "geopolitics"},
-
-    # Tier 3: Export controls & compliance
-    {"name": "Export Compliance Daily", "url": "https://www.bis.doc.gov/index.php/component/rssfeed/feed/2-federal-register-notices?format=feed", "category": "export_controls"},
+    # ── Arms Trade & Policy ───────────────────────────────────────────────
+    {"name": "SIPRI Blog", "url": "https://www.sipri.org/rss.xml", "category": "arms_trade"},
     {"name": "DSCA Major Arms Sales", "url": "https://www.dsca.mil/press-media/major-arms-sales/feed", "category": "fms"},
+    {"name": "IISS", "url": "https://www.iiss.org/rss", "category": "strategic_studies"},
+    {"name": "RUSI", "url": "https://www.rusi.org/rss.xml", "category": "defence_research"},
+    {"name": "War on the Rocks", "url": "https://warontherocks.com/feed/", "category": "strategy"},
+    {"name": "Chatham House", "url": "https://www.chathamhouse.org/rss.xml", "category": "geopolitics"},
+    {"name": "CSIS", "url": "https://www.csis.org/rss.xml", "category": "strategy"},
+    {"name": "RAND", "url": "https://www.rand.org/pubs/rss.xml", "category": "defence_research"},
 
-    # Tier 4: Lusophone Africa focus
+    # ── Regional: Africa ──────────────────────────────────────────────────
+    {"name": "DefenceWeb", "url": "https://www.defenceweb.co.za/feed/", "category": "africa_defence"},
+    {"name": "ISS Africa", "url": "https://issafrica.org/iss-today/feed", "category": "africa_security"},
     {"name": "DW Africa", "url": "https://rss.dw.com/xml/rss-en-africa", "category": "africa_news"},
     {"name": "Africa Confidential", "url": "https://www.africa-confidential.com/rss", "category": "africa_intelligence"},
     {"name": "Club of Mozambique", "url": "https://clubofmozambique.com/feed/", "category": "mozambique"},
+
+    # ── Regional: Middle East ─────────────────────────────────────────────
+    {"name": "Al-Monitor Defence", "url": "https://www.al-monitor.com/rss", "category": "middle_east"},
+    {"name": "Middle East Eye", "url": "https://www.middleeasteye.net/rss", "category": "middle_east"},
+
+    # ── Regional: Asia-Pacific ────────────────────────────────────────────
+    {"name": "The Diplomat", "url": "https://thediplomat.com/feed/", "category": "asia_pacific"},
+    {"name": "Asia Times", "url": "https://asiatimes.com/feed/", "category": "asia_pacific"},
+
+    # ── Regional: Europe & NATO ───────────────────────────────────────────
+    {"name": "EurActiv Defence", "url": "https://www.euractiv.com/sections/defence-and-security/feed/", "category": "europe_defence"},
+    {"name": "Breaking Defense", "url": "https://breakingdefense.com/feed/", "category": "defence_procurement"},
+
+    # ── Export Controls & Compliance ──────────────────────────────────────
+    {"name": "BIS Federal Register", "url": "https://www.bis.doc.gov/index.php/component/rssfeed/feed/2-federal-register-notices?format=feed", "category": "export_controls"},
 ]
 
-# ── ARIA's Research Interests (what she's looking for) ───────────────────────
+# ── ARIA's Research Interests — GLOBAL scope ─────────────────────────────────
 
 RESEARCH_INTERESTS = [
-    "defence procurement tender contract award",
-    "military modernisation programme budget",
-    "arms export licence approval denial",
-    "defence cooperation agreement MOU bilateral",
-    "artillery howitzer ammunition acquisition",
-    "armoured vehicle IFV APC procurement",
-    "UAV drone unmanned aerial system military",
-    "patrol vessel corvette frigate naval programme",
-    "air defence radar SAM missile system",
-    "defence offset industrial participation",
-    "Angola Mozambique Guinea-Bissau Cape Verde military",
-    "Nigeria Kenya Ghana Senegal defence budget",
-    "Turkish defence export Baykar Otokar FNSS Africa",
-    "Chinese military export Norinco AVIC Africa",
-    "South Korean defence export Hanwha KAI",
-    "Russian arms replacement sanction alternative",
-    "UK export control ECJU SPIRE licence",
-    "ITAR EAR OFAC sanctions compliance",
-    "CPLP defence cooperation Portuguese",
-    "Cabo Delgado insurgency Mozambique military",
-    "counter-terrorism equipment Africa procurement",
-    "maritime security Gulf of Guinea piracy",
+    # Global procurement
+    "defence procurement tender contract award billion million",
+    "military modernisation programme budget acquisition",
+    "arms deal export agreement signed delivered",
+    "defence cooperation bilateral MOU agreement partnership",
+    "offset industrial participation local content requirement",
+    "defence budget increase spending military allocation",
+    "FMS foreign military sale DSCA notification",
+
+    # Platforms & systems
+    "fighter aircraft F-35 Rafale Eurofighter Gripen Su-35 J-10",
+    "armoured vehicle IFV APC MRAP tank Leopard Abrams K2",
+    "artillery howitzer K9 CAESAR M777 ammunition calibre",
+    "UAV drone unmanned Bayraktar Anka Wing Loong MQ-9 Heron",
+    "patrol vessel corvette frigate submarine destroyer OPV",
+    "air defence SAM missile radar Patriot THAAD Iron Dome S-400",
+    "helicopter Blackhawk Apache Chinook NH90 Tiger",
+    "missile cruise anti-ship ATACMS HIMARS JASSM",
+
+    # Key OEMs & exporters
+    "Lockheed Martin Boeing Raytheon Northrop General Dynamics",
+    "BAE Systems Leonardo Rheinmetall Thales MBDA Dassault",
+    "Turkish defence Baykar TAI Otokar FNSS Aselsan Roketsan",
+    "Chinese military Norinco AVIC CATIC Poly Technologies",
+    "South Korean Hanwha KAI Hyundai Rotem LIG Nex1",
+    "Israeli Elbit Rafael IAI EuroSpike Iron Dome",
+    "Russian arms Rostec Almaz Antey Sukhoi replacement sanction",
+    "Indian defence DRDO HAL BrahMos Tejas",
+    "Embraer Paramount Denel South African",
+
+    # Key markets & regions
+    "Angola Mozambique Guinea-Bissau Cape Verde military FAA FADM",
+    "Nigeria Kenya Ghana Senegal Ethiopia defence budget",
+    "Saudi Arabia UAE Qatar Kuwait Oman Bahrain defence",
+    "Indonesia Philippines Vietnam Thailand Malaysia defence",
+    "Poland Romania Ukraine NATO eastern flank",
+    "India Pakistan Bangladesh Sri Lanka defence",
+    "Egypt Morocco Algeria Tunisia Libya defence",
+    "Brazil Colombia Mexico Peru Chile defence",
+    "Australia Japan South Korea Taiwan defence",
+
+    # Compliance & regulation
+    "UK export control ECJU SPIRE licence SIEL",
+    "ITAR EAR OFAC sanctions compliance embargo",
+    "EU dual use arms embargo regulation",
+    "UN Security Council sanctions arms embargo",
+    "end user certificate diversion proliferation",
+
+    # Strategic themes
+    "counter terrorism COIN special forces",
+    "maritime security piracy Gulf of Guinea Indo-Pacific",
+    "border security surveillance reconnaissance ISR SIGINT",
+    "cyber warfare electronic warfare EW",
+    "space defence satellite constellation",
+    "CPLP defence cooperation Portuguese Lusophone",
+    "Cabo Delgado insurgency Mozambique",
+    "NATO expansion enlargement spending target",
+    "AUKUS Quad Indo-Pacific alliance",
+]
+
+# ── Web Search Topics (cycled through for broader coverage) ──────────────────
+
+WEB_SEARCH_QUERIES = [
+    "defence procurement contract award 2026",
+    "military arms deal signed delivered 2026",
+    "fighter jet procurement tender 2026",
+    "naval vessel frigate corvette contract 2026",
+    "artillery howitzer ammunition procurement 2026",
+    "UAV drone military export 2026",
+    "air defence missile system deal 2026",
+    "armoured vehicle IFV tender Africa Asia 2026",
+    "defence offset agreement 2026",
+    "arms export licence denied approved 2026",
+    "Turkey Baykar military export Africa 2026",
+    "South Korea Hanwha KAI defence export 2026",
+    "China military export Africa Asia 2026",
+    "Angola Mozambique defence procurement 2026",
+    "Saudi Arabia UAE military contract 2026",
+    "Indonesia Philippines defence modernisation 2026",
+    "Poland NATO defence spending 2026",
+    "India defence acquisition tender 2026",
+    "DSCA FMS notification major arms sale 2026",
+    "UK ECJU export licence defence 2026",
 ]
 
 # ── Hypothesis Tracker ───────────────────────────────────────────────────────
 
 HYPOTHESIS_KEY = "crucix:aria:hypotheses"
+ARTICLES_READ_KEY = "crucix:aria:articles_read"
 
 
 async def _load_hypotheses() -> list[dict]:
@@ -94,7 +179,20 @@ async def _load_hypotheses() -> list[dict]:
 
 
 async def _save_hypotheses(hypotheses: list[dict]) -> None:
-    await rs.set_json(HYPOTHESIS_KEY, hypotheses[:50])  # keep top 50
+    await rs.set_json(HYPOTHESIS_KEY, hypotheses[:50])
+
+
+async def _get_read_urls() -> set:
+    data = await rs.get_json(ARTICLES_READ_KEY)
+    return set(data or [])
+
+
+async def _mark_read(url: str) -> None:
+    urls = await _get_read_urls()
+    urls.add(url)
+    # Keep last 500
+    url_list = list(urls)[-500:]
+    await rs.set_json(ARTICLES_READ_KEY, url_list)
 
 
 # ── Article Fetching ─────────────────────────────────────────────────────────
@@ -109,7 +207,6 @@ async def _fetch_rss(url: str, timeout: float = 15.0) -> list[dict]:
                 return []
             text = resp.text
 
-        # Simple XML extraction (no dependency needed)
         items = re.findall(r"<item>(.*?)</item>", text, re.DOTALL)
         if not items:
             items = re.findall(r"<entry>(.*?)</entry>", text, re.DOTALL)
@@ -132,15 +229,9 @@ async def _fetch_rss(url: str, timeout: float = 15.0) -> list[dict]:
                 d = ""
                 if desc:
                     d = re.sub(r"<!\[CDATA\[|\]\]>|<[^>]+>", "", desc.group(1)).strip()[:500]
-                articles.append({
-                    "title": t,
-                    "link": l,
-                    "description": d,
-                    "published": pub.group(1).strip() if pub else "",
-                })
+                articles.append({"title": t, "link": l, "description": d, "published": pub.group(1).strip() if pub else ""})
     except Exception as e:
         logger.debug(f"RSS fetch failed for {url}: {e}")
-
     return articles
 
 
@@ -149,23 +240,27 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(url, headers={
-                "User-Agent": "Mozilla/5.0 (compatible; ARIA-Research/2.0)",
-                "Accept": "text/html",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "text/html,application/xhtml+xml",
             })
             if resp.status_code != 200:
                 return ""
             html = resp.text
 
-        # Strip HTML tags, scripts, styles
+        # Strip scripts, styles, nav elements
         text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<nav[^>]*>.*?</nav>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<header[^>]*>.*?</header>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<footer[^>]*>.*?</footer>", "", text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"&\w+;", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
 
-        # Take the meaty middle portion (skip nav/header/footer noise)
+        # Take substantial middle portion
         if len(text) > 2000:
-            text = text[500:5500]
-        return text[:5000]
+            text = text[300:6000]
+        return text[:6000]
     except Exception as e:
         logger.debug(f"Article fetch failed for {url}: {e}")
         return ""
@@ -178,24 +273,182 @@ async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
     return await _fetch_rss(url, timeout)
 
 
-# ── Core Research Loop ───────────────────────────────────────────────────────
+# ── LLM Article Analysis ────────────────────────────────────────────────────
 
-async def research_and_learn(llm: LLMProvider, max_articles: int = 8) -> dict:
+async def _analyse_article(
+    llm: LLMProvider,
+    article_text: str,
+    source: str,
+    existing_kb: str,
+    hypotheses: list[dict],
+) -> dict | None:
+    """Ask ARIA to extract intelligence from an article."""
+    hyp_context = ""
+    if hypotheses:
+        hyp_context = "\nARIA'S CURRENT HYPOTHESES (validate or challenge these):\n"
+        for h in hypotheses[:5]:
+            hyp_context += f"- [{h.get('status','OPEN')}] {h.get('hypothesis','')}\n"
+
+    extract_prompt = f"""You are ARIA reading a defence/security article. Extract actionable intelligence for global defence procurement.
+
+ARTICLE:
+{article_text[:4000]}
+
+EXISTING KNOWLEDGE (do NOT repeat what you already know):
+{existing_kb or 'No existing knowledge on this topic.'}
+{hyp_context}
+
+Extract ONLY new intelligence. For each finding:
+1. State the fact clearly and specifically (names, values, dates)
+2. Assign confidence: CONFIRMED (official/primary source), PROBABLE (multiple signals), ASSESSED (your analysis), UNCERTAIN (single source)
+3. Tag the market/country/region
+4. If this validates or contradicts an existing hypothesis, say so
+
+Also: if this article reveals a pattern or trend worth tracking, generate a NEW hypothesis.
+
+Return JSON:
+{{
+  "facts": [
+    {{"topic": "short title", "content": "detailed fact with specifics", "confidence": "CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN", "market": "country or region", "source": "{source}"}}
+  ],
+  "hypothesis": {{
+    "statement": "if any new hypothesis emerges",
+    "evidence": "supporting evidence",
+    "what_would_confirm": "confirming signal",
+    "what_would_refute": "refuting signal"
+  }},
+  "validates": "hypothesis text if validates existing, or null",
+  "challenges": "hypothesis text if challenges existing, or null",
+  "skip": false
+}}
+
+If NO new intelligence, set skip=true."""
+
+    try:
+        result = await llm.complete(
+            "You are ARIA — a global defence procurement intelligence analyst. Extract genuinely new, actionable intelligence. Be specific: names, amounts, dates, countries. Rigorous confidence levels.",
+            extract_prompt,
+            max_tokens=1500,
+            timeout=60.0,
+        )
+        json_match = re.search(r"\{[\s\S]*\}", result.text)
+        if json_match:
+            return json.loads(json_match.group())
+    except Exception as e:
+        logger.warning(f"Article analysis failed: {e}")
+    return None
+
+
+async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -> tuple[int, int]:
+    """Process LLM analysis — store facts and update hypotheses. Returns (facts_learned, hyp_generated)."""
+    facts_learned = 0
+    hyp_generated = 0
+
+    if parsed.get("skip"):
+        return 0, 0
+
+    for fact in (parsed.get("facts") or []):
+        topic = fact.get("topic", "")
+        content = fact.get("content", "")
+        confidence = fact.get("confidence", "ASSESSED")
+        if topic and content and len(content) > 20:
+            await store_fact(topic, f"{content} [Source: {source}]", f"research:{source}", confidence)
+            facts_learned += 1
+
+    hyp = parsed.get("hypothesis") or {}
+    if hyp.get("statement") and len(hyp["statement"]) > 20:
+        hypotheses.insert(0, {
+            "hypothesis": hyp["statement"],
+            "evidence": hyp.get("evidence", ""),
+            "what_would_confirm": hyp.get("what_would_confirm", ""),
+            "what_would_refute": hyp.get("what_would_refute", ""),
+            "status": "OPEN",
+            "created_at": datetime.now(timezone.utc).isoformat()[:10],
+            "evidence_count": 1,
+        })
+        hyp_generated += 1
+
+    validates = parsed.get("validates")
+    if validates:
+        for h in hypotheses:
+            if validates.lower() in h.get("hypothesis", "").lower():
+                h["evidence_count"] = h.get("evidence_count", 0) + 1
+                if h["evidence_count"] >= 3:
+                    h["status"] = "STRENGTHENED"
+
+    challenges = parsed.get("challenges")
+    if challenges:
+        for h in hypotheses:
+            if challenges.lower() in h.get("hypothesis", "").lower():
+                h["status"] = "CHALLENGED"
+
+    return facts_learned, hyp_generated
+
+
+# ── Public: Read a specific article URL ──────────────────────────────────────
+
+async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
     """
-    ARIA's autonomous research cycle:
-    1. Scan RSS feeds for relevant defence/security articles
-    2. Read and extract intelligence from the most relevant ones
-    3. Cross-reference with existing knowledge — validate or challenge
-    4. Generate hypotheses from patterns
-    5. Store verified facts and update confidence levels
+    Read a specific article URL and extract intelligence.
+    Use this when someone shares an article via WhatsApp, chat, or API.
     """
     if not llm or not llm.is_configured:
         return {"error": "LLM not configured"}
 
     t_start = time.time()
-    logger.info("ARIA research cycle starting...")
+    logger.info(f"ARIA reading article: {url[:80]}")
 
-    # ── Step 1: Gather articles from feeds ────────────────────────────────
+    body = await _fetch_article_text(url)
+    if not body or len(body) < 100:
+        return {"error": "Could not fetch article content", "url": url}
+
+    article_text = f"URL: {url}\n"
+    if context:
+        article_text += f"Context from sender: {context}\n"
+    article_text += f"Content:\n{body}"
+
+    existing_kb = search_knowledge(body[:200])
+    hypotheses = await _load_hypotheses()
+
+    parsed = await _analyse_article(llm, article_text, url, existing_kb, hypotheses)
+    if not parsed:
+        return {"error": "Analysis failed", "url": url}
+
+    facts_learned, hyp_generated = await _process_analysis(parsed, url, hypotheses)
+    await _save_hypotheses(hypotheses)
+    await _mark_read(url)
+
+    duration = int((time.time() - t_start) * 1000)
+    logger.info(f"Article read: {facts_learned} facts, {hyp_generated} hypotheses ({duration}ms)")
+
+    return {
+        "url": url,
+        "facts_learned": facts_learned,
+        "hypotheses_generated": hyp_generated,
+        "facts": parsed.get("facts", []),
+        "hypothesis": parsed.get("hypothesis"),
+        "duration_ms": duration,
+    }
+
+
+# ── Public: Autonomous research cycle ────────────────────────────────────────
+
+async def research_and_learn(llm: LLMProvider, max_articles: int = 12) -> dict:
+    """
+    ARIA's autonomous research cycle:
+    1. Scan 30+ RSS feeds for relevant articles
+    2. Run web searches on rotating topics
+    3. Read and extract intelligence from the best articles
+    4. Cross-reference with existing knowledge
+    5. Generate and validate hypotheses
+    """
+    if not llm or not llm.is_configured:
+        return {"error": "LLM not configured"}
+
+    t_start = time.time()
+    logger.info("ARIA research cycle starting (global scope)...")
+
+    # ── Step 1: Gather articles from RSS feeds ────────────────────────────
     all_articles: list[dict] = []
     for feed in RESEARCH_FEEDS:
         articles = await _fetch_rss(feed["url"])
@@ -204,13 +457,30 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 8) -> dict:
             a["category"] = feed["category"]
         all_articles.extend(articles)
 
+    logger.info(f"RSS feeds: {len(all_articles)} articles from {len(RESEARCH_FEEDS)} feeds")
+
+    # ── Step 2: Web search on rotating topics ─────────────────────────────
+    # Pick 3 search queries based on current hour (rotates through all 20)
+    hour = datetime.now(timezone.utc).hour
+    search_indices = [(hour * 3 + i) % len(WEB_SEARCH_QUERIES) for i in range(3)]
+    for idx in search_indices:
+        query = WEB_SEARCH_QUERIES[idx]
+        results = await _web_search(query)
+        for a in results:
+            a["source"] = f"web_search:{query[:30]}"
+            a["category"] = "web_search"
+        all_articles.extend(results)
+
+    logger.info(f"Total: {len(all_articles)} articles (RSS + web search)")
+
     if not all_articles:
-        logger.warning("No articles fetched from any feed")
         return {"articles_scanned": 0, "facts_learned": 0}
 
-    logger.info(f"Gathered {len(all_articles)} articles from {len(RESEARCH_FEEDS)} feeds")
+    # ── Step 3: Filter already-read articles ──────────────────────────────
+    read_urls = await _get_read_urls()
+    all_articles = [a for a in all_articles if a.get("link") not in read_urls]
 
-    # ── Step 2: Score relevance to ARIA's interests ───────────────────────
+    # ── Step 4: Score relevance ───────────────────────────────────────────
     scored: list[tuple[float, dict]] = []
     for article in all_articles:
         text = f"{article['title']} {article.get('description', '')}".lower()
@@ -220,12 +490,15 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 8) -> dict:
             matches = sum(1 for w in words if w in text)
             if matches >= 2:
                 score += matches * 2
-        # Boost Lusophone/Africa
-        if any(c in text for c in ["angola", "mozambique", "guinea-bissau", "cape verde", "lusophone"]):
-            score += 10
-        # Boost procurement
-        if any(k in text for k in ["tender", "contract", "procure", "award", "billion", "million"]):
+        # Boost procurement signals
+        if any(k in text for k in ["tender", "contract", "procure", "award", "billion", "million", "deal"]):
             score += 5
+        # Boost Lusophone (core market)
+        if any(c in text for c in ["angola", "mozambique", "guinea-bissau", "cape verde", "lusophone"]):
+            score += 8
+        # Boost other priority markets
+        if any(c in text for c in ["nigeria", "kenya", "saudi", "uae", "indonesia", "philippines", "poland"]):
+            score += 3
         if score > 0:
             scored.append((score, article))
 
@@ -233,151 +506,42 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 8) -> dict:
     top_articles = [a for _, a in scored[:max_articles]]
 
     if not top_articles:
-        logger.info("No highly relevant articles found this cycle")
         return {"articles_scanned": len(all_articles), "relevant": 0, "facts_learned": 0}
 
-    logger.info(f"Selected {len(top_articles)} relevant articles for deep reading")
+    logger.info(f"Selected {len(top_articles)} articles for deep reading")
 
-    # ── Step 3: Read articles and extract intelligence ────────────────────
+    # ── Step 5: Read and extract intelligence ─────────────────────────────
     facts_learned = 0
     hypotheses_generated = 0
     existing_hypotheses = await _load_hypotheses()
 
     for article in top_articles:
-        # Get article body if we have a link
         body = ""
         if article.get("link"):
             body = await _fetch_article_text(article["link"])
+            await _mark_read(article["link"])
 
         article_text = f"Title: {article['title']}\nSource: {article['source']}\n"
         if article.get("description"):
             article_text += f"Summary: {article['description']}\n"
         if body:
-            article_text += f"Body: {body[:3000]}\n"
+            article_text += f"Body: {body[:3500]}\n"
 
-        # Build existing knowledge context
         existing_kb = search_knowledge(article["title"])
+        parsed = await _analyse_article(llm, article_text, article["source"], existing_kb, existing_hypotheses)
 
-        # Hypothesis context
-        hyp_context = ""
-        if existing_hypotheses:
-            hyp_context = "\nARIA'S CURRENT HYPOTHESES (validate or challenge these):\n"
-            for h in existing_hypotheses[:5]:
-                hyp_context += f"- [{h.get('status','OPEN')}] {h.get('hypothesis','')}\n"
+        if parsed:
+            fl, hg = await _process_analysis(parsed, article["source"], existing_hypotheses)
+            facts_learned += fl
+            hypotheses_generated += hg
 
-        # Ask ARIA to extract intelligence
-        extract_prompt = f"""You are ARIA reading a defence/security article. Extract actionable intelligence.
-
-ARTICLE:
-{article_text}
-
-EXISTING KNOWLEDGE (do NOT repeat what you already know):
-{existing_kb or 'No existing knowledge on this topic.'}
-{hyp_context}
-
-Extract ONLY new intelligence. For each finding:
-1. State the fact clearly
-2. Assign confidence: CONFIRMED (from official source), PROBABLE (multiple signals), ASSESSED (your analysis), UNCERTAIN (single source)
-3. Tag the market/country if applicable
-4. If this validates or contradicts an existing hypothesis, say so
-
-Also: if this article reveals a pattern or trend, generate a NEW hypothesis.
-
-Return JSON:
-{{
-  "facts": [
-    {{"topic": "short title", "content": "detailed fact", "confidence": "CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN", "market": "country or region", "source": "article source"}}
-  ],
-  "hypothesis": {{
-    "statement": "if any new hypothesis emerges, state it here",
-    "evidence": "what supports this",
-    "what_would_confirm": "what evidence would confirm this",
-    "what_would_refute": "what would prove this wrong"
-  }},
-  "validates": "hypothesis text if this validates an existing one, or null",
-  "challenges": "hypothesis text if this challenges an existing one, or null",
-  "skip": false
-}}
-
-If the article contains NO new intelligence, set skip=true and return empty facts."""
-
-        try:
-            result = await llm.complete(
-                "You are ARIA — Arkmurus Research Intelligence Agent. You are reading defence/security articles to build your knowledge. Extract only genuinely new, actionable intelligence. Be rigorous about confidence levels.",
-                extract_prompt,
-                max_tokens=1500,
-                timeout=60.0,
-            )
-
-            # Parse response
-            text = result.text
-            # Try to extract JSON
-            json_match = re.search(r"\{[\s\S]*\}", text)
-            if json_match:
-                parsed = json.loads(json_match.group())
-            else:
-                continue
-
-            if parsed.get("skip"):
-                continue
-
-            # Store extracted facts
-            for fact in (parsed.get("facts") or []):
-                topic = fact.get("topic", "")
-                content = fact.get("content", "")
-                confidence = fact.get("confidence", "ASSESSED")
-                if topic and content and len(content) > 20:
-                    await store_fact(
-                        topic,
-                        f"{content} [Source: {article['source']}]",
-                        f"research:{article['source']}",
-                        confidence,
-                    )
-                    facts_learned += 1
-
-            # Handle hypothesis generation
-            hyp = parsed.get("hypothesis") or {}
-            if hyp.get("statement") and len(hyp["statement"]) > 20:
-                existing_hypotheses.insert(0, {
-                    "hypothesis": hyp["statement"],
-                    "evidence": hyp.get("evidence", ""),
-                    "what_would_confirm": hyp.get("what_would_confirm", ""),
-                    "what_would_refute": hyp.get("what_would_refute", ""),
-                    "status": "OPEN",
-                    "created_at": datetime.now(timezone.utc).isoformat()[:10],
-                    "evidence_count": 1,
-                })
-                hypotheses_generated += 1
-
-            # Handle hypothesis validation/challenge
-            validates = parsed.get("validates")
-            if validates:
-                for h in existing_hypotheses:
-                    if validates.lower() in h.get("hypothesis", "").lower():
-                        h["evidence_count"] = h.get("evidence_count", 0) + 1
-                        if h["evidence_count"] >= 3:
-                            h["status"] = "STRENGTHENED"
-                        logger.info(f"Hypothesis validated: {h['hypothesis'][:60]}")
-
-            challenges = parsed.get("challenges")
-            if challenges:
-                for h in existing_hypotheses:
-                    if challenges.lower() in h.get("hypothesis", "").lower():
-                        h["status"] = "CHALLENGED"
-                        logger.info(f"Hypothesis challenged: {h['hypothesis'][:60]}")
-
-        except Exception as e:
-            logger.warning(f"Article analysis failed: {e}")
-            continue
-
-    # Save updated hypotheses
     await _save_hypotheses(existing_hypotheses)
 
     duration = int((time.time() - t_start) * 1000)
     logger.info(
         f"Research cycle complete: {len(all_articles)} scanned, "
-        f"{len(top_articles)} read, {facts_learned} facts learned, "
-        f"{hypotheses_generated} hypotheses generated ({duration}ms)"
+        f"{len(top_articles)} read, {facts_learned} facts, "
+        f"{hypotheses_generated} hypotheses ({duration}ms)"
     )
 
     return {
@@ -391,11 +555,10 @@ If the article contains NO new intelligence, set skip=true and return empty fact
     }
 
 
+# ── Public: Validate a hypothesis ────────────────────────────────────────────
+
 async def validate_hypothesis(llm: LLMProvider, hypothesis_text: str) -> dict:
-    """
-    ARIA actively searches for evidence to validate or refute a specific hypothesis.
-    She searches the web, reads articles, and updates the hypothesis status.
-    """
+    """Search for evidence to validate or refute a specific hypothesis."""
     if not llm or not llm.is_configured:
         return {"error": "LLM not configured"}
 
@@ -405,62 +568,36 @@ async def validate_hypothesis(llm: LLMProvider, hypothesis_text: str) -> dict:
         if hypothesis_text.lower() in h.get("hypothesis", "").lower():
             target = h
             break
-
     if not target:
         return {"error": "Hypothesis not found"}
 
-    # Search for evidence
-    search_query = f"{target['hypothesis']} defence procurement evidence 2026"
-    articles = await _web_search(search_query)
-
+    articles = await _web_search(f"{target['hypothesis']} evidence 2026")
     if not articles:
         return {"hypothesis": target["hypothesis"], "status": "NO_NEW_EVIDENCE"}
 
-    # Read top 3 articles
     evidence_texts = []
     for a in articles[:3]:
-        body = ""
-        if a.get("link"):
-            body = await _fetch_article_text(a["link"])
+        body = await _fetch_article_text(a.get("link", "")) if a.get("link") else ""
         evidence_texts.append(f"Title: {a['title']}\n{body[:1500]}")
 
-    evidence_block = "\n---\n".join(evidence_texts)
-
-    prompt = f"""You are ARIA evaluating a hypothesis against new evidence.
+    prompt = f"""Evaluate this hypothesis against new evidence.
 
 HYPOTHESIS: {target['hypothesis']}
-What would confirm: {target.get('what_would_confirm', 'unknown')}
-What would refute: {target.get('what_would_refute', 'unknown')}
-Current evidence count: {target.get('evidence_count', 0)}
+Confirm signal: {target.get('what_would_confirm', '?')}
+Refute signal: {target.get('what_would_refute', '?')}
+Evidence count: {target.get('evidence_count', 0)}
 
-NEW EVIDENCE:
-{evidence_block}
-
-Evaluate:
-1. Does this evidence SUPPORT, CHALLENGE, or have NO BEARING on the hypothesis?
-2. Should the hypothesis status change?
-3. Any refinement needed?
+EVIDENCE:
+{"---".join(evidence_texts)}
 
 Return JSON:
-{{
-  "verdict": "SUPPORTS|CHALLENGES|NEUTRAL",
-  "reasoning": "why",
-  "refined_hypothesis": "updated statement if needed, or null",
-  "new_status": "OPEN|STRENGTHENED|CHALLENGED|REFUTED|CONFIRMED",
-  "confidence_delta": 0
-}}"""
+{{"verdict": "SUPPORTS|CHALLENGES|NEUTRAL", "reasoning": "why", "refined_hypothesis": "or null", "new_status": "OPEN|STRENGTHENED|CHALLENGED|REFUTED|CONFIRMED"}}"""
 
     try:
-        result = await llm.complete(
-            "You are ARIA evaluating intelligence hypotheses with rigorous epistemic standards.",
-            prompt,
-            max_tokens=800,
-            timeout=45.0,
-        )
+        result = await llm.complete("ARIA evaluating intelligence hypothesis.", prompt, max_tokens=800, timeout=45.0)
         json_match = re.search(r"\{[\s\S]*\}", result.text)
         if json_match:
             parsed = json.loads(json_match.group())
-            # Update hypothesis
             target["status"] = parsed.get("new_status", target["status"])
             target["evidence_count"] = target.get("evidence_count", 0) + (1 if parsed.get("verdict") == "SUPPORTS" else 0)
             if parsed.get("refined_hypothesis"):
@@ -469,21 +606,17 @@ Return JSON:
             return {**parsed, "hypothesis": target["hypothesis"]}
     except Exception as e:
         return {"error": str(e)}
-
     return {"hypothesis": target["hypothesis"], "status": "EVALUATION_FAILED"}
 
 
 async def get_hypotheses() -> list[dict]:
-    """Return all current hypotheses."""
     return await _load_hypotheses()
 
 
 async def get_research_summary(llm: LLMProvider) -> dict:
-    """Generate a summary of what ARIA has learned recently."""
     hypotheses = await _load_hypotheses()
     kb_size = len((kb_cache or {}).get("facts", []))
     ledger_size = len((ledger_cache or {}).get("signals", []))
-
     open_h = [h for h in hypotheses if h.get("status") == "OPEN"]
     strong_h = [h for h in hypotheses if h.get("status") == "STRENGTHENED"]
     challenged_h = [h for h in hypotheses if h.get("status") == "CHALLENGED"]
@@ -491,14 +624,6 @@ async def get_research_summary(llm: LLMProvider) -> dict:
     return {
         "knowledge_base_facts": kb_size,
         "intel_ledger_signals": ledger_size,
-        "hypotheses": {
-            "total": len(hypotheses),
-            "open": len(open_h),
-            "strengthened": len(strong_h),
-            "challenged": len(challenged_h),
-        },
-        "top_hypotheses": [
-            {"hypothesis": h["hypothesis"], "status": h["status"], "evidence": h.get("evidence_count", 0)}
-            for h in hypotheses[:10]
-        ],
+        "hypotheses": {"total": len(hypotheses), "open": len(open_h), "strengthened": len(strong_h), "challenged": len(challenged_h)},
+        "top_hypotheses": [{"hypothesis": h["hypothesis"], "status": h["status"], "evidence": h.get("evidence_count", 0)} for h in hypotheses[:10]],
     }
