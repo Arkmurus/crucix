@@ -196,7 +196,7 @@ async function load() {
     // Weekly priority
     if (brain.weeklyPriority && brain.weeklyPriority.action) {
       var wp = brain.weeklyPriority;
-      bHtml += '<div class="intel-card" style="border-left-color:#ef4444"><div class="ic-top">' + chip('TOP PRIORITY','sc-badge-prime') + chip(wp.market||'','sc-badge-blue') + '</div><div class="ic-body"><div class="ic-title">' + escHtml(wp.action) + '</div>';
+      bHtml += '<div class="intel-card" style="border-left-color:#ef4444"><div class="ic-top">' + chip('TOP PRIORITY','sc-badge-prime') + chip(wp.market||'','sc-badge-blue') + '<button class="ic-share" data-sharetext="' + escHtml('TOP PRIORITY: ' + wp.action + (wp.whyNow ? '\nWhy now: ' + wp.whyNow : '') + (wp.firstStep ? '\nNext step: ' + wp.firstStep : '')) + '"><i class="bi bi-share"></i></button></div><div class="ic-body"><div class="ic-title">' + escHtml(wp.action) + '</div>';
       if (wp.whyNow) bHtml += '<div class="ic-text" style="margin-top:4px"><strong>Why now:</strong> ' + escHtml(wp.whyNow) + '</div>';
       if (wp.firstStep) bHtml += '<div class="ic-nextstep"><i class="bi bi-arrow-right-circle" style="flex-shrink:0;color:#ffd54f;font-size:14px"></i>' + escHtml(wp.firstStep) + '</div>';
       bHtml += '</div></div>';
@@ -205,7 +205,7 @@ async function load() {
     if (brain.actionPlan && brain.actionPlan.length) {
       bHtml += '<h4 style="color:rgba(255,255,255,0.5);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Action Plan</h4>';
       brain.actionPlan.forEach(function(a) {
-        bHtml += '<div class="intel-card"><div class="ic-top">' + chip(a.market||'','sc-badge-blue') + (a.winProb ? chip('Win: '+a.winProb+'%','sc-badge-green') : '') + '</div><div class="ic-body"><div class="ic-title">' + escHtml(a.deal||'') + '</div>';
+        bHtml += '<div class="intel-card"><div class="ic-top">' + chip(a.market||'','sc-badge-blue') + (a.winProb ? chip('Win: '+a.winProb+'%','sc-badge-green') : '') + '<button class="ic-share" data-sharetext="' + escHtml((a.market||'') + ': ' + (a.deal||'') + (a.winProb ? ' (Win: '+a.winProb+'%)' : '') + (a.steps&&a.steps.length ? '\nSteps:\n' + a.steps.map(function(s,i){return (i+1)+'. '+s;}).join('\n') : '') + (a.deadline ? '\nDeadline: '+a.deadline : '')) + '"><i class="bi bi-share"></i></button></div><div class="ic-body"><div class="ic-title">' + escHtml(a.deal||'') + '</div>';
         if (a.steps && a.steps.length) bHtml += '<div class="ic-text">' + a.steps.map(function(s,i){return (i+1)+'. '+escHtml(s);}).join('<br>') + '</div>';
         if (a.deadline) bHtml += '<div class="ic-text" style="margin-top:4px"><strong>Deadline:</strong> '+escHtml(a.deadline)+'</div>';
         bHtml += '</div></div>';
@@ -215,14 +215,14 @@ async function load() {
     if (brain.marketIntelligence && brain.marketIntelligence.length) {
       bHtml += '<h4 style="color:rgba(255,255,255,0.5);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Market Intelligence</h4>';
       brain.marketIntelligence.forEach(function(m) {
-        bHtml += renderCard(m.market + ' — ' + (m.signal||''), chip(m.market||'','sc-badge-blue'), m.recommendation || '', '', '', '');
+        bHtml += renderCard(m.market + ' — ' + (m.signal||''), chip(m.market||'','sc-badge-blue'), m.recommendation || '', '', '', m.market + ': ' + (m.signal||'') + (m.recommendation ? '\nRecommendation: ' + m.recommendation : ''));
       });
     }
     // Knowledge gaps
     if (brain.knowledgeGaps && brain.knowledgeGaps.length) {
       bHtml += '<h4 style="color:rgba(255,255,255,0.5);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 10px">Knowledge Gaps</h4>';
       brain.knowledgeGaps.forEach(function(g) {
-        bHtml += '<div class="intel-card" style="border-left-color:#FF7A41"><div class="ic-body"><div class="ic-title">' + escHtml(g.question||'') + '</div><div class="ic-text">' + escHtml(g.howToFind||'') + '</div></div></div>';
+        bHtml += '<div class="intel-card" style="border-left-color:#FF7A41"><div class="ic-top"><button class="ic-share" data-sharetext="' + escHtml('Knowledge Gap: ' + (g.question||'') + (g.howToFind ? '\nHow to find: ' + g.howToFind : '')) + '"><i class="bi bi-share"></i></button></div><div class="ic-body"><div class="ic-title">' + escHtml(g.question||'') + '</div><div class="ic-text">' + escHtml(g.howToFind||'') + '</div></div></div>';
       });
     }
     // Self learning
@@ -246,7 +246,7 @@ async function load() {
     var qCol = l.leadQuality==='HOT'?'#ef4444':l.leadQuality==='WARM'?'#FF7A41':'#913BFF';
     var qBadge = l.leadQuality==='HOT'?'sc-badge-prime':l.leadQuality==='WARM'?'sc-badge-orange':'sc-badge-muted';
     return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
-      escHtml(l.market||'Global') + '</div>' + chip(l.leadQuality||'LEAD',qBadge) + '</div><div class="sc-card-body">' +
+      escHtml(l.market||'Global') + '</div>' + chip(l.leadQuality||'LEAD',qBadge) + '<button class="ic-share" data-sharetext="' + escHtml((l.leadQuality||'LEAD') + ' — ' + (l.market||'') + ': ' + (l.title||l.lead||'') + (l.nextStep ? '\nNext step: ' + l.nextStep : '')) + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px"><div style="font-size:28px;font-weight:800;color:'+qCol+'">' + escHtml(l.leadQuality||'—') + '</div>' +
       (l.type ? '<div style="font-size:11px;color:rgba(255,255,255,.4)">'+escHtml(l.type)+'</div>' : '') +
       (l.source==='Brain'?'<span class="sc-badge sc-badge-muted" style="font-size:10px">AI</span>':'') + '</div>' +
@@ -261,7 +261,7 @@ async function load() {
   document.getElementById('panel-tenders').innerHTML = tenders.length ? '<div class="sc-grid-3">' + tenders.map(function(t) {
     var qBadge = t.leadQuality==='HOT'?'sc-badge-prime':t.leadQuality==='WARM'?'sc-badge-orange':'sc-badge-muted';
     return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
-      escHtml(t.market||'Global') + '</div>' + chip(t.type||'TENDER','sc-badge-blue') + '</div><div class="sc-card-body">' +
+      escHtml(t.market||'Global') + '</div>' + chip(t.type||'TENDER','sc-badge-blue') + '<button class="ic-share" data-sharetext="' + escHtml((t.type||'TENDER') + ' — ' + (t.market||'') + ': ' + (t.title||'') + ' (Score: ' + (t.score||0) + ')') + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
       '<div style="font-size:28px;font-weight:800;color:#913BFF">' + (t.score||0) + '</div>' +
       '<div style="font-size:11px;color:rgba(255,255,255,.4)">/ 100<br>Score</div></div>' +
@@ -275,7 +275,7 @@ async function load() {
   // ── Ideas panel (grid cards) ──
   document.getElementById('panel-ideas').innerHTML = ideas.length ? '<div class="sc-grid-3">' + ideas.map(function(i) {
     return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
-      (i.lusophone?'<i class="bi bi-flag"></i> ':'') + escHtml(i.market||'') + '</div>' + chip(i.type||'IDEA','sc-badge-orange') + '</div><div class="sc-card-body">' +
+      (i.lusophone?'<i class="bi bi-flag"></i> ':'') + escHtml(i.market||'') + '</div>' + chip(i.type||'IDEA','sc-badge-orange') + '<button class="ic-share" data-sharetext="' + escHtml((i.market||'') + ' — ' + (i.type||'IDEA') + ' (Score: ' + (i.score||0) + ')\n' + (i.rationale||'') + (i.actionStep ? '\nAction: ' + i.actionStep : '')) + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
       '<div style="font-size:28px;font-weight:800;color:#913BFF">' + (i.score||0) + '</div>' +
       '<div style="font-size:11px;color:rgba(255,255,255,.4)">/ 100<br>Score</div></div>' +
@@ -296,13 +296,14 @@ async function loadPipeline() {
   const deals = data || [];
   document.getElementById('cnt-pipeline').textContent = deals.length;
   document.getElementById('panel-pipeline').innerHTML = deals.length ?
-    `<div style="overflow-x:auto"><table class="sc-table"><thead><tr><th>Deal</th><th>Market</th><th>Stage</th><th>Value</th><th>Win Prob</th></tr></thead><tbody>
+    `<div style="overflow-x:auto"><table class="sc-table"><thead><tr><th>Deal</th><th>Market</th><th>Stage</th><th>Value</th><th>Win Prob</th><th></th></tr></thead><tbody>
     ${deals.map(d=>`<tr>
       <td><strong>${escHtml(d.title||d.company||'')}</strong></td>
       <td>${escHtml(d.market||d.country||'')}</td>
       <td>${chip(d.stage||'prospect','sc-badge-muted')}</td>
       <td>${d.value?`$${Math.round(d.value/1e6)}M`:'—'}</td>
       <td>${d.winProb?`${Math.round(d.winProb*100)}%`:'—'}</td>
+      <td><button class="ic-share" data-sharetext="${escHtml((d.market||'')+ ': '+(d.title||d.company||'')+' | Stage: '+(d.stage||'')+(d.value?' | Value: $'+Math.round(d.value/1e6)+'M':'')+(d.winProb?' | Win: '+Math.round(d.winProb*100)+'%':''))}"><i class="bi bi-share"></i></button></td>
     </tr>`).join('')}
     </tbody></table></div>` :
     '<p class="text-muted">No deals in pipeline yet.</p>';
