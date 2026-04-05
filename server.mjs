@@ -123,6 +123,7 @@ const llmProvider = createLLMProvider(config.llm);
 const telegramAlerter = new TelegramAlerter(config.telegram);
 
 // === Persistence Initialization — restores Redis backups if local files are missing ===
+// initAdminUser MUST wait for initUsersStore, otherwise it reads empty store
 (async () => {
   try {
     await initUsersStore();
@@ -131,13 +132,12 @@ const telegramAlerter = new TelegramAlerter(config.telegram);
     const { initEntityStore } = await import('./lib/search/entity-store.mjs');
     await initEntityStore();
     console.log('[Persist] All stores initialized');
+    // Now safe to create admin user — store has been restored from Redis
+    await initAdminUser();
   } catch (e) {
     console.error('[Persist] Store init error:', e.message);
   }
 })();
-
-// === Auth & Push Initialization ===
-initAdminUser().catch(err => console.error('[Auth] initAdminUser failed:', err.message));
 initVapid().catch(err => console.error('[Push] initVapid failed:', err.message));
 import('./lib/aria/knowledge.mjs').then(async (m) => {
   await m.initKnowledgeBase();
