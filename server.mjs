@@ -54,6 +54,7 @@ import { reliableRun } from './lib/orchestrator/retry.mjs';
 import ariaWhatsApp from './lib/whatsapp/ariaWhatsApp.mjs';
 import { mountWAListener } from './lib/whatsapp/waListener.mjs';
 import { mountEmailReader } from './lib/aria/emailReader.mjs';
+import { mountLinkedInRoutes, initLinkedInIntel } from './lib/aria/linkedinIntel.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -3071,6 +3072,10 @@ mountWAListener(app);
 
 // ── Email Intelligence Reader (LinkedIn alerts, Google Alerts, tender notifications) ──
 mountEmailReader(app);
+
+// ── LinkedIn Intelligence (relationship maps, competitor tracking, appointments) ──
+initLinkedInIntel().catch(e => console.warn('[LinkedIn Intel] Init failed:', e.message));
+mountLinkedInRoutes(app);
 
 // ── Express error handler — MUST be last middleware ──────────────────────────
 app.use(errorTracker.expressMiddleware());
