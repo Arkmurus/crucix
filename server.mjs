@@ -1570,115 +1570,169 @@ async function upstashLRange(key, start = 0, stop = 9) {
 }
 
 const BRAIN_URL = process.env.BRAIN_SERVICE_URL; // e.g. https://crucix-brain.onrender.com
+const ARIA_SERVICE_URL = process.env.ARIA_SERVICE_URL || ''; // Python ARIA service, e.g. http://localhost:8000
+
+// ── ARIA Proxy Helper — routes to Python service first, falls back to local Node.js ──
+async function ariaProxy(req, res, path, { method = 'GET', fallback } = {}) {
+  if (ARIA_SERVICE_URL) {
+    try {
+      const url = `${ARIA_SERVICE_URL}${path}`;
+      const opts = {
+        method: method || req.method,
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(30000),
+      };
+      if (method === 'POST' && req.body) opts.body = JSON.stringify(req.body);
+      const r = await fetch(url, opts);
+      if (r.ok) {
+        const ct = r.headers.get('content-type') || '';
+        if (ct.includes('application/json')) return res.json(await r.json());
+        return res.type(ct).send(await r.text());
+      }
+    } catch (e) { console.warn(`[ARIA proxy] ${path} failed:`, e.message); }
+  }
+  // Fallback to local Node.js implementation
+  if (fallback) return fallback();
+  res.status(503).json({ error: 'ARIA service unavailable' });
+}
+
+// Send sweep data to Python ARIA service (called after each sweep)
+async function pushSweepToARIA(data) {
+  if (!ARIA_SERVICE_URL) return;
+  try {
+    await fetch(`${ARIA_SERVICE_URL}/api/aria/ingest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (e) { console.warn('[ARIA] sweep ingest failed:', e.message); }
+}
 
 app.get('/api/aria/identity', requireAuth, async (req, res) => {
-  try {
-    const identity = await redisGet('crucix:brain:aria:identity');
-    if (!identity) {
-      // Brain service not yet deployed — return local identity based on LLM config
-      return res.json({
-        name: 'ARIA',
-        full_name: 'Arkmurus Research Intelligence Agent',
-        status: llmProvider?.isConfigured ? 'online' : 'no_llm',
-        mode: 'local',
-        llm_provider: llmProvider?.name || null,
-        age_days: 0,
-        total_sweeps: 0,
-        total_leads: 0,
-        domain: 'Defence procurement, Lusophone Africa, Export controls',
-      });
-    }
-    res.json({ ...identity, status: 'online', mode: 'brain' });
-  } catch { res.json({ name: 'ARIA', status: 'unavailable' }); }
+  ariaProxy(req, res, '/api/aria/identity', { fallback: async () => {
+    try {
+      const identity = await redisGet('crucix:brain:aria:identity');
+      if (!identity) {
+        return res.json({
+          name: 'ARIA', full_name: 'Arkmurus Research Intelligence Agent',
+          status: llmProvider?.isConfigured ? 'online' : 'no_llm', mode: 'local',
+          llm_provider: llmProvider?.name || null, age_days: 0, total_sweeps: 0, total_leads: 0,
+          domain: 'Defence procurement, Lusophone Africa, Export controls',
+        });
+      }
+      res.json({ ...identity, status: 'online', mode: 'brain' });
+    } catch { res.json({ name: 'ARIA', status: 'unavailable' }); }
+  }});
 });
 
 app.get('/api/aria/thoughts', requireAuth, async (req, res) => {
-  try {
-    const thoughtIds = await upstashLRange('crucix:brain:aria:thoughts', 0, 9);
-    const thoughts   = await Promise.all(
-      (Array.isArray(thoughtIds) ? thoughtIds : []).map(id =>
-        typeof id === 'string' ? redisGet(`crucix:brain:aria:thought:${id}`) : Promise.resolve(id)
-      )
-    );
-    res.json(thoughts.filter(Boolean));
-  } catch { res.json([]); }
+  ariaProxy(req, res, '/api/aria/thoughts', { fallback: async () => {
+    try {
+      const thoughtIds = await upstashLRange('crucix:brain:aria:thoughts', 0, 9);
+      const thoughts = await Promise.all(
+        (Array.isArray(thoughtIds) ? thoughtIds : []).map(id =>
+          typeof id === 'string' ? redisGet(`crucix:brain:aria:thought:${id}`) : Promise.resolve(id)
+        )
+      );
+      res.json(thoughts.filter(Boolean));
+    } catch { res.json([]); }
+  }});
 });
 
 app.get('/api/aria/curiosity', requireAuth, async (req, res) => {
-  try {
-    const identity = await redisGet('crucix:brain:aria:identity');
-    const threads  = (identity?.curiosity_threads || []).filter(t => !t.resolved);
-    res.json({ open_threads: threads });
-  } catch { res.json({ open_threads: [] }); }
+  ariaProxy(req, res, '/api/aria/curiosity', { fallback: async () => {
+    try {
+      const identity = await redisGet('crucix:brain:aria:identity');
+      const threads  = (identity?.curiosity_threads || []).filter(t => !t.resolved);
+      res.json({ open_threads: threads });
+    } catch { res.json({ open_threads: [] }); }
+  }});
 });
 
 // ARIA Knowledge Base API
 app.get('/api/aria/knowledge', requireAuth, async (req, res) => {
-  try {
-    const { getKBStats } = await import('./lib/aria/knowledge.mjs');
-    res.json(getKBStats());
-  } catch { res.json({ totalFacts: 0, totalQueries: 0, totalLearnings: 0 }); }
+  ariaProxy(req, res, '/api/aria/knowledge', { fallback: async () => {
+    try {
+      const { getKBStats } = await import('./lib/aria/knowledge.mjs');
+      res.json(getKBStats());
+    } catch { res.json({ totalFacts: 0, totalQueries: 0, totalLearnings: 0 }); }
+  }});
 });
 
 app.post('/api/aria/knowledge/fact', requireAuth, async (req, res) => {
-  try {
-    const { topic, content, confidence } = req.body || {};
-    if (!topic || !content) return res.status(400).json({ error: 'topic and content required' });
-    const { storeFact } = await import('./lib/aria/knowledge.mjs');
-    storeFact(topic, content, 'user', confidence || 'CONFIRMED');
-    res.json({ ok: true, message: 'Fact stored' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  ariaProxy(req, res, '/api/aria/knowledge/fact', { method: 'POST', fallback: async () => {
+    try {
+      const { topic, content, confidence } = req.body || {};
+      if (!topic || !content) return res.status(400).json({ error: 'topic and content required' });
+      const { storeFact } = await import('./lib/aria/knowledge.mjs');
+      storeFact(topic, content, 'user', confidence || 'CONFIRMED');
+      res.json({ ok: true, message: 'Fact stored' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  }});
 });
 
 app.get('/api/aria/ledger', requireAuth, async (req, res) => {
-  try {
-    const { getLedgerStats } = await import('./lib/aria/intel_ledger.mjs');
-    res.json(getLedgerStats());
-  } catch { res.json({ totalSignals: 0 }); }
+  ariaProxy(req, res, '/api/aria/ledger', { fallback: async () => {
+    try {
+      const { getLedgerStats } = await import('./lib/aria/intel_ledger.mjs');
+      res.json(getLedgerStats());
+    } catch { res.json({ totalSignals: 0 }); }
+  }});
 });
 
 app.get('/api/aria/ledger/country/:country', requireAuth, async (req, res) => {
-  try {
-    const { getCountrySituation } = await import('./lib/aria/intel_ledger.mjs');
-    const sit = getCountrySituation(req.params.country);
-    res.json(sit || { country: req.params.country, signalCount: 0, recentSignals: [] });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  ariaProxy(req, res, `/api/aria/ledger/country/${encodeURIComponent(req.params.country)}`, { fallback: async () => {
+    try {
+      const { getCountrySituation } = await import('./lib/aria/intel_ledger.mjs');
+      const sit = getCountrySituation(req.params.country);
+      res.json(sit || { country: req.params.country, signalCount: 0, recentSignals: [] });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  }});
 });
 
 // Contact Intelligence API
 app.get('/api/aria/contacts', requireAuth, async (req, res) => {
-  try {
-    const { getAllContacts } = await import('./lib/aria/contacts.mjs');
-    res.json({ contacts: getAllContacts() });
-  } catch (e) { res.json({ contacts: [] }); }
+  ariaProxy(req, res, '/api/aria/contacts', { fallback: async () => {
+    try {
+      const { getAllContacts } = await import('./lib/aria/contacts.mjs');
+      res.json({ contacts: getAllContacts() });
+    } catch (e) { res.json({ contacts: [] }); }
+  }});
 });
 
 app.get('/api/aria/contacts/country/:country', requireAuth, async (req, res) => {
-  try {
-    const { getContactsByCountry } = await import('./lib/aria/contacts.mjs');
-    res.json({ contacts: getContactsByCountry(req.params.country) });
-  } catch (e) { res.json({ contacts: [] }); }
+  ariaProxy(req, res, `/api/aria/contacts/country/${encodeURIComponent(req.params.country)}`, { fallback: async () => {
+    try {
+      const { getContactsByCountry } = await import('./lib/aria/contacts.mjs');
+      res.json({ contacts: getContactsByCountry(req.params.country) });
+    } catch (e) { res.json({ contacts: [] }); }
+  }});
 });
 
 app.post('/api/aria/contacts', requireAuth, async (req, res) => {
-  try {
-    const { addContact } = await import('./lib/aria/contacts.mjs');
-    const { name, country, role, title, organisation, influence, notes } = req.body || {};
-    if (!name || !country) return res.status(400).json({ error: 'name and country required' });
-    addContact({ name, country, role, title, organisation, influence, notes });
-    res.json({ ok: true, message: 'Contact added' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  ariaProxy(req, res, '/api/aria/contacts', { method: 'POST', fallback: async () => {
+    try {
+      const { addContact } = await import('./lib/aria/contacts.mjs');
+      const { name, country, role, title, organisation, influence, notes } = req.body || {};
+      if (!name || !country) return res.status(400).json({ error: 'name and country required' });
+      addContact({ name, country, role, title, organisation, influence, notes });
+      res.json({ ok: true, message: 'Contact added' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  }});
 });
 
 // Approach Strategy Generator API
 app.post('/api/aria/approach', requireAuth, async (req, res) => {
-  try {
-    const { generateApproach } = await import('./lib/aria/approach.mjs');
-    const { market, product, context } = req.body || {};
-    if (!market) return res.status(400).json({ error: 'market required' });
-    const strategy = generateApproach(market, product || '', context || '');
-    res.json(strategy);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  ariaProxy(req, res, '/api/aria/approach', { method: 'POST', fallback: async () => {
+    try {
+      const { generateApproach } = await import('./lib/aria/approach.mjs');
+      const { market, product, context } = req.body || {};
+      if (!market) return res.status(400).json({ error: 'market required' });
+      const strategy = generateApproach(market, product || '', context || '');
+      res.json(strategy);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  }});
 });
 
 // Orchestrator dead-letter queue (failed tasks)
@@ -1691,38 +1745,43 @@ app.get('/api/admin/dlq', requireAdmin, async (req, res) => {
 
 // ARIA Correction API (user feedback for training quality)
 app.post('/api/aria/correct', requireAuth, async (req, res) => {
-  try {
-    const { originalQuery, originalResponse, correction, correctAnswer } = req.body || {};
-    if (!correction) return res.status(400).json({ error: 'correction required' });
-    const { recordCorrection } = await import('./lib/aria/training_data.mjs');
-    recordCorrection(originalQuery || '', originalResponse || '', correction, correctAnswer || '');
-    // Also store as learning in knowledge base
-    const { storeLearning } = await import('./lib/aria/knowledge.mjs');
-    storeLearning(correction, originalQuery || '');
-    res.json({ ok: true, message: 'Correction recorded — ARIA will learn from this' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  ariaProxy(req, res, '/api/aria/correct', { method: 'POST', fallback: async () => {
+    try {
+      const { originalQuery, originalResponse, correction, correctAnswer } = req.body || {};
+      if (!correction) return res.status(400).json({ error: 'correction required' });
+      const { recordCorrection } = await import('./lib/aria/training_data.mjs');
+      recordCorrection(originalQuery || '', originalResponse || '', correction, correctAnswer || '');
+      const { storeLearning } = await import('./lib/aria/knowledge.mjs');
+      storeLearning(correction, originalQuery || '');
+      res.json({ ok: true, message: 'Correction recorded — ARIA will learn from this' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  }});
 });
 
 // Training Data API (for future proprietary LLM)
 app.get('/api/aria/training-data/stats', requireAdmin, async (req, res) => {
-  try {
-    const { getTrainingStats } = await import('./lib/aria/training_data.mjs');
-    res.json(getTrainingStats());
-  } catch (e) { res.json({ conversations: 0, error: e.message }); }
+  ariaProxy(req, res, '/api/aria/training-data/stats', { fallback: async () => {
+    try {
+      const { getTrainingStats } = await import('./lib/aria/training_data.mjs');
+      res.json(getTrainingStats());
+    } catch (e) { res.json({ conversations: 0, error: e.message }); }
+  }});
 });
 
 app.get('/api/aria/training-data/export', requireAdmin, async (req, res) => {
-  try {
-    const { exportTrainingData } = await import('./lib/aria/training_data.mjs');
-    const data = exportTrainingData();
-    if (req.query.format === 'jsonl') {
-      res.setHeader('Content-Type', 'application/jsonl');
-      res.setHeader('Content-Disposition', 'attachment; filename="aria_training_data.jsonl"');
-      res.send(data.data.map(d => JSON.stringify(d)).join('\n'));
-    } else {
-      res.json(data);
-    }
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  ariaProxy(req, res, `/api/aria/training-data/export${req.query.format ? '?format=' + req.query.format : ''}`, { fallback: async () => {
+    try {
+      const { exportTrainingData } = await import('./lib/aria/training_data.mjs');
+      const data = exportTrainingData();
+      if (req.query.format === 'jsonl') {
+        res.setHeader('Content-Type', 'application/jsonl');
+        res.setHeader('Content-Disposition', 'attachment; filename="aria_training_data.jsonl"');
+        res.send(data.data.map(d => JSON.stringify(d)).join('\n'));
+      } else {
+        res.json(data);
+      }
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  }});
 });
 
 // PDF Report Generation
@@ -1758,14 +1817,17 @@ app.post('/api/report/approach', requireAuth, async (req, res) => {
 
 // Go-To-Market Strategy API
 app.get('/api/aria/gtm/:market', requireAuth, async (req, res) => {
-  try {
-    const { generateGTMStrategy } = await import('./lib/aria/gtm_strategy.mjs');
-    const strategy = generateGTMStrategy(req.params.market);
-    res.json(strategy || { error: 'Market not found' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  ariaProxy(req, res, `/api/aria/gtm/${encodeURIComponent(req.params.market)}`, { fallback: async () => {
+    try {
+      const { generateGTMStrategy } = await import('./lib/aria/gtm_strategy.mjs');
+      const strategy = generateGTMStrategy(req.params.market);
+      res.json(strategy || { error: 'Market not found' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  }});
 });
 
 // On-demand research trigger — immediately explores a specific topic
+// NOTE: Research still uses Node.js web_explorer locally (not proxied) because it needs local LLM + explorer
 app.post('/api/aria/research', requireAuth, async (req, res) => {
   try {
     const { topic, market } = req.body || {};
@@ -1780,11 +1842,18 @@ app.post('/api/aria/research', requireAuth, async (req, res) => {
     ];
     const { runExploration } = await import('./lib/self/web_explorer.mjs');
     const findings = await runExploration(llmProvider, { queries });
-    // Store findings to knowledge base
+    // Store findings to both local and Python knowledge bases
     try {
       const { storeFact, recordQuery } = await import('./lib/aria/knowledge.mjs');
       for (const ins of (findings.insights || []).slice(0, 3)) {
         storeFact(topic + ' — ' + (ins.title || '').slice(0, 40), (ins.summary || ins.title || '').slice(0, 300), 'research', 'ASSESSED');
+        // Also store in Python service
+        if (ARIA_SERVICE_URL) {
+          fetch(`${ARIA_SERVICE_URL}/api/aria/knowledge/fact`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic: topic + ' — ' + (ins.title || '').slice(0, 40), content: (ins.summary || ins.title || '').slice(0, 300), confidence: 'ASSESSED' }),
+          }).catch(() => {});
+        }
       }
       recordQuery(topic, (findings.insights?.[0]?.summary || '').slice(0, 200), market || '');
     } catch {}
@@ -1793,23 +1862,37 @@ app.post('/api/aria/research', requireAuth, async (req, res) => {
 });
 
 app.post('/api/aria/knowledge/learn', requireAuth, async (req, res) => {
-  try {
-    const { correction, context } = req.body || {};
-    if (!correction) return res.status(400).json({ error: 'correction required' });
-    const { storeLearning } = await import('./lib/aria/knowledge.mjs');
-    storeLearning(correction, context || '');
-    res.json({ ok: true, message: 'Learning stored' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  ariaProxy(req, res, '/api/aria/knowledge/learn', { method: 'POST', fallback: async () => {
+    try {
+      const { correction, context } = req.body || {};
+      if (!correction) return res.status(400).json({ error: 'correction required' });
+      const { storeLearning } = await import('./lib/aria/knowledge.mjs');
+      storeLearning(correction, context || '');
+      res.json({ ok: true, message: 'Learning stored' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  }});
 });
 
-// ARIA chat — local LLM primary, brain service proxy secondary (if BRAIN_SERVICE_URL set)
+// ARIA chat — Python service primary, local LLM fallback
 app.post('/api/aria/chat', requireAuth, async (req, res) => {
   const { message, session_id } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
-
   const sid = session_id || `${req.user?.id || 'anon'}_${Date.now()}`;
 
-  // Try brain service first if configured
+  // Try Python ARIA service first (has its own LLM + 7-layer context)
+  if (ARIA_SERVICE_URL) {
+    try {
+      const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, session_id: sid }),
+        signal: AbortSignal.timeout(90000),
+      });
+      if (r.ok) return res.json(await r.json());
+    } catch (e) { console.warn('[ARIA] Python service unreachable, trying brain/local:', e.message); }
+  }
+
+  // Try old Flask brain service
   if (BRAIN_URL) {
     try {
       const r = await fetch(`${BRAIN_URL}/api/aria/chat`, {
@@ -1819,10 +1902,10 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
         signal: AbortSignal.timeout(90000),
       });
       if (r.ok) return res.json(await r.json());
-    } catch (e) { console.warn('[ARIA proxy] brain service unreachable, using local LLM:', e.message); }
+    } catch (e) { console.warn('[ARIA] brain service unreachable, using local LLM:', e.message); }
   }
 
-  // Local LLM — inject live intelligence so ARIA can reference real data
+  // Local Node.js LLM fallback
   const result = await ariaLocalChat(message, sid, llmProvider, currentData);
   res.json(result);
 });
@@ -1831,7 +1914,20 @@ app.post('/api/aria/think', requireAuth, async (req, res) => {
   const { question, context, fast } = req.body || {};
   if (!question) return res.status(400).json({ error: 'question required' });
 
-  // Try brain service first if configured
+  // Try Python ARIA service first
+  if (ARIA_SERVICE_URL) {
+    try {
+      const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/think`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, context: context || {}, fast: fast || false }),
+        signal: AbortSignal.timeout(90000),
+      });
+      if (r.ok) return res.json(await r.json());
+    } catch (e) { console.warn('[ARIA] Python think failed, trying brain/local:', e.message); }
+  }
+
+  // Try old Flask brain service
   if (BRAIN_URL) {
     try {
       const r = await fetch(`${BRAIN_URL}/api/aria/think`, {
@@ -1841,10 +1937,10 @@ app.post('/api/aria/think', requireAuth, async (req, res) => {
         signal: AbortSignal.timeout(60000),
       });
       if (r.ok) return res.json(await r.json());
-    } catch (e) { console.warn('[ARIA proxy] think failed, using local LLM:', e.message); }
+    } catch (e) { console.warn('[ARIA] brain think failed, using local LLM:', e.message); }
   }
 
-  // Local LLM deep reasoning — inject live intelligence
+  // Local Node.js LLM fallback
   const result = await ariaLocalThink(question, context || {}, llmProvider, currentData);
   res.json(result);
 });
@@ -2713,6 +2809,9 @@ async function runSweepCycle() {
     }
 
     broadcast({ type: 'update', data: currentData });
+
+    // Push sweep data to Python ARIA service for intel layer updates
+    pushSweepToARIA(currentData).catch(() => {});
 
     console.log(`[Crucix] Sweep complete — ${currentData.meta.sourcesOk}/${currentData.meta.sourcesQueried} sources OK`);
     console.log(`[Crucix] ${currentData.ideas.length} ideas (${synthesized.ideasSource}) | ${currentData.news.length} news | ${currentData.newsFeed.length} feed items`);
