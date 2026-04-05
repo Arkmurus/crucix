@@ -15,6 +15,7 @@
     "brief:save": "node apis/save-briefing.mjs",
     "diag": "node diag.mjs",
     "clean": "node scripts/clean.mjs",
+    "seed:outcomes": "node scripts/seed_outcomes.mjs",
     "fresh-start": "npm run clean && npm start",
     "frontend:install": "cd frontend && npm install",
     "frontend:dev": "cd frontend && npx ng serve --open",
