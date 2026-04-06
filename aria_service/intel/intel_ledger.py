@@ -127,14 +127,20 @@ async def ingest_sweep_signals(current_data: dict) -> int:
         for sig in (c.get("topSignals") or [])[:2]:
             _add(sig.get("text", ""), c.get("region", ""), "correlation", severity=c.get("severity", "medium"))
 
-    # Defence news
+    # Defence news (may be list of dicts or list of strings)
     for d in (current_data.get("defenseNews") or []):
-        _add(d.get("title", ""), d.get("source", "defence_news"), "defense_news", d.get("link", ""))
+        if isinstance(d, str):
+            _add(d, "defence_news", "defense_news")
+        elif isinstance(d, dict):
+            _add(d.get("title", ""), d.get("source", "defence_news"), "defense_news", d.get("link", ""))
 
     # Tenders
     items = (current_data.get("procurementTenders") or {}).get("items") or []
     for t in items:
-        _add(t.get("title") or t.get("text", ""), t.get("source", "tender"), "tender", t.get("link", ""))
+        if isinstance(t, str):
+            _add(t, "tender", "tender")
+        elif isinstance(t, dict):
+            _add(t.get("title") or t.get("text", ""), t.get("source", "tender"), "tender", t.get("link", ""))
 
     # BD brain leads
     brain = (current_data.get("bdIntelligence") or {}).get("brain") or {}

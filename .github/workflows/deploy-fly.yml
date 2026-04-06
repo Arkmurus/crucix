@@ -10,15 +10,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: superfly/flyctl-actions/setup-flyctl@master
-
-      - name: Verify Fly.io auth
-        run: flyctl status --app aria-intel
-
-      - name: Deploy to Fly.io
-        run: flyctl deploy --remote-only --app aria-intel
+      - run: flyctl deploy --remote-only --app aria-intel -t "${{ secrets.FLY_API_TOKEN }}"
