@@ -312,7 +312,7 @@ async def read_article_ep(request: Request):
     return result
 
 
-# 25. POST /api/aria/read-document — Read a document (text content from any format)
+# 25. POST /api/aria/read-document — Read a document (text content or base64 binary)
 @router.post("/read-document")
 async def read_document_ep(request: Request):
     body = await request.json()
@@ -320,6 +320,73 @@ async def read_document_ep(request: Request):
     filename = body.get("filename", "unknown")
     source = body.get("source", "document")
     context = body.get("context", "")
+    encoding = body.get("encoding", "utf-8")
+    mimetype = body.get("mimetype", "")
+
+    # Handle base64-encoded binary documents (PDF, DOCX, Excel)
+    if encoding == "base64" and content:
+        import base64 as _b64
+        try:
+            raw_bytes = _b64.b64decode(content)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid base64 content")
+
+        extracted = ""
+        fname_lower = filename.lower()
+        mime_lower = mimetype.lower()
+
+        # PDF extraction
+        if "pdf" in mime_lower or fname_lower.endswith(".pdf"):
+            try:
+                import fitz  # PyMuPDF
+                doc = fitz.open(stream=raw_bytes, filetype="pdf")
+                extracted = "\n".join(page.get_text() for page in doc)[:15000]
+                doc.close()
+            except ImportError:
+                llm = get_llm(request)
+                ocr_result = await aria_ocr.extract_text_from_image(raw_bytes, filename, context, llm)
+                extracted = ocr_result.get("text", "")
+            except Exception as e:
+                _log.warning("PDF extraction failed: %s", e)
+
+        # DOCX extraction
+        elif "word" in mime_lower or "officedocument" in mime_lower or fname_lower.endswith(".docx"):
+            try:
+                import io, zipfile, re as _re
+                zf = zipfile.ZipFile(io.BytesIO(raw_bytes))
+                if "word/document.xml" in zf.namelist():
+                    xml = zf.read("word/document.xml").decode("utf-8", errors="ignore")
+                    extracted = _re.sub(r"<[^>]+>", " ", xml)
+                    extracted = " ".join(extracted.split())[:15000]
+                zf.close()
+            except Exception as e:
+                _log.warning("DOCX extraction failed: %s", e)
+
+        # Excel extraction
+        elif "spreadsheet" in mime_lower or fname_lower.endswith((".xlsx", ".xls")):
+            try:
+                import io
+                from openpyxl import load_workbook
+                wb = load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
+                rows = []
+                for ws in wb.worksheets[:3]:
+                    rows.append(f"--- Sheet: {ws.title} ---")
+                    for row in ws.iter_rows(max_row=200, values_only=True):
+                        rows.append(",".join(str(c or "") for c in row))
+                wb.close()
+                extracted = "\n".join(rows)[:15000]
+            except Exception as e:
+                _log.warning("Excel extraction failed: %s", e)
+
+        if not extracted or len(extracted) < 30:
+            llm = get_llm(request)
+            ocr_result = await aria_ocr.extract_text_from_image(raw_bytes, filename, context, llm)
+            extracted = ocr_result.get("text", "")
+
+        if not extracted or len(extracted) < 30:
+            raise HTTPException(status_code=400, detail="Could not extract text from binary document")
+        content = extracted
+
     if not content or len(content) < 30:
         raise HTTPException(status_code=400, detail="content required (min 30 chars)")
     llm = get_llm(request)

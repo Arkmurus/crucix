@@ -11,6 +11,7 @@ const BASE  = `https://raw.githubusercontent.com/${REPO}/${BRANCH}`;
 const FILES = [
   'lib/whatsapp/ariaWhatsApp.mjs',
   'lib/whatsapp/waListener.mjs',
+  'services/wa-listener/aria_wa_listener.mjs',
   'lib/aria/emailReader.mjs',
   'lib/aria/proactive.mjs',
   'lib/aria/linkedinIntel.mjs',

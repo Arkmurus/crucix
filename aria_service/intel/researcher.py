@@ -363,7 +363,9 @@ If NO relevant compliance intelligence, set skip=true and return minimal JSON.""
             max_tokens=2000,
             timeout=60.0,
         )
-        json_match = re.search(r"\{[\s\S]*\}", result.text)
+        _cleaned = re.sub(r"^```(?:json)?\s*", "", result.text.strip())
+        _cleaned = re.sub(r"\s*```$", "", _cleaned)
+        json_match = re.search(r"\{[\s\S]*\}", _cleaned)
         if json_match:
             return json.loads(json_match.group())
     except Exception as e:
@@ -427,7 +429,9 @@ If NO new intelligence, set skip=true."""
             max_tokens=1500,
             timeout=60.0,
         )
-        json_match = re.search(r"\{[\s\S]*\}", result.text)
+        _cleaned = re.sub(r"^```(?:json)?\s*", "", result.text.strip())
+        _cleaned = re.sub(r"\s*```$", "", _cleaned)
+        json_match = re.search(r"\{[\s\S]*\}", _cleaned)
         if json_match:
             return json.loads(json_match.group())
     except Exception as e:
@@ -799,7 +803,9 @@ Return JSON:
 
     try:
         result = await llm.complete("ARIA evaluating intelligence hypothesis.", prompt, max_tokens=800, timeout=45.0)
-        json_match = re.search(r"\{[\s\S]*\}", result.text)
+        _cleaned = re.sub(r"^```(?:json)?\s*", "", result.text.strip())
+        _cleaned = re.sub(r"\s*```$", "", _cleaned)
+        json_match = re.search(r"\{[\s\S]*\}", _cleaned)
         if json_match:
             parsed = json.loads(json_match.group())
             target["status"] = parsed.get("new_status", target["status"])

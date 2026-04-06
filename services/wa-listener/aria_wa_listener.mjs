@@ -481,14 +481,21 @@ async function startListener() {
             const buf = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
               const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
             })());
-            const content = buf.toString('utf-8').slice(0, 15000);
             const docType = mimetype.split('/')[1] || 'document';
+            const isBinary = /pdf|word|spreadsheet|octet-stream|msword|officedocument/.test(mimetype);
+            // Binary formats → send as base64 for server-side parsing
+            // Text formats → send as UTF-8 directly
+            const content = isBinary
+              ? buf.toString('base64').slice(0, 200000)
+              : buf.toString('utf-8').slice(0, 15000);
             if (content.length > 50) {
               const result = await brainPost('/api/aria/read-document', {
                 content,
                 filename,
                 source: `whatsapp_group:${groupName}:${senderName}`,
                 context: text || `Document from ${senderName} in ${groupName}`,
+                encoding: isBinary ? 'base64' : 'utf-8',
+                mimetype,
               }).catch(() => null);
               if (result) {
                 const summary = result.summary || `${docType} file, ${content.length} characters`;
