@@ -1945,6 +1945,111 @@ app.post('/api/aria/think', requireAuth, async (req, res) => {
   res.json(result);
 });
 
+// ── ARIA Messaging — send WhatsApp & email via ARIA ─────────────────────────
+
+app.post('/api/aria/send-whatsapp', requireAuth, async (req, res) => {
+  const { group_id, chat_id, message, ask_aria, question } = req.body || {};
+  const target = group_id || chat_id;
+
+  let waSock;
+  try {
+    const { getWASock } = await import('./lib/whatsapp/waListener.mjs');
+    waSock = getWASock();
+  } catch {
+    return res.status(503).json({ error: 'WhatsApp listener not available' });
+  }
+
+  if (!waSock.isConnected) {
+    return res.status(503).json({ error: 'WhatsApp not connected' });
+  }
+
+  if (ask_aria && question) {
+    const sid = `wa_api_${req.user?.id || 'admin'}_${Date.now()}`;
+    let ariaReply;
+    if (ARIA_SERVICE_URL) {
+      try {
+        const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: question, session_id: sid }),
+          signal: AbortSignal.timeout(60000),
+        });
+        if (r.ok) { const d = await r.json(); ariaReply = d.response || d.answer; }
+      } catch {}
+    }
+    if (!ariaReply) {
+      const result = await ariaLocalChat(question, sid, llmProvider, currentData);
+      ariaReply = result.response || result.answer;
+    }
+    if (!ariaReply) return res.status(502).json({ error: 'ARIA did not respond' });
+
+    if (!target) return res.json({ ok: true, response: ariaReply, note: 'No target specified — response not sent to WhatsApp' });
+
+    const ok = await waSock.sendMessage(target, `*ARIA* — ${ariaReply}`);
+    return res.json({ ok, response: ariaReply, sent_to: target });
+  }
+
+  if (!target || !message) {
+    return res.status(400).json({ error: 'group_id/chat_id and message required (or ask_aria + question)' });
+  }
+  const ok = await waSock.sendMessage(target, message);
+  res.json({ ok, sent_to: target, length: message.length });
+});
+
+app.post('/api/aria/send-email', requireAuth, async (req, res) => {
+  const { to, subject, text, html, instruction, original_subject, original_body, cc, bcc } = req.body || {};
+
+  let emailSend;
+  try {
+    const { sendEmail } = await import('./lib/aria/emailReader.mjs');
+    emailSend = sendEmail;
+  } catch {
+    return res.status(503).json({ error: 'Email module not available' });
+  }
+
+  if (!to) return res.status(400).json({ error: 'to required' });
+
+  if (instruction) {
+    const sid = `email_${req.user?.id || 'admin'}_${Date.now()}`;
+    const prompt = `Compose a professional email as ARIA on behalf of Arkmurus.
+TO: ${to}
+${original_subject ? `ORIGINAL SUBJECT: ${original_subject}` : ''}
+${original_body ? `ORIGINAL EMAIL:\n${original_body.slice(0, 2000)}` : ''}
+INSTRUCTION: ${instruction}
+Write the email body only. Be concise and professional. Sign off as "ARIA — Arkmurus Intelligence".`;
+
+    let composedBody;
+    if (ARIA_SERVICE_URL) {
+      try {
+        const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: prompt, session_id: sid }),
+          signal: AbortSignal.timeout(60000),
+        });
+        if (r.ok) { const d = await r.json(); composedBody = d.response || d.answer; }
+      } catch {}
+    }
+    if (!composedBody) {
+      const result = await ariaLocalChat(prompt, sid, llmProvider, currentData);
+      composedBody = result.response || result.answer;
+    }
+    if (!composedBody) return res.status(502).json({ error: 'ARIA failed to compose email' });
+
+    const emailSubject = subject || (original_subject ? `Re: ${original_subject}` : 'Arkmurus Intelligence Update');
+    const result = await emailSend({ to, subject: emailSubject, text: composedBody, cc, bcc });
+    return res.json({ ok: result.sent, messageId: result.messageId, subject: emailSubject, body: composedBody, to });
+  }
+
+  if (!subject) return res.status(400).json({ error: 'subject required' });
+  const result = await emailSend({ to, subject, text, html, cc, bcc });
+  if (result.sent) {
+    res.json({ ok: true, messageId: result.messageId });
+  } else {
+    res.status(500).json({ error: result.reason });
+  }
+});
+
 // ── Self-update API ───────────────────────────────────────────────────────────
 
 app.get('/api/self/staged', requireAdmin, (req, res) => {

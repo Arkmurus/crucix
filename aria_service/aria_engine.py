@@ -204,22 +204,26 @@ def _build_intel_context(intel_data: dict | None) -> str:
 
 def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
     """Build all 7 intelligence layers, budget-capped."""
-    layers = [
-        _build_intel_context(intel_data),          # 1: Live sweep
-        search_knowledge(message),                  # 2: Knowledge base
-        query_ledger(message),                      # 3: Intel ledger
-        get_contact_context(message),               # 4: Contacts
-        get_competitor_context(message),             # 5: Competitors
-        get_approach_context(message),               # 6: Approach
-        get_gtm_context(message),                    # 7: GTM
+    layer_fns = [
+        ("live_intel", lambda: _build_intel_context(intel_data)),
+        ("knowledge",  lambda: search_knowledge(message)),
+        ("ledger",     lambda: query_ledger(message)),
+        ("contacts",   lambda: get_contact_context(message)),
+        ("competitors", lambda: get_competitor_context(message)),
+        ("approach",   lambda: get_approach_context(message)),
+        ("gtm",        lambda: get_gtm_context(message)),
     ]
     total = ""
-    for layer in layers:
-        if not layer:
-            continue
-        if len(total) + len(layer) > MAX_CONTEXT_CHARS:
-            break
-        total += layer
+    for name, fn in layer_fns:
+        try:
+            layer = fn()
+            if not layer:
+                continue
+            if len(total) + len(layer) > MAX_CONTEXT_CHARS:
+                break
+            total += layer
+        except Exception as e:
+            logger.warning("Context layer '%s' failed: %s", name, e)
     return total
 
 
@@ -372,18 +376,17 @@ async def aria_chat(
     # Auto-extract facts (non-blocking)
     try:
         auto_extract_facts(message, response_text)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Auto-extract facts failed: %s", e)
 
     # Record for training
     try:
-        layer_names = ["intel", "kb", "ledger", "contacts", "competitors", "approach", "gtm"]
         await training_data.record_conversation(
             ARIA_SYSTEM_PROMPT, message, response_text,
             {"hadIntelContext": bool(intel_data), "contextLength": len(context)},
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Training data record failed: %s", e)
 
     return {
         "response": response_text,

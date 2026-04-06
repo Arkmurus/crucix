@@ -37,7 +37,20 @@ from ..intel.deep_researcher import (
     build_profile,
 )
 
+import logging
+_log = logging.getLogger("aria.routes")
+
 router = APIRouter(prefix="/api/aria", tags=["aria"])
+
+# ── Input sanitisation ──────────────────────────────────────────────────────
+_COUNTRY_RE = re.compile(r"^[a-zA-Z\s\-']{2,60}$")
+
+def _validate_country(country: str) -> str:
+    """Sanitise country parameter — alphanumeric + spaces only."""
+    c = country.strip()
+    if not _COUNTRY_RE.match(c):
+        raise HTTPException(status_code=400, detail="Invalid country parameter")
+    return c
 
 
 # ── Request/Response Models ──────────────────────────────────────────────────
@@ -150,6 +163,7 @@ async def ledger_ep():
 # 7. GET /api/aria/ledger/country/{country}
 @router.get("/ledger/country/{country}")
 async def ledger_country_ep(country: str):
+    country = _validate_country(country)
     return await intel_ledger.get_country_situation(country)
 
 
@@ -163,6 +177,7 @@ async def contacts_ep():
 # 9. GET /api/aria/contacts/country/{country}
 @router.get("/contacts/country/{country}")
 async def contacts_country_ep(country: str):
+    country = _validate_country(country)
     cs = await contacts.get_by_country(country)
     return {"contacts": cs}
 

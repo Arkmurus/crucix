@@ -33,8 +33,8 @@ async def get(key: str) -> Optional[str]:
     if _client:
         try:
             return await _client.get(key)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Redis GET %s failed: %s", key, e)
     return _mem_store.get(key)
 
 
@@ -43,8 +43,8 @@ async def set(key: str, value: str, ex: int | None = None) -> None:
         try:
             await _client.set(key, value, ex=ex)
             return
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Redis SET %s failed: %s", key, e)
     _mem_store[key] = value
 
 
@@ -53,8 +53,8 @@ async def get_json(key: str) -> Any:
     if raw:
         try:
             return json.loads(raw)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("JSON parse failed for key %s: %s", key, e)
     return None
 
 
@@ -67,8 +67,8 @@ async def lpush(key: str, value: str) -> None:
         try:
             await _client.lpush(key, value)
             return
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Redis LPUSH %s failed: %s", key, e)
     lst = json.loads(_mem_store.get(key, "[]"))
     lst.insert(0, value)
     _mem_store[key] = json.dumps(lst)
@@ -79,15 +79,15 @@ async def ltrim(key: str, start: int, stop: int) -> None:
         try:
             await _client.ltrim(key, start, stop)
             return
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Redis LTRIM %s failed: %s", key, e)
 
 
 async def lrange(key: str, start: int, stop: int) -> list[str]:
     if _client:
         try:
             return await _client.lrange(key, start, stop)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Redis LRANGE %s failed: %s", key, e)
     lst = json.loads(_mem_store.get(key, "[]"))
     return lst[start : stop + 1 if stop >= 0 else None]
