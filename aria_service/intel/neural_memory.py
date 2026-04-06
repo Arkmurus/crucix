@@ -38,12 +38,12 @@ NEURONS_KEY = "crucix:aria:neurons"
 EDGES_KEY = "crucix:aria:neural_edges"
 NEURAL_META_KEY = "crucix:aria:neural_meta"
 
-MAX_NEURONS = 25000
-MAX_EDGES_PER_NEURON = 100
-DECAY_RATE = 0.995          # per-day decay (0.5% per day)
+MAX_NEURONS = 50000
+MAX_EDGES_PER_NEURON = 200
+DECAY_RATE = 0.997          # per-day decay (0.3% per day — memories last longer)
 MIN_ACTIVATION = 0.05       # neurons never fully die
-ACTIVATION_BOOST = 0.15     # each access boosts activation
-CO_OCCURRENCE_BOOST = 0.08  # co-occurring concepts strengthen edges
+ACTIVATION_BOOST = 0.2      # each access boosts activation (faster learning)
+CO_OCCURRENCE_BOOST = 0.12  # co-occurring concepts strengthen edges (stronger associations)
 NEW_NEURON_ACTIVATION = 0.5
 PRUNE_THRESHOLD = 0.08      # prune edges weaker than this
 
@@ -257,10 +257,42 @@ _EVENT_PATTERNS = re.compile(
     r'arms deal|offset|fms notification)\b',
     re.IGNORECASE
 )
-# Empty patterns for LLM-sourced categories — regex won't match, but
-# the category system recognises them for neurons created by LLM extraction.
-_PERSON_PATTERNS = re.compile(r'(?!x)x', re.IGNORECASE)        # never matches
-_ORGANISATION_PATTERNS = re.compile(r'(?!x)x', re.IGNORECASE)  # never matches
+# Person names — military leaders, defence ministers, key decision-makers
+_PERSON_PATTERNS = re.compile(
+    r'\b(general|admiral|marshal|colonel|brigadier|minister|secretary|president|'
+    r'chief of staff|commander|cdr|maj gen|lt gen|gen\.|adm\.|col\.|brig\.)\s+'
+    r'[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b',
+    re.IGNORECASE
+)
+# Organisation / institution patterns
+_ORGANISATION_PATTERNS = re.compile(
+    r'\b(ministry of defence|ministry of defense|mod|dod|pentagon|'
+    r'nato|african union|ecowas|sadc|asean|gcc|cplp|'
+    r'un security council|european council|european commission)\b',
+    re.IGNORECASE
+)
+# Weapons systems and platforms — specific designations
+_WEAPONS_SYSTEM_PATTERNS = re.compile(
+    r'\b(f-35|f-16|f/a-18|su-35|su-30|mig-29|j-10|j-20|rafale|eurofighter|gripen|'
+    r'typhoon|tejas|kf-21|fa-50|jf-17|'
+    r'leopard 2|abrams|challenger|k2|altay|t-90|type 99|arjun|'
+    r'bayraktar tb2|tb3|anka|wing loong|mq-9|mq-1|heron|hermes|'
+    r'patriot|s-400|s-300|iron dome|thaad|nasams|iris-t|'
+    r'himars|m777|k9|caesar|pzh 2000|archer|'
+    r'sigma|meko|gowind|fremm|type 31|mogami|'
+    r'javelin|spike|stinger|nlaw|atacms|scalp|storm shadow|'
+    r'brahmos|harpoon|exocet|nsm|lrasm)\b',
+    re.IGNORECASE
+)
+# Financial and commercial terms
+_FINANCIAL_PATTERNS = re.compile(
+    r'\b(billion|million|usd|eur|gbp|contract value|deal worth|'
+    r'budget allocation|defence spending|gdp|credit line|'
+    r'letter of credit|loan agreement|sovereign guarantee|'
+    r'offset obligation|countertrade|industrial participation|'
+    r'down payment|milestone payment|life.?cycle cost|unit cost)\b',
+    re.IGNORECASE
+)
 
 VALID_CATEGORIES = frozenset({
     "market", "oem", "capability", "regulation", "event",
@@ -339,6 +371,10 @@ def extract_concepts(text: str) -> list[tuple[str, str]]:
         (_CAPABILITY_PATTERNS, "capability"),
         (_REGULATION_PATTERNS, "regulation"),
         (_EVENT_PATTERNS, "event"),
+        (_PERSON_PATTERNS, "person"),
+        (_ORGANISATION_PATTERNS, "organisation"),
+        (_WEAPONS_SYSTEM_PATTERNS, "capability"),
+        (_FINANCIAL_PATTERNS, "event"),
     ]:
         for m in pattern.finditer(t):
             concept = m.group(0).strip()

@@ -61,9 +61,9 @@ async def record_conversation(
 
     obj = {
         "messages": [
-            {"role": "system", "content": system_prompt[:2000]},
-            {"role": "user", "content": user_message[:1000]},
-            {"role": "assistant", "content": aria_response[:3000]},
+            {"role": "system", "content": system_prompt[:4000]},
+            {"role": "user", "content": user_message[:2000]},
+            {"role": "assistant", "content": aria_response[:6000]},
         ],
         "meta": {
             "ts": datetime.now(timezone.utc).isoformat(),
@@ -86,8 +86,8 @@ async def record_think_response(question: str, think_output: dict) -> None:
     obj = {
         "messages": [
             {"role": "system", "content": "ARIA deep reasoning protocol — 6-step analysis"},
-            {"role": "user", "content": question[:1000]},
-            {"role": "assistant", "content": think_output.get("full_text", "")[:5000]},
+            {"role": "user", "content": question[:2000]},
+            {"role": "assistant", "content": think_output.get("full_text", "")[:8000]},
         ],
         "meta": {
             "ts": datetime.now(timezone.utc).isoformat(),
@@ -143,14 +143,14 @@ async def record_correction(
     obj = {
         "messages": [
             {"role": "system", "content": "ARIA correction — this response was wrong"},
-            {"role": "user", "content": original_query[:1000]},
-            {"role": "assistant", "content": original_response[:2000]},
+            {"role": "user", "content": original_query[:2000]},
+            {"role": "assistant", "content": original_response[:4000]},
         ],
         "meta": {
             "ts": datetime.now(timezone.utc).isoformat(),
             "type": "correction",
-            "correction": correction[:500],
-            "correctAnswer": correct_answer[:1000],
+            "correction": correction[:1000],
+            "correctAnswer": correct_answer[:2000],
             "isNegativeExample": True,
         },
     }

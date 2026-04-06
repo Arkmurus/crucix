@@ -39,6 +39,24 @@ from .researcher import (
 
 logger = logging.getLogger("aria.deep_research")
 
+# ── User-Agent Rotation Pool ────────────────────────────────────────────────
+import random as _random
+
+_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+]
+
+def _random_ua() -> str:
+    return _random.choice(_USER_AGENTS)
+
+# Maximum concurrent page fetches during crawl
+MAX_CONCURRENT_FETCHES = 5
 
 # ── Web Crawler ──────────────────────────────────────────────────────────────
 
@@ -66,40 +84,53 @@ async def _extract_links(url: str, html: str) -> list[str]:
 
 
 async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, list[str]]:
-    """Fetch a page and return (text_content, discovered_links). Security validated."""
+    """Fetch a page and return (text_content, discovered_links). Security validated.
+
+    Includes 1 retry with 2s delay on failure and rotates User-Agent strings.
+    """
+    import asyncio as _asyncio
     from .security import sanitise_url, scan_content, strip_dangerous_content
     url = sanitise_url(url)
     if not url:
         return "", []
-    try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            resp = await client.get(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "text/html,application/xhtml+xml",
-            })
-            if resp.status_code != 200:
-                return "", []
-            html = resp.text
 
-        links = await _extract_links(url, html)
+    max_attempts = 2
+    for attempt in range(max_attempts):
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                resp = await client.get(url, headers={
+                    "User-Agent": _random_ua(),
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                })
+                if resp.status_code != 200:
+                    if attempt < max_attempts - 1:
+                        await _asyncio.sleep(2)
+                        continue
+                    return "", []
+                html = resp.text
 
-        # Extract text
-        text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<nav[^>]*>.*?</nav>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<header[^>]*>.*?</header>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<footer[^>]*>.*?</footer>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<[^>]+>", " ", text)
-        text = re.sub(r"&\w+;", " ", text)
-        text = re.sub(r"\s+", " ", text).strip()
+            links = await _extract_links(url, html)
 
-        if len(text) > 2000:
-            text = text[200:8000]
-        return text[:8000], links
+            # Extract text
+            text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
+            text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
+            text = re.sub(r"<nav[^>]*>.*?</nav>", "", text, flags=re.DOTALL | re.IGNORECASE)
+            text = re.sub(r"<header[^>]*>.*?</header>", "", text, flags=re.DOTALL | re.IGNORECASE)
+            text = re.sub(r"<footer[^>]*>.*?</footer>", "", text, flags=re.DOTALL | re.IGNORECASE)
+            text = re.sub(r"<[^>]+>", " ", text)
+            text = re.sub(r"&\w+;", " ", text)
+            text = re.sub(r"\s+", " ", text).strip()
 
-    except Exception as e:
-        logger.debug(f"Page fetch failed for {url}: {e}")
-        return "", []
+            if len(text) > 2000:
+                text = text[200:8000]
+            return text[:8000], links
+
+        except Exception as e:
+            logger.debug(f"Page fetch attempt {attempt+1} failed for {url}: {e}")
+            if attempt < max_attempts - 1:
+                await _asyncio.sleep(2)
+    return "", []
 
 
 def _score_link_relevance(url: str, link_text: str = "") -> float:
@@ -151,7 +182,7 @@ def _score_link_relevance(url: str, link_text: str = "") -> float:
 async def crawl_website(
     llm: LLMProvider,
     start_url: str,
-    max_pages: int = 20,
+    max_pages: int = 50,
     context: str = "",
 ) -> dict:
     """

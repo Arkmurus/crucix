@@ -47,6 +47,10 @@ RESEARCH_FEEDS = [
     {"name": "Naval Technology", "url": "https://www.naval-technology.com/feed/", "category": "naval"},
     {"name": "Shephard Media", "url": "https://www.shephardmedia.com/feed/", "category": "defence_industry"},
 
+    {"name": "C4ISRNet", "url": "https://www.c4isrnet.com/arc/outboundfeeds/rss/?outputType=xml", "category": "c4isr"},
+    {"name": "Forecast International", "url": "https://dsm.forecastinternational.com/rss", "category": "defence_industry"},
+    {"name": "Defence Notes", "url": "https://www.shephardmedia.com/news/defence-notes/feed/", "category": "defence_news"},
+
     # ── Arms Trade & Policy ───────────────────────────────────────────────
     {"name": "SIPRI Blog", "url": "https://www.sipri.org/rss.xml", "category": "arms_trade"},
     {"name": "DSCA Major Arms Sales", "url": "https://www.dsca.mil/press-media/major-arms-sales/feed", "category": "fms"},
@@ -63,6 +67,7 @@ RESEARCH_FEEDS = [
     {"name": "DW Africa", "url": "https://rss.dw.com/xml/rss-en-africa", "category": "africa_news"},
     {"name": "Africa Confidential", "url": "https://www.africa-confidential.com/rss", "category": "africa_intelligence"},
     {"name": "Club of Mozambique", "url": "https://clubofmozambique.com/feed/", "category": "mozambique"},
+    {"name": "Africa Intelligence", "url": "https://www.africaintelligence.com/rss", "category": "africa_intelligence"},
 
     # ── Regional: Middle East ─────────────────────────────────────────────
     {"name": "Al-Monitor Defence", "url": "https://www.al-monitor.com/rss", "category": "middle_east"},

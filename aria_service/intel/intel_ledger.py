@@ -14,7 +14,7 @@ from . import redis_store as rs
 logger = logging.getLogger("aria.intel.ledger")
 
 KEY = "crucix:intel_ledger"
-MAX_SIGNALS = 5000
+MAX_SIGNALS = 10000
 RETENTION_DAYS = 30
 
 _cache: dict | None = None
