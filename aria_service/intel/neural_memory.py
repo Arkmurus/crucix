@@ -19,6 +19,7 @@ she thinks in connected concepts like a human analyst.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -37,8 +38,8 @@ NEURONS_KEY = "crucix:aria:neurons"
 EDGES_KEY = "crucix:aria:neural_edges"
 NEURAL_META_KEY = "crucix:aria:neural_meta"
 
-MAX_NEURONS = 10000
-MAX_EDGES_PER_NEURON = 50
+MAX_NEURONS = 25000
+MAX_EDGES_PER_NEURON = 100
 DECAY_RATE = 0.995          # per-day decay (0.5% per day)
 MIN_ACTIVATION = 0.05       # neurons never fully die
 ACTIVATION_BOOST = 0.15     # each access boosts activation
@@ -256,6 +257,71 @@ _EVENT_PATTERNS = re.compile(
     r'arms deal|offset|fms notification)\b',
     re.IGNORECASE
 )
+# Empty patterns for LLM-sourced categories — regex won't match, but
+# the category system recognises them for neurons created by LLM extraction.
+_PERSON_PATTERNS = re.compile(r'(?!x)x', re.IGNORECASE)        # never matches
+_ORGANISATION_PATTERNS = re.compile(r'(?!x)x', re.IGNORECASE)  # never matches
+
+VALID_CATEGORIES = frozenset({
+    "market", "oem", "capability", "regulation", "event",
+    "person", "organisation", "general",
+})
+
+
+async def _extract_concepts_llm(text: str, llm) -> list[tuple[str, str]]:
+    """Use an LLM to extract named entities that regex patterns would miss.
+
+    Returns a list of (concept, category) tuples.  Falls back to an empty
+    list on any error or if the text is too short to justify an LLM call.
+    """
+    if not text or len(text) < 50:
+        return []
+
+    prompt = (
+        "Extract named entities from the following text.  Return ONLY valid JSON "
+        "with this schema — no commentary:\n"
+        '{"entities": [{"concept": "...", "category": "market|oem|capability|'
+        'regulation|event|person|organisation|general"}]}\n\n'
+        "Rules:\n"
+        "- concept: the entity exactly as it appears (preserve case)\n"
+        "- category: one of the listed values\n"
+        "- Only include entities that are meaningful nouns / proper names\n"
+        "- Skip generic words like 'the', 'system', 'report'\n"
+        "- Maximum 30 entities\n\n"
+        f"TEXT:\n{text[:3000]}"
+    )
+
+    try:
+        result = await asyncio.wait_for(
+            llm.complete(
+                "You are a concise entity-extraction assistant. "
+                "Return only the requested JSON, nothing else.",
+                prompt,
+                max_tokens=600,
+                timeout=10.0,
+            ),
+            timeout=12.0,  # outer safety net
+        )
+        raw = result.text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+        data = json.loads(raw)
+        entities = data.get("entities") or []
+        pairs: list[tuple[str, str]] = []
+        for ent in entities:
+            concept = (ent.get("concept") or "").strip()
+            category = (ent.get("category") or "general").strip().lower()
+            if not concept or len(concept) < 2:
+                continue
+            if category not in VALID_CATEGORIES:
+                category = "general"
+            pairs.append((concept, category))
+        return pairs
+    except Exception as e:
+        logger.debug("LLM concept extraction failed (graceful fallback): %s", e)
+        return []
 
 
 def extract_concepts(text: str) -> list[tuple[str, str]]:
@@ -287,9 +353,29 @@ def extract_concepts(text: str) -> list[tuple[str, str]]:
 # ── Public API ───────────────────────────────────────────────────────────────
 
 async def learn_from_text(text: str, source: str = "conversation",
-                          confidence: str = "ASSESSED") -> dict:
-    """Extract concepts from text and grow the neural network."""
+                          confidence: str = "ASSESSED",
+                          llm=None) -> dict:
+    """Extract concepts from text and grow the neural network.
+
+    If *llm* is provided, also runs LLM-based extraction to catch novel
+    entities that the regex patterns miss, then merges the two result sets.
+    """
     concepts = extract_concepts(text)
+
+    # Supplement with LLM extraction when an LLM provider is available
+    if llm is not None:
+        try:
+            llm_concepts = await _extract_concepts_llm(text, llm)
+            if llm_concepts:
+                seen = {c.lower() for c, _ in concepts}
+                for concept, category in llm_concepts:
+                    key = concept.strip().lower()
+                    if key not in seen:
+                        seen.add(key)
+                        concepts.append((concept, category))
+        except Exception as e:
+            logger.debug("LLM concept merge failed: %s", e)
+
     if not concepts:
         return {"neurons_activated": 0, "connections_formed": 0}
 
@@ -451,6 +537,59 @@ async def get_neural_context(message: str) -> str:
         lines.append(line)
 
     return "\n".join(lines)
+
+
+async def consolidate() -> dict:
+    """Nightly memory consolidation — prune weak, strengthen strong."""
+    now = time.time()
+    seven_days_ago = now - 7 * 86400
+    neurons_before = len(_neurons)
+    edges_before = sum(len(v) for v in _edges.values())
+
+    # ── 1. Prune weak neurons ────────────────────────────────────────────
+    pruned_ids: list[str] = []
+    for nid, n in list(_neurons.items()):
+        age_days = (now - n.get("created_at", now)) / 86400
+        if (n["activation"] < 0.1
+                and n.get("access_count", 0) < 2
+                and age_days > 7):
+            pruned_ids.append(nid)
+
+    for nid in pruned_ids:
+        del _neurons[nid]
+        _edges.pop(nid, None)
+        for other_edges in _edges.values():
+            other_edges.pop(nid, None)
+
+    # ── 2. Strengthen frequently-accessed neurons ────────────────────────
+    strengthened = 0
+    for n in _neurons.values():
+        if (n.get("access_count", 0) >= 5
+                and n.get("last_activated", 0) > seven_days_ago):
+            n["activation"] = min(1.0, n["activation"] * 1.05)
+            strengthened += 1
+
+    # ── 3. Daily decay pass ──────────────────────────────────────────────
+    _apply_decay()
+
+    # ── 4. Persist ───────────────────────────────────────────────────────
+    await _persist()
+
+    neurons_after = len(_neurons)
+    edges_after = sum(len(v) for v in _edges.values())
+
+    report = {
+        "neurons_before": neurons_before,
+        "neurons_after": neurons_after,
+        "neurons_pruned": len(pruned_ids),
+        "neurons_strengthened": strengthened,
+        "edges_before": edges_before,
+        "edges_after": edges_after,
+        "timestamp": now,
+    }
+    logger.info("Neural consolidation: pruned %d, strengthened %d, %d → %d neurons",
+                len(pruned_ids), strengthened, neurons_before, neurons_after)
+    return report
 
 
 async def get_stats() -> dict:

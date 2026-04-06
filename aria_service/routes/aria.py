@@ -37,6 +37,7 @@ from ..intel.deep_researcher import (
     build_profile,
 )
 from ..intel import neural_memory
+from ..intel import knowledge as knowledge_mod
 from ..intel import self_improve
 from ..intel import ocr as aria_ocr
 from ..intel.semantic_search import semantic_search, get_index_stats
@@ -443,6 +444,50 @@ async def neural_cluster_ep(concept: str):
     return await neural_memory.get_cluster(concept)
 
 
+# 33b. POST /api/aria/neural/consolidate — Nightly memory consolidation cycle
+@router.post("/neural/consolidate")
+async def neural_consolidate_ep(request: Request):
+    """Memory consolidation — prune weak neurons, strengthen strong, merge facts, validate hypotheses."""
+    import logging as _logging
+    _clog = _logging.getLogger("aria.consolidation")
+
+    report: dict = {"ok": True}
+
+    # 1. Neural memory consolidation
+    try:
+        report["neural"] = await neural_memory.consolidate()
+    except Exception as e:
+        _clog.warning("Neural consolidation failed: %s", e)
+        report["neural"] = {"error": str(e)}
+
+    # 2. Knowledge base consolidation
+    try:
+        report["knowledge"] = await knowledge_mod.consolidate_facts()
+    except Exception as e:
+        _clog.warning("Knowledge consolidation failed: %s", e)
+        report["knowledge"] = {"error": str(e)}
+
+    # 3. Trigger pending hypothesis validation
+    try:
+        llm = get_llm(request)
+        hypotheses = await get_hypotheses()
+        open_hyps = [h for h in hypotheses if h.get("status") == "OPEN"][:5]
+        hyp_results = []
+        for h in open_hyps:
+            try:
+                r = await validate_hypothesis(llm, h["hypothesis"])
+                hyp_results.append({"hypothesis": h["hypothesis"][:80], "result": r.get("verdict", r.get("status", "?"))})
+            except Exception:
+                hyp_results.append({"hypothesis": h["hypothesis"][:80], "result": "ERROR"})
+        report["hypotheses"] = {"validated": len(hyp_results), "results": hyp_results}
+    except Exception as e:
+        _clog.warning("Hypothesis validation failed: %s", e)
+        report["hypotheses"] = {"error": str(e)}
+
+    _clog.info("Consolidation complete: %s", report)
+    return report
+
+
 # ── Self-Improvement ─────────────────────────────────────────────────────────
 
 # 34. GET /api/aria/self/files — List ARIA's own source files
@@ -564,3 +609,27 @@ async def ocr_ep(request: Request):
     llm = get_llm(request)
     result = await aria_ocr.extract_text_from_image(image_data, filename, context, llm)
     return result
+
+
+# 47. POST /api/aria/research/validate-hypotheses — Batch validate oldest unvalidated hypotheses
+@router.post("/research/validate-hypotheses")
+async def validate_hypotheses_batch_ep(request: Request):
+    llm = get_llm(request)
+    hypotheses = await get_hypotheses()
+    if not hypotheses:
+        return {"validated": 0, "results": [], "message": "No hypotheses to validate"}
+    # Pick top 3 oldest OPEN hypotheses
+    open_h = [h for h in hypotheses if h.get("status") == "OPEN"]
+    # Sort oldest first (by created_at ascending)
+    open_h.sort(key=lambda h: h.get("created_at", ""))
+    targets = open_h[:3]
+    if not targets:
+        return {"validated": 0, "results": [], "message": "No OPEN hypotheses to validate"}
+    results = []
+    for h in targets:
+        try:
+            r = await validate_hypothesis(llm, h["hypothesis"])
+            results.append(r)
+        except Exception as e:
+            results.append({"hypothesis": h.get("hypothesis", ""), "error": str(e)})
+    return {"validated": len(results), "results": results}

@@ -194,19 +194,20 @@ async def ingest_sweep(data: dict):
 
     # Grow neural network from sweep signals
     neural_count = 0
+    llm = getattr(app.state, "llm_provider", None)
     try:
         # Learn from OSINT signals
         signals = data.get("signals") or data.get("urgentSignals") or []
         for sig in signals[:20]:
             text = sig.get("text") or sig.get("content") or ""
             if text:
-                result = await neural_memory.learn_from_text(text, source="sweep")
+                result = await neural_memory.learn_from_text(text, source="sweep", llm=llm)
                 neural_count += result.get("neurons_activated", 0)
         # Learn from news
         for item in (data.get("news") or [])[:10]:
             text = item.get("title", "") + " " + item.get("summary", "")
             if text.strip():
-                result = await neural_memory.learn_from_text(text, source="news")
+                result = await neural_memory.learn_from_text(text, source="news", llm=llm)
                 neural_count += result.get("neurons_activated", 0)
     except Exception as e:
         logger.warning("Neural ingest failed: %s", e)

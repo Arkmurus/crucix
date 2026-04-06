@@ -15,9 +15,9 @@ from . import redis_store as rs
 logger = logging.getLogger("aria.intel.knowledge")
 
 KEY = "crucix:aria:knowledge"
-MAX_FACTS = 5000
-MAX_QUERIES = 5000
-MAX_LEARNINGS = 2000
+MAX_FACTS = 15000
+MAX_QUERIES = 10000
+MAX_LEARNINGS = 5000
 
 _cache: dict[str, list] | None = None
 
@@ -162,6 +162,73 @@ async def auto_extract_facts(user_query: str, aria_response: str) -> None:
             if len(text) > 20:
                 topic = text[:60].rstrip(".")
                 asyncio.create_task(store_fact(topic, text, "aria_auto", conf))
+
+
+async def consolidate_facts() -> dict:
+    """Merge near-duplicate facts and prune stale ones."""
+    from datetime import datetime, timezone
+    db = await _load()
+    facts = db.get("facts", [])
+    if not facts:
+        return {"merged": 0, "pruned": 0, "total_before": 0, "total_after": 0}
+
+    total_before = len(facts)
+    now = datetime.now(timezone.utc)
+
+    # ── 1. Merge near-duplicate facts (same topic, case-insensitive) ─────
+    merged = 0
+    seen: dict[str, int] = {}  # topic_lower → index of best fact
+    to_remove: set[int] = set()
+
+    for i, f in enumerate(facts):
+        key = f["topic"].strip().lower()
+        if key in seen:
+            # Keep the one with highest confidence rank / access_count
+            existing_idx = seen[key]
+            existing = facts[existing_idx]
+            # Compare: prefer higher accessCount, then more recent update
+            e_score = existing.get("accessCount", 0)
+            f_score = f.get("accessCount", 0)
+            if f_score > e_score:
+                # Current fact is better — remove the existing one
+                to_remove.add(existing_idx)
+                seen[key] = i
+            else:
+                to_remove.add(i)
+            merged += 1
+        else:
+            seen[key] = i
+
+    # ── 2. Prune stale facts (>90 days old, accessCount < 2) ────────────
+    pruned = 0
+    ninety_days_ago = now.timestamp() - 90 * 86400
+    for i, f in enumerate(facts):
+        if i in to_remove:
+            continue
+        created = f.get("createdAt", "")
+        if not created:
+            continue
+        try:
+            created_ts = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
+        except (ValueError, TypeError):
+            continue
+        if created_ts < ninety_days_ago and f.get("accessCount", 0) < 2:
+            to_remove.add(i)
+            pruned += 1
+
+    # ── 3. Rebuild facts list ────────────────────────────────────────────
+    db["facts"] = [f for i, f in enumerate(facts) if i not in to_remove]
+    await _save()
+
+    total_after = len(db["facts"])
+    logger.info("Knowledge consolidation: merged %d, pruned %d, %d → %d facts",
+                merged, pruned, total_before, total_after)
+    return {
+        "merged": merged,
+        "pruned": pruned,
+        "total_before": total_before,
+        "total_after": total_after,
+    }
 
 
 async def get_stats() -> dict:

@@ -7,3 +7,5 @@ tenacity>=9.0.0
 pydantic>=2.10.0
 pydantic-settings>=2.7.0
 python-dotenv>=1.0.0
+sentence-transformers>=3.0.0
+numpy>=1.26.0

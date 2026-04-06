@@ -457,7 +457,7 @@ async def aria_chat(
     # Grow neural network from conversation (non-blocking)
     try:
         combined = f"{message} {response_text}"
-        await neural_memory.learn_from_text(combined, source=f"chat:{session_id}")
+        await neural_memory.learn_from_text(combined, source=f"chat:{session_id}", llm=llm)
     except Exception as e:
         logger.warning("Neural learning failed: %s", e)
 
