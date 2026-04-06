@@ -1866,6 +1866,13 @@ app.post('/api/aria/research', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Proxy: POST /api/aria/read — Let ARIA read a URL and extract intelligence
+app.post('/api/aria/read', requireAuth, async (req, res) => {
+  ariaProxy(req, res, '/api/aria/read', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'ARIA service unavailable — /api/aria/read requires the Python aria_service' });
+  }});
+});
+
 app.post('/api/aria/knowledge/learn', requireAuth, async (req, res) => {
   ariaProxy(req, res, '/api/aria/knowledge/learn', { method: 'POST', fallback: async () => {
     try {
