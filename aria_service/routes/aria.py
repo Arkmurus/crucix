@@ -38,6 +38,8 @@ from ..intel.deep_researcher import (
 )
 from ..intel import neural_memory
 from ..intel import self_improve
+from ..intel import ocr as aria_ocr
+from ..intel.semantic_search import semantic_search, get_index_stats
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -522,3 +524,43 @@ async def self_log_ep():
 @router.get("/self/code-knowledge")
 async def self_code_knowledge_ep():
     return await self_improve.get_code_knowledge()
+
+
+# ── Semantic Search ──────────────────────────────────────────────────────────
+
+# 44. POST /api/aria/semantic/search — Search knowledge by meaning
+@router.post("/semantic/search")
+async def semantic_search_ep(request: Request):
+    body = await request.json()
+    query = body.get("query", "")
+    top_k = min(body.get("top_k", 10), 50)
+    if not query:
+        raise HTTPException(status_code=400, detail="query required")
+    return {"results": semantic_search(query, top_k)}
+
+
+# 45. GET /api/aria/semantic/stats — Semantic index statistics
+@router.get("/semantic/stats")
+async def semantic_stats_ep():
+    return get_index_stats()
+
+
+# ── OCR ──────────────────────────────────────────────────────────────────────
+
+# 46. POST /api/aria/ocr — Extract text from image
+@router.post("/ocr")
+async def ocr_ep(request: Request):
+    body = await request.json()
+    image_b64 = body.get("image", "")
+    filename = body.get("filename", "image.jpg")
+    context = body.get("context", "")
+    if not image_b64:
+        raise HTTPException(status_code=400, detail="image (base64) required")
+    import base64
+    try:
+        image_data = base64.b64decode(image_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+    llm = get_llm(request)
+    result = await aria_ocr.extract_text_from_image(image_data, filename, context, llm)
+    return result

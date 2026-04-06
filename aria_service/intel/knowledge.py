@@ -43,7 +43,14 @@ async def _save() -> None:
 
 async def init() -> None:
     await _load()
-    logger.info(f"Knowledge base loaded: {len((_cache or {}).get('facts', []))} facts")
+    facts = (_cache or {}).get("facts", [])
+    logger.info(f"Knowledge base loaded: {len(facts)} facts")
+    # Build semantic index
+    try:
+        from .semantic_search import rebuild_index_from_knowledge
+        rebuild_index_from_knowledge(facts)
+    except Exception as e:
+        logger.warning("Semantic index build failed: %s", e)
 
 
 async def store_fact(topic: str, content: str, source: str = "user", confidence: str = "CONFIRMED") -> None:
@@ -74,6 +81,12 @@ async def store_fact(topic: str, content: str, source: str = "user", confidence:
     if len(db["facts"]) > MAX_FACTS:
         db["facts"] = db["facts"][:MAX_FACTS]
     await _save()
+    # Index for semantic search
+    try:
+        from .semantic_search import index_fact
+        index_fact(db["facts"][0]["id"], f"{topic} {content}", {"confidence": confidence})
+    except Exception:
+        pass
 
 
 async def record_query(query: str, summary: str, market: str = "", category: str = "") -> None:

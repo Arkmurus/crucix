@@ -27,6 +27,7 @@ from .intel.gtm_strategy import get_gtm_context
 from .intel import training_data
 from .intel import neural_memory
 from .intel import self_improve
+from .intel.semantic_search import get_semantic_context
 
 logger = logging.getLogger("aria.engine")
 
@@ -223,6 +224,7 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
         ("approach",    lambda: get_approach_context(message)),
         ("gtm",         lambda: get_gtm_context(message)),
         ("neural",      lambda: _sync_neural_context(message)),
+        ("semantic",    lambda: get_semantic_context(message)),
     ]
     total = ""
     for name, fn in layer_fns:
