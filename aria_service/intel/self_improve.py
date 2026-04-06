@@ -563,10 +563,21 @@ async def autonomous_improvement_cycle(llm) -> dict:
 
             # Only evolve prompts every 6 hours at most
             if time.time() - last_prompt_check > 6 * 3600:
-                from ..aria_engine import ARIA_SYSTEM_PROMPT
+                # Read current system prompt from file (avoid circular import)
+                prompt_file = _root / "aria_service" / "aria_engine.py"
+                current_prompt = ""
+                try:
+                    src = prompt_file.read_text(encoding="utf-8")
+                    import ast
+                    # Extract ARIA_SYSTEM_PROMPT string value
+                    m = re.search(r'ARIA_SYSTEM_PROMPT\s*=\s*"""([\s\S]*?)"""', src)
+                    if m:
+                        current_prompt = m.group(1)[:2000]
+                except Exception:
+                    current_prompt = "(could not read current prompt)"
                 evolution = await evolve_prompt(
                     llm,
-                    ARIA_SYSTEM_PROMPT,
+                    current_prompt,
                     f"ARIA has received {corrections} corrections from users. "
                     "Analyse what types of mistakes she's making and suggest prompt improvements.",
                     {"corrections": corrections, "total_conversations": stats.get("conversations", 0)},

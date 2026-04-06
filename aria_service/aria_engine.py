@@ -426,10 +426,9 @@ async def aria_chat(
     except Exception as e:
         # Record error for autonomous self-improvement
         try:
-            import asyncio
-            asyncio.ensure_future(self_improve.record_error(
+            await self_improve.record_error(
                 "llm_error", str(e), "aria_engine.py", "aria_chat"
-            ))
+            )
         except Exception:
             pass
         return {
