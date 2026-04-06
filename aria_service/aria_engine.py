@@ -102,7 +102,46 @@ RESPONSE STYLE
 - Structure: FINDING → EVIDENCE → CONFIDENCE → ACTION.
 - For compliance questions: always conclude with RECOMMENDED ACTION.
 - For opportunity questions: always conclude with NEXT STEP (specific, within 48 hours).
-- Reference live intelligence data — cite specific signals, dates, markets, scores."""
+- Reference live intelligence data — cite specific signals, dates, markets, scores.
+
+MULTILINGUAL CAPABILITY
+- You are fluent in English, Portuguese, French, Spanish, and Arabic.
+- Default language is English. If the user writes in another language, respond in that language automatically.
+- For Lusophone Africa contexts, use correct Portuguese terminology: "Ministério da Defesa", "Forças Armadas", "Orçamento Geral do Estado", "licença de exportação", "utilizador final".
+- You can translate defence procurement terms across languages and should do so when bridging communication between parties.
+- When discussing CPLP markets, prefer Portuguese names for institutions, ranks, and procurement concepts.
+
+ANALYTICAL FRAMEWORKS
+When asked about COMPLIANCE, structure your answer as:
+  (1) Classification — what export control category does this item fall under?
+  (2) Licensing route — which licence type and jurisdiction applies?
+  (3) Risk factors — sanctions, end-use concerns, diversion risk, human rights
+  (4) Recommendation — GO / NO-GO / INVESTIGATE, with specific next steps
+
+When asked about a DEAL OPPORTUNITY, structure as:
+  (1) Market context — political/economic drivers, budget cycle, urgency
+  (2) Competitive landscape — who else is chasing this, their advantages
+  (3) Relationship tier — Arkmurus standing in this market (Incumbent/Established/Developing/Cold Entry)
+  (4) Entry strategy — specific actions, partners, timeline
+  (5) Compliance flags — export control and sanctions considerations
+
+For ALL substantive assessments:
+- Provide a confidence level (0-100%) alongside your epistemic status tag.
+- Distinguish clearly between FACTS (sourced from data) and ASSESSMENTS (your analysis).
+- Challenge your own conclusions — note what evidence would invalidate your assessment.
+
+COMMUNICATION STYLE
+- Write like a senior intelligence analyst briefing a CEO — authoritative but concise.
+- Use bullet points for actionable items.
+- Bold key findings and risk flags using **bold** markdown.
+- For longer responses, include a **BOTTOM LINE** summary at the end.
+- Use intelligence community notation: [CONFIRMED], [PROBABLE], [POSSIBLE], [UNCERTAIN].
+- When you do not know something, say so clearly and suggest specific steps to find out.
+
+LEARNING POSTURE
+- You are continuously learning. When you learn new facts from conversations, tag them with confidence levels.
+- When your knowledge is corrected by a user, update immediately and thank them.
+- You aspire to match the depth and thoroughness of the best AI assistants. Each conversation makes you sharper."""
 
 ARIA_THINK_SYSTEM = f"""{ARIA_SYSTEM_PROMPT}
 
@@ -208,6 +247,39 @@ def _build_intel_context(intel_data: dict | None) -> str:
 # Neural memory needs async but context builder is sync — use contextvars for thread safety
 import contextvars
 _neural_ctx_var: contextvars.ContextVar[str] = contextvars.ContextVar("neural_ctx", default="")
+
+
+# ── Language Detection ──────────────────────────────────────────────────────
+
+_PT_WORDS = {"como", "qual", "sobre", "defesa", "armas", "governo", "ministério",
+             "forças", "armadas", "obrigado", "olá", "preciso", "também", "país"}
+_FR_WORDS = {"comment", "quel", "défense", "gouvernement", "ministère", "également",
+             "bonjour", "merci", "aussi", "besoin", "militaire", "armée"}
+_ES_WORDS = {"cómo", "cuál", "defensa", "gobierno", "ministerio", "también",
+             "hola", "gracias", "necesito", "ejército", "fuerzas", "armadas"}
+
+
+def _detect_language_hint(message: str) -> str:
+    """Return a language hint string to prepend to the user prompt, or empty."""
+    lower = message.lower()
+    words = set(re.findall(r"\w+", lower))
+
+    # Arabic script detection (Unicode range)
+    if re.search(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]+", message):
+        return "[User is writing in Arabic — respond in Arabic]\n"
+
+    pt_hits = len(words & _PT_WORDS)
+    fr_hits = len(words & _FR_WORDS)
+    es_hits = len(words & _ES_WORDS)
+
+    best = max(pt_hits, fr_hits, es_hits)
+    if best < 2:
+        return ""
+    if pt_hits == best:
+        return "[User is writing in Portuguese — respond in Portuguese]\n"
+    if fr_hits == best:
+        return "[User is writing in French — respond in French]\n"
+    return "[User is writing in Spanish — respond in Spanish]\n"
 
 def _sync_neural_context(message: str) -> str:
     """Return per-request neural context set before context building."""
@@ -413,6 +485,9 @@ async def aria_chat(
     # Build 8-layer context (7 intel + neural memory)
     context = _build_7_layer_context(message, intel_data)
 
+    # Detect language and add hint
+    lang_hint = _detect_language_hint(message)
+
     # Format conversation — recent turns in full, older turns summarised
     if history:
         recent_cutoff = 10 * 2  # last 10 exchanges in full detail
@@ -429,6 +504,7 @@ async def aria_chat(
                 for m in recent
             )
             user_prompt = (
+                f"{lang_hint}"
                 f"[Earlier in conversation — summary]\n{older_summary}\n\n"
                 f"[Recent conversation]\n{recent_formatted}\n\n"
                 f"[Current message]\nUser: {message}{context}"
@@ -438,9 +514,9 @@ async def aria_chat(
                 f"{'User' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
                 for m in history
             )
-            user_prompt = f"[Previous conversation]\n{formatted}\n\n[Current message]\nUser: {message}{context}"
+            user_prompt = f"{lang_hint}[Previous conversation]\n{formatted}\n\n[Current message]\nUser: {message}{context}"
     else:
-        user_prompt = f"{message}{context}"
+        user_prompt = f"{lang_hint}{message}{context}"
 
     try:
         result = await llm.complete(ARIA_SYSTEM_PROMPT, user_prompt, max_tokens=4000, timeout=120.0)
