@@ -449,6 +449,130 @@ async def _log_improvement(action: str, improvement: dict) -> None:
     await rs.set_json(IMPROVEMENT_LOG_KEY, log, ex=90 * 86400)
 
 
+# ── Code Learning — ARIA studies her own codebase to get better at coding ────
+
+CODE_KNOWLEDGE_KEY = "crucix:aria:code_knowledge"
+
+async def _study_own_code(llm) -> dict:
+    """ARIA reads her own code, learns patterns, and builds coding knowledge.
+    This is how she mirrors Claude/ChatGPT — by understanding code structure."""
+    if not llm or not llm.is_configured:
+        return {"patterns_learned": 0}
+
+    # Pick a random modifiable file to study
+    import random
+    available = [f for f in MODIFIABLE_FILES if (_root / f).exists()]
+    if not available:
+        return {"patterns_learned": 0}
+
+    # Study 2 files per cycle
+    targets = random.sample(available, min(2, len(available)))
+    total_learned = 0
+
+    for file_path in targets:
+        try:
+            code_info = await read_own_code(file_path)
+            if code_info.get("error"):
+                continue
+
+            content = code_info["content"][:6000]
+
+            prompt = f"""You are studying this source code to learn coding patterns and improve your abilities.
+
+FILE: {file_path}
+CODE:
+{content}
+
+Analyse this code and extract reusable patterns. Output JSON:
+{{
+  "patterns": [
+    {{
+      "name": "Pattern name",
+      "description": "What this pattern does and when to use it",
+      "example": "A short code snippet showing the pattern",
+      "applies_to": "What types of problems this solves"
+    }}
+  ],
+  "code_quality": "Brief assessment of code quality",
+  "improvement_opportunities": ["List of potential improvements"],
+  "architectural_patterns": ["Design patterns used in this file"]
+}}
+
+Focus on patterns that would help you write BETTER code when you self-improve."""
+
+            result = await llm.complete(
+                "You are a senior code analyst. Extract reusable patterns. Output ONLY valid JSON.",
+                prompt,
+                max_tokens=1000,
+                timeout=30.0,
+            )
+
+            text = result.text.strip()
+            if text.startswith("```"):
+                text = re.sub(r"^```\w*\n?", "", text)
+                text = re.sub(r"\n?```$", "", text)
+
+            analysis = json.loads(text)
+            patterns = analysis.get("patterns", [])
+
+            # Store learned patterns
+            if patterns:
+                knowledge = await rs.get_json(CODE_KNOWLEDGE_KEY) or {
+                    "patterns": [],
+                    "files_studied": [],
+                    "improvements_identified": [],
+                    "last_study": None,
+                }
+
+                # Add new patterns (dedup by name)
+                existing_names = {p["name"] for p in knowledge["patterns"]}
+                for p in patterns:
+                    if p.get("name") and p["name"] not in existing_names:
+                        p["learned_from"] = file_path
+                        p["learned_at"] = time.time()
+                        knowledge["patterns"].append(p)
+                        existing_names.add(p["name"])
+                        total_learned += 1
+
+                # Track files studied
+                if file_path not in knowledge["files_studied"]:
+                    knowledge["files_studied"].append(file_path)
+
+                # Track improvement opportunities
+                for imp in analysis.get("improvement_opportunities", []):
+                    knowledge["improvements_identified"].append({
+                        "file": file_path,
+                        "improvement": imp,
+                        "identified_at": time.time(),
+                    })
+
+                # Cap sizes
+                knowledge["patterns"] = knowledge["patterns"][-100:]
+                knowledge["improvements_identified"] = knowledge["improvements_identified"][-50:]
+                knowledge["last_study"] = time.time()
+
+                await rs.set_json(CODE_KNOWLEDGE_KEY, knowledge, ex=90 * 86400)
+
+                logger.info(
+                    "[Self-Improve] Studied %s: learned %d new patterns",
+                    file_path, len(patterns),
+                )
+        except Exception as e:
+            logger.warning("[Self-Improve] Code study of %s failed: %s", file_path, e)
+
+    return {"patterns_learned": total_learned, "files_studied": targets}
+
+
+async def get_code_knowledge() -> dict:
+    """Return ARIA's accumulated coding knowledge."""
+    return await rs.get_json(CODE_KNOWLEDGE_KEY) or {
+        "patterns": [],
+        "files_studied": [],
+        "improvements_identified": [],
+        "last_study": None,
+    }
+
+
 # ── Error Tracking (for autonomous bug detection) ───────────────────────────
 
 ERROR_LOG_KEY = "crucix:aria:error_log"
@@ -604,6 +728,20 @@ async def autonomous_improvement_cycle(llm) -> dict:
             logger.info("[Self-Improve] Neural memory maintained: %d neurons", neurons)
     except Exception as e:
         logger.warning("[Self-Improve] Neural memory maintenance failed: %s", e)
+
+    # ── Step 4: Code learning — study own codebase patterns ────────────
+    try:
+        state = await rs.get_json(SELF_IMPROVEMENT_STATE_KEY) or {}
+        last_code_study = state.get("last_code_study", 0)
+
+        # Study own code every 12 hours
+        if time.time() - last_code_study > 12 * 3600:
+            code_learnings = await _study_own_code(llm)
+            results["code_patterns_learned"] = code_learnings.get("patterns_learned", 0)
+            state["last_code_study"] = time.time()
+            await rs.set_json(SELF_IMPROVEMENT_STATE_KEY, state, ex=90 * 86400)
+    except Exception as e:
+        logger.warning("[Self-Improve] Code study failed: %s", e)
 
     results["cycle_end"] = time.time()
     results["duration_s"] = round(results["cycle_end"] - results["cycle_start"], 1)

@@ -55,6 +55,7 @@ import ariaWhatsApp from './lib/whatsapp/ariaWhatsApp.mjs';
 import { mountWAListener } from './lib/whatsapp/waListener.mjs';
 import { mountEmailReader } from './lib/aria/emailReader.mjs';
 import { mountLinkedInRoutes, initLinkedInIntel } from './lib/aria/linkedinIntel.mjs';
+import { mountProactive } from './lib/aria/proactive.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -3315,6 +3316,9 @@ mountEmailReader(app);
 // ── LinkedIn Intelligence (relationship maps, competitor tracking, appointments) ──
 initLinkedInIntel().catch(e => console.warn('[LinkedIn Intel] Init failed:', e.message));
 mountLinkedInRoutes(app);
+
+// ── ARIA Proactive Operating Rhythm (daily/weekly/monthly autonomous outputs) ──
+mountProactive(app);
 
 // ── Express error handler — MUST be last middleware ──────────────────────────
 app.use(errorTracker.expressMiddleware());

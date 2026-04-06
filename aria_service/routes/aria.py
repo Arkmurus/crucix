@@ -516,3 +516,9 @@ async def self_evolve_prompt_ep(request: Request):
 @router.get("/self/log")
 async def self_log_ep():
     return {"log": await self_improve.get_improvement_log()}
+
+
+# 43. GET /api/aria/self/code-knowledge — ARIA's learned coding patterns
+@router.get("/self/code-knowledge")
+async def self_code_knowledge_ep():
+    return await self_improve.get_code_knowledge()
