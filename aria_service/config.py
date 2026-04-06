@@ -43,6 +43,11 @@ class Settings(BaseSettings):
         "Senegal", "Ivory Coast", "Morocco", "Tanzania",
     ]
 
+    # ── Fallback LLM keys (optional — enables auto-failover) ──────────────
+    anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+
     model_config = {"env_file": ".env", "extra": "ignore", "populate_by_name": True}
 
 
