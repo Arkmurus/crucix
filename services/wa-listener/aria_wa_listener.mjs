@@ -168,6 +168,163 @@ async function feedToARIA(groupName, senderName, text) {
   }
 }
 
+// ── Internal API helpers ─────────────────────────────────────────────────────
+async function brainPost(path, body) {
+  const timeout = path.includes('/aria/') ? 90000 : 15000;
+  const r = await fetch(`${BRAIN_URL}${path}`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },
+    body:    JSON.stringify(body),
+    signal:  AbortSignal.timeout(timeout),
+  });
+  if (!r.ok) throw new Error(`POST ${path} → ${r.status}`);
+  return r.json();
+}
+
+async function brainGet(path) {
+  const r = await fetch(`${BRAIN_URL}${path}`, {
+    headers: { 'Authorization': `Bearer ${INT_TOKEN}` },
+    signal:  AbortSignal.timeout(10000),
+  });
+  if (!r.ok) throw new Error(`GET ${path} → ${r.status}`);
+  return r.json();
+}
+
+// ── Ask ARIA with persistent per-sender sessions ────────────────────────────
+async function askARIA(message, senderJid) {
+  const sid = `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}`;
+  try {
+    const r = await brainPost('/api/aria/chat', { message, session_id: sid });
+    return r.response || r.answer || 'No response.';
+  } catch (e) {
+    console.error('[ARIA Listener] Chat failed:', e.message);
+    return '⚠️ ARIA is temporarily unavailable.';
+  }
+}
+
+// ── Split long messages into chunks for WhatsApp ────────────────────────────
+const WA_MSG_LIMIT = 4000;
+
+function splitMessage(body) {
+  if (body.length <= WA_MSG_LIMIT) return [body];
+  const chunks = [];
+  let remaining = body;
+  while (remaining.length > 0) {
+    if (remaining.length <= WA_MSG_LIMIT) { chunks.push(remaining); break; }
+    let cut = remaining.lastIndexOf('\n', WA_MSG_LIMIT);
+    if (cut < WA_MSG_LIMIT * 0.3) cut = remaining.lastIndexOf(' ', WA_MSG_LIMIT);
+    if (cut < WA_MSG_LIMIT * 0.3) cut = WA_MSG_LIMIT;
+    chunks.push(remaining.slice(0, cut));
+    remaining = remaining.slice(cut).replace(/^\n/, '');
+  }
+  return chunks;
+}
+
+async function sendReply(chatId, text) {
+  if (!sock || !isConnected || !text) return;
+  try {
+    const chunks = splitMessage(text);
+    for (let i = 0; i < chunks.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 500));
+      await sock.sendMessage(chatId, { text: chunks[i] });
+    }
+  } catch (e) {
+    console.error('[ARIA Listener] Reply failed:', e.message);
+  }
+}
+
+// ── Compliance command handlers ─────────────────────────────────────────────
+async function handleCommand(cmd, args, senderJid) {
+  const a = (args || '').trim().slice(0, 500);
+
+  switch (cmd.toLowerCase()) {
+    case 'screen': {
+      if (!a) return '⚠️ Usage: /screen [entity name]';
+      const d = await brainPost('/api/aria/compliance/screen', { entity_name: a }).catch(() => ({}));
+      const ok = d.result === 'PERMITTED';
+      let msg = `${ok ? '✅' : '⛔'} *COMPLIANCE SCREEN*\nEntity: ${a}\nResult: ${d.result || 'UNKNOWN'}\n\n`;
+      Object.entries(d.screened_against || {}).forEach(([l, v]) => {
+        msg += `  ✓ ${l}: ${v}\n`;
+      });
+      msg += ok
+        ? '\n_Pre-screen only. Legal review required._'
+        : '\n⛔ *MATCH FOUND. Do not proceed without legal review.*';
+      return msg;
+    }
+
+    case 'classify': {
+      if (!a) return '⚠️ Usage: /classify [product description]';
+      const d = await brainPost('/api/aria/compliance/classify', { description: a }).catch(() => ({}));
+      let msg = `*ML CLASSIFICATION*\nProduct: ${a.slice(0, 80)}\n\n`;
+      if (d.classifications?.length) {
+        d.classifications.forEach(c => {
+          msg += `• *${c.code || c.category}* — ${c.description || ''}\n`;
+          if (c.confidence) msg += `  Confidence: ${(c.confidence * 100).toFixed(0)}%\n`;
+          if (c.controlled) msg += `  ⚠️ Controlled item\n`;
+        });
+      } else {
+        msg += `Result: ${d.result || d.category || 'No classification returned.'}\n`;
+      }
+      msg += '\n_Classification is advisory only. Verify with compliance team._';
+      return msg;
+    }
+
+    case 'sanctions': {
+      if (!a) return '⚠️ Usage: /sanctions [name]';
+      const d = await brainPost('/api/aria/compliance/sanctions', { name: a }).catch(() => ({}));
+      const hits = d.matches || d.results || [];
+      let msg = `*SANCTIONS CHECK*\nName: ${a}\n\n`;
+      if (hits.length) {
+        msg += `⛔ *${hits.length} match(es) found:*\n`;
+        hits.slice(0, 5).forEach(h => {
+          msg += `• *${h.name || h.entity}* — ${h.list || h.source || 'Unknown list'}\n`;
+          if (h.score) msg += `  Match score: ${(h.score * 100).toFixed(0)}%\n`;
+          if (h.reason) msg += `  ${h.reason}\n`;
+        });
+        msg += '\n⛔ *Do not proceed without legal review.*';
+      } else {
+        msg += '✅ No sanctions matches found.\n_Preliminary check. Full due diligence required._';
+      }
+      return msg;
+    }
+
+    case 'risk': {
+      if (!a) return '⚠️ Usage: /risk [country]';
+      const d = await brainPost('/api/aria/compliance/risk', { country: a }).catch(() => ({}));
+      const level = d.risk_level || d.level || 'UNKNOWN';
+      const emoji = { HIGH: '🔴', MEDIUM: '🟠', LOW: '🟢' }[level.toUpperCase()] || '⚪';
+      let msg = `${emoji} *COUNTRY RISK — ${a.toUpperCase()}*\n\n`;
+      msg += `Risk level: ${level}\n`;
+      if (d.score) msg += `Score: ${d.score}/100\n`;
+      if (d.sanctions_regimes?.length) msg += `Sanctions regimes: ${d.sanctions_regimes.join(', ')}\n`;
+      if (d.embargoes?.length) msg += `Embargoes: ${d.embargoes.join(', ')}\n`;
+      if (d.export_controls) msg += `Export controls: ${d.export_controls}\n`;
+      if (d.notes) msg += `\n${d.notes}\n`;
+      msg += '\n_Risk assessment is advisory. Consult compliance team._';
+      return msg;
+    }
+
+    case 'help':
+      return [
+        '*ARIA — WhatsApp Commands*',
+        '',
+        '/screen [entity] — Compliance pre-screening',
+        '/classify [product] — ML classification',
+        '/sanctions [name] — Sanctions list check',
+        '/risk [country] — Country risk assessment',
+        '',
+        '_Or mention ARIA in any message to chat._',
+      ].join('\n');
+
+    default:
+      return null;
+  }
+}
+
+// ── Trigger detection for Baileys listener ───────────────────────────────────
+const MENTIONS_RE  = [/\baria\b/i, /@aria/i, /^aria[,:]/i];
+const COMMAND_RE   = /^\/(\w+)(.*)/s;
+
 // ── Group name cache ──────────────────────────────────────────────────────────
 const groupNames = new Map();   // groupId → display name
 
@@ -291,9 +448,7 @@ async function startListener() {
         msg.message?.buttonsResponseMessage?.selectedDisplayText ||
         '';
 
-      if (!text.trim()) continue;   // skip media-only messages with no caption
-
-      // Get sender name
+      // Get sender info
       const senderJid  = msg.key.participant || msg.key.remoteJid || '';
       const senderName =
         msg.pushName ||
@@ -312,6 +467,43 @@ async function startListener() {
         }
       }
 
+      // ── Document processing — PDF, DOCX, Excel, images ───────────────────
+      const docMsg = msg.message?.documentMessage;
+      const imgMsg = msg.message?.imageMessage;
+      if (docMsg || imgMsg) {
+        const filename = docMsg?.fileName || imgMsg?.caption || 'attachment';
+        const mimetype = docMsg?.mimetype || imgMsg?.mimetype || '';
+        const isProcessable = /pdf|word|spreadsheet|text|csv|image|octet-stream/.test(mimetype);
+        if (isProcessable) {
+          console.log(`[ARIA Listener] Processing document: ${filename} (${mimetype})`);
+          try {
+            const stream = await sock.downloadMediaMessage(msg);
+            const buf = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
+              const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
+            })());
+            const content = buf.toString('utf-8').slice(0, 15000);
+            const docType = mimetype.split('/')[1] || 'document';
+            if (content.length > 50) {
+              const result = await brainPost('/api/aria/read-document', {
+                content,
+                filename,
+                source: `whatsapp_group:${groupName}:${senderName}`,
+                context: text || `Document from ${senderName} in ${groupName}`,
+              }).catch(() => null);
+              if (result) {
+                const summary = result.summary || `${docType} file, ${content.length} characters`;
+                console.log(`[ARIA Listener] Doc processed: ${filename} → ${result.facts_learned || 0} facts`);
+                await sendReply(chatId, `📄 I've read *${filename}*. ${summary} (${content.length} chars, ${docType}). Ask me anything about it.`);
+              }
+            }
+          } catch (e) {
+            console.warn('[ARIA Listener] Document processing failed:', e.message);
+          }
+        }
+      }
+
+      if (!text.trim()) continue;   // skip media-only messages with no caption
+
       const ts = new Date(
         (msg.messageTimestamp ? Number(msg.messageTimestamp) * 1000 : Date.now())
       ).toISOString();
@@ -325,6 +517,36 @@ async function startListener() {
 
       // Feed to ARIA brain (non-blocking)
       feedToARIA(groupName, senderName, text).catch(() => {});
+
+      // ── Command handling ────────────────────────────────────────────────────
+      const cmdMatch = text.match(COMMAND_RE);
+      if (cmdMatch) {
+        const cmd  = cmdMatch[1];
+        const args = (cmdMatch[2] || '').trim();
+        try {
+          let response = await handleCommand(cmd, args, senderJid);
+          if (response === null) {
+            // Unknown command — ask ARIA
+            response = await askARIA(text, senderJid);
+          }
+          if (response) await sendReply(chatId, response);
+        } catch (e) {
+          console.error('[ARIA Listener] Command error:', e.message);
+          await sendReply(chatId, '⚠️ Something went wrong. Try /help.');
+        }
+        continue;
+      }
+
+      // ── Mention handling — respond when ARIA is mentioned ──────────────────
+      if (MENTIONS_RE.some(p => p.test(text))) {
+        const q = text.replace(/^@?aria[,:?\s]*/i, '').trim() || text;
+        try {
+          const response = await askARIA(q, senderJid);
+          if (response) await sendReply(chatId, response);
+        } catch (e) {
+          console.error('[ARIA Listener] Mention reply error:', e.message);
+        }
+      }
     }
   });
 }

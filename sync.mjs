@@ -25,6 +25,7 @@ const FILES = [
   'lib/aria/training_data.mjs',
   'lib/aria/prompt_optimizer.mjs',
   'lib/aria/seed_knowledge.mjs',
+  'lib/aria/entityMatcher.mjs',
   'dashboard/inject.mjs',
   'lib/alerts/telegram.mjs',
   'lib/intel/correlate.mjs',

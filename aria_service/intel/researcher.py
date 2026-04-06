@@ -287,6 +287,90 @@ async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
 
 # ── LLM Article Analysis ────────────────────────────────────────────────────
 
+# ── Compliance Detection ────────────────────────────────────────────────────
+
+_COMPLIANCE_KEYWORDS = re.compile(
+    r"compliance|licence|license|export.?control|end.?user|EUC|ITAR|EAR|USML|ECCN"
+    r"|ML\d{1,2}\b|sanctions|embargo|diversion|re.?export|offset.?obligation"
+    r"|brokering.?licence|SIEL|SITEL|OGEL|DSP-5|DDTC|ECJU|OFAC|SDN",
+    re.IGNORECASE,
+)
+
+def _is_compliance_content(source: str, text: str) -> bool:
+    """Detect whether a document/article is compliance-related."""
+    source_lower = source.lower()
+    if any(kw in source_lower for kw in ("compliance", "licence", "license", "export", "end-user", "euc", "contract")):
+        return True
+    # Check first 2000 chars of content for compliance signals
+    sample = text[:2000]
+    matches = _COMPLIANCE_KEYWORDS.findall(sample)
+    return len(matches) >= 2
+
+
+async def _analyse_compliance_document(
+    llm: LLMProvider,
+    article_text: str,
+    source: str,
+    existing_kb: str,
+) -> dict | None:
+    """Analyse a compliance-related document with a specialised prompt."""
+    compliance_prompt = f"""You are ARIA performing compliance-focused intelligence extraction on a defence/export control document.
+
+DOCUMENT:
+{article_text[:4500]}
+
+EXISTING KNOWLEDGE:
+{existing_kb or 'No existing knowledge on this topic.'}
+
+Extract the following structured information:
+
+1. ENTITIES: All organisations, government bodies, military units mentioned
+2. PRODUCTS: Defence products, systems, ammunition, platforms mentioned — include ML/USML/ECCN classification if identifiable
+3. COUNTRIES: All countries mentioned with their role (exporter, importer, transit, end-user, embargoed)
+4. EXPORT CONTROL CLASSIFICATIONS: Any ML categories, USML categories, ECCNs, HS codes referenced
+5. LICENSING REQUIREMENTS: Any export licence types mentioned (SIEL, SITEL, OGEL, DSP-5, etc.), processing details, conditions
+6. END-USER CERTIFICATE DETAILS: EUC requirements, issuing authorities, signatures needed, red flags noted
+7. OFFSET OBLIGATIONS: Any offset, local content, technology transfer, or industrial participation requirements
+8. SANCTIONS RISKS: Any sanctioned entities, embargoed destinations, OFAC/EU/UK/UN designations referenced
+9. DIVERSION RISKS: Indicators of diversion risk — unusual routing, vague end-use, capability mismatch, multiple intermediaries
+10. RE-EXPORT CONCERNS: ITAR contamination, re-export restrictions, third-country transfer limitations
+
+Return JSON:
+{{
+  "compliance_analysis": true,
+  "entities": [{{"name": "...", "type": "government|military|company|individual", "role": "..."}}],
+  "products": [{{"name": "...", "classification": "ML/USML/ECCN if known", "itar_controlled": true|false|null}}],
+  "countries": [{{"country": "...", "role": "exporter|importer|transit|end_user|embargoed", "risk_level": "..."}}],
+  "export_classifications": [{{"code": "...", "description": "..."}}],
+  "licensing_requirements": [{{"licence_type": "...", "authority": "...", "details": "..."}}],
+  "euc_details": [{{"requirement": "...", "authority": "...", "red_flags": []}}],
+  "offset_obligations": [{{"country": "...", "percentage": "...", "programme": "...", "details": "..."}}],
+  "sanctions_risks": [{{"entity_or_country": "...", "regime": "UN|EU|UK|US", "details": "..."}}],
+  "diversion_risks": [{{"indicator": "...", "severity": "HIGH|MEDIUM|LOW", "details": "..."}}],
+  "re_export_concerns": [{{"item": "...", "restriction": "...", "details": "..."}}],
+  "facts": [
+    {{"topic": "short title", "content": "detailed compliance fact", "confidence": "CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN", "market": "country or region", "source": "{source}"}}
+  ],
+  "skip": false
+}}
+
+If NO relevant compliance intelligence, set skip=true and return minimal JSON."""
+
+    try:
+        result = await llm.complete(
+            "You are ARIA — a defence export control compliance analyst. Extract structured compliance intelligence with rigorous accuracy. Flag all risks.",
+            compliance_prompt,
+            max_tokens=2000,
+            timeout=60.0,
+        )
+        json_match = re.search(r"\{[\s\S]*\}", result.text)
+        if json_match:
+            return json.loads(json_match.group())
+    except Exception as e:
+        logger.warning(f"Compliance document analysis failed: {e}")
+    return None
+
+
 async def _analyse_article(
     llm: LLMProvider,
     article_text: str,
@@ -422,25 +506,36 @@ async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
     existing_kb = search_knowledge(body[:200])
     hypotheses = await _load_hypotheses()
 
+    # Use compliance-specific analysis when content warrants it
+    compliance_result = None
+    if _is_compliance_content(f"{url} {context}", body):
+        logger.info(f"Compliance content detected for article: {url[:80]}")
+        compliance_result = await _analyse_compliance_document(llm, article_text, url, existing_kb)
+
     parsed = await _analyse_article(llm, article_text, url, existing_kb, hypotheses)
-    if not parsed:
+    if not parsed and not compliance_result:
         return {"error": "Analysis failed", "url": url}
 
-    facts_learned, hyp_generated = await _process_analysis(parsed, url, hypotheses)
+    facts_learned, hyp_generated = 0, 0
+    if parsed:
+        facts_learned, hyp_generated = await _process_analysis(parsed, url, hypotheses)
     await _save_hypotheses(hypotheses)
     await _mark_read(url)
 
     duration = int((time.time() - t_start) * 1000)
     logger.info(f"Article read: {facts_learned} facts, {hyp_generated} hypotheses ({duration}ms)")
 
-    return {
+    result = {
         "url": url,
         "facts_learned": facts_learned,
         "hypotheses_generated": hyp_generated,
-        "facts": parsed.get("facts", []),
-        "hypothesis": parsed.get("hypothesis"),
+        "facts": (parsed or {}).get("facts", []),
+        "hypothesis": (parsed or {}).get("hypothesis"),
         "duration_ms": duration,
     }
+    if compliance_result and not compliance_result.get("skip"):
+        result["compliance_analysis"] = compliance_result
+    return result
 
 
 # ── Public: Read a document (PDF, DOCX, text — already extracted) ────────────
@@ -479,6 +574,16 @@ async def read_document(
     all_facts: list[dict] = []
     hypotheses = await _load_hypotheses()
 
+    # Detect if this is compliance-related content
+    is_compliance = _is_compliance_content(
+        f"{source} {filename} {context}",
+        content,
+    )
+    if is_compliance:
+        logger.info(f"Compliance content detected for {filename} — using compliance analysis")
+
+    compliance_results: list[dict] = []
+
     for i, chunk in enumerate(chunks):  # No limit — process entire document
         doc_text = f"Document: {filename}\nSource: {source}\n"
         if context:
@@ -486,9 +591,25 @@ async def read_document(
         doc_text += f"Content (part {i + 1}/{len(chunks)}):\n{chunk}"
 
         existing_kb = search_knowledge(chunk[:200])
-        parsed = await _analyse_article(llm, doc_text, f"{source}:{filename}", existing_kb, hypotheses)
 
-        if parsed:
+        if is_compliance:
+            # Use compliance-specific analysis
+            parsed = await _analyse_compliance_document(llm, doc_text, f"{source}:{filename}", existing_kb)
+            if parsed and not parsed.get("skip"):
+                compliance_results.append(parsed)
+                # Also store extracted facts via normal pipeline
+                for fact in (parsed.get("facts") or []):
+                    topic = fact.get("topic", "")
+                    fact_content = fact.get("content", "")
+                    confidence = fact.get("confidence", "ASSESSED")
+                    if topic and fact_content and len(fact_content) > 20:
+                        await store_fact(topic, f"{fact_content} [Source: {source}:{filename}]", f"compliance:{source}", confidence)
+                        total_facts += 1
+                        all_facts.append(fact)
+        else:
+            parsed = await _analyse_article(llm, doc_text, f"{source}:{filename}", existing_kb, hypotheses)
+
+        if parsed and not is_compliance:
             fl, hg = await _process_analysis(parsed, f"{source}:{filename}", hypotheses)
             total_facts += fl
             total_hyp += hg
@@ -499,7 +620,7 @@ async def read_document(
     duration = int((time.time() - t_start) * 1000)
     logger.info(f"Document read: {filename} → {total_facts} facts, {total_hyp} hypotheses ({duration}ms)")
 
-    return {
+    result = {
         "filename": filename,
         "source": source,
         "content_length": len(content),
@@ -509,6 +630,9 @@ async def read_document(
         "facts": all_facts,
         "duration_ms": duration,
     }
+    if compliance_results:
+        result["compliance_analysis"] = compliance_results
+    return result
 
 
 # ── Public: Autonomous research cycle ────────────────────────────────────────

@@ -611,7 +611,356 @@ async def ocr_ep(request: Request):
     return result
 
 
-# 47. POST /api/aria/research/validate-hypotheses — Batch validate oldest unvalidated hypotheses
+# ── Report Generation ───────────────────────────────────────────────────────
+
+# 48. POST /api/aria/reports/compliance-brief — Generate compliance intelligence brief
+@router.post("/reports/compliance-brief")
+async def compliance_brief_ep(request: Request):
+    """Generate a compliance intelligence brief covering:
+    - New sanctions updates (last 7 days)
+    - Active export control changes
+    - Country risk changes
+    - Flagged entities
+    - Open compliance hypotheses
+    - Recommendations
+    """
+    llm = get_llm(request)
+    if not llm or not llm.is_configured:
+        raise HTTPException(status_code=503, detail="LLM not configured")
+
+    # 1. Gather compliance-tagged facts from knowledge base
+    kb_compliance = knowledge.search_knowledge(
+        "sanctions export control compliance embargo ITAR EAR OFAC ECJU licence"
+    )
+
+    # 2. Get recent intel ledger signals tagged as compliance/sanctions/export
+    ledger_compliance = intel_ledger.query_ledger(
+        "sanctions compliance export control embargo arms licence regulation"
+    )
+
+    # 3. Get hypothesis status for compliance-related hypotheses
+    all_hypotheses = await get_hypotheses()
+    compliance_hyps = [
+        h for h in all_hypotheses
+        if any(kw in h.get("hypothesis", "").lower()
+               for kw in ["sanction", "compliance", "export control", "embargo",
+                           "licence", "itar", "ear", "ofac", "ecju", "regulation"])
+    ]
+    hyp_block = ""
+    if compliance_hyps:
+        hyp_block = "\n".join(
+            f"- [{h['status']}] {h['hypothesis']}" for h in compliance_hyps[:10]
+        )
+
+    # 4. Ask LLM to synthesise into structured brief
+    from datetime import datetime as _dt, timezone as _tz
+    today = _dt.now(_tz.utc).strftime("%Y-%m-%d")
+
+    synth_prompt = f"""Generate a structured Arkmurus Compliance Intelligence Brief for {today}.
+
+KNOWLEDGE BASE (compliance-related facts):
+{kb_compliance or 'No compliance facts currently stored.'}
+
+INTEL LEDGER (recent compliance/sanctions/export signals):
+{ledger_compliance or 'No recent compliance signals.'}
+
+COMPLIANCE HYPOTHESES:
+{hyp_block or 'No active compliance hypotheses.'}
+
+Produce the brief with EXACTLY these sections in markdown:
+
+## Executive Summary
+- (3 concise bullet points covering the most important compliance developments)
+
+## New Sanctions & Export Control Updates
+(Any new sanctions designations, export control changes, licence updates in the last 7 days. If none, state that the environment is stable.)
+
+## Country Risk Updates
+(Changes to country risk profiles relevant to Arkmurus target markets — Lusophone Africa, Nigeria, Kenya, Gulf, SE Asia, etc.)
+
+## Entity Watchlist Changes
+(New flagged entities, beneficial ownership changes, debarments, or PEP updates.)
+
+## Open Issues & Recommendations
+(Open compliance questions, recommended actions, upcoming deadlines, licence renewal reminders.)
+
+Be specific with names, dates, and regulation references where available. Tag confidence levels.
+If no data exists for a section, note it as "No updates — monitoring continues." Do NOT fabricate data."""
+
+    try:
+        result = await llm.complete(
+            "You are ARIA — Arkmurus Research Intelligence Agent. Generate a compliance intelligence brief. Be precise, factual, and action-oriented.",
+            synth_prompt,
+            max_tokens=2000,
+            timeout=60.0,
+        )
+        brief_md = result.text if result else "Brief generation failed."
+    except Exception as e:
+        _log.warning("Compliance brief generation failed: %s", e)
+        brief_md = f"Brief generation failed: {e}"
+
+    return {
+        "ok": True,
+        "date": today,
+        "report_type": "compliance-brief",
+        "brief": brief_md,
+        "sources": {
+            "kb_facts_matched": bool(kb_compliance),
+            "ledger_signals_matched": bool(ledger_compliance),
+            "compliance_hypotheses": len(compliance_hyps),
+        },
+    }
+
+
+# 49. POST /api/aria/reports/entity-investigation — Deep investigation report on an entity
+@router.post("/reports/entity-investigation")
+async def entity_investigation_ep(request: Request):
+    """Deep investigation report on an entity.
+    Input: {entity_name, entity_type: "company"|"person"|"country"}
+    Uses: deep_researcher.build_profile + sanctions screening + knowledge base
+    Returns structured report.
+    """
+    body = await request.json()
+    entity_name = body.get("entity_name", "")
+    entity_type = body.get("entity_type", "company")  # company, person, country
+    if not entity_name:
+        raise HTTPException(status_code=400, detail="entity_name required")
+
+    # Sanitise
+    entity_name = re.sub(r"[^a-zA-Z0-9\s\-'.&]", "", entity_name)[:120]
+    if entity_type not in ("company", "person", "country"):
+        entity_type = "company"
+
+    llm = get_llm(request)
+    if not llm or not llm.is_configured:
+        raise HTTPException(status_code=503, detail="LLM not configured")
+
+    from datetime import datetime as _dt, timezone as _tz
+    today = _dt.now(_tz.utc).strftime("%Y-%m-%d")
+
+    # 1. Build profile via deep researcher
+    profile_result = await build_profile(llm, entity_name, entity_type)
+    profile_text = profile_result.get("profile", profile_result.get("error", "No profile data."))
+
+    # 2. Run sanctions screening via knowledge base
+    sanctions_kb = knowledge.search_knowledge(
+        f"{entity_name} sanctions embargo designated blocked SDN OFAC EU"
+    )
+
+    # 3. Check existing intel in knowledge base
+    entity_kb = knowledge.search_knowledge(entity_name)
+
+    # 4. Check intel ledger for signals mentioning this entity
+    entity_ledger = intel_ledger.query_ledger(entity_name)
+
+    # 5. Ask LLM to compile investigation report
+    compile_prompt = f"""Generate an Arkmurus Entity Investigation Report for: {entity_name} (type: {entity_type}).
+
+DEEP RESEARCH PROFILE:
+{str(profile_text)[:4000]}
+
+SANCTIONS SCREENING RESULTS:
+{sanctions_kb or 'No sanctions matches found in knowledge base.'}
+
+EXISTING INTELLIGENCE:
+{entity_kb or 'No prior intelligence on this entity.'}
+
+INTEL LEDGER SIGNALS:
+{entity_ledger or 'No recent signals for this entity.'}
+
+Produce the report with EXACTLY these sections in markdown:
+
+## Entity Overview
+(Who/what is this entity, location, key details, organisational structure.)
+
+## Compliance Risk Assessment
+(Overall risk rating: HIGH / MEDIUM / LOW with justification. Key risk factors.)
+
+## Sanctions & Embargo Status
+(Current sanctions status across OFAC, EU, UK, UN. Any secondary sanctions exposure. If clean, state so.)
+
+## Known Associates / Beneficial Owners
+(Key personnel, parent companies, subsidiaries, beneficial ownership chains. PEP connections.)
+
+## Procurement Activity
+(Known defence procurement contracts, tenders, awards, or commercial dealings. Historic pattern.)
+
+## Recommended Actions
+(Specific next steps for Arkmurus — due diligence actions, screening recommendations, engagement approach.)
+
+Be specific. Use confidence tags: [CONFIRMED], [PROBABLE], [ASSESSED], [UNCERTAIN].
+If no data for a section, state "No data available — further investigation recommended." Do NOT fabricate data."""
+
+    try:
+        result = await llm.complete(
+            "You are ARIA — Arkmurus Research Intelligence Agent conducting an entity investigation. Be thorough, precise, and flag all compliance risks.",
+            compile_prompt,
+            max_tokens=2500,
+            timeout=90.0,
+        )
+        report_md = result.text if result else "Report generation failed."
+    except Exception as e:
+        _log.warning("Entity investigation report failed: %s", e)
+        report_md = f"Report generation failed: {e}"
+
+    return {
+        "ok": True,
+        "date": today,
+        "report_type": "entity-investigation",
+        "entity_name": entity_name,
+        "entity_type": entity_type,
+        "report": report_md,
+        "sources": {
+            "profile_built": "error" not in profile_result,
+            "profile_facts": profile_result.get("facts_learned", 0),
+            "sanctions_kb_matched": bool(sanctions_kb),
+            "existing_intel_matched": bool(entity_kb),
+            "ledger_signals_matched": bool(entity_ledger),
+        },
+    }
+
+
+# ── Compliance Screening ────────────────────────────────────────────────────
+
+class ComplianceScreenRequest(BaseModel):
+    entity_name: str
+    product_description: str = ""
+    destination_country: str = ""
+
+# 50. POST /api/aria/compliance/screen — Combined compliance screening
+@router.post("/compliance/screen")
+async def compliance_screen_ep(req: ComplianceScreenRequest, request: Request):
+    """
+    Runs combined compliance assessment:
+      1. Fuzzy sanctions match (via Node.js entityMatcher)
+      2. Country risk assessment
+      3. Product classification against ML categories
+      4. Returns combined compliance assessment
+    """
+    entity = req.entity_name.strip()
+    if not entity or len(entity) < 2:
+        raise HTTPException(status_code=400, detail="entity_name required (min 2 chars)")
+
+    product = req.product_description.strip()
+    country = req.destination_country.strip().upper()
+
+    # ── 1. Sanctions screening via Node.js brain endpoint ────────────────
+    sanctions_result: dict[str, Any] = {"matched": False, "matches": [], "risk_level": "clear"}
+    try:
+        app_url = getattr(request.app.state, "app_url", "http://localhost:3117")
+        token = getattr(request.app.state, "internal_token", "aria-internal")
+        import httpx
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{app_url}/api/brain/compliance/screen-entity",
+                json={"entity_name": entity},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp.status_code == 200:
+                sanctions_result = resp.json()
+    except Exception as e:
+        _log.warning("Sanctions screening call failed: %s", e)
+        sanctions_result["error"] = str(e)
+
+    # ── 2. Country risk assessment ──────────────────────────────────────────
+    EMBARGOED = {
+        "RU", "BY", "IR", "KP", "SY", "CU", "VE",
+        "CF", "CD", "ER", "IQ", "LY", "ML", "SO", "SS", "SD", "YE", "AF", "HT",
+        "MM", "NI", "ZW", "CN",
+    }
+    HIGH_RISK = {"GW", "CM", "NE", "BF", "TD", "PK", "EG", "TR", "IN", "ET"}
+    MEDIUM_RISK = {"AO", "MZ", "NG", "SN", "CI", "UG", "ID", "VN", "CO", "PE", "SA", "AE", "JO"}
+
+    country_risk = "unknown"
+    country_notes: list[str] = []
+    if country:
+        if country in EMBARGOED:
+            country_risk = "embargoed"
+            country_notes.append(f"{country} is under international arms embargo")
+        elif country in HIGH_RISK:
+            country_risk = "high"
+            country_notes.append(f"{country} is a high-risk destination — enhanced due diligence required")
+        elif country in MEDIUM_RISK:
+            country_risk = "medium"
+            country_notes.append(f"{country} requires standard due diligence")
+        else:
+            country_risk = "low"
+
+    # ── 3. Product classification against ML categories ─────────────────────
+    ML_KEYWORDS: dict[str, list[str]] = {
+        "ML1":  ["small arms", "rifle", "pistol", "machine gun", "firearm"],
+        "ML3":  ["ammunition", "cartridge", "round", "bullet", "fuze"],
+        "ML4":  ["missile", "rocket", "torpedo", "bomb", "mine"],
+        "ML6":  ["armoured vehicle", "armored vehicle", "apc", "ifv", "tank", "mrap"],
+        "ML9":  ["vessel", "ship", "boat", "patrol", "naval", "submarine"],
+        "ML10": ["aircraft", "helicopter", "uav", "drone", "fighter", "bomber"],
+        "ML11": ["communication", "radio", "crypto", "c4isr", "command"],
+        "ML13": ["armour", "armor", "body", "helmet", "protective", "vest"],
+        "ML15": ["radar", "sensor", "electro-optical", "infrared", "lidar"],
+        "ML22": ["training", "simulation", "advisory"],
+    }
+    product_lower = product.lower()
+    matched_categories: list[str] = []
+    for ml_code, keywords in ML_KEYWORDS.items():
+        for kw in keywords:
+            if kw in product_lower:
+                matched_categories.append(ml_code)
+                break
+
+    product_classification = {
+        "description": product or "(not provided)",
+        "ml_categories": sorted(set(matched_categories)),
+        "controlled": len(matched_categories) > 0,
+        "note": "Product appears on UK Military List" if matched_categories else "No obvious ML classification detected — verify manually",
+    }
+
+    # ── 4. Combined assessment ──────────────────────────────────────────────
+    blocked = False
+    risk_factors: list[str] = []
+
+    sanc_risk = sanctions_result.get("risk_level", "clear")
+    if sanc_risk in ("critical", "high"):
+        blocked = True
+        risk_factors.append(f"Entity sanctions match: {sanc_risk}")
+    elif sanc_risk == "medium":
+        risk_factors.append("Entity has potential sanctions match — manual review required")
+
+    if country_risk == "embargoed":
+        blocked = True
+        risk_factors.append(f"Destination country {country} is embargoed")
+    elif country_risk == "high":
+        risk_factors.append(f"Destination country {country} is high-risk")
+
+    if matched_categories:
+        risk_factors.append(f"Product matches ML categories: {', '.join(sorted(set(matched_categories)))}")
+
+    if blocked:
+        overall_status = "BLOCKED"
+    elif risk_factors:
+        overall_status = "REVIEW_REQUIRED"
+    else:
+        overall_status = "CLEAR"
+
+    from datetime import datetime as _dt, timezone as _tz
+    return {
+        "status": overall_status,
+        "entity": entity,
+        "sanctions": sanctions_result,
+        "country_risk": {
+            "country": country or "(not provided)",
+            "risk_level": country_risk,
+            "notes": country_notes,
+        },
+        "product_classification": product_classification,
+        "risk_factors": risk_factors,
+        "blocked": blocked,
+        "disclaimer": "Automated pre-screen only. Formal export control and sanctions advice required before proceeding.",
+        "screened_at": _dt.now(_tz.utc).isoformat() + "Z",
+    }
+
+
+# ── Hypothesis Validation (batch) ──────────────────────────────────────────
+
 @router.post("/research/validate-hypotheses")
 async def validate_hypotheses_batch_ep(request: Request):
     llm = get_llm(request)
