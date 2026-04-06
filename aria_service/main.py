@@ -90,19 +90,24 @@ async def lifespan(app: FastAPI):
                         f"{result.get('hypotheses_generated', 0)} hypotheses"
                     )
                     # Auto-validate open hypotheses (every other cycle)
+                    # Auto-validate open hypotheses
+                    validated = 0
                     try:
                         hypotheses = await get_hypotheses()
                         open_hyps = [h for h in hypotheses if h.get("status") == "OPEN"]
+                        for h in open_hyps[:3]:
+                            vr = await validate_hypothesis(llm, h.get("statement", ""))
+                            validated += 1
+                            if vr.get("new_status") != "OPEN":
+                                logger.info("[Research] Hypothesis %s: %s → %s",
+                                            h.get("statement", "")[:50],
+                                            "OPEN", vr.get("new_status"))
                         if open_hyps:
-                            # Validate up to 3 hypotheses per cycle
-                            for h in open_hyps[:3]:
-                                vr = await validate_hypothesis(llm, h.get("statement", ""))
-                                if vr.get("new_status") != "OPEN":
-                                    logger.info("[Research] Hypothesis %s: %s → %s",
-                                                h.get("statement", "")[:50],
-                                                "OPEN", vr.get("new_status"))
+                            logger.info("[Research] Validated %d/%d hypotheses",
+                                        validated, len(open_hyps))
                     except Exception as e:
-                        logger.warning("[Research] Hypothesis validation failed: %s", e)
+                        logger.warning("[Research] Hypothesis validation failed (%d validated before error): %s",
+                                       validated, e)
                 except Exception as e:
                     logger.warning(f"[Research] Cycle failed: {e}")
                 await asyncio.sleep(30 * 60)  # Every 30 minutes

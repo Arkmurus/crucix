@@ -295,6 +295,20 @@ async def learn_from_text(text: str, source: str = "conversation",
             _strengthen_edge(n1["id"], n2["id"])
             connections += 1
 
+    # Also connect to recently activated neurons (cross-signal learning)
+    # This creates associations between concepts from different signals
+    import time as _time
+    recent_cutoff = _time.time() - 300  # last 5 minutes
+    recent_neurons = [
+        n for n in _neurons.values()
+        if n.get("last_activated", 0) > recent_cutoff
+        and n["id"] not in {nn["id"] for nn in neurons}
+    ]
+    for n1 in neurons:
+        for n2 in recent_neurons[:5]:  # max 5 cross-connections
+            _strengthen_edge(n1["id"], n2["id"], boost=CO_OCCURRENCE_BOOST * 0.5)
+            connections += 1
+
     await _persist()
     return {
         "neurons_activated": len(neurons),

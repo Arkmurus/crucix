@@ -1397,8 +1397,8 @@ app.get('/api/brain/history', requireAuth, async (req, res) => {
 // ── Brain API bridge — WhatsApp/Zoom call /api/brain/* routes ────────────────
 // These map to existing local functions so integrations work without the Python brain
 
-app.post('/api/brain/signal', async (req, res) => {
-  // Accept signals from WhatsApp/Zoom — store as intelligence
+app.post('/api/brain/signal', requireAuth, async (req, res) => {
+  // Accept signals from WhatsApp/Zoom/Email — store as intelligence
   try {
     const { content, source, signal_type, trigger, market, metadata } = req.body || {};
     if (!content) return res.status(400).json({ error: 'content required' });
