@@ -9,31 +9,14 @@ const BRANCH = 'main';
 const BASE  = `https://raw.githubusercontent.com/${REPO}/${BRANCH}`;
 
 const FILES = [
-  // server.mjs and package.json pulled via git — NOT synced here
-  // Dashboard
   'dashboard/inject.mjs',
-  // WhatsApp + Email + Proactive
-  'lib/whatsapp/ariaWhatsApp.mjs',
-  'lib/whatsapp/waListener.mjs',
-  'lib/aria/emailReader.mjs',
-  'lib/aria/proactive.mjs',
-  'lib/aria/linkedinIntel.mjs',
-  // Alerts + Intel
   'lib/alerts/telegram.mjs',
   'lib/intel/correlate.mjs',
   'lib/intel/dedup.mjs',
   'lib/intel/oem_db.mjs',
   'lib/search/engine.mjs',
-  // Self-learning
   'lib/self/bd_intelligence.mjs',
   'lib/self/opportunity_engine.mjs',
-  'lib/self/learning_store.mjs',
-  'lib/self/code_generator.mjs',
-  'lib/self/updater.mjs',
-  // Auth + middleware
-  'lib/auth/users.mjs',
-  'middleware/rateLimiter.mjs',
-  // OSINT sources
   'apis/briefing.mjs',
   'apis/sources/afdb.mjs',
   'apis/sources/cyber_threats.mjs',
@@ -49,8 +32,7 @@ const FILES = [
 
 console.log(`[sync] Pulling ${FILES.length} files from github.com/${REPO}@${BRANCH}...`);
 
-let ok = 0;
-let fail = 0;
+let ok = 0, fail = 0;
 
 for (const f of FILES) {
   try {
@@ -69,7 +51,3 @@ for (const f of FILES) {
 }
 
 console.log(`[sync] Done: ${ok} synced, ${fail} failed`);
-// Don't fail the build — git already has the files, sync is just a freshness layer
-if (fail > ok) {
-  console.warn('[sync] WARNING: More failures than successes — check network');
-}
