@@ -2146,6 +2146,11 @@ function requireAuth(req, res, next) {
 
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Authentication required' });
+
+  // Allow ARIA internal token (used by WhatsApp, email reader, proactive system)
+  const internalToken = process.env.ARIA_INTERNAL_TOKEN || 'aria-internal';
+  if (token === internalToken) { req.user = { id: 'aria-internal', role: 'admin' }; return next(); }
+
   try {
     const payload = verifyToken(token);
     // Token version check — invalidates sessions after force-logout
