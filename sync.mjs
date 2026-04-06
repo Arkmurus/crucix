@@ -9,6 +9,10 @@ const BRANCH = 'main';
 const BASE  = `https://raw.githubusercontent.com/${REPO}/${BRANCH}`;
 
 const FILES = [
+  'lib/whatsapp/ariaWhatsApp.mjs',
+  'lib/whatsapp/waListener.mjs',
+  'lib/aria/emailReader.mjs',
+  'lib/aria/proactive.mjs',
   'dashboard/inject.mjs',
   'lib/alerts/telegram.mjs',
   'lib/intel/correlate.mjs',
