@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .llm.factory import create_llm_provider
 from .intel import redis_store as rs
-from .intel import knowledge, intel_ledger, contacts, competitors, training_data
+from .intel import knowledge, intel_ledger, contacts, competitors, training_data, neural_memory
 from .intel.researcher import research_and_learn
 from .routes.aria import router as aria_router
 
@@ -46,6 +46,7 @@ async def lifespan(app: FastAPI):
     await contacts.init()
     await competitors.init()
     await training_data.init()
+    await neural_memory.init()
 
     # Create LLM provider
     api_key = settings.llm_api_key or settings.deepseek_api_key
@@ -129,14 +130,35 @@ async def health():
 
 @app.post("/api/aria/ingest")
 async def ingest_sweep(data: dict):
-    """Receive sweep data from Node.js server to update intel layers."""
+    """Receive sweep data from Node.js server to update intel layers + neural network."""
     app.state.current_data = data
     ledger_count = await intel_ledger.ingest_sweep_signals(data)
     comp_count = await competitors.scan_for_moves(data)
+
+    # Grow neural network from sweep signals
+    neural_count = 0
+    try:
+        # Learn from OSINT signals
+        signals = data.get("signals") or data.get("urgentSignals") or []
+        for sig in signals[:20]:
+            text = sig.get("text") or sig.get("content") or ""
+            if text:
+                result = await neural_memory.learn_from_text(text, source="sweep")
+                neural_count += result.get("neurons_activated", 0)
+        # Learn from news
+        for item in (data.get("news") or [])[:10]:
+            text = item.get("title", "") + " " + item.get("summary", "")
+            if text.strip():
+                result = await neural_memory.learn_from_text(text, source="news")
+                neural_count += result.get("neurons_activated", 0)
+    except Exception as e:
+        logger.warning("Neural ingest failed: %s", e)
+
     return {
         "ok": True,
         "ledger_signals_added": ledger_count,
         "competitor_moves_added": comp_count,
+        "neurons_activated": neural_count,
     }
 
 

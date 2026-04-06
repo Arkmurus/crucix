@@ -25,6 +25,7 @@ from .intel.competitors import get_competitor_context
 from .intel.approach import get_approach_context
 from .intel.gtm_strategy import get_gtm_context
 from .intel import training_data
+from .intel import neural_memory
 
 logger = logging.getLogger("aria.engine")
 
@@ -202,16 +203,25 @@ def _build_intel_context(intel_data: dict | None) -> str:
     return "\n\n[LIVE INTELLIGENCE — Crucix platform data, updated this sweep]\n" + "\n\n".join(parts)
 
 
+# Neural memory needs async but context builder is sync — use cached last result
+_neural_cache: dict[str, str] = {}
+
+def _sync_neural_context(message: str) -> str:
+    """Return cached neural context. Actual neural recall is done async in aria_chat."""
+    return _neural_cache.get("last", "")
+
+
 def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
-    """Build all 7 intelligence layers, budget-capped."""
+    """Build all 8 intelligence layers (7 + neural memory), budget-capped."""
     layer_fns = [
-        ("live_intel", lambda: _build_intel_context(intel_data)),
-        ("knowledge",  lambda: search_knowledge(message)),
-        ("ledger",     lambda: query_ledger(message)),
-        ("contacts",   lambda: get_contact_context(message)),
+        ("live_intel",  lambda: _build_intel_context(intel_data)),
+        ("knowledge",   lambda: search_knowledge(message)),
+        ("ledger",      lambda: query_ledger(message)),
+        ("contacts",    lambda: get_contact_context(message)),
         ("competitors", lambda: get_competitor_context(message)),
-        ("approach",   lambda: get_approach_context(message)),
-        ("gtm",        lambda: get_gtm_context(message)),
+        ("approach",    lambda: get_approach_context(message)),
+        ("gtm",         lambda: get_gtm_context(message)),
+        ("neural",      lambda: _sync_neural_context(message)),
     ]
     total = ""
     for name, fn in layer_fns:
@@ -332,7 +342,7 @@ async def aria_chat(
     llm: LLMProvider,
     intel_data: dict | None = None,
 ) -> dict:
-    """Multi-turn chat with ARIA, 7-layer context injection."""
+    """Multi-turn chat with ARIA, 8-layer context injection (7 intel + neural memory)."""
     if not llm or not llm.is_configured:
         return {
             "response": "ARIA requires an LLM to be configured. Set LLM_PROVIDER and LLM_API_KEY.",
@@ -343,7 +353,15 @@ async def aria_chat(
     session = await _get_session(session_id)
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
 
-    # Build 7-layer context
+    # Pre-fetch neural memory (async) and cache for sync context builder
+    try:
+        neural_ctx = await neural_memory.get_neural_context(message)
+        _neural_cache["last"] = neural_ctx
+    except Exception as e:
+        logger.warning("Neural recall failed: %s", e)
+        _neural_cache["last"] = ""
+
+    # Build 8-layer context (7 intel + neural memory)
     context = _build_7_layer_context(message, intel_data)
 
     # Format conversation
@@ -378,6 +396,13 @@ async def aria_chat(
         auto_extract_facts(message, response_text)
     except Exception as e:
         logger.warning("Auto-extract facts failed: %s", e)
+
+    # Grow neural network from conversation (non-blocking)
+    try:
+        combined = f"{message} {response_text}"
+        await neural_memory.learn_from_text(combined, source=f"chat:{session_id}")
+    except Exception as e:
+        logger.warning("Neural learning failed: %s", e)
 
     # Record for training
     try:

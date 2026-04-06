@@ -36,6 +36,8 @@ from ..intel.deep_researcher import (
     analyse_scenarios,
     build_profile,
 )
+from ..intel import neural_memory
+from ..intel import self_improve
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -396,3 +398,121 @@ async def profile_ep(request: Request):
         raise HTTPException(status_code=400, detail="entity required")
     llm = get_llm(request)
     return await build_profile(llm, entity, profile_type)
+
+
+# ── Neural Memory ────────────────────────────────────────────────────────────
+
+# 30. GET /api/aria/neural/stats — Neural network statistics
+@router.get("/neural/stats")
+async def neural_stats_ep():
+    return await neural_memory.get_stats()
+
+
+# 31. POST /api/aria/neural/recall — Associative recall
+@router.post("/neural/recall")
+async def neural_recall_ep(request: Request):
+    body = await request.json()
+    query = body.get("query", "")
+    depth = min(body.get("depth", 2), 3)
+    if not query:
+        raise HTTPException(status_code=400, detail="query required")
+    return await neural_memory.recall(query, depth=depth)
+
+
+# 32. POST /api/aria/neural/learn — Teach ARIA a concept
+@router.post("/neural/learn")
+async def neural_learn_ep(request: Request):
+    body = await request.json()
+    concept = body.get("concept", "")
+    category = body.get("category", "general")
+    related_to = body.get("related_to", [])
+    confidence = body.get("confidence", "CONFIRMED")
+    metadata = body.get("metadata", {})
+    if not concept:
+        raise HTTPException(status_code=400, detail="concept required")
+    return await neural_memory.learn_explicit(
+        concept, category, related_to, source="user", confidence=confidence, metadata=metadata
+    )
+
+
+# 33. GET /api/aria/neural/cluster/{concept} — Get concept neighborhood
+@router.get("/neural/cluster/{concept}")
+async def neural_cluster_ep(concept: str):
+    return await neural_memory.get_cluster(concept)
+
+
+# ── Self-Improvement ─────────────────────────────────────────────────────────
+
+# 34. GET /api/aria/self/files — List ARIA's own source files
+@router.get("/self/files")
+async def self_files_ep():
+    return {"files": await self_improve.list_own_files()}
+
+
+# 35. POST /api/aria/self/read — Read ARIA's own source code
+@router.post("/self/read")
+async def self_read_ep(request: Request):
+    body = await request.json()
+    file_path = body.get("file", "")
+    if not file_path:
+        raise HTTPException(status_code=400, detail="file required")
+    return await self_improve.read_own_code(file_path)
+
+
+# 36. POST /api/aria/self/improve — Stage a code improvement
+@router.post("/self/improve")
+async def self_improve_ep(request: Request):
+    body = await request.json()
+    file_path = body.get("file", "")
+    new_content = body.get("content", "")
+    change_type = body.get("change_type", "enhancement")
+    description = body.get("description", "")
+    reasoning = body.get("reasoning", "")
+    if not file_path or not new_content or not description:
+        raise HTTPException(status_code=400, detail="file, content, and description required")
+    return await self_improve.stage_improvement(
+        file_path, new_content, change_type, description, reasoning
+    )
+
+
+# 37. GET /api/aria/self/staged — List staged improvements
+@router.get("/self/staged")
+async def self_staged_ep():
+    return {"staged": await self_improve.get_staged()}
+
+
+# 38. GET /api/aria/self/staged/{id} — Get diff for a staged improvement
+@router.get("/self/staged/{improvement_id}")
+async def self_staged_diff_ep(improvement_id: str):
+    return await self_improve.get_staged_diff(improvement_id)
+
+
+# 39. POST /api/aria/self/deploy/{id} — Deploy a staged improvement
+@router.post("/self/deploy/{improvement_id}")
+async def self_deploy_ep(improvement_id: str):
+    return await self_improve.deploy_improvement(improvement_id)
+
+
+# 40. POST /api/aria/self/rollback/{id} — Rollback a deployed improvement
+@router.post("/self/rollback/{improvement_id}")
+async def self_rollback_ep(improvement_id: str):
+    return await self_improve.rollback_improvement(improvement_id)
+
+
+# 41. POST /api/aria/self/evolve-prompt — Evolve system prompt
+@router.post("/self/evolve-prompt")
+async def self_evolve_prompt_ep(request: Request):
+    body = await request.json()
+    feedback = body.get("feedback", "")
+    current_prompt = body.get("current_prompt", "")
+    performance_data = body.get("performance_data", None)
+    if not feedback:
+        raise HTTPException(status_code=400, detail="feedback required")
+    llm = get_llm(request)
+    return await self_improve.evolve_prompt(llm, current_prompt, feedback, performance_data)
+
+
+# 42. GET /api/aria/self/log — Improvement history
+@router.get("/self/log")
+async def self_log_ep():
+    return {"log": await self_improve.get_improvement_log()}
