@@ -124,14 +124,23 @@ async def scan_for_moves(current_data: dict) -> int:
                 return
 
     for d in (current_data.get("defenseNews") or []):
-        _check(d.get("title", ""), "defence_news", d.get("link", ""))
+        if isinstance(d, str):
+            _check(d, "defence_news")
+        elif isinstance(d, dict):
+            _check(d.get("title", ""), "defence_news", d.get("link", ""))
 
     for s in (current_data.get("tg", {}).get("urgent") or []):
-        _check(s.get("text", ""), "osint")
+        if isinstance(s, str):
+            _check(s, "osint")
+        elif isinstance(s, dict):
+            _check(s.get("text", ""), "osint")
 
     items = (current_data.get("procurementTenders") or {}).get("items") or []
     for t in items:
-        _check(t.get("title") or t.get("text", ""), "tender", t.get("link", ""))
+        if isinstance(t, str):
+            _check(t, "tender")
+        elif isinstance(t, dict):
+            _check(t.get("title") or t.get("text", ""), "tender", t.get("link", ""))
 
     if len(db["moves"]) > MAX_MOVES:
         db["moves"] = db["moves"][:MAX_MOVES]
