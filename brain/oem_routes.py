@@ -20,7 +20,9 @@ oem_bp = Blueprint("oem", __name__, url_prefix="/api/brain/oem")
 def register_oem_routes(app):
     """Register OEM API routes on Flask app."""
 
-    from oem_database_v2 import get_oem_database
+    from .oem_database_v2 import OEMDatabase
+    def get_oem_database():
+        return OEMDatabase()
 
     @oem_bp.route("/search", methods=["GET"])
     def oem_search():

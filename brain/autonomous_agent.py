@@ -46,21 +46,25 @@ class CrucixAutonomousAgent:
     KEY_RUN_HISTORY  = CONFIG.redis_brain_prefix + "run_history"
     KEY_REACTIVE_Q   = CONFIG.redis_brain_prefix + "reactive_queries"
 
-    def __init__(self, telegram_token: str = None, telegram_chat_id: str = None):
+    def __init__(self, telegram_token: str = None, telegram_chat_id: str = None,
+                 redis_client=None, memory=None, ml_engine=None, deepseek=None, feedback=None):
         logger.info("Initialising Crucix Autonomous Brain...")
 
-        try:
-            self.redis = redis.from_url(CONFIG.redis_url, decode_responses=True)
-            self.redis.ping()
-        except Exception as e:
-            logger.critical(f"Redis connection failed: {e}")
-            raise
+        if redis_client is not None:
+            self.redis = redis_client
+        else:
+            try:
+                self.redis = redis.from_url(CONFIG.redis_url, decode_responses=True)
+                self.redis.ping()
+            except Exception as e:
+                logger.critical(f"Redis connection failed: {e}")
+                raise
 
-        # Pass redis client to memory and ml_engine for persistence
-        self.memory    = CrucixMemory(redis_client=self.redis)
-        self.ml_engine = CrucixMLEngine(redis_client=self.redis)
-        self.deepseek  = DeepSeekClient()
-        self.feedback  = FeedbackLoop(self.memory, self.ml_engine)
+        # Use shared objects if provided, otherwise create own with redis
+        self.memory    = memory or CrucixMemory(redis_client=self.redis)
+        self.ml_engine = ml_engine or CrucixMLEngine(redis_client=self.redis)
+        self.deepseek  = deepseek or DeepSeekClient()
+        self.feedback  = feedback or FeedbackLoop(self.memory, self.ml_engine)
 
         self.telegram_token   = telegram_token
         self.telegram_chat_id = telegram_chat_id
@@ -256,10 +260,13 @@ class CrucixAutonomousAgent:
         """Pull intelligence signals from Redis queue (written by sweep engine)."""
         signals = []
         try:
-            while True:
+            max_drain = 1000
+            drained = 0
+            while drained < max_drain:
                 raw = self.redis.lpop(self.KEY_SIGNALS)
                 if not raw:
                     break
+                drained += 1
                 try:
                     signals.append(json.loads(raw))
                 except json.JSONDecodeError:
@@ -377,7 +384,10 @@ class CrucixAutonomousAgent:
         self.run_sweep()
 
         while True:
-            schedule.run_pending()
+            try:
+                schedule.run_pending()
+            except Exception as e:
+                logger.exception(f"Scheduler tick failed: {e}")
             time.sleep(60)
 
     def get_latest_leads(self, n: int = 20) -> List[Dict]:

@@ -98,7 +98,9 @@ async def read_own_code(file_path: str) -> dict:
     if file_path in PROTECTED_FILES:
         return {"error": f"Protected file — ARIA cannot access {file_path}"}
 
-    full_path = _root / file_path
+    full_path = (_root / file_path).resolve()
+    if not str(full_path).startswith(str(_root.resolve())):
+        return {"error": "Access denied: path outside project root"}
     if not full_path.exists():
         return {"error": f"File not found: {file_path}"}
 
@@ -362,7 +364,9 @@ Analyse the current prompt and suggest a SPECIFIC improvement. Output JSON:
             max_tokens=800,
             timeout=30.0,
         )
-        suggestion = json.loads(result.text.strip().strip("```json").strip("```"))
+        text = re.sub(r'^```(?:json)?\s*', '', result.text.strip())
+        text = re.sub(r'\s*```$', '', text)
+        suggestion = json.loads(text)
     except Exception as e:
         return {"error": f"Prompt evolution failed: {e}"}
 

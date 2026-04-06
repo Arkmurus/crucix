@@ -26,8 +26,9 @@ import httpx
 
 from ..llm.provider import LLMProvider, LLMResult
 from . import redis_store as rs
-from .knowledge import store_fact, search_knowledge, _cache as kb_cache
-from .intel_ledger import _cache as ledger_cache
+from .knowledge import store_fact, search_knowledge
+from . import knowledge as _kb_mod
+from . import intel_ledger as _ledger_mod
 
 logger = logging.getLogger("aria.researcher")
 
@@ -482,7 +483,7 @@ async def read_document(
         doc_text = f"Document: {filename}\nSource: {source}\n"
         if context:
             doc_text += f"Context: {context}\n"
-        doc_text += f"Content (part {i + 1}/{min(len(chunks), 5)}):\n{chunk}"
+        doc_text += f"Content (part {i + 1}/{len(chunks)}):\n{chunk}"
 
         existing_kb = search_knowledge(chunk[:200])
         parsed = await _analyse_article(llm, doc_text, f"{source}:{filename}", existing_kb, hypotheses)
@@ -502,7 +503,7 @@ async def read_document(
         "filename": filename,
         "source": source,
         "content_length": len(content),
-        "chunks_processed": min(len(chunks), 5),
+        "chunks_processed": len(chunks),
         "facts_learned": total_facts,
         "hypotheses_generated": total_hyp,
         "facts": all_facts,
@@ -694,8 +695,8 @@ async def get_hypotheses() -> list[dict]:
 
 async def get_research_summary(llm: LLMProvider) -> dict:
     hypotheses = await _load_hypotheses()
-    kb_size = len((kb_cache or {}).get("facts", []))
-    ledger_size = len((ledger_cache or {}).get("signals", []))
+    kb_size = len((_kb_mod._cache or {}).get("facts", []))
+    ledger_size = len((_ledger_mod._cache or {}).get("signals", []))
     open_h = [h for h in hypotheses if h.get("status") == "OPEN"]
     strong_h = [h for h in hypotheses if h.get("status") == "STRENGTHENED"]
     challenged_h = [h for h in hypotheses if h.get("status") == "CHALLENGED"]

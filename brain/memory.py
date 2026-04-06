@@ -76,11 +76,9 @@ class CrucixMemory:
                         document = entry["document"]
                         metadata = entry.get("metadata", {})
                         # Skip if already exists (idempotent)
-                        try:
-                            collection.get(ids=[doc_id])
+                        existing = collection.get(ids=[doc_id])
+                        if existing and existing.get("ids"):
                             continue
-                        except Exception:
-                            pass
                         collection.add(
                             ids=[doc_id],
                             embeddings=self._embed([document]),

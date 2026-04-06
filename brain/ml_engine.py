@@ -8,8 +8,11 @@ Self-training machine learning layer:
     no local disk writes needed.
 """
 import base64
+import hashlib
+import hmac as _hmac
 import json
 import logging
+import os
 import pickle
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
@@ -18,6 +21,20 @@ import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier, IsolationForest
 from sklearn.metrics import classification_report
 from sklearn.model_selection import cross_val_score
+
+
+def _pickle_hmac_key() -> bytes:
+    key = os.getenv("PICKLE_HMAC_KEY") or os.getenv("DEEPSEEK_API_KEY") or "crucix-default-hmac-key"
+    return key.encode()
+
+
+def _sign_pickle(data: bytes) -> str:
+    return _hmac.new(_pickle_hmac_key(), data, hashlib.sha256).hexdigest()
+
+
+def _verify_pickle(data: bytes, signature: str) -> bool:
+    expected = _hmac.new(_pickle_hmac_key(), data, hashlib.sha256).hexdigest()
+    return _hmac.compare_digest(expected, signature)
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 from .config import CONFIG
@@ -104,14 +121,27 @@ class WinProbabilityModel:
         self._load()
 
     def _load(self):
-        """Load model from Redis."""
+        """Load model from Redis with HMAC verification."""
         if not self.redis:
             return
         try:
             raw = self.redis.get(CONFIG.redis_key_win_prob_model)
             if not raw:
                 return
-            bundle = pickle.loads(base64.b64decode(raw))
+            # Try signed format first
+            try:
+                envelope = json.loads(raw)
+                data_b64 = envelope["data"]
+                sig = envelope["sig"]
+                model_bytes = base64.b64decode(data_b64)
+                if not _verify_pickle(model_bytes, sig):
+                    logger.error("Win-prob model HMAC verification failed — refusing to load")
+                    return
+            except (json.JSONDecodeError, KeyError, TypeError):
+                # Legacy unsigned format — reject for safety
+                logger.warning("Win-prob model in Redis has no HMAC signature — discarding")
+                return
+            bundle = pickle.loads(model_bytes)
             self.model   = bundle["model"]
             self.scaler  = bundle["scaler"]
             self.encoder = bundle["encoder"]
@@ -126,7 +156,7 @@ class WinProbabilityModel:
             logger.warning(f"Win-prob model Redis load failed: {e} — will use rule-based fallback")
 
     def _save(self):
-        """Persist model to Redis as base64-encoded pickle."""
+        """Persist model to Redis as HMAC-signed base64-encoded pickle."""
         if not self.redis:
             return
         try:
@@ -137,10 +167,12 @@ class WinProbabilityModel:
                 "meta":    self.meta,
             }
             model_bytes = pickle.dumps(bundle)
+            sig = _sign_pickle(model_bytes)
+            payload = json.dumps({"data": base64.b64encode(model_bytes).decode(), "sig": sig})
             ttl = CONFIG.redis_model_ttl_days * 86400
             self.redis.set(
                 CONFIG.redis_key_win_prob_model,
-                base64.b64encode(model_bytes).decode(),
+                payload,
                 ex=ttl,
             )
             logger.info("Win-prob model saved to Redis")
@@ -268,14 +300,25 @@ class SignalAnomalyDetector:
         self._load()
 
     def _load(self):
-        """Load anomaly detector from Redis."""
+        """Load anomaly detector from Redis with HMAC verification."""
         if not self.redis:
             return
         try:
             raw = self.redis.get(CONFIG.redis_key_anomaly_model)
             if not raw:
                 return
-            bundle = pickle.loads(base64.b64decode(raw))
+            try:
+                envelope = json.loads(raw)
+                data_b64 = envelope["data"]
+                sig = envelope["sig"]
+                model_bytes = base64.b64decode(data_b64)
+                if not _verify_pickle(model_bytes, sig):
+                    logger.error("Anomaly detector HMAC verification failed — refusing to load")
+                    return
+            except (json.JSONDecodeError, KeyError, TypeError):
+                logger.warning("Anomaly detector in Redis has no HMAC signature — discarding")
+                return
+            bundle = pickle.loads(model_bytes)
             self.model  = bundle["model"]
             self.fitted = True
             logger.info("Anomaly detector loaded from Redis")
@@ -283,15 +326,17 @@ class SignalAnomalyDetector:
             logger.warning(f"Anomaly detector Redis load failed: {e}")
 
     def _save(self):
-        """Persist anomaly detector to Redis."""
+        """Persist anomaly detector to Redis with HMAC signature."""
         if not self.redis:
             return
         try:
             model_bytes = pickle.dumps({"model": self.model})
+            sig = _sign_pickle(model_bytes)
+            payload = json.dumps({"data": base64.b64encode(model_bytes).decode(), "sig": sig})
             ttl = CONFIG.redis_model_ttl_days * 86400
             self.redis.set(
                 CONFIG.redis_key_anomaly_model,
-                base64.b64encode(model_bytes).decode(),
+                payload,
                 ex=ttl,
             )
         except Exception as e:

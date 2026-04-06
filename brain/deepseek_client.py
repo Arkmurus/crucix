@@ -9,7 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from .config import CONFIG
 
@@ -40,6 +40,16 @@ in intelligence data, explain its strategic significance for defence procurement
 Return JSON: {significance, urgency_level, recommended_action, market_impact}."""
 
 
+def _is_retryable(exc):
+    """Retry on timeouts, network errors, 429 rate limits, and 5xx server errors."""
+    if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code == 429 or code >= 500
+    return False
+
+
 class DeepSeekClient:
     """Async-compatible DeepSeek LLM wrapper with structured output support."""
 
@@ -57,7 +67,7 @@ class DeepSeekClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=2, min=4, max=30),
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError))
+        retry=retry_if_exception(_is_retryable),
     )
     def complete(
         self,

@@ -46,7 +46,10 @@ def register_brain_routes(app, agent):
     @brain_bp.route("/run-history", methods=["GET"])
     def run_history():
         """Last N sweep run reports."""
-        n = int(request.args.get("n", 10))
+        try:
+            n = int(request.args.get("n", 10))
+        except (TypeError, ValueError):
+            n = 10
         return jsonify(agent.get_run_history(n))
 
     # ── Leads ────────────────────────────────────────────────────────────────
@@ -54,13 +57,16 @@ def register_brain_routes(app, agent):
     @brain_bp.route("/leads", methods=["GET"])
     def get_leads():
         """Latest generated BD leads."""
-        n = int(request.args.get("n", 20))
+        try:
+            n = int(request.args.get("n", 20))
+        except (TypeError, ValueError):
+            n = 20
         return jsonify(agent.get_latest_leads(n))
 
     @brain_bp.route("/leads/<lead_id>/outcome", methods=["POST"])
     def record_outcome(lead_id):
         """Record deal outcome for ML feedback loop."""
-        data    = request.get_json()
+        data    = request.get_json() or {}
         outcome = data.get("outcome")       # WON | LOST | NO_BID
         market  = data.get("market", "")
         notes   = data.get("notes", "")
@@ -74,7 +80,7 @@ def register_brain_routes(app, agent):
     @brain_bp.route("/leads/<lead_id>/rate", methods=["POST"])
     def rate_lead(lead_id):
         """Rate brain lead quality 1-5. Feeds into recommendation quality tracking."""
-        data            = request.get_json()
+        data            = request.get_json() or {}
         rating          = int(data.get("rating", 0))
         is_false_alarm  = bool(data.get("is_false_alarm", False))
         is_real_tender  = data.get("is_real_tender")   # True/False/None
@@ -101,7 +107,7 @@ def register_brain_routes(app, agent):
         Full counterparty risk assessment.
         Body: { "entity_name": str, "document_text": str, "entity_data": {} }
         """
-        data        = request.get_json()
+        data        = request.get_json() or {}
         entity_name = data.get("entity_name", "Unknown")
         doc_text    = data.get("document_text", "")
         entity_data = data.get("entity_data", {})
@@ -138,7 +144,7 @@ def register_brain_routes(app, agent):
     @brain_bp.route("/nlp-extract", methods=["POST"])
     def nlp_extract():
         """Extract intelligence entities from a document."""
-        data     = request.get_json()
+        data     = request.get_json() or {}
         text     = data.get("text", "")
         doc_type = data.get("doc_type", "procurement")
 
@@ -151,7 +157,7 @@ def register_brain_routes(app, agent):
     @brain_bp.route("/signal", methods=["POST"])
     def push_signal():
         """Push a new intelligence signal into the brain queue."""
-        signal = request.get_json()
+        signal = request.get_json() or {}
         agent.push_signal(signal)
         return jsonify({"status": "queued", "queue": "brain_signal_queue"})
 

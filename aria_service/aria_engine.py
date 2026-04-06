@@ -205,12 +205,13 @@ def _build_intel_context(intel_data: dict | None) -> str:
     return "\n\n[LIVE INTELLIGENCE — Crucix platform data, updated this sweep]\n" + "\n\n".join(parts)
 
 
-# Neural memory needs async but context builder is sync — use cached last result
-_neural_cache: dict[str, str] = {}
+# Neural memory needs async but context builder is sync — use contextvars for thread safety
+import contextvars
+_neural_ctx_var: contextvars.ContextVar[str] = contextvars.ContextVar("neural_ctx", default="")
 
 def _sync_neural_context(message: str) -> str:
-    """Return cached neural context. Actual neural recall is done async in aria_chat."""
-    return _neural_cache.get("last", "")
+    """Return per-request neural context set before context building."""
+    return _neural_ctx_var.get("")
 
 
 def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
@@ -401,13 +402,13 @@ async def aria_chat(
     session = await _get_session(session_id)
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
 
-    # Pre-fetch neural memory (async) and cache for sync context builder
+    # Pre-fetch neural memory (async) and set per-request context
     try:
         neural_ctx = await neural_memory.get_neural_context(message)
-        _neural_cache["last"] = neural_ctx
+        _neural_ctx_var.set(neural_ctx)
     except Exception as e:
         logger.warning("Neural recall failed: %s", e)
-        _neural_cache["last"] = ""
+        _neural_ctx_var.set("")
 
     # Build 8-layer context (7 intel + neural memory)
     context = _build_7_layer_context(message, intel_data)
@@ -433,10 +434,11 @@ async def aria_chat(
             )
         except Exception:
             pass
+        logger.error("ARIA LLM error: %s", e)
         return {
-            "response": f"ARIA encountered an error: {e}",
+            "response": "ARIA encountered an internal error. Please try again.",
             "session_id": session_id,
-            "error": str(e),
+            "error": True,
         }
 
     # Update session
@@ -448,7 +450,7 @@ async def aria_chat(
 
     # Auto-extract facts (non-blocking)
     try:
-        auto_extract_facts(message, response_text)
+        await auto_extract_facts(message, response_text)
     except Exception as e:
         logger.warning("Auto-extract facts failed: %s", e)
 

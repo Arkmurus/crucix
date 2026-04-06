@@ -104,9 +104,19 @@ async def _persist() -> None:
     try:
         _meta["total_neurons"] = len(_neurons)
         _meta["total_edges"] = sum(len(v) for v in _edges.values())
-        await rs.set_json(NEURONS_KEY, dict(_neurons), ex=90 * 86400)
-        await rs.set_json(EDGES_KEY, dict(_edges), ex=90 * 86400)
-        await rs.set_json(NEURAL_META_KEY, _meta, ex=90 * 86400)
+        # Use pipeline for atomic writes if Redis is available
+        if rs._client:
+            import json as _json
+            pipe = rs._client.pipeline()
+            ttl = 90 * 86400
+            pipe.set(NEURONS_KEY, _json.dumps(dict(_neurons)), ex=ttl)
+            pipe.set(EDGES_KEY, _json.dumps(dict(_edges)), ex=ttl)
+            pipe.set(NEURAL_META_KEY, _json.dumps(_meta), ex=ttl)
+            await pipe.execute()
+        else:
+            await rs.set_json(NEURONS_KEY, dict(_neurons), ex=90 * 86400)
+            await rs.set_json(EDGES_KEY, dict(_edges), ex=90 * 86400)
+            await rs.set_json(NEURAL_META_KEY, _meta, ex=90 * 86400)
     except Exception as e:
         logger.warning("Neural memory persist failed: %s", e)
 

@@ -226,7 +226,6 @@ async function startListener() {
     if (connection === 'open') {
       isConnected = true;
       startedAt   = new Date().toISOString();
-      qrPrinted   = false;
       reconnectDelay = 5000;  // reset backoff on successful connect
       console.log('[ARIA Listener] ✓ Connected to WhatsApp — ARIA is listening');
       console.log('[ARIA Listener] Call GET /groups to find your group IDs');
@@ -234,6 +233,7 @@ async function startListener() {
 
     if (connection === 'close') {
       isConnected = false;
+      qrPrinted   = false;  // allow new QR display on reconnect
       const code  = lastDisconnect?.error?.output?.statusCode;
       const logout = code === DisconnectReason.loggedOut;
 

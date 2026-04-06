@@ -147,7 +147,7 @@ def search_knowledge(query: str) -> str:
     return "\n".join(lines)
 
 
-def auto_extract_facts(user_query: str, aria_response: str) -> None:
+async def auto_extract_facts(user_query: str, aria_response: str) -> None:
     """Auto-mine [CONFIRMED] and [PROBABLE] tagged facts from ARIA responses."""
     if not _cache:
         return
@@ -156,14 +156,12 @@ def auto_extract_facts(user_query: str, aria_response: str) -> None:
         (r"\[PROBABLE\]\s*(.+?)(?:\n|$)", "PROBABLE"),
     ]
     import asyncio
-    loop = asyncio.get_event_loop()
     for pat, conf in patterns:
         for m in re.finditer(pat, aria_response):
             text = m.group(1).strip()[:300]
             if len(text) > 20:
-                # Fire-and-forget in the background
                 topic = text[:60].rstrip(".")
-                loop.create_task(store_fact(topic, text, "aria_auto", conf))
+                asyncio.create_task(store_fact(topic, text, "aria_auto", conf))
 
 
 async def get_stats() -> dict:

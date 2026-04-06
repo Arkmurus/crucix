@@ -79,12 +79,11 @@ Instructions:
 
 Output ONLY the extracted text — no commentary."""
 
-        # Most LLM providers support vision via the OpenAI-compatible format
-        # For now, we send as a text description since not all support images
-        # The image is base64-encoded for providers that support it
+        # Send image as base64 data URI so LLM vision models can read it
+        image_uri = f"data:{mime};base64,{b64}"
         result = await llm.complete(
-            "You are an OCR system. Extract all visible text from the described image.",
-            f"[Image: {mime}, {len(image_data)} bytes, filename: {context}]\n\n{prompt}",
+            "You are an OCR system. Extract all visible text from the provided image.",
+            f"![image]({image_uri})\n\n{prompt}",
             max_tokens=2000,
             timeout=30.0,
         )

@@ -28,8 +28,15 @@ logger = logging.getLogger("crucix.brain.main")
 def create_app() -> Flask:
     app = Flask(__name__)
 
-    memory    = CrucixMemory()
-    ml_engine = CrucixMLEngine()
+    # Shared Redis client for all components
+    import redis as _redis
+    from crucix_brain.config import CONFIG
+    redis_client = _redis.from_url(CONFIG.redis_url, decode_responses=True)
+    redis_client.ping()
+
+    # Shared objects with Redis persistence
+    memory    = CrucixMemory(redis_client=redis_client)
+    ml_engine = CrucixMLEngine(redis_client=redis_client)
     deepseek  = DeepSeekClient()
     feedback  = FeedbackLoop(memory, ml_engine)
 
@@ -40,6 +47,11 @@ def create_app() -> Flask:
     agent = CrucixAutonomousAgent(
         telegram_token   = os.getenv("TELEGRAM_BOT_TOKEN"),
         telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID"),
+        redis_client     = redis_client,
+        memory           = memory,
+        ml_engine        = ml_engine,
+        deepseek         = deepseek,
+        feedback         = feedback,
     )
 
     # Wire ARIA into sweep completion
@@ -60,7 +72,7 @@ def create_app() -> Flask:
 
     @app.route("/api/aria/chat", methods=["POST"])
     def aria_chat_ep():
-        data = request.get_json()
+        data = request.get_json() or {}
         msg  = data.get("message", "")
         sid  = data.get("session_id", "default")
         if not msg:
@@ -69,7 +81,7 @@ def create_app() -> Flask:
 
     @app.route("/api/aria/think", methods=["POST"])
     def aria_think():
-        data = request.get_json()
+        data = request.get_json() or {}
         q    = data.get("question", "")
         if not q:
             return jsonify({"error": "question required"}), 400
@@ -82,7 +94,11 @@ def create_app() -> Flask:
 
     @app.route("/api/aria/thoughts",  methods=["GET"])
     def aria_thoughts():
-        return jsonify(aria_cognition.get_recent_thoughts(int(request.args.get("n", 10))))
+        try:
+            n = int(request.args.get("n", 10))
+        except (TypeError, ValueError):
+            n = 10
+        return jsonify(aria_cognition.get_recent_thoughts(n))
 
     @app.route("/api/aria/curiosity", methods=["GET"])
     def aria_curiosity():
@@ -90,7 +106,7 @@ def create_app() -> Flask:
 
     @app.route("/api/aria/curiosity/resolve", methods=["POST"])
     def aria_resolve():
-        data = request.get_json()
+        data = request.get_json() or {}
         aria_cognition.resolve_curiosity(data.get("question",""), data.get("answer",""))
         return jsonify({"status": "resolved"})
 
@@ -100,7 +116,7 @@ def create_app() -> Flask:
 
     @app.route("/api/aria/telegram",  methods=["POST"])
     def aria_telegram():
-        data = request.get_json()
+        data = request.get_json() or {}
         resp = aria_chat.handle_telegram_command(data.get("command","/aria"), data.get("args",""), data.get("chat_id","default"))
         return jsonify({"response": resp})
 
