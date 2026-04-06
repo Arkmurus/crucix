@@ -309,16 +309,104 @@ async function handleCommand(cmd, args, senderJid) {
       return msg;
     }
 
+    case 'ask': {
+      if (!a) return '⚠️ Usage: /ask [question]';
+      return await askARIA(a, senderJid);
+    }
+
+    case 'teach': {
+      if (!a) return '⚠️ Usage: /teach [topic]: [fact]';
+      const colonIdx = a.indexOf(':');
+      if (colonIdx < 1) return '⚠️ Format: /teach [topic]: [fact]\nExample: /teach ECJU processing: Standard SITCL takes 20 working days';
+      const topic = a.slice(0, colonIdx).trim();
+      const fact  = a.slice(colonIdx + 1).trim();
+      if (!fact) return '⚠️ Please include the fact after the colon.';
+      const senderDisplay = senderJid.replace('@s.whatsapp.net', '').replace('@g.us', '');
+      try {
+        await brainPost('/api/aria/knowledge/fact', {
+          topic,
+          content: fact,
+          source: `taught_by:${senderDisplay}`,
+          confidence: 'CONFIRMED',
+        });
+        return `✅ *Learned!*\n*Topic:* ${topic}\n*Fact:* ${fact}\n*Source:* ${senderDisplay}\n\nThis is now in my knowledge base as [CONFIRMED]. Thank you for teaching me.`;
+      } catch (e) {
+        return '⚠️ Failed to store — ARIA brain may be unavailable.';
+      }
+    }
+
+    case 'correct': {
+      if (!a) return '⚠️ Usage: /correct [what ARIA got wrong] → [the right answer]';
+      const sep = a.includes('→') ? '→' : a.includes('->') ? '->' : null;
+      if (!sep) return '⚠️ Format: /correct [wrong] → [right]\nUse → or -> to separate the error from the correction.';
+      const parts = a.split(sep);
+      const wrong = parts[0].trim();
+      const right = parts.slice(1).join(sep).trim();
+      if (!wrong || !right) return '⚠️ Both the error and correction are needed.\nExample: /correct ECJU takes 10 days → Standard SITCL takes 20 working days';
+      try {
+        await brainPost('/api/aria/correct', {
+          originalQuery: wrong,
+          originalResponse: wrong,
+          correction: `User correction: ${wrong} is wrong. Correct answer: ${right}`,
+          correctAnswer: right,
+        });
+        // Also store the correct fact in knowledge base
+        await brainPost('/api/aria/knowledge/fact', {
+          topic: wrong.slice(0, 60),
+          content: right,
+          source: `correction_by:${senderJid.replace('@s.whatsapp.net', '')}`,
+          confidence: 'CONFIRMED',
+        }).catch(() => {});
+        return `✅ *Correction recorded.*\n*Was:* ${wrong}\n*Should be:* ${right}\n\nI've updated my knowledge and recorded this as a training correction. Thank you — this makes me better.`;
+      } catch (e) {
+        return '⚠️ Failed to record correction — ARIA brain may be unavailable.';
+      }
+    }
+
+    case 'feedback': {
+      if (!a) return '⚠️ Usage: /feedback [+/-] [notes]\nExample: /feedback + Great analysis of Angola procurement';
+      const positive = a.startsWith('+') || /^positive/i.test(a);
+      const negative = a.startsWith('-') || /^negative/i.test(a);
+      const notes = a.replace(/^[+-]\s*/, '').replace(/^(positive|negative)\s*/i, '').trim();
+      const sentiment = positive ? 'positive' : negative ? 'negative' : 'neutral';
+      try {
+        await brainPost('/api/brain/signal', {
+          content: `Feedback (${sentiment}): ${notes || 'No notes'}`,
+          source: `feedback:${senderJid.replace('@s.whatsapp.net', '')}`,
+          signal_type: 'user_feedback',
+          metadata: { sentiment, notes, sender: senderJid, channel: 'whatsapp_listener' },
+        });
+        const emoji = positive ? '👍' : negative ? '📝' : '📋';
+        return `${emoji} *Feedback recorded.* ${positive ? 'Glad I could help!' : negative ? 'I\'ll work on improving.' : 'Thank you for the feedback.'}`;
+      } catch (e) {
+        return '⚠️ Failed to record feedback.';
+      }
+    }
+
     case 'help':
       return [
         '*ARIA — WhatsApp Commands*',
         '',
+        '*Intelligence:*',
+        '/ask [question] — Ask ARIA anything',
+        '/brief — Today\'s intelligence digest',
+        '',
+        '*Compliance:*',
         '/screen [entity] — Compliance pre-screening',
         '/classify [product] — ML classification',
         '/sanctions [name] — Sanctions list check',
         '/risk [country] — Country risk assessment',
         '',
-        '_Or mention ARIA in any message to chat._',
+        '*Learning:*',
+        '/teach [topic]: [fact] — Teach ARIA a new fact',
+        '/correct [wrong] → [right] — Correct ARIA',
+        '/feedback [+/-] [notes] — Rate last response',
+        '',
+        '*Pipeline:*',
+        '/pipeline — View active deals',
+        '/deal [title] — Add new deal',
+        '',
+        '_Or just mention ARIA in any message to chat._',
       ].join('\n');
 
     default:
