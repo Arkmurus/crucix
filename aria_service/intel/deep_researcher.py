@@ -66,7 +66,11 @@ async def _extract_links(url: str, html: str) -> list[str]:
 
 
 async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, list[str]]:
-    """Fetch a page and return (text_content, discovered_links)."""
+    """Fetch a page and return (text_content, discovered_links). Security validated."""
+    from .security import sanitise_url, scan_content, strip_dangerous_content
+    url = sanitise_url(url)
+    if not url:
+        return "", []
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(url, headers={

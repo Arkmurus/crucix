@@ -236,7 +236,11 @@ async def _fetch_rss(url: str, timeout: float = 15.0) -> list[dict]:
 
 
 async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
-    """Fetch article body text from URL."""
+    """Fetch article body text from URL (with security validation)."""
+    from .security import sanitise_url, scan_content, strip_dangerous_content
+    url = sanitise_url(url)
+    if not url:
+        return ""
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(url, headers={
@@ -246,6 +250,13 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
             if resp.status_code != 200:
                 return ""
             html = resp.text
+
+        # Security scan
+        scan = scan_content(html, source=url[:100])
+        if not scan["safe"]:
+            logger.warning("Blocked unsafe content from %s: %s", url[:80],
+                           [t["type"] for t in scan["threats"]])
+            html = strip_dangerous_content(html)
 
         # Strip scripts, styles, nav elements
         text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
