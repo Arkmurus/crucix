@@ -625,3 +625,355 @@ Return JSON:
         "raw_facts": all_facts,
         "duration_ms": duration,
     }
+
+
+# ── Public: Person investigation ────────────────────────────────────────────
+
+async def investigate_person(llm: LLMProvider, name: str, context: str = "") -> dict:
+    """Deep investigation of a person — maps professional network, flags risks."""
+    if not llm or not llm.is_configured:
+        return {"error": "LLM not configured"}
+
+    t_start = time.time()
+    logger.info(f"ARIA investigating person: '{name}'")
+
+    # Search from multiple angles
+    search_suffixes = [
+        "defence procurement",
+        "military",
+        "sanctions",
+        "board director",
+        "LinkedIn",
+        "corruption allegations",
+    ]
+    if context:
+        search_suffixes.append(context)
+
+    total_facts = 0
+    all_facts: list[dict] = []
+    hypotheses = await _load_hypotheses()
+
+    for suffix in search_suffixes:
+        query = f"{name} {suffix}"
+        articles = await _web_search(query)
+        for article in articles[:3]:
+            body = await _fetch_article_text(article.get("link", ""))
+            if not body or len(body) < 100:
+                continue
+
+            article_text = f"Title: {article['title']}\nInvestigation target (person): {name}\nContent:\n{body[:4000]}"
+            existing_kb = search_knowledge(name)
+            parsed = await _analyse_article(llm, article_text, f"person_investigation:{name}", existing_kb, hypotheses)
+
+            if parsed:
+                fl, _ = await _process_analysis(parsed, f"person_investigation:{name}", hypotheses)
+                total_facts += fl
+                all_facts.extend(parsed.get("facts", []))
+
+            if article.get("link"):
+                await _mark_read(article["link"])
+
+    await _save_hypotheses(hypotheses)
+
+    # Synthesise into structured person report
+    report = None
+    if all_facts:
+        facts_block = "\n".join(f"- [{f['confidence']}] {f['content'][:200]}" for f in all_facts[:25])
+        existing_kb = search_knowledge(name)
+
+        synth_prompt = f"""ARIA has investigated a PERSON: "{name}"
+{f'Context: {context}' if context else ''}
+
+DISCOVERED FACTS ({len(all_facts)}):
+{facts_block}
+
+EXISTING KNOWLEDGE:
+{existing_kb or 'None on file.'}
+
+Follow the PERSON INVESTIGATION protocol. Produce a structured intelligence report.
+
+Return JSON:
+{{
+  "name": "{name}",
+  "aliases": [str],
+  "roles": [{{"title": str, "organisation": str, "current": bool}}],
+  "network": [{{"entity": str, "relationship": str, "relevance": str}}],
+  "red_flags": [str],
+  "sanctions_proximity": str,
+  "pep_status": str,
+  "adverse_media": [str],
+  "financial_indicators": [str],
+  "military_connections": [str],
+  "confidence": int,
+  "sources": [str],
+  "intelligence_gaps": [str],
+  "risk_assessment": "LOW|MEDIUM|HIGH|CRITICAL",
+  "recommendation": str
+}}"""
+
+        try:
+            result = await llm.complete(
+                "ARIA — senior investigator building a person dossier following the PERSON INVESTIGATION protocol.",
+                synth_prompt,
+                max_tokens=2000,
+                timeout=60.0,
+            )
+            json_match = re.search(r"\{[\s\S]*\}", result.text)
+            if json_match:
+                report = json.loads(json_match.group())
+        except Exception as e:
+            logger.warning(f"Person investigation synthesis failed: {e}")
+
+    duration = int((time.time() - t_start) * 1000)
+    return {
+        "name": name,
+        "facts_gathered": total_facts,
+        "report": report,
+        "raw_facts": all_facts,
+        "duration_ms": duration,
+    }
+
+
+# ── Public: Company investigation ───────────────────────────────────────────
+
+async def investigate_company(llm: LLMProvider, company: str, country: str = "") -> dict:
+    """Deep company investigation — ownership, sanctions, compliance history."""
+    if not llm or not llm.is_configured:
+        return {"error": "LLM not configured"}
+
+    t_start = time.time()
+    logger.info(f"ARIA investigating company: '{company}' (country={country})")
+
+    # Search from multiple angles
+    search_suffixes = [
+        "ownership structure directors",
+        "sanctions compliance",
+        "defence contracts military",
+        "beneficial owner UBO",
+        "annual accounts financial",
+        "corruption investigation",
+        "export control violation",
+    ]
+    if country:
+        search_suffixes.append(f"{country} corporate registry")
+
+    total_facts = 0
+    all_facts: list[dict] = []
+    hypotheses = await _load_hypotheses()
+
+    for suffix in search_suffixes:
+        query = f"{company} {suffix}"
+        articles = await _web_search(query)
+        for article in articles[:3]:
+            body = await _fetch_article_text(article.get("link", ""))
+            if not body or len(body) < 100:
+                continue
+
+            article_text = f"Title: {article['title']}\nInvestigation target (company): {company}\nContent:\n{body[:4000]}"
+            existing_kb = search_knowledge(company)
+            parsed = await _analyse_article(llm, article_text, f"company_investigation:{company}", existing_kb, hypotheses)
+
+            if parsed:
+                fl, _ = await _process_analysis(parsed, f"company_investigation:{company}", hypotheses)
+                total_facts += fl
+                all_facts.extend(parsed.get("facts", []))
+
+            if article.get("link"):
+                await _mark_read(article["link"])
+
+    await _save_hypotheses(hypotheses)
+
+    # Synthesise into structured company report
+    report = None
+    if all_facts:
+        facts_block = "\n".join(f"- [{f['confidence']}] {f['content'][:200]}" for f in all_facts[:25])
+        existing_kb = search_knowledge(company)
+
+        synth_prompt = f"""ARIA has investigated a COMPANY: "{company}"
+{f'Country: {country}' if country else ''}
+
+DISCOVERED FACTS ({len(all_facts)}):
+{facts_block}
+
+EXISTING KNOWLEDGE:
+{existing_kb or 'None on file.'}
+
+Follow the COMPANY INVESTIGATION protocol. Produce a structured intelligence report.
+
+Return JSON:
+{{
+  "company": "{company}",
+  "country_of_incorporation": str,
+  "corporate_structure": {{
+    "parent": str,
+    "subsidiaries": [str],
+    "beneficial_owners": [str],
+    "directors": [str]
+  }},
+  "ownership_flags": [str],
+  "sanctions_exposure": str,
+  "business_relationships": [{{"entity": str, "type": str, "relevance": str}}],
+  "financial_health": str,
+  "compliance_history": [str],
+  "adverse_media": [str],
+  "defence_connections": [str],
+  "government_contracts": [str],
+  "red_flags": [str],
+  "confidence": int,
+  "sources": [str],
+  "intelligence_gaps": [str],
+  "risk_assessment": "LOW|MEDIUM|HIGH|CRITICAL",
+  "recommendation": str
+}}"""
+
+        try:
+            result = await llm.complete(
+                "ARIA — senior investigator building a company dossier following the COMPANY INVESTIGATION protocol.",
+                synth_prompt,
+                max_tokens=2000,
+                timeout=60.0,
+            )
+            json_match = re.search(r"\{[\s\S]*\}", result.text)
+            if json_match:
+                report = json.loads(json_match.group())
+        except Exception as e:
+            logger.warning(f"Company investigation synthesis failed: {e}")
+
+    duration = int((time.time() - t_start) * 1000)
+    return {
+        "company": company,
+        "country": country,
+        "facts_gathered": total_facts,
+        "report": report,
+        "raw_facts": all_facts,
+        "duration_ms": duration,
+    }
+
+
+# ── Public: Network mapping ─────────────────────────────────────────────────
+
+async def map_network(llm: LLMProvider, entities: list, context: str = "") -> dict:
+    """Map relationships between multiple entities — find hidden connections."""
+    if not llm or not llm.is_configured:
+        return {"error": "LLM not configured"}
+
+    t_start = time.time()
+    entity_names = [str(e).strip() for e in entities if str(e).strip()]
+    if len(entity_names) < 2:
+        return {"error": "At least 2 entities required for network mapping"}
+
+    logger.info(f"ARIA mapping network: {entity_names}")
+
+    # Search for connections between entities
+    total_facts = 0
+    all_facts: list[dict] = []
+    hypotheses = await _load_hypotheses()
+
+    # Search each entity individually
+    for entity in entity_names:
+        for suffix in ["defence", "sanctions", "director board"]:
+            query = f"{entity} {suffix}"
+            articles = await _web_search(query)
+            for article in articles[:2]:
+                body = await _fetch_article_text(article.get("link", ""))
+                if not body or len(body) < 100:
+                    continue
+
+                article_text = f"Title: {article['title']}\nNetwork mapping target: {entity}\nContent:\n{body[:4000]}"
+                existing_kb = search_knowledge(entity)
+                parsed = await _analyse_article(llm, article_text, f"network:{','.join(entity_names[:3])}", existing_kb, hypotheses)
+
+                if parsed:
+                    fl, _ = await _process_analysis(parsed, f"network:{','.join(entity_names[:3])}", hypotheses)
+                    total_facts += fl
+                    all_facts.extend(parsed.get("facts", []))
+
+                if article.get("link"):
+                    await _mark_read(article["link"])
+
+    # Search for pairwise connections
+    for i in range(len(entity_names)):
+        for j in range(i + 1, min(i + 3, len(entity_names))):
+            query = f'"{entity_names[i]}" "{entity_names[j]}"'
+            articles = await _web_search(query)
+            for article in articles[:2]:
+                body = await _fetch_article_text(article.get("link", ""))
+                if not body or len(body) < 100:
+                    continue
+
+                article_text = f"Title: {article['title']}\nSearching connection: {entity_names[i]} ↔ {entity_names[j]}\nContent:\n{body[:3000]}"
+                parsed = await _analyse_article(llm, article_text, f"network:{','.join(entity_names[:3])}", "", hypotheses)
+
+                if parsed:
+                    fl, _ = await _process_analysis(parsed, f"network:{','.join(entity_names[:3])}", hypotheses)
+                    total_facts += fl
+                    all_facts.extend(parsed.get("facts", []))
+
+                if article.get("link"):
+                    await _mark_read(article["link"])
+
+    await _save_hypotheses(hypotheses)
+
+    # Synthesise network map
+    network_map = None
+    if all_facts:
+        facts_block = "\n".join(f"- [{f['confidence']}] {f['content'][:200]}" for f in all_facts[:30])
+
+        # Gather existing knowledge on each entity
+        kb_blocks = []
+        for entity in entity_names:
+            kb = search_knowledge(entity)
+            if kb:
+                kb_blocks.append(f"{entity}: {kb[:300]}")
+        kb_text = "\n".join(kb_blocks) if kb_blocks else "None on file."
+
+        synth_prompt = f"""ARIA has investigated a NETWORK of entities: {entity_names}
+{f'Context: {context}' if context else ''}
+
+DISCOVERED FACTS ({len(all_facts)}):
+{facts_block}
+
+EXISTING KNOWLEDGE:
+{kb_text}
+
+Follow the NETWORK ANALYSIS protocol. Map relationships, find hidden connections, assess influence flows.
+
+Return JSON:
+{{
+  "entities": [
+    {{"name": str, "type": "person|company|government", "role_in_network": str}}
+  ],
+  "connections": [
+    {{"from": str, "to": str, "relationship": str, "strength": "strong|moderate|weak|suspected", "evidence": str}}
+  ],
+  "gatekeepers": [str],
+  "hidden_connections": [str],
+  "influence_flows": [str],
+  "risk_nodes": [{{"entity": str, "risk": str, "severity": "LOW|MEDIUM|HIGH|CRITICAL"}}],
+  "network_assessment": str,
+  "confidence": int,
+  "intelligence_gaps": [str],
+  "recommended_actions": [str]
+}}"""
+
+        try:
+            result = await llm.complete(
+                "ARIA — senior investigator mapping a relationship network following the NETWORK ANALYSIS protocol.",
+                synth_prompt,
+                max_tokens=2500,
+                timeout=90.0,
+            )
+            json_match = re.search(r"\{[\s\S]*\}", result.text)
+            if json_match:
+                network_map = json.loads(json_match.group())
+        except Exception as e:
+            logger.warning(f"Network mapping synthesis failed: {e}")
+
+    duration = int((time.time() - t_start) * 1000)
+    return {
+        "entities": entity_names,
+        "facts_gathered": total_facts,
+        "network": network_map,
+        "raw_facts": all_facts,
+        "duration_ms": duration,
+    }

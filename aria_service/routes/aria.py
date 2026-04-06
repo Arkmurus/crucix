@@ -35,6 +35,9 @@ from ..intel.deep_researcher import (
     investigate,
     analyse_scenarios,
     build_profile,
+    investigate_person,
+    investigate_company,
+    map_network,
 )
 from ..intel import neural_memory
 from ..intel import knowledge as knowledge_mod
@@ -468,6 +471,42 @@ async def profile_ep(request: Request):
         raise HTTPException(status_code=400, detail="entity required")
     llm = get_llm(request)
     return await build_profile(llm, entity, profile_type)
+
+
+# 29b. POST /api/aria/investigate/person — Deep person investigation
+@router.post("/investigate/person")
+async def investigate_person_ep(request: Request):
+    body = await request.json()
+    name = body.get("name", "")
+    context = body.get("context", "")
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    llm = get_llm(request)
+    return await investigate_person(llm, name, context)
+
+
+# 29c. POST /api/aria/investigate/company — Deep company investigation
+@router.post("/investigate/company")
+async def investigate_company_ep(request: Request):
+    body = await request.json()
+    company = body.get("company", "")
+    country = body.get("country", "")
+    if not company:
+        raise HTTPException(status_code=400, detail="company required")
+    llm = get_llm(request)
+    return await investigate_company(llm, company, country)
+
+
+# 29d. POST /api/aria/network — Map relationships between entities
+@router.post("/network")
+async def network_ep(request: Request):
+    body = await request.json()
+    entities = body.get("entities", [])
+    context = body.get("context", "")
+    if not entities or len(entities) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 entities required")
+    llm = get_llm(request)
+    return await map_network(llm, entities, context)
 
 
 # ── Neural Memory ────────────────────────────────────────────────────────────
