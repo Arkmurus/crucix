@@ -44,7 +44,7 @@ class BrainConfig:
     retrain_interval_hours: int  = 24                       # how often to retrain ML models
 
     # ── Autonomous Agent Loop ─────────────────────────────────────────────────
-    sweep_interval_hours: int    = 6                        # full intelligence sweep cadence
+    sweep_interval_hours: int    = 3                        # full intelligence sweep cadence
     brain_memory_window: int     = 4                        # past run conclusions injected into context
     alert_threshold_risk: float  = 0.70                     # risk score that triggers Telegram alert
 

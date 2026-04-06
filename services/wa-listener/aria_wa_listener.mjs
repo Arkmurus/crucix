@@ -26,6 +26,9 @@
  *   WA_LISTENER_PORT         Port for this service
  *                            Set to: 5070
  *
+ *   WA_LISTENER_AUTO_RESPOND  Enable/disable smart auto-responses in groups
+ *                            Set to: true (default) or false
+ *
  *   Already set — no changes needed:
  *   BRAIN_SERVICE_URL, ARIA_INTERNAL_TOKEN, REDIS_URL
  *
@@ -96,6 +99,7 @@ const PORT          = parseInt(process.env.WA_LISTENER_PORT || '5070');
 const BRAIN_URL     = process.env.BRAIN_SERVICE_URL      || 'http://localhost:3117';
 const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || 'aria-internal';
 const REDIS_URL     = process.env.REDIS_URL              || '';
+const AUTO_RESPOND  = (process.env.WA_LISTENER_AUTO_RESPOND || 'true').toLowerCase() === 'true';
 
 // Parse group IDs — can be set after first run once you know your group IDs
 const TARGET_GROUPS = GROUP_IDS_RAW
@@ -167,6 +171,78 @@ async function feedToARIA(groupName, senderName, text) {
   } catch(e) {
     // Brain unavailable — message already stored in Redis above
   }
+}
+
+// ── Smart auto-response: keyword detection ──────────────────────────────────
+const COMPLIANCE_TRIGGERS = [
+  /export.licen/i, /sanction/i, /embargo/i, /\bitar\b/i, /end.user/i,
+  /controlled.goods/i, /\bml.categor/i, /dual.use/i, /export.control/i,
+  /\bofac\b/i, /\bofsi\b/i, /brokering.licen/i, /arms.embargo/i,
+];
+const OPPORTUNITY_TRIGGERS = [
+  /\btender\b/i, /\brfp\b/i, /procurement/i, /budget.allocation/i,
+  /contract.award/i, /\brfq\b/i, /bid.submission/i,
+];
+const RISK_TRIGGERS = [
+  /diversion/i, /sanctions?.risk/i, /compliance.concern/i, /red.flag/i,
+  /end.user.risk/i, /proliferation/i,
+];
+
+function detectComplianceTrigger(text) {
+  const t = text.slice(0, 2000);
+  const matched = [];
+
+  for (const re of COMPLIANCE_TRIGGERS) {
+    const m = t.match(re);
+    if (m) matched.push({ category: 'compliance', keyword: m[0] });
+  }
+  for (const re of OPPORTUNITY_TRIGGERS) {
+    const m = t.match(re);
+    if (m) matched.push({ category: 'opportunity', keyword: m[0] });
+  }
+  for (const re of RISK_TRIGGERS) {
+    const m = t.match(re);
+    if (m) matched.push({ category: 'risk', keyword: m[0] });
+  }
+
+  if (!matched.length) return { triggered: false, category: null, keywords: [] };
+
+  // Priority: risk > compliance > opportunity
+  const cats = matched.map(m => m.category);
+  const category = cats.includes('risk') ? 'risk'
+    : cats.includes('compliance') ? 'compliance'
+    : 'opportunity';
+
+  return {
+    triggered: true,
+    category,
+    keywords: [...new Set(matched.map(m => m.keyword.toLowerCase()))],
+  };
+}
+
+// ── Auto-response dedup: one response per keyword+chat per hour ─────────────
+const autoRespondDedup = new Map();   // key → timestamp
+const AUTO_RESPOND_COOLDOWN = 60 * 60 * 1000;  // 1 hour
+
+function shouldAutoRespond(chatId, keywords) {
+  const now = Date.now();
+  // Check if ANY keyword in this chat was responded to recently
+  for (const kw of keywords) {
+    const key = `${chatId}:${kw}`;
+    const last = autoRespondDedup.get(key);
+    if (last && now - last < AUTO_RESPOND_COOLDOWN) return false;
+  }
+  // Mark all keywords as responded
+  for (const kw of keywords) {
+    autoRespondDedup.set(`${chatId}:${kw}`, now);
+  }
+  // Evict old entries periodically
+  if (autoRespondDedup.size > 500) {
+    for (const [k, ts] of autoRespondDedup) {
+      if (now - ts > AUTO_RESPOND_COOLDOWN) autoRespondDedup.delete(k);
+    }
+  }
+  return true;
 }
 
 // ── Internal API helpers ─────────────────────────────────────────────────────
@@ -383,6 +459,46 @@ async function handleCommand(cmd, args, senderJid) {
       }
     }
 
+    case 'groupsummary': {
+      // Summarise the last 50 messages in this group
+      const groupMsgs = messageStore
+        .filter(m => m.groupId === (a || '__current__'))
+        .slice(-50);
+      // If no groupId arg, caller will replace '__current__' with actual chatId
+      // This is handled in the message handler below
+      if (!groupMsgs.length) return '⚠️ No recent messages stored for this group. I need to listen for a while first.';
+      const transcript = groupMsgs
+        .map(m => `[${m.senderName}] ${m.text.slice(0, 200)}`)
+        .join('\n');
+      const prompt = `Here are the last ${groupMsgs.length} messages from the WhatsApp group "${groupMsgs[0]?.groupName || 'Unknown'}":\n\n${transcript}\n\nProvide a concise group summary:\n1. Key topics discussed\n2. Decisions made or pending\n3. Action items mentioned\n4. Any compliance, risk, or regulatory mentions (flag these clearly)\n\nKeep it under 500 words. Use bullet points.`;
+      return await askARIA(prompt, senderJid);
+    }
+
+    case 'leads': {
+      const d = await brainGet('/api/brain/brief').catch(() => ({}));
+      const leads = (d.top_leads || []).slice(0, 5);
+      if (!leads.length) return 'ℹ️ No active leads. Run /hunt to generate.';
+      let msg = `🎯 *LATEST LEADS*\n\n`;
+      leads.forEach((l, i) => {
+        const e = l.urgency === 'HIGH' ? '🔴' : l.urgency === 'MEDIUM' ? '🟠' : '🟡';
+        msg += `${e} *${i+1}. ${l.market || '?'}*\n`;
+        msg += `${(l.signal_title || '').slice(0, 80)}\n`;
+        if (l.win_probability) msg += `Win: ${((l.win_probability||0)*100).toFixed(0)}%\n`;
+        msg += '\n';
+      });
+      return msg;
+    }
+
+    case 'ideas': {
+      const r = await brainPost('/api/aria/proactive/strategic-ideas', {}).catch(() => ({}));
+      return r?.ideas || '⚠️ Could not generate strategic ideas — ARIA brain may be unavailable.';
+    }
+
+    case 'hunt': {
+      const r = await brainPost('/api/aria/proactive/lead-hunt', {}).catch(() => ({}));
+      return r?.leads || '⚠️ Could not run lead hunt — ARIA brain may be unavailable.';
+    }
+
     case 'help':
       return [
         '*ARIA — WhatsApp Commands*',
@@ -390,6 +506,12 @@ async function handleCommand(cmd, args, senderJid) {
         '*Intelligence:*',
         '/ask [question] — Ask ARIA anything',
         '/brief — Today\'s intelligence digest',
+        '/groupsummary — Summarise last 50 group messages',
+        '',
+        '*Business Development:*',
+        '/leads — Latest 5 generated leads',
+        '/hunt — Trigger lead hunting cycle',
+        '/ideas — Generate strategic ideas',
         '',
         '*Compliance:*',
         '/screen [entity] — Compliance pre-screening',
@@ -622,7 +744,10 @@ async function startListener() {
       const cmdMatch = text.match(COMMAND_RE);
       if (cmdMatch) {
         const cmd  = cmdMatch[1];
-        const args = (cmdMatch[2] || '').trim();
+        // For /groupsummary, pass chatId as the argument so it filters correctly
+        const args = cmd.toLowerCase() === 'groupsummary'
+          ? chatId
+          : (cmdMatch[2] || '').trim();
         try {
           let response = await handleCommand(cmd, args, senderJid);
           if (response === null) {
@@ -645,6 +770,34 @@ async function startListener() {
           if (response) await sendReply(chatId, response);
         } catch (e) {
           console.error('[ARIA Listener] Mention reply error:', e.message);
+        }
+        continue;
+      }
+
+      // ── Smart auto-response — trigger on compliance/opportunity/risk keywords
+      if (AUTO_RESPOND) {
+        const trigger = detectComplianceTrigger(text);
+        if (trigger.triggered && shouldAutoRespond(chatId, trigger.keywords)) {
+          const categoryLabel = {
+            compliance: 'compliance/export control',
+            opportunity: 'business development/procurement',
+            risk: 'risk/diversion concern',
+          }[trigger.category] || trigger.category;
+
+          const prompt = `A team member said: "${text.slice(0, 800)}"\n\nProvide a brief (under 300 words) intelligence note relevant to this. Focus on ${categoryLabel} implications. Be specific and actionable. Keywords detected: ${trigger.keywords.join(', ')}`;
+
+          try {
+            let response = await askARIA(prompt, `auto_${chatId}`);
+            if (response) {
+              // Enforce 500 char limit and add prefix
+              response = response.slice(0, 480);
+              response = `_ARIA noticed:_ ${response}`;
+              await sendReply(chatId, response);
+              console.log(`[ARIA Listener] Auto-response (${trigger.category}): ${trigger.keywords.join(', ')}`);
+            }
+          } catch (e) {
+            console.error('[ARIA Listener] Auto-response error:', e.message);
+          }
         }
       }
     }
