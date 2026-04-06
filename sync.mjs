@@ -9,7 +9,6 @@ const BRANCH = 'main';
 const BASE  = `https://raw.githubusercontent.com/${REPO}/${BRANCH}`;
 
 const FILES = [
-  'server.mjs',
   'dashboard/inject.mjs',
   'lib/alerts/telegram.mjs',
   'lib/intel/correlate.mjs',
