@@ -511,6 +511,168 @@ async def neural_cluster_ep(concept: str):
     return await neural_memory.get_cluster(concept)
 
 
+# 33a. GET /api/aria/neural/graph — Knowledge graph visualization
+@router.get("/neural/graph")
+async def neural_graph_ep(limit: int = 200):
+    """Returns ARIA's neural network as a graph structure for D3/Cytoscape visualization.
+    Format: {nodes: [{id, label, category, activation, size}], edges: [{source, target, weight}]}
+    """
+    from collections import defaultdict as _defaultdict
+
+    # Get neurons sorted by activation (top N)
+    all_neurons = list(neural_memory._neurons.values())
+    all_neurons.sort(key=lambda n: -n.get("activation", 0))
+    top_neurons = all_neurons[:limit]
+    top_ids = {n["id"] for n in top_neurons}
+
+    # Build nodes
+    nodes = []
+    cat_counts = _defaultdict(int)
+    for n in top_neurons:
+        cat = n.get("category", "general")
+        cat_counts[cat] += 1
+        nodes.append({
+            "id": n["id"],
+            "label": n.get("label", n.get("concept", "")),
+            "category": cat,
+            "activation": round(n.get("activation", 0), 3),
+            "size": max(4, round(n.get("activation", 0) * 20, 1)),
+        })
+
+    # Build edges (only between neurons in the result set)
+    edges = []
+    for from_id, targets in neural_memory._edges.items():
+        if from_id not in top_ids:
+            continue
+        for to_id, weight in targets.items():
+            if to_id in top_ids and from_id < to_id:  # deduplicate bidirectional
+                edges.append({
+                    "source": from_id,
+                    "target": to_id,
+                    "weight": round(weight, 3),
+                })
+
+    total_neurons = len(neural_memory._neurons)
+    total_edges = sum(len(v) for v in neural_memory._edges.values())
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "meta": {
+            "total_neurons": total_neurons,
+            "total_edges": total_edges,
+            "returned_neurons": len(nodes),
+            "returned_edges": len(edges),
+            "categories": dict(cat_counts),
+        },
+    }
+
+
+# 33a2. GET /api/aria/conversations/search — Full-text conversation search
+@router.get("/conversations/search")
+async def search_conversations_ep(q: str = "", limit: int = 20):
+    """Search across all ARIA conversation sessions for matching messages."""
+    if not q or len(q.strip()) < 2:
+        raise HTTPException(status_code=400, detail="q parameter required (min 2 chars)")
+
+    query_lower = q.strip().lower()
+    results = []
+
+    # Use SCAN to iterate session keys (never KEYS)
+    client = rs._client
+    if client:
+        cursor = 0
+        session_keys = []
+        while True:
+            cursor, keys = await client.scan(cursor, match="crucix:aria:session:*", count=100)
+            session_keys.extend(keys)
+            if cursor == 0:
+                break
+            if len(session_keys) > 500:  # safety cap
+                break
+
+        for key in session_keys:
+            if len(results) >= limit:
+                break
+            try:
+                raw = await client.get(key)
+                if not raw:
+                    continue
+                import json as _json
+                session = _json.loads(raw) if isinstance(raw, str) else raw
+                messages = session.get("messages") or session.get("history") or []
+                if isinstance(session, list):
+                    messages = session
+
+                matching_msgs = []
+                for msg in messages:
+                    content = ""
+                    if isinstance(msg, dict):
+                        content = msg.get("content", "") or msg.get("text", "") or msg.get("message", "")
+                    elif isinstance(msg, str):
+                        content = msg
+                    if query_lower in content.lower():
+                        matching_msgs.append({
+                            "role": msg.get("role", "unknown") if isinstance(msg, dict) else "unknown",
+                            "content": content[:500],
+                            "match": True,
+                        })
+
+                if matching_msgs:
+                    session_id = key.replace("crucix:aria:session:", "")
+                    results.append({
+                        "session_id": session_id,
+                        "matched_messages": matching_msgs[:5],
+                        "total_matches": len(matching_msgs),
+                    })
+            except Exception:
+                continue
+    else:
+        # Fallback: search in-memory store
+        for key, raw in rs._mem_store.items():
+            if not key.startswith("crucix:aria:session:"):
+                continue
+            if len(results) >= limit:
+                break
+            try:
+                import json as _json
+                session = _json.loads(raw) if isinstance(raw, str) else raw
+                messages = session.get("messages") or session.get("history") or []
+                if isinstance(session, list):
+                    messages = session
+
+                matching_msgs = []
+                for msg in messages:
+                    content = ""
+                    if isinstance(msg, dict):
+                        content = msg.get("content", "") or msg.get("text", "") or msg.get("message", "")
+                    elif isinstance(msg, str):
+                        content = msg
+                    if query_lower in content.lower():
+                        matching_msgs.append({
+                            "role": msg.get("role", "unknown") if isinstance(msg, dict) else "unknown",
+                            "content": content[:500],
+                            "match": True,
+                        })
+
+                if matching_msgs:
+                    session_id = key.replace("crucix:aria:session:", "")
+                    results.append({
+                        "session_id": session_id,
+                        "matched_messages": matching_msgs[:5],
+                        "total_matches": len(matching_msgs),
+                    })
+            except Exception:
+                continue
+
+    return {
+        "query": q,
+        "results": results,
+        "total_sessions_matched": len(results),
+        "limit": limit,
+    }
+
+
 # 33b. POST /api/aria/neural/consolidate — Nightly memory consolidation cycle
 @router.post("/neural/consolidate")
 async def neural_consolidate_ep(request: Request):
@@ -1049,3 +1211,106 @@ async def validate_hypotheses_batch_ep(request: Request):
         except Exception as e:
             results.append({"hypothesis": h.get("hypothesis", ""), "error": str(e)})
     return {"validated": len(results), "results": results}
+
+
+# ── Conversation Search & Export ─────────────────────────────────────────────
+
+@router.get("/conversations/search")
+async def search_conversations(q: str = "", limit: int = 50):
+    """Full-text search across ARIA conversation history."""
+    keys = await rs.scan_keys("crucix:aria:session:*", count=500)
+    if not keys:
+        return {"results": [], "total": 0, "query": q}
+
+    results = []
+    query_lower = q.lower().strip()
+
+    for key in keys:
+        try:
+            session = await rs.get_json(key)
+            if not session or not isinstance(session, dict):
+                continue
+            messages = session.get("messages", [])
+            if not messages:
+                continue
+
+            session_id = key.replace("crucix:aria:session:", "")
+
+            # If no query, return all sessions with metadata
+            if not query_lower:
+                results.append({
+                    "session_id": session_id,
+                    "message_count": len(messages),
+                    "created_at": session.get("createdAt"),
+                    "preview": (messages[0].get("content", "") or "")[:120] if messages else "",
+                })
+                if len(results) >= limit:
+                    break
+                continue
+
+            # Search messages for query match
+            matching_messages = []
+            for i, msg in enumerate(messages):
+                content = msg.get("content", "") or ""
+                if query_lower in content.lower():
+                    matching_messages.append({
+                        "index": i,
+                        "role": msg.get("role", "unknown"),
+                        "content": content[:300],
+                    })
+
+            if matching_messages:
+                results.append({
+                    "session_id": session_id,
+                    "message_count": len(messages),
+                    "created_at": session.get("createdAt"),
+                    "matches": len(matching_messages),
+                    "matching_messages": matching_messages[:5],
+                })
+                if len(results) >= limit:
+                    break
+        except Exception as e:
+            _log.warning("Session search error for %s: %s", key, e)
+            continue
+
+    return {"results": results, "total": len(results), "query": q}
+
+
+@router.get("/conversations/export")
+async def export_conversation(session_id: str, format: str = "json"):
+    """Export a conversation transcript."""
+    key = f"crucix:aria:session:{session_id}"
+    session = await rs.get_json(key)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    messages = session.get("messages", [])
+
+    if format == "text":
+        lines = [
+            f"ARIA Conversation Transcript — Session: {session_id}",
+            f"Created: {session.get('createdAt', 'unknown')}",
+            f"Messages: {len(messages)}",
+            "=" * 72,
+            "",
+        ]
+        for msg in messages:
+            role = (msg.get("role", "unknown")).upper()
+            content = msg.get("content", "")
+            lines.append(f"[{role}]")
+            lines.append(content)
+            lines.append("")
+        text_output = "\n".join(lines)
+        return Response(
+            content=text_output,
+            media_type="text/plain",
+            headers={"Content-Disposition": f'attachment; filename="conversation_{session_id}.txt"'},
+        )
+
+    # Default: JSON
+    return {
+        "session_id": session_id,
+        "created_at": session.get("createdAt"),
+        "message_count": len(messages),
+        "messages": messages,
+    }

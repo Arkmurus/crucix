@@ -38,6 +38,7 @@ import { redisGet, redisSet, redisDel } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore } from './lib/auth/users.mjs';
 import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
+import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
@@ -56,6 +57,8 @@ import { mountWAListener } from './lib/whatsapp/waListener.mjs';
 import { mountEmailReader } from './lib/aria/emailReader.mjs';
 import { mountLinkedInRoutes, initLinkedInIntel } from './lib/aria/linkedinIntel.mjs';
 import { mountProactive } from './lib/aria/proactive.mjs';
+import { initPipeline, mountPipelineRoutes } from './lib/aria/pipeline.mjs';
+import { mountBackupRoutes } from './lib/aria/backup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -897,6 +900,7 @@ const notifyAdmin = async (msg) => {
   try { await telegramAlerter.sendMessage?.(msg); } catch {}
 };
 configureTelemetry(redisAdapter, notifyAdmin);
+initComplianceAudit(redisAdapter);
 
 // ── Procurement dedup + source pruner ────────────────────────────────────────
 const procDedup   = new ProcurementDedup(redisAdapter);
@@ -2680,6 +2684,46 @@ app.get('/api/compliance/versions', requireAuth, async (req, res) => {
   }
 });
 
+// ── Compliance audit trail ──────────────────────────────────────────────────
+app.get('/api/compliance/audit', requireAuth, async (req, res) => {
+  try {
+    const filters = {
+      type:     req.query.type,
+      user:     req.query.user,
+      dateFrom: req.query.dateFrom,
+      dateTo:   req.query.dateTo,
+      entity:   req.query.entity,
+      limit:    req.query.limit ? parseInt(req.query.limit) : 100,
+    };
+    const entries = await getComplianceAuditLog(filters);
+    res.json({ entries, count: entries.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/compliance/audit/export', requireAuth, async (req, res) => {
+  try {
+    const format = req.query.format === 'csv' ? 'csv' : 'json';
+    const filters = {
+      type:     req.query.type,
+      user:     req.query.user,
+      dateFrom: req.query.dateFrom,
+      dateTo:   req.query.dateTo,
+      entity:   req.query.entity,
+      limit:    req.query.limit ? parseInt(req.query.limit) : undefined,
+    };
+    const data = await exportAuditLog(format, filters);
+    const contentType = format === 'csv' ? 'text/csv' : 'application/json';
+    const filename = `compliance_audit_${new Date().toISOString().slice(0, 10)}.${format}`;
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Active tenders (deduped procurement portals) ──────────────────────────────
 app.get('/api/tenders/active', requireAuth, async (req, res) => {
   try {
@@ -3324,6 +3368,13 @@ mountLinkedInRoutes(app);
 
 // ── ARIA Proactive Operating Rhythm (daily/weekly/monthly autonomous outputs) ──
 mountProactive(app);
+
+// ── Deal Pipeline Tracker ──────────────────────────────────────────────────
+initPipeline().catch(e => console.warn('[Pipeline] Init failed:', e.message));
+mountPipelineRoutes(app);
+
+// ── Cold Backup Export (admin-only) ────────────────────────────────────────
+mountBackupRoutes(app);
 
 // ── Express error handler — MUST be last middleware ──────────────────────────
 app.use(errorTracker.expressMiddleware());

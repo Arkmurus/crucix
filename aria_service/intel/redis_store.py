@@ -91,3 +91,20 @@ async def lrange(key: str, start: int, stop: int) -> list[str]:
             logger.warning("Redis LRANGE %s failed: %s", key, e)
     lst = json.loads(_mem_store.get(key, "[]"))
     return lst[start : stop + 1 if stop >= 0 else None]
+
+
+async def scan_keys(pattern: str, count: int = 200) -> list[str]:
+    """Return keys matching a glob pattern (uses SCAN for Redis, filter for in-memory)."""
+    if _client:
+        try:
+            keys: list[str] = []
+            async for key in _client.scan_iter(match=pattern, count=count):
+                keys.append(key)
+                if len(keys) >= count:
+                    break
+            return keys
+        except Exception as e:
+            logger.warning("Redis SCAN %s failed: %s", pattern, e)
+    # In-memory fallback — simple glob match
+    import fnmatch
+    return [k for k in list(_mem_store.keys()) if fnmatch.fnmatch(k, pattern)][:count]

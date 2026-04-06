@@ -87,6 +87,7 @@ import pino     from 'pino';
 import express  from 'express';
 import fs       from 'fs';
 import { createClient } from 'redis';
+import { logComplianceAction } from '../../lib/aria/complianceAudit.mjs';
 
 // ── Config — all from Seenode env vars ───────────────────────────────────────
 const GROUP_IDS_RAW = process.env.WA_LISTENER_GROUP_IDS || '';
@@ -242,6 +243,7 @@ async function handleCommand(cmd, args, senderJid) {
       if (!a) return '⚠️ Usage: /screen [entity name]';
       const d = await brainPost('/api/aria/compliance/screen', { entity_name: a }).catch(() => ({}));
       const ok = d.result === 'PERMITTED';
+      logComplianceAction({ type: 'SCREENING', user: senderJid, query: a, result: d, recommendation: ok ? 'PERMITTED' : 'BLOCKED' }).catch(() => {});
       let msg = `${ok ? '✅' : '⛔'} *COMPLIANCE SCREEN*\nEntity: ${a}\nResult: ${d.result || 'UNKNOWN'}\n\n`;
       Object.entries(d.screened_against || {}).forEach(([l, v]) => {
         msg += `  ✓ ${l}: ${v}\n`;
@@ -255,6 +257,7 @@ async function handleCommand(cmd, args, senderJid) {
     case 'classify': {
       if (!a) return '⚠️ Usage: /classify [product description]';
       const d = await brainPost('/api/aria/compliance/classify', { description: a }).catch(() => ({}));
+      logComplianceAction({ type: 'CLASSIFICATION', user: senderJid, query: a, result: d, confidence: d.classifications?.[0]?.confidence ? `${(d.classifications[0].confidence * 100).toFixed(0)}%` : '' }).catch(() => {});
       let msg = `*ML CLASSIFICATION*\nProduct: ${a.slice(0, 80)}\n\n`;
       if (d.classifications?.length) {
         d.classifications.forEach(c => {
@@ -273,6 +276,7 @@ async function handleCommand(cmd, args, senderJid) {
       if (!a) return '⚠️ Usage: /sanctions [name]';
       const d = await brainPost('/api/aria/compliance/sanctions', { name: a }).catch(() => ({}));
       const hits = d.matches || d.results || [];
+      logComplianceAction({ type: 'SANCTIONS_CHECK', user: senderJid, query: a, result: d, recommendation: hits.length ? 'MATCHES_FOUND' : 'CLEAR' }).catch(() => {});
       let msg = `*SANCTIONS CHECK*\nName: ${a}\n\n`;
       if (hits.length) {
         msg += `⛔ *${hits.length} match(es) found:*\n`;
@@ -292,6 +296,7 @@ async function handleCommand(cmd, args, senderJid) {
       if (!a) return '⚠️ Usage: /risk [country]';
       const d = await brainPost('/api/aria/compliance/risk', { country: a }).catch(() => ({}));
       const level = d.risk_level || d.level || 'UNKNOWN';
+      logComplianceAction({ type: 'RISK_ASSESSMENT', user: senderJid, query: a, result: d, recommendation: level }).catch(() => {});
       const emoji = { HIGH: '🔴', MEDIUM: '🟠', LOW: '🟢' }[level.toUpperCase()] || '⚪';
       let msg = `${emoji} *COUNTRY RISK — ${a.toUpperCase()}*\n\n`;
       msg += `Risk level: ${level}\n`;

@@ -151,8 +151,8 @@ async def lifespan(app: FastAPI):
 # ── App ──────────────────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="ARIA — Arkmurus Research Intelligence Agent",
-    description="Defence procurement intelligence engine",
+    title="ARIA Intelligence API",
+    description="Arkmurus Research Intelligence Agent — defence procurement, compliance, and geopolitical intelligence",
     version="2.0.0",
     lifespan=lifespan,
 )
