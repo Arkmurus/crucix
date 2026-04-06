@@ -31,9 +31,9 @@ from .intel.semantic_search import get_semantic_context
 
 logger = logging.getLogger("aria.engine")
 
-SESSION_TTL = 86400  # 24h
-MAX_TURNS = 20
-MAX_CONTEXT_CHARS = 4500
+SESSION_TTL = 7 * 86400  # 7 days — compliance conversations span days
+MAX_TURNS = 50           # 50 exchanges of context
+MAX_CONTEXT_CHARS = 12000  # larger context budget for intelligence layers
 
 # ── System Prompts ───────────────────────────────────────────────────────────
 
@@ -234,7 +234,7 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
             if not layer:
                 continue
             if len(total) + len(layer) > MAX_CONTEXT_CHARS:
-                break
+                continue  # skip this layer but try smaller ones below
             total += layer
         except Exception as e:
             logger.warning("Context layer '%s' failed: %s", name, e)
@@ -413,18 +413,37 @@ async def aria_chat(
     # Build 8-layer context (7 intel + neural memory)
     context = _build_7_layer_context(message, intel_data)
 
-    # Format conversation
+    # Format conversation — recent turns in full, older turns summarised
     if history:
-        formatted = "\n\n".join(
-            f"{'User' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
-            for m in history
-        )
-        user_prompt = f"[Previous conversation]\n{formatted}\n\n[Current message]\nUser: {message}{context}"
+        recent_cutoff = 10 * 2  # last 10 exchanges in full detail
+        if len(history) > recent_cutoff:
+            older = history[:-recent_cutoff]
+            recent = history[-recent_cutoff:]
+            # Compress older history to key points only
+            older_summary = "\n".join(
+                f"- {'User asked' if m['role'] == 'user' else 'ARIA said'}: {m['content'][:150]}"
+                for m in older
+            )
+            recent_formatted = "\n\n".join(
+                f"{'User' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
+                for m in recent
+            )
+            user_prompt = (
+                f"[Earlier in conversation — summary]\n{older_summary}\n\n"
+                f"[Recent conversation]\n{recent_formatted}\n\n"
+                f"[Current message]\nUser: {message}{context}"
+            )
+        else:
+            formatted = "\n\n".join(
+                f"{'User' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
+                for m in history
+            )
+            user_prompt = f"[Previous conversation]\n{formatted}\n\n[Current message]\nUser: {message}{context}"
     else:
         user_prompt = f"{message}{context}"
 
     try:
-        result = await llm.complete(ARIA_SYSTEM_PROMPT, user_prompt, max_tokens=1500, timeout=90.0)
+        result = await llm.complete(ARIA_SYSTEM_PROMPT, user_prompt, max_tokens=4000, timeout=120.0)
         response_text = result.text
     except Exception as e:
         # Record error for autonomous self-improvement
