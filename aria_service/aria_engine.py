@@ -26,6 +26,7 @@ from .intel.approach import get_approach_context
 from .intel.gtm_strategy import get_gtm_context
 from .intel import training_data
 from .intel import neural_memory
+from .intel import self_improve
 
 logger = logging.getLogger("aria.engine")
 
@@ -350,6 +351,51 @@ async def aria_chat(
             "fallback": True,
         }
 
+    # Detect self-improvement requests ("improve your X", "fix your Y", etc.)
+    improvement_request = self_improve.detect_self_improvement_request(message)
+    if improvement_request:
+        try:
+            plan = await self_improve.handle_self_improvement_chat(message, llm)
+            if plan and plan.get("detected"):
+                # If there's a concrete plan with files, execute it
+                if plan.get("plan") and not plan.get("needs_approval", True):
+                    exec_results = await self_improve.execute_improvement_plan(plan["plan"], llm)
+                    staged_count = sum(1 for r in exec_results if r.get("staged"))
+                    response = plan.get("response", "")
+                    if staged_count:
+                        response += f"\n\nI've staged {staged_count} improvement(s). "
+                        response += "Safe changes (bug fixes) will auto-deploy. "
+                        response += "Larger changes are staged for your review at /api/aria/self/staged."
+                    return {
+                        "response": response,
+                        "session_id": session_id,
+                        "self_improvement": {
+                            "type": improvement_request,
+                            "plan": plan.get("plan", []),
+                            "results": exec_results,
+                        },
+                    }
+                else:
+                    # Return the plan for approval
+                    response = plan.get("response", "I understand you want me to improve.")
+                    if plan.get("plan"):
+                        response += "\n\nHere's my plan:\n"
+                        for i, step in enumerate(plan["plan"], 1):
+                            response += f"  {i}. **{step.get('file', '?')}** — {step.get('change', '?')} (Risk: {step.get('risk', '?')})\n"
+                        response += "\nShall I proceed? Say 'yes, improve' to execute."
+                    return {
+                        "response": response,
+                        "session_id": session_id,
+                        "self_improvement": {
+                            "type": improvement_request,
+                            "plan": plan.get("plan", []),
+                            "awaiting_approval": True,
+                        },
+                    }
+        except Exception as e:
+            logger.warning("Self-improvement chat handling failed: %s", e)
+            # Fall through to normal chat
+
     session = await _get_session(session_id)
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
 
@@ -378,6 +424,14 @@ async def aria_chat(
         result = await llm.complete(ARIA_SYSTEM_PROMPT, user_prompt, max_tokens=1500, timeout=90.0)
         response_text = result.text
     except Exception as e:
+        # Record error for autonomous self-improvement
+        try:
+            import asyncio
+            asyncio.ensure_future(self_improve.record_error(
+                "llm_error", str(e), "aria_engine.py", "aria_chat"
+            ))
+        except Exception:
+            pass
         return {
             "response": f"ARIA encountered an error: {e}",
             "session_id": session_id,

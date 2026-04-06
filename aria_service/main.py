@@ -22,6 +22,7 @@ from .config import settings
 from .llm.factory import create_llm_provider
 from .intel import redis_store as rs
 from .intel import knowledge, intel_ledger, contacts, competitors, training_data, neural_memory
+from .intel import self_improve
 from .intel.researcher import research_and_learn
 from .routes.aria import router as aria_router
 
@@ -86,12 +87,36 @@ async def lifespan(app: FastAPI):
         research_task = asyncio.create_task(_research_loop())
         logger.info("Research scheduler started (every 30min)")
 
+    # Start autonomous self-improvement loop (every 2 hours)
+    self_improve_task = None
+    if llm and llm.is_configured:
+        async def _self_improve_loop():
+            await asyncio.sleep(300)  # Wait 5 min after startup
+            while True:
+                try:
+                    logger.info("[Self-Improve] Starting autonomous improvement cycle...")
+                    result = await self_improve.autonomous_improvement_cycle(llm)
+                    logger.info(
+                        "[Self-Improve] Cycle complete: %d errors, %d bugs, %d auto-deployed",
+                        result.get("errors_analysed", 0),
+                        result.get("bugs_detected", 0),
+                        result.get("auto_deployed", 0),
+                    )
+                except Exception as e:
+                    logger.warning("[Self-Improve] Cycle failed: %s", e)
+                await asyncio.sleep(2 * 3600)  # Every 2 hours
+
+        self_improve_task = asyncio.create_task(_self_improve_loop())
+        logger.info("Self-improvement scheduler started (every 2h)")
+
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────
     if research_task:
         research_task.cancel()
+    if self_improve_task:
+        self_improve_task.cancel()
     logger.info("ARIA Service shutting down")
 
 
