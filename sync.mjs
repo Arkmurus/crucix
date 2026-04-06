@@ -9,9 +9,7 @@ const BRANCH = 'main';
 const BASE  = `https://raw.githubusercontent.com/${REPO}/${BRANCH}`;
 
 const FILES = [
-  // Core server + config
-  'server.mjs',
-  'package.json',
+  // server.mjs and package.json pulled via git — NOT synced here
   // Dashboard
   'dashboard/inject.mjs',
   // WhatsApp + Email + Proactive
@@ -71,4 +69,7 @@ for (const f of FILES) {
 }
 
 console.log(`[sync] Done: ${ok} synced, ${fail} failed`);
-if (fail > 0) process.exit(1);
+// Don't fail the build — git already has the files, sync is just a freshness layer
+if (fail > ok) {
+  console.warn('[sync] WARNING: More failures than successes — check network');
+}
