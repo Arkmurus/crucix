@@ -8,6 +8,7 @@ Merges:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -876,16 +877,19 @@ async def aria_chat(
     # actively learn from her teacher rather than passively cache him.
     # We fire-and-forget so it doesn't slow the user response.
     try:
-        import asyncio as _asyncio
-        _asyncio.create_task(student.compare_local_silently(message, response_text))
+        # Hold strong references so the GC can't collect mid-task
+        # (asyncio.create_task() with no reference is a known footgun)
+        compare_task = asyncio.create_task(
+            student.compare_local_silently(message, response_text)
+        )
+        compare_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
-        # Also update mastery based on which topics this conversation touched.
-        # Cloud answers are treated as ground truth for mastery accounting —
-        # even if the student didn't attempt the local version, we still log
-        # exposure to the topic so curriculum tracking works.
         topics = student.detect_topics(f"{message} {response_text}")
         if topics:
-            _asyncio.create_task(student.update_mastery(topics, correct=True, weight=0.15))
+            mastery_task = asyncio.create_task(
+                student.update_mastery(topics, correct=True, weight=0.15)
+            )
+            mastery_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
     except Exception as e:
         logger.debug("Student compare hook failed: %s", e)
 
