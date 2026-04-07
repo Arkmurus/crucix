@@ -33,13 +33,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY aria_service/ ./aria_service/
 
-# ── Pre-warm EasyOCR model weights so first image isn't 30s slower ─────────
-# EasyOCR downloads ~250MB on first call. Doing it at build time means the
-# image is bigger but the first runtime image OCR is fast and offline.
-# If the pre-warm fails (e.g. no network during build) easyocr will still
-# download weights on first use at runtime.
-RUN python -c "import easyocr; easyocr.Reader(['en','pt','fr','es'], gpu=False, verbose=False); print('EasyOCR pre-warmed successfully')" \
-    || echo "EasyOCR pre-warm skipped (will download on first use)"
+# NOTE: EasyOCR model weights are NOT pre-warmed at build time anymore.
+# Pre-warming with 4 languages forced ~600MB of PyTorch + model weights into
+# the build container, then caused OOM kills on small fly.io machines because
+# the running service couldn't fit alongside everything else. EasyOCR now
+# downloads weights LAZILY on the first image request — that first OCR call
+# takes ~30s but every subsequent one is instant. The languages are also
+# English-only by default (set ARIA_OCR_LANGS=en,pt,fr,es to add more).
 
 EXPOSE 8000
 

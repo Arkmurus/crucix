@@ -222,72 +222,148 @@ Self-grade (A/B/C/D), biggest knowledge gap, what would improve this assessment.
 
 # ── Intel Context Builder ────────────────────────────────────────────────────
 
+def _safe_list(value, default=None):
+    """Coerce a value to a list — handles dict, None, scalar gracefully.
+
+    The sweep data sometimes arrives with the wrong shape (a section is a
+    dict instead of a list, or a single value instead of a list). The old
+    `value or []` pattern would let truthy non-lists through, then
+    `value[:5]` would crash with `slice(None, 5, None)`. This helper
+    catches the shape mismatch and returns a real list every time.
+    """
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        # Common pattern: dict has an 'items' key that holds the list
+        if isinstance(value.get("items"), list):
+            return value["items"]
+        if isinstance(value.get("results"), list):
+            return value["results"]
+        return default if default is not None else []
+    return default if default is not None else []
+
+
 def _build_intel_context(intel_data: dict | None) -> str:
-    """Build live intelligence context string from sweep data."""
+    """Build live intelligence context string from sweep data.
+
+    DEFENSIVE: every section is wrapped in its own try so one bad data
+    shape can't kill the whole context layer. Lists are coerced via
+    _safe_list() to handle the case where sweep data arrives as a dict.
+    """
     if not intel_data:
         return ""
     parts: list[str] = []
 
     # Market snapshot
-    vix = (intel_data.get("markets") or {}).get("vix", {}).get("value")
-    brent = (intel_data.get("energy") or {}).get("brent")
-    if vix or brent:
-        parts.append(f"MARKET SNAPSHOT: VIX {vix or '?'} | Brent ${brent or '?'}")
+    try:
+        vix = (intel_data.get("markets") or {}).get("vix", {}).get("value")
+        brent = (intel_data.get("energy") or {}).get("brent")
+        if vix or brent:
+            parts.append(f"MARKET SNAPSHOT: VIX {vix or '?'} | Brent ${brent or '?'}")
+    except Exception as e:
+        logger.debug("intel_context market section failed: %s", e)
 
     # Urgent OSINT
-    urgent = (intel_data.get("tg") or {}).get("urgent") or []
-    if urgent:
-        items = [f"- [{s.get('channel','OSINT')}] {(s.get('text',''))[:180]}" for s in urgent[:6]]
-        parts.append(f"OSINT SIGNALS ({len(urgent)} urgent):\n" + "\n".join(items))
+    try:
+        urgent = _safe_list((intel_data.get("tg") or {}).get("urgent"))
+        if urgent:
+            items = [f"- [{(s.get('channel') if isinstance(s, dict) else 'OSINT')}] {((s.get('text','') if isinstance(s, dict) else str(s)))[:180]}"
+                     for s in urgent[:6]]
+            parts.append(f"OSINT SIGNALS ({len(urgent)} urgent):\n" + "\n".join(items))
+    except Exception as e:
+        logger.debug("intel_context urgent section failed: %s", e)
 
     # Correlations
-    corrs = intel_data.get("correlations") or []
-    if corrs:
-        items = [f"- {c.get('region','')} [{c.get('severity','')}]: {(c.get('topSignals',[{}])[0].get('text',''))[:150]}" for c in corrs[:5]]
-        parts.append(f"REGIONAL CORRELATIONS:\n" + "\n".join(items))
+    try:
+        corrs = _safe_list(intel_data.get("correlations"))
+        if corrs:
+            items = []
+            for c in corrs[:5]:
+                if not isinstance(c, dict): continue
+                top_sigs = _safe_list(c.get("topSignals"))
+                first_text = ""
+                if top_sigs and isinstance(top_sigs[0], dict):
+                    first_text = (top_sigs[0].get("text", "") or "")[:150]
+                items.append(f"- {c.get('region','')} [{c.get('severity','')}]: {first_text}")
+            if items:
+                parts.append(f"REGIONAL CORRELATIONS:\n" + "\n".join(items))
+    except Exception as e:
+        logger.debug("intel_context correlations section failed: %s", e)
 
     # Defence news
-    news = intel_data.get("defenseNews") or []
-    if news:
-        items = [f"- {d.get('title','')}" for d in news[:5]]
-        parts.append(f"DEFENCE NEWS ({len(news)} items):\n" + "\n".join(items))
+    try:
+        news = _safe_list(intel_data.get("defenseNews"))
+        if news:
+            items = [f"- {(d.get('title','') if isinstance(d, dict) else str(d))}" for d in news[:5]]
+            parts.append(f"DEFENCE NEWS ({len(news)} items):\n" + "\n".join(items))
+    except Exception as e:
+        logger.debug("intel_context defenseNews section failed: %s", e)
 
     # Opportunities
-    opps = intel_data.get("opportunities") or []
-    if opps:
-        items = [
-            f"- {o.get('market','')} (Score {o.get('score',0)}/100, Tier {o.get('tier','?')}) — "
-            f"{', '.join((o.get('procurementNeeds') or [])[:3])} | {o.get('complianceStatus','')}"
-            for o in opps[:8]
-        ]
-        parts.append(f"TOP OPPORTUNITIES:\n" + "\n".join(items))
+    try:
+        opps = _safe_list(intel_data.get("opportunities"))
+        if opps:
+            items = []
+            for o in opps[:8]:
+                if not isinstance(o, dict): continue
+                needs = _safe_list(o.get("procurementNeeds"))
+                items.append(
+                    f"- {o.get('market','')} (Score {o.get('score',0)}/100, Tier {o.get('tier','?')}) — "
+                    f"{', '.join(str(n) for n in needs[:3])} | {o.get('complianceStatus','')}"
+                )
+            if items:
+                parts.append(f"TOP OPPORTUNITIES:\n" + "\n".join(items))
+    except Exception as e:
+        logger.debug("intel_context opportunities section failed: %s", e)
 
     # Tenders
-    tenders = intel_data.get("procurementTenders") or {}
-    tender_items = tenders.get("items") or [] if isinstance(tenders, dict) else []
-    if tender_items:
-        items = [f"- {t.get('title') or t.get('text','')} [{t.get('source','')}]" for t in tender_items[:6]]
-        parts.append(f"ACTIVE TENDERS ({len(tender_items)}):\n" + "\n".join(items))
+    try:
+        tenders = intel_data.get("procurementTenders") or {}
+        tender_items = _safe_list(tenders.get("items") if isinstance(tenders, dict) else tenders)
+        if tender_items:
+            items = []
+            for t in tender_items[:6]:
+                if isinstance(t, dict):
+                    items.append(f"- {t.get('title') or t.get('text','')} [{t.get('source','')}]")
+                else:
+                    items.append(f"- {str(t)[:200]}")
+            parts.append(f"ACTIVE TENDERS ({len(tender_items)}):\n" + "\n".join(items))
+    except Exception as e:
+        logger.debug("intel_context tenders section failed: %s", e)
 
     # ACLED conflict
-    acled = intel_data.get("acled") or {}
-    if acled.get("totalEvents", 0) > 0:
-        s = f"CONFLICT DATA: {acled.get('totalEvents',0)} events, {acled.get('totalFatalities',0)} fatalities"
-        top = acled.get("topCountries") or []
-        if top:
-            s += f" | Top: {', '.join(c.get('country','') + '(' + str(c.get('events',0)) + ')' for c in top[:5])}"
-        parts.append(s)
+    try:
+        acled = intel_data.get("acled") or {}
+        if isinstance(acled, dict) and acled.get("totalEvents", 0) > 0:
+            s = f"CONFLICT DATA: {acled.get('totalEvents',0)} events, {acled.get('totalFatalities',0)} fatalities"
+            top = _safe_list(acled.get("topCountries"))
+            if top:
+                country_parts = []
+                for c in top[:5]:
+                    if isinstance(c, dict):
+                        country_parts.append(f"{c.get('country','')}({c.get('events',0)})")
+                if country_parts:
+                    s += f" | Top: {', '.join(country_parts)}"
+            parts.append(s)
+    except Exception as e:
+        logger.debug("intel_context acled section failed: %s", e)
 
     # Brain priority
-    brain = (intel_data.get("bdIntelligence") or {}).get("brain") or {}
-    wp = brain.get("weeklyPriority") or {}
-    if wp.get("action"):
-        parts.append(f"BRAIN TOP PRIORITY: {wp['action']} [{wp.get('market','')}] — {wp.get('whyNow','')}")
+    try:
+        brain = (intel_data.get("bdIntelligence") or {}).get("brain") or {}
+        wp = brain.get("weeklyPriority") or {} if isinstance(brain, dict) else {}
+        if isinstance(wp, dict) and wp.get("action"):
+            parts.append(f"BRAIN TOP PRIORITY: {wp['action']} [{wp.get('market','')}] — {wp.get('whyNow','')}")
+    except Exception as e:
+        logger.debug("intel_context brain section failed: %s", e)
 
     # Metadata
-    meta = intel_data.get("meta") or {}
-    if meta.get("timestamp"):
-        parts.append(f"DATA AS OF: {meta['timestamp']} | Sources: {meta.get('sourcesOk',0)}/{meta.get('sourcesQueried',0)} OK")
+    try:
+        meta = intel_data.get("meta") or {}
+        if isinstance(meta, dict) and meta.get("timestamp"):
+            parts.append(f"DATA AS OF: {meta['timestamp']} | Sources: {meta.get('sourcesOk',0)}/{meta.get('sourcesQueried',0)} OK")
+    except Exception as e:
+        logger.debug("intel_context meta section failed: %s", e)
 
     if not parts:
         return ""

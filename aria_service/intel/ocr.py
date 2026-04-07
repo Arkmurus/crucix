@@ -738,7 +738,14 @@ _easyocr_reader = None
 _easyocr_init_failed = False
 
 def _get_easyocr_reader():
-    """Lazy-load a shared EasyOCR Reader. Returns None if EasyOCR isn't installed."""
+    """Lazy-load a shared EasyOCR Reader. Returns None if EasyOCR isn't installed.
+
+    MEMORY: each language adds ~150-200MB of model weights to RAM. The default
+    is English-only so a small fly.io machine (1GB RAM) can comfortably run
+    EasyOCR + sentence-transformers + the FastAPI server without OOM.
+    Override with ARIA_OCR_LANGS=en,pt,fr,es to add more languages if you
+    have ≥2GB RAM.
+    """
     global _easyocr_reader, _easyocr_init_failed
     if _easyocr_reader is not None:
         return _easyocr_reader
@@ -746,19 +753,24 @@ def _get_easyocr_reader():
         return None
     try:
         import easyocr  # type: ignore
-        # Load the languages most relevant to ARIA's defence/intelligence domain.
-        # English first (always), Portuguese for Lusophone Africa, French for francophone
-        # Africa, Spanish for LatAm, plus Arabic for MENA. EasyOCR supports concurrent
-        # languages but Arabic uses a different script model so we keep it separate.
-        langs = ["en", "pt", "fr", "es"]
+        # Default to English-only to keep memory under ~400MB total.
+        # Add Portuguese/French/Spanish/Arabic via env var only if you have
+        # the headroom (each language ~+200MB).
+        langs_env = (os.getenv("ARIA_OCR_LANGS", "en") or "en").strip()
+        langs = [l.strip() for l in langs_env.split(",") if l.strip()] or ["en"]
+        logger.info("EasyOCR loading model weights for languages: %s (this takes ~30s on first call)", langs)
         # Force CPU — most production hosts won't have CUDA, and the speed hit is
         # acceptable for the volume of WhatsApp images we expect.
         _easyocr_reader = easyocr.Reader(langs, gpu=False, verbose=False)
-        logger.info("EasyOCR initialised with languages: %s", langs)
+        logger.info("EasyOCR ready with languages: %s", langs)
         return _easyocr_reader
     except ImportError:
         _easyocr_init_failed = True
         logger.info("EasyOCR not installed — skipping (run `pip install easyocr` to enable)")
+        return None
+    except MemoryError as e:
+        _easyocr_init_failed = True
+        logger.warning("EasyOCR init failed (out of memory): %s — bump fly.io machine size or reduce ARIA_OCR_LANGS", e)
         return None
     except Exception as e:
         _easyocr_init_failed = True

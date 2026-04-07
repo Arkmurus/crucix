@@ -720,6 +720,7 @@ async function startListener() {
             console.log(`[ARIA Listener] OCR request: ${filename} (${sizeKb} KB)`);
 
             let ocrResult = null;
+            let ocrConnectError = null;
             try {
               ocrResult = await brainPost('/api/aria/ocr', {
                 image: b64,
@@ -728,22 +729,58 @@ async function startListener() {
               });
             } catch (e) {
               console.warn('[ARIA Listener] OCR call failed:', e.message);
+              ocrConnectError = e.message;
+            }
+
+            // If the OCR endpoint itself failed (502/504/network), tell the
+            // user it's an infrastructure issue not an OCR pipeline failure.
+            if (ocrConnectError) {
+              await sendReply(chatId, [
+                `🛑 *I couldn't reach my OCR service.*`,
+                ``,
+                `The image is fine, but my Python intelligence service didn't respond:`,
+                `\`${ocrConnectError}\``,
+                ``,
+                `*Check:*`,
+                `• ARIA Python service is running (\`flyctl status -a <app>\`)`,
+                `• \`BRAIN_SERVICE_URL\` env var points to the live service`,
+                `• Network/firewall allows wa-listener → ARIA traffic`,
+                `• \`flyctl logs -a <aria-service>\` for crashes`,
+                ``,
+                `Once the service is back, send the image again — the OCR pipeline itself is working.`,
+              ].join('\n')).catch(() => {});
+              continue;
             }
 
             const extracted = (ocrResult?.text || '').trim();
             const autoInst = ocrResult?.auto_installing;
 
             if (!extracted) {
-              // OCR pipeline returned nothing usable. Server-side has already
-              // triggered background auto-install of easyocr if it wasn't yet
-              // available. We just acknowledge that the image was unreadable.
+              // OCR pipeline returned nothing usable. Surface the FULL trace
+              // so we can see which backends were tried + why they failed —
+              // no need to access fly.io / seenode logs to debug.
+              const triedList = ocrResult?.tried || [];
+              const note = ocrResult?.note || '';
+              const lastMethod = ocrResult?.method || 'none';
+              const errorDetail = ocrResult?.error || '';
+              const triedLine = triedList.length
+                ? `\n_Backends tried (in order):_ ${triedList.join(' → ')}`
+                : '';
+              const lastLine = lastMethod && lastMethod !== 'none'
+                ? `\n_Last method that returned anything:_ \`${lastMethod}\``
+                : '';
+              const errorLine = errorDetail ? `\n_Error:_ ${errorDetail}` : '';
               await sendReply(chatId, [
-                `🖼 I looked at the image but couldn't extract readable text from it.`,
+                `🖼 *I tried to read the image but the OCR pipeline returned no text.*`,
                 ``,
-                `It may be blank, low-resolution, contain only diagrams, or be partially obscured.`,
-                autoInst ? `\n_I'm installing my local image-reading library in the background — the next image you send will use it (faster + fully offline)._` : ``,
+                `The image looks fine to me visually, so this is most likely an infrastructure issue. Diagnostic trace:`,
+                triedLine,
+                lastLine,
+                errorLine,
+                note ? `\n_Note:_ ${note}` : '',
+                autoInst ? `\n_Background install of local OCR is running — try again in 60s._` : ``,
                 ``,
-                `If you can describe what you're looking for ("read the contract value", "what's the OEM name", "translate the Portuguese") I'll try to help from any text in the caption.`,
+                `_Run */vision-status* for full backend diagnostics._`,
               ].filter(Boolean).join('\n')).catch(() => {});
             } else {
               const method = ocrResult.method || 'vision';
