@@ -24,6 +24,8 @@ from .llm.fallback import create_fallback_chain
 from .intel import redis_store as rs
 from .intel import knowledge, intel_ledger, contacts, competitors, training_data, neural_memory
 from .intel import self_improve
+from .intel import student
+from .intel import reasoning_library
 from .intel.researcher import research_and_learn, get_hypotheses, validate_hypothesis
 from .routes.aria import router as aria_router
 
@@ -137,6 +139,69 @@ async def lifespan(app: FastAPI):
         self_improve_task = asyncio.create_task(_self_improve_loop())
         logger.info("Self-improvement scheduler started (every 2h)")
 
+    # ── ARIA STUDENT LOOPS ──────────────────────────────────────────────
+    # Active learning behaviours: self-quiz, reading sessions, library
+    # consolidation. These run independently of conversation traffic so
+    # ARIA studies during idle time — like a real student. Each loop is
+    # safe to run with or without an LLM (the student doesn't depend on
+    # the cloud teacher; she just learns faster when one is available).
+
+    quiz_task = None
+    reading_task = None
+    library_consolidate_task = None
+
+    async def _quiz_loop():
+        # First quiz happens 10 min after startup so the library has time
+        # to receive at least one cloud answer worth quizzing on.
+        await asyncio.sleep(600)
+        while True:
+            try:
+                result = await student.self_quiz(num_questions=5)
+                logger.info(
+                    "[Student] Quiz complete: %d/%d passed (score %.2f)",
+                    result.get("passed", 0),
+                    result.get("quizzed", 0),
+                    result.get("score", 0),
+                )
+            except Exception as e:
+                logger.warning("[Student] Quiz failed: %s", e)
+            await asyncio.sleep(3 * 3600)  # Every 3 hours
+
+    async def _reading_loop():
+        # First reading session 15 min after startup so feeds are warm
+        await asyncio.sleep(900)
+        while True:
+            try:
+                result = await student.reading_session(llm=llm, num_articles=4)
+                logger.info(
+                    "[Student] Reading session: %d articles studied on %s",
+                    result.get("articles_read", 0),
+                    result.get("weak_topics_studied", []),
+                )
+            except Exception as e:
+                logger.warning("[Student] Reading session failed: %s", e)
+            await asyncio.sleep(6 * 3600)  # Every 6 hours
+
+    async def _library_consolidate_loop():
+        # Daily housekeeping — prune stale low-quality cases
+        await asyncio.sleep(3600)
+        while True:
+            try:
+                result = await reasoning_library.consolidate()
+                logger.info(
+                    "[Student] Library consolidated: pruned %d, remaining %d",
+                    result.get("pruned", 0),
+                    result.get("remaining", 0),
+                )
+            except Exception as e:
+                logger.warning("[Student] Library consolidate failed: %s", e)
+            await asyncio.sleep(24 * 3600)  # Daily
+
+    quiz_task = asyncio.create_task(_quiz_loop())
+    reading_task = asyncio.create_task(_reading_loop())
+    library_consolidate_task = asyncio.create_task(_library_consolidate_loop())
+    logger.info("Student loops started: self-quiz (3h), reading (6h), library consolidate (24h)")
+
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
     yield
 
@@ -145,6 +210,12 @@ async def lifespan(app: FastAPI):
         research_task.cancel()
     if self_improve_task:
         self_improve_task.cancel()
+    if quiz_task:
+        quiz_task.cancel()
+    if reading_task:
+        reading_task.cancel()
+    if library_consolidate_task:
+        library_consolidate_task.cancel()
     logger.info("ARIA Service shutting down")
 
 

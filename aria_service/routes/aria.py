@@ -52,6 +52,7 @@ from ..intel import local_brain
 from ..intel import reasoning_router
 from ..intel import reasoning_library
 from ..intel import symbolic_reasoner
+from ..intel import student
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -224,6 +225,54 @@ async def correct_ep(req: CorrectionRequest):
 
 
 # 13. GET /api/aria/training-data/stats
+# ── Student mode: active learning ──────────────────────────────────────────
+@router.get("/student/stats")
+async def student_stats_ep():
+    """Full student dashboard — mastery + curriculum + quizzes + reading."""
+    return await student.get_student_stats()
+
+
+@router.get("/student/mastery")
+async def student_mastery_ep():
+    """Per-topic competence scores."""
+    return await student.get_mastery_report()
+
+
+@router.get("/student/curriculum")
+async def student_curriculum_ep():
+    """What ARIA should study next, prioritised by weakness + staleness."""
+    return await student.get_curriculum()
+
+
+@router.post("/student/quiz")
+async def student_quiz_ep(request: Request):
+    """Trigger an immediate self-quiz. Picks N stale library cases, attempts
+    them locally, scores divergence vs the original cloud answer, updates mastery.
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    n = max(1, min(int(body.get("num_questions", 5)), 20))
+    return await student.self_quiz(num_questions=n)
+
+
+@router.post("/student/study")
+async def student_study_ep(request: Request):
+    """Trigger an immediate reading session — focus on weak topics, deep-read
+    authoritative sources, extract facts + index into knowledge + neural memory.
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    n = max(1, min(int(body.get("num_articles", 4)), 10))
+    llm = get_llm(request)
+    return await student.reading_session(llm=llm, num_articles=n)
+
+
 # ── Independence + reasoning ratio ─────────────────────────────────────────
 @router.get("/independence")
 async def independence_ep():

@@ -31,6 +31,7 @@ from .intel.semantic_search import get_semantic_context
 from .intel import local_brain
 from .intel import reasoning_router
 from .intel import reasoning_library
+from .intel import student
 
 logger = logging.getLogger("aria.engine")
 
@@ -715,6 +716,14 @@ async def aria_chat(
             except Exception:
                 pass
 
+            # Student mastery: local answer succeeded → small confidence boost
+            try:
+                topics = student.detect_topics(message)
+                if topics:
+                    await student.update_mastery(topics, correct=True, weight=0.5)
+            except Exception:
+                pass
+
             return {
                 "response": local_attempt["response"],
                 "session_id": session_id,
@@ -859,6 +868,26 @@ async def aria_chat(
         )
     except Exception as e:
         logger.warning("Distillation hook failed: %s", e)
+
+    # ── STUDENT MODE: compare-and-learn ──────────────────────────────
+    # The teacher (cloud LLM) just answered. The student (local stack)
+    # should attempt the same question SILENTLY in the background, score
+    # the divergence, and update her mastery. This is what makes ARIA
+    # actively learn from her teacher rather than passively cache him.
+    # We fire-and-forget so it doesn't slow the user response.
+    try:
+        import asyncio as _asyncio
+        _asyncio.create_task(student.compare_local_silently(message, response_text))
+
+        # Also update mastery based on which topics this conversation touched.
+        # Cloud answers are treated as ground truth for mastery accounting —
+        # even if the student didn't attempt the local version, we still log
+        # exposure to the topic so curriculum tracking works.
+        topics = student.detect_topics(f"{message} {response_text}")
+        if topics:
+            _asyncio.create_task(student.update_mastery(topics, correct=True, weight=0.15))
+    except Exception as e:
+        logger.debug("Student compare hook failed: %s", e)
 
     return {
         "response": response_text,

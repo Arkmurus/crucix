@@ -1845,6 +1845,32 @@ app.get('/api/aria/training-data/library-export', requireAdmin, (req, res) =>
     res.status(503).json({ error: 'Library export unavailable' });
   }}));
 
+// ── ARIA student mode (active learning) ────────────────────────────────────
+app.get('/api/aria/student/stats', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/student/stats', { fallback: async () => {
+    res.status(503).json({ error: 'Student stats unavailable' });
+  }}));
+
+app.get('/api/aria/student/mastery', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/student/mastery', { fallback: async () => {
+    res.status(503).json({ error: 'Mastery report unavailable' });
+  }}));
+
+app.get('/api/aria/student/curriculum', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/student/curriculum', { fallback: async () => {
+    res.status(503).json({ error: 'Curriculum unavailable' });
+  }}));
+
+app.post('/api/aria/student/quiz', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/student/quiz', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Quiz unavailable' });
+  }}));
+
+app.post('/api/aria/student/study', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/student/study', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Study session unavailable' });
+  }}));
+
 // ── ARIA fuzzy sanctions / conflict / tech classifier (proxy) ───────────────
 app.post('/api/aria/sanctions/fuzzy', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/sanctions/fuzzy', { method: 'POST', fallback: async () => {
