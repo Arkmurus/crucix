@@ -204,6 +204,12 @@ async def _run_task(task_id: str, llm: Any) -> None:
     started = time.time()
     await _update_task(task_id, status="running", progress="started", started_at=started)
 
+    # Attribute every LLM call this task fires to "research_task" so /cost
+    # shows long-running background research separately from interactive chat.
+    # Use the contextvar set/reset pattern (instead of `with`) so we don't
+    # have to reindent the entire body of the existing try block.
+    from . import cost_tracker
+    _cost_token = cost_tracker.set_feature("research_task")
     try:
         if task_type == "investigate":
             result = await _do_investigate(task_id, params, llm)
@@ -258,6 +264,10 @@ async def _run_task(task_id: str, llm: Any) -> None:
             )
         except Exception:
             pass
+    finally:
+        # Always reset the contextvar so we don't leak the
+        # "research_task" attribution into the runner's other coroutines
+        cost_tracker.reset_feature(_cost_token)
 
 
 # ── Task implementations ───────────────────────────────────────────────────

@@ -29,6 +29,7 @@ from .intel import reasoning_library
 from .intel import proactive
 from .intel import rag_store
 from .intel import ocr as ocr_module
+from .intel import cost_tracker
 from .intel.researcher import research_and_learn, get_hypotheses, validate_hypothesis
 from .routes.aria import router as aria_router
 
@@ -102,6 +103,17 @@ async def lifespan(app: FastAPI):
             ollama_url=settings.ollama_url,
             ollama_model=settings.ollama_model,
         )
+    # Wrap the provider with the cost-tracking decorator so every
+    # llm.complete() call is metered automatically. Token counts come
+    # straight from LLMResult; USD cost from cost_tracker pricing table.
+    if llm:
+        try:
+            from .llm.metered import MeteredProvider
+            llm = MeteredProvider(llm)
+            logger.info("LLM provider wrapped with cost meter")
+        except Exception as e:
+            logger.warning("MeteredProvider wrap failed (non-fatal): %s", e)
+
     app.state.llm_provider = llm
     app.state.current_data = None  # Will be set by sweep integration
 
@@ -134,6 +146,10 @@ async def lifespan(app: FastAPI):
         async def _research_loop():
             await asyncio.sleep(60)  # Wait 1 min after startup before first research
             while True:
+                # Attribute every LLM call this loop fires to the
+                # "autonomous_research" feature so /cost separates it
+                # from interactive chat and on-demand research_tasks.
+                _t = cost_tracker.set_feature("autonomous_research")
                 try:
                     logger.info("[Research] Starting autonomous research cycle...")
                     result = await research_and_learn(llm)
@@ -162,6 +178,8 @@ async def lifespan(app: FastAPI):
                                        validated, e)
                 except Exception as e:
                     logger.warning(f"[Research] Cycle failed: {e}")
+                finally:
+                    cost_tracker.reset_feature(_t)
                 await asyncio.sleep(30 * 60)  # Every 30 minutes
 
         research_task = asyncio.create_task(_research_loop())
@@ -173,6 +191,7 @@ async def lifespan(app: FastAPI):
         async def _self_improve_loop():
             await asyncio.sleep(300)  # Wait 5 min after startup
             while True:
+                _t = cost_tracker.set_feature("self_improve")
                 try:
                     logger.info("[Self-Improve] Starting autonomous improvement cycle...")
                     result = await self_improve.autonomous_improvement_cycle(llm)
@@ -184,6 +203,8 @@ async def lifespan(app: FastAPI):
                     )
                 except Exception as e:
                     logger.warning("[Self-Improve] Cycle failed: %s", e)
+                finally:
+                    cost_tracker.reset_feature(_t)
                 await asyncio.sleep(2 * 3600)  # Every 2 hours
 
         self_improve_task = asyncio.create_task(_self_improve_loop())
@@ -205,6 +226,7 @@ async def lifespan(app: FastAPI):
         # to receive at least one cloud answer worth quizzing on.
         await asyncio.sleep(600)
         while True:
+            _t = cost_tracker.set_feature("student_quiz")
             try:
                 result = await student.self_quiz(num_questions=5)
                 logger.info(
@@ -215,12 +237,15 @@ async def lifespan(app: FastAPI):
                 )
             except Exception as e:
                 logger.warning("[Student] Quiz failed: %s", e)
+            finally:
+                cost_tracker.reset_feature(_t)
             await asyncio.sleep(3 * 3600)  # Every 3 hours
 
     async def _reading_loop():
         # First reading session 15 min after startup so feeds are warm
         await asyncio.sleep(900)
         while True:
+            _t = cost_tracker.set_feature("student_reading")
             try:
                 result = await student.reading_session(llm=llm, num_articles=4)
                 logger.info(
@@ -230,6 +255,8 @@ async def lifespan(app: FastAPI):
                 )
             except Exception as e:
                 logger.warning("[Student] Reading session failed: %s", e)
+            finally:
+                cost_tracker.reset_feature(_t)
             await asyncio.sleep(6 * 3600)  # Every 6 hours
 
     async def _library_consolidate_loop():

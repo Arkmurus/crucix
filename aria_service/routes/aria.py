@@ -60,6 +60,7 @@ from ..intel import research_tasks
 from ..intel import feedback as feedback_store
 from ..intel import eval_runner
 from ..intel import source_verifier
+from ..intel import cost_tracker
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -563,6 +564,42 @@ async def verify_get_ep(verification_id: str):
     rec = await source_verifier.get_verification(verification_id)
     if not rec:
         raise HTTPException(status_code=404, detail="verification not found")
+    return rec
+
+
+# ── Cost tracking: tokens + USD per LLM call, per feature ────────────────
+@router.get("/cost/summary")
+async def cost_summary_ep(window_hours: int = 24):
+    """Rolling cost over the last N hours, broken down by feature + model."""
+    return await cost_tracker.get_cost_summary(window_hours=window_hours)
+
+
+@router.get("/cost/cumulative")
+async def cost_cumulative_ep():
+    """All-time per-feature totals (survives index rotation)."""
+    return await cost_tracker.get_cumulative_aggregate()
+
+
+@router.get("/cost/recent")
+async def cost_recent_ep(
+    limit: int = 30,
+    feature: str | None = None,
+    model: str | None = None,
+):
+    """Recent LLM call summaries (lightweight — no full prompts)."""
+    return {
+        "calls": await cost_tracker.list_recent_calls(
+            limit=limit, feature_filter=feature, model_filter=model,
+        ),
+    }
+
+
+@router.get("/cost/call/{call_id}")
+async def cost_call_get_ep(call_id: str):
+    """Full record for one LLM call including latency + error details."""
+    rec = await cost_tracker.get_call_record(call_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="call not found")
     return rec
 
 
@@ -1202,28 +1239,31 @@ async def chat_ep(req: ChatRequest, request: Request):
     llm = get_llm(request)
     intel = get_intel_data(request)
 
-    # ── NLU tool-use: detect investigative intent and run tools first ────────
-    tool_context = ""
-    tool_used = None
-    if req.auto_tools:
-        intent = _detect_tool_intent(req.message)
-        if intent and llm and llm.is_configured:
-            tool_used = intent.get("tool")
-            _log.info("ARIA chat tool-use detected: %s", intent)
-            tool_context = await _execute_tool(intent, llm)
+    # Attribute every LLM call from this chat path to "chat" so /cost
+    # can show what user-driven traffic costs vs background cycles.
+    with cost_tracker.feature("chat"):
+        # ── NLU tool-use: detect investigative intent and run tools first ────
+        tool_context = ""
+        tool_used = None
+        if req.auto_tools:
+            intent = _detect_tool_intent(req.message)
+            if intent and llm and llm.is_configured:
+                tool_used = intent.get("tool")
+                _log.info("ARIA chat tool-use detected: %s", intent)
+                tool_context = await _execute_tool(intent, llm)
 
-    # If a tool ran, prepend the result to the message so the LLM sees the data
-    message_for_llm = req.message
-    if tool_context:
-        message_for_llm = (
-            f"{req.message}\n\n"
-            f"[I have already run the appropriate tool on your request. "
-            f"Use the data below to answer comprehensively, cite specific findings, "
-            f"and end with a clear recommendation.]"
-            f"{tool_context}"
-        )
+        # If a tool ran, prepend the result to the message so the LLM sees the data
+        message_for_llm = req.message
+        if tool_context:
+            message_for_llm = (
+                f"{req.message}\n\n"
+                f"[I have already run the appropriate tool on your request. "
+                f"Use the data below to answer comprehensively, cite specific findings, "
+                f"and end with a clear recommendation.]"
+                f"{tool_context}"
+            )
 
-    result = await aria_chat(message_for_llm, session_id, llm, intel)
+        result = await aria_chat(message_for_llm, session_id, llm, intel)
     if tool_used:
         result["tool_used"] = tool_used
 
