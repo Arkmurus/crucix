@@ -33,6 +33,7 @@ from .intel import local_brain
 from .intel import reasoning_router
 from .intel import reasoning_library
 from .intel import student
+from .intel import proactive
 
 logger = logging.getLogger("aria.engine")
 
@@ -946,7 +947,7 @@ async def aria_chat(
     except Exception as e:
         logger.warning("Distillation hook failed: %s", e)
 
-    # ── STUDENT MODE: compare-and-learn ──────────────────────────────
+    # ── STUDENT MODE: compare-and-learn + PROACTIVE gap detection ────
     # The teacher (cloud LLM) just answered. The student (local stack)
     # should attempt the same question SILENTLY in the background, score
     # the divergence, and update her mastery. This is what makes ARIA
@@ -966,8 +967,14 @@ async def aria_chat(
                 student.update_mastery(topics, correct=True, weight=0.15)
             )
             mastery_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+
+        # Proactive: track this query for knowledge-gap detection. If the
+        # same topic gets asked 3+ times and ARIA's mastery is weak, the
+        # proactive watch will push an alert + auto-prep a reading session.
+        gap_task = asyncio.create_task(proactive.detect_knowledge_gaps(message))
+        gap_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
     except Exception as e:
-        logger.debug("Student compare hook failed: %s", e)
+        logger.debug("Student/proactive hooks failed: %s", e)
 
     return {
         "response": response_text,

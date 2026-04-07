@@ -54,6 +54,7 @@ from ..intel import reasoning_router
 from ..intel import reasoning_library
 from ..intel import symbolic_reasoner
 from ..intel import student
+from ..intel import proactive
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -231,6 +232,88 @@ async def correct_ep(req: CorrectionRequest):
 async def student_stats_ep():
     """Full student dashboard — mastery + curriculum + quizzes + reading."""
     return await student.get_student_stats()
+
+
+@router.get("/student/health")
+async def student_health_ep():
+    """Verify the student loops are actually running and producing output.
+
+    Returns a per-loop "are you alive?" check based on Redis state. If a
+    loop hasn't fired in N hours when it should, this surfaces the silence.
+    """
+    import time as _t
+    now = _t.time()
+    quiz_history = await student.rs.get_json(student.QUIZ_HISTORY_KEY) or []
+    reading_log = await student.rs.get_json(student.READING_LOG_KEY) or []
+    library_stats = await reasoning_library.get_stats()
+    mastery = await student.get_mastery_report()
+
+    last_quiz = quiz_history[-1] if quiz_history else None
+    last_reading = reading_log[-1] if reading_log else None
+    last_quiz_age_h = (now - last_quiz.get("ts", 0)) / 3600 if last_quiz else None
+    last_reading_age_h = (now - last_reading.get("ts", 0)) / 3600 if last_reading else None
+
+    # Health checks (each loop has an expected cadence)
+    issues: list[str] = []
+    if last_quiz_age_h is None:
+        issues.append("Self-quiz loop has NEVER fired (or library was empty when it last tried).")
+    elif last_quiz_age_h > 4:
+        issues.append(f"Self-quiz hasn't fired in {last_quiz_age_h:.1f}h (expected every 3h).")
+
+    if last_reading_age_h is None:
+        issues.append("Reading session loop has NEVER fired.")
+    elif last_reading_age_h > 8:
+        issues.append(f"Reading session hasn't fired in {last_reading_age_h:.1f}h (expected every 6h).")
+
+    if library_stats.get("total_cases", 0) == 0:
+        issues.append("Reasoning library is empty — no cloud answers have been distilled yet.")
+
+    if mastery.get("total_samples", 0) == 0:
+        issues.append("Mastery tracker has zero samples — no conversations have updated topic scores.")
+
+    return {
+        "ok": len(issues) == 0,
+        "issues": issues,
+        "loops": {
+            "self_quiz": {
+                "last_fired_hours_ago": round(last_quiz_age_h, 2) if last_quiz_age_h is not None else None,
+                "total_quizzes": len(quiz_history),
+                "last_score": last_quiz.get("score") if last_quiz else None,
+            },
+            "reading_session": {
+                "last_fired_hours_ago": round(last_reading_age_h, 2) if last_reading_age_h is not None else None,
+                "total_sessions": len(reading_log),
+                "last_articles_read": last_reading.get("articles_read") if last_reading else None,
+            },
+        },
+        "library": {
+            "total_cases": library_stats.get("total_cases", 0),
+            "hit_rate": library_stats.get("hit_rate", 0),
+            "embedder_available": library_stats.get("embedder_available", False),
+        },
+        "mastery": {
+            "overall": mastery.get("overall_mastery", 0),
+            "total_samples": mastery.get("total_samples", 0),
+            "weak_count": len(mastery.get("weak_topics", [])),
+            "strong_count": len(mastery.get("strong_topics", [])),
+        },
+    }
+
+
+# ── Proactive watch ────────────────────────────────────────────────────────
+@router.get("/proactive/stats")
+async def proactive_stats_ep():
+    """Stats for the proactive watch system — how many alerts queued, etc."""
+    return await proactive.get_proactive_stats()
+
+
+@router.get("/proactive/alerts")
+async def proactive_alerts_ep(mark_seen: bool = False):
+    """Drain the proactive alert queue. Used by the WhatsApp listener to
+    poll for new alerts to push to the team.
+    """
+    alerts = await proactive.get_unseen_alerts(mark_seen=mark_seen)
+    return {"alerts": alerts, "count": len(alerts)}
 
 
 @router.get("/student/mastery")
@@ -1231,6 +1314,29 @@ async def self_improve_ep(request: Request):
     return await self_improve.stage_improvement(
         file_path, new_content, change_type, description, reasoning
     )
+
+
+# Self-diagnostic: receive a failure report from any downstream component
+@router.post("/self/diagnose")
+async def self_diagnose_ep(request: Request):
+    """Receive a failure report and have ARIA classify + decide an action.
+
+    This is the AUTO self-fix entry point. Called by:
+      - WhatsApp listener when askARIA() fails
+      - Sweep ingest when it can't reach the brain
+      - OCR pipeline when all backends fail
+      - Any future component that wants ARIA to learn from its errors
+
+    Returns the diagnosis + suggested action so the caller knows what
+    happened and can decide whether to retry / alert / escalate.
+    """
+    body = await request.json()
+    failure_type = (body.get("failure_type") or "unknown").strip()
+    error_message = (body.get("error_message") or "").strip()
+    context = body.get("context") or {}
+    if not error_message:
+        raise HTTPException(status_code=400, detail="error_message required")
+    return await self_improve.diagnose_failure(failure_type, error_message, context)
 
 
 # Self-coding: scaffold a brand-new module from a free-text request

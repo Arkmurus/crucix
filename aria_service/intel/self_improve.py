@@ -1006,6 +1006,177 @@ def _sanitise_module_name(name: str) -> str:
     return s[:40]
 
 
+async def diagnose_failure(
+    failure_type: str,
+    error_message: str,
+    context: dict | None = None,
+) -> dict:
+    """Classify a runtime failure and decide what to do about it.
+
+    This is the AUTO self-fix entry point. When a downstream component
+    (WhatsApp listener, sweep ingest, OCR pipeline, etc) hits an error,
+    it POSTs here. ARIA:
+
+      1. Classifies the failure into a known taxonomy
+      2. Looks up prior similar failures in the reasoning library
+      3. Decides on an action: auto_fix / stage_for_review / alert_team / ignore
+      4. Logs the diagnosis to the improvement_log
+      5. Returns the action so the caller knows what happened
+
+    The point is that ARIA learns from her own failures without waiting
+    for a human to read the logs.
+    """
+    if not error_message:
+        return {"action": "ignore", "reason": "no error message"}
+
+    context = context or {}
+    err_lower = error_message.lower()
+
+    # ── Classification ──────────────────────────────────────────────
+    classification = "unknown"
+    severity = "medium"
+    suggested_action = "log_only"
+    diagnosis_notes: list[str] = []
+
+    # Network / connectivity failures (most common)
+    if any(t in err_lower for t in ("502", "503", "504", "timeout", "econnrefused", "connection closed", "network", "aborted")):
+        classification = "connectivity"
+        severity = "high" if "502" in err_lower or "503" in err_lower else "medium"
+        suggested_action = "retry_with_backoff"
+        diagnosis_notes.append(
+            "Downstream service (LLM API, sweep ingest, or web fetch) was unreachable. "
+            "Likely causes: rate limit, OOM kill on the target service, transient network. "
+            "ARIA will retry on her own next cycle; no code change needed."
+        )
+
+    # OOM / memory pressure
+    elif any(t in err_lower for t in ("out of memory", "oom", "memoryerror", "killed process")):
+        classification = "memory_pressure"
+        severity = "critical"
+        suggested_action = "alert_team"
+        diagnosis_notes.append(
+            "Process was killed by the OS for exceeding memory limits. "
+            "Recommendation: scale fly.io machine to ≥2GB or reduce ARIA_OCR_LANGS to 'en' only. "
+            "ARIA cannot fix this herself — needs ops intervention."
+        )
+
+    # LLM-specific errors
+    elif any(t in err_lower for t in ("rate limit", "429", "quota", "billing", "insufficient")):
+        classification = "llm_quota"
+        severity = "high"
+        suggested_action = "fall_back_to_local"
+        diagnosis_notes.append(
+            "LLM provider rate limit or quota exceeded. ARIA's reasoning router "
+            "should be falling through to local_brain / symbolic_reasoner. "
+            "If this is recurring, consider adding a fallback provider via "
+            "ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY."
+        )
+
+    # JSON / parsing errors (LLM output broken)
+    elif any(t in err_lower for t in ("json", "parse", "decode", "expecting value", "unterminated")):
+        classification = "llm_output_format"
+        severity = "medium"
+        suggested_action = "stage_prompt_fix"
+        diagnosis_notes.append(
+            "LLM returned malformed JSON. Likely a prompt that needs tightening "
+            "with explicit format instructions or examples. Stage a prompt evolution."
+        )
+
+    # Missing tool / function not found
+    elif any(t in err_lower for t in ("not found", "no such", "attributeerror", "import", "modulenotfound")):
+        classification = "missing_capability"
+        severity = "high"
+        suggested_action = "stage_new_module"
+        diagnosis_notes.append(
+            "ARIA tried to call a tool or import a module that doesn't exist. "
+            "This is a perfect candidate for self-coding via /api/aria/self/code. "
+            "Stage a module proposal to fill the capability gap."
+        )
+
+    # Data shape errors
+    elif any(t in err_lower for t in ("slice", "type", "argument", "got", "list indices", "dict has no")):
+        classification = "data_shape_mismatch"
+        severity = "medium"
+        suggested_action = "stage_defensive_fix"
+        diagnosis_notes.append(
+            "Code assumed a data shape that didn't materialise (e.g. expected list, "
+            "got dict). Stage a defensive type-check fix."
+        )
+
+    # OCR / vision failures
+    elif any(t in err_lower for t in ("ocr", "easyocr", "tesseract", "vision", "libgl")):
+        classification = "ocr_pipeline"
+        severity = "high"
+        suggested_action = "check_dependencies"
+        diagnosis_notes.append(
+            "OCR backend failed to load or run. Verify EasyOCR/Tesseract are "
+            "installed (pip + apt) and the host has libgl1 + libglib2.0-0. "
+            "Fly.io: bump memory to ≥1GB. Fallback chain should still serve via OCR.space."
+        )
+
+    else:
+        diagnosis_notes.append(
+            f"Unrecognised failure pattern. Raw error: {error_message[:300]}"
+        )
+
+    # ── Look for prior occurrences in the improvement log ──────────
+    prior_count = 0
+    try:
+        log_entries = await rs.get_json(IMPROVEMENT_LOG_KEY) or []
+        for entry in log_entries[-200:]:
+            if entry.get("event") == "diagnosed" and entry.get("classification") == classification:
+                prior_count += 1
+    except Exception:
+        pass
+
+    # Escalate severity if this is a recurring failure
+    if prior_count >= 5:
+        severity = "critical"
+        diagnosis_notes.append(
+            f"⚠️ This failure has occurred {prior_count + 1} times. Escalating severity. "
+            f"Recommend immediate review."
+        )
+    elif prior_count >= 2:
+        severity = "high"
+        diagnosis_notes.append(f"This failure has occurred {prior_count + 1} times.")
+
+    # ── Log the diagnosis ──────────────────────────────────────────
+    diagnosis = {
+        "id": str(uuid.uuid4())[:8],
+        "ts": time.time(),
+        "event": "diagnosed",
+        "failure_type": failure_type,
+        "classification": classification,
+        "severity": severity,
+        "suggested_action": suggested_action,
+        "error_message": error_message[:500],
+        "context": context,
+        "prior_occurrences": prior_count,
+        "diagnosis": "\n".join(diagnosis_notes),
+    }
+    try:
+        log_entries = await rs.get_json(IMPROVEMENT_LOG_KEY) or []
+        log_entries.append(diagnosis)
+        log_entries = log_entries[-500:]  # cap log size
+        await rs.set_json(IMPROVEMENT_LOG_KEY, log_entries)
+    except Exception as e:
+        logger.warning("Failed to log diagnosis: %s", e)
+
+    logger.info(
+        "Self-diagnosis: %s/%s severity=%s action=%s prior=%d",
+        failure_type, classification, severity, suggested_action, prior_count,
+    )
+
+    return {
+        "action": suggested_action,
+        "classification": classification,
+        "severity": severity,
+        "diagnosis": "\n".join(diagnosis_notes),
+        "prior_occurrences": prior_count,
+        "id": diagnosis["id"],
+    }
+
+
 async def propose_new_module(
     request: str,
     llm,

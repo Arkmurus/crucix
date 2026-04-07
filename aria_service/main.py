@@ -26,6 +26,7 @@ from .intel import knowledge, intel_ledger, contacts, competitors, training_data
 from .intel import self_improve
 from .intel import student
 from .intel import reasoning_library
+from .intel import proactive
 from .intel.researcher import research_and_learn, get_hypotheses, validate_hypothesis
 from .routes.aria import router as aria_router
 
@@ -202,6 +203,34 @@ async def lifespan(app: FastAPI):
     library_consolidate_task = asyncio.create_task(_library_consolidate_loop())
     logger.info("Student loops started: self-quiz (3h), reading (6h), library consolidate (24h)")
 
+    # ── ARIA PROACTIVE WATCH ────────────────────────────────────────────
+    # Hourly background loop that:
+    #   - Checks if a daily morning briefing should fire
+    #   - Triggers mastery-driven prep on weak topics
+    # The anomaly watch runs inside /ingest after every sweep so it fires
+    # the moment new data arrives (not on a fixed schedule).
+    proactive_task = None
+
+    async def _proactive_loop():
+        await asyncio.sleep(120)  # 2 min after startup
+        while True:
+            try:
+                # Daily briefing check
+                fired = await proactive.daily_briefing_check(getattr(app.state, "current_data", None))
+                if fired:
+                    logger.info("[Proactive] Daily briefing fired")
+
+                # Mastery prep
+                weak_count = await proactive.prepare_weak_topics()
+                if weak_count:
+                    logger.info("[Proactive] Mastery prep: %d weak topic(s) flagged", weak_count)
+            except Exception as e:
+                logger.warning("[Proactive] Loop iteration failed: %s", e)
+            await asyncio.sleep(3600)  # Every hour
+
+    proactive_task = asyncio.create_task(_proactive_loop())
+    logger.info("Proactive watch started: daily briefing + mastery prep (hourly)")
+
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
     yield
 
@@ -216,6 +245,8 @@ async def lifespan(app: FastAPI):
         reading_task.cancel()
     if library_consolidate_task:
         library_consolidate_task.cancel()
+    if proactive_task:
+        proactive_task.cancel()
     logger.info("ARIA Service shutting down")
 
 
@@ -283,11 +314,21 @@ async def ingest_sweep(data: dict):
     except Exception as e:
         logger.warning("Neural ingest failed: %s", e)
 
+    # ── PROACTIVE: anomaly watch fires on every sweep ──────────────────
+    # Looks at the fresh sweep data for spikes vs the rolling baseline
+    # and pushes alerts to the proactive queue if anything stands out.
+    anomaly_alerts = 0
+    try:
+        anomaly_alerts = await proactive.anomaly_watch(data)
+    except Exception as e:
+        logger.warning("Proactive anomaly watch failed: %s", e)
+
     return {
         "ok": True,
         "ledger_signals_added": ledger_count,
         "competitor_moves_added": comp_count,
         "neurons_activated": neural_count,
+        "anomaly_alerts_pushed": anomaly_alerts,
     }
 
 
