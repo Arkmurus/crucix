@@ -45,12 +45,32 @@ async def init() -> None:
     await _load()
     facts = (_cache or {}).get("facts", [])
     logger.info(f"Knowledge base loaded: {len(facts)} facts")
-    # Build semantic index
+    # Semantic index build is INTENTIONALLY deferred — rebuild_index_from_knowledge
+    # encodes every fact through sentence-transformers (~200-700ms per fact, sync
+    # C call that doesn't yield to the event loop). For ~500 facts that's 100-350s
+    # of blocking, which prevents uvicorn from binding and causes fly health checks
+    # to fail. Past incident 2026-04-08.
+    #
+    # Spawn it as a background task so the server can bind first. Search calls
+    # before the index is ready will fall through to the TF-IDF / Jaccard
+    # fallback in semantic_search, which is degraded but functional.
     try:
-        from .semantic_search import rebuild_index_from_knowledge
-        rebuild_index_from_knowledge(facts)
+        import asyncio as _aio
+        async def _build_index_bg():
+            await _aio.sleep(10)  # Give the server time to bind first
+            try:
+                from .semantic_search import rebuild_index_from_knowledge
+                # Run in a thread executor so the encode loop doesn't starve
+                # the event loop. encode() is sync C; the executor lets the
+                # main loop keep handling requests while it works.
+                loop = _aio.get_running_loop()
+                count = await loop.run_in_executor(None, rebuild_index_from_knowledge, facts)
+                logger.info("Semantic index built in background: %d facts indexed", count)
+            except Exception as e:
+                logger.warning("Background semantic index build failed: %s", e)
+        _aio.create_task(_build_index_bg())
     except Exception as e:
-        logger.warning("Semantic index build failed: %s", e)
+        logger.warning("Could not schedule semantic index build: %s", e)
 
 
 # ── Contradiction detection ──────────────────────────────────────────────────
