@@ -139,8 +139,9 @@ def _get_embedder():
     if _embedder_failed:
         return None
     try:
-        from .semantic_search import _get_model
-        _embedder = _get_model()
+        # semantic_search exposes _get_embedder() — same name, same purpose.
+        from .semantic_search import _get_embedder as _semantic_get_embedder
+        _embedder = _semantic_get_embedder()
         return _embedder
     except Exception as e:
         logger.debug("reasoning_library: embedder unavailable, using lexical only: %s", e)
