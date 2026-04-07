@@ -55,6 +55,7 @@ from ..intel import reasoning_library
 from ..intel import symbolic_reasoner
 from ..intel import student
 from ..intel import proactive
+from ..intel import rag_store
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -298,6 +299,75 @@ async def student_health_ep():
             "strong_count": len(mastery.get("strong_topics", [])),
         },
     }
+
+
+# ── RAG store: persistent retrieval-augmented generation ──────────────────
+@router.get("/rag/stats")
+async def rag_stats_ep():
+    """Report on the persistent RAG store: documents indexed, path, model."""
+    return await rag_store.get_stats()
+
+
+@router.get("/rag/sources")
+async def rag_sources_ep(limit: int = 50):
+    """List all unique sources in the RAG store grouped by type."""
+    limit = max(1, min(limit, 500))
+    return await rag_store.list_sources(limit=limit)
+
+
+class RagSearchRequest(BaseModel):
+    query: str
+    top_k: int = 8
+    source_type: str | None = None
+    market: str | None = None
+
+
+@router.post("/rag/search")
+async def rag_search_ep(req: RagSearchRequest):
+    """Hybrid retrieval over the RAG store. Returns ranked chunks with metadata."""
+    if not req.query or len(req.query.strip()) < 3:
+        raise HTTPException(status_code=400, detail="query required (min 3 chars)")
+    results = await rag_store.search(
+        req.query,
+        top_k=max(1, min(req.top_k, 30)),
+        source_type=req.source_type,
+        market=req.market,
+    )
+    return {"query": req.query, "results": results, "count": len(results)}
+
+
+class RagIngestRequest(BaseModel):
+    text: str
+    source: str
+    source_type: str = "manual"
+    title: str = ""
+    url: str = ""
+    market: str = ""
+
+
+@router.post("/rag/ingest")
+async def rag_ingest_ep(req: RagIngestRequest):
+    """Manually ingest a document into the RAG store. Used for backfill,
+    customer document drops, and any text the team wants ARIA to remember.
+    """
+    if not req.text or len(req.text.strip()) < 50:
+        raise HTTPException(status_code=400, detail="text required (min 50 chars)")
+    return await rag_store.ingest_document(
+        text=req.text,
+        source=req.source,
+        source_type=req.source_type,
+        title=req.title,
+        url=req.url,
+        market=req.market,
+    )
+
+
+@router.post("/rag/backfill")
+async def rag_backfill_ep():
+    """One-shot backfill: index every existing fact + ledger signal into RAG.
+    Idempotent — chromadb upserts so re-running is safe.
+    """
+    return await rag_store.backfill_from_existing()
 
 
 # ── Proactive watch ────────────────────────────────────────────────────────

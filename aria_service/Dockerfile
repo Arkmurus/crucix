@@ -26,7 +26,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Build tools — required for some pip wheels that compile from source
     gcc \
     g++ \
+    # SQLite for chromadb persistent backend (modern version)
+    sqlite3 \
+    libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# ── RAG store mount point ──────────────────────────────────────────────────
+# chromadb persists to /data/aria_rag — mount a fly.io volume here:
+#   flyctl volumes create aria_data --region <region> --size 5 -a aria-intel
+# If no volume is mounted, the rag_store will fall back to /tmp/aria_rag
+# (works but doesn't persist across restarts).
+RUN mkdir -p /data/aria_rag && chmod 755 /data/aria_rag
 
 COPY aria_service/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt

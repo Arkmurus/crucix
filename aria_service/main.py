@@ -27,6 +27,7 @@ from .intel import self_improve
 from .intel import student
 from .intel import reasoning_library
 from .intel import proactive
+from .intel import rag_store
 from .intel.researcher import research_and_learn, get_hypotheses, validate_hypothesis
 from .routes.aria import router as aria_router
 
@@ -52,6 +53,21 @@ async def lifespan(app: FastAPI):
     await competitors.init()
     await training_data.init()
     await neural_memory.init()
+
+    # ── RAG store: lazy init + one-shot backfill on cold start ─────────
+    # The RAG store auto-initialises on first call but we eagerly probe
+    # it here so any chromadb errors surface during startup, not on the
+    # first user query. Backfill runs only if the store is empty (so a
+    # restart with an existing volume doesn't re-index everything).
+    try:
+        rag_stats_initial = await rag_store.get_stats()
+        logger.info("RAG store: %s", rag_stats_initial)
+        if rag_stats_initial.get("available") and rag_stats_initial.get("total_chunks", 0) == 0:
+            logger.info("RAG store empty — running one-shot backfill from existing knowledge + ledger")
+            backfill_result = await rag_store.backfill_from_existing()
+            logger.info("RAG backfill complete: %s", backfill_result)
+    except Exception as e:
+        logger.warning("RAG store init/backfill failed (non-fatal): %s", e)
 
     # Create LLM provider with automatic fallback chain
     api_key = settings.llm_api_key or settings.deepseek_api_key

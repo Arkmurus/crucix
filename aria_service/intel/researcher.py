@@ -943,6 +943,20 @@ async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
     if not body or len(body) < 100:
         return {"error": "Could not fetch article content", "url": url}
 
+    # ── RAG ingest: chunk + index the raw passage so it's searchable later
+    try:
+        from . import rag_store
+        await rag_store.ingest_document(
+            text=body,
+            source=url,
+            source_type="article",
+            title=url[:200],
+            url=url,
+            extra_metadata={"context": (context or "")[:200]},
+        )
+    except Exception as e:
+        logger.debug("RAG ingest from read_article failed: %s", e)
+
     article_text = f"URL: {url}\n"
     if context:
         article_text += f"Context from sender: {context}\n"

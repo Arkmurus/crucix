@@ -272,6 +272,21 @@ async def crawl_website(
             article_text += f"Research context: {context}\n"
         article_text += f"Content:\n{text}"
 
+        # ── RAG ingest: chunk + index this page's raw text ──────────────
+        try:
+            from . import rag_store
+            await rag_store.ingest_document(
+                text=text,
+                source=url,
+                source_type="crawl",
+                title=url.split("/")[-1] or domain,
+                url=url,
+                market="",  # could detect from content; left empty for now
+                extra_metadata={"crawl_session": domain, "context": context[:200] if context else ""},
+            )
+        except Exception as e:
+            logger.debug("RAG ingest during crawl failed for %s: %s", url, e)
+
         existing_kb = search_knowledge(text[:200])
         parsed = await _analyse_article(llm, article_text, f"crawl:{domain}", existing_kb, hypotheses)
 

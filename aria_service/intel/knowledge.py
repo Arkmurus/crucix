@@ -206,6 +206,18 @@ async def store_fact(topic: str, content: str, source: str = "user",
         index_fact(db["facts"][0]["id"], f"{topic} {content}", {"confidence": confidence})
     except Exception:
         pass
+    # Index into the persistent RAG store as well so retrieval can find it
+    try:
+        from . import rag_store
+        await rag_store.ingest_fact(
+            fact_id=new_id,
+            topic=topic,
+            content=content,
+            confidence=confidence,
+            source=source,
+        )
+    except Exception:
+        pass
     return {"action": "created", "fact_id": new_id, "contradictions": contradictions}
 
 

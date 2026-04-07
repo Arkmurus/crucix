@@ -39,7 +39,7 @@ logger = logging.getLogger("aria.engine")
 
 SESSION_TTL = 30 * 86400  # 30 days — long-running WhatsApp / Telegram threads
 MAX_TURNS = 80            # 80 exchanges retained per session (160 messages)
-MAX_CONTEXT_CHARS = 14000 # context budget for intelligence layers
+MAX_CONTEXT_CHARS = 20000 # context budget for intelligence layers (bumped to fit RAG)
 
 # ── System Prompts ───────────────────────────────────────────────────────────
 
@@ -374,6 +374,7 @@ def _build_intel_context(intel_data: dict | None) -> str:
 # Neural memory needs async but context builder is sync — use contextvars for thread safety
 import contextvars
 _neural_ctx_var: contextvars.ContextVar[str] = contextvars.ContextVar("neural_ctx", default="")
+_rag_ctx_var: contextvars.ContextVar[str] = contextvars.ContextVar("rag_ctx", default="")
 
 
 # ── Language Detection ──────────────────────────────────────────────────────
@@ -413,9 +414,21 @@ def _sync_neural_context(message: str) -> str:
     return _neural_ctx_var.get("")
 
 
+def _sync_rag_context(message: str) -> str:
+    """Return per-request RAG context set before context building."""
+    return _rag_ctx_var.get("")
+
+
 def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
-    """Build all 8 intelligence layers (7 + neural memory), budget-capped."""
+    """Build all 9 intelligence layers (7 base + neural memory + RAG), budget-capped.
+
+    The RAG layer is the highest-value retrieval for proprietary intel — every
+    article ARIA reads, every page she crawls, every image she OCRs gets chunked
+    and stored in chromadb. At query time we pull the most relevant passages
+    and inject them straight into the LLM context.
+    """
     layer_fns = [
+        ("rag",         lambda: _sync_rag_context(message)),  # FIRST — proprietary intel takes priority
         ("live_intel",  lambda: _build_intel_context(intel_data)),
         ("knowledge",   lambda: search_knowledge(message)),
         ("ledger",      lambda: query_ledger(message)),
@@ -826,6 +839,15 @@ async def aria_chat(
     except Exception as e:
         logger.warning("Neural recall failed: %s", e)
         _neural_ctx_var.set("")
+
+    # Pre-fetch RAG context (async) — proprietary intel from chromadb
+    try:
+        from .intel import rag_store
+        rag_ctx = await rag_store.get_rag_context(message, max_chars=6000)
+        _rag_ctx_var.set(rag_ctx)
+    except Exception as e:
+        logger.warning("RAG retrieval failed: %s", e)
+        _rag_ctx_var.set("")
 
     # Build 8-layer context (7 intel + neural memory)
     context = _build_7_layer_context(message, intel_data)

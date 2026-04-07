@@ -145,6 +145,24 @@ async def extract_text_from_image(
                     "backend (easyocr) in the background — next image will be "
                     "fully offline and ~10x faster."
                 )
+            # ── RAG ingest: chunk + index every successful OCR extraction
+            # This is what makes "what does the MKE invoice say about payment
+            # terms" answerable — the raw OCR text becomes searchable
+            try:
+                from . import rag_store
+                await rag_store.ingest_document(
+                    text=result["text"],
+                    source=f"ocr:{filename}",
+                    source_type="ocr",
+                    title=filename,
+                    extra_metadata={
+                        "ocr_method": result.get("method", "unknown"),
+                        "ocr_confidence": result.get("confidence", 0),
+                        "context": (context or "")[:200],
+                    },
+                )
+            except Exception as e:
+                logger.debug("RAG ingest from OCR failed: %s", e)
             return result
         if result and result.get("method"):
             last_method = result["method"]

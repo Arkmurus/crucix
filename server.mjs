@@ -1818,6 +1818,36 @@ app.post('/api/aria/ocr',
     res.status(503).json({ text: '', method: 'none', error: 'OCR unavailable — ARIA service offline' });
   }}));
 
+// ── ARIA RAG store (proxy) — persistent retrieval-augmented generation ────
+app.get('/api/aria/rag/stats', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/rag/stats', { fallback: async () => {
+    res.status(503).json({ available: false, error: 'RAG unavailable — ARIA service offline' });
+  }}));
+
+app.get('/api/aria/rag/sources', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/rag/sources${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => {
+    res.status(503).json({ available: false });
+  }}));
+
+app.post('/api/aria/rag/search',
+  express.json({ limit: '256kb' }),
+  requireAuth,
+  (req, res) => ariaProxy(req, res, '/api/aria/rag/search', { method: 'POST', fallback: async () => {
+    res.status(503).json({ results: [], error: 'RAG search unavailable' });
+  }}));
+
+app.post('/api/aria/rag/ingest',
+  express.json({ limit: '4mb' }),
+  requireAuth,
+  (req, res) => ariaProxy(req, res, '/api/aria/rag/ingest', { method: 'POST', fallback: async () => {
+    res.status(503).json({ ingested: false, error: 'RAG ingest unavailable' });
+  }}));
+
+app.post('/api/aria/rag/backfill', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/rag/backfill', { method: 'POST', fallback: async () => {
+    res.status(503).json({ ok: false, error: 'RAG backfill unavailable' });
+  }}));
+
 // ── ARIA reasoning independence (proxy) — the ARIA-LLM trajectory metric ───
 app.get('/api/aria/independence', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/independence', { fallback: async () => {

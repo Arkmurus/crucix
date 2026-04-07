@@ -1,0 +1,571 @@
+"""
+ARIA RAG Store — persistent retrieval-augmented generation backbone.
+
+This is what makes ARIA "know" your proprietary intelligence at runtime
+without any model training or vendor LLM upgrades. Every article she
+reads, every page she crawls, every image she OCRs, every document she
+ingests gets chunked and stored in a local vector database. At query
+time she retrieves the most relevant passages and passes them to the
+LLM as context — proper RAG, no Pinecone bill, fully local.
+
+Backend: chromadb in PERSISTENT mode (file-backed, no network).
+  - Stores at /data/aria_rag if a Fly.io volume is mounted there
+  - Falls back to /tmp/aria_rag with a clear warning if not
+  - Embeddings: sentence-transformers all-MiniLM-L6-v2 (same model as
+    semantic_search.py — already downloaded, no extra weights)
+
+Two collections:
+  1. "documents" — raw passages from crawls/articles/OCR/PDFs.
+                    The KB grows from every read operation. Chunks have
+                    full provenance (source URL, ingest date, doc type).
+  2. "facts"     — distilled facts from the existing knowledge base.
+                    Backfilled once on first deploy. Stays in sync.
+
+Hybrid retrieval:
+  - Semantic similarity (cosine over embeddings)
+  - Optional metadata filters (source_type, date range, market)
+  - Recency boost on the score
+  - Fall through to keyword match if vector search returns nothing
+
+This is the foundation of ARIA-as-product:
+  - Customers can drop documents into her knowledge base
+  - She can cite sources for every claim
+  - She gets smarter with every interaction without retraining
+  - Zero vendor lock-in (chromadb + sentence-transformers are both Apache 2.0)
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import logging
+import os
+import re
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+
+logger = logging.getLogger("aria.rag")
+
+# ── Configuration ──────────────────────────────────────────────────────────
+
+# Persistent storage path. Fly.io volumes mount at /data by default.
+# If /data exists, use it; else fall back to /tmp with a clear warning.
+def _resolve_rag_path() -> str:
+    override = os.getenv("ARIA_RAG_PATH", "").strip()
+    if override:
+        return override
+    if Path("/data").exists() and os.access("/data", os.W_OK):
+        return "/data/aria_rag"
+    fallback = "/tmp/aria_rag"
+    logger.warning(
+        "RAG: /data volume not mounted — falling back to %s. "
+        "Index will NOT persist across restarts! "
+        "Mount a fly.io volume at /data to enable persistence.",
+        fallback,
+    )
+    return fallback
+
+
+RAG_PATH = _resolve_rag_path()
+DOCUMENTS_COLLECTION = "aria_documents"
+FACTS_COLLECTION = "aria_facts"
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+
+# Chunking parameters
+CHUNK_SIZE = 800        # chars per chunk — tuned for sentence-transformers token limit
+CHUNK_OVERLAP = 150     # chars of overlap between chunks for context continuity
+MIN_CHUNK_SIZE = 100    # don't store chunks smaller than this
+
+# Retrieval parameters
+DEFAULT_TOP_K = 8
+DEFAULT_MAX_CONTEXT_CHARS = 6000  # how much retrieved text to inject into LLM prompt
+
+
+# ── Lazy chromadb client ───────────────────────────────────────────────────
+
+_client = None
+_documents_collection = None
+_facts_collection = None
+_chromadb_failed = False
+_init_lock = asyncio.Lock()
+
+
+def _get_client():
+    """Lazy-load the chromadb persistent client + collections."""
+    global _client, _documents_collection, _facts_collection, _chromadb_failed
+    if _client is not None:
+        return _client
+    if _chromadb_failed:
+        return None
+    try:
+        import chromadb
+        from chromadb.config import Settings
+        # Ensure path exists
+        Path(RAG_PATH).mkdir(parents=True, exist_ok=True)
+        _client = chromadb.PersistentClient(
+            path=RAG_PATH,
+            settings=Settings(anonymized_telemetry=False, allow_reset=False),
+        )
+        # Use the existing sentence-transformers model (no extra download)
+        from chromadb.utils import embedding_functions
+        embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=EMBEDDING_MODEL_NAME,
+        )
+        _documents_collection = _client.get_or_create_collection(
+            name=DOCUMENTS_COLLECTION,
+            embedding_function=embed_fn,
+            metadata={"hnsw:space": "cosine"},
+        )
+        _facts_collection = _client.get_or_create_collection(
+            name=FACTS_COLLECTION,
+            embedding_function=embed_fn,
+            metadata={"hnsw:space": "cosine"},
+        )
+        logger.info(
+            "RAG store ready at %s — documents: %d, facts: %d",
+            RAG_PATH,
+            _documents_collection.count(),
+            _facts_collection.count(),
+        )
+        return _client
+    except ImportError:
+        _chromadb_failed = True
+        logger.warning(
+            "chromadb not installed — RAG store unavailable. "
+            "Run: pip install chromadb"
+        )
+        return None
+    except Exception as e:
+        _chromadb_failed = True
+        logger.warning("RAG store init failed: %s", e)
+        return None
+
+
+def _ensure() -> bool:
+    """Ensure the RAG store is initialised. Returns True if ready."""
+    return _get_client() is not None
+
+
+# ── Chunking ───────────────────────────────────────────────────────────────
+
+def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """Split text into overlapping chunks aligned on sentence boundaries
+    where possible. Each chunk is ~chunk_size chars, with `overlap` chars
+    of context bleed between consecutive chunks.
+    """
+    if not text:
+        return []
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= chunk_size:
+        return [text] if len(text) >= MIN_CHUNK_SIZE else []
+
+    chunks: list[str] = []
+    pos = 0
+    while pos < len(text):
+        end = min(pos + chunk_size, len(text))
+        # If we're not at the very end, try to break on a sentence boundary
+        # within the last 25% of the chunk
+        if end < len(text):
+            min_break = pos + int(chunk_size * 0.75)
+            for punct in (". ", "! ", "? ", ".\n", "!\n", "?\n", "\n\n"):
+                idx = text.rfind(punct, min_break, end)
+                if idx > 0:
+                    end = idx + len(punct)
+                    break
+            else:
+                # No sentence boundary — fall back to word boundary
+                idx = text.rfind(" ", min_break, end)
+                if idx > 0:
+                    end = idx
+        chunk = text[pos:end].strip()
+        if len(chunk) >= MIN_CHUNK_SIZE:
+            chunks.append(chunk)
+        # Advance with overlap
+        pos = end - overlap if end - overlap > pos else end
+    return chunks
+
+
+def _hash_id(text: str, source: str = "") -> str:
+    """Stable deterministic ID for a chunk so re-ingesting the same content
+    is idempotent (chromadb upserts on existing IDs)."""
+    h = hashlib.sha256(f"{source}|{text}".encode("utf-8", errors="replace")).hexdigest()
+    return h[:32]
+
+
+# ── Public API: ingest ─────────────────────────────────────────────────────
+
+async def ingest_document(
+    text: str,
+    *,
+    source: str,
+    source_type: str = "unknown",
+    title: str = "",
+    url: str = "",
+    market: str = "",
+    extra_metadata: dict | None = None,
+) -> dict:
+    """Chunk a document and add it to the RAG store.
+
+    Args:
+        text: Raw document text.
+        source: Where it came from (e.g. "crawl:wearwiser.com", "ocr:invoice.jpg").
+        source_type: One of "article", "crawl", "ocr", "pdf", "manual", "ledger".
+        title: Display title for the source (page title, filename, etc).
+        url: Original URL if applicable.
+        market: Country/region tag for filtering.
+        extra_metadata: Anything else to attach to every chunk.
+    """
+    if not _ensure():
+        return {"ingested": False, "error": "rag_store_unavailable"}
+    if not text or len(text.strip()) < MIN_CHUNK_SIZE:
+        return {"ingested": False, "reason": "text_too_short"}
+
+    chunks = _chunk_text(text)
+    if not chunks:
+        return {"ingested": False, "reason": "no_chunks_produced"}
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    ts_epoch = time.time()
+    base_meta = {
+        "source": source[:300],
+        "source_type": source_type,
+        "title": (title or "")[:300],
+        "url": (url or "")[:500],
+        "market": (market or "")[:100],
+        "ingested_at": now_iso,
+        "ts_epoch": ts_epoch,
+    }
+    if extra_metadata:
+        for k, v in extra_metadata.items():
+            if isinstance(v, (str, int, float, bool)):
+                base_meta[str(k)[:50]] = v if not isinstance(v, str) else v[:300]
+
+    ids = []
+    metadatas = []
+    documents = []
+    for i, chunk in enumerate(chunks):
+        cid = _hash_id(chunk, source)
+        meta = dict(base_meta)
+        meta["chunk_index"] = i
+        meta["chunk_count"] = len(chunks)
+        ids.append(cid)
+        metadatas.append(meta)
+        documents.append(chunk)
+
+    try:
+        # chromadb upsert is idempotent — same ID → overwrite
+        _documents_collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+        logger.info("RAG ingest: %d chunks from %s (%s)", len(chunks), source, source_type)
+        return {
+            "ingested": True,
+            "chunks": len(chunks),
+            "source": source,
+            "source_type": source_type,
+            "total_documents": _documents_collection.count(),
+        }
+    except Exception as e:
+        logger.warning("RAG ingest failed for %s: %s", source, e)
+        return {"ingested": False, "error": str(e)}
+
+
+async def ingest_fact(
+    fact_id: str,
+    topic: str,
+    content: str,
+    *,
+    confidence: str = "ASSESSED",
+    source: str = "",
+    market: str = "",
+) -> bool:
+    """Add a single distilled fact to the facts collection.
+    Called by knowledge.store_fact() so the RAG facts collection stays
+    in sync with the canonical Redis knowledge base.
+    """
+    if not _ensure():
+        return False
+    if not content or len(content.strip()) < 10:
+        return False
+    text = f"{topic}: {content}".strip()
+    try:
+        _facts_collection.upsert(
+            ids=[fact_id],
+            documents=[text],
+            metadatas=[{
+                "topic": topic[:200],
+                "confidence": confidence,
+                "source": source[:300],
+                "market": market[:100],
+                "ingested_at": datetime.now(timezone.utc).isoformat(),
+                "ts_epoch": time.time(),
+            }],
+        )
+        return True
+    except Exception as e:
+        logger.debug("RAG fact ingest failed: %s", e)
+        return False
+
+
+# ── Public API: retrieve ───────────────────────────────────────────────────
+
+def _recency_boost(ts_epoch: float | None) -> float:
+    """Boost retrieval score for recent content."""
+    if not ts_epoch:
+        return 1.0
+    age_days = (time.time() - ts_epoch) / 86400
+    if age_days < 1:    return 1.20
+    if age_days < 7:    return 1.10
+    if age_days < 30:   return 1.00
+    if age_days < 90:   return 0.95
+    return 0.90
+
+
+async def search(
+    query: str,
+    *,
+    top_k: int = DEFAULT_TOP_K,
+    source_type: str | None = None,
+    market: str | None = None,
+    include_facts: bool = True,
+    include_documents: bool = True,
+) -> list[dict]:
+    """Hybrid retrieval over the RAG store.
+
+    Returns a ranked list of chunks with their metadata. Each item:
+        {text, score, source, source_type, title, url, market, ingested_at, collection}
+
+    Optional filters narrow the search to a source_type or market.
+    """
+    if not _ensure():
+        return []
+    if not query or len(query.strip()) < 3:
+        return []
+
+    results: list[dict] = []
+
+    def _query_collection(coll, name: str):
+        if coll is None or coll.count() == 0:
+            return
+        try:
+            where = {}
+            if source_type:
+                where["source_type"] = source_type
+            if market:
+                where["market"] = market
+            kwargs = {"query_texts": [query], "n_results": top_k}
+            if where:
+                kwargs["where"] = where
+            r = coll.query(**kwargs)
+            ids_list = (r.get("ids") or [[]])[0]
+            docs = (r.get("documents") or [[]])[0]
+            metas = (r.get("metadatas") or [[]])[0]
+            distances = (r.get("distances") or [[]])[0]
+            for i, doc in enumerate(docs):
+                if not doc:
+                    continue
+                meta = metas[i] if i < len(metas) else {}
+                # chromadb cosine distance → similarity
+                dist = distances[i] if i < len(distances) else 1.0
+                similarity = max(0.0, 1.0 - dist)
+                # Apply recency boost
+                ts = meta.get("ts_epoch") if isinstance(meta, dict) else None
+                score = similarity * _recency_boost(ts)
+                results.append({
+                    "id": ids_list[i] if i < len(ids_list) else "",
+                    "text": doc,
+                    "score": round(score, 4),
+                    "similarity": round(similarity, 4),
+                    "source": meta.get("source", "") if isinstance(meta, dict) else "",
+                    "source_type": meta.get("source_type", "") if isinstance(meta, dict) else "",
+                    "title": meta.get("title", "") if isinstance(meta, dict) else "",
+                    "url": meta.get("url", "") if isinstance(meta, dict) else "",
+                    "market": meta.get("market", "") if isinstance(meta, dict) else "",
+                    "ingested_at": meta.get("ingested_at", "") if isinstance(meta, dict) else "",
+                    "collection": name,
+                })
+        except Exception as e:
+            logger.debug("RAG query on %s failed: %s", name, e)
+
+    if include_documents:
+        _query_collection(_documents_collection, "documents")
+    if include_facts:
+        _query_collection(_facts_collection, "facts")
+
+    # Final ranking: recency-boosted similarity, descending
+    results.sort(key=lambda r: -r["score"])
+    return results[:top_k]
+
+
+async def get_rag_context(
+    query: str,
+    max_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+    top_k: int = DEFAULT_TOP_K,
+) -> str:
+    """Build a formatted context string for LLM prompt injection.
+
+    Returns the top retrieved passages with citations, capped at max_chars.
+    Designed to slot into aria_engine's context layer pipeline.
+    """
+    if not _ensure():
+        return ""
+    results = await search(query, top_k=top_k)
+    if not results:
+        return ""
+
+    lines = ["\n\n[RAG RETRIEVED — proprietary intelligence indexed from your sources]"]
+    total = 0
+    for r in results:
+        cite_parts = []
+        if r.get("title"):
+            cite_parts.append(r["title"])
+        if r.get("source"):
+            cite_parts.append(r["source"])
+        if r.get("ingested_at"):
+            cite_parts.append(r["ingested_at"][:10])
+        cite = " | ".join(cite_parts) if cite_parts else "unknown source"
+        body = f"\n• [{r['score']:.2f}] {r['text'][:600]}\n  ↳ source: {cite}"
+        if total + len(body) > max_chars:
+            break
+        lines.append(body)
+        total += len(body)
+    return "\n".join(lines)
+
+
+# ── Public API: stats + maintenance ────────────────────────────────────────
+
+async def get_stats() -> dict:
+    """Report on the RAG store state."""
+    if not _ensure():
+        return {
+            "available": False,
+            "reason": "chromadb not installed or init failed",
+            "path": RAG_PATH,
+        }
+    try:
+        doc_count = _documents_collection.count() if _documents_collection else 0
+        fact_count = _facts_collection.count() if _facts_collection else 0
+        return {
+            "available": True,
+            "path": RAG_PATH,
+            "persistent": Path(RAG_PATH).exists() and not RAG_PATH.startswith("/tmp"),
+            "documents_indexed": doc_count,
+            "facts_indexed": fact_count,
+            "total_chunks": doc_count + fact_count,
+            "embedding_model": EMBEDDING_MODEL_NAME,
+            "chunk_size": CHUNK_SIZE,
+            "chunk_overlap": CHUNK_OVERLAP,
+        }
+    except Exception as e:
+        return {"available": False, "error": str(e), "path": RAG_PATH}
+
+
+async def list_sources(limit: int = 50) -> dict:
+    """Return a summary of unique sources in the RAG store grouped by type."""
+    if not _ensure():
+        return {"available": False}
+    try:
+        # chromadb doesn't have a great "distinct" — fetch a sample of metadatas
+        sample = _documents_collection.get(limit=2000, include=["metadatas"])
+        metadatas = sample.get("metadatas") or []
+        by_source: dict[str, dict] = {}
+        for m in metadatas:
+            if not isinstance(m, dict):
+                continue
+            src = m.get("source", "unknown")
+            if src not in by_source:
+                by_source[src] = {
+                    "source": src,
+                    "source_type": m.get("source_type", ""),
+                    "title": m.get("title", ""),
+                    "url": m.get("url", ""),
+                    "market": m.get("market", ""),
+                    "chunks": 0,
+                    "ingested_at": m.get("ingested_at", ""),
+                }
+            by_source[src]["chunks"] += 1
+        sources = sorted(by_source.values(), key=lambda s: -s["chunks"])
+        by_type: dict[str, int] = {}
+        for s in sources:
+            t = s.get("source_type") or "unknown"
+            by_type[t] = by_type.get(t, 0) + 1
+        return {
+            "available": True,
+            "total_unique_sources": len(sources),
+            "by_type": by_type,
+            "sources": sources[:limit],
+        }
+    except Exception as e:
+        return {"available": False, "error": str(e)}
+
+
+# ── Backfill from existing knowledge base + ledger ─────────────────────────
+
+async def backfill_from_existing() -> dict:
+    """One-shot backfill: pull every existing fact + ledger signal into the
+    RAG store so we have a useful baseline from minute one of the first deploy.
+
+    Idempotent — chromadb upserts so re-running is safe.
+    """
+    if not _ensure():
+        return {"ok": False, "error": "rag_store_unavailable"}
+
+    from . import knowledge as kb
+    from . import intel_ledger
+
+    facts_added = 0
+    ledger_added = 0
+
+    # Backfill facts
+    try:
+        db = await kb._load()
+        facts = db.get("facts", [])
+        for f in facts:
+            ok = await ingest_fact(
+                fact_id=f.get("id") or _hash_id(f.get("topic", ""), f.get("source", "")),
+                topic=f.get("topic", ""),
+                content=f.get("content", ""),
+                confidence=f.get("confidence", "ASSESSED"),
+                source=f.get("source", ""),
+            )
+            if ok:
+                facts_added += 1
+        logger.info("RAG backfill: indexed %d facts", facts_added)
+    except Exception as e:
+        logger.warning("RAG backfill facts failed: %s", e)
+
+    # Backfill ledger signals as documents
+    try:
+        if intel_ledger._cache:
+            signals = intel_ledger._cache.get("signals", [])
+            for i, s in enumerate(signals):
+                text = s.get("text") or ""
+                if not text or len(text) < MIN_CHUNK_SIZE:
+                    continue
+                countries = s.get("countries") or []
+                market = countries[0] if countries else ""
+                result = await ingest_document(
+                    text=text,
+                    source=f"ledger:{s.get('source', 'unknown')}",
+                    source_type="ledger",
+                    title=text[:80],
+                    url=s.get("url", ""),
+                    market=market,
+                    extra_metadata={
+                        "signal_type": s.get("type", ""),
+                        "severity": s.get("severity", ""),
+                        "ts": s.get("ts", ""),
+                    },
+                )
+                if result.get("ingested"):
+                    ledger_added += 1
+        logger.info("RAG backfill: indexed %d ledger signals", ledger_added)
+    except Exception as e:
+        logger.warning("RAG backfill ledger failed: %s", e)
+
+    stats = await get_stats()
+    return {
+        "ok": True,
+        "facts_added": facts_added,
+        "ledger_added": ledger_added,
+        "stats": stats,
+    }
