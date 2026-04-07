@@ -61,6 +61,7 @@ from ..intel import feedback as feedback_store
 from ..intel import eval_runner
 from ..intel import source_verifier
 from ..intel import cost_tracker
+from ..intel import trace_stream
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -367,6 +368,7 @@ class FeedbackSnapshotRequest(BaseModel):
     user: str = ""
     group_name: str = ""
     metadata: dict = {}
+    trace_id: str = ""
 
 
 class FeedbackReactionRequest(BaseModel):
@@ -380,7 +382,9 @@ class FeedbackReactionRequest(BaseModel):
 @router.post("/feedback/snapshot")
 async def feedback_snapshot_ep(req: FeedbackSnapshotRequest):
     """Persist the Q→A pair for an ARIA reply so a later WhatsApp reaction
-    can retrieve the context. Called by the WA listener after sending."""
+    can retrieve the context. Called by the WA listener after sending.
+    Accepts trace_id (from /chat response) so reactions can attach
+    themselves to the trace_stream record for joined inspection."""
     return await feedback_store.snapshot_reply(
         chat_id=req.chat_id,
         msg_id=req.msg_id,
@@ -389,6 +393,7 @@ async def feedback_snapshot_ep(req: FeedbackSnapshotRequest):
         user=req.user,
         group_name=req.group_name,
         metadata=req.metadata,
+        trace_id=req.trace_id,
     )
 
 
@@ -600,6 +605,44 @@ async def cost_call_get_ep(call_id: str):
     rec = await cost_tracker.get_call_record(call_id)
     if not rec:
         raise HTTPException(status_code=404, detail="call not found")
+    return rec
+
+
+# ── Trace stream: joined view across cost / verification / feedback ──────
+@router.get("/trace/recent")
+async def trace_recent_ep(
+    limit: int = 30,
+    status: str | None = None,
+    source: str | None = None,
+    bad_only: bool = False,
+):
+    """List recent trace summaries. bad_only=true returns traces that
+    either errored, scored ungrounded, or got 👎 feedback — i.e. the set
+    the team should investigate first."""
+    return {
+        "traces": await trace_stream.list_traces(
+            limit=limit,
+            status_filter=status,
+            source_filter=source,
+            bad_only=bad_only,
+        ),
+    }
+
+
+@router.get("/trace/stats")
+async def trace_stats_ep():
+    """Aggregate trace counts + averages."""
+    return await trace_stream.get_trace_stats()
+
+
+@router.get("/trace/{trace_id}")
+async def trace_get_ep(trace_id: str):
+    """Full trace record — question, response, every LLM call with cost,
+    verification verdict, feedback (if any). The complete lifecycle of
+    one ARIA reply in one record."""
+    rec = await trace_stream.get_trace(trace_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="trace not found")
     return rec
 
 
@@ -1239,65 +1282,87 @@ async def chat_ep(req: ChatRequest, request: Request):
     llm = get_llm(request)
     intel = get_intel_data(request)
 
-    # Attribute every LLM call from this chat path to "chat" so /cost
-    # can show what user-driven traffic costs vs background cycles.
-    with cost_tracker.feature("chat"):
-        # ── NLU tool-use: detect investigative intent and run tools first ────
-        tool_context = ""
-        tool_used = None
-        if req.auto_tools:
-            intent = _detect_tool_intent(req.message)
-            if intent and llm and llm.is_configured:
-                tool_used = intent.get("tool")
-                _log.info("ARIA chat tool-use detected: %s", intent)
-                tool_context = await _execute_tool(intent, llm)
-
-        # If a tool ran, prepend the result to the message so the LLM sees the data
-        message_for_llm = req.message
-        if tool_context:
-            message_for_llm = (
-                f"{req.message}\n\n"
-                f"[I have already run the appropriate tool on your request. "
-                f"Use the data below to answer comprehensively, cite specific findings, "
-                f"and end with a clear recommendation.]"
-                f"{tool_context}"
-            )
-
-        result = await aria_chat(message_for_llm, session_id, llm, intel)
-    if tool_used:
-        result["tool_used"] = tool_used
-
-    # ── Cited-source verification (deterministic hallucination check) ────
-    # Compare URLs the LLM cited against URLs the tool actually fetched.
-    # Skipped silently when no tool ran (nothing to verify against) — but
-    # we still record it so the index has a "no_tool" data point. Failure
-    # here must NEVER affect the chat response, so wrap defensively.
+    # Start a trace for this chat request — joins cost, verification,
+    # and (later) feedback under one id so /trace shows the full
+    # lifecycle of one ARIA reply.
+    trace_id = await trace_stream.start_trace(
+        question=req.message,
+        session_id=session_id,
+        user=req.session_id or "",
+        source="chat",
+    )
+    response_text = ""
+    tool_used = None
+    tool_context = ""
     try:
-        response_text = (result or {}).get("response") or (result or {}).get("answer") or ""
-        if response_text:
-            verification = source_verifier.verify_response(response_text, tool_context)
-            saved = await source_verifier.record_verification(
-                verification,
-                request_id=session_id,
-                session_id=session_id,
-                user=req.session_id or "",
-                question_preview=req.message,
-                response_preview=response_text,
-                tool_used=tool_used or "",
-            )
-            # Attach a compact summary to the chat response so callers
-            # (WA listener, eval framework) can surface it inline.
-            result["verification"] = {
-                "id": saved.get("id"),
-                "verdict": verification.get("verdict"),
-                "grounded_rate": verification.get("grounded_rate"),
-                "cited": len(verification.get("cited_urls", [])),
-                "unverified": len(verification.get("unverified", [])),
-            }
-    except Exception as e:
-        _log.debug("source verification failed (non-fatal): %s", e)
+        # Attribute every LLM call from this chat path to "chat" so /cost
+        # can show what user-driven traffic costs vs background cycles.
+        with cost_tracker.feature("chat"):
+            # ── NLU tool-use: detect investigative intent and run tools first ──
+            if req.auto_tools:
+                intent = _detect_tool_intent(req.message)
+                if intent and llm and llm.is_configured:
+                    tool_used = intent.get("tool")
+                    _log.info("ARIA chat tool-use detected: %s", intent)
+                    tool_context = await _execute_tool(intent, llm)
 
-    return result
+            # If a tool ran, prepend the result to the message so the LLM sees the data
+            message_for_llm = req.message
+            if tool_context:
+                message_for_llm = (
+                    f"{req.message}\n\n"
+                    f"[I have already run the appropriate tool on your request. "
+                    f"Use the data below to answer comprehensively, cite specific findings, "
+                    f"and end with a clear recommendation.]"
+                    f"{tool_context}"
+                )
+
+            result = await aria_chat(message_for_llm, session_id, llm, intel)
+        if tool_used:
+            result["tool_used"] = tool_used
+        result["trace_id"] = trace_id
+
+        response_text = (result or {}).get("response") or (result or {}).get("answer") or ""
+
+        # ── Cited-source verification (deterministic hallucination check) ──
+        try:
+            if response_text:
+                verification = source_verifier.verify_response(response_text, tool_context)
+                saved = await source_verifier.record_verification(
+                    verification,
+                    request_id=session_id,
+                    session_id=session_id,
+                    user=req.session_id or "",
+                    question_preview=req.message,
+                    response_preview=response_text,
+                    tool_used=tool_used or "",
+                )
+                summary = {
+                    "id": saved.get("id"),
+                    "verdict": verification.get("verdict"),
+                    "grounded_rate": verification.get("grounded_rate"),
+                    "cited": len(verification.get("cited_urls", [])),
+                    "unverified": len(verification.get("unverified", [])),
+                }
+                result["verification"] = summary
+                await trace_stream.attach_verification(trace_id, summary)
+        except Exception as e:
+            _log.debug("source verification failed (non-fatal): %s", e)
+
+        return result
+    finally:
+        # Always finalise the trace so /trace doesn't show stuck
+        # in_progress entries even if the request errored out.
+        try:
+            await trace_stream.finish_trace(
+                trace_id,
+                response=response_text,
+                tool_used=tool_used or "",
+                tool_context_size=len(tool_context or ""),
+                status="ok" if response_text else "empty_response",
+            )
+        except Exception as e:
+            _log.debug("finish_trace failed: %s", e)
 
 
 # 19. POST /api/aria/think

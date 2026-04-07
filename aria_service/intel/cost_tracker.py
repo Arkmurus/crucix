@@ -231,6 +231,13 @@ async def record_call(
         })
         index = index[:_INDEX_CAP]
         await rs.set_json(COST_INDEX_KEY, index, ex=COST_TTL)
+        # Self-attach to the active trace if there is one. Lazy import
+        # to avoid an unconditional dependency at module load.
+        try:
+            from . import trace_stream
+            await trace_stream.attach_call_to_current_trace(record)
+        except Exception as e:
+            logger.debug("trace attach failed: %s", e)
         # Per-feature aggregate (cumulative). Cheap to maintain since it's
         # a single key with a few floats.
         agg = await rs.get_json(COST_AGG_KEY) or {}

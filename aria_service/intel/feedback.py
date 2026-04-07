@@ -101,12 +101,17 @@ async def snapshot_reply(
     user: str = "",
     group_name: str = "",
     metadata: dict | None = None,
+    trace_id: str = "",
 ) -> dict:
     """Persist the Q→A pair so a later reaction can recover the context.
 
     Called by the WA listener immediately after sock.sendMessage() returns
     a key. Cheap to call — one Redis SET with TTL — and bounded by the
     7-day TTL so it can't grow without limit.
+
+    trace_id (optional) ties this snapshot to the trace_stream record so
+    a future reaction can attach itself to the trace, completing the
+    feedback → trace → cost/verification join.
     """
     if not chat_id or not msg_id:
         return {"ok": False, "reason": "missing key"}
@@ -118,6 +123,7 @@ async def snapshot_reply(
         "user": (user or "")[:120],
         "group_name": (group_name or "")[:120],
         "metadata": metadata or {},
+        "trace_id": trace_id or "",
         "ts": time.time(),
     }
     try:
@@ -180,6 +186,7 @@ async def record_feedback(
         "original_user": (snap or {}).get("user", ""),
         "group_name": (snap or {}).get("group_name", ""),
         "snapshot_metadata": (snap or {}).get("metadata", {}),
+        "trace_id": (snap or {}).get("trace_id", ""),
     }
 
     try:
@@ -205,6 +212,17 @@ async def record_feedback(
         "Feedback recorded: %s sentiment=%s emoji=%s reactor=%s context=%s",
         feedback_id, sentiment, emoji, record["reactor"], record["has_context"],
     )
+
+    # If the snapshot carried a trace_id, attach this feedback record to
+    # the trace so /trace shows the user reaction inline. Fire-and-forget.
+    trace_id = (snap or {}).get("trace_id") or ""
+    if trace_id:
+        try:
+            from . import trace_stream
+            import asyncio as _aio
+            _aio.create_task(trace_stream.attach_feedback(trace_id, record))
+        except Exception as e:
+            logger.debug("attach_feedback dispatch failed: %s", e)
 
     # Fire self-diagnostic on negative feedback so the improvement loop
     # picks it up the same way it picks up runtime errors. Fire-and-forget;
