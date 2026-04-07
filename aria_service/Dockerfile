@@ -41,6 +41,18 @@ RUN mkdir -p /data/aria_rag && chmod 755 /data/aria_rag
 COPY aria_service/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# ── Pre-bake sentence-transformers model into image ─────────────────────────
+# Past incident 2026-04-07: every cold start triggered the all-MiniLM-L6-v2
+# model download from HuggingFace (~80MB, 30-90s blocking I/O), called
+# inline by one of the intel module init functions during lifespan startup.
+# This blocked uvicorn from binding to 0.0.0.0:8000, fly health checks
+# failed, and the deploy rolled back.
+#
+# Baking the model at image build time means it's already on disk at boot,
+# so the first _get_embedder() call is a fast file read instead of an HTTP
+# download. Adds ~80MB to the image but makes cold starts predictable.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+
 COPY aria_service/ ./aria_service/
 
 # NOTE: EasyOCR model weights are NOT pre-warmed at build time anymore.
