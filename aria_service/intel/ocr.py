@@ -113,10 +113,16 @@ async def extract_text_from_image(
             return None
         return await _ocr_via_llm(image_data, mime, context, llm)
 
+    # Tesseract runs first because it's ~30MB resident vs ~200MB for EasyOCR
+    # and the binary + eng/por/fra/spa lang packs are installed in the Docker
+    # image. EasyOCR remains as a higher-quality fallback for images Tesseract
+    # can't read (handwriting, rotated text, low contrast). Past incident:
+    # the chain used to start with EasyOCR which OOM-killed the worker on the
+    # first cold-load alongside sentence-transformers + chromadb.
     chain = (
-        [_try_cloud, _try_easyocr, _try_tesseract, _try_ollama_vision, _try_ocrspace]
+        [_try_cloud, _try_tesseract, _try_easyocr, _try_ollama_vision, _try_ocrspace]
         if prefer_cloud
-        else [_try_easyocr, _try_tesseract, _try_ollama_vision, _try_ocrspace, _try_cloud]
+        else [_try_tesseract, _try_easyocr, _try_ollama_vision, _try_ocrspace, _try_cloud]
     )
 
     # Track whether any LOCAL backend was actually available so we know
@@ -747,6 +753,56 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
         logger.warning("LLM vision OCR failed: %s", e)
 
     return None
+
+
+# ── Pre-warm hook ──────────────────────────────────────────────────────────
+# Called from main.py lifespan in a background task so OCR backends are loaded
+# deterministically at startup instead of cold-loading mid-request and racing
+# against sentence-transformers / chromadb / inflight LLM calls for memory.
+# Past incident: a 200MB EasyOCR cold-load on the first user image OOM-killed
+# the fly.io worker. Pre-warming makes the memory cost predictable.
+async def prewarm_ocr() -> dict:
+    """Eager-load OCR backends so the first user image doesn't pay the cold-start
+    cost (and doesn't OOM mid-request). Safe to call from a background task —
+    runs the model load in an executor and never raises.
+
+    Returns a status dict so the caller can log what got warmed.
+    """
+    import asyncio as _aio
+    status = {"tesseract": False, "easyocr": False}
+    # Tesseract: cheap probe — just import + version check
+    try:
+        loop = _aio.get_running_loop()
+        def _probe_tesseract():
+            import pytesseract
+            from PIL import Image  # noqa: F401
+            return str(pytesseract.get_tesseract_version())
+        version = await loop.run_in_executor(None, _probe_tesseract)
+        status["tesseract"] = True
+        status["tesseract_version"] = version
+        logger.info("OCR pre-warm: tesseract %s ready", version)
+    except Exception as e:
+        logger.info("OCR pre-warm: tesseract not available (%s)", e)
+
+    # EasyOCR: only pre-warm if explicitly enabled — loading the model adds
+    # ~200MB of resident RSS even when nobody uses OCR. Default OFF since
+    # tesseract handles 95% of WhatsApp screenshots fine; flip this on if you
+    # need handwriting / rotated text fallback to be warm-ready.
+    if (os.getenv("ARIA_PREWARM_EASYOCR", "") or "").lower() in ("1", "true", "yes"):
+        try:
+            loop = _aio.get_running_loop()
+            reader = await loop.run_in_executor(None, _get_easyocr_reader)
+            status["easyocr"] = reader is not None
+            if reader is not None:
+                logger.info("OCR pre-warm: EasyOCR loaded into RSS")
+            else:
+                logger.info("OCR pre-warm: EasyOCR unavailable (init failed or not installed)")
+        except Exception as e:
+            logger.warning("OCR pre-warm: EasyOCR load raised: %s", e)
+    else:
+        logger.info("OCR pre-warm: EasyOCR pre-warm skipped (set ARIA_PREWARM_EASYOCR=1 to enable)")
+
+    return status
 
 
 # ── Local OCR backend #1: EasyOCR (pure Python, no system binaries) ────────

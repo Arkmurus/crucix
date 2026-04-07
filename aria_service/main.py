@@ -28,6 +28,7 @@ from .intel import student
 from .intel import reasoning_library
 from .intel import proactive
 from .intel import rag_store
+from .intel import ocr as ocr_module
 from .intel.researcher import research_and_learn, get_hypotheses, validate_hypothesis
 from .routes.aria import router as aria_router
 
@@ -94,6 +95,24 @@ async def lifespan(app: FastAPI):
         logger.info(f"LLM provider: {llm.name} ✓")
     else:
         logger.warning(f"LLM provider not configured — set LLM_PROVIDER + LLM_API_KEY")
+
+    # ── OCR pre-warm ────────────────────────────────────────────────────
+    # Load OCR backends in a background task so the first user image
+    # doesn't pay the cold-start cost mid-request. Tesseract is cheap to
+    # probe; EasyOCR is opt-in via ARIA_PREWARM_EASYOCR. Past incident
+    # (2026-04-07): EasyOCR cold-loaded its 200MB model on the first OCR
+    # call and OOM-killed the worker.
+    async def _prewarm_ocr_bg():
+        # Wait until sentence-transformers + chromadb have settled so we
+        # don't pile model loads on top of each other and trigger an OOM
+        # before traffic even arrives.
+        await asyncio.sleep(20)
+        try:
+            status = await ocr_module.prewarm_ocr()
+            logger.info("[OCR Pre-warm] %s", status)
+        except Exception as e:
+            logger.warning("[OCR Pre-warm] failed: %s", e)
+    ocr_prewarm_task = asyncio.create_task(_prewarm_ocr_bg())
 
     # Start autonomous research scheduler (every 30 minutes)
     research_task = None
@@ -263,6 +282,8 @@ async def lifespan(app: FastAPI):
         library_consolidate_task.cancel()
     if proactive_task:
         proactive_task.cancel()
+    if ocr_prewarm_task:
+        ocr_prewarm_task.cancel()
     logger.info("ARIA Service shutting down")
 
 
