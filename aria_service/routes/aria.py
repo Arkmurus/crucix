@@ -57,6 +57,7 @@ from ..intel import student
 from ..intel import proactive
 from ..intel import rag_store
 from ..intel import research_tasks
+from ..intel import feedback as feedback_store
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -352,6 +353,81 @@ async def research_list_ep(limit: int = 30, status: str | None = None):
 async def research_stats_ep():
     """Overview of the research task system."""
     return await research_tasks.get_stats()
+
+
+# ── Feedback: WhatsApp reaction → ground-truth signal ────────────────────
+class FeedbackSnapshotRequest(BaseModel):
+    chat_id: str
+    msg_id: str
+    question: str = ""
+    answer: str = ""
+    user: str = ""
+    group_name: str = ""
+    metadata: dict = {}
+
+
+class FeedbackReactionRequest(BaseModel):
+    chat_id: str
+    msg_id: str
+    emoji: str
+    reactor: str = ""
+    reactor_jid: str = ""
+
+
+@router.post("/feedback/snapshot")
+async def feedback_snapshot_ep(req: FeedbackSnapshotRequest):
+    """Persist the Q→A pair for an ARIA reply so a later WhatsApp reaction
+    can retrieve the context. Called by the WA listener after sending."""
+    return await feedback_store.snapshot_reply(
+        chat_id=req.chat_id,
+        msg_id=req.msg_id,
+        question=req.question,
+        answer=req.answer,
+        user=req.user,
+        group_name=req.group_name,
+        metadata=req.metadata,
+    )
+
+
+@router.post("/feedback")
+async def feedback_record_ep(req: FeedbackReactionRequest):
+    """Record a WhatsApp reaction emoji as feedback on an ARIA reply.
+    Looks up the snapshot if present, classifies sentiment from the emoji,
+    and (on negative) fires the self-improve diagnose loop."""
+    if not req.chat_id or not req.msg_id:
+        raise HTTPException(status_code=400, detail="chat_id and msg_id required")
+    return await feedback_store.record_feedback(
+        chat_id=req.chat_id,
+        msg_id=req.msg_id,
+        emoji=req.emoji,
+        reactor=req.reactor,
+        reactor_jid=req.reactor_jid,
+    )
+
+
+@router.get("/feedback/list")
+async def feedback_list_ep(limit: int = 30, sentiment: str | None = None):
+    """List recent feedback. sentiment ∈ {positive, negative, uncertain, neutral}."""
+    return {
+        "feedback": await feedback_store.list_feedback(
+            limit=limit, sentiment_filter=sentiment,
+        ),
+    }
+
+
+@router.get("/feedback/stats")
+async def feedback_stats_ep():
+    """Aggregate feedback counts + rough quality score."""
+    return await feedback_store.get_feedback_stats()
+
+
+@router.get("/feedback/{feedback_id}")
+async def feedback_get_ep(feedback_id: str):
+    """Full record for one feedback item, including original Q&A snapshot."""
+    rec = await feedback_store.get_feedback(feedback_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="feedback not found")
+    return rec
 
 
 # ── RAG store: persistent retrieval-augmented generation ──────────────────
