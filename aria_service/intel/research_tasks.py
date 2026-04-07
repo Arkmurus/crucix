@@ -245,6 +245,9 @@ async def _run_task(task_id: str, llm: Any) -> None:
             error=str(e)[:500],
             failed_at=time.time(),
         )
+        # Push a failure alert so the team knows the background work died
+        # rather than silently disappearing
+        await _push_failure_alert(task_id, task, e)
         # Fire self-diagnostic so ARIA learns from the failure
         try:
             from . import self_improve
@@ -449,6 +452,29 @@ async def _push_completion_alert(task_id: str, task: dict, result: dict) -> None
         })
     except Exception as e:
         logger.warning("Push completion alert failed: %s", e)
+
+
+async def _push_failure_alert(task_id: str, task: dict, err: Exception) -> None:
+    """When a task fails, surface it to the alerts group so the team can
+    intervene rather than waiting indefinitely for a result that never lands."""
+    try:
+        from . import proactive
+        title = task.get("title") or task.get("type") or "research task"
+        body = (
+            f"*Task {task_id}* — _{title}_\n"
+            f"Type: {task.get('type')}\n"
+            f"Error: {str(err)[:600]}\n\n"
+            f"_Use */task {task_id}* for full details._"
+        )
+        await proactive.push_alert({
+            "type": "research_failed",
+            "title": f"❌ Research failed — {title}",
+            "severity": "warning",
+            "body": body,
+            "metadata": {"task_id": task_id, "task_type": task.get("type")},
+        })
+    except Exception as e:
+        logger.warning("Push failure alert failed: %s", e)
 
 
 # ── Stats ───────────────────────────────────────────────────────────────────
