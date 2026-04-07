@@ -1,0 +1,516 @@
+"""
+ARIA Symbolic Reasoner — pure-Python rules engine for defence intelligence.
+
+No LLM calls. No statistical models. Just deterministic logic encoding the
+hard rules of export control, sanctions, procurement structure, market
+scoring, and deal feasibility.
+
+Why this exists
+═══════════════
+A frontier LLM is overkill for questions like:
+  - "Can we export 5.56mm ammunition to Mali?"
+  - "Is K9 Thunder ITAR-controlled?"
+  - "What licence do we need for Angola?"
+  - "Is Mozambique under any embargoes?"
+
+These have RIGHT answers that can be looked up in tables and matrices. The
+LLM was wasting tokens (and your money) hallucinating around a deterministic
+question. The symbolic reasoner answers these instantly with zero ambiguity
+and zero external calls.
+
+Coverage areas
+══════════════
+1. Export licence routing (UK SITCL/SIEL/OGEL/SITEL by destination + ML category)
+2. Embargo / sanctions tier lookup (UN/EU/UK/US/OFAC)
+3. ML category classification from product description
+4. ECCN ↔ ML cross-mapping
+5. Country risk tier (LOW/MEDIUM/HIGH/EMBARGOED)
+6. Procurement feasibility scoring (relationship tier × compliance × competition)
+7. Common reasoning chains (if-this-then-that for typical defence broker queries)
+
+Usage
+═════
+    from .intel import symbolic_reasoner
+
+    answer = symbolic_reasoner.reason("can we export K9 Thunder to angola?")
+    if answer["confident"]:
+        return answer["response"]
+
+    # Otherwise fall through to LLM
+    return await llm.complete(...)
+"""
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any, Optional
+
+from . import tech_classifier
+
+logger = logging.getLogger("aria.symbolic")
+
+# ── Knowledge tables (the "facts ARIA knows by heart") ─────────────────────
+
+# Embargoed destinations (UN / EU / UK / US comprehensive)
+EMBARGOED_COUNTRIES = {
+    "RU": {"name": "Russia",       "regimes": ["UN-SC", "EU", "UK-OFSI", "US-OFAC"], "scope": "comprehensive"},
+    "BY": {"name": "Belarus",      "regimes": ["EU", "UK-OFSI"], "scope": "comprehensive"},
+    "IR": {"name": "Iran",         "regimes": ["UN-SC", "EU", "UK-OFSI", "US-OFAC"], "scope": "comprehensive"},
+    "KP": {"name": "North Korea",  "regimes": ["UN-SC", "EU", "UK-OFSI", "US-OFAC"], "scope": "comprehensive"},
+    "SY": {"name": "Syria",        "regimes": ["UN-SC", "EU", "UK-OFSI", "US-OFAC"], "scope": "comprehensive"},
+    "CU": {"name": "Cuba",         "regimes": ["US-OFAC"], "scope": "partial"},
+    "VE": {"name": "Venezuela",    "regimes": ["EU", "US-OFAC", "UK-OFSI"], "scope": "comprehensive"},
+    "MM": {"name": "Myanmar",      "regimes": ["EU", "UK-OFSI", "US-OFAC"], "scope": "arms"},
+    "CF": {"name": "Central African Republic", "regimes": ["UN-SC"], "scope": "arms"},
+    "CD": {"name": "DRC",          "regimes": ["UN-SC"], "scope": "arms"},
+    "LY": {"name": "Libya",        "regimes": ["UN-SC", "EU"], "scope": "arms"},
+    "ML": {"name": "Mali",         "regimes": ["UN-SC", "EU"], "scope": "arms"},
+    "SO": {"name": "Somalia",      "regimes": ["UN-SC"], "scope": "arms"},
+    "SD": {"name": "Sudan",        "regimes": ["UN-SC", "EU"], "scope": "arms"},
+    "SS": {"name": "South Sudan",  "regimes": ["UN-SC", "EU"], "scope": "arms"},
+    "YE": {"name": "Yemen",        "regimes": ["UN-SC"], "scope": "arms"},
+    "AF": {"name": "Afghanistan",  "regimes": ["UN-SC", "EU"], "scope": "arms"},
+    "ZW": {"name": "Zimbabwe",     "regimes": ["EU", "UK-OFSI"], "scope": "arms"},
+    "ER": {"name": "Eritrea",      "regimes": ["UN-SC"], "scope": "arms"},
+    "HT": {"name": "Haiti",        "regimes": ["UN-SC"], "scope": "arms"},
+    "IQ": {"name": "Iraq",         "regimes": ["UN-SC"], "scope": "limited"},  # Saddam-era residual
+    "NI": {"name": "Nicaragua",    "regimes": ["EU"], "scope": "arms"},
+    "CN": {"name": "China",        "regimes": ["EU"], "scope": "arms"},  # 1989 EU arms embargo still in force
+}
+
+HIGH_RISK = {
+    "GW": "Guinea-Bissau", "CM": "Cameroon", "NE": "Niger", "BF": "Burkina Faso",
+    "TD": "Chad", "PK": "Pakistan", "EG": "Egypt", "TR": "Türkiye",
+    "IN": "India", "ET": "Ethiopia",
+}
+
+MEDIUM_RISK = {
+    "AO": "Angola", "MZ": "Mozambique", "NG": "Nigeria", "SN": "Senegal",
+    "CI": "Côte d'Ivoire", "UG": "Uganda", "ID": "Indonesia", "VN": "Vietnam",
+    "CO": "Colombia", "PE": "Peru", "SA": "Saudi Arabia", "AE": "UAE", "JO": "Jordan",
+}
+
+# Country name → ISO2
+NAME_TO_ISO = {v["name"].lower(): k for k, v in EMBARGOED_COUNTRIES.items()}
+NAME_TO_ISO.update({v.lower(): k for k, v in HIGH_RISK.items()})
+NAME_TO_ISO.update({v.lower(): k for k, v in MEDIUM_RISK.items()})
+NAME_TO_ISO.update({
+    "drc": "CD", "congo": "CD", "burma": "MM", "cote d'ivoire": "CI",
+    "ivory coast": "CI", "north korea": "KP", "south korea": "KR",
+})
+
+# UK ECJU licence routes by ML category and destination tier
+LICENCE_ROUTES = {
+    "low_risk": {
+        "ML1": "OGEL military goods (lethal) — open general licence available; check end-use",
+        "ML2": "SIEL Standard Individual Export Licence — typically required for artillery",
+        "ML3": "OGEL or SIEL — depends on quantity and end-use certificate",
+        "ML4": "SIEL or SITCL — controlled missile/rocket items always require individual licence",
+        "ML6": "SIEL — armoured vehicles always require individual licence",
+        "ML9": "SIEL — naval vessels require individual licence",
+        "ML10": "SIEL — aircraft + UAVs always require individual licence",
+        "ML11": "OGEL or SIEL — depends on whether it's a controlled cryptographic item",
+        "ML15": "SIEL — radar/EO/IR equipment requires individual licence",
+    },
+    "medium_risk": {
+        "ML1": "SIEL Standard Individual Export Licence — end-use certificate required",
+        "ML2": "SIEL — enhanced due diligence required",
+        "ML3": "SIEL with EUC — diversion risk assessment required",
+        "ML4": "SITCL Standard Individual Trade Control Licence — strongly scrutinised",
+        "ML6": "SIEL with full EUC + maintenance plan",
+        "ML9": "SIEL with EUC + delivery monitoring",
+        "ML10": "SIEL — UAVs especially scrutinised under MTCR",
+        "ML11": "SIEL — review against Wassenaar dual-use",
+        "ML15": "SIEL — review against Wassenaar dual-use",
+    },
+    "high_risk": {
+        "ML1": "SITCL with full ECJU review — high probability of refusal",
+        "ML2": "SITCL — escalated review",
+        "ML3": "SITCL — strong diversion risk",
+        "ML4": "SITCL — likely refused for missiles/MANPADS",
+        "ML6": "SITCL — escalated to FCDO consultation",
+        "ML9": "SITCL — escalated review",
+        "ML10": "SITCL — UAVs require special MTCR review",
+        "ML11": "SITCL — political review required",
+        "ML15": "SITCL — Wassenaar review + political clearance",
+    },
+    "embargoed": {
+        "any": "PROHIBITED — destination is under arms embargo. No licence will be granted. "
+                "Discussing the deal may itself constitute brokering offence under UK Trade in "
+                "Goods (Categories of Controlled Goods) Order 2008.",
+    },
+}
+
+# CPLP / Lusophone markets where Arkmurus has incumbent advantage
+LUSOPHONE_INCUMBENT = {"AO", "MZ", "GW", "CV", "ST", "BR", "PT", "TL"}
+LUSOPHONE_NAMES = {"angola", "mozambique", "guinea-bissau", "guinea bissau", "cape verde",
+                   "são tomé", "sao tome", "brazil", "portugal", "timor-leste", "east timor"}
+
+# Arkmurus relationship tiers (matches the system prompt)
+RELATIONSHIP_TIERS = {
+    "incumbent":   {"AO", "MZ", "GW", "CV", "ST"},
+    "established": {"ZA", "KE", "NG"},
+    "developing":  {"SN", "GH", "ET", "RW", "UG", "CM"},
+    "cold_entry":  {"ID", "PH", "VN", "AE", "SA", "PL", "TH", "MY"},
+}
+
+
+def _country_to_iso(country: str) -> str:
+    """Normalise a country reference to ISO2."""
+    if not country:
+        return ""
+    c = country.strip().lower()
+    if len(c) == 2 and c.upper().isalpha():
+        return c.upper()
+    return NAME_TO_ISO.get(c, "")
+
+
+def _country_tier(iso: str) -> str:
+    if not iso:
+        return "unknown"
+    if iso in EMBARGOED_COUNTRIES: return "embargoed"
+    if iso in HIGH_RISK:           return "high_risk"
+    if iso in MEDIUM_RISK:         return "medium_risk"
+    return "low_risk"
+
+
+def _arkmurus_tier(iso: str) -> str:
+    for tier, isos in RELATIONSHIP_TIERS.items():
+        if iso in isos:
+            return tier
+    return "no_relationship"
+
+
+# ── Intent rules (pattern → handler) ────────────────────────────────────────
+
+def _extract_country(text: str) -> tuple[str, str]:
+    """Find a country mention in free text. Returns (iso, name) or ("", "")."""
+    t = text.lower()
+    for name, iso in NAME_TO_ISO.items():
+        if re.search(rf"\b{re.escape(name)}\b", t):
+            full_name = (
+                EMBARGOED_COUNTRIES.get(iso, {}).get("name")
+                or HIGH_RISK.get(iso)
+                or MEDIUM_RISK.get(iso)
+                or name.title()
+            )
+            return iso, full_name
+    return "", ""
+
+
+def _extract_ml_category(text: str) -> list[str]:
+    """Find ML categories mentioned (or implied via tech_classifier)."""
+    explicit = re.findall(r"\bML\s*(\d{1,2})\b", text, re.IGNORECASE)
+    cats = sorted({f"ML{n}" for n in explicit})
+    if not cats:
+        # Use tech_classifier to detect
+        tc = tech_classifier.classify_text(text)
+        cats = tc.get("ml_categories", [])
+    return cats
+
+
+# ── Handler implementations ────────────────────────────────────────────────
+
+def _handle_export_query(text: str) -> dict | None:
+    """Answer 'can we export X to Y' style queries from the rules tables."""
+    if not re.search(r"\b(?:export|sell|ship|deliver|supply|provide|send)\b", text, re.I):
+        return None
+    if not re.search(r"\bto\b", text, re.I):
+        return None
+
+    iso, country = _extract_country(text)
+    if not iso:
+        return None
+
+    ml_cats = _extract_ml_category(text)
+    tier = _country_tier(iso)
+
+    lines = []
+    if tier == "embargoed":
+        info = EMBARGOED_COUNTRIES[iso]
+        lines.append(f"⛔ *{country} is EMBARGOED*")
+        lines.append(f"Regimes: {', '.join(info['regimes'])}")
+        lines.append(f"Scope: {info['scope']}")
+        lines.append("")
+        lines.append(LICENCE_ROUTES["embargoed"]["any"])
+        lines.append("")
+        lines.append("[CONFIRMED] Recommendation: DO NOT PROCEED. This may be a brokering offence under UK law.")
+        return {
+            "confident": True,
+            "confidence": 0.95,
+            "response": "\n".join(lines),
+            "intent": "export_query",
+            "tier": tier,
+            "country": country,
+            "ml_categories": ml_cats,
+        }
+
+    tier_label = {"high_risk": "🟠 HIGH RISK", "medium_risk": "🟡 MEDIUM RISK", "low_risk": "🟢 LOW RISK"}.get(tier, tier)
+    lines.append(f"*Export query — {country}* ({tier_label})")
+    lines.append("")
+    if ml_cats:
+        lines.append(f"Detected ML categories: {', '.join(ml_cats)}")
+        lines.append("")
+        lines.append("*Licence routing:*")
+        for cat in ml_cats[:5]:
+            route = LICENCE_ROUTES.get(tier, {}).get(cat)
+            if route:
+                lines.append(f"  • {cat}: {route}")
+    else:
+        lines.append("No specific ML category detected — provide product description for routing.")
+
+    # Add Arkmurus angle
+    arkmurus_tier = _arkmurus_tier(iso)
+    if arkmurus_tier == "incumbent":
+        lines.append("")
+        lines.append("✅ *Arkmurus relationship tier: INCUMBENT* (Lusophone Africa) — direct buyer access available.")
+    elif arkmurus_tier == "established":
+        lines.append("")
+        lines.append("✅ *Arkmurus relationship tier: ESTABLISHED* — known to MoD, regular engagement.")
+    elif arkmurus_tier == "developing":
+        lines.append("")
+        lines.append("🟡 *Arkmurus relationship tier: DEVELOPING* — building contacts.")
+    elif arkmurus_tier == "cold_entry":
+        lines.append("")
+        lines.append("🔵 *Arkmurus relationship tier: COLD ENTRY* — needs partner intelligence.")
+
+    lines.append("")
+    lines.append("[PROBABLE] Procurement feasibility: see SIEL/SITCL routing above. Verify with ECJU before commercial commitment.")
+
+    return {
+        "confident": True,
+        "confidence": 0.85,
+        "response": "\n".join(lines),
+        "intent": "export_query",
+        "tier": tier,
+        "country": country,
+        "ml_categories": ml_cats,
+    }
+
+
+def _handle_embargo_query(text: str) -> dict | None:
+    """Answer 'is X embargoed/under sanctions' queries."""
+    if not re.search(r"\b(?:embargo|sanction|sanctioned|prohibit|allowed|legal)\b", text, re.I):
+        return None
+    iso, country = _extract_country(text)
+    if not iso:
+        return None
+
+    if iso in EMBARGOED_COUNTRIES:
+        info = EMBARGOED_COUNTRIES[iso]
+        return {
+            "confident": True,
+            "confidence": 0.95,
+            "response": (
+                f"⛔ *{country}* is under arms embargo.\n\n"
+                f"Active regimes: {', '.join(info['regimes'])}\n"
+                f"Scope: {info['scope']}\n\n"
+                f"[CONFIRMED] No defence exports permitted. Brokering may be a criminal offence."
+            ),
+            "intent": "embargo_query",
+        }
+    if iso in HIGH_RISK:
+        return {
+            "confident": True,
+            "confidence": 0.85,
+            "response": (
+                f"🟠 *{country}* is NOT embargoed but is HIGH-RISK.\n\n"
+                f"[CONFIRMED] Enhanced due diligence required. End-use certificate, diversion risk assessment, "
+                f"and SITCL likely required. Likely subject to political review at FCDO."
+            ),
+            "intent": "embargo_query",
+        }
+    if iso in MEDIUM_RISK:
+        return {
+            "confident": True,
+            "confidence": 0.85,
+            "response": (
+                f"🟡 *{country}* is permitted with standard controls.\n\n"
+                f"[CONFIRMED] Not embargoed. Standard SIEL with end-use certificate required for ML items."
+            ),
+            "intent": "embargo_query",
+        }
+    return {
+        "confident": True,
+        "confidence": 0.80,
+        "response": (
+            f"🟢 *{country}* — no embargo on file in ARIA's static tables.\n\n"
+            f"[ASSESSED] Standard export controls apply. Verify against current ECJU country list before action."
+        ),
+        "intent": "embargo_query",
+    }
+
+
+def _handle_licence_query(text: str) -> dict | None:
+    """Answer 'what licence do I need for X to Y' queries."""
+    if not re.search(r"\b(?:licen[cs]e|sitcl|siel|ogel|sitel|eccn|export\s+control)\b", text, re.I):
+        return None
+    iso, country = _extract_country(text)
+    if not iso:
+        return None
+    ml_cats = _extract_ml_category(text)
+    tier = _country_tier(iso)
+
+    if tier == "embargoed":
+        return _handle_export_query(text)  # handled in export branch
+
+    if not ml_cats:
+        return {
+            "confident": False,
+            "confidence": 0.4,
+            "response": f"Need a specific product/ML category to determine licence route for {country}. "
+                        f"Tell me what you want to ship and I'll route it.",
+            "intent": "licence_query",
+        }
+
+    lines = [f"*Licence routing for {country}* ({tier.replace('_', ' ')})", ""]
+    for cat in ml_cats[:5]:
+        route = LICENCE_ROUTES.get(tier, {}).get(cat)
+        if route:
+            lines.append(f"*{cat}*: {route}")
+            lines.append("")
+    lines.append("[PROBABLE] Routing based on UK ECJU rules. Confirm with current SPIRE guidance before submission.")
+    return {
+        "confident": True,
+        "confidence": 0.85,
+        "response": "\n".join(lines),
+        "intent": "licence_query",
+    }
+
+
+def _handle_classification_query(text: str) -> dict | None:
+    """Answer 'classify this product / what ML category is X'."""
+    if not re.search(r"\b(?:classif|ml\s*\d|eccn|control(?:led)?\s+item|category)\b", text, re.I):
+        return None
+    tc = tech_classifier.classify_text(text)
+    if not tc.get("systems") and not tc.get("calibres") and not tc.get("ml_categories"):
+        return None
+
+    lines = ["*Technical classification*", ""]
+    if tc.get("systems"):
+        lines.append("*Systems detected:*")
+        for s in tc["systems"][:5]:
+            lines.append(f"  • {s.get('designation')} — ML: {s.get('ml')}, ECCN: {s.get('eccn')}, OEM: {s.get('oem')}")
+        lines.append("")
+    if tc.get("calibres"):
+        lines.append("*Calibres detected:*")
+        for c in tc["calibres"][:5]:
+            lines.append(f"  • {c.get('calibre')} — {c.get('use')} (HS {c.get('hs')}, {c.get('ml')})")
+        lines.append("")
+    if tc.get("ml_categories"):
+        lines.append(f"*ML categories:* {', '.join(tc['ml_categories'])}")
+    if tc.get("controlled_items_count", 0) > 0:
+        lines.append(f"⚠️ {tc['controlled_items_count']} controlled item(s) detected")
+    if tc.get("embargo_risks"):
+        lines.append("")
+        lines.append("⛔ *Embargo risks:*")
+        for r in tc["embargo_risks"]:
+            lines.append(f"  - {r}")
+    lines.append("")
+    lines.append("[CONFIRMED] Classification from ARIA's static technical database. Verify against current control lists.")
+    return {
+        "confident": True,
+        "confidence": 0.90,
+        "response": "\n".join(lines),
+        "intent": "classification_query",
+    }
+
+
+def _handle_relationship_query(text: str) -> dict | None:
+    """Answer 'what's our relationship in X' / 'are we incumbent in X' queries."""
+    if not re.search(r"\b(?:relationship|tier|incumbent|established|developing|presence|positioning|advantage)\b", text, re.I):
+        return None
+    iso, country = _extract_country(text)
+    if not iso:
+        return None
+    arkmurus_tier = _arkmurus_tier(iso)
+    if arkmurus_tier == "no_relationship":
+        return {
+            "confident": True,
+            "confidence": 0.85,
+            "response": (
+                f"📍 *{country}* — Arkmurus has *no formal relationship tier* on file.\n\n"
+                f"This is a cold market. Entry requires: (1) local partner identification, "
+                f"(2) MoD introduction via OEM or industry conference, (3) compliance pre-screen.\n\n"
+                f"[ASSESSED] Treat as cold entry — invest 3-6 months relationship-building before pursuing deals."
+            ),
+            "intent": "relationship_query",
+        }
+
+    descriptions = {
+        "incumbent": "ARIA has deep relationships, market intelligence advantage, and direct buyer access.",
+        "established": "ARIA is known to the MoD with regular engagement.",
+        "developing": "ARIA is building contacts — needs sustained relationship investment.",
+        "cold_entry": "ARIA has no significant presence — requires partner-led entry strategy.",
+    }
+    return {
+        "confident": True,
+        "confidence": 0.95,
+        "response": (
+            f"📍 *{country}* — Arkmurus tier: *{arkmurus_tier.upper().replace('_', ' ')}*\n\n"
+            f"{descriptions[arkmurus_tier]}\n\n"
+            f"[CONFIRMED] Tier from Arkmurus positioning matrix."
+        ),
+        "intent": "relationship_query",
+        "tier": arkmurus_tier,
+    }
+
+
+# ── Top-level reasoning entry point ────────────────────────────────────────
+
+# Handlers in priority order (more specific first)
+_HANDLERS = [
+    _handle_export_query,
+    _handle_licence_query,
+    _handle_embargo_query,
+    _handle_classification_query,
+    _handle_relationship_query,
+]
+
+
+def reason(question: str) -> dict:
+    """Try to answer a question using only symbolic rules.
+
+    Returns:
+        {
+            "confident": bool,    # True if a rule fired and produced a clean answer
+            "confidence": float,  # 0..1
+            "response": str,      # the answer text
+            "intent": str,        # which rule fired
+            "source": "symbolic_reasoner",
+        }
+        OR {"confident": False} if no rule matched.
+    """
+    if not question or len(question.strip()) < 5:
+        return {"confident": False, "source": "symbolic_reasoner"}
+
+    text = question.strip()
+    for handler in _HANDLERS:
+        try:
+            result = handler(text)
+            if result and result.get("confident"):
+                result["source"] = "symbolic_reasoner"
+                return result
+        except Exception as e:
+            logger.warning("symbolic handler %s failed: %s", handler.__name__, e)
+            continue
+
+    return {"confident": False, "source": "symbolic_reasoner"}
+
+
+def get_capability_surface() -> dict:
+    return {
+        "rules_loaded": len(_HANDLERS),
+        "intents_supported": [
+            "export_query",
+            "licence_query",
+            "embargo_query",
+            "classification_query",
+            "relationship_query",
+        ],
+        "embargoed_countries_indexed": len(EMBARGOED_COUNTRIES),
+        "high_risk_countries_indexed": len(HIGH_RISK),
+        "medium_risk_countries_indexed": len(MEDIUM_RISK),
+        "licence_routes": sum(len(v) for v in LICENCE_ROUTES.values()),
+        "llm_calls_required": 0,
+    }

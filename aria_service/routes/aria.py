@@ -49,6 +49,9 @@ from ..intel import sanctions as aria_sanctions
 from ..intel import conflict_tracker
 from ..intel import tech_classifier
 from ..intel import local_brain
+from ..intel import reasoning_router
+from ..intel import reasoning_library
+from ..intel import symbolic_reasoner
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -221,6 +224,129 @@ async def correct_ep(req: CorrectionRequest):
 
 
 # 13. GET /api/aria/training-data/stats
+# ── Independence + reasoning ratio ─────────────────────────────────────────
+@router.get("/independence")
+async def independence_ep():
+    """Report ARIA's reasoning independence ratio.
+
+    Tracks: how many of her recent answers came from local reasoning sources
+    (symbolic_reasoner, reasoning_library, local_brain, local_ollama) vs the
+    cloud LLM. The trajectory shows how she is detaching from DeepSeek over
+    time as the library warms up and local models come online.
+
+    This is THE metric for the "ARIA-LLM" product roadmap.
+    """
+    return await reasoning_router.get_independence_report()
+
+
+@router.post("/reasoning-library/find")
+async def reasoning_library_find_ep(request: Request):
+    """Look up a question in ARIA's reasoning library. Pure local — no LLM call.
+
+    Body: {question: "..."}
+    Returns the best matching prior case if any.
+    """
+    body = await request.json()
+    q = (body.get("question") or "").strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="question required")
+    return await reasoning_library.find_match(q)
+
+
+@router.get("/reasoning-library/stats")
+async def reasoning_library_stats_ep():
+    return await reasoning_library.get_stats()
+
+
+@router.post("/reasoning-library/consolidate")
+async def reasoning_library_consolidate_ep():
+    """Trigger maintenance — prune stale cases, promote high-quality."""
+    return await reasoning_library.consolidate()
+
+
+@router.post("/reasoning-library/feedback")
+async def reasoning_library_feedback_ep(request: Request):
+    """Record a positive/negative outcome for a library case.
+
+    Body: {case_id: "...", positive: true/false}
+    Used by the learning loop to upweight good answers and downweight bad.
+    """
+    body = await request.json()
+    case_id = (body.get("case_id") or "").strip()
+    positive = bool(body.get("positive", True))
+    if not case_id:
+        raise HTTPException(status_code=400, detail="case_id required")
+    return await reasoning_library.record_outcome(case_id, positive)
+
+
+@router.post("/reasoning/test")
+async def reasoning_test_ep(request: Request):
+    """Run a question through the FULL local reasoning pipeline without
+    falling through to a cloud LLM. Useful for testing what ARIA can answer
+    on her own RIGHT NOW. Returns the trace of which stages were tried.
+    """
+    body = await request.json()
+    q = (body.get("question") or "").strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="question required")
+    return await reasoning_router.try_local_reasoning(q)
+
+
+@router.get("/training-data/library-export")
+async def training_data_library_export_ep():
+    """Export the reasoning library as JSONL training data.
+
+    This is the path to ARIA-LLM. The library captures (question, response,
+    confidence, intent) tuples — when there are enough of them (~10k+ high-
+    quality cases) you can fine-tune a 7B base model (Qwen2.5/Llama3.1) to
+    serve as ARIA's INDEPENDENT reasoning brain, replacing DeepSeek entirely.
+
+    Output is OpenAI / Anthropic / Llama format compatible.
+    """
+    library_stats = await reasoning_library.get_stats()
+    index = await reasoning_library._load_index()
+    samples = []
+    for entry in index[:5000]:  # cap export to 5000 most recent for memory
+        case = await reasoning_library.rs.get_json(reasoning_library._case_key(entry["id"]))
+        if not case:
+            continue
+        samples.append({
+            "messages": [
+                {"role": "system", "content": "You are ARIA — defence procurement and security intelligence analyst."},
+                {"role": "user", "content": case.get("question", "")},
+                {"role": "assistant", "content": case.get("response", "")},
+            ],
+            "metadata": {
+                "intent": case.get("intent"),
+                "confidence_tag": case.get("confidence_tag"),
+                "confidence_score": case.get("confidence_score"),
+                "source_brain": case.get("source_brain"),
+                "access_count": case.get("access_count"),
+                "positive_outcomes": case.get("positive_outcomes"),
+                "negative_outcomes": case.get("negative_outcomes"),
+            },
+        })
+    return {
+        "format": "messages_jsonl",
+        "samples": samples,
+        "total": len(samples),
+        "library_stats": library_stats,
+        "fine_tune_targets": [
+            "Qwen2.5-7B-Instruct (recommended — strong reasoning, Apache-2.0)",
+            "Llama-3.1-8B-Instruct (alternative, Meta licence)",
+            "Mistral-7B-Instruct-v0.3 (alternative, Apache-2.0)",
+            "DeepSeek-R1-Distill-Qwen-7B (chain-of-thought specialist)",
+        ],
+        "instructions": (
+            "1. Save this as aria_training.jsonl. "
+            "2. Use Axolotl/Unsloth for LoRA fine-tuning (~£15 on a single A100 hour). "
+            "3. Deploy via Ollama: `ollama create aria-llm -f Modelfile` then "
+            "set LLM_PROVIDER=ollama LLM_MODEL=aria-llm. "
+            "4. ARIA's reasoning becomes 100% local at that point."
+        ),
+    }
+
+
 @router.get("/training-data/calibration")
 async def training_calibration_ep():
     """ARIA's confidence calibration report.

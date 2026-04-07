@@ -1809,6 +1809,42 @@ app.get('/api/aria/vision-status', requireAuth, (req, res) =>
     res.status(503).json({ ok: false, error: 'Vision status unavailable — ARIA service offline' });
   }}));
 
+// ── ARIA reasoning independence (proxy) — the ARIA-LLM trajectory metric ───
+app.get('/api/aria/independence', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/independence', { fallback: async () => {
+    res.status(503).json({ error: 'Independence report unavailable — ARIA service offline' });
+  }}));
+
+app.get('/api/aria/reasoning-library/stats', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/reasoning-library/stats', { fallback: async () => {
+    res.status(503).json({ error: 'Reasoning library stats unavailable' });
+  }}));
+
+app.post('/api/aria/reasoning-library/find', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/reasoning-library/find', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Reasoning library lookup unavailable' });
+  }}));
+
+app.post('/api/aria/reasoning-library/feedback', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/reasoning-library/feedback', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Reasoning library feedback unavailable' });
+  }}));
+
+app.post('/api/aria/reasoning-library/consolidate', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/reasoning-library/consolidate', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Reasoning library consolidate unavailable' });
+  }}));
+
+app.post('/api/aria/reasoning/test', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/reasoning/test', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Reasoning test unavailable' });
+  }}));
+
+app.get('/api/aria/training-data/library-export', requireAdmin, (req, res) =>
+  ariaProxy(req, res, '/api/aria/training-data/library-export', { fallback: async () => {
+    res.status(503).json({ error: 'Library export unavailable' });
+  }}));
+
 // ── ARIA fuzzy sanctions / conflict / tech classifier (proxy) ───────────────
 app.post('/api/aria/sanctions/fuzzy', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/sanctions/fuzzy', { method: 'POST', fallback: async () => {

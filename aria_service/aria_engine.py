@@ -29,6 +29,8 @@ from .intel import neural_memory
 from .intel import self_improve
 from .intel.semantic_search import get_semantic_context
 from .intel import local_brain
+from .intel import reasoning_router
+from .intel import reasoning_library
 
 logger = logging.getLogger("aria.engine")
 
@@ -682,6 +684,51 @@ async def aria_chat(
             logger.warning("Self-improvement chat handling failed: %s", e)
             # Fall through to normal chat
 
+    # ── INDEPENDENCE: try local reasoning BEFORE the cloud LLM ──────────
+    # The router walks: symbolic_reasoner → reasoning_library → local_brain →
+    # local_ollama. If any of them produce a confident answer we serve it
+    # directly and SKIP the cloud LLM entirely. This is the engine of ARIA's
+    # slow detachment from cloud reasoning. Every query that gets answered
+    # locally is one fewer dollar spent + one fewer data leak to the vendor.
+    try:
+        local_attempt = await reasoning_router.try_local_reasoning(message)
+        if local_attempt.get("answered"):
+            # Persist the interaction so we still build session memory
+            try:
+                session = await _get_session(session_id)
+                history = (session.get("messages") or [])
+                history.append({"role": "user", "content": message})
+                history.append({"role": "aria", "content": local_attempt["response"]})
+                session["messages"] = history[-MAX_TURNS * 2:]
+                session["updatedAt"] = time.time()
+                await _save_session(session_id, session)
+            except Exception as e:
+                logger.warning("Local-route session persist failed: %s", e)
+
+            # Also feed the neural network — local answers still teach the graph
+            try:
+                await neural_memory.learn_from_text(
+                    f"{message} {local_attempt['response']}",
+                    source=f"local_reasoning:{local_attempt.get('source', 'unknown')}",
+                    llm=None,  # don't waste an LLM call on extraction
+                )
+            except Exception:
+                pass
+
+            return {
+                "response": local_attempt["response"],
+                "session_id": session_id,
+                "source": local_attempt.get("source"),
+                "confidence": local_attempt.get("confidence"),
+                "intent": local_attempt.get("intent"),
+                "reasoning_trace": local_attempt.get("trace"),
+                "duration_ms": local_attempt.get("duration_ms"),
+                "independent": True,
+                "llm_calls_avoided": local_attempt.get("llm_calls_avoided", 1),
+            }
+    except Exception as e:
+        logger.warning("Reasoning router failed (continuing to cloud): %s", e)
+
     session = await _get_session(session_id)
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
 
@@ -798,10 +845,27 @@ async def aria_chat(
     except Exception as e:
         logger.warning("Training data record failed: %s", e)
 
+    # ── DISTILLATION HOOK: capture this cloud LLM response into the
+    # reasoning library so the next similar query can be served locally.
+    # This is the engine of ARIA's slow detachment from cloud reasoning —
+    # every successful answer becomes a CASE that future queries can match.
+    try:
+        provider_name = getattr(llm, "name", "cloud") or "cloud"
+        await reasoning_router.record_cloud_llm_response(
+            message, response_text,
+            intent="chat",
+            context_keys=["live_intel", "knowledge", "ledger", "neural"],
+            source_brain=provider_name,
+        )
+    except Exception as e:
+        logger.warning("Distillation hook failed: %s", e)
+
     return {
         "response": response_text,
         "session_id": session_id,
         "turn": len(history) // 2,
+        "source": "cloud_llm",
+        "independent": False,
     }
 
 
