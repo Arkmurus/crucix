@@ -1809,6 +1809,15 @@ app.get('/api/aria/vision-status', requireAuth, (req, res) =>
     res.status(503).json({ ok: false, error: 'Vision status unavailable — ARIA service offline' });
   }}));
 
+// ── ARIA image OCR (proxy) — used by waListener for group images ───────────
+// Dedicated proxy with a longer body limit (images can be 8MB base64).
+app.post('/api/aria/ocr',
+  express.json({ limit: '12mb' }),
+  requireAuth,
+  (req, res) => ariaProxy(req, res, '/api/aria/ocr', { method: 'POST', fallback: async () => {
+    res.status(503).json({ text: '', method: 'none', error: 'OCR unavailable — ARIA service offline' });
+  }}));
+
 // ── ARIA reasoning independence (proxy) — the ARIA-LLM trajectory metric ───
 app.get('/api/aria/independence', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/independence', { fallback: async () => {

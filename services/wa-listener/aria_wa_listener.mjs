@@ -682,26 +682,139 @@ async function startListener() {
         }
       }
 
-      // ── Document processing — PDF, DOCX, Excel, images ───────────────────
+      // ── Media processing — IMAGES + DOCUMENTS ────────────────────────────
+      // Two separate paths because images need OCR (vision) and documents
+      // need parsing. Previously these were lumped together and images were
+      // sent to /api/aria/read-document which expects PDF/DOCX content,
+      // not image bytes — every image was silently dropped.
       const docMsg = msg.message?.documentMessage;
       const imgMsg = msg.message?.imageMessage;
-      if (docMsg || imgMsg) {
-        const filename = docMsg?.fileName || imgMsg?.caption || 'attachment';
-        const mimetype = docMsg?.mimetype || imgMsg?.mimetype || '';
-        const isProcessable = /pdf|word|spreadsheet|text|csv|image|octet-stream/.test(mimetype);
+
+      // ── IMAGE PATH: download → /api/aria/ocr → reply with extraction ──
+      if (imgMsg) {
+        const caption = imgMsg.caption || '';
+        console.log(`[ARIA Listener] Image shared in ${groupName} by ${senderName}${caption ? ` "${caption.slice(0,60)}"` : ' (no caption)'}`);
+
+        // Immediate ack so the group sees ARIA working
+        await sendReply(chatId, `📥 Got your image. Reading now…`).catch(() => {});
+
+        try {
+          const stream = await sock.downloadMediaMessage(msg);
+          const buffer = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
+            const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
+          })());
+
+          if (!buffer || buffer.length === 0) {
+            await sendReply(chatId, `⚠️ The image appears to be empty.`).catch(() => {});
+          } else {
+            // Cap at 8MB and slice BYTES before base64
+            const MAX_BYTES = 8 * 1024 * 1024;
+            const buf = buffer.length > MAX_BYTES ? buffer.subarray(0, MAX_BYTES) : buffer;
+            const b64 = buf.toString('base64');
+            const sizeKb = Math.round(buffer.length / 102.4) / 10;
+            const filename = `wa_${Date.now()}.jpg`;
+            const contextLabel = caption
+              ? `Image shared in WhatsApp group "${groupName}" by ${senderName}. Caption: ${caption.slice(0, 300)}`
+              : `Image shared in WhatsApp group "${groupName}" by ${senderName} (no caption)`;
+
+            console.log(`[ARIA Listener] OCR request: ${filename} (${sizeKb} KB)`);
+
+            let ocrResult = null;
+            try {
+              ocrResult = await brainPost('/api/aria/ocr', {
+                image: b64,
+                filename,
+                context: contextLabel,
+              });
+            } catch (e) {
+              console.warn('[ARIA Listener] OCR call failed:', e.message);
+            }
+
+            const extracted = (ocrResult?.text || '').trim();
+            if (!extracted) {
+              // Distinguish "blank image" from "no OCR backend installed"
+              let visionConfigured = false;
+              try {
+                const vs = await brainGet('/api/aria/vision-status');
+                visionConfigured = !!vs?.ok;
+              } catch {}
+
+              if (!visionConfigured) {
+                await sendReply(chatId, [
+                  `🖼 *Image received but local OCR is not installed on the ARIA service host.*`,
+                  ``,
+                  `I read images on my own — no cloud LLM needed. Install one of these on the ARIA service:`,
+                  ``,
+                  `*RECOMMENDED — EasyOCR (zero config):*`,
+                  `\`pip install easyocr Pillow\``,
+                  `→ first image takes ~30s for model download, then instant + offline forever.`,
+                  ``,
+                  `*Alternative — Tesseract:*`,
+                  `\`pip install pytesseract Pillow\` + \`apt install tesseract-ocr\``,
+                  ``,
+                  `*Best quality — Ollama vision:*`,
+                  `\`ollama pull minicpm-v\` (auto-detected)`,
+                  ``,
+                  `Use */vision-status* to confirm once installed.`,
+                ].join('\n')).catch(() => {});
+              } else {
+                await sendReply(chatId, `🖼 I looked at the image but couldn't extract any readable text. It may be blank, low-resolution, or contain only diagrams. Tell me what you're looking for and I'll try a different angle.`).catch(() => {});
+              }
+            } else {
+              const method = ocrResult.method || 'vision';
+              const charCount = extracted.length;
+              console.log(`[ARIA Listener] OCR ${method}: ${charCount} chars`);
+
+              // Feed extraction to the knowledge pipeline so ARIA learns
+              let factsLearned = 0;
+              try {
+                const dr = await brainPost('/api/aria/read-document', {
+                  content: extracted.slice(0, 15000),
+                  filename,
+                  source: `whatsapp_group:${groupName}:${senderName}`,
+                  context: caption || `Image OCR from ${groupName}`,
+                  encoding: 'utf-8',
+                  mimetype: 'text/plain',
+                }).catch(() => null);
+                factsLearned = dr?.facts_learned || 0;
+              } catch (e) {
+                console.warn('[ARIA Listener] Image-to-knowledge ingest failed:', e.message);
+              }
+
+              // Build the reply
+              const preview = extracted.slice(0, 700).replace(/\n{3,}/g, '\n\n');
+              const more = extracted.length > 700 ? `\n\n_…+${extracted.length - 700} more chars_` : '';
+              const factsLine = factsLearned > 0 ? `\n\n📚 Learned ${factsLearned} new fact(s) — ask me about them.` : '';
+              const captionLine = caption ? `\n\n_Your caption: ${caption.slice(0, 200)}_` : '';
+
+              await sendReply(chatId, `🖼 *Image read* (${method}, ${charCount} chars):\n\n${preview}${more}${captionLine}${factsLine}`).catch(() => {});
+            }
+          }
+        } catch (e) {
+          console.warn('[ARIA Listener] Image processing failed:', e.message);
+          await sendReply(chatId, `⚠️ Image processing error: ${e.message}`).catch(() => {});
+        }
+      }
+
+      // ── DOCUMENT PATH: PDF / DOCX / Excel / TXT / CSV ─────────────────
+      if (docMsg) {
+        const filename = docMsg.fileName || 'attachment';
+        const mimetype = docMsg.mimetype || '';
+        const isProcessable = /pdf|word|spreadsheet|text|csv|octet-stream|msword|officedocument/.test(mimetype);
         if (isProcessable) {
           console.log(`[ARIA Listener] Processing document: ${filename} (${mimetype})`);
           try {
             const stream = await sock.downloadMediaMessage(msg);
-            const buf = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
+            const buffer = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
               const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
             })());
+            // Slice BYTES (not base64 string!) to avoid mid-character truncation
+            const MAX_BYTES = 8 * 1024 * 1024;
+            const buf = buffer.length > MAX_BYTES ? buffer.subarray(0, MAX_BYTES) : buffer;
             const docType = mimetype.split('/')[1] || 'document';
             const isBinary = /pdf|word|spreadsheet|octet-stream|msword|officedocument/.test(mimetype);
-            // Binary formats → send as base64 for server-side parsing
-            // Text formats → send as UTF-8 directly
             const content = isBinary
-              ? buf.toString('base64').slice(0, 200000)
+              ? buf.toString('base64')                  // FULL base64 of byte-sliced buffer
               : buf.toString('utf-8').slice(0, 15000);
             if (content.length > 50) {
               const result = await brainPost('/api/aria/read-document', {
@@ -715,7 +828,7 @@ async function startListener() {
               if (result) {
                 const summary = result.summary || `${docType} file, ${content.length} characters`;
                 console.log(`[ARIA Listener] Doc processed: ${filename} → ${result.facts_learned || 0} facts`);
-                await sendReply(chatId, `📄 I've read *${filename}*. ${summary} (${content.length} chars, ${docType}). Ask me anything about it.`);
+                await sendReply(chatId, `📄 I've read *${filename}*. ${summary}\n\nAsk me anything about it.`);
               }
             }
           } catch (e) {
@@ -724,7 +837,7 @@ async function startListener() {
         }
       }
 
-      if (!text.trim()) continue;   // skip media-only messages with no caption
+      if (!text.trim()) continue;   // skip text routing for media-only messages
 
       const ts = new Date(
         (msg.messageTimestamp ? Number(msg.messageTimestamp) * 1000 : Date.now())
