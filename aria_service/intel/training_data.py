@@ -185,6 +185,194 @@ async def get_stats() -> dict:
     return {**_meta}
 
 
+# ── Confidence calibration ──────────────────────────────────────────────────
+# Compares ARIA's self-tagged confidence ([CONFIRMED] / [PROBABLE] / [ASSESSED] /
+# [UNCERTAIN] / [SPECULATIVE]) against actual outcomes — corrections (negative
+# examples) and recorded deal outcomes (won/lost).
+#
+# A well-calibrated agent should be wrong ~5% of the time on [CONFIRMED] claims,
+# ~25% on [PROBABLE], etc. If [CONFIRMED] claims are wrong 40% of the time, the
+# agent is overconfident and we recommend tightening the threshold.
+
+_CONFIDENCE_LEVELS = ["CONFIRMED", "PROBABLE", "ASSESSED", "UNCERTAIN", "SPECULATIVE"]
+_EXPECTED_ERROR_RATE = {
+    "CONFIRMED":   0.05,
+    "PROBABLE":    0.25,
+    "ASSESSED":    0.45,
+    "UNCERTAIN":   0.65,
+    "SPECULATIVE": 0.80,
+}
+
+
+async def get_calibration() -> dict:
+    """Compute confidence calibration over the entire training log.
+
+    Walks conversations.jsonl and outcomes.jsonl. For each [CONFIRMED] /
+    [PROBABLE] / etc tag found in an ARIA response, checks whether the same
+    interaction was later corrected (the response was wrong) or whether the
+    associated outcome was a loss.
+
+    Returns per-tag stats {samples, errors, error_rate, expected, calibration_delta}
+    plus an overall calibration score and recommendations.
+    """
+    _ensure_dir()
+    conv_path = TRAINING_DIR / "conversations.jsonl"
+    outcomes_path = TRAINING_DIR / "outcomes.jsonl"
+
+    # Build a per-tag counter
+    counts: dict[str, dict[str, int]] = {
+        lvl: {"samples": 0, "errors": 0} for lvl in _CONFIDENCE_LEVELS
+    }
+
+    # ── Pass 1: read all conversation records and build tag → record map ──
+    records: list[dict] = []
+    if conv_path.exists():
+        try:
+            with open(conv_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line: continue
+                    try:
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            logger.warning("calibration: failed to read conversations.jsonl: %s", e)
+
+    # Build a quick "was this query later corrected?" lookup keyed by user_message[:200]
+    correction_keys: set[str] = set()
+    for r in records:
+        meta = r.get("meta") or {}
+        if meta.get("type") == "correction" or meta.get("isNegativeExample"):
+            msgs = r.get("messages") or []
+            user_msg = next((m.get("content", "") for m in msgs if m.get("role") == "user"), "")
+            if user_msg:
+                correction_keys.add(user_msg[:200].strip().lower())
+
+    # ── Pass 2: count tag samples and mark errors when corrections exist ──
+    for r in records:
+        meta = r.get("meta") or {}
+        if meta.get("type") not in (None, "conversation", "think"):
+            continue
+        tags = meta.get("confidenceTags") or []
+        if not tags:
+            # Re-extract tags from the assistant response (legacy records)
+            msgs = r.get("messages") or []
+            asst = next((m.get("content", "") for m in msgs if m.get("role") == "assistant"), "")
+            tags = re.findall(r"\[(CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN|SPECULATIVE)\]", asst or "")
+        if not tags:
+            continue
+
+        msgs = r.get("messages") or []
+        user_msg = next((m.get("content", "") for m in msgs if m.get("role") == "user"), "")
+        was_corrected = bool(user_msg and user_msg[:200].strip().lower() in correction_keys)
+
+        for tag in tags:
+            if tag not in counts: continue
+            counts[tag]["samples"] += 1
+            if was_corrected:
+                counts[tag]["errors"] += 1
+
+    # ── Pass 3: outcomes.jsonl — count losses against confidence ──────────
+    if outcomes_path.exists():
+        try:
+            with open(outcomes_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line: continue
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    meta = rec.get("meta") or {}
+                    outcome = (meta.get("outcome") or "").lower()
+                    win_prob = float(meta.get("winProb") or 0)
+                    is_loss = "lost" in outcome or "lose" in outcome or "fail" in outcome
+                    if is_loss and win_prob > 0:
+                        # If win_prob ≥ 70% but we lost, that's a CONFIRMED-tier overconfidence
+                        if win_prob >= 0.7:
+                            counts["CONFIRMED"]["samples"] += 1
+                            counts["CONFIRMED"]["errors"] += 1
+                        elif win_prob >= 0.5:
+                            counts["PROBABLE"]["samples"] += 1
+                            counts["PROBABLE"]["errors"] += 1
+                        else:
+                            counts["ASSESSED"]["samples"] += 1
+                            counts["ASSESSED"]["errors"] += 1
+        except Exception as e:
+            logger.warning("calibration: failed to read outcomes.jsonl: %s", e)
+
+    # ── Build per-level report ────────────────────────────────────────────
+    per_level = {}
+    overconfident_tags: list[str] = []
+    underconfident_tags: list[str] = []
+    for lvl in _CONFIDENCE_LEVELS:
+        c = counts[lvl]
+        samples = c["samples"]
+        errors = c["errors"]
+        rate = (errors / samples) if samples > 0 else 0.0
+        expected = _EXPECTED_ERROR_RATE[lvl]
+        delta = rate - expected
+        per_level[lvl] = {
+            "samples": samples,
+            "errors": errors,
+            "error_rate": round(rate, 3),
+            "expected_error_rate": expected,
+            "calibration_delta": round(delta, 3),
+            "status": (
+                "overconfident" if delta > 0.15 else
+                "underconfident" if delta < -0.15 else
+                "well-calibrated"
+            ) if samples >= 5 else "insufficient_data",
+        }
+        if samples >= 5 and delta > 0.15:
+            overconfident_tags.append(lvl)
+        if samples >= 5 and delta < -0.15:
+            underconfident_tags.append(lvl)
+
+    # Overall calibration score: 1.0 = perfect, lower = worse
+    total_samples = sum(c["samples"] for c in counts.values())
+    total_weighted_error = 0.0
+    if total_samples > 0:
+        for lvl, stats in per_level.items():
+            if stats["samples"] >= 5:
+                total_weighted_error += abs(stats["calibration_delta"]) * (stats["samples"] / total_samples)
+    score = max(0.0, 1.0 - total_weighted_error * 2)
+
+    # Build recommendations
+    recommendations = []
+    for tag in overconfident_tags:
+        recommendations.append(
+            f"Tighten threshold for [{tag}]: error rate "
+            f"{per_level[tag]['error_rate']*100:.0f}% exceeds expected "
+            f"{int(_EXPECTED_ERROR_RATE[tag]*100)}% — downgrade marginal claims to next tier."
+        )
+    for tag in underconfident_tags:
+        recommendations.append(
+            f"Loosen threshold for [{tag}]: error rate "
+            f"{per_level[tag]['error_rate']*100:.0f}% is well below expected "
+            f"{int(_EXPECTED_ERROR_RATE[tag]*100)}% — promote claims to higher tier."
+        )
+    if not recommendations:
+        if total_samples < 50:
+            recommendations.append(
+                f"Calibration is provisional ({total_samples} samples). "
+                "Need at least 50 tagged interactions per level for reliable assessment."
+            )
+        else:
+            recommendations.append("Calibration is healthy across all confidence levels.")
+
+    return {
+        "total_samples": total_samples,
+        "calibration_score": round(score, 3),
+        "per_level": per_level,
+        "overconfident_levels": overconfident_tags,
+        "underconfident_levels": underconfident_tags,
+        "recommendations": recommendations,
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 async def export_training_data() -> dict:
     """Export all training data for fine-tuning."""
     _ensure_dir()

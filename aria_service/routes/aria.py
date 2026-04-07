@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -44,6 +45,10 @@ from ..intel import knowledge as knowledge_mod
 from ..intel import self_improve
 from ..intel import ocr as aria_ocr
 from ..intel.semantic_search import semantic_search, get_index_stats
+from ..intel import sanctions as aria_sanctions
+from ..intel import conflict_tracker
+from ..intel import tech_classifier
+from ..intel import local_brain
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -66,6 +71,7 @@ def _validate_country(country: str) -> str:
 class ChatRequest(BaseModel):
     message: str
     session_id: str = ""
+    auto_tools: bool = True   # auto-detect intent and call investigate/crawl/read tools
 
 class ThinkRequest(BaseModel):
     question: str
@@ -215,6 +221,17 @@ async def correct_ep(req: CorrectionRequest):
 
 
 # 13. GET /api/aria/training-data/stats
+@router.get("/training-data/calibration")
+async def training_calibration_ep():
+    """ARIA's confidence calibration report.
+
+    Compares self-tagged confidence ([CONFIRMED]/[PROBABLE]/etc) against actual
+    outcomes (corrections + recorded losses). Surfaces overconfident or
+    underconfident tiers and recommends threshold adjustments.
+    """
+    return await training_data.get_calibration()
+
+
 @router.get("/training-data/stats")
 async def training_stats_ep():
     return await training_data.get_stats()
@@ -269,6 +286,208 @@ async def learn_ep(req: LearningRequest):
     return {"ok": True, "message": "Learning stored"}
 
 
+# ── NLU: detect investigative intent in free-form text ──────────────────────
+_URL_RE = re.compile(r"https?://[^\s<>\"'\]\)]+", re.IGNORECASE)
+_DOMAIN_RE = re.compile(r"\b(?:[a-z0-9-]+\.)+(?:com|co\.uk|org|net|gov|edu|io|ai|de|fr|pt|es|br|mz|ao|cv|ke|ng|za|cn|ru)(?:/\S*)?", re.IGNORECASE)
+
+# Imperative verbs that signal "go do something" rather than "answer me"
+_INVESTIGATE_KW = re.compile(r"\b(investigate|research|look\s+into|dig\s+into|find\s+out\s+about|deep[\-\s]?dive|do\s+a\s+deep\s+dive|tell\s+me\s+everything\s+about|explore)\b", re.IGNORECASE)
+_CRAWL_KW       = re.compile(r"\b(crawl|spider|scrape|harvest)\b", re.IGNORECASE)
+_READ_KW        = re.compile(r"\b(read|fetch|grab|pull\s+in|ingest|summari[sz]e\s+(?:this|the)\s+(?:url|page|article|link))\b", re.IGNORECASE)
+_PROFILE_KW     = re.compile(r"\b(profile|build\s+a\s+profile\s+on|background\s+check|due\s+diligence\s+on)\b", re.IGNORECASE)
+_SCREEN_KW      = re.compile(r"\b(screen|sanction|sanctions\s+check|compliance\s+check|run\s+(?:a\s+)?compliance|fuzzy\s+screen|fuzzy\s+match)\b", re.IGNORECASE)
+_PERSON_KW      = re.compile(r"\b(person|individual|director|minister|general|colonel|owner|ceo|cfo)\b", re.IGNORECASE)
+_COMPANY_KW     = re.compile(r"\b(company|corporation|firm|business|ltd|limited|inc|gmbh|sa|sarl|ltd\.|plc)\b", re.IGNORECASE)
+# New tool keywords introduced with the brain/neuron upgrade
+_CONFLICT_KW    = re.compile(r"\b(conflict|kinetic|escalation|violence|attacks?|battles?|insurgency|"
+                              r"what(?:'s|\s+is)\s+happening\s+in|situation\s+in|security\s+(?:in|situation)|"
+                              r"acled|gdelt)\b", re.IGNORECASE)
+_TECH_KW        = re.compile(r"\b(what\s+is\s+(?:a|the)\s+|specs?\s+(?:of|for)\s+|tell\s+me\s+about\s+(?:the\s+)?|"
+                              r"classify\s+(?:this|these)|extract\s+items|what\s+ml\s+category)\b", re.IGNORECASE)
+_FUZZY_KW       = re.compile(r"\b(fuzzy|alias|alternate\s+spelling|transliteration|name\s+variant)\b", re.IGNORECASE)
+# Known weapon systems - matched against tech_classifier's database
+_WEAPON_DESIGNATION_RE = re.compile(
+    r"\b(F[\-/]?\d{1,3}|Su[\-/]?\d{1,3}|MiG[\-/]?\d{1,3}|MQ[\-/]?\d|TB\d|"
+    r"K9|HIMARS|Caesar|PzH\s*2000|M777|Patriot|S[\-]?[34]00|Iron\s+Dome|NASAMS|"
+    r"IRIS[\-/]?T|THAAD|Javelin|Spike|NLAW|Stinger|BrahMos|Storm\s+Shadow|SCALP|"
+    r"Harpoon|Exocet|NSM|Leopard\s*2|Abrams|Challenger|Bayraktar)\b",
+    re.IGNORECASE,
+)
+# Country detection (re-uses ACLED ISO map)
+_COUNTRY_RE_TOOL = re.compile(
+    r"\b(angola|mozambique|guinea[\-\s]bissau|cape\s+verde|nigeria|kenya|mali|"
+    r"burkina\s+faso|niger|chad|sudan|ethiopia|somalia|cameroon|senegal|drc|"
+    r"south\s+africa|libya|egypt|iraq|syria|yemen|afghanistan|ukraine|russia|"
+    r"saudi\s+arabia|uae|jordan|lebanon|colombia|venezuela|haiti|myanmar)\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_tool_intent(message: str) -> dict | None:
+    """Parse free-form text into a structured tool call. Returns None if no tool intent."""
+    msg = message.strip()
+    if not msg:
+        return None
+
+    # Find URLs / domains
+    url_match = _URL_RE.search(msg)
+    url = url_match.group(0) if url_match else None
+    if not url:
+        dom = _DOMAIN_RE.search(msg)
+        if dom:
+            url = "https://" + dom.group(0).lstrip("/")
+
+    has_investigate = bool(_INVESTIGATE_KW.search(msg))
+    has_crawl       = bool(_CRAWL_KW.search(msg))
+    has_read        = bool(_READ_KW.search(msg))
+    has_profile     = bool(_PROFILE_KW.search(msg))
+    has_screen      = bool(_SCREEN_KW.search(msg))
+    has_conflict    = bool(_CONFLICT_KW.search(msg))
+    has_fuzzy       = bool(_FUZZY_KW.search(msg))
+    weapon_match    = _WEAPON_DESIGNATION_RE.search(msg)
+    country_match   = _COUNTRY_RE_TOOL.search(msg)
+
+    # 1. Crawl request — needs a URL
+    if has_crawl and url:
+        return {"tool": "crawl", "url": url, "context": msg}
+
+    # 2. Read / summarise URL — also default if URL with no other intent
+    if (has_read and url) or (url and not (has_investigate or has_crawl or has_profile)):
+        return {"tool": "read", "url": url, "context": msg}
+
+    # 3. Investigate URL — full deep dive
+    if has_investigate and url:
+        return {"tool": "investigate_url", "url": url, "topic": url, "context": msg}
+
+    # 4. Investigate topic (no URL) — extract topic after the verb
+    if has_investigate:
+        verb_match = _INVESTIGATE_KW.search(msg)
+        topic = msg[verb_match.end():].strip(" .,:;-?!\"'")
+        topic = re.sub(r"^(this|that|the|a|an|on|about|into|of)\s+", "", topic, flags=re.IGNORECASE)
+        if topic and len(topic) >= 3:
+            return {"tool": "investigate", "topic": topic[:200], "context": msg}
+
+    # 5. Profile / background check on entity
+    if has_profile:
+        verb_match = _PROFILE_KW.search(msg)
+        entity = msg[verb_match.end():].strip(" .,:;-?!\"'")
+        entity = re.sub(r"^(on|of|the|a|an|this|that)\s+", "", entity, flags=re.IGNORECASE)
+        if entity and len(entity) >= 2:
+            ptype = "person" if _PERSON_KW.search(msg) else "company" if _COMPANY_KW.search(msg) else "auto"
+            return {"tool": "profile", "entity": entity[:200], "ptype": ptype, "context": msg}
+
+    # 6. Compliance / fuzzy sanctions screen
+    if has_screen or has_fuzzy:
+        verb_match = (_FUZZY_KW.search(msg) if has_fuzzy else _SCREEN_KW.search(msg))
+        entity = msg[verb_match.end():].strip(" .,:;-?!\"'")
+        entity = re.sub(r"^(on|of|the|a|an|this|that|for)\s+", "", entity, flags=re.IGNORECASE)
+        if entity and len(entity) >= 2:
+            tool_name = "fuzzy_sanctions" if has_fuzzy else "screen"
+            return {"tool": tool_name, "entity": entity[:200], "context": msg}
+
+    # 7. Conflict / kinetic event lookup — needs a country
+    if has_conflict and country_match:
+        return {"tool": "conflict", "country": country_match.group(0), "context": msg}
+
+    # 8. Weapon system / technical explainer — designation present
+    if weapon_match:
+        return {"tool": "tech_explain", "designation": weapon_match.group(0), "context": msg}
+
+    return None
+
+
+async def _execute_tool(intent: dict, llm) -> str:
+    """Run the detected tool and return a compact context string for the LLM."""
+    tool = intent.get("tool")
+    try:
+        if tool == "crawl":
+            r = await crawl_website(llm, intent["url"], max_pages=10, context=intent.get("context", ""))
+            facts = r.get("facts_learned") or r.get("facts") or 0
+            pages = r.get("pages_crawled") or r.get("pages") or 0
+            summary = (r.get("synthesis") or {}).get("key_findings") or r.get("summary") or ""
+            return f"\n\n[TOOL: crawl_website]\nURL: {intent['url']}\nPages crawled: {pages}\nFacts learned: {facts}\nSummary: {json.dumps(summary)[:1500]}"
+
+        if tool == "read":
+            r = await read_article(llm, intent["url"], intent.get("context", ""))
+            return f"\n\n[TOOL: read_article]\nURL: {intent['url']}\nFacts learned: {r.get('facts_learned', 0)}\nSummary: {(r.get('summary') or r.get('analysis') or '')[:1500]}"
+
+        if tool in ("investigate", "investigate_url"):
+            topic = intent.get("topic") or intent.get("url", "")
+            r = await investigate(llm, topic, depth="thorough")
+            synth = r.get("synthesis") or {}
+            findings = synth.get("key_findings") or []
+            actions = synth.get("recommended_actions") or []
+            return (
+                f"\n\n[TOOL: investigate]\nTopic: {topic}\n"
+                f"Articles read: {r.get('articles_read', 0)} | Facts: {r.get('facts_learned', 0)}\n"
+                f"Key findings: {json.dumps(findings)[:1200]}\n"
+                f"Recommended actions: {json.dumps(actions)[:800]}"
+            )
+
+        if tool == "profile":
+            r = await build_profile(llm, intent["entity"], intent.get("ptype", "auto"))
+            return f"\n\n[TOOL: build_profile]\nEntity: {intent['entity']}\nResult: {json.dumps(r, default=str)[:2000]}"
+
+        if tool == "screen":
+            # Quick screen — uses fuzzy sanctions module + KB hits for context
+            r = await aria_sanctions.fuzzy_screen(intent["entity"])
+            kb_hits = knowledge_mod.search_knowledge(intent["entity"]) or ""
+            top = (r.get("matches") or [])[:3]
+            top_str = "\n".join(
+                f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')}"
+                for m in top
+            ) or "  - no matches"
+            return (
+                f"\n\n[TOOL: compliance_screen]\nEntity: {intent['entity']}\n"
+                f"Top matches:\n{top_str}\n"
+                f"Blocked: {r.get('blocked')}\n"
+                f"Knowledge base hits: {kb_hits[:1000] or 'None'}"
+            )
+
+        if tool == "fuzzy_sanctions":
+            r = await aria_sanctions.fuzzy_screen(intent["entity"])
+            top = (r.get("matches") or [])[:5]
+            top_str = "\n".join(
+                f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')} via='{m.get('matched_via_variant')}'"
+                for m in top
+            ) or "  - no matches"
+            return (
+                f"\n\n[TOOL: fuzzy_sanctions_screen]\n"
+                f"Entity: {intent['entity']}\n"
+                f"Variants tried: {r.get('variants_tried')}\n"
+                f"Top matches:\n{top_str}\n"
+                f"Top score: {r.get('top_score')}\n"
+                f"Blocking: {len(r.get('blocking_matches', []))} match(es)"
+            )
+
+        if tool == "conflict":
+            r = await conflict_tracker.correlate_with_procurement(intent["country"], days=60)
+            return (
+                f"\n\n[TOOL: conflict_tracker]\n"
+                f"Country: {intent['country']}\n"
+                f"Escalation: {r.get('escalation_score')} ({r.get('escalation_label')})\n"
+                f"Events (60d): {r.get('events_last_period')}, fatalities: {r.get('fatalities_last_period')}\n"
+                f"Event mix: {r.get('event_mix')}\n"
+                f"Projected demand: {r.get('projected_capability_demand')}\n"
+                f"Procurement window: {r.get('procurement_window')}"
+            )
+
+        if tool == "tech_explain":
+            r = tech_classifier.explain_item(intent["designation"])
+            extracted = tech_classifier.classify_text(intent.get("context", ""))
+            return (
+                f"\n\n[TOOL: tech_classifier]\n"
+                f"Designation: {intent['designation']}\n"
+                f"Lookup result: {json.dumps(r, default=str)[:1000]}\n"
+                f"Other items extracted from message: {extracted.get('raw_summary')}"
+            )
+
+    except Exception as e:
+        _log.warning("Tool execution failed (%s): %s", tool, e)
+        return f"\n\n[TOOL: {tool} — failed: {str(e)[:200]}]"
+    return ""
+
+
 # 18. POST /api/aria/chat
 @router.post("/chat")
 async def chat_ep(req: ChatRequest, request: Request):
@@ -277,7 +496,31 @@ async def chat_ep(req: ChatRequest, request: Request):
     session_id = req.session_id or str(uuid.uuid4())[:12]
     llm = get_llm(request)
     intel = get_intel_data(request)
-    result = await aria_chat(req.message, session_id, llm, intel)
+
+    # ── NLU tool-use: detect investigative intent and run tools first ────────
+    tool_context = ""
+    tool_used = None
+    if req.auto_tools:
+        intent = _detect_tool_intent(req.message)
+        if intent and llm and llm.is_configured:
+            tool_used = intent.get("tool")
+            _log.info("ARIA chat tool-use detected: %s", intent)
+            tool_context = await _execute_tool(intent, llm)
+
+    # If a tool ran, prepend the result to the message so the LLM sees the data
+    message_for_llm = req.message
+    if tool_context:
+        message_for_llm = (
+            f"{req.message}\n\n"
+            f"[I have already run the appropriate tool on your request. "
+            f"Use the data below to answer comprehensively, cite specific findings, "
+            f"and end with a clear recommendation.]"
+            f"{tool_context}"
+        )
+
+    result = await aria_chat(message_for_llm, session_id, llm, intel)
+    if tool_used:
+        result["tool_used"] = tool_used
     return result
 
 
@@ -790,6 +1033,27 @@ async def self_improve_ep(request: Request):
     )
 
 
+# Self-coding: scaffold a brand-new module from a free-text request
+@router.post("/self/code")
+async def self_code_ep(request: Request):
+    """ARIA writes a new intel module from a natural-language request.
+
+    Body: {request: "track Saudi MoD procurement", name: "saudi_mod_tracker"?}
+    Returns: {ok, file, module_name, lines, staged_id, preview} or {ok: false, error}
+
+    The generated module is staged under aria_service/intel/auto/<name>.py and
+    must be deployed via /api/aria/self/deploy/{staged_id}. NEVER auto-deploys
+    new files — they always require human review.
+    """
+    body = await request.json()
+    user_request = (body.get("request") or "").strip()
+    suggested_name = (body.get("name") or "").strip()
+    if not user_request or len(user_request) < 10:
+        raise HTTPException(status_code=400, detail="request required (min 10 chars describing what the module should do)")
+    llm = get_llm(request)
+    return await self_improve.propose_new_module(user_request, llm, suggested_name=suggested_name)
+
+
 # 37. GET /api/aria/self/staged — List staged improvements
 @router.get("/self/staged")
 async def self_staged_ep():
@@ -859,6 +1123,100 @@ async def semantic_stats_ep():
 
 
 # ── OCR ──────────────────────────────────────────────────────────────────────
+
+# GET /api/aria/vision-status — Diagnostic for image OCR configuration
+@router.get("/vision-status")
+async def vision_status_ep(request: Request):
+    """Report whether ARIA can do image OCR right now and which backend will run.
+
+    ARIA's image OCR is LOCAL-FIRST. She tries (in order):
+        1. EasyOCR  (pure Python, no system binary, recommended for independence)
+        2. Tesseract (needs Tesseract binary + pytesseract)
+        3. Ollama vision model (auto-detected if running locally with llava/minicpm-v/etc)
+        4. Cloud LLM vision (only if ARIA_VISION_PROVIDER + key are explicitly set)
+
+    She is independent of any cloud LLM for image reading by default.
+    """
+    # ── Probe local backends ─────────────────────────────────────────────
+    easyocr_available = False
+    try:
+        import easyocr  # noqa: F401
+        easyocr_available = True
+    except ImportError:
+        pass
+
+    tesseract_available = False
+    try:
+        import pytesseract  # noqa: F401
+        from PIL import Image  # noqa: F401
+        tesseract_available = True
+    except ImportError:
+        pass
+
+    ollama_vision_model = await aria_ocr._detect_ollama_vision_model()
+
+    # ── Probe optional cloud backend ─────────────────────────────────────
+    cfg = aria_ocr.get_vision_config()
+    llm = get_llm(request)
+    fallback_inner = aria_ocr._unwrap_provider(llm) if llm else None
+    fallback_provider_name = (getattr(fallback_inner, "name", "") or "").lower() if fallback_inner else None
+    fallback_has_key = bool(getattr(fallback_inner, "_api_key", "")) if fallback_inner else False
+
+    # Determine which backend will actually run for the next image
+    if easyocr_available:
+        active = "easyocr"
+    elif tesseract_available:
+        active = "tesseract"
+    elif ollama_vision_model:
+        active = f"ollama:{ollama_vision_model}"
+    elif cfg["dedicated_provider_configured"]:
+        active = f"cloud:{cfg['dedicated_provider']}"
+    elif fallback_inner is not None and fallback_has_key:
+        active = f"cloud:{fallback_provider_name}"
+    else:
+        active = "none"
+
+    is_working = active != "none"
+
+    # Setup hints — lead with the local options
+    setup_instructions = []
+    if not is_working:
+        setup_instructions.append(
+            "RECOMMENDED (local, independent): pip install easyocr Pillow pytesseract"
+        )
+        setup_instructions.append(
+            "Optional (best quality, also local): install Ollama and run "
+            "`ollama pull minicpm-v` or `ollama pull llava`"
+        )
+        setup_instructions.append(
+            "Last-resort cloud fallback: set ARIA_VISION_PROVIDER=gemini "
+            "+ ARIA_VISION_API_KEY (free key at aistudio.google.com/apikey)"
+        )
+    elif active == "tesseract" and not easyocr_available:
+        setup_instructions.append(
+            "Tip: `pip install easyocr` for higher-quality local OCR (no extra binary needed)"
+        )
+
+    return {
+        "ok": is_working,
+        "independent": active in ("easyocr", "tesseract") or active.startswith("ollama:"),
+        "active_backend": active,
+        "local_backends": {
+            "easyocr": easyocr_available,
+            "tesseract": tesseract_available,
+            "ollama_vision_model": ollama_vision_model,
+        },
+        "cloud_backend": {
+            "dedicated_provider": cfg["dedicated_provider"],
+            "dedicated_configured": cfg["dedicated_provider_configured"],
+            "fallback_provider": fallback_provider_name,
+            "fallback_available": fallback_inner is not None and fallback_has_key,
+        },
+        "main_llm": getattr(llm, "name", "?") if llm else None,
+        "setup_instructions": setup_instructions,
+        "philosophy": "ARIA is local-first by design — she does image OCR without depending on any external LLM.",
+    }
+
 
 # 46. POST /api/aria/ocr — Extract text from image
 @router.post("/ocr")
@@ -1209,9 +1567,18 @@ async def compliance_screen_ep(req: ComplianceScreenRequest, request: Request):
     else:
         overall_status = "CLEAR"
 
-    from datetime import datetime as _dt, timezone as _tz
+    # Backward-compat mapping for WhatsApp/Telegram clients
+    result_label = {"CLEAR": "PERMITTED", "REVIEW_REQUIRED": "REVIEW", "BLOCKED": "BLOCKED"}.get(overall_status, overall_status)
+    screened_against = {
+        "Sanctions (entity)": sanctions_result.get("risk_level", "checked"),
+        "Country risk": country_risk,
+        "Product classification": ", ".join(product_classification.get("ml_categories", [])) or "no ML match",
+    }
+
     return {
         "status": overall_status,
+        "result": result_label,
+        "screened_against": screened_against,
         "entity": entity,
         "sanctions": sanctions_result,
         "country_risk": {
@@ -1223,7 +1590,7 @@ async def compliance_screen_ep(req: ComplianceScreenRequest, request: Request):
         "risk_factors": risk_factors,
         "blocked": blocked,
         "disclaimer": "Automated pre-screen only. Formal export control and sanctions advice required before proceeding.",
-        "screened_at": _dt.now(_tz.utc).isoformat() + "Z",
+        "screened_at": datetime.now(timezone.utc).isoformat() + "Z",
     }
 
 
@@ -1353,3 +1720,350 @@ async def export_conversation(session_id: str, format: str = "json"):
         "message_count": len(messages),
         "messages": messages,
     }
+
+
+# ── Compliance sub-endpoints (used by WhatsApp / Telegram interfaces) ───────
+
+class ClassifyRequest(BaseModel):
+    description: str
+
+@router.post("/compliance/classify")
+async def compliance_classify_ep(req: ClassifyRequest):
+    """Classify a product description against UK Military List categories."""
+    desc = (req.description or "").strip()
+    if not desc or len(desc) < 3:
+        raise HTTPException(status_code=400, detail="description required (min 3 chars)")
+
+    ML_KEYWORDS: dict[str, tuple[str, list[str]]] = {
+        "ML1":  ("Smooth-bore weapons (small arms)",        ["small arms", "rifle", "pistol", "machine gun", "firearm", "carbine", "shotgun"]),
+        "ML2":  ("Smooth-bore weapons of calibre 20mm+",    ["mortar", "cannon", "howitzer", "artillery", "field gun"]),
+        "ML3":  ("Ammunition and fuze setting",             ["ammunition", "cartridge", "round", "bullet", "fuze", "shell"]),
+        "ML4":  ("Bombs, torpedoes, rockets, missiles",     ["missile", "rocket", "torpedo", "bomb", "mine", "warhead", "atgm", "manpads"]),
+        "ML5":  ("Fire control, surveillance",              ["fire control", "targeting", "laser designator", "rangefinder"]),
+        "ML6":  ("Ground vehicles & components",            ["armoured vehicle", "armored vehicle", "apc", "ifv", "tank", "mrap", "humvee"]),
+        "ML7":  ("CBRN agents",                             ["chemical", "biological", "toxin", "nerve agent", "riot control"]),
+        "ML8":  ("Energetic materials",                     ["explosive", "propellant", "detonator", "rdx", "tnt", "c4"]),
+        "ML9":  ("Vessels of war",                          ["vessel", "warship", "patrol boat", "naval", "submarine", "frigate", "corvette"]),
+        "ML10": ("Aircraft & components",                   ["aircraft", "helicopter", "uav", "drone", "fighter", "bomber", "rotorcraft"]),
+        "ML11": ("Electronic equipment",                    ["communication", "radio", "crypto", "c4isr", "command and control", "jammer"]),
+        "ML13": ("Body armour & protective gear",           ["armour", "armor", "body armour", "helmet", "ballistic vest", "protective"]),
+        "ML15": ("Imaging & countermeasure equipment",      ["radar", "sensor", "electro-optical", "infrared", "thermal", "lidar", "night vision"]),
+        "ML22": ("Training & advisory",                     ["training", "simulation", "advisory", "instructor"]),
+    }
+
+    lower = desc.lower()
+    classifications = []
+    for code, (label, kws) in ML_KEYWORDS.items():
+        for kw in kws:
+            if kw in lower:
+                classifications.append({
+                    "code": code,
+                    "category": label,
+                    "description": label,
+                    "controlled": True,
+                    "matched_keyword": kw,
+                    "confidence": 0.85 if len(kw) > 6 else 0.70,
+                })
+                break
+
+    if not classifications:
+        classifications.append({
+            "code": "UNCLASSIFIED",
+            "category": "No obvious ML category",
+            "description": "Item does not match any known UK Military List keywords. Manual review required.",
+            "controlled": False,
+            "confidence": 0.30,
+        })
+
+    return {
+        "input": desc,
+        "classifications": classifications,
+        "result": classifications[0]["code"],
+        "category": classifications[0]["category"],
+        "disclaimer": "Keyword classification only — formal export control assessment required.",
+    }
+
+
+class SanctionsRequest(BaseModel):
+    name: str
+
+@router.post("/compliance/sanctions")
+async def compliance_sanctions_ep(req: SanctionsRequest, request: Request):
+    """Sanctions check — proxies to Node entityMatcher and falls back to knowledge base."""
+    name = (req.name or "").strip()
+    if not name or len(name) < 2:
+        raise HTTPException(status_code=400, detail="name required (min 2 chars)")
+
+    matches: list[dict] = []
+    error = None
+    try:
+        app_url = getattr(request.app.state, "app_url", "http://localhost:3117")
+        token = getattr(request.app.state, "internal_token", "aria-internal")
+        import httpx
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{app_url}/api/brain/compliance/screen-entity",
+                json={"entity_name": name},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                for m in (data.get("matches") or []):
+                    matches.append({
+                        "name": m.get("name") or m.get("entity") or name,
+                        "list": m.get("list") or m.get("source") or "Sanctions list",
+                        "score": m.get("score") or m.get("confidence"),
+                        "reason": m.get("reason") or m.get("notes") or "",
+                    })
+    except Exception as e:
+        error = str(e)
+        _log.warning("Sanctions check upstream failed: %s", e)
+
+    # Knowledge-base fallback — search for the entity in stored intel
+    kb_hits = knowledge.search_knowledge(name) or ""
+    kb_flagged = bool(kb_hits and re.search(r"sanction|embargo|ofac|ofsi|debarred", kb_hits, re.IGNORECASE))
+    if kb_flagged:
+        matches.append({
+            "name": name,
+            "list": "ARIA knowledge base",
+            "score": 0.6,
+            "reason": "Mentioned alongside sanctions/embargo terms in stored intelligence",
+        })
+
+    return {
+        "name": name,
+        "matches": matches,
+        "results": matches,
+        "match_count": len(matches),
+        "clear": len(matches) == 0,
+        "error": error,
+        "disclaimer": "Pre-screen only. Verify against authoritative lists (OFAC, OFSI, EU, UN) before any commercial action.",
+    }
+
+
+class RiskRequest(BaseModel):
+    country: str
+
+@router.post("/compliance/risk")
+async def compliance_risk_ep(req: RiskRequest):
+    """Country risk assessment — sanctions regimes, embargoes, ML risk tier."""
+    country_input = (req.country or "").strip()
+    if not country_input or len(country_input) < 2:
+        raise HTTPException(status_code=400, detail="country required (min 2 chars)")
+
+    # Country name → ISO2 (best-effort)
+    NAME_TO_ISO = {
+        "russia": "RU", "belarus": "BY", "iran": "IR", "north korea": "KP", "syria": "SY",
+        "cuba": "CU", "venezuela": "VE", "central african republic": "CF", "car": "CF",
+        "drc": "CD", "congo": "CD", "eritrea": "ER", "iraq": "IQ", "libya": "LY",
+        "mali": "ML", "somalia": "SO", "south sudan": "SS", "sudan": "SD", "yemen": "YE",
+        "afghanistan": "AF", "haiti": "HT", "myanmar": "MM", "burma": "MM", "nicaragua": "NI",
+        "zimbabwe": "ZW", "china": "CN",
+        "guinea-bissau": "GW", "guinea bissau": "GW", "cameroon": "CM", "niger": "NE",
+        "burkina faso": "BF", "chad": "TD", "pakistan": "PK", "egypt": "EG", "turkey": "TR",
+        "india": "IN", "ethiopia": "ET",
+        "angola": "AO", "mozambique": "MZ", "nigeria": "NG", "senegal": "SN", "ivory coast": "CI",
+        "côte d'ivoire": "CI", "uganda": "UG", "indonesia": "ID", "vietnam": "VN", "colombia": "CO",
+        "peru": "PE", "saudi arabia": "SA", "uae": "AE", "united arab emirates": "AE", "jordan": "JO",
+    }
+    iso = country_input.upper() if len(country_input) == 2 else NAME_TO_ISO.get(country_input.lower(), country_input.upper()[:2])
+
+    EMBARGOED = {"RU","BY","IR","KP","SY","CU","VE","CF","CD","ER","IQ","LY","ML","SO","SS","SD","YE","AF","HT","MM","NI","ZW","CN"}
+    HIGH_RISK = {"GW","CM","NE","BF","TD","PK","EG","TR","IN","ET"}
+    MEDIUM_RISK = {"AO","MZ","NG","SN","CI","UG","ID","VN","CO","PE","SA","AE","JO"}
+
+    if iso in EMBARGOED:
+        level, score = "HIGH", 90
+        regimes = ["UN SC", "EU restrictive measures", "UK OFSI"]
+        notes = f"{country_input} is subject to international arms embargo. Most defence exports prohibited or require explicit Government licence."
+    elif iso in HIGH_RISK:
+        level, score = "HIGH", 70
+        regimes = ["Enhanced due diligence required"]
+        notes = f"{country_input} is high-risk. End-user verification, diversion risk assessment, and SITCL likely required."
+    elif iso in MEDIUM_RISK:
+        level, score = "MEDIUM", 45
+        regimes = ["Standard licensing"]
+        notes = f"{country_input} permits standard defence exports but requires SITCL with end-use certificate."
+    else:
+        level, score = "LOW", 20
+        regimes = []
+        notes = f"{country_input} is a low-risk destination. Standard export controls apply."
+
+    return {
+        "country": country_input,
+        "iso": iso,
+        "risk_level": level,
+        "level": level,
+        "score": score,
+        "sanctions_regimes": regimes,
+        "embargoes": ["UN/EU/UK arms embargo"] if iso in EMBARGOED else [],
+        "export_controls": "SITCL + end-user certificate" if level != "LOW" else "Standard SITCL",
+        "notes": notes,
+        "disclaimer": "Advisory only. Confirm with current Foreign Office guidance and ECJU rating before action.",
+    }
+
+
+# ── Proactive endpoints (strategic ideas, lead hunting) ──────────────────────
+
+@router.post("/proactive/strategic-ideas")
+async def proactive_strategic_ideas_ep(request: Request):
+    """Generate strategic ideas for Arkmurus based on current intel."""
+    llm = get_llm(request)
+    if not llm or not llm.is_configured:
+        return {"ideas": "⚠️ ARIA LLM not configured.", "error": True}
+
+    intel = get_intel_data(request)
+    intel_summary = ""
+    if intel:
+        opps = (intel.get("opportunities") or [])[:5]
+        if opps:
+            intel_summary = "Current top opportunities:\n" + "\n".join(
+                f"- {o.get('market')}: score {o.get('score')}/100, tier {o.get('tier')}"
+                for o in opps
+            )
+
+    prompt = f"""You are ARIA. Generate 5 distinct, actionable strategic ideas for Arkmurus this week.
+
+{intel_summary}
+
+For each idea provide:
+1. The idea (one sentence)
+2. Why now (specific trigger)
+3. First concrete action (within 48 hours)
+4. Expected outcome
+5. Risk / compliance flags
+
+Be bold, specific, and commercially realistic. Reference Arkmurus's relationship tiers (Incumbent in Lusophone Africa; Established in SA/Kenya/Nigeria; Developing/Cold-entry elsewhere)."""
+
+    try:
+        result = await llm.complete(
+            "ARIA — strategic ideation for defence procurement broker.",
+            prompt,
+            max_tokens=2000,
+            timeout=90.0,
+        )
+        return {"ideas": result.text, "generated_at": datetime.now(timezone.utc).isoformat()}
+    except Exception as e:
+        return {"ideas": f"⚠️ Generation failed: {e}", "error": True}
+
+
+# ── Fuzzy sanctions screening (OpenSanctions + Levenshtein + Metaphone) ─────
+
+class FuzzyScreenRequest(BaseModel):
+    name: str
+    aliases: list[str] | None = None
+    threshold: float = 0.78
+
+@router.post("/sanctions/fuzzy")
+async def sanctions_fuzzy_ep(req: FuzzyScreenRequest):
+    """Fuzzy entity sanctions screening with name-variant generation.
+
+    Catches transliteration, acronym, and obfuscation attempts that exact-match
+    screens miss. Backed by the OpenSanctions consolidated dataset.
+    """
+    if not req.name or len(req.name.strip()) < 2:
+        raise HTTPException(status_code=400, detail="name required (min 2 chars)")
+    if req.aliases:
+        return await aria_sanctions.screen_with_aliases(req.name, req.aliases)
+    return await aria_sanctions.fuzzy_screen(req.name, threshold=req.threshold)
+
+
+# ── Conflict / kinetic event tracking (ACLED + GDELT fallback) ──────────────
+
+@router.get("/conflict/events/{country}")
+async def conflict_events_ep(country: str, days: int = 30, limit: int = 50):
+    """Recent conflict / political-violence events for a country.
+
+    Pulls from ACLED if ACLED_API_KEY is set, otherwise falls back to GDELT.
+    Returns total events, fatalities, escalation score, and recent event list.
+    """
+    days = max(1, min(days, 180))
+    limit = max(1, min(limit, 200))
+    return await conflict_tracker.get_recent_events(country, days=days, limit=limit)
+
+
+@router.get("/conflict/correlate/{country}")
+async def conflict_correlate_ep(country: str, days: int = 60):
+    """Cross-reference conflict escalation with projected procurement demand.
+
+    Returns capability projections and a procurement-window assessment ARIA can
+    use to inform BD timing recommendations.
+    """
+    days = max(7, min(days, 180))
+    return await conflict_tracker.correlate_with_procurement(country, days=days)
+
+
+# ── Technical classifier (calibres, weapon systems, ML/ECCN/HS) ─────────────
+
+class TechClassifyRequest(BaseModel):
+    text: str
+
+@router.post("/tech/classify")
+async def tech_classify_ep(req: TechClassifyRequest):
+    """Extract structured defence items from free text — calibres, systems,
+    ML categories, quantities, and embargo risks."""
+    if not req.text or len(req.text.strip()) < 5:
+        raise HTTPException(status_code=400, detail="text required (min 5 chars)")
+    return tech_classifier.classify_text(req.text)
+
+
+@router.get("/tech/explain/{designation}")
+async def tech_explain_ep(designation: str):
+    """Look up a single weapon system designation in the technical database."""
+    return tech_classifier.explain_item(designation)
+
+
+# ── Knowledge contradictions (metacognitive self-correction) ────────────────
+
+@router.get("/knowledge/contradictions")
+async def knowledge_contradictions_ep(limit: int = 50):
+    """Return facts that have detected contradictions or version history.
+
+    This is what powers ARIA's "I used to think X, now Y" reasoning.
+    """
+    limit = max(1, min(limit, 200))
+    contradictions = await knowledge_mod.get_contradictions(limit=limit)
+    return {"count": len(contradictions), "contradictions": contradictions}
+
+
+@router.post("/proactive/lead-hunt")
+async def proactive_lead_hunt_ep(request: Request):
+    """Run a lead-hunting cycle — identify fresh procurement opportunities."""
+    llm = get_llm(request)
+    if not llm or not llm.is_configured:
+        return {"leads": "⚠️ ARIA LLM not configured.", "error": True}
+
+    intel = get_intel_data(request)
+    tenders = ((intel or {}).get("procurementTenders") or {}).get("items") or []
+    tender_block = ""
+    if tenders:
+        tender_block = "Recent tenders detected:\n" + "\n".join(
+            f"- {t.get('title') or t.get('text', '')[:100]} [{t.get('source', '')}]"
+            for t in tenders[:8]
+        )
+
+    prompt = f"""You are ARIA on a lead-hunting cycle. Identify the 5 strongest defence procurement leads Arkmurus should pursue right now.
+
+{tender_block}
+
+For each lead:
+- Market (country) and buyer (specific ministry/directorate)
+- Requirement (what they need)
+- Window (procurement cycle stage, decision timeline)
+- Arkmurus angle (relationship tier + which OEM partner)
+- Win probability (0-100%)
+- Compliance flags (sanctions, end-use, export control)
+- First action (specific, within 48 hours)
+
+Prioritise: Lusophone Africa (incumbent advantage), then established markets where Arkmurus has contacts, then high-value cold-entry where there's a clear angle."""
+
+    try:
+        result = await llm.complete(
+            "ARIA — defence procurement lead generation specialist.",
+            prompt,
+            max_tokens=2500,
+            timeout=120.0,
+        )
+        return {"leads": result.text, "generated_at": datetime.now(timezone.utc).isoformat()}
+    except Exception as e:
+        return {"leads": f"⚠️ Lead hunt failed: {e}", "error": True}

@@ -53,23 +53,141 @@ async def init() -> None:
         logger.warning("Semantic index build failed: %s", e)
 
 
-async def store_fact(topic: str, content: str, source: str = "user", confidence: str = "CONFIRMED") -> None:
+# ── Contradiction detection ──────────────────────────────────────────────────
+# When a new fact arrives, we look for existing facts on the same topic that
+# might disagree. Caught contradictions are flagged on BOTH facts so ARIA's
+# context layer can surface "I previously thought X, but now I'm seeing Y" —
+# the foundation of metacognitive self-correction.
+
+_NEGATION_RE = re.compile(
+    r"\b(not|no longer|never|denies|denied|withdrew|cancelled|cancelled|"
+    r"reversed|stopped|halted|terminated|suspended|abandoned|dropped|"
+    r"refuted|disputed|false|incorrect|wrong)\b",
+    re.IGNORECASE,
+)
+_NUMBER_RE = re.compile(r"\b\d[\d,\.]*\b")
+_CONFIDENCE_RANK = {"CONFIRMED": 4, "PROBABLE": 3, "ASSESSED": 2, "UNCERTAIN": 1, "SPECULATIVE": 0}
+
+def _detect_contradictions(topic: str, content: str, existing_facts: list[dict]) -> list[dict]:
+    """Find existing facts that may contradict the new statement.
+
+    Heuristic — flags potential conflicts when:
+      1. Same topic, but new content has negation that old doesn't (or vice-versa)
+      2. Same topic, but the numeric values disagree (e.g. £200m vs £350m)
+      3. Same topic, opposing keywords (won/lost, signed/cancelled, alive/dead)
+    """
+    if not existing_facts:
+        return []
+
+    new_lower = content.lower()
+    new_negated = bool(_NEGATION_RE.search(new_lower))
+    new_numbers = set(_NUMBER_RE.findall(new_lower))
+    topic_lower = topic.strip().lower()
+
+    OPPOSING = [
+        ({"won", "awarded", "signed", "delivered"}, {"lost", "cancelled", "withdrew", "rejected", "terminated"}),
+        ({"alive", "active", "in office", "serving"}, {"dead", "deceased", "removed", "dismissed", "retired"}),
+        ({"increased", "rising", "growing"}, {"decreased", "falling", "declining", "cut"}),
+        ({"sanctioned", "embargoed", "blocked"}, {"removed", "delisted", "exempt", "cleared"}),
+    ]
+    contradictions: list[dict] = []
+    for f in existing_facts:
+        if f.get("topic", "").strip().lower() != topic_lower:
+            continue
+        old_text = (f.get("content") or "").lower()
+        old_negated = bool(_NEGATION_RE.search(old_text))
+        conflict_reason = None
+
+        if new_negated != old_negated:
+            conflict_reason = "negation mismatch"
+        else:
+            old_numbers = set(_NUMBER_RE.findall(old_text))
+            if new_numbers and old_numbers and not (new_numbers & old_numbers):
+                conflict_reason = f"numeric mismatch (was {sorted(old_numbers)[:3]}, now {sorted(new_numbers)[:3]})"
+            else:
+                for set_a, set_b in OPPOSING:
+                    has_a_old = any(w in old_text for w in set_a)
+                    has_b_old = any(w in old_text for w in set_b)
+                    has_a_new = any(w in new_lower for w in set_a)
+                    has_b_new = any(w in new_lower for w in set_b)
+                    if (has_a_old and has_b_new) or (has_b_old and has_a_new):
+                        conflict_reason = "opposing terms"
+                        break
+
+        if conflict_reason:
+            contradictions.append({
+                "fact_id": f.get("id"),
+                "old_content": (f.get("content") or "")[:200],
+                "old_confidence": f.get("confidence"),
+                "old_source": f.get("source"),
+                "old_updated_at": f.get("updatedAt"),
+                "reason": conflict_reason,
+            })
+    return contradictions
+
+
+async def store_fact(topic: str, content: str, source: str = "user",
+                     confidence: str = "CONFIRMED") -> dict:
+    """Store a fact, detecting contradictions and merging duplicates.
+
+    Returns a dict with action taken: ``{action: "created"|"updated"|"superseded",
+    fact_id, contradictions: [...]}``
+    """
     db = await _load()
     now = datetime.now(timezone.utc).isoformat()
 
-    # Dedup by topic
+    # ── Detect contradictions BEFORE storing ──────────────────────────────
+    contradictions = _detect_contradictions(topic, content, db["facts"])
+
+    # ── Dedup by topic ────────────────────────────────────────────────────
     for f in db["facts"]:
         if f["topic"].lower() == topic.lower():
+            # Don't blindly overwrite — check confidence ranks
+            old_rank = _CONFIDENCE_RANK.get(f.get("confidence", "ASSESSED"), 2)
+            new_rank = _CONFIDENCE_RANK.get(confidence, 2)
+
+            if contradictions:
+                # New info contradicts old — keep both, mark the older one as superseded
+                # but only if the new fact is at least as confident as the old.
+                if new_rank >= old_rank:
+                    f["superseded_by"] = None  # placeholder; set after we know the new id
+                    f["superseded_at"] = now
+                    f["history"] = (f.get("history") or [])[-9:] + [{
+                        "content": f["content"],
+                        "confidence": f["confidence"],
+                        "source": f["source"],
+                        "replaced_at": now,
+                    }]
+                    f["content"] = content
+                    f["source"] = source
+                    f["confidence"] = confidence
+                    f["updatedAt"] = now
+                    f["accessCount"] = f.get("accessCount", 0) + 1
+                    f["contradictions_detected"] = (f.get("contradictions_detected", 0) or 0) + len(contradictions)
+                    await _save()
+                    return {"action": "superseded", "fact_id": f["id"], "contradictions": contradictions}
+                else:
+                    # New fact is weaker — keep old, log the conflict but don't overwrite
+                    f["pending_conflicts"] = (f.get("pending_conflicts") or [])[-4:] + [{
+                        "content": content[:200], "confidence": confidence,
+                        "source": source, "noted_at": now,
+                    }]
+                    await _save()
+                    return {"action": "conflict_logged", "fact_id": f["id"], "contradictions": contradictions}
+
+            # No conflict — refresh in place
             f["content"] = content
             f["source"] = source
             f["confidence"] = confidence
             f["updatedAt"] = now
             f["accessCount"] = f.get("accessCount", 0) + 1
             await _save()
-            return
+            return {"action": "updated", "fact_id": f["id"], "contradictions": []}
 
+    # ── Brand-new fact ────────────────────────────────────────────────────
+    new_id = str(uuid.uuid4())[:8]
     db["facts"].insert(0, {
-        "id": str(uuid.uuid4())[:8],
+        "id": new_id,
         "topic": topic,
         "content": content,
         "source": source,
@@ -77,6 +195,7 @@ async def store_fact(topic: str, content: str, source: str = "user", confidence:
         "createdAt": now,
         "updatedAt": now,
         "accessCount": 0,
+        "contradictions_detected": len(contradictions),
     })
     if len(db["facts"]) > MAX_FACTS:
         db["facts"] = db["facts"][:MAX_FACTS]
@@ -87,6 +206,32 @@ async def store_fact(topic: str, content: str, source: str = "user", confidence:
         index_fact(db["facts"][0]["id"], f"{topic} {content}", {"confidence": confidence})
     except Exception:
         pass
+    return {"action": "created", "fact_id": new_id, "contradictions": contradictions}
+
+
+async def get_contradictions(limit: int = 50) -> list[dict]:
+    """Return facts that have detected contradictions or version history.
+
+    This is what powers ARIA's self-aware "I used to think X, now Y" reasoning.
+    """
+    db = await _load()
+    result = []
+    for f in db.get("facts", []):
+        if f.get("contradictions_detected", 0) > 0 or f.get("history") or f.get("pending_conflicts"):
+            result.append({
+                "id": f.get("id"),
+                "topic": f.get("topic"),
+                "current_content": f.get("content"),
+                "current_confidence": f.get("confidence"),
+                "current_source": f.get("source"),
+                "updated_at": f.get("updatedAt"),
+                "history": f.get("history") or [],
+                "pending_conflicts": f.get("pending_conflicts") or [],
+                "contradictions_count": f.get("contradictions_detected", 0),
+            })
+        if len(result) >= limit:
+            break
+    return result
 
 
 async def record_query(query: str, summary: str, market: str = "", category: str = "") -> None:

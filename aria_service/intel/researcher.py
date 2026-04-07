@@ -241,53 +241,234 @@ async def _fetch_rss(url: str, timeout: float = 15.0) -> list[dict]:
     return articles
 
 
+# ── Paywall detection ───────────────────────────────────────────────────────
+# Sites that consistently return paywalled stubs to anonymous fetches.
+_PAYWALL_DOMAINS = {
+    "ft.com", "wsj.com", "bloomberg.com", "economist.com", "thetimes.co.uk",
+    "nytimes.com", "telegraph.co.uk", "janes.com", "shephardmedia.com",
+    "africa-confidential.com", "intelligenceonline.com", "africaintelligence.com",
+    "leparisien.fr", "lemonde.fr", "latribune.fr",
+}
+_PAYWALL_MARKERS = re.compile(
+    r"(subscribe|subscription|paywall|metered|sign in to read|"
+    r"premium content|members? only|register to continue|"
+    r"please log in|login required|your free articles?|out of free)",
+    re.IGNORECASE,
+)
+
+
+def _is_paywalled(url: str, html: str) -> bool:
+    from urllib.parse import urlparse
+    domain = urlparse(url).netloc.lower().lstrip("www.")
+    if any(d in domain for d in _PAYWALL_DOMAINS):
+        # Almost certain paywall — confirm by content length
+        return True
+    # Heuristic: short body + paywall marker
+    if len(html) < 8000 and _PAYWALL_MARKERS.search(html):
+        return True
+    return False
+
+
+async def _try_archive_fallbacks(url: str, timeout: float = 12.0) -> str:
+    """When the original URL is paywalled or 4xx, try public mirrors.
+
+    Tries in order:
+      1. archive.is (most defence/security articles get archived here within hours)
+      2. Wayback Machine via /web/timemap/ (if archive.is fails)
+      3. Google News cluster (sometimes serves a cached snippet)
+    """
+    from urllib.parse import quote_plus as _q
+
+    # 1. archive.is
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            resp = await client.get(
+                f"https://archive.is/newest/{url}",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0) ARIA-Research"},
+            )
+            if resp.status_code == 200 and len(resp.text) > 2000:
+                return resp.text
+    except httpx.HTTPError:
+        pass
+
+    # 2. Wayback Machine — get the most recent snapshot URL via the availability API
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            avail = await client.get(
+                "https://archive.org/wayback/available",
+                params={"url": url},
+            )
+            if avail.status_code == 200:
+                snap = (avail.json().get("archived_snapshots", {}) or {}).get("closest", {})
+                snap_url = snap.get("url") if snap.get("available") else None
+                if snap_url:
+                    snap_resp = await client.get(snap_url)
+                    if snap_resp.status_code == 200 and len(snap_resp.text) > 2000:
+                        return snap_resp.text
+    except (httpx.HTTPError, ValueError, KeyError):
+        pass
+
+    return ""
+
+
 async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
-    """Fetch article body text from URL (with security validation)."""
+    """Fetch article body text from URL with paywall detection + archive fallback."""
     from .security import sanitise_url, scan_content, strip_dangerous_content
     url = sanitise_url(url)
     if not url:
         return ""
+
+    html = ""
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Accept": "text/html,application/xhtml+xml",
             })
-            if resp.status_code != 200:
+            if resp.status_code == 200:
+                html = resp.text
+            elif resp.status_code in (401, 402, 403):
+                # Forbidden — try archive immediately
+                logger.info("Article %s returned %d — trying archive", url[:80], resp.status_code)
+                html = await _try_archive_fallbacks(url, timeout=timeout)
+            else:
                 return ""
-            html = resp.text
-
-        # Security scan
-        scan = scan_content(html, source=url[:100])
-        if not scan["safe"]:
-            logger.warning("Blocked unsafe content from %s: %s", url[:80],
-                           [t["type"] for t in scan["threats"]])
-            html = strip_dangerous_content(html)
-
-        # Strip scripts, styles, nav elements
-        text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<nav[^>]*>.*?</nav>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<header[^>]*>.*?</header>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<footer[^>]*>.*?</footer>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<[^>]+>", " ", text)
-        text = re.sub(r"&\w+;", " ", text)
-        text = re.sub(r"\s+", " ", text).strip()
-
-        # Take substantial middle portion
-        if len(text) > 2000:
-            text = text[300:6000]
-        return text[:6000]
     except Exception as e:
-        logger.debug(f"Article fetch failed for {url}: {e}")
+        logger.debug("Article fetch failed for %s: %s — trying archive", url[:80], e)
+        html = await _try_archive_fallbacks(url, timeout=timeout)
+
+    if not html:
         return ""
+
+    # Paywall detection on successful 200 fetches
+    if _is_paywalled(url, html):
+        logger.info("Paywall detected on %s — falling back to archive", url[:80])
+        archived = await _try_archive_fallbacks(url, timeout=timeout)
+        if archived and len(archived) > len(html):
+            html = archived
+
+    # Security scan
+    scan = scan_content(html, source=url[:100])
+    if not scan["safe"]:
+        logger.warning("Blocked unsafe content from %s: %s", url[:80],
+                       [t["type"] for t in scan["threats"]])
+        html = strip_dangerous_content(html)
+
+    # Strip scripts, styles, nav elements
+    text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<nav[^>]*>.*?</nav>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<header[^>]*>.*?</header>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<footer[^>]*>.*?</footer>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"&\w+;", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Take substantial middle portion
+    if len(text) > 2000:
+        text = text[300:6000]
+    return text[:6000]
+
+
+# ── Multi-language search query expansion ───────────────────────────────────
+# Maps target market → list of (locale, hl, gl) tuples for Google News RSS,
+# plus translation hints for the search query itself.
+
+_LANG_PROFILES = {
+    "fr": {"hl": "fr", "gl": "FR", "ceid": "FR:fr",
+           "translate": {"defence procurement": "marché de défense",
+                         "tender": "appel d'offres", "contract": "contrat",
+                         "armed forces": "forces armées", "ministry of defence": "ministère de la défense"}},
+    "pt": {"hl": "pt", "gl": "BR", "ceid": "BR:pt",
+           "translate": {"defence procurement": "aquisição de defesa",
+                         "tender": "concurso", "contract": "contrato",
+                         "armed forces": "forças armadas", "ministry of defence": "ministério da defesa"}},
+    "es": {"hl": "es", "gl": "ES", "ceid": "ES:es",
+           "translate": {"defence procurement": "adquisición de defensa",
+                         "tender": "licitación", "contract": "contrato",
+                         "armed forces": "fuerzas armadas", "ministry of defence": "ministerio de defensa"}},
+    "ar": {"hl": "ar", "gl": "AE", "ceid": "AE:ar",
+           "translate": {"defence procurement": "مشتريات دفاعية",
+                         "tender": "مناقصة", "contract": "عقد",
+                         "armed forces": "القوات المسلحة", "ministry of defence": "وزارة الدفاع"}},
+}
+
+# Country → relevant languages to search in
+_COUNTRY_LANGS = {
+    "angola": ["pt"], "mozambique": ["pt"], "guinea-bissau": ["pt"], "cape verde": ["pt"], "brazil": ["pt"],
+    "senegal": ["fr"], "mali": ["fr"], "burkina faso": ["fr"], "niger": ["fr"], "chad": ["fr"],
+    "ivory coast": ["fr"], "côte d'ivoire": ["fr"], "cameroon": ["fr"], "morocco": ["fr", "ar"],
+    "algeria": ["fr", "ar"], "tunisia": ["fr", "ar"],
+    "egypt": ["ar"], "saudi arabia": ["ar"], "uae": ["ar"], "iraq": ["ar"], "jordan": ["ar"],
+    "lebanon": ["ar", "fr"], "libya": ["ar"], "yemen": ["ar"], "syria": ["ar"], "qatar": ["ar"],
+    "spain": ["es"], "colombia": ["es"], "peru": ["es"], "mexico": ["es"], "venezuela": ["es"],
+}
+
+
+def _detect_target_languages(query: str) -> list[str]:
+    """Decide which non-English languages to also search in based on query content."""
+    q = query.lower()
+    langs: set[str] = set()
+    for country, codes in _COUNTRY_LANGS.items():
+        if country in q:
+            langs.update(codes)
+    return list(langs)[:3]  # cap to 3 extra languages
+
+
+def _translate_query(query: str, lang_code: str) -> str:
+    """Apply lightweight phrase translation based on the lang profile dictionary.
+
+    Not full ML translation — just maps the most common defence procurement terms.
+    Falls back to the original query if no terms match (Google News still works).
+    """
+    profile = _LANG_PROFILES.get(lang_code)
+    if not profile:
+        return query
+    translated = query
+    for en, target in profile["translate"].items():
+        translated = re.sub(re.escape(en), target, translated, flags=re.IGNORECASE)
+    return translated
 
 
 async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
-    """Search for articles via Google News RSS."""
+    """Multi-language search for articles via Google News RSS.
+
+    Always searches English first; for queries that mention francophone /
+    lusophone / arabophone / hispanophone countries, also runs region-specific
+    searches in the relevant language to capture local press coverage that
+    English-only searches miss completely.
+    """
     encoded = quote_plus(query)
-    url = f"https://news.google.com/rss/search?q={encoded}&hl=en&gl=US&ceid=US:en"
-    return await _fetch_rss(url, timeout)
+    base_url = f"https://news.google.com/rss/search?q={encoded}&hl=en&gl=US&ceid=US:en"
+    results = await _fetch_rss(base_url, timeout)
+
+    extra_langs = _detect_target_languages(query)
+    for lang in extra_langs:
+        profile = _LANG_PROFILES.get(lang)
+        if not profile:
+            continue
+        translated = _translate_query(query, lang)
+        encoded_t = quote_plus(translated)
+        url = (f"https://news.google.com/rss/search?q={encoded_t}"
+               f"&hl={profile['hl']}&gl={profile['gl']}&ceid={profile['ceid']}")
+        try:
+            extra = await _fetch_rss(url, timeout)
+            for item in extra:
+                item["_language"] = lang
+            results.extend(extra)
+        except Exception as e:
+            logger.debug("Multilingual search failed for %s: %s", lang, e)
+
+    # Dedup by link
+    seen_links: set[str] = set()
+    deduped = []
+    for r in results:
+        link = (r.get("link") or "").strip()
+        if not link or link in seen_links:
+            continue
+        seen_links.add(link)
+        deduped.append(r)
+    return deduped[:30]
 
 
 # ── LLM Article Analysis ────────────────────────────────────────────────────

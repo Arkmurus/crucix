@@ -1,0 +1,436 @@
+"""
+ARIA Local Brain — rule-based response engine that needs ZERO LLM calls.
+
+Purpose
+═══════
+ARIA's full reasoning happens in DeepSeek (her configured brain). But when
+DeepSeek is unreachable — rate-limited, network outage, key revoked — every
+chat call would previously hard-fail with "ARIA encountered an internal error."
+
+This module handles ~30% of typical defence-intelligence queries WITHOUT any
+LLM call by routing to the local data layer:
+
+  - Sanctions check         → fuzzy_screen() + OpenSanctions cache
+  - Conflict situation      → ACLED/GDELT cache + correlate_with_procurement
+  - Country risk            → static risk table (same as compliance/risk)
+  - Weapon system explainer → tech_classifier database
+  - Contact lookup          → contacts module
+  - Competitor moves        → competitors module
+  - Knowledge base lookup   → knowledge.search_knowledge() + neural recall
+  - Intelligence ledger     → query_ledger() with recency weighting
+  - "Show me X about Y"     → semantic_search
+
+When the LLM is up, this module is also used as a TOOL — pre-fetching local
+context before the prompt so the LLM has structured data to reason over.
+When the LLM is DOWN, this module IS the response — degraded but still useful.
+
+Usage
+═════
+    from .intel import local_brain
+
+    # Try local-only first
+    result = await local_brain.try_local_response(message)
+    if result.get("answered"):
+        return result["response"]
+
+    # Fall through to LLM if local couldn't answer
+    return await llm.complete(...)
+
+Independence philosophy
+═══════════════════════
+Every line of this module runs without DeepSeek/Anthropic/OpenAI/Gemini.
+The only external calls are to public data feeds (OpenSanctions, ACLED) which
+are cached locally — and even those have local fallbacks.
+"""
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any, Optional
+
+from . import knowledge as kb
+from . import intel_ledger
+from . import contacts
+from . import competitors
+from . import neural_memory
+from . import tech_classifier
+from . import sanctions as fuzzy_sanctions
+from . import conflict_tracker
+
+logger = logging.getLogger("aria.local_brain")
+
+# ── Intent patterns — local-resolvable queries ──────────────────────────────
+# Each pattern → handler function. Patterns are ordered by specificity:
+# more specific patterns checked first, more general ones last.
+
+_PATTERNS: list[tuple[re.Pattern, str]] = [
+    # Sanctions screening
+    (re.compile(r"\b(?:is|are)\s+(.+?)\s+(?:on\s+the\s+)?(?:sanction(?:ed|s\s+list)?|ofac|ofsi|embargo(?:ed)?)", re.I), "sanctions"),
+    (re.compile(r"\b(?:screen|check)\s+(?:if\s+)?(.+?)\s+(?:is\s+)?(?:sanctioned|on\s+(?:any\s+)?sanctions?\s+list)", re.I), "sanctions"),
+    (re.compile(r"\bsanctions?\s+(?:check|screen|status)\s+(?:on|for|of)\s+(.+)", re.I), "sanctions"),
+
+    # Conflict / kinetic events
+    (re.compile(r"\bwhat'?s?\s+happening\s+in\s+([\w\s\-]+?)(?:\?|$|\s+now|\s+today|\s+lately)", re.I), "conflict"),
+    (re.compile(r"\b(?:security|conflict|situation|escalation|violence)\s+(?:in|of|for)\s+([\w\s\-]+?)(?:\?|$|\s+(?:right\s+)?now)", re.I), "conflict"),
+    (re.compile(r"\bis\s+([\w\s\-]+?)\s+(?:safe|stable|escalating|in\s+conflict)", re.I), "conflict"),
+
+    # Country risk
+    (re.compile(r"\b(?:country\s+)?risk\s+(?:level\s+)?(?:for|of|in)\s+([\w\s\-]+)", re.I), "country_risk"),
+    (re.compile(r"\bhow\s+risky\s+is\s+([\w\s\-]+?)(?:\?|$)", re.I), "country_risk"),
+
+    # Weapon system explainer
+    (re.compile(r"\bwhat\s+is\s+(?:a|an|the)\s+([\w\-]+(?:\s+[\w\-]+){0,3})\s*\??$", re.I), "tech_explain"),
+    (re.compile(r"\b(?:tell\s+me\s+about|specs?\s+(?:of|for)|specifications?\s+of)\s+(?:the\s+)?([\w\-]+(?:\s+[\w\-]+){0,3})", re.I), "tech_explain"),
+
+    # Contact lookup
+    (re.compile(r"\b(?:who\s+do\s+(?:we|i|aria)\s+know|contacts?|humint)\s+(?:in|for)\s+([\w\s\-]+?)(?:\?|$)", re.I), "contacts"),
+    (re.compile(r"\bwho\s+is\s+(?:our|the)\s+(?:contact|person|liaison)\s+(?:in|for|at)\s+([\w\s\-]+)", re.I), "contacts"),
+
+    # Competitor moves
+    (re.compile(r"\b(?:what\s+(?:is|are))?\s*(?:our\s+)?competitors?\s+(?:doing|up\s+to|moves?)\s+(?:in|for)?\s*([\w\s\-]*)", re.I), "competitors"),
+
+    # Ledger / signal queries
+    (re.compile(r"\b(?:recent|latest|hot|new)\s+(?:signals?|intel|news|updates?)\s+(?:on|about|for|in)\s+(.+)", re.I), "ledger"),
+
+    # Tech classification of free text
+    (re.compile(r"\bclassify\s+(?:this|these)\s*[:\-]?\s*(.+)", re.I | re.S), "classify"),
+]
+
+
+# ── Output formatters ──────────────────────────────────────────────────────
+
+def _fmt_sanctions(name: str, result: dict) -> str:
+    if not result.get("matches"):
+        return (
+            f"✅ *Sanctions screen — {name}*\n\n"
+            f"No matches in OpenSanctions consolidated dataset (OFAC/OFSI/EU/UN/200+ lists).\n"
+            f"Variants checked: {len(result.get('variants_tried', []))}\n\n"
+            f"_Pre-screen only — verify against authoritative sources before action._"
+        )
+    blocked = result.get("blocked", False)
+    head = "⛔" if blocked else "⚠️"
+    lines = [f"{head} *Sanctions screen — {name}*", ""]
+    if blocked:
+        lines.append(f"*BLOCKING MATCH* — top score {result.get('top_score', 0)}")
+    else:
+        lines.append(f"Possible matches found — top score {result.get('top_score', 0)}")
+    lines.append("")
+    for m in (result.get("matches") or [])[:5]:
+        lines.append(f"• *{m.get('name','?')}* — {m.get('list','?')} (score {m.get('score',0)})")
+        if m.get("countries"):
+            lines.append(f"  Country: {', '.join(m['countries'][:3])}")
+    lines.append("")
+    lines.append("_Source: OpenSanctions. Manual verification required._")
+    return "\n".join(lines)
+
+
+def _fmt_conflict(country: str, summary: dict) -> str:
+    if summary.get("total_events", 0) == 0:
+        return f"🟢 *{country}* — no kinetic events in the recorded window. Country appears quiet (or out of ACLED/GDELT coverage)."
+    label = summary.get("escalation_label", "?")
+    score = summary.get("escalation_score", 0)
+    icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MODERATE": "🟡", "LOW": "🟢"}.get(label, "⚪")
+    lines = [
+        f"{icon} *{country}* — escalation {score}/100 ({label})",
+        "",
+        f"Events ({summary.get('days', '?')}d): {summary.get('total_events', 0)} | Fatalities: {summary.get('fatalities', 0)} | Momentum: {summary.get('momentum', '?')}",
+    ]
+    if summary.get("by_type"):
+        top_types = list(summary["by_type"].items())[:4]
+        lines.append("Event mix: " + ", ".join(f"{k} {v}" for k, v in top_types))
+    if summary.get("top_locations"):
+        lines.append("Hotspots: " + ", ".join(l["location"] for l in summary["top_locations"][:3]))
+    lines.append("")
+    if summary.get("recent_events"):
+        lines.append("*Most recent:*")
+        for e in summary["recent_events"][:3]:
+            lines.append(f"• [{e.get('date','?')}] {e.get('type','?')} — {(e.get('notes') or '')[:140]}")
+    return "\n".join(lines)
+
+
+def _fmt_tech(designation: str, info: dict) -> str:
+    if not info.get("found"):
+        partial = info.get("partial_matches", [])
+        if partial:
+            return f"❓ *{designation}* not in technical database. Closest: {', '.join(partial[:5])}"
+        return f"❓ *{designation}* not in ARIA's weapon-system database. Try /code to teach me."
+    lines = [f"🛠 *{designation}*"]
+    if info.get("type"):     lines.append(f"Type: {info['type']}")
+    if info.get("country"):  lines.append(f"Country: {info['country']}")
+    if info.get("oem"):      lines.append(f"OEM: {info['oem']}")
+    if info.get("ml"):       lines.append(f"UK ML category: {info['ml']}")
+    if info.get("eccn"):     lines.append(f"US ECCN: {info['eccn']}")
+    if info.get("controlled"): lines.append("⚠️ Export-controlled item")
+    if info.get("embargo_risk"):
+        lines.append(f"⛔ Embargo risk: {info['embargo_risk']}")
+    if info.get("mtcr"):     lines.append(f"MTCR: {info['mtcr']}")
+    return "\n".join(lines)
+
+
+def _fmt_contacts(country: str) -> str:
+    """Look up contacts in the local module — pure data, no LLM."""
+    try:
+        ctx = contacts.get_contact_context(country)
+        if not ctx or not ctx.strip():
+            return f"ℹ️ No contacts on file for {country}. Add via /api/aria/contacts."
+        return f"*Contacts — {country}*\n\n{ctx[:2000]}"
+    except Exception as e:
+        logger.warning("local_brain contacts lookup failed: %s", e)
+        return f"⚠️ Contact lookup failed: {e}"
+
+
+def _fmt_competitors(market: str) -> str:
+    try:
+        ctx = competitors.get_competitor_context(market or "")
+        if not ctx or not ctx.strip():
+            return f"ℹ️ No competitor moves recorded{' for ' + market if market else ''}."
+        return f"*Competitor activity{' — ' + market if market else ''}*\n\n{ctx[:2000]}"
+    except Exception as e:
+        logger.warning("local_brain competitors lookup failed: %s", e)
+        return f"⚠️ Competitor lookup failed: {e}"
+
+
+def _fmt_ledger(query: str) -> str:
+    try:
+        result = intel_ledger.query_ledger(query)
+        if not result or not result.strip():
+            return f"ℹ️ No recent signals matching '{query}'. ARIA's ledger is empty for this topic."
+        return f"*Ledger signals — {query}*\n{result[:2200]}"
+    except Exception as e:
+        logger.warning("local_brain ledger lookup failed: %s", e)
+        return f"⚠️ Ledger query failed: {e}"
+
+
+def _fmt_country_risk(country: str) -> str:
+    """Static country risk table — exact same logic as /api/aria/compliance/risk."""
+    EMBARGOED = {"RU","BY","IR","KP","SY","CU","VE","CF","CD","ER","IQ","LY","ML","SO","SS","SD","YE","AF","HT","MM","NI","ZW","CN"}
+    HIGH_RISK = {"GW","CM","NE","BF","TD","PK","EG","TR","IN","ET"}
+    MEDIUM_RISK = {"AO","MZ","NG","SN","CI","UG","ID","VN","CO","PE","SA","AE","JO"}
+    NAME_TO_ISO = {
+        "russia":"RU","belarus":"BY","iran":"IR","north korea":"KP","syria":"SY",
+        "cuba":"CU","venezuela":"VE","drc":"CD","congo":"CD","libya":"LY","mali":"ML",
+        "somalia":"SO","sudan":"SD","yemen":"YE","afghanistan":"AF","myanmar":"MM",
+        "burma":"MM","zimbabwe":"ZW","china":"CN","angola":"AO","mozambique":"MZ",
+        "nigeria":"NG","senegal":"SN","cameroon":"CM","niger":"NE","chad":"TD",
+        "burkina faso":"BF","pakistan":"PK","egypt":"EG","turkey":"TR","ethiopia":"ET",
+        "guinea-bissau":"GW","cape verde":"CV","ivory coast":"CI","côte d'ivoire":"CI",
+        "uganda":"UG","indonesia":"ID","vietnam":"VN","colombia":"CO","peru":"PE",
+        "saudi arabia":"SA","uae":"AE","jordan":"JO",
+    }
+    iso = country.upper() if len(country) == 2 else NAME_TO_ISO.get(country.lower().strip(), country.upper()[:2])
+    if iso in EMBARGOED:
+        return f"🔴 *{country}* — HIGH risk\n\nUnder international arms embargo. Most defence exports prohibited.\nRegimes: UN SC, EU, UK OFSI."
+    if iso in HIGH_RISK:
+        return f"🟠 *{country}* — HIGH risk\n\nEnhanced due diligence required. End-user verification + diversion risk assessment + SITCL likely required."
+    if iso in MEDIUM_RISK:
+        return f"🟡 *{country}* — MEDIUM risk\n\nStandard defence exports permitted but SITCL with end-use certificate required."
+    return f"🟢 *{country}* — LOW risk\n\nLow-risk destination. Standard export controls apply."
+
+
+# ── Public API ──────────────────────────────────────────────────────────────
+
+async def try_local_response(message: str) -> dict:
+    """Attempt to answer a message using ONLY local data. No LLM call.
+
+    Returns:
+        {
+            "answered": bool,
+            "response": str | None,
+            "intent": str | None,
+            "source": "local_brain",
+            "degraded": bool,  # True if this is a fallback from a failed LLM
+        }
+    """
+    if not message or len(message.strip()) < 3:
+        return {"answered": False, "response": None, "intent": None}
+
+    msg = message.strip()
+
+    for pattern, intent in _PATTERNS:
+        m = pattern.search(msg)
+        if not m:
+            continue
+        try:
+            arg = (m.group(1) if m.groups() else "").strip().rstrip(".,?!;:")
+            if not arg or len(arg) < 2:
+                continue
+
+            if intent == "sanctions":
+                result = await fuzzy_sanctions.fuzzy_screen(arg)
+                return {
+                    "answered": True,
+                    "response": _fmt_sanctions(arg, result),
+                    "intent": intent,
+                    "source": "local_brain",
+                }
+
+            if intent == "conflict":
+                result = await conflict_tracker.get_recent_events(arg, days=30, limit=15)
+                return {
+                    "answered": True,
+                    "response": _fmt_conflict(arg, result),
+                    "intent": intent,
+                    "source": "local_brain",
+                }
+
+            if intent == "country_risk":
+                return {
+                    "answered": True,
+                    "response": _fmt_country_risk(arg),
+                    "intent": intent,
+                    "source": "local_brain",
+                }
+
+            if intent == "tech_explain":
+                info = tech_classifier.explain_item(arg)
+                if info.get("found") or info.get("partial_matches"):
+                    return {
+                        "answered": True,
+                        "response": _fmt_tech(arg, info),
+                        "intent": intent,
+                        "source": "local_brain",
+                    }
+                continue  # not in DB — fall through
+
+            if intent == "contacts":
+                return {
+                    "answered": True,
+                    "response": _fmt_contacts(arg),
+                    "intent": intent,
+                    "source": "local_brain",
+                }
+
+            if intent == "competitors":
+                return {
+                    "answered": True,
+                    "response": _fmt_competitors(arg),
+                    "intent": intent,
+                    "source": "local_brain",
+                }
+
+            if intent == "ledger":
+                return {
+                    "answered": True,
+                    "response": _fmt_ledger(arg),
+                    "intent": intent,
+                    "source": "local_brain",
+                }
+
+            if intent == "classify":
+                result = tech_classifier.classify_text(arg)
+                lines = [f"📋 *Classification result*", ""]
+                lines.append(f"Summary: {result.get('raw_summary')}")
+                if result.get("ml_categories"):
+                    lines.append(f"ML categories: {', '.join(result['ml_categories'])}")
+                if result.get("controlled_items_count", 0) > 0:
+                    lines.append(f"Controlled items: {result['controlled_items_count']}")
+                if result.get("embargo_risks"):
+                    lines.append(f"⚠️ Embargo risks: {'; '.join(result['embargo_risks'])}")
+                return {
+                    "answered": True,
+                    "response": "\n".join(lines),
+                    "intent": intent,
+                    "source": "local_brain",
+                }
+        except Exception as e:
+            logger.warning("local_brain handler %s failed: %s", intent, e)
+            continue
+
+    return {"answered": False, "response": None, "intent": None}
+
+
+async def degraded_response(message: str, reason: str = "LLM unavailable") -> dict:
+    """Build a degraded response when no LLM is available.
+
+    Tries:
+      1. try_local_response() for rule-routable queries
+      2. Falls back to a multi-source local intelligence brief built from
+         knowledge base + neural recall + ledger + sanctions cache
+
+    Always returns SOMETHING — even if just a "ARIA is in degraded mode but
+    here's what I know from local data" report. Never raises.
+    """
+    # Step 1: Try the deterministic rule router
+    local = await try_local_response(message)
+    if local.get("answered"):
+        local["degraded"] = True
+        local["degradation_reason"] = reason
+        local["response"] = (
+            f"⚠️ _ARIA in degraded mode ({reason}). Answering from local data only — "
+            f"no reasoning, just retrieval._\n\n{local['response']}"
+        )
+        return local
+
+    # Step 2: Multi-source local brief — best-effort retrieval from every layer
+    sections: list[str] = []
+    sections.append(f"⚠️ *ARIA degraded mode* — {reason}")
+    sections.append("Cannot reason without my brain. Here is what I have in local storage on this topic:\n")
+
+    # Knowledge base lexical search
+    try:
+        kb_hit = kb.search_knowledge(message)
+        if kb_hit and kb_hit.strip():
+            sections.append(kb_hit[:1500])
+    except Exception as e:
+        logger.debug("local_brain kb search failed: %s", e)
+
+    # Neural memory associative recall
+    try:
+        neural = await neural_memory.recall(message, depth=2, max_results=10)
+        if neural and neural.get("neurons"):
+            lines = ["*Neural associations*:"]
+            for n in neural["neurons"][:8]:
+                conn = ", ".join(c["concept"] for c in n.get("connections", [])[:3])
+                lines.append(f"• {n['concept']} ({n['category']}) — linked: {conn}")
+            sections.append("\n".join(lines))
+    except Exception as e:
+        logger.debug("local_brain neural recall failed: %s", e)
+
+    # Intel ledger time-weighted
+    try:
+        ledger = intel_ledger.query_ledger(message)
+        if ledger and ledger.strip():
+            sections.append(ledger[:1500])
+    except Exception as e:
+        logger.debug("local_brain ledger query failed: %s", e)
+
+    sections.append("")
+    sections.append("_Restore my brain for full reasoning. Use /independence to check status._")
+
+    return {
+        "answered": True,
+        "response": "\n\n".join(sections),
+        "intent": "degraded_brief",
+        "source": "local_brain",
+        "degraded": True,
+        "degradation_reason": reason,
+    }
+
+
+def get_capability_surface() -> dict:
+    """Report what local_brain can answer without any LLM call."""
+    return {
+        "intents_supported": [
+            "sanctions_screen",
+            "conflict_situation",
+            "country_risk",
+            "weapon_system_explain",
+            "contact_lookup",
+            "competitor_moves",
+            "intel_ledger_query",
+            "tech_text_classification",
+        ],
+        "data_sources": [
+            "OpenSanctions (cached)",
+            "ACLED + GDELT (cached 6h)",
+            "Static country risk table",
+            "Tech classifier database (60+ weapon systems)",
+            "Local contacts module",
+            "Competitor moves module",
+            "Intel ledger (30d rolling)",
+            "Knowledge base (Redis)",
+            "Neural memory (Redis)",
+        ],
+        "llm_calls_required": 0,
+        "fallback_for_when": "DeepSeek/main LLM unreachable, rate-limited, or unconfigured",
+    }

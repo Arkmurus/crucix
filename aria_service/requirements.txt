@@ -11,3 +11,19 @@ sentence-transformers>=3.0.0
 numpy>=1.26.0
 PyMuPDF>=1.24.0
 openpyxl>=3.1.0
+
+# ── Local-first image OCR (no external LLM required) ──────────────────────
+# These give ARIA independent vision capability — she can read invoices,
+# screenshots, contracts, product specs from WhatsApp without needing
+# Anthropic / OpenAI / Gemini. Pin one or both:
+#
+#   pytesseract requires the Tesseract binary on the host:
+#     - Windows:  https://github.com/UB-Mannheim/tesseract/wiki
+#     - macOS:    brew install tesseract tesseract-lang
+#     - Debian:   apt install tesseract-ocr tesseract-ocr-por tesseract-ocr-fra
+#
+#   easyocr is pure-Python (PyTorch under the hood); ~250MB download on first
+#   use but then runs entirely offline. Best balance of quality and zero-config.
+pytesseract>=0.3.10
+Pillow>=10.0.0
+easyocr>=1.7.0

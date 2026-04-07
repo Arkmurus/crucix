@@ -153,31 +153,74 @@ async def ingest_sweep_signals(current_data: dict) -> int:
     return added
 
 
+def _recency_multiplier(ts_iso: str, now: datetime | None = None) -> float:
+    """Score multiplier based on signal age — fresh signals dominate stale ones.
+
+    today / <2d  → 2.5x
+    2-7 days     → 1.5x
+    7-14 days    → 1.0x   (baseline)
+    14-21 days   → 0.7x
+    >21 days     → 0.4x
+
+    Without this weighting, a 28-day-old correlation outranks today's tender simply
+    because it has more keyword matches — disastrous for procurement timing.
+    """
+    if not ts_iso:
+        return 0.4
+    try:
+        dt = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return 0.4
+    now = now or datetime.now(timezone.utc)
+    age_days = (now - dt).total_seconds() / 86400
+    if age_days < 2: return 2.5
+    if age_days < 7: return 1.5
+    if age_days < 14: return 1.0
+    if age_days < 21: return 0.7
+    return 0.4
+
+
 def query_ledger(query: str) -> str:
-    """Synchronous search for prompt injection. Returns formatted string."""
+    """Time-weighted, entity-aware search for prompt injection.
+
+    Returns a formatted string for LLM context. Recent signals score 2.5x
+    higher than 3-week-old ones — restoring the "what's hot now" intuition
+    that a senior analyst would apply.
+    """
     if not _cache or not _cache["signals"]:
         return ""
     words = [w.lower() for w in query.split() if len(w) > 2]
     if not words:
         return ""
 
+    now = datetime.now(timezone.utc)
+    query_lower = query.lower()
+
     scored: list[tuple[float, dict]] = []
     for s in _cache["signals"]:
-        score = 0
+        score = 0.0
         for c in s.get("countries", []):
-            if c.lower() in query.lower():
+            if c.lower() in query_lower:
                 score += 5
         for o in s.get("oems", []):
-            if o.lower() in query.lower():
+            if o.lower() in query_lower:
                 score += 4
         for p in s.get("products", []):
-            if p.lower() in query.lower():
+            if p.lower() in query_lower:
                 score += 4
         text = s.get("text", "").lower()
         for w in words:
             if w in text:
                 score += 2
+
+        # Severity boost — high-severity signals matter more even if older
+        sev = (s.get("severity") or "medium").lower()
+        if sev == "high":   score += 2
+        elif sev == "low":  score -= 1
+
         if score > 0:
+            # Apply temporal weighting AFTER content scoring
+            score *= _recency_multiplier(s.get("ts", ""), now)
             scored.append((score, s))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -185,15 +228,16 @@ def query_ledger(query: str) -> str:
     if not top:
         return ""
 
-    now = datetime.now(timezone.utc)
-    lines = [f"\n[INTELLIGENCE LEDGER — recent signals ({len(_cache['signals'])} total, 30d)]"]
-    for _, s in top:
+    lines = [f"\n[INTELLIGENCE LEDGER — recent signals ({len(_cache['signals'])} total, 30d, recency-weighted)]"]
+    for score, s in top:
         age = ""
         if s.get("ts"):
             try:
                 dt = datetime.fromisoformat(s["ts"].replace("Z", "+00:00"))
                 days = (now - dt).days
-                age = f" ({days}d ago)" if days > 0 else " (today)"
+                hrs = (now - dt).total_seconds() / 3600
+                if hrs < 24: age = f" ({int(hrs)}h ago)"
+                else: age = f" ({days}d ago)"
             except Exception:
                 pass
         lines.append(f"- [{s.get('type','?')}] {s.get('text','')[:180]}{age}")

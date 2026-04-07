@@ -1,0 +1,307 @@
+"""
+ARIA Conflict Tracker — ACLED-powered kinetic event intelligence.
+
+ACLED (Armed Conflict Location & Event Data) is the gold-standard open dataset
+for tracking battles, attacks, riots, protests, fatalities, and political
+violence across Africa, MENA, Asia, Latin America, and parts of Europe.
+
+Why ARIA needs this:
+  - Defence procurement is REACTIVE: a buyer's appetite spikes after a security
+    incident. ARIA needs to correlate "Mozambique cabo delgado attack uptick"
+    with "FADM ammunition procurement window."
+  - Compliance: a country experiencing rapid escalation may move from MEDIUM
+    to HIGH risk overnight (Sudan 2023, Niger 2023). Static lists lag.
+  - Counter-IED: tracking IED incidents informs which capabilities are in
+    demand and which OEMs should be approached.
+
+ACLED API (free for academic / non-commercial use, requires registration):
+  https://acleddata.com/data/api/
+  - Endpoint: https://api.acleddata.com/acled/read
+  - Auth: ?key=<KEY>&email=<EMAIL>  OR no auth for public tier (heavy rate-limited)
+  - Returns JSON with event_date, event_type, sub_event_type, country, location,
+    fatalities, actors, source.
+
+If ACLED credentials are not configured, this module falls back to the GDELT
+Project's free DOC 2.0 API which provides similar (lower-fidelity) event data.
+
+Module-level state:
+    Recent events cached in Redis (24h TTL) so repeated queries don't hit the API.
+"""
+from __future__ import annotations
+
+import logging
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+import httpx
+
+from . import redis_store as rs
+
+logger = logging.getLogger("aria.conflict")
+
+ACLED_BASE = "https://api.acleddata.com/acled/read"
+GDELT_DOC = "https://api.gdeltproject.org/api/v2/doc/doc"
+CACHE_TTL = 6 * 3600  # 6 hours
+
+# Country name → ISO3 (ACLED uses ISO3 codes)
+ISO3_MAP = {
+    # Lusophone Africa — ARIA's incumbent zone
+    "angola": "AGO", "mozambique": "MOZ", "guinea-bissau": "GNB", "guinea bissau": "GNB",
+    "cape verde": "CPV", "são tomé": "STP", "sao tome": "STP",
+    # West Africa
+    "nigeria": "NGA", "mali": "MLI", "burkina faso": "BFA", "niger": "NER",
+    "chad": "TCD", "ghana": "GHA", "senegal": "SEN", "ivory coast": "CIV", "cote d'ivoire": "CIV",
+    "cameroon": "CMR", "guinea": "GIN", "sierra leone": "SLE", "liberia": "LBR",
+    # East Africa
+    "kenya": "KEN", "ethiopia": "ETH", "somalia": "SOM", "uganda": "UGA",
+    "tanzania": "TZA", "rwanda": "RWA", "south sudan": "SSD", "sudan": "SDN",
+    "djibouti": "DJI", "eritrea": "ERI",
+    # Southern Africa
+    "south africa": "ZAF", "zimbabwe": "ZWE", "botswana": "BWA", "namibia": "NAM",
+    "zambia": "ZMB", "malawi": "MWI", "drc": "COD", "congo": "COD",
+    # MENA
+    "egypt": "EGY", "libya": "LBY", "tunisia": "TUN", "algeria": "DZA", "morocco": "MAR",
+    "iraq": "IRQ", "syria": "SYR", "yemen": "YEM", "lebanon": "LBN", "jordan": "JOR",
+    "saudi arabia": "SAU", "uae": "ARE", "oman": "OMN", "iran": "IRN",
+    # Asia
+    "afghanistan": "AFG", "pakistan": "PAK", "india": "IND", "bangladesh": "BGD",
+    "myanmar": "MMR", "indonesia": "IDN", "philippines": "PHL", "vietnam": "VNM",
+    "thailand": "THA", "cambodia": "KHM",
+    # Latin America
+    "colombia": "COL", "venezuela": "VEN", "mexico": "MEX", "haiti": "HTI",
+    "brazil": "BRA", "peru": "PER", "el salvador": "SLV", "honduras": "HND",
+    # Europe
+    "ukraine": "UKR", "russia": "RUS", "turkey": "TUR",
+}
+
+
+def _iso3(country: str) -> str:
+    return ISO3_MAP.get(country.lower().strip(), country.upper()[:3])
+
+
+# ── ACLED fetch ─────────────────────────────────────────────────────────────
+
+async def _fetch_acled(country_iso3: str, days: int = 30) -> list[dict]:
+    """Fetch recent ACLED events for a country. Falls back to GDELT if ACLED unavailable."""
+    api_key = os.getenv("ACLED_API_KEY", "").strip()
+    api_email = os.getenv("ACLED_EMAIL", "").strip()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    params: dict[str, str] = {
+        "iso3": country_iso3,
+        "event_date": f"{cutoff}|{datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
+        "event_date_where": "BETWEEN",
+        "limit": "200",
+    }
+    if api_key and api_email:
+        params["key"] = api_key
+        params["email"] = api_email
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(ACLED_BASE, params=params)
+            if resp.status_code != 200:
+                logger.warning("ACLED returned %s for %s — falling back to GDELT", resp.status_code, country_iso3)
+                return await _fetch_gdelt_fallback(country_iso3, days)
+            data = resp.json()
+            events = data.get("data", []) or []
+            logger.info("ACLED: fetched %d events for %s (last %dd)", len(events), country_iso3, days)
+            return events
+    except httpx.HTTPError as e:
+        logger.warning("ACLED request failed: %s — using GDELT fallback", e)
+        return await _fetch_gdelt_fallback(country_iso3, days)
+
+
+async def _fetch_gdelt_fallback(country_iso3: str, days: int = 30) -> list[dict]:
+    """GDELT 2.0 DOC API fallback when ACLED is unavailable.
+
+    Less precise (event records vs raw articles) but free and uncapped.
+    """
+    timespan = f"{days}d"
+    query = f'(attack OR conflict OR clash OR insurgency OR ambush OR airstrike OR coup) sourcecountry:{country_iso3}'
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                GDELT_DOC,
+                params={
+                    "query": query,
+                    "mode": "ArtList",
+                    "format": "json",
+                    "timespan": timespan,
+                    "maxrecords": "100",
+                },
+            )
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            articles = data.get("articles", []) or []
+            # Normalise to ACLED-like shape
+            normalised = []
+            for a in articles:
+                normalised.append({
+                    "event_date": (a.get("seendate") or "")[:10],
+                    "event_type": "Reported incident",
+                    "sub_event_type": "GDELT article",
+                    "country": country_iso3,
+                    "location": a.get("location", ""),
+                    "actor1": a.get("domain", "Unknown"),
+                    "fatalities": 0,
+                    "notes": a.get("title", "")[:300],
+                    "source": a.get("domain", "GDELT"),
+                    "source_url": a.get("url", ""),
+                    "_provider": "gdelt",
+                })
+            return normalised
+    except httpx.HTTPError as e:
+        logger.warning("GDELT fallback failed: %s", e)
+        return []
+
+
+# ── Cache layer ─────────────────────────────────────────────────────────────
+
+async def _cached_events(country: str, days: int = 30) -> list[dict]:
+    iso = _iso3(country)
+    cache_key = f"crucix:aria:conflict:{iso}:{days}"
+    cached = await rs.get_json(cache_key)
+    if cached and isinstance(cached, list):
+        return cached
+    events = await _fetch_acled(iso, days)
+    if events:
+        await rs.set_json(cache_key, events, ex=CACHE_TTL)
+    return events
+
+
+# ── Public API ──────────────────────────────────────────────────────────────
+
+async def get_recent_events(country: str, days: int = 30, limit: int = 50) -> dict:
+    """Return recent kinetic events for a country with summary statistics.
+
+    Output shape matches what ARIA's chat layer can ingest as context:
+        {
+            country, iso, days, total_events, fatalities,
+            by_type: {Battles: 12, Protests: 8, ...},
+            top_locations: [...],
+            recent_events: [...],
+            escalation_score: 0..100,
+        }
+    """
+    events = await _cached_events(country, days)
+    if not events:
+        return {
+            "country": country, "iso": _iso3(country), "days": days,
+            "total_events": 0, "events": [], "escalation_score": 0,
+            "note": "No events returned by ACLED/GDELT — country may be quiet or out of coverage.",
+        }
+
+    by_type: dict[str, int] = {}
+    by_location: dict[str, int] = {}
+    fatalities = 0
+    for e in events:
+        et = e.get("event_type", "Unknown") or "Unknown"
+        by_type[et] = by_type.get(et, 0) + 1
+        loc = e.get("location") or e.get("admin1") or ""
+        if loc:
+            by_location[loc] = by_location.get(loc, 0) + 1
+        try:
+            fatalities += int(e.get("fatalities", 0) or 0)
+        except (ValueError, TypeError):
+            pass
+
+    # Escalation score: weighted blend of recency, fatality count, event volume
+    week_cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+    recent_count = sum(1 for e in events if (e.get("event_date") or "") >= week_cutoff)
+    older_count = max(1, len(events) - recent_count)
+    momentum = recent_count / older_count  # >1 means escalating
+    escalation = min(100, int(
+        (recent_count * 2.0)
+        + (fatalities * 0.3)
+        + (momentum * 15)
+        + (5 if by_type.get("Battles", 0) > 0 else 0)
+    ))
+
+    top_locations = sorted(by_location.items(), key=lambda x: -x[1])[:5]
+    recent_events = sorted(events, key=lambda x: x.get("event_date", ""), reverse=True)[:limit]
+
+    return {
+        "country": country,
+        "iso": _iso3(country),
+        "days": days,
+        "total_events": len(events),
+        "fatalities": fatalities,
+        "by_type": dict(sorted(by_type.items(), key=lambda x: -x[1])),
+        "top_locations": [{"location": l, "count": c} for l, c in top_locations],
+        "escalation_score": escalation,
+        "escalation_label": (
+            "CRITICAL" if escalation >= 75 else
+            "HIGH" if escalation >= 50 else
+            "MODERATE" if escalation >= 25 else
+            "LOW"
+        ),
+        "momentum": round(momentum, 2),
+        "recent_events": [
+            {
+                "date": e.get("event_date"),
+                "type": e.get("event_type"),
+                "sub_type": e.get("sub_event_type"),
+                "location": e.get("location"),
+                "actor1": e.get("actor1"),
+                "actor2": e.get("actor2"),
+                "fatalities": e.get("fatalities"),
+                "notes": (e.get("notes") or "")[:300],
+                "source": e.get("source"),
+                "source_url": e.get("source_url") or e.get("source_scale"),
+            }
+            for e in recent_events
+        ],
+        "provider": events[0].get("_provider", "acled") if events else "none",
+    }
+
+
+async def correlate_with_procurement(country: str, days: int = 60) -> dict:
+    """Cross-reference conflict escalation with recent procurement signals.
+
+    Returns a structured assessment ARIA can include in market briefs:
+      - Is the country experiencing escalation?
+      - Has procurement activity changed in the same window?
+      - What capabilities should rise in demand based on event type mix?
+    """
+    events_summary = await get_recent_events(country, days=days, limit=20)
+    escalation = events_summary.get("escalation_score", 0)
+    by_type = events_summary.get("by_type", {})
+
+    # Capability demand projection from event mix
+    capability_signals: list[str] = []
+    if by_type.get("Battles", 0) >= 3:
+        capability_signals.append("Small arms, ammunition, IFV/APC, body armour, ISR")
+    if by_type.get("Explosions/Remote violence", 0) >= 3:
+        capability_signals.append("Counter-IED equipment, EOD robots, mine-resistant vehicles")
+    if by_type.get("Strategic developments", 0) >= 2:
+        capability_signals.append("Border security, surveillance towers, UAS, communications")
+    if by_type.get("Violence against civilians", 0) >= 5:
+        capability_signals.append("Armoured patrol vehicles, body cameras, riot control")
+
+    # Procurement window assessment
+    if escalation >= 50:
+        window = "OPEN — escalation creates urgent procurement appetite. Approach within 30 days."
+    elif escalation >= 25:
+        window = "WATCH — moderate activity. Monitor for tipping point or contract releases."
+    else:
+        window = "STABLE — no immediate trigger. Maintain relationship cadence."
+
+    return {
+        "country": country,
+        "escalation_score": escalation,
+        "escalation_label": events_summary.get("escalation_label"),
+        "events_last_period": events_summary.get("total_events", 0),
+        "fatalities_last_period": events_summary.get("fatalities", 0),
+        "event_mix": by_type,
+        "projected_capability_demand": capability_signals,
+        "procurement_window": window,
+        "recommended_action": (
+            "Escalate to BD for immediate engagement" if escalation >= 50 else
+            "Add to weekly watchlist; brief Arkmurus partners" if escalation >= 25 else
+            "No action — file under routine monitoring"
+        ),
+        "disclaimer": "Based on ACLED/GDELT open-source event data. Cross-check with classified or commercial sources before acting.",
+    }

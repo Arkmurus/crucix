@@ -195,22 +195,41 @@ def _prune_weakest(count: int) -> None:
             other_edges.pop(nid, None)
 
 
+_LAST_GLOBAL_DECAY = 0.0  # epoch seconds — protects against race condition on rapid recall
+
 def _apply_decay() -> None:
-    """Apply time-based decay to all neurons and edges."""
+    """Apply time-based decay to all neurons and edges.
+
+    Race-condition fix: previously each neuron tracked its own ``last_decayed`` and was
+    skipped if <0.5 days had passed. That meant two recall() calls within 12 hours would
+    silently DOUBLE-counted the activation boost (the second skipped decay) producing
+    spurious reinforcement. We now use a single global timestamp so decay either applies
+    to *all* neurons consistently or to none, and we still apply per-neuron exact maths.
+    """
+    global _LAST_GLOBAL_DECAY
     now = time.time()
+    days_since_global = (now - _LAST_GLOBAL_DECAY) / 86400 if _LAST_GLOBAL_DECAY else 1.0
+    if days_since_global < 0.25:  # at most 4 decay passes per day
+        return
+    _LAST_GLOBAL_DECAY = now
+
     for n in _neurons.values():
         days_since_decay = (now - n.get("last_decayed", now)) / 86400
-        if days_since_decay < 0.5:
-            continue  # Don't decay more than twice a day
+        if days_since_decay <= 0:
+            continue
         decay = DECAY_RATE ** days_since_decay
+        # Critical-knowledge protection: CONFIRMED facts decay 50% slower
+        if n.get("confidence") == "CONFIRMED":
+            decay = decay ** 0.5
         n["activation"] = max(MIN_ACTIVATION, n["activation"] * decay)
         n["last_decayed"] = now
 
-    # Decay edges
+    # Decay edges proportional to elapsed time, not per-call
+    edge_decay = 0.998 ** days_since_global
     for from_id in list(_edges.keys()):
         edges = _edges[from_id]
         for to_id in list(edges.keys()):
-            edges[to_id] *= 0.998  # Slower decay for edges
+            edges[to_id] *= edge_decay
             if edges[to_id] < PRUNE_THRESHOLD:
                 del edges[to_id]
         if not edges:
@@ -471,34 +490,71 @@ async def learn_explicit(concept: str, category: str, related_to: list[str] = No
     return {"neuron_id": neuron["id"], "concept": concept, "connections": connections}
 
 
-async def recall(query: str, depth: int = 2, max_results: int = 20) -> dict:
-    """Associative recall — find connected concepts by spreading activation."""
+async def recall(
+    query: str,
+    depth: int = 2,
+    max_results: int = 20,
+    category_filter: list[str] | None = None,
+    recency_boost: bool = True,
+) -> dict:
+    """Associative recall via spreading activation through the neuron graph.
+
+    Args:
+        query: Free-text query — concepts will be extracted from it.
+        depth: BFS depth for spreading activation (max 3).
+        max_results: Cap on returned neurons.
+        category_filter: If set, restrict spreading to neurons in these categories
+            (e.g. ["market", "oem"] to ignore irrelevant noise).
+        recency_boost: If True, freshly-activated neurons get a relevance multiplier
+            so 10-minute-old signals don't get drowned out by 30-day-old neurons.
+    """
     _apply_decay()
+    depth = max(0, min(depth, 3))
 
     # Find seed neurons matching query
     concepts = extract_concepts(query)
     query_words = set(query.lower().split())
 
+    cat_set = set(category_filter) if category_filter else None
+    now = time.time()
+
+    def _passes_filter(neuron: dict) -> bool:
+        if cat_set is None:
+            return True
+        return neuron.get("category", "general") in cat_set
+
+    def _recency_factor(neuron: dict) -> float:
+        """1.5x for last hour, 1.2x for last day, 1.0x for last week, 0.8x older."""
+        if not recency_boost:
+            return 1.0
+        age_h = (now - neuron.get("last_activated", now)) / 3600
+        if age_h < 1: return 1.5
+        if age_h < 24: return 1.2
+        if age_h < 24 * 7: return 1.0
+        if age_h < 24 * 30: return 0.85
+        return 0.7
+
     seeds = []
     for n in _neurons.values():
-        score = 0
-        # Exact concept match
+        if not _passes_filter(n):
+            continue
+        score = 0.0
         for c, _ in concepts:
             if c.lower() == n["concept"]:
                 score += 1.0
-        # Word overlap
         concept_words = set(n["concept"].split())
         overlap = len(query_words & concept_words)
         if overlap:
             score += overlap * 0.3
         if score > 0:
-            seeds.append((n, score))
+            seeds.append((n, score * _recency_factor(n)))
 
     seeds.sort(key=lambda x: -x[1])
     seeds = seeds[:10]
 
     if not seeds:
-        return {"query": query, "neurons": [], "associations": [], "network_size": len(_neurons)}
+        return {"query": query, "neurons": [], "associations": [],
+                "network_size": len(_neurons), "filtered_by": category_filter}
 
     # Spreading activation — BFS through connections
     activated = {}  # neuron_id → activation score
@@ -513,9 +569,9 @@ async def recall(query: str, depth: int = 2, max_results: int = 20) -> dict:
                 if target_id in activated:
                     continue
                 target_neuron = _neurons.get(target_id)
-                if not target_neuron:
+                if not target_neuron or not _passes_filter(target_neuron):
                     continue
-                spread = act * edge_weight * decay_factor * target_neuron["activation"]
+                spread = act * edge_weight * decay_factor * target_neuron["activation"] * _recency_factor(target_neuron)
                 if spread > 0.01:
                     if target_id not in new_activations or new_activations[target_id] < spread:
                         new_activations[target_id] = spread
@@ -605,10 +661,64 @@ async def consolidate() -> dict:
             n["activation"] = min(1.0, n["activation"] * 1.05)
             strengthened += 1
 
-    # ── 3. Daily decay pass ──────────────────────────────────────────────
+    # ── 3. Schema extraction — abstraction over similar facts ────────────
+    # When 3+ neurons in the same category share strong edges, create a parent
+    # "schema" neuron that abstracts the pattern. This is how ARIA learns
+    # generalisations like "Lusophone procurement pattern" instead of memorising
+    # 30 individual Angola/Mozambique deal facts in isolation.
+    schemas_created = 0
+    try:
+        from collections import defaultdict as _dd
+        cat_buckets: dict[str, list[dict]] = _dd(list)
+        for n in _neurons.values():
+            cat_buckets[n.get("category", "general")].append(n)
+
+        for category, neurons_in_cat in cat_buckets.items():
+            if category in ("general", "schema") or len(neurons_in_cat) < 6:
+                continue
+            # Find the most-strongly-interconnected cluster in this category
+            edge_counts: dict[str, int] = {}
+            for n in neurons_in_cat:
+                outgoing = _edges.get(n["id"], {})
+                same_cat_links = sum(
+                    1 for tid in outgoing
+                    if _neurons.get(tid, {}).get("category") == category
+                )
+                edge_counts[n["id"]] = same_cat_links
+
+            hubs = sorted(edge_counts.items(), key=lambda x: -x[1])[:5]
+            if not hubs or hubs[0][1] < 3:
+                continue
+
+            hub_concepts = [_neurons[hid]["label"] for hid, _ in hubs if hid in _neurons]
+            if len(hub_concepts) < 3:
+                continue
+
+            schema_label = f"schema:{category}:{hub_concepts[0]}"
+            if _find_neuron(schema_label):
+                continue  # already abstracted
+
+            schema_neuron = _find_or_create(
+                schema_label, category="schema",
+                source="consolidation", confidence="ASSESSED",
+            )
+            schema_neuron["metadata"] = {
+                "abstracts": hub_concepts,
+                "parent_category": category,
+                "created_by": "consolidation",
+            }
+            # Link schema to its constituent hubs
+            for hid, _ in hubs:
+                if hid in _neurons:
+                    _strengthen_edge(schema_neuron["id"], hid, boost=0.4)
+            schemas_created += 1
+    except Exception as e:
+        logger.warning("Schema extraction failed: %s", e)
+
+    # ── 4. Daily decay pass ──────────────────────────────────────────────
     _apply_decay()
 
-    # ── 4. Persist ───────────────────────────────────────────────────────
+    # ── 5. Persist ───────────────────────────────────────────────────────
     await _persist()
 
     neurons_after = len(_neurons)
@@ -619,12 +729,13 @@ async def consolidate() -> dict:
         "neurons_after": neurons_after,
         "neurons_pruned": len(pruned_ids),
         "neurons_strengthened": strengthened,
+        "schemas_created": schemas_created,
         "edges_before": edges_before,
         "edges_after": edges_after,
         "timestamp": now,
     }
-    logger.info("Neural consolidation: pruned %d, strengthened %d, %d → %d neurons",
-                len(pruned_ids), strengthened, neurons_before, neurons_after)
+    logger.info("Neural consolidation: pruned %d, strengthened %d, schemas %d, %d → %d neurons",
+                len(pruned_ids), strengthened, schemas_created, neurons_before, neurons_after)
     return report
 
 

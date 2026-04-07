@@ -1602,6 +1602,8 @@ async function ariaProxy(req, res, path, { method = 'GET', fallback } = {}) {
 }
 
 // Send sweep data to Python ARIA service (called after each sweep)
+// Bumped to 30s — sweep payload can be 2-5 MB and ARIA service has cold-start
+// disk I/O when persisting to Redis, so 10s was timing out ~30% of sweeps.
 async function pushSweepToARIA(data) {
   if (!ARIA_SERVICE_URL) return;
   try {
@@ -1609,7 +1611,7 @@ async function pushSweepToARIA(data) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(30000),
     });
   } catch (e) { console.warn('[ARIA] sweep ingest failed:', e.message); }
 }
@@ -1762,6 +1764,107 @@ app.post('/api/aria/correct', requireAuth, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   }});
 });
+
+// ── ARIA compliance sub-endpoints (proxy to Python aria_service) ────────────
+app.post('/api/aria/compliance/screen', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/compliance/screen', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Compliance screening unavailable — ARIA service offline', status: 'UNKNOWN', result: 'UNKNOWN' });
+  }}));
+
+app.post('/api/aria/compliance/classify', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/compliance/classify', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Classification unavailable — ARIA service offline', classifications: [] });
+  }}));
+
+app.post('/api/aria/compliance/sanctions', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/compliance/sanctions', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Sanctions check unavailable — ARIA service offline', matches: [] });
+  }}));
+
+app.post('/api/aria/compliance/risk', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/compliance/risk', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Risk assessment unavailable — ARIA service offline', risk_level: 'UNKNOWN' });
+  }}));
+
+// ── ARIA proactive endpoints ────────────────────────────────────────────────
+app.post('/api/aria/proactive/strategic-ideas', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/proactive/strategic-ideas', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Strategic ideas unavailable — ARIA service offline', ideas: '' });
+  }}));
+
+app.post('/api/aria/proactive/lead-hunt', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/proactive/lead-hunt', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Lead hunt unavailable — ARIA service offline', leads: '' });
+  }}));
+
+// ── ARIA self-coding (proxy) ───────────────────────────────────────────────
+app.post('/api/aria/self/code', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/self/code', { method: 'POST', fallback: async () => {
+    res.status(503).json({ ok: false, error: 'Self-coding unavailable — ARIA service offline' });
+  }}));
+
+// ── ARIA vision status (proxy) — diagnostic for image OCR backends ─────────
+app.get('/api/aria/vision-status', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/vision-status', { fallback: async () => {
+    res.status(503).json({ ok: false, error: 'Vision status unavailable — ARIA service offline' });
+  }}));
+
+// ── ARIA fuzzy sanctions / conflict / tech classifier (proxy) ───────────────
+app.post('/api/aria/sanctions/fuzzy', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/sanctions/fuzzy', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Fuzzy sanctions screen unavailable — ARIA service offline', matches: [] });
+  }}));
+
+app.get('/api/aria/conflict/events/:country', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/conflict/events/${encodeURIComponent(req.params.country)}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => {
+    res.status(503).json({ error: 'Conflict tracker unavailable — ARIA service offline', total_events: 0 });
+  }}));
+
+app.get('/api/aria/conflict/correlate/:country', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/conflict/correlate/${encodeURIComponent(req.params.country)}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => {
+    res.status(503).json({ error: 'Conflict correlation unavailable — ARIA service offline' });
+  }}));
+
+app.post('/api/aria/tech/classify', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/tech/classify', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Tech classifier unavailable — ARIA service offline' });
+  }}));
+
+app.get('/api/aria/tech/explain/:designation', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/tech/explain/${encodeURIComponent(req.params.designation)}`, { fallback: async () => {
+    res.status(503).json({ error: 'Tech explainer unavailable — ARIA service offline' });
+  }}));
+
+app.get('/api/aria/knowledge/contradictions', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/knowledge/contradictions${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => {
+    res.status(503).json({ error: 'Contradictions API unavailable — ARIA service offline', contradictions: [] });
+  }}));
+
+// ── ARIA deep research endpoints (proxy) ────────────────────────────────────
+app.post('/api/aria/investigate', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/investigate', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Investigation unavailable — ARIA service offline' });
+  }}));
+
+app.post('/api/aria/crawl', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/crawl', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Crawl unavailable — ARIA service offline' });
+  }}));
+
+app.post('/api/aria/profile', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/profile', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Profile build unavailable — ARIA service offline' });
+  }}));
+
+app.post('/api/aria/investigate/person', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/investigate/person', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Person investigation unavailable — ARIA service offline' });
+  }}));
+
+app.post('/api/aria/investigate/company', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/investigate/company', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Company investigation unavailable — ARIA service offline' });
+  }}));
 
 // Training Data API (for future proprietary LLM)
 app.get('/api/aria/training-data/stats', requireAdmin, async (req, res) => {

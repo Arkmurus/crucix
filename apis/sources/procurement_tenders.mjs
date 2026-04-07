@@ -284,17 +284,129 @@ async function fetchWorldBankProcurement() {
   }
 }
 
+// Per-fetcher hard cap so one slow source can't strangle the whole sweep.
+// Each fetcher already has internal per-attempt timeouts, but multiple
+// fallback attempts (3 per RSS) compound to ~45s worst-case. This wraps
+// each source in a 30s ceiling — the slowest still finishes, the slowest
+// failures fail fast, and the sweep completes inside its 90s budget.
+function withTimeout(label, promiseFactory, ms = 30000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      console.warn(`[Procurement] ${label} hit ${ms}ms hard cap — returning empty`);
+      resolve([]);
+    }, ms);
+    Promise.resolve()
+      .then(promiseFactory)
+      .then((val) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(Array.isArray(val) ? val : []);
+      })
+      .catch((err) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        console.warn(`[Procurement] ${label} failed: ${err.message}`);
+        resolve([]);
+      });
+  });
+}
+
+// ── Lusophone procurement — direct Portuguese sources for incumbent advantage ─
+// Hits Portuguese-language news + government portals that English Google News
+// systematically misses. This is the source set that protects Arkmurus's
+// Lusophone Africa moat — without it the BD Brain has no visibility into
+// Angolan/Mozambican procurement until 7+ days after announcement.
+async function fetchLusophoneProcurement() {
+  const items = [];
+
+  // 1. Direct Portuguese-language Google News (PT-BR + PT-PT + Lusophone Africa)
+  const ptQueries = [
+    // Angola
+    'Angola contrato defesa OR aquisição militar 2026',
+    'Angola FAA "Forças Armadas" equipamento',
+    'Angola SIMPORTEX importação defesa',
+    // Mozambique
+    'Moçambique FADM contrato defesa OR aquisição',
+    'Moçambique Cabo Delgado equipamento militar',
+    // Cape Verde / Guinea-Bissau
+    'Cabo Verde defesa equipamento aquisição',
+    'Guiné-Bissau FARP defesa contrato',
+    // CPLP defence cooperation
+    'CPLP cooperação defesa militar',
+  ];
+
+  for (const q of ptQueries) {
+    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=pt-PT&gl=PT&ceid=PT:pt`;
+    try {
+      const fetched = await fetchRSS(url, 'Lusophone (PT)');
+      items.push(...fetched);
+      if (items.length >= 30) break;
+    } catch {}
+  }
+
+  // 2. Brazilian PT-BR sources for CPLP context
+  const brQueries = [
+    'Brasil exportação defesa Angola OR Moçambique',
+    'Brasil cooperação militar CPLP',
+  ];
+  for (const q of brQueries) {
+    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=pt-BR&gl=BR&ceid=BR:pt`;
+    try {
+      const fetched = await fetchRSS(url, 'Lusophone (BR)');
+      items.push(...fetched);
+    } catch {}
+  }
+
+  // 3. Direct RSS from key Lusophone defence/news sources
+  // (these were previously included in the Python researcher.py but blocked by
+  // ARIA's English-only Google News fallback)
+  const directFeeds = [
+    { url: 'https://clubofmozambique.com/feed/', name: 'Club of Mozambique' },
+    { url: 'https://www.angop.ao/rss', name: 'ANGOP (Angola)' },
+    { url: 'https://noticias.sapo.cv/feed', name: 'Cabo Verde / Sapo' },
+    { url: 'https://www.dn.pt/rss', name: 'Diário de Notícias (PT)' },
+  ];
+  for (const f of directFeeds) {
+    try {
+      const fetched = await fetchRSS(f.url, f.name);
+      // Filter: only items mentioning defence/security/military terms
+      const filtered = fetched.filter(i => {
+        const text = `${i.title} ${i.description}`.toLowerCase();
+        return /(defesa|defense|militar|military|forças armadas|exército|marinha|armas|"contrato"|aquisição|tender|licitação)/i.test(text);
+      });
+      items.push(...filtered);
+    } catch {}
+  }
+
+  // Dedup
+  const seen = new Set();
+  const unique = [];
+  for (const i of items) {
+    const k = (i.title || '').toLowerCase().slice(0, 60);
+    if (k && !seen.has(k)) { seen.add(k); unique.push(i); }
+  }
+  console.log(`[Procurement] Lusophone: ${unique.length} items (incumbent advantage feeds)`);
+  return unique.slice(0, 25);
+}
+
+
 // ── Main briefing export ─────────────────────────────────────────────────────
 export async function briefing() {
   console.log('[Procurement] Fetching live procurement tenders and FMS notifications...');
 
-  const [dsca, ted, dw, africa, un, wb] = await Promise.allSettled([
-    fetchDSCA(),
-    fetchEUTED(),
-    fetchDefenceWeb(),
-    fetchAfricaDefenseProcurement(),
-    fetchUNProcurement(),
-    fetchWorldBankProcurement(),
+  const [dsca, ted, dw, africa, un, wb, luso] = await Promise.allSettled([
+    withTimeout('DSCA',          fetchDSCA,                       25000),
+    withTimeout('EU TED',        fetchEUTED,                      30000),
+    withTimeout('DefenceWeb',    fetchDefenceWeb,                 30000),
+    withTimeout('Africa procurement', fetchAfricaDefenseProcurement, 30000),
+    withTimeout('UN procurement',     fetchUNProcurement,             20000),
+    withTimeout('World Bank',    fetchWorldBankProcurement,       25000),
+    withTimeout('Lusophone',     fetchLusophoneProcurement,       30000),
   ]);
 
   const allItems = [
@@ -304,6 +416,7 @@ export async function briefing() {
     ...(africa.status === 'fulfilled' ? africa.value : []),
     ...(un.status     === 'fulfilled' ? un.value     : []),
     ...(wb.status     === 'fulfilled' ? wb.value     : []),
+    ...(luso.status   === 'fulfilled' ? luso.value   : []),
   ];
 
   const scored = allItems.map(i => ({

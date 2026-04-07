@@ -28,12 +28,13 @@ from .intel import training_data
 from .intel import neural_memory
 from .intel import self_improve
 from .intel.semantic_search import get_semantic_context
+from .intel import local_brain
 
 logger = logging.getLogger("aria.engine")
 
-SESSION_TTL = 7 * 86400  # 7 days — compliance conversations span days
-MAX_TURNS = 50           # 50 exchanges of context
-MAX_CONTEXT_CHARS = 12000  # larger context budget for intelligence layers
+SESSION_TTL = 30 * 86400  # 30 days — long-running WhatsApp / Telegram threads
+MAX_TURNS = 80            # 80 exchanges retained per session (160 messages)
+MAX_CONTEXT_CHARS = 14000 # context budget for intelligence layers
 
 # ── System Prompts ───────────────────────────────────────────────────────────
 
@@ -455,6 +456,148 @@ def _parse_think_response(text: str, question: str, duration_ms: int) -> dict:
     }
 
 
+# ── Closed-loop learning: calibration + contradiction injection ─────────────
+# These two functions are the fix for the biggest learning gap in the audit:
+# ARIA records calibration deltas and contradictions but NEVER feeds them back
+# into the prompt. Now she does — every chat call builds a system prompt that
+# includes her current confidence calibration AND any contradictions relevant
+# to the user's question. This is what closes the learning loop.
+
+_CALIBRATION_CACHE: dict | None = None
+_CALIBRATION_CACHED_AT: float = 0
+_CALIBRATION_TTL = 300  # 5 minutes
+
+async def _get_cached_calibration() -> dict | None:
+    """Load calibration data, caching for 5 minutes to avoid disk thrash."""
+    global _CALIBRATION_CACHE, _CALIBRATION_CACHED_AT
+    now = time.time()
+    if _CALIBRATION_CACHE is not None and (now - _CALIBRATION_CACHED_AT) < _CALIBRATION_TTL:
+        return _CALIBRATION_CACHE
+    try:
+        cal = await training_data.get_calibration()
+        _CALIBRATION_CACHE = cal
+        _CALIBRATION_CACHED_AT = now
+        return cal
+    except Exception as e:
+        logger.debug("calibration fetch failed: %s", e)
+        return None
+
+
+def _calibration_to_prompt_addendum(cal: dict | None) -> str:
+    """Translate calibration deltas into a behavioural directive ARIA understands."""
+    if not cal or cal.get("total_samples", 0) < 10:
+        return ""
+    overconf = cal.get("overconfident_levels") or []
+    underconf = cal.get("underconfident_levels") or []
+    if not overconf and not underconf:
+        return ""
+
+    lines = ["", "[CALIBRATION FEEDBACK — auto-tuned from your prior errors]"]
+    if overconf:
+        per_level = cal.get("per_level", {})
+        for tag in overconf:
+            stats = per_level.get(tag, {})
+            actual_pct = int(stats.get("error_rate", 0) * 100)
+            expected_pct = int(stats.get("expected_error_rate", 0) * 100)
+            lines.append(
+                f"- You have been OVERCONFIDENT with [{tag}]: actual error rate "
+                f"{actual_pct}% vs expected {expected_pct}%. For this conversation, "
+                f"downgrade marginal [{tag}] claims to the next-lower confidence tier."
+            )
+    if underconf:
+        per_level = cal.get("per_level", {})
+        for tag in underconf:
+            stats = per_level.get(tag, {})
+            actual_pct = int(stats.get("error_rate", 0) * 100)
+            expected_pct = int(stats.get("expected_error_rate", 0) * 100)
+            lines.append(
+                f"- You have been UNDERCONFIDENT with [{tag}]: actual error rate "
+                f"{actual_pct}% vs expected {expected_pct}%. You can be more assertive "
+                f"on this tier — promote borderline claims when warranted."
+            )
+    score = cal.get("calibration_score", 1.0)
+    lines.append(f"Overall calibration score: {score} (1.0 = perfectly calibrated)")
+    return "\n".join(lines)
+
+
+async def _get_relevant_contradictions(message: str) -> str:
+    """Pull contradictions from the knowledge base that touch this query.
+
+    This is the metacognitive feedback loop: when ARIA is about to answer a
+    question, we surface any topics where her own knowledge is inconsistent.
+    She can then say "I previously believed X, but now Y" instead of confidently
+    asserting either version.
+    """
+    try:
+        from .intel.knowledge import get_contradictions as _get_contras
+        contras = await _get_contras(limit=20)
+    except Exception as e:
+        logger.debug("contradiction fetch failed: %s", e)
+        return ""
+
+    if not contras:
+        return ""
+
+    msg_lower = message.lower()
+    msg_words = set(re.findall(r"\w+", msg_lower))
+    if len(msg_words) < 2:
+        return ""
+
+    relevant = []
+    for c in contras:
+        topic = (c.get("topic") or "").lower()
+        topic_words = set(re.findall(r"\w+", topic))
+        # Match if there is meaningful word overlap with the query
+        if len(msg_words & topic_words) >= 1 and len(topic_words) >= 1:
+            relevant.append(c)
+        if len(relevant) >= 3:
+            break
+
+    if not relevant:
+        return ""
+
+    lines = ["", "[KNOWN CONTRADICTIONS — your past statements on this topic disagreed]"]
+    for c in relevant:
+        lines.append(f"- *{c.get('topic')}*")
+        lines.append(f"  Current belief [{c.get('current_confidence')}]: {(c.get('current_content') or '')[:200]}")
+        history = c.get("history") or []
+        if history:
+            old = history[-1]
+            lines.append(f"  Previous belief [{old.get('confidence')}]: {(old.get('content') or '')[:200]}")
+        pending = c.get("pending_conflicts") or []
+        if pending:
+            lines.append(f"  Conflicting reports: {len(pending)} pending review")
+    lines.append(
+        "→ Acknowledge this disagreement in your response. Do not assert either "
+        "version with high confidence. Recommend the resolving evidence."
+    )
+    return "\n".join(lines)
+
+
+async def _build_calibrated_system_prompt(message: str) -> str:
+    """Build the system prompt with calibration + contradictions injected.
+
+    This is the closed-loop learning instrument. Every chat call now:
+      1. Reads the latest confidence calibration (cached 5 min)
+      2. Looks up any contradictions relevant to the current query
+      3. Appends both as behavioural directives to the base system prompt
+    """
+    addendum_parts = []
+
+    cal = await _get_cached_calibration()
+    cal_addendum = _calibration_to_prompt_addendum(cal)
+    if cal_addendum:
+        addendum_parts.append(cal_addendum)
+
+    contras_addendum = await _get_relevant_contradictions(message)
+    if contras_addendum:
+        addendum_parts.append(contras_addendum)
+
+    if not addendum_parts:
+        return ARIA_SYSTEM_PROMPT
+    return ARIA_SYSTEM_PROMPT + "\n\n" + "\n\n".join(addendum_parts)
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 async def aria_chat(
@@ -463,12 +606,35 @@ async def aria_chat(
     llm: LLMProvider,
     intel_data: dict | None = None,
 ) -> dict:
-    """Multi-turn chat with ARIA, 8-layer context injection (7 intel + neural memory)."""
+    """Multi-turn chat with ARIA, 8-layer context injection (7 intel + neural memory).
+
+    Independence: when no LLM is configured OR every LLM call fails, falls back
+    to local_brain.degraded_response() which serves rule-based answers from
+    local data sources. ARIA never hard-fails — she always returns SOMETHING.
+    """
+    # ── Independence: no LLM configured → degraded response from local data ──
     if not llm or not llm.is_configured:
+        degraded = await local_brain.degraded_response(
+            message, reason="no LLM provider configured"
+        )
+        # Persist the degraded interaction so we still learn from it
+        try:
+            session = await _get_session(session_id)
+            history = (session.get("messages") or [])
+            history.append({"role": "user", "content": message})
+            history.append({"role": "aria", "content": degraded["response"]})
+            session["messages"] = history[-MAX_TURNS * 2:]
+            session["updatedAt"] = time.time()
+            await _save_session(session_id, session)
+        except Exception as e:
+            logger.warning("Degraded session persist failed: %s", e)
         return {
-            "response": "ARIA requires an LLM to be configured. Set LLM_PROVIDER and LLM_API_KEY.",
+            "response": degraded["response"],
             "session_id": session_id,
             "fallback": True,
+            "degraded": True,
+            "degradation_reason": degraded.get("degradation_reason"),
+            "intent": degraded.get("intent"),
         }
 
     # Detect self-improvement requests ("improve your X", "fix your Y", etc.)
@@ -563,8 +729,12 @@ async def aria_chat(
     else:
         user_prompt = f"{lang_hint}{message}{context}"
 
+    # Build the final system prompt with calibration adjustments learned from
+    # past errors. This is the closed loop: confidence calibration → behaviour.
+    system_prompt = await _build_calibrated_system_prompt(message)
+
     try:
-        result = await llm.complete(ARIA_SYSTEM_PROMPT, user_prompt, max_tokens=4000, timeout=120.0)
+        result = await llm.complete(system_prompt, user_prompt, max_tokens=4000, timeout=120.0)
         response_text = result.text
     except Exception as e:
         # Record error for autonomous self-improvement
@@ -572,13 +742,31 @@ async def aria_chat(
             await self_improve.record_error(
                 "llm_error", str(e), "aria_engine.py", "aria_chat"
             )
+        except Exception as inner:
+            logger.warning("Failed to record LLM error for self-improvement: %s", inner)
+        logger.error("ARIA LLM error: %s — falling back to local_brain", e)
+
+        # ── INDEPENDENCE: degraded fallback instead of error ────────────
+        # When the LLM fails (rate limit, network, key revoked), serve a
+        # rule-based response from local data so ARIA stays useful.
+        degraded = await local_brain.degraded_response(
+            message, reason=f"LLM error: {str(e)[:120]}"
+        )
+        try:
+            history.append({"role": "user", "content": message})
+            history.append({"role": "aria", "content": degraded["response"]})
+            session["messages"] = history[-MAX_TURNS * 2:]
+            session["updatedAt"] = time.time()
+            await _save_session(session_id, session)
         except Exception:
             pass
-        logger.error("ARIA LLM error: %s", e)
         return {
-            "response": "ARIA encountered an internal error. Please try again.",
+            "response": degraded["response"],
             "session_id": session_id,
-            "error": True,
+            "fallback": True,
+            "degraded": True,
+            "degradation_reason": degraded.get("degradation_reason"),
+            "intent": degraded.get("intent"),
         }
 
     # Update session

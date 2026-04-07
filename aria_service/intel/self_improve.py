@@ -838,8 +838,13 @@ _IMPROVE_PATTERNS = [
     re.compile(r"\baria.*(?:learn|remember|update yourself|self.improve)\b", re.I),
     re.compile(r"\b(?:make yourself|make aria|you should)\b.*\b(?:better|smarter|faster)\b", re.I),
     re.compile(r"\b(?:evolve|grow|adapt)\b.*\b(?:your|prompt|brain|knowledge)\b", re.I),
-    re.compile(r"\b(?:add|create|build)\b.*\b(?:capability|feature|layer|module)\b.*\b(?:for|to|in)\b.*\baria\b", re.I),
+    re.compile(r"\b(?:add|create|build)\b.*\b(?:capability|feature|layer|module)\b", re.I),
     re.compile(r"\b(?:change|modify|rewrite)\b.*\b(?:your|aria|the)\b.*\b(?:code|prompt|system)\b", re.I),
+    # Broader natural-language patterns for WhatsApp self-coding
+    re.compile(r"\b(?:write|code|build|create|scaffold|generate)\b\s+(?:me\s+)?(?:a\s+)?(?:new\s+)?(?:python\s+|js\s+|node\s+)?(?:module|script|function|class|file|helper|tool|integration|connector|client|endpoint)\b", re.I),
+    re.compile(r"\baria,?\s+(?:please\s+)?(?:can\s+you\s+)?(?:write|code|build|create|make|implement|develop)\b", re.I),
+    re.compile(r"\b(?:teach\s+yourself|learn)\s+(?:to|how\s+to)\b", re.I),
+    re.compile(r"\bself[\-\s]?code\b|\bself[\-\s]?improve\b", re.I),
 ]
 
 
@@ -977,3 +982,152 @@ Output ONLY the code — no markdown fences, no explanation."""
             results.append({"file": file_path, "error": str(e)})
 
     return results
+
+
+# ── Self-coding: scaffold brand-new modules in a sandboxed dir ──────────────
+# When the user asks ARIA to write a brand-new module via WhatsApp/chat, we
+# generate it inside aria_service/intel/auto/<name>.py — a sandboxed directory
+# that's whitelisted but isolated from her core code. The module is staged
+# (not auto-deployed) so it can be reviewed via /api/aria/self/staged before
+# being merged into the live tree.
+
+AUTO_MODULE_DIR = "aria_service/intel/auto"
+_AUTO_MODULE_NAME_RE = re.compile(r"[^a-z0-9_]")
+
+def _sanitise_module_name(name: str) -> str:
+    """Convert a free-text request into a safe Python module name."""
+    s = name.lower().strip()
+    s = _AUTO_MODULE_NAME_RE.sub("_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    if not s:
+        s = "module"
+    if not s[0].isalpha():
+        s = "m_" + s
+    return s[:40]
+
+
+async def propose_new_module(
+    request: str,
+    llm,
+    suggested_name: str = "",
+) -> dict:
+    """Generate a brand-new ARIA intel module from a free-text request.
+
+    The user describes a capability they need (e.g. "track Saudi MoD
+    procurement notices every hour"). ARIA designs and writes a complete
+    Python module, syntax-validates it, and stages it for review under
+    aria_service/intel/auto/<name>.py.
+
+    Returns: {ok, file, module_name, lines, staged_id, error?}
+    """
+    if not llm or not getattr(llm, "is_configured", False):
+        return {"ok": False, "error": "LLM not configured — set LLM_PROVIDER + LLM_API_KEY"}
+
+    # Decide the module name
+    if suggested_name:
+        mod_name = _sanitise_module_name(suggested_name)
+    else:
+        # Extract a candidate name from the first 6 words of the request
+        words = re.findall(r"[a-zA-Z0-9]+", request)[:6]
+        mod_name = _sanitise_module_name("_".join(words) or "auto_module")
+
+    file_path = f"{AUTO_MODULE_DIR}/{mod_name}.py"
+
+    # Ensure the auto dir exists physically
+    auto_dir_full = _root / AUTO_MODULE_DIR
+    try:
+        auto_dir_full.mkdir(parents=True, exist_ok=True)
+        init_file = auto_dir_full / "__init__.py"
+        if not init_file.exists():
+            init_file.write_text(
+                '"""ARIA auto-generated modules — staged via /api/aria/self/staged."""\n',
+                encoding="utf-8",
+            )
+    except Exception as e:
+        return {"ok": False, "error": f"Could not prepare auto module dir: {e}"}
+
+    # Build a strict prompt for the code generation
+    code_prompt = f"""You are ARIA writing a brand-new Python module to extend your own
+intelligence capabilities. The user has identified a gap and asked you to fill it.
+
+USER REQUEST: {request}
+
+CONSTRAINTS:
+1. Output ONLY valid Python 3.10+ code — no markdown, no commentary, no fences.
+2. Module must be self-contained and depend only on: stdlib, httpx, pydantic, redis, the existing aria_service.intel.redis_store module.
+3. Module must follow this template:
+   - Module docstring explaining purpose
+   - logger = logging.getLogger("aria.auto.{mod_name}")
+   - All public functions are async
+   - Every external HTTP call uses httpx.AsyncClient with timeout
+   - Errors are caught and logged, never raised to caller
+4. Include at least one function called `run()` that is the entry point — async, takes no args, returns a dict.
+5. NEVER use eval, exec, subprocess, os.system, or write to arbitrary filesystem paths.
+6. NEVER hardcode API keys — read from os.getenv with sensible fallbacks.
+7. If the request needs an external API and that API requires a key, include a comment block at the top listing required env vars.
+8. Cap LOC at ~250 lines for maintainability.
+
+MODULE NAME: {mod_name}
+TARGET FILE: {file_path}
+
+Output the complete file now."""
+
+    try:
+        result = await llm.complete(
+            "You are an expert Python developer writing production code for ARIA. "
+            "Output ONLY the Python source file — no markdown, no explanations.",
+            code_prompt,
+            max_tokens=4000,
+            timeout=120.0,
+        )
+        new_code = (result.text or "").strip()
+        # Strip code fences if the LLM ignored instructions
+        if new_code.startswith("```"):
+            new_code = re.sub(r"^```\w*\n?", "", new_code)
+            new_code = re.sub(r"\n?```\s*$", "", new_code)
+
+        if len(new_code) < 80:
+            return {"ok": False, "error": "Generated code too short — LLM likely refused"}
+
+        # Reject any code that hits the safety blocklist
+        forbidden = ["import subprocess", "os.system", "eval(", "exec(", "__import__"]
+        for f in forbidden:
+            if f in new_code:
+                return {"ok": False, "error": f"Generated code contained forbidden construct: {f}"}
+
+        # Syntax validation
+        validation = _validate_python(new_code)
+        if not validation["ok"]:
+            return {"ok": False, "error": f"Syntax error in generated module: {validation.get('error')}"}
+
+        # Stage via the relaxed new-file path (NOT stage_improvement, which
+        # requires the file to already exist in MODIFIABLE_FILES)
+        staged = await rs.get_json(STAGED_KEY) or []
+        improvement = {
+            "id": str(uuid.uuid4())[:8],
+            "file": file_path,
+            "change_type": "new_intel_layer",
+            "description": f"New auto-generated module: {request[:120]}",
+            "reasoning": f"User requested via chat. Module name: {mod_name}",
+            "new_content": new_code,
+            "staged_at": time.time(),
+            "auto_deployable": False,  # Always require approval for brand-new files
+            "status": "staged",
+            "is_new_file": True,
+        }
+        staged.append(improvement)
+        await rs.set_json(STAGED_KEY, staged, ex=14 * 86400)
+        await _log_improvement("staged_new_module", improvement)
+
+        return {
+            "ok": True,
+            "file": file_path,
+            "module_name": mod_name,
+            "lines": new_code.count("\n") + 1,
+            "staged_id": improvement["id"],
+            "preview": new_code[:500],
+            "deploy_with": f"POST /api/aria/self/deploy/{improvement['id']}",
+        }
+    except Exception as e:
+        logger.warning("propose_new_module failed: %s", e)
+        return {"ok": False, "error": str(e)}

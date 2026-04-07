@@ -149,10 +149,20 @@ export async function fetchOpenSanctions() {
 export async function searchSanctions(query) {
   try {
     const params = new URLSearchParams({ q: query, limit: '10', dataset: DATASETS.join(',') });
-    const res = await fetch(`${BASE_URL}/match?${params}`, {
-      headers: { 'Accept': 'application/json', 'User-Agent': 'CrucixIntelligence/1.0' },
-      signal: AbortSignal.timeout(10000),
+    const headers = { 'Accept': 'application/json', 'User-Agent': 'CrucixIntelligence/1.0' };
+    if (process.env.OPENSANCTIONS_API_KEY) {
+      headers['Authorization'] = `ApiKey ${process.env.OPENSANCTIONS_API_KEY}`;
+    }
+    const res = await fetch(`${BASE_URL}/search/default?${params}`, {
+      headers,
+      signal: AbortSignal.timeout(15000),
     });
+    if (res.status === 401 || res.status === 403) {
+      return { results: [], error: 'OpenSanctions auth failed — check OPENSANCTIONS_API_KEY' };
+    }
+    if (res.status === 429) {
+      return { results: [], error: 'OpenSanctions rate-limited — set OPENSANCTIONS_API_KEY for higher quota' };
+    }
     if (!res.ok) return { results: [], error: `API ${res.status}` };
     const data = await res.json();
     return {
