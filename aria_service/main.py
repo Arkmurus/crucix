@@ -72,11 +72,28 @@ async def lifespan(app: FastAPI):
         logger.warning("RAG store probe failed (non-fatal): %s", e)
         rag_stats_initial = {}
 
+    # Backfill is OFF by default. Past incident 2026-04-07: even as a
+    # background asyncio task, the backfill ran sentence-transformers
+    # encoding (sync C code) which starved the event loop for 200-700ms
+    # at a time, longer than fly's health-check timeout, so probes
+    # failed and fly marked the machine unhealthy → rolled back.
+    # Set ARIA_RAG_BACKFILL_ENABLED=true to opt back in once we have
+    # a throttled implementation that yields properly between items.
+    import os as _os
     rag_backfill_task = None
-    if rag_stats_initial.get("available") and rag_stats_initial.get("total_chunks", 0) == 0:
+    backfill_enabled = (_os.getenv("ARIA_RAG_BACKFILL_ENABLED", "") or "").lower() in ("1", "true", "yes")
+    backfill_disabled = (_os.getenv("ARIA_RAG_BACKFILL_DISABLED", "") or "").lower() in ("1", "true", "yes")
+    if (
+        backfill_enabled
+        and not backfill_disabled
+        and rag_stats_initial.get("available")
+        and rag_stats_initial.get("total_chunks", 0) == 0
+    ):
         async def _rag_backfill_bg():
-            # Small delay so the server is bound + serving health checks first
-            await asyncio.sleep(5)
+            # Long delay so the server is bound + serving health checks +
+            # any in-flight initial requests have finished before the
+            # encoding load hits.
+            await asyncio.sleep(60)
             try:
                 logger.info("RAG store empty — running one-shot backfill from existing knowledge + ledger (background)")
                 result = await rag_store.backfill_from_existing()
@@ -84,6 +101,14 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning("RAG backfill failed (non-fatal): %s", e)
         rag_backfill_task = asyncio.create_task(_rag_backfill_bg())
+    else:
+        logger.info(
+            "RAG backfill skipped (enabled=%s disabled=%s available=%s chunks=%s) — "
+            "set ARIA_RAG_BACKFILL_ENABLED=true to opt in",
+            backfill_enabled, backfill_disabled,
+            rag_stats_initial.get("available"),
+            rag_stats_initial.get("total_chunks", 0),
+        )
 
     # Create LLM provider with automatic fallback chain
     api_key = settings.llm_api_key or settings.deepseek_api_key
