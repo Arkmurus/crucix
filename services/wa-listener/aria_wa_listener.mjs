@@ -731,39 +731,24 @@ async function startListener() {
             }
 
             const extracted = (ocrResult?.text || '').trim();
-            if (!extracted) {
-              // Distinguish "blank image" from "no OCR backend installed"
-              let visionConfigured = false;
-              try {
-                const vs = await brainGet('/api/aria/vision-status');
-                visionConfigured = !!vs?.ok;
-              } catch {}
+            const autoInst = ocrResult?.auto_installing;
 
-              if (!visionConfigured) {
-                await sendReply(chatId, [
-                  `🖼 *Image received but local OCR is not installed on the ARIA service host.*`,
-                  ``,
-                  `I read images on my own — no cloud LLM needed. Install one of these on the ARIA service:`,
-                  ``,
-                  `*RECOMMENDED — EasyOCR (zero config):*`,
-                  `\`pip install easyocr Pillow\``,
-                  `→ first image takes ~30s for model download, then instant + offline forever.`,
-                  ``,
-                  `*Alternative — Tesseract:*`,
-                  `\`pip install pytesseract Pillow\` + \`apt install tesseract-ocr\``,
-                  ``,
-                  `*Best quality — Ollama vision:*`,
-                  `\`ollama pull minicpm-v\` (auto-detected)`,
-                  ``,
-                  `Use */vision-status* to confirm once installed.`,
-                ].join('\n')).catch(() => {});
-              } else {
-                await sendReply(chatId, `🖼 I looked at the image but couldn't extract any readable text. It may be blank, low-resolution, or contain only diagrams. Tell me what you're looking for and I'll try a different angle.`).catch(() => {});
-              }
+            if (!extracted) {
+              // OCR pipeline returned nothing usable. Server-side has already
+              // triggered background auto-install of easyocr if it wasn't yet
+              // available. We just acknowledge that the image was unreadable.
+              await sendReply(chatId, [
+                `🖼 I looked at the image but couldn't extract readable text from it.`,
+                ``,
+                `It may be blank, low-resolution, contain only diagrams, or be partially obscured.`,
+                autoInst ? `\n_I'm installing my local image-reading library in the background — the next image you send will use it (faster + fully offline)._` : ``,
+                ``,
+                `If you can describe what you're looking for ("read the contract value", "what's the OEM name", "translate the Portuguese") I'll try to help from any text in the caption.`,
+              ].filter(Boolean).join('\n')).catch(() => {});
             } else {
               const method = ocrResult.method || 'vision';
               const charCount = extracted.length;
-              console.log(`[ARIA Listener] OCR ${method}: ${charCount} chars`);
+              console.log(`[ARIA Listener] OCR ${method}: ${charCount} chars${autoInst ? ' (background install triggered)' : ''}`);
 
               // Feed extraction to the knowledge pipeline so ARIA learns
               let factsLearned = 0;
@@ -781,13 +766,23 @@ async function startListener() {
                 console.warn('[ARIA Listener] Image-to-knowledge ingest failed:', e.message);
               }
 
-              // Build the reply
+              // Build the reply — friendly method label
               const preview = extracted.slice(0, 700).replace(/\n{3,}/g, '\n\n');
               const more = extracted.length > 700 ? `\n\n_…+${extracted.length - 700} more chars_` : '';
               const factsLine = factsLearned > 0 ? `\n\n📚 Learned ${factsLearned} new fact(s) — ask me about them.` : '';
               const captionLine = caption ? `\n\n_Your caption: ${caption.slice(0, 200)}_` : '';
+              const methodLabel = {
+                easyocr:        '🟢 local (EasyOCR)',
+                tesseract:      '🟢 local (Tesseract)',
+                ocrspace_free:  '🟡 free public OCR — installing local backend now…',
+              }[method] || (method.startsWith('ollama:') ? `🟢 local (${method})`
+                          : method.startsWith('vision:') ? `☁️ ${method}`
+                          : method);
+              const installNote = autoInst
+                ? `\n\n_⚙️ Auto-installing local image-reading library in the background — your next image will be ~10x faster and fully offline._`
+                : '';
 
-              await sendReply(chatId, `🖼 *Image read* (${method}, ${charCount} chars):\n\n${preview}${more}${captionLine}${factsLine}`).catch(() => {});
+              await sendReply(chatId, `🖼 *Image read* (${methodLabel}, ${charCount} chars):\n\n${preview}${more}${captionLine}${factsLine}${installNote}`).catch(() => {});
             }
           }
         } catch (e) {

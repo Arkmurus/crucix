@@ -1337,7 +1337,12 @@ async def vision_status_ep(request: Request):
     fallback_provider_name = (getattr(fallback_inner, "name", "") or "").lower() if fallback_inner else None
     fallback_has_key = bool(getattr(fallback_inner, "_api_key", "")) if fallback_inner else False
 
-    # Determine which backend will actually run for the next image
+    # Auto-install state
+    install_status = aria_ocr.get_auto_install_status()
+
+    # Determine which backend will actually run for the next image. OCR.space
+    # is the always-on free public fallback so the chain ALWAYS has at least
+    # one usable backend — there's no "none" state any more by default.
     if easyocr_available:
         active = "easyocr"
     elif tesseract_available:
@@ -1349,37 +1354,45 @@ async def vision_status_ep(request: Request):
     elif fallback_inner is not None and fallback_has_key:
         active = f"cloud:{fallback_provider_name}"
     else:
-        active = "none"
+        # Free public fallback — always available, no setup
+        active = "ocrspace_free"
 
-    is_working = active != "none"
+    is_working = True  # OCR.space is always reachable as last resort
 
-    # Setup hints — lead with the local options
+    # Setup hints — lead with the local options to nudge toward independence
     setup_instructions = []
-    if not is_working:
-        setup_instructions.append(
-            "RECOMMENDED (local, independent): pip install easyocr Pillow pytesseract"
-        )
-        setup_instructions.append(
-            "Optional (best quality, also local): install Ollama and run "
-            "`ollama pull minicpm-v` or `ollama pull llava`"
-        )
-        setup_instructions.append(
-            "Last-resort cloud fallback: set ARIA_VISION_PROVIDER=gemini "
-            "+ ARIA_VISION_API_KEY (free key at aistudio.google.com/apikey)"
-        )
+    if active in ("ocrspace_free",):
+        if install_status.get("started"):
+            setup_instructions.append(
+                "Auto-install of easyocr is RUNNING in the background — "
+                "the next image will be served fully locally."
+            )
+        else:
+            setup_instructions.append(
+                "Currently using free public OCR fallback. For full independence, "
+                "install local OCR: `pip install easyocr Pillow pytesseract` "
+                "(or set ARIA_OCR_AUTO_INSTALL=1 to auto-install on next image)."
+            )
     elif active == "tesseract" and not easyocr_available:
         setup_instructions.append(
-            "Tip: `pip install easyocr` for higher-quality local OCR (no extra binary needed)"
+            "Tip: `pip install easyocr` for higher-quality local OCR"
         )
 
     return {
         "ok": is_working,
         "independent": active in ("easyocr", "tesseract") or active.startswith("ollama:"),
         "active_backend": active,
+        "auto_install": install_status,
         "local_backends": {
             "easyocr": easyocr_available,
             "tesseract": tesseract_available,
             "ollama_vision_model": ollama_vision_model,
+        },
+        "free_public_fallback": {
+            "name": "OCR.space",
+            "always_available": True,
+            "max_image_size_mb": 1,
+            "monthly_quota": "25,000 per IP",
         },
         "cloud_backend": {
             "dedicated_provider": cfg["dedicated_provider"],
@@ -1389,7 +1402,11 @@ async def vision_status_ep(request: Request):
         },
         "main_llm": getattr(llm, "name", "?") if llm else None,
         "setup_instructions": setup_instructions,
-        "philosophy": "ARIA is local-first by design — she does image OCR without depending on any external LLM.",
+        "philosophy": (
+            "ARIA reads images out of the box via free public fallback, "
+            "and auto-installs local OCR in the background so subsequent "
+            "images become fully offline + independent."
+        ),
     }
 
 

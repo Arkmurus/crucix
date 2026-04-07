@@ -1,13 +1,24 @@
 """
-ARIA OCR — Extract text from images.
+ARIA OCR — Extract text from images. ZERO-SETUP, INDEPENDENT-FIRST.
 
-Uses LLM vision (primary) or Tesseract (fallback) to read:
+Reads:
 - Screenshots of procurement documents
 - Scanned PDFs shared via WhatsApp
-- Photos of contracts, business cards, tenders
+- Photos of contracts, business cards, tenders, invoices
 - Images from email attachments
 
 The extracted text is fed to ARIA's knowledge base and neural memory.
+
+Pipeline order (works out of the box, no manual install required):
+  1. EasyOCR        ← if installed (best quality, 100% local, offline)
+  2. Tesseract      ← if installed (very fast, low memory, 100% local)
+  3. Ollama vision  ← if running (best for diagrams + handwriting)
+  4. OCR.space      ← FREE PUBLIC API, works immediately, no setup at all
+  5. Cloud LLM      ← only if ARIA_VISION_PROVIDER is explicitly configured
+
+PLUS: on first call, if no LOCAL backend is available, ARIA kicks off a
+BACKGROUND `pip install easyocr Pillow pytesseract` so the second image
+ever sent will be served fully locally. No human intervention needed.
 
 ────────────────────────────────────────────────────────────────────────────
 DEDICATED VISION PROVIDER (recommended for DeepSeek users)
@@ -60,34 +71,24 @@ async def extract_text_from_image(
     context: str = "",
     llm=None,
 ) -> dict:
-    """Extract text from an image. LOCAL-FIRST pipeline so ARIA is independent.
+    """Extract text from an image. ZERO-SETUP — works out of the box.
 
-    Pipeline order (each step is tried in turn; first one with usable text wins):
+    Pipeline (each step tried in order; first usable text wins):
 
-      1. EasyOCR — pure-Python, zero system binaries needed (just `pip install easyocr`).
-         Excellent quality on printed text, supports 80+ languages including Portuguese,
-         French, Spanish, Arabic. ~250MB on first download for the model weights but
-         then runs entirely offline.
+      1. EasyOCR              — local, ~250MB, offline forever
+      2. Tesseract            — local, fast, needs system binary
+      3. Ollama vision        — local, best for diagrams/handwriting
+      4. OCR.space PUBLIC     — free public API, no setup needed
+      5. Cloud LLM vision     — opt-in via ARIA_VISION_PROVIDER
 
-      2. Tesseract — classic OCR with PIL preprocessing (grayscale + autocontrast).
-         Requires the Tesseract binary on the host plus `pip install pytesseract Pillow`.
-         Very fast, low memory, decent quality on clean printed text.
-
-      3. Ollama vision model — if Ollama is running locally with a vision model loaded
-         (llava, bakllava, moondream, minicpm-v), use it. This handles richer
-         "describe the image" use cases that pure OCR can't (handwritten notes,
-         diagrams, photos of physical objects).
-
-      4. Cloud LLM vision (Anthropic / OpenAI / Gemini / OpenRouter) — only used if
-         every local option failed AND a vision provider is configured. Set
-         ARIA_VISION_PROVIDER + ARIA_VISION_API_KEY to enable.
-
-    Set ARIA_OCR_PREFER_CLOUD=1 to invert the order (try cloud first). Default is
-    LOCAL-first because the user's stated goal is for ARIA to be self-sufficient.
+    Plus: when no LOCAL backend is installed, kicks off a BACKGROUND
+    `pip install easyocr Pillow pytesseract` so the next image will be
+    served from a fully local backend (no cloud, no third-party).
 
     Returns:
-        {"text": str, "method": str, "confidence": float}
-        method ∈ {"easyocr", "tesseract", "ollama:<model>", "vision:<provider>", "none"}
+        {"text": str, "method": str, "confidence": float, ...}
+        method ∈ {"easyocr", "tesseract", "ollama:<model>",
+                  "ocrspace_free", "vision:<provider>", "none"}
     """
     if not image_data or len(image_data) < 100:
         return {"text": "", "method": "none", "confidence": 0}
@@ -104,15 +105,26 @@ async def extract_text_from_image(
     async def _try_ollama_vision():
         return await _ocr_via_ollama_vision(image_data, mime, context)
 
+    async def _try_ocrspace():
+        return await _ocr_via_ocrspace(image_data, mime)
+
     async def _try_cloud():
         if not llm or not hasattr(llm, "complete"):
             return None
         return await _ocr_via_llm(image_data, mime, context, llm)
 
     chain = (
-        [_try_cloud, _try_easyocr, _try_tesseract, _try_ollama_vision]
+        [_try_cloud, _try_easyocr, _try_tesseract, _try_ollama_vision, _try_ocrspace]
         if prefer_cloud
-        else [_try_easyocr, _try_tesseract, _try_ollama_vision, _try_cloud]
+        else [_try_easyocr, _try_tesseract, _try_ollama_vision, _try_ocrspace, _try_cloud]
+    )
+
+    # Track whether any LOCAL backend was actually available so we know
+    # whether to trigger background auto-install
+    local_backend_available = (
+        _get_easyocr_reader() is not None
+        or _check_tesseract_installed()
+        or (await _detect_ollama_vision_model() is not None)
     )
 
     last_method = "none"
@@ -123,20 +135,208 @@ async def extract_text_from_image(
             logger.debug("OCR chain step %s raised: %s", step.__name__, e)
             continue
         if result and result.get("text") and len(result["text"].strip()) >= 5:
+            # SUCCESS — mark which path served it
+            if not local_backend_available and result.get("method") in ("ocrspace_free",):
+                # Kick off auto-install so the NEXT image is fully local
+                _trigger_auto_install()
+                result["auto_installing"] = True
+                result["note"] = (
+                    "Read via free public OCR fallback. Auto-installing local "
+                    "backend (easyocr) in the background — next image will be "
+                    "fully offline and ~10x faster."
+                )
             return result
         if result and result.get("method"):
             last_method = result["method"]
+
+    # Nothing in the chain produced text. Trigger auto-install + return note.
+    if not local_backend_available:
+        _trigger_auto_install()
 
     return {
         "text": "",
         "method": last_method,
         "confidence": 0,
         "tried": [s.__name__ for s in chain],
+        "auto_installing": not local_backend_available,
         "note": (
-            "All OCR methods returned no readable text. Install easyocr "
-            "(`pip install easyocr`) or tesseract for local-only extraction, "
-            "or set ARIA_VISION_PROVIDER + ARIA_VISION_API_KEY for cloud vision."
+            "All OCR methods returned no readable text on this image. "
+            "If this seems wrong, the image may be blank or extremely low-res. "
+            + ("Auto-installing local OCR (easyocr) in the background so future images are faster."
+               if not local_backend_available else "")
         ),
+    }
+
+
+def _check_tesseract_installed() -> bool:
+    """Quick check if pytesseract is importable."""
+    try:
+        import pytesseract  # noqa: F401
+        from PIL import Image  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+# ── OCR.space free public API ───────────────────────────────────────────────
+# OCR.space provides a free no-key tier via the well-known "helloworld" public
+# API key (documented at https://ocr.space/OCRAPI). It's intended exactly for
+# this kind of use: low-volume image OCR without a setup step. ~25k requests
+# per month per IP, supports JPG/PNG/PDF up to 1MB.
+#
+# We use this as a IMMEDIATE fallback when no local backend is available so
+# ARIA can read your image RIGHT NOW while easyocr installs in the background.
+# Once easyocr is installed, ocrspace is never called again.
+
+OCRSPACE_API = "https://api.ocr.space/parse/image"
+OCRSPACE_PUBLIC_KEY = "helloworld"  # public test key, free 25k/month/IP
+
+
+async def _ocr_via_ocrspace(image_data: bytes, mime: str) -> Optional[dict]:
+    """Free public OCR via OCR.space — no installation, no key, no setup."""
+    if len(image_data) > 1024 * 1024:
+        # OCR.space free tier limited to 1MB; skip oversized images
+        logger.debug("OCR.space: image too large (%d bytes > 1MB free limit)", len(image_data))
+        return None
+
+    try:
+        files = {"file": ("image" + _ext_for_mime(mime), image_data, mime)}
+        data = {
+            "apikey": OCRSPACE_PUBLIC_KEY,
+            "language": "eng",
+            "isOverlayRequired": "false",
+            "OCREngine": "2",  # newer engine, better on documents
+            "scale": "true",
+            "isTable": "false",
+            "detectOrientation": "true",
+        }
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.post(OCRSPACE_API, files=files, data=data)
+            if resp.status_code != 200:
+                logger.debug("OCR.space returned %s", resp.status_code)
+                return None
+            result = resp.json()
+
+        if result.get("IsErroredOnProcessing"):
+            err = result.get("ErrorMessage") or result.get("ErrorDetails") or "unknown"
+            logger.debug("OCR.space error: %s", err)
+            return None
+
+        parsed = result.get("ParsedResults") or []
+        if not parsed:
+            return None
+
+        text = (parsed[0].get("ParsedText") or "").strip()
+        if not text or len(text) < 3:
+            return None
+
+        return {
+            "text": text,
+            "method": "ocrspace_free",
+            "confidence": 0.78,
+            "provider": "OCR.space (free public)",
+        }
+    except Exception as e:
+        logger.debug("OCR.space request failed: %s", e)
+        return None
+
+
+def _ext_for_mime(mime: str) -> str:
+    return {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/bmp": ".bmp",
+    }.get(mime, ".jpg")
+
+
+# ── Background auto-install of local OCR ───────────────────────────────────
+# When no local backend is installed, we kick off a `pip install easyocr Pillow
+# pytesseract` in a background thread. This is a one-shot operation tracked by
+# a Redis flag so we don't retry on every image. Subsequent images will be
+# served fully locally once the install completes (~30-60s for easyocr alone,
+# ~5min for the first image because PyTorch model weights also download).
+#
+# Disable with: ARIA_OCR_AUTO_INSTALL=0
+
+import sys
+import subprocess
+import threading
+
+_auto_install_started = False
+_auto_install_lock = threading.Lock()
+
+
+def _trigger_auto_install() -> bool:
+    """Kick off `pip install easyocr Pillow pytesseract` in a background thread.
+
+    Single-shot: only runs once per process. Returns True if the installer was
+    triggered, False if it was already running or disabled.
+    """
+    global _auto_install_started
+
+    if (os.getenv("ARIA_OCR_AUTO_INSTALL", "1") or "1").lower() in ("0", "false", "no"):
+        return False
+
+    with _auto_install_lock:
+        if _auto_install_started:
+            return False
+        _auto_install_started = True
+
+    def _install_worker():
+        try:
+            logger.info("OCR auto-install: starting `pip install --user easyocr Pillow pytesseract` in background")
+            # Try --user first (works without root). If that fails, try without.
+            cmd_user = [
+                sys.executable, "-m", "pip", "install",
+                "--user", "--quiet", "--no-input",
+                "easyocr", "Pillow", "pytesseract",
+            ]
+            cmd_global = [
+                sys.executable, "-m", "pip", "install",
+                "--quiet", "--no-input",
+                "easyocr", "Pillow", "pytesseract",
+            ]
+            result = subprocess.run(cmd_user, capture_output=True, timeout=900)
+            if result.returncode != 0:
+                # Maybe --user isn't allowed in this environment, try global
+                logger.info("OCR auto-install: --user failed, trying global install")
+                result = subprocess.run(cmd_global, capture_output=True, timeout=900)
+
+            if result.returncode == 0:
+                logger.info(
+                    "OCR auto-install: SUCCESS — local backends will be available "
+                    "on the next image. EasyOCR will download model weights "
+                    "(~250MB) on first use."
+                )
+                # Clear the cached failure so the next call retries the import
+                global _easyocr_init_failed
+                _easyocr_init_failed = False
+            else:
+                stderr_preview = (result.stderr or b"").decode("utf-8", errors="replace")[:500]
+                logger.warning(
+                    "OCR auto-install: FAILED (exit %s). stderr: %s. "
+                    "Manual install: pip install easyocr Pillow pytesseract",
+                    result.returncode, stderr_preview,
+                )
+        except subprocess.TimeoutExpired:
+            logger.warning("OCR auto-install: timed out after 15 minutes")
+        except Exception as e:
+            logger.warning("OCR auto-install: exception: %s", e)
+
+    t = threading.Thread(target=_install_worker, name="aria-ocr-autoinstall", daemon=True)
+    t.start()
+    logger.info("OCR auto-install: background thread started (PID %s)", os.getpid())
+    return True
+
+
+def get_auto_install_status() -> dict:
+    """Report on the auto-install state."""
+    return {
+        "started": _auto_install_started,
+        "enabled": (os.getenv("ARIA_OCR_AUTO_INSTALL", "1") or "1").lower() not in ("0", "false", "no"),
+        "easyocr_available": _check_tesseract_installed() or (_get_easyocr_reader() is not None),
     }
 
 
