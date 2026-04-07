@@ -59,6 +59,7 @@ from ..intel import rag_store
 from ..intel import research_tasks
 from ..intel import feedback as feedback_store
 from ..intel import eval_runner
+from ..intel import source_verifier
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -536,6 +537,33 @@ async def eval_run_get_ep(run_id: str):
     if not run:
         raise HTTPException(status_code=404, detail="run not found")
     return run
+
+
+# ── Source verification: deterministic citation grounding check ──────────
+@router.get("/verify/list")
+async def verify_list_ep(limit: int = 30, verdict: str | None = None):
+    """List recent verification records.
+    verdict ∈ {grounded, partial, ungrounded, no_citations, no_tool}"""
+    return {
+        "verifications": await source_verifier.list_verifications(
+            limit=limit, verdict_filter=verdict,
+        ),
+    }
+
+
+@router.get("/verify/stats")
+async def verify_stats_ep():
+    """Aggregate verification counts + rolling grounded rate."""
+    return await source_verifier.get_verification_stats()
+
+
+@router.get("/verify/{verification_id}")
+async def verify_get_ep(verification_id: str):
+    """Full verification record including the actual cited and fetched URL lists."""
+    rec = await source_verifier.get_verification(verification_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="verification not found")
+    return rec
 
 
 # ── RAG store: persistent retrieval-augmented generation ──────────────────
@@ -1198,6 +1226,37 @@ async def chat_ep(req: ChatRequest, request: Request):
     result = await aria_chat(message_for_llm, session_id, llm, intel)
     if tool_used:
         result["tool_used"] = tool_used
+
+    # ── Cited-source verification (deterministic hallucination check) ────
+    # Compare URLs the LLM cited against URLs the tool actually fetched.
+    # Skipped silently when no tool ran (nothing to verify against) — but
+    # we still record it so the index has a "no_tool" data point. Failure
+    # here must NEVER affect the chat response, so wrap defensively.
+    try:
+        response_text = (result or {}).get("response") or (result or {}).get("answer") or ""
+        if response_text:
+            verification = source_verifier.verify_response(response_text, tool_context)
+            saved = await source_verifier.record_verification(
+                verification,
+                request_id=session_id,
+                session_id=session_id,
+                user=req.session_id or "",
+                question_preview=req.message,
+                response_preview=response_text,
+                tool_used=tool_used or "",
+            )
+            # Attach a compact summary to the chat response so callers
+            # (WA listener, eval framework) can surface it inline.
+            result["verification"] = {
+                "id": saved.get("id"),
+                "verdict": verification.get("verdict"),
+                "grounded_rate": verification.get("grounded_rate"),
+                "cited": len(verification.get("cited_urls", [])),
+                "unverified": len(verification.get("unverified", [])),
+            }
+    except Exception as e:
+        _log.debug("source verification failed (non-fatal): %s", e)
+
     return result
 
 

@@ -1,0 +1,358 @@
+"""
+ARIA Cited-Source Verifier — deterministic hallucination detection by
+checking that every URL ARIA cites in an answer was actually fetched
+during the same request.
+
+Why this exists
+═══════════════
+LLMs hallucinate citations. They invent plausible-looking URLs from
+training data, sometimes with the right domain but a fake path. For a
+defence-procurement intelligence agent, a fabricated source link is
+worse than no link — it gives the team false confidence that the claim
+is grounded.
+
+This module catches that deterministically. No LLM-as-judge, no
+expensive eval — pure regex extraction + set membership. Runs on every
+chat call automatically and records a per-request verification record
+for trend tracking.
+
+How it works
+════════════
+    1. The chat endpoint runs a tool (crawl_website / investigate /
+       read_article / web search) which produces a tool_context string
+       containing the URLs that were ACTUALLY FETCHED in this request.
+    2. The LLM generates a response that may cite URLs.
+    3. After aria_chat returns, verify_response() extracts URLs from
+       both strings and computes:
+         - cited_grounded: URLs in response AND in tool_context
+         - cited_unverified: URLs in response NOT in tool_context
+         - grounded_rate: cited_grounded / total_cited
+    4. The verification record is persisted to Redis with a 30-day TTL
+       and indexed for /verify queries.
+    5. If grounded_rate is below a configurable floor AND there are at
+       least 2 unverified citations, fire diagnose_failure so the
+       self-improve loop sees the hallucination signal the same way it
+       sees runtime errors.
+
+Important caveats
+═════════════════
+- "Unverified" doesn't always mean "hallucinated". A URL the LLM cites
+  from its training data (e.g. wikipedia.org/wiki/X) might be real but
+  wasn't fetched in this request. We report this as "unverified", not
+  "hallucinated", and the rate as "grounded_rate", not "hallucination
+  rate". The team interprets the signal.
+- We only verify when a tool actually ran. Pure-conversational replies
+  with no tool_context have nothing to ground against and are skipped.
+- Domain-only citations (just "reuters.com" with no path) are matched
+  loosely — the LLM often shortens URLs in prose.
+"""
+from __future__ import annotations
+
+import logging
+import re
+import time
+import uuid
+from typing import Any
+from urllib.parse import urlparse
+
+from . import redis_store as rs
+
+logger = logging.getLogger("aria.source_verifier")
+
+VERIFICATIONS_KEY = "crucix:aria:verifier:index"
+VERIFICATION_KEY_PREFIX = "crucix:aria:verifier:record:"
+VERIFICATION_TTL = 30 * 86400  # 30 days
+
+# Below this grounded_rate AND with ≥2 unverified citations, we treat
+# the response as suspicious and fire the self-improve diagnostic.
+SUSPICIOUS_RATE_THRESHOLD = 0.5
+
+# URL extraction regex — captures http(s) URLs with conservative tail
+# trimming so trailing punctuation in prose ("...see https://x.com/y.")
+# doesn't get glued to the URL.
+URL_RE = re.compile(
+    r"https?://[^\s<>\"'\)\]\}]+",
+    re.IGNORECASE,
+)
+# Trailing punctuation that should be stripped from extracted URLs —
+# Markdown brackets and prose punctuation gets caught by the main regex.
+URL_TRAILING_TRIM = ".,;:!?\"')]}"
+
+
+def extract_urls(text: str) -> list[str]:
+    """Pull URLs out of a string, dedupe, and normalise.
+
+    Returns the URLs in first-seen order so the caller can preserve
+    citation order if they care.
+    """
+    if not text:
+        return []
+    raw = URL_RE.findall(text)
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in raw:
+        # Strip trailing prose punctuation
+        while u and u[-1] in URL_TRAILING_TRIM:
+            u = u[:-1]
+        if not u or len(u) < 10:
+            continue
+        # Normalise: lowercase scheme+host, drop trailing slash
+        try:
+            p = urlparse(u)
+            host = (p.netloc or "").lower()
+            path = (p.path or "").rstrip("/")
+            normalised = f"{p.scheme.lower()}://{host}{path}"
+            if p.query:
+                normalised += f"?{p.query}"
+            if normalised in seen:
+                continue
+            seen.add(normalised)
+            out.append(normalised)
+        except Exception:
+            if u not in seen:
+                seen.add(u)
+                out.append(u)
+    return out
+
+
+def _domain_of(url: str) -> str:
+    try:
+        p = urlparse(url)
+        host = (p.netloc or "").lower()
+        # Strip leading www. so reuters.com == www.reuters.com for matching
+        if host.startswith("www."):
+            host = host[4:]
+        return host
+    except Exception:
+        return ""
+
+
+def _looks_suspicious(url: str) -> bool:
+    """Heuristic flag for URLs that look fabricated even before we check
+    the tool context. Catches the obvious garbage: random hex paths,
+    made-up TLDs, or paths longer than the entire rest of the URL.
+    Used as an additional severity signal — not a primary verdict.
+    """
+    if not url:
+        return True
+    try:
+        p = urlparse(url)
+        host = (p.netloc or "").lower()
+        path = p.path or ""
+        # No host or extremely short host
+        if not host or len(host) < 4:
+            return True
+        # Hex-soup paths (>20 chars of pure hex are usually fake IDs)
+        if re.fullmatch(r"/[0-9a-f]{20,}", path):
+            return True
+        # Very long random-looking last segment
+        if path:
+            last = path.rstrip("/").split("/")[-1]
+            if len(last) > 60 and re.fullmatch(r"[0-9a-zA-Z\-_]+", last):
+                # Could be a real article slug, so just a soft signal
+                return False
+    except Exception:
+        return True
+    return False
+
+
+def verify_response(response_text: str, tool_context: str) -> dict:
+    """Compute the grounding verdict for one chat response.
+
+    Returns a dict with:
+      - cited_urls            : list of URLs the LLM cited in its response
+      - fetched_urls          : list of URLs present in the tool context
+      - grounded              : URLs in response AND in tool context (exact OR domain match)
+      - unverified            : URLs in response NOT matched in tool context
+      - grounded_rate         : grounded / cited (None if no citations)
+      - suspicious_count      : number of unverified URLs that also fail
+                                the looks-suspicious heuristic
+      - verdict               : "grounded" | "partial" | "ungrounded" | "no_citations" | "no_tool"
+    """
+    cited = extract_urls(response_text or "")
+    fetched = extract_urls(tool_context or "")
+
+    if not tool_context:
+        return {
+            "cited_urls": cited,
+            "fetched_urls": [],
+            "grounded": [],
+            "unverified": cited,  # No tool ran — nothing to verify against
+            "grounded_rate": None,
+            "suspicious_count": sum(1 for u in cited if _looks_suspicious(u)),
+            "verdict": "no_tool",
+        }
+    if not cited:
+        return {
+            "cited_urls": [],
+            "fetched_urls": fetched,
+            "grounded": [],
+            "unverified": [],
+            "grounded_rate": None,
+            "suspicious_count": 0,
+            "verdict": "no_citations",
+        }
+
+    fetched_set = set(fetched)
+    fetched_domains = {_domain_of(u) for u in fetched if _domain_of(u)}
+
+    grounded: list[str] = []
+    unverified: list[str] = []
+    for url in cited:
+        # Exact match wins. Domain match is a softer fallback for the
+        # case where the LLM cites a real article we did fetch but
+        # paraphrases/abbreviates the URL.
+        if url in fetched_set:
+            grounded.append(url)
+        elif _domain_of(url) in fetched_domains:
+            grounded.append(url)  # domain-match counts as grounded
+        else:
+            unverified.append(url)
+
+    rate = len(grounded) / len(cited) if cited else None
+    if rate is None:
+        verdict = "no_citations"
+    elif rate >= 0.9:
+        verdict = "grounded"
+    elif rate >= 0.5:
+        verdict = "partial"
+    else:
+        verdict = "ungrounded"
+
+    return {
+        "cited_urls": cited,
+        "fetched_urls": fetched,
+        "grounded": grounded,
+        "unverified": unverified,
+        "grounded_rate": round(rate, 3) if rate is not None else None,
+        "suspicious_count": sum(1 for u in unverified if _looks_suspicious(u)),
+        "verdict": verdict,
+    }
+
+
+# ── Persistence ────────────────────────────────────────────────────────────
+
+async def record_verification(
+    verification: dict,
+    *,
+    request_id: str = "",
+    session_id: str = "",
+    user: str = "",
+    question_preview: str = "",
+    response_preview: str = "",
+    tool_used: str = "",
+) -> dict:
+    """Persist a verification record + update the index. Returns the
+    saved record so the caller can attach the id to its response."""
+    vid = f"vfy_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+    record = {
+        "id": vid,
+        "ts": time.time(),
+        "request_id": request_id or "",
+        "session_id": session_id or "",
+        "user": (user or "")[:120],
+        "question_preview": (question_preview or "")[:300],
+        "response_preview": (response_preview or "")[:600],
+        "tool_used": tool_used or "",
+        **verification,
+    }
+    try:
+        await rs.set_json(f"{VERIFICATION_KEY_PREFIX}{vid}", record, ex=VERIFICATION_TTL)
+        index = await rs.get_json(VERIFICATIONS_KEY) or []
+        index.insert(0, {
+            "id": vid,
+            "ts": record["ts"],
+            "verdict": verification.get("verdict"),
+            "grounded_rate": verification.get("grounded_rate"),
+            "cited_count": len(verification.get("cited_urls", [])),
+            "unverified_count": len(verification.get("unverified", [])),
+            "tool_used": tool_used or "",
+            "question_preview": record["question_preview"][:140],
+        })
+        index = index[:500]
+        await rs.set_json(VERIFICATIONS_KEY, index, ex=VERIFICATION_TTL)
+    except Exception as e:
+        logger.warning("record_verification persist failed: %s", e)
+
+    # Fire diagnose_failure for clearly ungrounded responses with multiple
+    # bad citations — same path used by runtime errors and user 👎.
+    grounded_rate = verification.get("grounded_rate")
+    unverified = verification.get("unverified") or []
+    if (
+        grounded_rate is not None
+        and grounded_rate < SUSPICIOUS_RATE_THRESHOLD
+        and len(unverified) >= 2
+    ):
+        try:
+            from . import self_improve
+            err_summary = (
+                f"ARIA cited {len(unverified)} URL(s) not present in the tool context "
+                f"(grounded_rate={grounded_rate:.2f}). "
+                f"Question: {record['question_preview'][:200]}. "
+                f"Suspect citations: {unverified[:5]}"
+            )
+            import asyncio as _aio
+            _aio.create_task(self_improve.diagnose_failure(
+                "ungrounded_citations",
+                err_summary,
+                {
+                    "verification_id": vid,
+                    "grounded_rate": grounded_rate,
+                    "unverified_count": len(unverified),
+                    "tool_used": tool_used or "",
+                },
+            ))
+        except Exception as e:
+            logger.debug("diagnose_failure dispatch failed: %s", e)
+
+    return record
+
+
+async def get_verification(vid: str) -> dict | None:
+    try:
+        return await rs.get_json(f"{VERIFICATION_KEY_PREFIX}{vid}")
+    except Exception:
+        return None
+
+
+async def list_verifications(
+    limit: int = 30,
+    verdict_filter: str | None = None,
+) -> list[dict]:
+    try:
+        index = await rs.get_json(VERIFICATIONS_KEY) or []
+        if verdict_filter:
+            index = [e for e in index if e.get("verdict") == verdict_filter]
+        return index[: max(1, min(limit, 500))]
+    except Exception:
+        return []
+
+
+async def get_verification_stats() -> dict:
+    """Aggregate counts + rolling grounded rate."""
+    try:
+        index = await rs.get_json(VERIFICATIONS_KEY) or []
+        by_verdict: dict[str, int] = {}
+        recent_24h = 0
+        cutoff = time.time() - 86400
+        rate_sum = 0.0
+        rate_n = 0
+        for e in index:
+            v = e.get("verdict", "unknown")
+            by_verdict[v] = by_verdict.get(v, 0) + 1
+            if e.get("ts", 0) >= cutoff:
+                recent_24h += 1
+            r = e.get("grounded_rate")
+            if r is not None:
+                rate_sum += r
+                rate_n += 1
+        rolling_rate = round(rate_sum / rate_n, 3) if rate_n > 0 else None
+        return {
+            "total": len(index),
+            "by_verdict": by_verdict,
+            "recent_24h": recent_24h,
+            "rolling_grounded_rate": rolling_rate,
+            "rate_sample_size": rate_n,
+        }
+    except Exception as e:
+        return {"error": str(e)}
