@@ -1424,8 +1424,22 @@ async def ocr_ep(request: Request):
         image_data = base64.b64decode(image_b64)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 image data")
+
+    _log.info("OCR request: filename=%s size=%d bytes context=%s",
+              filename, len(image_data), context[:120])
+
     llm = get_llm(request)
     result = await aria_ocr.extract_text_from_image(image_data, filename, context, llm)
+
+    # Always log the outcome so we can debug "silent failures" from the logs
+    if result.get("text"):
+        _log.info("OCR success: method=%s chars=%d filename=%s",
+                  result.get("method"), len(result["text"]), filename)
+    else:
+        _log.warning("OCR returned empty result for %s (size=%d). Method last tried: %s. "
+                     "Backends tried: %s. Note: %s",
+                     filename, len(image_data), result.get("method"),
+                     result.get("tried"), result.get("note"))
     return result
 
 

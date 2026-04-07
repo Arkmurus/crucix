@@ -193,14 +193,29 @@ OCRSPACE_PUBLIC_KEY = "helloworld"  # public test key, free 25k/month/IP
 
 
 async def _ocr_via_ocrspace(image_data: bytes, mime: str) -> Optional[dict]:
-    """Free public OCR via OCR.space — no installation, no key, no setup."""
-    if len(image_data) > 1024 * 1024:
-        # OCR.space free tier limited to 1MB; skip oversized images
-        logger.debug("OCR.space: image too large (%d bytes > 1MB free limit)", len(image_data))
+    """Free public OCR via OCR.space — no installation, no key, no setup.
+
+    Uses the base64Image parameter which has a 10MB limit (vs the 1MB limit
+    for multipart file uploads). If the image is bigger than 8MB we try to
+    downscale it via Pillow first; if Pillow isn't installed and the image
+    is huge, we crop to a reasonable resolution as a defensive fallback.
+    """
+    # Try to downscale large images so we stay under the OCR.space 10MB limit
+    # AND make the OCR job faster/more accurate
+    processed = _downscale_for_ocr(image_data, mime)
+    if processed is None:
+        logger.warning("OCR.space: image too large to process (%d bytes) and Pillow not available for downscaling", len(image_data))
+        return None
+    image_data, mime = processed
+
+    if len(image_data) > 9 * 1024 * 1024:
+        logger.warning("OCR.space: image still too large after downscale (%d bytes > 9MB)", len(image_data))
         return None
 
     try:
-        files = {"file": ("image" + _ext_for_mime(mime), image_data, mime)}
+        b64 = base64.b64encode(image_data).decode("ascii")
+        # OCR.space accepts base64Image as form data with a data: URL prefix
+        data_uri = f"data:{mime};base64,{b64}"
         data = {
             "apikey": OCRSPACE_PUBLIC_KEY,
             "language": "eng",
@@ -209,27 +224,37 @@ async def _ocr_via_ocrspace(image_data: bytes, mime: str) -> Optional[dict]:
             "scale": "true",
             "isTable": "false",
             "detectOrientation": "true",
+            "base64Image": data_uri,
         }
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            resp = await client.post(OCRSPACE_API, files=files, data=data)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(OCRSPACE_API, data=data)
             if resp.status_code != 200:
-                logger.debug("OCR.space returned %s", resp.status_code)
+                logger.warning("OCR.space returned HTTP %s: %s", resp.status_code, resp.text[:300])
                 return None
-            result = resp.json()
+            try:
+                result = resp.json()
+            except Exception as e:
+                logger.warning("OCR.space returned non-JSON response: %s", e)
+                return None
 
         if result.get("IsErroredOnProcessing"):
             err = result.get("ErrorMessage") or result.get("ErrorDetails") or "unknown"
-            logger.debug("OCR.space error: %s", err)
+            if isinstance(err, list):
+                err = "; ".join(str(e) for e in err)
+            logger.warning("OCR.space processing error: %s", err)
             return None
 
         parsed = result.get("ParsedResults") or []
         if not parsed:
+            logger.warning("OCR.space returned no parsed results")
             return None
 
         text = (parsed[0].get("ParsedText") or "").strip()
         if not text or len(text) < 3:
+            logger.warning("OCR.space returned empty text")
             return None
 
+        logger.info("OCR.space SUCCESS: %d chars extracted", len(text))
         return {
             "text": text,
             "method": "ocrspace_free",
@@ -237,8 +262,53 @@ async def _ocr_via_ocrspace(image_data: bytes, mime: str) -> Optional[dict]:
             "provider": "OCR.space (free public)",
         }
     except Exception as e:
-        logger.debug("OCR.space request failed: %s", e)
+        logger.warning("OCR.space request failed: %s", e)
         return None
+
+
+def _downscale_for_ocr(image_data: bytes, mime: str) -> Optional[tuple[bytes, str]]:
+    """Downscale large images so OCR backends can handle them.
+
+    Returns (downscaled_bytes, mime) or None if downscaling failed AND
+    the image is too large to send as-is. If the image is already small
+    enough, returns the original bytes unchanged.
+
+    Uses Pillow if available. If Pillow isn't installed and the image
+    is small enough to send as-is, we just return the original.
+    """
+    MAX_BYTES = 8 * 1024 * 1024   # 8MB safety threshold (under OCR.space 10MB)
+    MAX_DIM = 2500                # 2500px max dimension for OCR efficiency
+
+    if len(image_data) <= MAX_BYTES:
+        return image_data, mime  # already small enough
+
+    try:
+        from PIL import Image
+        import io
+    except ImportError:
+        # Pillow not available — can't downscale. If image is too big, give up.
+        logger.warning("Pillow not installed, can't downscale %d-byte image", len(image_data))
+        return None
+
+    try:
+        img = Image.open(io.BytesIO(image_data))
+        # Convert to RGB if needed (JPEG can't be RGBA)
+        if img.mode in ("RGBA", "LA", "P"):
+            img = img.convert("RGB")
+        # Resize to fit within MAX_DIM box, preserving aspect ratio
+        img.thumbnail((MAX_DIM, MAX_DIM), Image.LANCZOS)
+        # Re-encode as JPEG with quality 85 — good for OCR, much smaller than original
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=85, optimize=True)
+        new_bytes = out.getvalue()
+        logger.info("Downscaled image: %d → %d bytes (%.0f%% reduction)",
+                    len(image_data), len(new_bytes),
+                    (1 - len(new_bytes) / len(image_data)) * 100)
+        return new_bytes, "image/jpeg"
+    except Exception as e:
+        logger.warning("Image downscale failed: %s — sending original", e)
+        # Pillow failed but the image is huge — try anyway in case OCR.space accepts it
+        return image_data, mime
 
 
 def _ext_for_mime(mime: str) -> str:
