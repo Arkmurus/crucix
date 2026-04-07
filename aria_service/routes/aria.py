@@ -56,6 +56,7 @@ from ..intel import symbolic_reasoner
 from ..intel import student
 from ..intel import proactive
 from ..intel import rag_store
+from ..intel import research_tasks
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -299,6 +300,58 @@ async def student_health_ep():
             "strong_count": len(mastery.get("strong_topics", [])),
         },
     }
+
+
+# ── Research tasks: long-running background research operations ──────────
+class SpawnTaskRequest(BaseModel):
+    type: str
+    params: dict = {}
+    title: str = ""
+    requested_by: str = "api"
+    chat_id: str = ""
+
+
+@router.post("/research/spawn")
+async def research_spawn_ep(req: SpawnTaskRequest, request: Request):
+    """Spawn a long-running research task. Returns immediately with the
+    task_id so the caller can acknowledge the user. Actual work runs in
+    the background and pushes results via the proactive alert queue when done.
+    """
+    if not req.type:
+        raise HTTPException(status_code=400, detail="task type required")
+    llm = get_llm(request)
+    return await research_tasks.spawn_research_task(
+        task_type=req.type,
+        params=req.params or {},
+        title=req.title,
+        requested_by=req.requested_by,
+        chat_id=req.chat_id,
+        llm=llm,
+    )
+
+
+@router.get("/research/task/{task_id}")
+async def research_task_ep(task_id: str):
+    """Get the current state of a research task — status, progress, result."""
+    task = await research_tasks.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    return task
+
+
+@router.get("/research/list")
+async def research_list_ep(limit: int = 30, status: str | None = None):
+    """List recent research tasks, optionally filtered by status."""
+    limit = max(1, min(limit, 200))
+    return {
+        "tasks": await research_tasks.list_tasks(limit=limit, status_filter=status),
+    }
+
+
+@router.get("/research/stats")
+async def research_stats_ep():
+    """Overview of the research task system."""
+    return await research_tasks.get_stats()
 
 
 # ── RAG store: persistent retrieval-augmented generation ──────────────────
@@ -676,6 +729,57 @@ def _detect_tool_intent(message: str) -> dict | None:
     weapon_match    = _WEAPON_DESIGNATION_RE.search(msg)
     country_match   = _COUNTRY_RE_TOOL.search(msg)
 
+    # ── 0. Multi-entity batch detection — spawn a background research task ──
+    # Triggered by patterns like "research each of these suppliers", "compare
+    # these companies", "investigate all of them", "find out about each one".
+    # These cannot run inline (would take 5+ minutes and timeout the chat).
+    # Instead we extract the entity list and spawn a research_each task.
+    _BATCH_RE = re.compile(
+        r"\b(?:research|investigate|compare|analy[sz]e|profile|look\s+into|"
+        r"find\s+out\s+about|background\s+check)\b.*?\b(?:each|all|these|"
+        r"every|both)\b",
+        re.IGNORECASE,
+    )
+    if _BATCH_RE.search(msg) and len(msg) < 1500:
+        # Try to pull entity names out of the message — bullets, numbers,
+        # comma-separated, or capitalised noun phrases
+        entity_candidates: list[str] = []
+        # 1. Bulleted / numbered lists
+        for line in msg.splitlines():
+            line = line.strip()
+            m = re.match(r"^[\-\*\u2022\d\.\)\(]+\s*(.+)$", line)
+            if m and 3 <= len(m.group(1)) <= 100:
+                entity_candidates.append(m.group(1).strip().rstrip(".,;:"))
+        # 2. Comma-separated names if no list found
+        if not entity_candidates:
+            colon_idx = msg.find(":")
+            if colon_idx > 0:
+                tail = msg[colon_idx + 1:]
+                parts = [p.strip().rstrip(".,;:") for p in re.split(r"[,;\n]", tail)]
+                entity_candidates = [p for p in parts if 3 <= len(p) <= 100]
+        # Cap to a sensible batch size
+        entity_candidates = entity_candidates[:10]
+        if len(entity_candidates) >= 2:
+            return {
+                "tool": "spawn_research_task",
+                "task_type": "research_each",
+                "entities": entity_candidates,
+                "context": msg,
+            }
+        # If we couldn't extract entities but the prompt clearly asks for
+        # multi-step research on something specific, still spawn an
+        # investigate task in the background instead of running inline
+        if has_investigate or has_crawl:
+            topic_match = re.search(r"\b(?:research|investigate|crawl|look\s+into|find\s+out\s+about|profile)\s+(?:each\s+(?:of\s+)?(?:these|the)\s+)?(.+?)(?:\?|\.|$)", msg, re.IGNORECASE)
+            topic = (topic_match.group(1) if topic_match else msg)[:300].strip(" .,:;-?!\"'")
+            if topic and len(topic) >= 3:
+                return {
+                    "tool": "spawn_research_task",
+                    "task_type": "investigate" if has_investigate else "crawl",
+                    "params": {"topic": topic, "url": url} if not has_crawl else {"url": url},
+                    "context": msg,
+                }
+
     # 1. Explicit crawl request — needs a URL
     if has_crawl and url:
         return {"tool": "crawl", "url": url, "context": msg}
@@ -734,6 +838,49 @@ async def _execute_tool(intent: dict, llm) -> str:
     """Run the detected tool and return a compact context string for the LLM."""
     tool = intent.get("tool")
     try:
+        # ── Background research task — spawn instead of running inline ──
+        if tool == "spawn_research_task":
+            task_type = intent.get("task_type", "investigate")
+            entities = intent.get("entities") or []
+            params = intent.get("params") or {}
+            if task_type == "research_each" and entities:
+                params = {"entities": entities, "context": intent.get("context", "")}
+                title = f"Research each: {', '.join(entities[:3])}"
+                eta = max(60, 60 * len(entities))
+            else:
+                title = f"{task_type}: {(params.get('topic') or params.get('url') or '')[:60]}"
+                eta = 120 if task_type == "investigate" else 90
+
+            spawn = await research_tasks.spawn_research_task(
+                task_type=task_type,
+                params=params,
+                title=title,
+                requested_by="chat_nlu",
+                llm=llm,
+            )
+            if spawn.get("status") == "rejected":
+                return (
+                    f"\n\n[TOOL: spawn_research_task — REJECTED]\n"
+                    f"Reason: {spawn.get('reason')}\n"
+                    f"Retry after: {spawn.get('retry_after_s', 60)}s"
+                )
+            return (
+                f"\n\n[TOOL: spawn_research_task]\n"
+                f"Task ID: {spawn['id']}\n"
+                f"Type: {task_type}\n"
+                f"Title: {title}\n"
+                f"ETA: ~{eta}s\n"
+                f"Status: queued — running in background\n"
+                f"Entities: {entities if entities else 'N/A'}\n"
+                f"\n"
+                f"IMPORTANT: This task is now RUNNING IN THE BACKGROUND.\n"
+                f"Tell the user: 'I have spawned background task {spawn['id']} "
+                f"for this research. ETA ~{eta // 60} minutes. The result will "
+                f"be pushed to the group automatically when complete. You can "
+                f"check status anytime with /task {spawn['id']}.'\n"
+                f"Do NOT try to give the answer yourself — it does not exist yet."
+            )
+
         if tool == "crawl":
             max_pages = intent.get("max_pages", 15)
             r = await crawl_website(llm, intent["url"], max_pages=max_pages, context=intent.get("context", ""))
