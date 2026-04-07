@@ -1017,6 +1017,32 @@ async def read_document(
     t_start = time.time()
     logger.info(f"ARIA reading document: {filename} ({len(content)} chars) from {source}")
 
+    # ── RAG ingest: chunk + index the document so it's searchable later
+    # This is what makes "ARIA, what was on that PDF I just shared?" work.
+    # The full extracted text gets chunked (800-char windows with overlap)
+    # and persisted to chromadb. From this point on, /rag <query> can find
+    # passages from this document, and any future chat call automatically
+    # retrieves relevant chunks via the RAG context layer.
+    try:
+        from . import rag_store
+        # Detect source type from filename / source string
+        ext = (filename.rsplit(".", 1)[-1] or "").lower()
+        source_type = (
+            "pdf" if "pdf" in source.lower() or ext == "pdf"
+            else "docx" if ext in ("docx", "doc")
+            else "spreadsheet" if ext in ("xlsx", "xls", "csv")
+            else "document"
+        )
+        await rag_store.ingest_document(
+            text=content,
+            source=f"document:{source}:{filename}",
+            source_type=source_type,
+            title=filename,
+            extra_metadata={"context": (context or "")[:300]},
+        )
+    except Exception as e:
+        logger.debug("RAG ingest from read_document failed: %s", e)
+
     # For long documents, process in chunks
     chunks = []
     if len(content) > 5000:
