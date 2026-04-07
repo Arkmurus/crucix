@@ -86,10 +86,15 @@ async def _extract_links(url: str, html: str) -> list[str]:
 async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, list[str]]:
     """Fetch a page and return (text_content, discovered_links). Security validated.
 
+    Now uses the SAME structured extractor as researcher._fetch_article_text
+    so the crawler captures titles + headings + paragraphs + lists + tables +
+    contact info (emails/phones/addresses) + social links — not just blob text.
     Includes 1 retry with 2s delay on failure and rotates User-Agent strings.
     """
     import asyncio as _asyncio
-    from .security import sanitise_url, scan_content, strip_dangerous_content
+    from .security import sanitise_url
+    from .researcher import _extract_structured_html
+
     url = sanitise_url(url)
     if not url:
         return "", []
@@ -111,19 +116,16 @@ async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, 
                 html = resp.text
 
             links = await _extract_links(url, html)
+            extracted = _extract_structured_html(html)
+            text = extracted.get("text", "")
+            if not text:
+                # Fallback to plain strip if structured extraction returned nothing
+                fallback = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+                fallback = re.sub(r"<style[^>]*>.*?</style>", " ", fallback, flags=re.DOTALL | re.IGNORECASE)
+                fallback = re.sub(r"<[^>]+>", " ", fallback)
+                fallback = re.sub(r"&\w+;", " ", fallback)
+                text = re.sub(r"\s+", " ", fallback).strip()[:8000]
 
-            # Extract text
-            text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
-            text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
-            text = re.sub(r"<nav[^>]*>.*?</nav>", "", text, flags=re.DOTALL | re.IGNORECASE)
-            text = re.sub(r"<header[^>]*>.*?</header>", "", text, flags=re.DOTALL | re.IGNORECASE)
-            text = re.sub(r"<footer[^>]*>.*?</footer>", "", text, flags=re.DOTALL | re.IGNORECASE)
-            text = re.sub(r"<[^>]+>", " ", text)
-            text = re.sub(r"&\w+;", " ", text)
-            text = re.sub(r"\s+", " ", text).strip()
-
-            if len(text) > 2000:
-                text = text[200:8000]
             return text[:8000], links
 
         except Exception as e:
@@ -179,6 +181,18 @@ def _score_link_relevance(url: str, link_text: str = "") -> float:
 
 # ── Public: Crawl a website ──────────────────────────────────────────────────
 
+async def _publish_crawl_progress(domain: str, status: dict) -> None:
+    """Publish crawl progress to Redis so external pollers (e.g. WhatsApp
+    listeners) can show live status. Cheap, fire-and-forget — failure is
+    silent so it never blocks the actual crawl.
+    """
+    try:
+        key = f"crucix:aria:crawl_progress:{domain}"
+        await rs.set_json(key, status, ex=900)  # 15 min TTL
+    except Exception as e:
+        logger.debug("crawl progress publish failed: %s", e)
+
+
 async def crawl_website(
     llm: LLMProvider,
     start_url: str,
@@ -188,6 +202,9 @@ async def crawl_website(
     """
     Spider a website — follow links, read all relevant pages, extract intelligence.
     Like sending a research analyst to spend a day on a website.
+
+    Live progress is published to Redis at crucix:aria:crawl_progress:{domain}
+    every page so external clients can poll for status.
     """
     if not llm or not llm.is_configured:
         return {"error": "LLM not configured"}
@@ -202,7 +219,20 @@ async def crawl_website(
     total_facts = 0
     total_hyp = 0
     all_facts: list[dict] = []
+    pages_metadata: list[dict] = []
     hypotheses = await _load_hypotheses()
+
+    # Publish initial status
+    await _publish_crawl_progress(domain, {
+        "status": "starting",
+        "domain": domain,
+        "start_url": start_url,
+        "max_pages": max_pages,
+        "pages_read": 0,
+        "facts_learned": 0,
+        "current_url": start_url,
+        "started_at": t_start,
+    })
 
     while to_visit and pages_read < max_pages:
         # Sort by priority (highest first)
@@ -223,6 +253,19 @@ async def crawl_website(
         pages_read += 1
         logger.info(f"  [{pages_read}/{max_pages}] Reading: {url[:80]} ({len(text)} chars, {len(links)} links)")
 
+        # Publish per-page progress so live pollers see motion
+        await _publish_crawl_progress(domain, {
+            "status": "crawling",
+            "domain": domain,
+            "start_url": start_url,
+            "max_pages": max_pages,
+            "pages_read": pages_read,
+            "facts_learned": total_facts,
+            "current_url": url,
+            "links_queued": len(to_visit),
+            "elapsed_ms": int((time.time() - t_start) * 1000),
+        })
+
         # Analyse content
         article_text = f"URL: {url}\nWebsite: {domain}\n"
         if context:
@@ -232,11 +275,20 @@ async def crawl_website(
         existing_kb = search_knowledge(text[:200])
         parsed = await _analyse_article(llm, article_text, f"crawl:{domain}", existing_kb, hypotheses)
 
+        page_facts = 0
         if parsed:
             fl, hg = await _process_analysis(parsed, f"crawl:{domain}", hypotheses)
             total_facts += fl
             total_hyp += hg
             all_facts.extend(parsed.get("facts", []))
+            page_facts = fl
+
+        pages_metadata.append({
+            "url": url,
+            "chars": len(text),
+            "facts": page_facts,
+            "links_found": len(links),
+        })
 
         await _mark_read(url)
 
@@ -252,6 +304,19 @@ async def crawl_website(
     duration = int((time.time() - t_start) * 1000)
     logger.info(f"Crawl complete: {domain} — {pages_read} pages, {total_facts} facts, {total_hyp} hypotheses ({duration}ms)")
 
+    # Publish final status
+    await _publish_crawl_progress(domain, {
+        "status": "complete",
+        "domain": domain,
+        "start_url": start_url,
+        "max_pages": max_pages,
+        "pages_read": pages_read,
+        "facts_learned": total_facts,
+        "hypotheses_generated": total_hyp,
+        "duration_ms": duration,
+        "completed_at": time.time(),
+    })
+
     return {
         "website": domain,
         "start_url": start_url,
@@ -260,8 +325,19 @@ async def crawl_website(
         "facts_learned": total_facts,
         "hypotheses_generated": total_hyp,
         "facts": all_facts,
+        "pages": pages_metadata,
         "duration_ms": duration,
     }
+
+
+async def get_crawl_progress(domain: str) -> dict:
+    """Public API: query the live crawl progress for a domain."""
+    try:
+        key = f"crucix:aria:crawl_progress:{urlparse('https://' + domain).netloc or domain}"
+        data = await rs.get_json(key)
+        return data or {"status": "no_active_crawl", "domain": domain}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "domain": domain}
 
 
 # ── Public: Deep investigation on a topic ────────────────────────────────────

