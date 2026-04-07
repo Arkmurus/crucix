@@ -770,7 +770,6 @@ async function startListener() {
               const preview = extracted.slice(0, 700).replace(/\n{3,}/g, '\n\n');
               const more = extracted.length > 700 ? `\n\n_…+${extracted.length - 700} more chars_` : '';
               const factsLine = factsLearned > 0 ? `\n\n📚 Learned ${factsLearned} new fact(s) — ask me about them.` : '';
-              const captionLine = caption ? `\n\n_Your caption: ${caption.slice(0, 200)}_` : '';
               const methodLabel = {
                 easyocr:        '🟢 local (EasyOCR)',
                 tesseract:      '🟢 local (Tesseract)',
@@ -782,7 +781,47 @@ async function startListener() {
                 ? `\n\n_⚙️ Auto-installing local image-reading library in the background — your next image will be ~10x faster and fully offline._`
                 : '';
 
-              await sendReply(chatId, `🖼 *Image read* (${methodLabel}, ${charCount} chars):\n\n${preview}${more}${captionLine}${factsLine}${installNote}`).catch(() => {});
+              // ── Send the OCR extraction first so the user sees what ARIA read ─
+              await sendReply(chatId, `🖼 *Image read* (${methodLabel}, ${charCount} chars):\n\n${preview}${more}${factsLine}${installNote}`).catch(() => {});
+
+              // ── ALWAYS analyse + explain + research after extraction ──────
+              // The "extract → explain → research" pattern. ARIA doesn't just
+              // dump OCR text — she identifies the document, pulls entities,
+              // screens for compliance, and answers any caption question.
+              const captionTrimmed = (caption || '').trim();
+              const userInstruction = captionTrimmed.length >= 3
+                ? `The user attached this caption / instruction: "${captionTrimmed}"`
+                : `The user shared the image with no caption — they expect a senior analyst's read.`;
+
+              const analysisPrompt = [
+                `An image was just shared in the WhatsApp group "${groupName}" by ${senderName}. I have extracted its text via OCR. ${userInstruction}`,
+                ``,
+                `Your task — produce a concise intelligence brief on what this image contains:`,
+                ``,
+                `1. *Document type* — what is this? (invoice / contract / tender notice / business card / screenshot / news article / chart / other)`,
+                `2. *Key entities* — companies, people (with roles), countries, military units, products, contract IDs, dates, monetary values`,
+                `3. *Compliance flags* — any sanctions, export control, ML category, or embargo concerns`,
+                `4. *Arkmurus relevance* — does this touch a market we cover, an OEM we work with, or a contact we know? Cite the relationship tier.`,
+                `5. *Recommended next action* — what should the team do with this information? (investigate further, screen entity, contact source, file in pipeline, ignore)`,
+                captionTrimmed ? `6. *Direct answer to the user's caption* — answer "${captionTrimmed.slice(0, 200)}" specifically.` : ``,
+                ``,
+                `[OCR extracted text — ${charCount} chars via ${method}]:`,
+                `${extracted.slice(0, 4500)}`,
+                ``,
+                `Be specific. Cite numbers and names from the extracted text. Mark every claim with confidence: [CONFIRMED] [PROBABLE] [ASSESSED] [UNCERTAIN].`,
+              ].filter(Boolean).join('\n');
+
+              await sendReply(chatId, `🔎 _Analysing the image content${captionTrimmed ? ` and answering: "${captionTrimmed.slice(0, 100)}"` : ''}…_`).catch(() => {});
+
+              try {
+                const analysis = await askARIA(analysisPrompt, senderJid);
+                if (analysis) {
+                  await sendReply(chatId, `🧠 *Analysis:*\n\n${analysis}`).catch(() => {});
+                }
+              } catch (e) {
+                console.warn('[ARIA Listener] Image-analysis chat failed:', e.message);
+                await sendReply(chatId, `⚠️ I extracted the image but my reasoning step failed: ${e.message}`).catch(() => {});
+              }
             }
           }
         } catch (e) {
