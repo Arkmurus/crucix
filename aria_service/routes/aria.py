@@ -58,6 +58,7 @@ from ..intel import proactive
 from ..intel import rag_store
 from ..intel import research_tasks
 from ..intel import feedback as feedback_store
+from ..intel import eval_runner
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -428,6 +429,113 @@ async def feedback_get_ep(feedback_id: str):
     if not rec:
         raise HTTPException(status_code=404, detail="feedback not found")
     return rec
+
+
+# ── Eval: golden Q&A regression framework ────────────────────────────────
+async def _aria_chat_session(question: str, llm) -> str:
+    """One-shot chat call used by the eval runner. Mirrors chat_ep() so the
+    eval exercises the SAME path the user hits (NLU tool detection + chat),
+    just without the FastAPI Request object. Each call uses a fresh session
+    id so eval entries don't pollute each other's history."""
+    if not question or not llm:
+        return ""
+    session_id = f"eval_{uuid.uuid4().hex[:10]}"
+    tool_context = ""
+    try:
+        intent = _detect_tool_intent(question)
+        if intent and llm.is_configured:
+            tool_context = await _execute_tool(intent, llm)
+    except Exception as e:
+        _log.debug("eval tool detection failed: %s", e)
+
+    message_for_llm = question
+    if tool_context:
+        message_for_llm = f"{question}\n\n{tool_context}"
+    result = await aria_chat(message_for_llm, session_id, llm, None)
+    return (result or {}).get("response") or (result or {}).get("answer") or ""
+
+
+class GoldenAddRequest(BaseModel):
+    question: str
+    expected_answer: str
+    category: str = "general"
+    notes: str = ""
+    added_by: str = ""
+
+
+class PromoteFeedbackRequest(BaseModel):
+    feedback_id: str
+    category: str = "feedback"
+    notes: str = ""
+    added_by: str = ""
+
+
+class RunEvalRequest(BaseModel):
+    ids: list[str] = []
+    label: str = ""
+
+
+@router.get("/eval/golden")
+async def eval_golden_list_ep():
+    """List all golden Q&A entries."""
+    items = await eval_runner.get_golden_set()
+    return {"total": len(items), "entries": items}
+
+
+@router.post("/eval/golden")
+async def eval_golden_add_ep(req: GoldenAddRequest):
+    """Manually add a golden Q&A entry."""
+    return await eval_runner.add_golden_entry(
+        question=req.question,
+        expected_answer=req.expected_answer,
+        category=req.category,
+        notes=req.notes,
+        source="manual",
+        added_by=req.added_by,
+    )
+
+
+@router.post("/eval/golden/promote")
+async def eval_golden_promote_ep(req: PromoteFeedbackRequest):
+    """Promote a feedback record into the golden set. Use this for 👍-rated
+    answers — the answer ARIA gave becomes the expected answer. For 👎
+    feedback, edit the expected_answer manually via POST /eval/golden first."""
+    return await eval_runner.promote_feedback_to_golden(
+        feedback_id=req.feedback_id,
+        category=req.category,
+        notes=req.notes,
+        added_by=req.added_by,
+    )
+
+
+@router.delete("/eval/golden/{entry_id}")
+async def eval_golden_remove_ep(entry_id: str):
+    return await eval_runner.remove_golden_entry(entry_id)
+
+
+@router.post("/eval/run")
+async def eval_run_ep(req: RunEvalRequest, request: Request):
+    """Execute the golden set against the current ARIA chat path. Returns
+    a run record with per-entry scores, summary, and delta vs the previous run."""
+    llm = get_llm(request)
+    if not llm:
+        raise HTTPException(status_code=503, detail="LLM not configured")
+    return await eval_runner.run_eval(llm, ids=req.ids or None, label=req.label)
+
+
+@router.get("/eval/runs")
+async def eval_runs_ep(limit: int = 10):
+    """Recent eval run summaries (lightweight — no per-entry detail)."""
+    return {"runs": await eval_runner.get_recent_runs(limit=limit)}
+
+
+@router.get("/eval/runs/{run_id}")
+async def eval_run_get_ep(run_id: str):
+    """Full eval run record including per-entry scores."""
+    run = await eval_runner.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+    return run
 
 
 # ── RAG store: persistent retrieval-augmented generation ──────────────────
