@@ -56,59 +56,53 @@ async def lifespan(app: FastAPI):
     await training_data.init()
     await neural_memory.init()
 
-    # ── RAG store: lazy init + one-shot backfill in BACKGROUND ──────────
-    # The RAG store auto-initialises on first call. We probe it here so
-    # any chromadb errors surface during startup, but the backfill itself
-    # MUST NOT block lifespan startup — it embeds every ledger item via
-    # sentence-transformers which takes many minutes on a fresh volume,
-    # and uvicorn doesn't bind to 0.0.0.0:8000 until lifespan yields.
-    # Past incident (2026-04-07): blocking backfill caused fly health
-    # checks to fail with "[PC01] instance refused connection" and the
-    # deploy was rolled back even though the app was healthy and busy.
-    try:
-        rag_stats_initial = await rag_store.get_stats()
-        logger.info("RAG store: %s", rag_stats_initial)
-    except Exception as e:
-        logger.warning("RAG store probe failed (non-fatal): %s", e)
-        rag_stats_initial = {}
-
-    # Backfill is OFF by default. Past incident 2026-04-07: even as a
-    # background asyncio task, the backfill ran sentence-transformers
-    # encoding (sync C code) which starved the event loop for 200-700ms
-    # at a time, longer than fly's health-check timeout, so probes
-    # failed and fly marked the machine unhealthy → rolled back.
-    # Set ARIA_RAG_BACKFILL_ENABLED=true to opt back in once we have
-    # a throttled implementation that yields properly between items.
+    # ── RAG store: probe + backfill ALL in background ──────────────────
+    # NEITHER the probe nor the backfill can run inline in lifespan.
+    # Past incidents (2026-04-07):
+    #   1. Backfill was awaited inline → uvicorn never bound → rollback
+    #   2. Backfill moved to background, but get_stats() probe was still
+    #      inline → chromadb auto-init triggered sentence-transformer
+    #      download from HuggingFace (~30-90s) which blocked yield
+    # Fix: probe runs in the same background task as the (optional)
+    # backfill, after a delay long enough for the server to bind first.
+    # Backfill stays opt-in via ARIA_RAG_BACKFILL_ENABLED.
     import os as _os
     rag_backfill_task = None
     backfill_enabled = (_os.getenv("ARIA_RAG_BACKFILL_ENABLED", "") or "").lower() in ("1", "true", "yes")
     backfill_disabled = (_os.getenv("ARIA_RAG_BACKFILL_DISABLED", "") or "").lower() in ("1", "true", "yes")
-    if (
-        backfill_enabled
-        and not backfill_disabled
-        and rag_stats_initial.get("available")
-        and rag_stats_initial.get("total_chunks", 0) == 0
-    ):
-        async def _rag_backfill_bg():
-            # Long delay so the server is bound + serving health checks +
-            # any in-flight initial requests have finished before the
-            # encoding load hits.
-            await asyncio.sleep(60)
-            try:
-                logger.info("RAG store empty — running one-shot backfill from existing knowledge + ledger (background)")
-                result = await rag_store.backfill_from_existing()
-                logger.info("RAG backfill complete: %s", result)
-            except Exception as e:
-                logger.warning("RAG backfill failed (non-fatal): %s", e)
-        rag_backfill_task = asyncio.create_task(_rag_backfill_bg())
-    else:
-        logger.info(
-            "RAG backfill skipped (enabled=%s disabled=%s available=%s chunks=%s) — "
-            "set ARIA_RAG_BACKFILL_ENABLED=true to opt in",
-            backfill_enabled, backfill_disabled,
-            rag_stats_initial.get("available"),
-            rag_stats_initial.get("total_chunks", 0),
-        )
+
+    async def _rag_init_bg():
+        # Wait for the server to bind and answer initial health checks
+        # before we touch chromadb. The model download alone can take
+        # 30-90s on a cold volume.
+        await asyncio.sleep(15)
+        try:
+            stats = await rag_store.get_stats()
+            logger.info("[RAG] probe: %s", stats)
+        except Exception as e:
+            logger.warning("[RAG] probe failed (non-fatal): %s", e)
+            return
+        if not backfill_enabled or backfill_disabled:
+            logger.info(
+                "[RAG] backfill skipped (enabled=%s disabled=%s) — "
+                "set ARIA_RAG_BACKFILL_ENABLED=true to opt in",
+                backfill_enabled, backfill_disabled,
+            )
+            return
+        if not stats.get("available") or stats.get("total_chunks", 0) > 0:
+            logger.info(
+                "[RAG] backfill skipped (available=%s chunks=%s)",
+                stats.get("available"), stats.get("total_chunks", 0),
+            )
+            return
+        try:
+            logger.info("[RAG] empty store — running one-shot backfill (background)")
+            result = await rag_store.backfill_from_existing()
+            logger.info("[RAG] backfill complete: %s", result)
+        except Exception as e:
+            logger.warning("[RAG] backfill failed (non-fatal): %s", e)
+
+    rag_backfill_task = asyncio.create_task(_rag_init_bg())
 
     # Create LLM provider with automatic fallback chain
     api_key = settings.llm_api_key or settings.deepseek_api_key
