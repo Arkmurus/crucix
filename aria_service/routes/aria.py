@@ -62,6 +62,7 @@ from ..intel import eval_runner
 from ..intel import source_verifier
 from ..intel import cost_tracker
 from ..intel import trace_stream
+from ..intel import honesty_judge
 
 import logging
 _log = logging.getLogger("aria.routes")
@@ -643,6 +644,34 @@ async def trace_get_ep(trace_id: str):
     rec = await trace_stream.get_trace(trace_id)
     if not rec:
         raise HTTPException(status_code=404, detail="trace not found")
+    return rec
+
+
+# ── Honesty judge: confidence-tag verification ───────────────────────────
+@router.get("/honesty/list")
+async def honesty_list_ep(limit: int = 30, status: str | None = None, bad_only: bool = False):
+    """List recent honesty judgments. bad_only=true returns only judgments
+    where the score fell below the suspicious threshold (0.7)."""
+    return {
+        "judgments": await honesty_judge.list_judgments(
+            limit=limit, status_filter=status, bad_only=bad_only,
+        ),
+    }
+
+
+@router.get("/honesty/stats")
+async def honesty_stats_ep():
+    """Aggregate counts + rolling honesty score across all judgments."""
+    return await honesty_judge.get_honesty_stats()
+
+
+@router.get("/honesty/{judgment_id}")
+async def honesty_get_ep(judgment_id: str):
+    """Full judgment record including each [CONFIRMED] claim, the per-claim
+    supported/unsupported verdict, and the judge's reason for each."""
+    rec = await honesty_judge.get_judgment(judgment_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="judgment not found")
     return rec
 
 
@@ -1348,6 +1377,42 @@ async def chat_ep(req: ChatRequest, request: Request):
                 await trace_stream.attach_verification(trace_id, summary)
         except Exception as e:
             _log.debug("source verification failed (non-fatal): %s", e)
+
+        # ── Honesty judge — fire in background if response has [CONFIRMED] tags ──
+        # This is another LLM round-trip and would add 2-5s of latency to the
+        # chat reply if run inline. Instead we spawn it as a task that
+        # self-attaches to the trace via attach_judgment when it completes.
+        # Skipped silently when the response has no confidence tags or no
+        # tool ran (nothing to judge against).
+        try:
+            if (
+                response_text
+                and tool_context
+                and honesty_judge.has_confidence_tags(response_text)
+            ):
+                async def _judge_bg(
+                    _llm=llm,
+                    _resp=response_text,
+                    _ctx=tool_context,
+                    _trace_id=trace_id,
+                    _session=session_id,
+                    _q=req.message,
+                ):
+                    try:
+                        judgment = await honesty_judge.judge_response(_llm, _resp, _ctx)
+                        await honesty_judge.record_judgment(
+                            judgment,
+                            trace_id=_trace_id,
+                            session_id=_session,
+                            question_preview=_q,
+                            response_preview=_resp,
+                        )
+                    except Exception as e:
+                        _log.debug("honesty judge bg failed: %s", e)
+                import asyncio as _aio
+                _aio.create_task(_judge_bg())
+        except Exception as e:
+            _log.debug("honesty judge dispatch failed: %s", e)
 
         return result
     finally:

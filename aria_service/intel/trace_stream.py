@@ -205,6 +205,31 @@ async def attach_verification(trace_id: str, verification_summary: dict | None) 
         logger.debug("attach_verification failed: %s", e)
 
 
+async def attach_judgment(trace_id: str, judgment_summary: dict | None) -> None:
+    """Attach an honesty-judge result to a trace. Called from
+    honesty_judge.record_judgment after the judge call completes
+    (typically a minute or so after the trace itself finished, since
+    the judge runs in a background task)."""
+    if not trace_id or not judgment_summary:
+        return
+    try:
+        record = await rs.get_json(_trace_key(trace_id))
+        if not record:
+            return
+        record["judgment_id"] = judgment_summary.get("id")
+        record["judgment"] = {
+            "status": judgment_summary.get("status"),
+            "honesty_score": judgment_summary.get("honesty_score"),
+            "claims_total": judgment_summary.get("claims_total", 0),
+            "supported_count": judgment_summary.get("supported_count", 0),
+        }
+        await rs.set_json(_trace_key(trace_id), record, ex=TRACE_TTL)
+        # Bubble up to the index so /trace bad picks low-honesty traces
+        await _refresh_index_entry(record)
+    except Exception as e:
+        logger.debug("attach_judgment failed: %s", e)
+
+
 async def attach_feedback(trace_id: str, feedback_record: dict | None) -> None:
     """Attach a feedback record to a trace. Called from feedback.record_feedback
     after the snapshot lookup yields a trace_id."""
@@ -276,6 +301,7 @@ async def _refresh_index_entry(record: dict) -> None:
         index = [e for e in index if e.get("id") != tid]
         verification = record.get("verification") or {}
         feedback = record.get("feedback") or {}
+        judgment = record.get("judgment") or {}
         index.insert(0, {
             "id": tid,
             "ts_start": record.get("ts_start"),
@@ -292,6 +318,7 @@ async def _refresh_index_entry(record: dict) -> None:
             "verdict": verification.get("verdict"),
             "grounded_rate": verification.get("grounded_rate"),
             "feedback_sentiment": feedback.get("sentiment"),
+            "honesty_score": judgment.get("honesty_score"),
         })
         index = index[:_INDEX_CAP]
         await rs.set_json(TRACE_INDEX_KEY, index, ex=TRACE_TTL)
@@ -331,6 +358,10 @@ async def list_traces(
                 if e.get("verdict") == "ungrounded":
                     return True
                 if e.get("feedback_sentiment") == "negative":
+                    return True
+                # Honesty score below 0.7 = dishonest [CONFIRMED] tags
+                hs = e.get("honesty_score")
+                if hs is not None and hs < 0.7:
                     return True
                 return False
             index = [e for e in index if _is_bad(e)]
