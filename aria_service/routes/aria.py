@@ -1552,20 +1552,37 @@ async def chat_ep(req: ChatRequest, request: Request):
         # Behind ARIA_OFFICEHOLDER_GUARD env var (default ON).
         try:
             from ..intel import officeholder_guard
+            _v = result.get("verification")
+            _log.warning(
+                "[officeholder_guard] running on trace=%s verification=%r response_len=%d",
+                trace_id,
+                _v,
+                len(response_text or ""),
+            )
             rewritten, demotions = officeholder_guard.review_response(
                 response_text,
-                result.get("verification"),
+                _v,
+            )
+            _log.warning(
+                "[officeholder_guard] result trace=%s demotions=%d",
+                trace_id,
+                len(demotions),
             )
             if demotions:
                 response_text = rewritten
                 result["response"] = rewritten
                 result["officeholder_demotions"] = demotions
-                _log.info(
-                    "[officeholder_guard] demoted %d claim(s) in trace %s",
+                _log.warning(
+                    "[officeholder_guard] DEMOTED %d claim(s) in trace %s",
                     len(demotions), trace_id,
                 )
         except Exception as e:
-            _log.debug("officeholder_guard failed (non-fatal): %s", e)
+            # Bumped from debug to warning so silent failures show up in fly logs.
+            _log.warning(
+                "[officeholder_guard] failed: %r — trace=%s",
+                e, trace_id,
+                exc_info=True,
+            )
 
         # ── Confidence-tagged reply footer ──
         # Wires existing observability signals (confidence tags +
