@@ -2,28 +2,33 @@
 
 Code-level enforcement of CONSTITUTION clause 10 (officeholder discipline).
 The clause is in the system prompt but the LLM games it under pressure —
-the round-4 smoke test produced "[CONFIRMED] Hon. Dominic Nitiwul ... since
-his re-appointment in February 2023" for a question about Ghana's *current*
-defence minister, fabricating a verification date to satisfy the rule.
-Nitiwul served under Akufo-Addo; Mahama won the December 2024 election.
+the round-4/5 smoke tests produced "[CONFIRMED] Hon. Dominic Nitiwul" for
+"current" Ghana defence minister questions even though Mahama's December
+2024 election replaced the entire cabinet.
 
-This module post-processes ARIA's reply text and:
+Window-based matching (not sentence-based)
+══════════════════════════════════════════
+The first version of this module split the response into sentences and
+checked each sentence for {title + name + tag} co-occurrence. That failed
+on the round-5 test because the LLM wrote "...is *Hon. Dominic Nitiwul.
+*[CONFIRMED]**" — the period after "Hon" caused the splitter to fragment
+the claim across two pseudo-sentences, separating the title from the name.
 
-  1. Detects sentences that name an officeholder (President / Minister /
-     Director / Ambassador / Commander / etc) by FULL human name.
-  2. If the sentence carries [CONFIRMED] OR [PROBABLE] AND no tool ran in
-     this turn (verification.verdict == "NO_TOOL"), demote the tag to
-     [UNCERTAIN — pre-tool knowledge, may have changed].
-  3. If the sentence cites a verification date older than 12 months, also
-     demote to [UNCERTAIN — last known YYYY-MM, may have changed].
-  4. Append a structured WARNING block at the end of the reply listing all
-     demoted claims so the user sees the demotion explicitly.
+Now we scan the full response for every [CONFIRMED] / [PROBABLE] tag, take
+a ±200-char window around it, and check whether that window contains BOTH
+an officeholder title AND a person-name pattern. Robust to honorifics,
+quoted titles, and cross-line phrasing.
 
-Why post-processing instead of upstream enforcement?
-The LLM completes BEFORE source verification runs, so by the time we know
-the verification verdict the response is already baked. Post-processing is
-the only enforcement point that has access to BOTH the response text AND
-the verification verdict.
+Demotion conditions
+═══════════════════
+A claim is demoted to [UNCERTAIN — <reason>] when EITHER:
+  (a) No tool ran in this turn AND/OR no URLs were cited in the verification
+      payload — i.e. nothing real backs the claim.
+  (b) A calendar date older than 12 months is cited inside the window.
+
+The post-processor also appends a structured WARNING block listing the
+demotions so the user sees the enforcement explicitly. Inline replacement
+provides the at-the-spot fix; the warning block provides the audit trail.
 
 Behind ARIA_OFFICEHOLDER_GUARD env var (default ON). Disabled → no-op.
 """
@@ -78,10 +83,16 @@ _PERSON_NAME_RE = re.compile(
 # Confidence tags we may demote.
 _DEMOTABLE_TAGS = ("CONFIRMED", "PROBABLE")
 
-# A claim sentence is a chunk of text containing both an officeholder title
-# and a person-name match within reasonable proximity. We process the reply
-# sentence by sentence so we can demote precisely.
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z*])")
+# Window radius around each confidence tag — we look this many chars in
+# each direction for a title + name + date. ±350 chars covers the typical
+# layout where the headline claim is on one line and the supporting
+# "Tenure: since YYYY" detail is several bullets below.
+_WINDOW_CHARS = 350
+
+# Per-tag matcher: find every [CONFIRMED] or [PROBABLE] in the response.
+# We process them in document order and rewrite the response in-place by
+# tracking offsets.
+_TAG_FIND_RE = re.compile(r"\[(CONFIRMED|PROBABLE)\]")
 
 # Verification-date detection — looks for explicit dates the LLM may have
 # cited as the source-of-truth for an officeholder claim. Demote if the
@@ -98,6 +109,7 @@ _DATE_RE = re.compile(
 # Explicit demotion markers — used by both the inline tag replacement and
 # the appended warning block.
 _DEMOTION_REASON_NO_TOOL = "no fresh source — pre-tool training data"
+_DEMOTION_REASON_NO_URLS = "no cited URLs to back the claim"
 _DEMOTION_REASON_STALE_DATE = "cited date older than 12 months"
 
 
@@ -107,36 +119,11 @@ def is_enabled() -> bool:
     return val.strip().lower() not in ("0", "false", "no", "off")
 
 
-def _looks_like_officeholder_claim(sentence: str) -> bool:
-    """True if the sentence both names an officeholder title and a likely
-    person name within reasonable proximity."""
-    if not sentence:
-        return False
-    title_match = _TITLE_RE.search(sentence)
-    if not title_match:
-        return False
-    # Look for a person-name match anywhere in the sentence — proximity is
-    # implicit because we operate on a single sentence.
-    return bool(_PERSON_NAME_RE.search(sentence))
-
-
-def _earliest_demotable_tag_idx(sentence: str) -> tuple[int, str] | None:
-    """Find the position of the first demotable confidence tag, if any.
-    Returns (start_idx, tag_string) or None.
-    """
-    for tag in _DEMOTABLE_TAGS:
-        marker = f"[{tag}]"
-        idx = sentence.find(marker)
-        if idx != -1:
-            return idx, tag
-    return None
-
-
-def _has_stale_cited_date(sentence: str, *, now_year: int, now_month: int) -> str | None:
-    """If the sentence cites a calendar date >12 months in the past, return
+def _has_stale_cited_date(window: str, *, now_year: int) -> str | None:
+    """If the window cites a calendar date >12 months in the past, return
     the matched date string for use in the demotion reason. Otherwise None.
     """
-    for m in _DATE_RE.finditer(sentence):
+    for m in _DATE_RE.finditer(window):
         # Group 1 = "Month YYYY"; Group 2/3/4 = "YYYY-MM-DD"; Group 5 = bare year
         year = None
         if m.group(1):
@@ -147,12 +134,8 @@ def _has_stale_cited_date(sentence: str, *, now_year: int, now_month: int) -> st
             year = int(m.group(5))
         if year is None:
             continue
-        # Months-ago calculation. We treat anything in a calendar year >12
-        # months back as stale. Don't bother with month precision — the
-        # purpose is a coarse "this is old" signal.
-        if year < now_year - 1:
-            return m.group(0)
-        if year == now_year - 1:
+        # Anything in a calendar year >12 months back counts as stale.
+        if year <= now_year - 1:
             return m.group(0)
     return None
 
@@ -165,14 +148,20 @@ def review_response(
 ) -> tuple[str, list[dict]]:
     """Scan the response for officeholder claims and demote unverified ones.
 
+    Window-based: for each [CONFIRMED] / [PROBABLE] tag in the response,
+    take a ±200-char window around the tag, check whether the window
+    contains BOTH an officeholder title AND a person-name pattern, and
+    demote the tag in place if the claim isn't backed by tool evidence.
+
     Returns (rewritten_response, demotions).
 
     `demotions` is a list of dicts each describing one demotion:
         {
-            "sentence":      str,   # the original sentence (truncated)
-            "person_name":   str,   # best-effort extracted name
-            "original_tag":  str,   # CONFIRMED or PROBABLE
-            "reason":        str,   # NO_TOOL or STALE_DATE
+            "window_preview": str,  # the matched ±200-char window (truncated)
+            "person_name":    str,  # best-effort extracted name
+            "title_matched":  str,  # the officeholder title that triggered the match
+            "original_tag":   str,  # CONFIRMED or PROBABLE
+            "reason":         str,  # NO_TOOL / NO_URLS / STALE_DATE
         }
     """
     if not is_enabled() or not response_text:
@@ -180,69 +169,88 @@ def review_response(
 
     now = now or datetime.now(timezone.utc)
     now_year = now.year
-    now_month = now.month
 
-    # Tool-verification status. NO_TOOL means no investigation was run for
-    # this reply, so any officeholder claim is grounded in training data only.
-    no_tool_run = True
+    # Tool-verification status. We treat as "unverified" when EITHER the
+    # verdict is NO_TOOL (no tool ran at all) OR cited URL count is 0 (tool
+    # ran but the response cited zero URLs that source_verifier could ground).
+    # The round-5 incident hit the second case: auto-investigate fired but
+    # the LLM still wrote "via cross-referenced government sources" without
+    # citing any actual URLs, so verification.cited == 0 even though a tool
+    # ran. Without this stricter check, the post-processor saw "tool ran"
+    # and skipped the demotion.
+    unverified = True
     if isinstance(verification, dict):
         verdict = (verification.get("verdict") or "").upper()
-        # NO_TOOL is the verdict source_verifier emits when no tool ran in
-        # this request. PASS / FAIL / SUSPICIOUS all mean a tool DID run and
-        # the response can at least be checked against fetched URLs.
-        if verdict and verdict != "NO_TOOL":
-            no_tool_run = False
+        cited = int(verification.get("cited", 0) or 0)
+        if verdict and verdict != "NO_TOOL" and cited > 0:
+            unverified = False
 
-    sentences = _SENTENCE_SPLIT_RE.split(response_text)
-    rewritten_sentences: list[str] = []
+    # Walk every demotable tag in document order. We collect (start, end,
+    # replacement) tuples and apply them at the end so we don't shift indices
+    # mid-iteration.
+    rewrites: list[tuple[int, int, str]] = []
     demotions: list[dict] = []
+    seen_windows: set[tuple[int, int]] = set()
 
-    for sentence in sentences:
-        if not _looks_like_officeholder_claim(sentence):
-            rewritten_sentences.append(sentence)
+    for tag_match in _TAG_FIND_RE.finditer(response_text):
+        tag = tag_match.group(1)
+        tag_start = tag_match.start()
+        tag_end = tag_match.end()
+
+        # ±200-char window around the tag
+        win_start = max(0, tag_start - _WINDOW_CHARS)
+        win_end = min(len(response_text), tag_end + _WINDOW_CHARS)
+        window = response_text[win_start:win_end]
+
+        # Need BOTH a title and a person name in the window
+        title_match = _TITLE_RE.search(window)
+        if not title_match:
+            continue
+        name_match = _PERSON_NAME_RE.search(window)
+        if not name_match:
             continue
 
-        tag_info = _earliest_demotable_tag_idx(sentence)
-        if not tag_info:
-            # Sentence names an officeholder but doesn't claim CONFIRMED /
-            # PROBABLE — leave it alone. ASSESSED / UNCERTAIN / SPECULATIVE
-            # are already appropriately hedged.
-            rewritten_sentences.append(sentence)
-            continue
-
-        tag_idx, tag = tag_info
-
+        # Determine demotion reason
         reason: str | None = None
-        if no_tool_run:
-            reason = _DEMOTION_REASON_NO_TOOL
+        if unverified:
+            # Distinguish "no tool ran at all" from "tool ran but cited
+            # nothing" so the reason is informative.
+            if isinstance(verification, dict) and (verification.get("verdict") or "").upper() not in ("", "NO_TOOL"):
+                reason = _DEMOTION_REASON_NO_URLS
+            else:
+                reason = _DEMOTION_REASON_NO_TOOL
         else:
-            stale_date = _has_stale_cited_date(sentence, now_year=now_year, now_month=now_month)
+            stale_date = _has_stale_cited_date(window, now_year=now_year)
             if stale_date:
                 reason = f"{_DEMOTION_REASON_STALE_DATE} ({stale_date})"
 
         if not reason:
-            rewritten_sentences.append(sentence)
             continue
 
-        # Build the replacement tag. Extract a person-name preview for the
-        # demotions log so the user can see exactly what got flagged.
-        name_match = _PERSON_NAME_RE.search(sentence)
-        person_name = name_match.group(0) if name_match else "(name not extracted)"
-        replacement = f"[UNCERTAIN — {reason}]"
-        rewritten = sentence[:tag_idx] + replacement + sentence[tag_idx + len(f"[{tag}]"):]
+        # Avoid double-counting the same window across multiple nearby tags
+        window_key = (win_start, win_end)
+        already_seen = window_key in seen_windows
+        seen_windows.add(window_key)
 
-        demotions.append({
-            "sentence": sentence.strip()[:240],
-            "person_name": person_name,
-            "original_tag": tag,
-            "reason": reason,
-        })
-        rewritten_sentences.append(rewritten)
+        replacement = f"[UNCERTAIN — {reason}]"
+        rewrites.append((tag_start, tag_end, replacement))
+
+        if not already_seen:
+            demotions.append({
+                "window_preview": window.strip()[:240],
+                "person_name": name_match.group(0),
+                "title_matched": title_match.group(0),
+                "original_tag": tag,
+                "reason": reason,
+            })
 
     if not demotions:
         return response_text, []
 
-    rewritten_text = " ".join(rewritten_sentences)
+    # Apply rewrites from end to start so earlier offsets stay valid.
+    rewritten_text = response_text
+    for start, end, replacement in sorted(rewrites, key=lambda r: -r[0]):
+        rewritten_text = rewritten_text[:start] + replacement + rewritten_text[end:]
 
     # Append a visible WARNING block so the user sees the enforcement
     # explicitly. The footer comes from confidence_footer separately and
@@ -257,7 +265,7 @@ def review_response(
     ]
     for i, d in enumerate(demotions[:5], 1):
         warning_lines.append(
-            f"{i}. *{d['person_name']}* (was [{d['original_tag']}]) — _{d['reason']}_"
+            f"{i}. *{d['person_name']}* ({d['title_matched']}) — was [{d['original_tag']}] — _{d['reason']}_"
         )
     if len(demotions) > 5:
         warning_lines.append(f"   _… and {len(demotions) - 5} more._")
