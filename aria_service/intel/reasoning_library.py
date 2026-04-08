@@ -146,6 +146,14 @@ def trivial_reply(q: str) -> str | None:
         return "👍"
     if re.match(r"^(thanks?|thank\s+you)$", s):
         return "You're welcome."
+    # Background/status meta probes — added 2026-04-08. Keep in sync with the
+    # 3 JS copies (waListener.mjs, server.mjs, lib/aria/aria.mjs).
+    if (re.match(r"^(can\s+you\s+(confirm|tell\s+me|verify)\s+)?(you('?re|\s+are)?\s+|are\s+you\s+)?(still|actually|really)?\s*(working|processing|running|on\s+it|there|alive)(\s+on\s+(it|that|this))?(\s+in\s+the\s+background)?$", s)
+        or re.match(r"^(still|actually)\s+(working|on\s+it|there)(\s+on\s+(it|that|this))?(\s+in\s+the\s+background)?$", s)
+        or re.match(r"^did\s+you\s+(get|hear|see)\s+(that|me|it|my\s+(message|question))$", s)):
+        return ("✅ I'm here. I don't persist long-running tasks across messages — "
+                "if your last question is still pending after ~60s, please re-send it "
+                "and I'll work on it now.")
     return None
 
 # Common English/intelligence stopwords stripped during normalisation
@@ -232,6 +240,18 @@ def _embed(text: str) -> list[float] | None:
     except Exception as e:
         logger.debug("reasoning_library: embed failed: %s", e)
         return None
+
+
+async def _embed_async(text: str) -> list[float] | None:
+    """Async wrapper around _embed — runs the sync model.encode() in a worker
+    thread so the FastAPI event loop is free during the GIL-blocking C call.
+    Use this from any async path (find_match, add_case). Past incident
+    2026-04-08: sync _embed() on the event loop starved the chat handler."""
+    embedder = _get_embedder()
+    if embedder is None:
+        return None
+    import asyncio
+    return await asyncio.to_thread(_embed, text)
 
 
 def _cosine(a: list[float] | None, b: list[float] | None) -> float:
@@ -348,7 +368,7 @@ async def record_response(
     if len(normalised.split()) < MIN_SALIENT_TOKENS:
         return {"recorded": False, "reason": f"too few salient tokens (<{MIN_SALIENT_TOKENS})"}
 
-    embedding = _embed(question)
+    embedding = await _embed_async(question)
     case = {
         "id": case_id,
         "question": question[:1000],
@@ -441,7 +461,7 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
         await _save_meta()
         return {"match": False, "score": 0, "case": None, "method": "skipped_too_few_tokens", "threshold": threshold}
     query_tokens = _token_set(question)
-    query_embedding = _embed(question)
+    query_embedding = await _embed_async(question)
 
     best_idx = None
     best_score = 0.0

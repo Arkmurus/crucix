@@ -876,8 +876,15 @@ async def aria_chat(
         logger.warning("RAG retrieval failed: %s", e)
         _rag_ctx_var.set("")
 
-    # Build 8-layer context (7 intel + neural memory)
-    context = _build_7_layer_context(message, intel_data)
+    # Build 8-layer context (7 intel + neural memory).
+    # BUG-FIX 2026-04-08: this used to run sync on the event loop. The
+    # `semantic` layer calls model.encode() (sentence-transformers C call
+    # that holds the GIL), which starved the FastAPI loop badly enough that
+    # liveness probes timed out and chat replies arrived 60s+ late. Moving
+    # the whole context build into a worker thread frees the event loop to
+    # service other requests while the encode runs.
+    import asyncio as _aio
+    context = await _aio.to_thread(_build_7_layer_context, message, intel_data)
 
     # Detect language and add hint
     lang_hint = _detect_language_hint(message)

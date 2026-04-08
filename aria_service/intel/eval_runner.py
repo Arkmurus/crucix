@@ -262,7 +262,11 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
             fail_n += 1
             continue
 
-        score = _cosine_score(actual, expected)
+        # Wrapped in to_thread: _cosine_score makes 2 sync model.encode()
+        # calls per entry, which would freeze the event loop for the duration
+        # of a 50-entry eval run otherwise.
+        import asyncio as _aio
+        score = await _aio.to_thread(_cosine_score, actual, expected)
         bucket = _bucket(score)
         if bucket == "pass":
             pass_n += 1

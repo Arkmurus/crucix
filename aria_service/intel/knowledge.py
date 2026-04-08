@@ -231,10 +231,19 @@ async def store_fact(topic: str, content: str, source: str = "user",
     if len(db["facts"]) > MAX_FACTS:
         db["facts"] = db["facts"][:MAX_FACTS]
     await _save()
-    # Index for semantic search
+    # Index for semantic search — runs sync model.encode() under the hood,
+    # which holds the GIL. Must be off the event loop or it will block the
+    # /teach reply for hundreds of milliseconds (longer if first call cold-
+    # loads the model).
     try:
         from .semantic_search import index_fact
-        index_fact(db["facts"][0]["id"], f"{topic} {content}", {"confidence": confidence})
+        import asyncio as _aio
+        await _aio.to_thread(
+            index_fact,
+            db["facts"][0]["id"],
+            f"{topic} {content}",
+            {"confidence": confidence},
+        )
     except Exception:
         pass
     # Index into the persistent RAG store as well so retrieval can find it
