@@ -1308,6 +1308,26 @@ async def chat_ep(req: ChatRequest, request: Request):
     if not req.message:
         raise HTTPException(status_code=400, detail="message required")
     session_id = req.session_id or str(uuid.uuid4())[:12]
+
+    # ── Trivial-question short-circuit (highest priority, runs before
+    # tool detection / tracing / verification / cost-tracking).
+    # Greetings, liveness probes ('are you online?'), identity questions,
+    # 'test'/'ping', 'thanks' get a fixed reply with zero LLM cost and zero
+    # tool execution. Past incident 2026-04-08: 'Aria, are you online?'
+    # was flowing into _detect_tool_intent which spotted a URL from earlier
+    # OCR'd group context, fetched the jewellery shop website, then a
+    # follow-up LLM call timed out → self-diagnose fired → user got a
+    # generic error message instead of a reply.
+    from ..intel import reasoning_library as _rl
+    _trivial = _rl.trivial_reply(req.message)
+    if _trivial is not None:
+        _log.info("[chat] trivial short-circuit: %r → fixed reply", req.message[:80])
+        return {
+            "response": _trivial,
+            "session_id": session_id,
+            "trivial": True,
+        }
+
     llm = get_llm(request)
     intel = get_intel_data(request)
 
