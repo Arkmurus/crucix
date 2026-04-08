@@ -107,6 +107,47 @@ def _is_trivial_question(q: str) -> bool:
         return True
     return bool(_TRIVIAL_QUESTION_RE.match(q.strip()))
 
+
+def trivial_reply(q: str) -> str | None:
+    """Return a fixed reply for a trivial question (greeting / liveness /
+    identity probe), or None if the question isn't trivial. Used by the
+    chat handler to short-circuit BEFORE the LLM round-trip — these
+    questions don't deserve a tool-use orchestration that fetches URLs
+    out of recent group context (incident 2026-04-08: 'are you online?'
+    triggered a deepseek call → website read → second deepseek call →
+    connectivity failure → no reply at all).
+
+    Categories handled:
+      - liveness   ('are you online', 'you there', 'are you alive', ...)
+      - greeting   ('hello', 'hi', 'good morning', ...)
+      - identity   ('who are you', "what's your name", ...)
+      - probe      ('test', 'ping', 'status', 'ok?')
+      - thanks     ('thanks', 'thank you')
+    """
+    if not q:
+        return None
+    s = q.strip().lower().rstrip("?.! ")
+    # Strip an optional leading "aria" or "aria,"
+    s = re.sub(r"^aria[,!\s]*", "", s).strip()
+    if not s:
+        return None
+
+    if re.match(r"^(are\s+you\s+(online|there|alive|awake|working|up|ready|here)|you\s+(online|there|alive|awake))$", s):
+        return "✅ Yes, I'm online and ready. Send me a question, drop a document or image, or use /help for commands."
+    if re.match(r"^(hello|hi|hey|good\s+(morning|afternoon|evening|night))$", s):
+        return "Hi — ARIA here. Ask me anything about compliance, defence procurement, or market intel. /help shows the full command list."
+    if re.match(r"^(who\s+are\s+you|what\s+are\s+you|what(?:'s| is)\s+your\s+name)$", s):
+        return ("I'm ARIA — Arkmurus Research Intelligence Agent. I do compliance screening "
+                "(sanctions, export controls, country risk), defence procurement intel, and "
+                "market/competitor research. Run /help for the full menu.")
+    if re.match(r"^(test|ping|status)$", s):
+        return "✅ Pong. Service is up. /help for commands."
+    if re.match(r"^(ok|yes|no)$", s):
+        return "👍"
+    if re.match(r"^(thanks?|thank\s+you)$", s):
+        return "You're welcome."
+    return None
+
 # Common English/intelligence stopwords stripped during normalisation
 _STOPWORDS = frozenset({
     "a", "an", "the", "and", "or", "but", "if", "of", "in", "on", "at", "to",

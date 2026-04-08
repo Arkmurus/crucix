@@ -706,6 +706,33 @@ async def aria_chat(
     to local_brain.degraded_response() which serves rule-based answers from
     local data sources. ARIA never hard-fails — she always returns SOMETHING.
     """
+    # ── Trivial-question short-circuit ──────────────────────────────────────
+    # Greetings, liveness probes ('are you online?'), identity questions
+    # ('who are you?'), 'test'/'ping', 'thanks' — these never deserve an LLM
+    # round-trip. Past incident 2026-04-08: 'Aria, are you online?' was
+    # routed through full chat context, the LLM saw a URL from an earlier
+    # OCR'd business card and decided to use tool-use to fetch the website,
+    # then a follow-up LLM call failed with a connectivity error and ARIA
+    # never replied. Trivial questions get a fixed reply, persisted to
+    # session history just like a real reply.
+    _trivial = reasoning_library.trivial_reply(message)
+    if _trivial is not None:
+        try:
+            session = await _get_session(session_id)
+            history = (session.get("messages") or [])
+            history.append({"role": "user", "content": message})
+            history.append({"role": "aria", "content": _trivial})
+            session["messages"] = history[-MAX_TURNS * 2:]
+            session["updatedAt"] = time.time()
+            await _save_session(session_id, session)
+        except Exception as e:
+            logger.warning("Trivial-reply session persist failed: %s", e)
+        return {
+            "response": _trivial,
+            "session_id": session_id,
+            "trivial": True,
+        }
+
     # ── Independence: no LLM configured → degraded response from local data ──
     if not llm or not llm.is_configured:
         degraded = await local_brain.degraded_response(
