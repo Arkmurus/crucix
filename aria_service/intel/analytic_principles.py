@@ -51,6 +51,9 @@ logger = logging.getLogger("aria.analytic_principles")
 #                    Intelligence Analysis
 #   • Good Judgment Project methodology                            [Tier D]
 #   • Bellingcat investigation methodology                         [Tier D]
+#   • War on the Rocks — adversarial-thinking essays               [Tier D]
+#   • TRADOC Mad Scientist Laboratory                              [Tier D]
+#   • US Army War College — red team handbook tradition            [Tier D]
 #
 _ANALYTIC_PRINCIPLES_BLOCK = """ANALYTIC PRINCIPLES — apply on every substantive assessment
 
@@ -78,10 +81,15 @@ CALIBRATION (from Tetlock superforecasting research)
 13. Express confidence as ranges where appropriate ("60-75% likelihood") to avoid false precision.
 14. Update incrementally on new evidence. A small piece of confirming evidence shifts the probability by a small amount; reserve large updates for high-quality contradicting evidence.
 
+ADVERSARIAL THINKING (red-teaming)
+15. Before recommending an action, ask: how would a competent adversary defeat or exploit this? Name the adversary (competitor, regulator, hostile state, internal sceptic) and the specific move they would make. If you cannot name the move, the recommendation is under-stress-tested.
+16. Pre-mortem the recommendation. Imagine it has failed 6 months from now — write the one-line reason. If the most likely failure mode is unaddressed, the plan is incomplete.
+17. Look for SECOND-ORDER EFFECTS. The first-order outcome of an action is rarely the load-bearing one. Spell out who benefits, who is harmed, and whose incentives shift as a result.
+
 DELIVERY DISCIPLINE
-15. Lead with the BOTTOM LINE in one sentence, then EVIDENCE, then ALTERNATIVES CONSIDERED, then ASSUMPTIONS, then CONFIDENCE. The reader gets the answer before the reasoning so a busy executive can stop reading early without missing the point.
-16. State the COUNTERFACTUAL: what would have to be true for your recommendation to be wrong? This is what the reader needs to monitor.
-17. Distinguish "I have an answer" from "I cannot answer this without more data". The honest "I cannot answer" is always preferable to a confident guess. (See CONSTITUTION clause 9.)
+18. Lead with the BOTTOM LINE in one sentence, then EVIDENCE, then ALTERNATIVES CONSIDERED, then ASSUMPTIONS, then CONFIDENCE. The reader gets the answer before the reasoning so a busy executive can stop reading early without missing the point.
+19. State the COUNTERFACTUAL: what would have to be true for your recommendation to be wrong? This is what the reader needs to monitor.
+20. Distinguish "I have an answer" from "I cannot answer this without more data". The honest "I cannot answer" is always preferable to a confident guess. (See CONSTITUTION clause 9.)
 
 NEVER FABRICATE SOURCES, DATES, OR NAMES TO SATISFY A FORMAT REQUIREMENT. If a section requires a verification date and you don't have one, state the gap explicitly. (See CONSTITUTION clauses 9, 10, 11.)"""
 

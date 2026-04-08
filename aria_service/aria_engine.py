@@ -790,10 +790,10 @@ async def _build_calibrated_system_prompt(message: str) -> str:
 
     # Analytic principles — Tier D corpus distilled into a system-prompt
     # operating set (Heuer ACH, CIA Tradecraft Primer, Tetlock superforecasting,
-    # cognitive bias guards). Always injected — Tier D is "modes of thought"
-    # not facts to retrieve, so it must be in the prompt for the LLM to
-    # actually apply it before producing a reply.
-    # Behind ARIA_ANALYTIC_PRINCIPLES env var (default ON).
+    # cognitive bias guards, red-teaming/adversarial thinking). Always
+    # injected — Tier D is "modes of thought" not facts to retrieve, so it
+    # must be in the prompt for the LLM to actually apply it before
+    # producing a reply. Behind ARIA_ANALYTIC_PRINCIPLES env var (default ON).
     try:
         from .intel import analytic_principles as _ap
         principles = _ap.addendum()
@@ -801,6 +801,22 @@ async def _build_calibrated_system_prompt(message: str) -> str:
             addendum_parts.append(principles)
     except Exception as e:
         logger.debug("analytic_principles injection failed (non-fatal): %s", e)
+
+    # Negotiation principles — conditional Tier D addendum, fires only on
+    # negotiation/approach/deal questions (Harvard PON, Fisher & Ury, Voss,
+    # HBR negotiation collection). Conservative intent detector — explicit
+    # vocabulary required (BATNA, ZOPA, "negotiation strategy", "how should
+    # I approach", etc.) so generic BD chatter doesn't trigger it. Behind
+    # ARIA_NEGOTIATION_PRINCIPLES env var (default ON).
+    try:
+        from .intel import negotiation_principles as _np
+        if _np.detect_negotiation_intent(message):
+            neg = _np.addendum()
+            if neg:
+                addendum_parts.append(neg)
+                logger.info("[negotiation_principles] addendum injected")
+    except Exception as e:
+        logger.debug("negotiation_principles injection failed (non-fatal): %s", e)
 
     # Recent user corrections — facts that users have provided in chat to
     # correct earlier ARIA replies. These OVERRIDE training data and other

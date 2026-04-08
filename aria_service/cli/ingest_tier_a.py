@@ -1,9 +1,16 @@
-"""Tier A bulk corpus ingest CLI.
+"""Generic tiered corpus ingest CLI (filename kept as ingest_tier_a.py
+for back-compat with existing scripts; --tier accepts A/B/B+/C/C+/E so
+this single CLI handles all RAG-bound tiers, not just A).
 
-Walks the corpus_registry for tier='A' entries and ingests each one into
-ARIA's chromadb via the /api/aria/corpus/ingest endpoint. The companion to
-ingest_corpus.py — that one ingests files from a local folder; this one
-fetches the source URLs directly per the registry's ingest_strategy.
+Walks the corpus_registry for the chosen tier's entries and ingests each
+one into ARIA's chromadb via the /api/aria/corpus/ingest endpoint. The
+companion to ingest_corpus.py — that one ingests files from a local
+folder; this one fetches the source URLs directly per the registry's
+ingest_strategy.
+
+Tier D is intentionally NOT supported by this CLI: its sources are
+distilled into the analytic_principles.py / negotiation_principles.py
+system-prompt addenda rather than retrieved as RAG content.
 
 Why this is separate from ingest_corpus.py
 ═══════════════════════════════════════════
