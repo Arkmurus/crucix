@@ -54,6 +54,17 @@ async def init() -> None:
     # Spawn it as a background task so the server can bind first. Search calls
     # before the index is ready will fall through to the TF-IDF / Jaccard
     # fallback in semantic_search, which is degraded but functional.
+    #
+    # Can be disabled entirely with ARIA_SEMANTIC_INDEX_BUILD=0 — useful during
+    # interactive testing. Even though encode() runs in a thread executor, it
+    # holds the GIL in chunks, which starves the chat handler enough that
+    # liveness probes time out. Past incident 2026-04-08 (round 2): user
+    # couldn't get a reply for 'Aria, are you online?' because the startup
+    # index build was hammering CPU continuously for 60+ seconds.
+    import os as _os
+    if (_os.getenv("ARIA_SEMANTIC_INDEX_BUILD", "1") or "1").lower() in ("0", "false", "no"):
+        logger.info("Semantic index build SKIPPED via ARIA_SEMANTIC_INDEX_BUILD=0 — search will use TF-IDF/Jaccard fallback")
+        return
     try:
         import asyncio as _aio
         async def _build_index_bg():
