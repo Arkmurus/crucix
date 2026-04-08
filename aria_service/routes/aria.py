@@ -1716,6 +1716,58 @@ async def research_summary_ep(request: Request):
     return await get_research_summary(llm)
 
 
+# ── Cache hygiene admin endpoints ───────────────────────────────────────────
+# Two surgical operations for the WhatsApp operator:
+#   /api/aria/admin/purge-cases  — drop polluted entries from the case library
+#   /api/aria/session/forget     — wipe a single session's history
+# Both are safe-by-default: purge supports dry_run, forget only touches the
+# specified session.
+@router.post("/admin/purge-cases")
+async def purge_cases_ep(request: Request):
+    """One-shot purge of correction-acknowledgement / feedback / investigation
+    entries from the reasoning_library case index. Use after deploying the
+    round-3 anti-replay fix to clean up entries written before the fix shipped.
+
+    Body (all optional):
+        {"dry_run": true}  — count what WOULD be removed without deleting
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    dry_run = bool(body.get("dry_run", False))
+    from ..intel import reasoning_library as _rl
+    return await _rl.purge_polluted_cases(dry_run=dry_run)
+
+
+@router.post("/session/forget")
+async def session_forget_ep(request: Request):
+    """Wipe the conversation history for one session_id.
+
+    Used by the WhatsApp /forget command when a thread has gone off the rails
+    (cached pollution, hallucinated context, sensitive content the user wants
+    out of memory). Only affects the specified session — other senders are
+    untouched.
+
+    Body:
+        {"session_id": "wa_group_xxx"}
+    """
+    body = await request.json()
+    session_id = (body.get("session_id") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    from ..intel import redis_store as _rs
+    key = f"crucix:aria:session:{session_id}"
+    existed = await _rs.delete(key)
+    return {
+        "ok": True,
+        "session_id": session_id,
+        "existed": bool(existed),
+        "message": "session wiped — next message will start fresh" if existed else "no session existed under that id",
+    }
+
+
 # ── Tiered corpus ingest ────────────────────────────────────────────────────
 # Curated documents (Tier A primary sources, Tier B secondary intel,
 # Tier C live feeds, Tier D Arkmurus proprietary) get pushed in here with

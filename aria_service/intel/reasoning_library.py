@@ -658,6 +658,94 @@ def _recency_multiplier(ts_last_used: float) -> float:
     return 0.80
 
 
+# ── Public API: purge polluted cases ───────────────────────────────────────
+
+async def purge_polluted_cases(*, dry_run: bool = False) -> dict:
+    """Scan the case library and remove entries whose stored response is a
+    correction acknowledgement, an apology, or otherwise context-bound to
+    its prior turn (and therefore unsafe to replay against any other query).
+
+    Added 2026-04-08 round 3 after ARIA replayed a Ghana correction
+    acknowledgement against unrelated queries. The find_match guard prevents
+    NEW pollution from causing replay, but cannot remove entries that were
+    written before the guard shipped — hence this one-shot purge.
+
+    Returns a summary dict:
+        {
+            "scanned":         int,
+            "removed":         int,
+            "dry_run":         bool,
+            "removed_samples": [{"id", "question_preview", "reason"}, ...],
+        }
+    """
+    index = await _load_index()
+    if not index:
+        return {"scanned": 0, "removed": 0, "dry_run": dry_run, "removed_samples": []}
+
+    keep: list[dict] = []
+    removed_samples: list[dict] = []
+    n_scanned = 0
+    n_removed = 0
+
+    for entry in index:
+        n_scanned += 1
+        case_id = entry.get("id")
+        if not case_id:
+            keep.append(entry)
+            continue
+
+        case = await rs.get_json(_case_key(case_id))
+        if not case:
+            # Stale index entry — drop it
+            n_removed += 1
+            continue
+
+        question = (case.get("question") or "").strip()
+        response = (case.get("response") or "").strip()
+        reason: str | None = None
+
+        if _looks_like_correction_acknowledgement(response):
+            reason = "response is a correction acknowledgement"
+        elif _looks_like_user_correction(question.lower()):
+            reason = "question is a user correction"
+        elif _looks_like_investigation_request(question.lower()):
+            reason = "investigation request — should not be cached"
+
+        if reason:
+            n_removed += 1
+            if len(removed_samples) < 25:
+                removed_samples.append({
+                    "id": case_id,
+                    "question_preview": question[:120],
+                    "reason": reason,
+                })
+            if not dry_run:
+                try:
+                    await rs.delete(_case_key(case_id))
+                except Exception as e:
+                    logger.debug("purge: failed to delete %s: %s", case_id, e)
+            continue
+
+        keep.append(entry)
+
+    if not dry_run and n_removed > 0:
+        _index_cache_set(keep)
+        await _save_index()
+        meta = await _load_meta()
+        meta["total_cases"] = len(keep)
+        meta["last_purge"] = time.time()
+        meta["last_purge_removed"] = n_removed
+        await _save_meta()
+
+    return {
+        "scanned": n_scanned,
+        "removed": n_removed,
+        "dry_run": dry_run,
+        "removed_samples": removed_samples,
+        "remaining": len(keep) if not dry_run else (n_scanned - n_removed),
+    }
+
+
 # ── Public API: outcome feedback ────────────────────────────────────────────
 
 async def record_outcome(case_id: str, positive: bool) -> dict:

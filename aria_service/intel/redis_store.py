@@ -48,6 +48,18 @@ async def set(key: str, value: str, ex: int | None = None) -> None:
     _mem_store[key] = value
 
 
+async def delete(key: str) -> bool:
+    """Remove a key from Redis (or the in-memory fallback). Returns True if
+    the key existed before the call. Used by purge / forget endpoints."""
+    if _client:
+        try:
+            n = await _client.delete(key)
+            return bool(n)
+        except Exception as e:
+            logger.warning("Redis DEL %s failed: %s", key, e)
+    return _mem_store.pop(key, None) is not None
+
+
 async def get_json(key: str) -> Any:
     raw = await get(key)
     if raw:
