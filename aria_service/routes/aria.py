@@ -1671,6 +1671,36 @@ async def chat_ep(req: ChatRequest, request: Request):
         except Exception as e:
             _log.debug("confidence footer build failed (non-fatal): %s", e)
 
+        # ── Correction learner — extract facts from user corrections ──
+        # When the user message looks like a correction containing factual
+        # claims (e.g. "you said Nitiwul but actually it's Boamah"), spawn a
+        # background task that runs an LLM extractor on the user message and
+        # stores any extracted facts in knowledge.py with high trust. The
+        # facts then surface in subsequent replies via the recent_corrections
+        # addendum (read side, wired in _build_calibrated_system_prompt).
+        # Behind ARIA_CORRECTION_LEARN env var.
+        try:
+            from ..intel import correction_learner as _cl
+            if _cl.looks_like_correction(req.message):
+                async def _learn_correction_bg(
+                    _msg=req.message,
+                    _sender=req.session_id or "user",
+                    _llm=llm,
+                ):
+                    try:
+                        result_summary = await _cl.extract_and_persist(_msg, _sender, _llm)
+                        if result_summary.get("stored", 0):
+                            _log.info(
+                                "[correction_learner] background: stored %d fact(s) from correction",
+                                result_summary["stored"],
+                            )
+                    except Exception as e:
+                        _log.debug("correction_learner bg failed: %s", e)
+                import asyncio as _aio
+                _aio.create_task(_learn_correction_bg())
+        except Exception as e:
+            _log.debug("correction_learner dispatch failed: %s", e)
+
         # ── Honesty judge — fire in background if response has [CONFIRMED] tags ──
         # This is another LLM round-trip and would add 2-5s of latency to the
         # chat reply if run inline. Instead we spawn it as a task that

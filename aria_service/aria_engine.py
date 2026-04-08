@@ -802,6 +802,20 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("analytic_principles injection failed (non-fatal): %s", e)
 
+    # Recent user corrections — facts that users have provided in chat to
+    # correct earlier ARIA replies. These OVERRIDE training data and other
+    # knowledge layers for the same subject (highest-trust channel). Pulled
+    # from knowledge.py where source starts with 'user_correction:'.
+    # Behind ARIA_CORRECTION_RECALL env var.
+    try:
+        from .intel import correction_learner as _cl
+        corrections = await _cl.recent_corrections_addendum(message)
+        if corrections:
+            addendum_parts.append(corrections)
+            logger.info("[correction_learner] injected recent corrections addendum")
+    except Exception as e:
+        logger.debug("correction_learner addendum injection failed (non-fatal): %s", e)
+
     if not addendum_parts:
         return ARIA_SYSTEM_PROMPT
     return ARIA_SYSTEM_PROMPT + "\n\n" + "\n\n".join(addendum_parts)
