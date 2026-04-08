@@ -2160,21 +2160,28 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
 
   // Try Python ARIA service first (has its own LLM + 8-layer context + neural memory).
   //
-  // 2026-04-08 round 5c: timeout was 90s. Investigate runs (3+ deepseek calls
-  // + Google News + post-processing) routinely take 90-180s, so the timeout
-  // was firing, the catch block triggered, and the request fell through to
-  // `ariaLocalChat` — a SEPARATE LLM call on Node that bypasses chat_ep
-  // entirely and produces hallucinated officeholder claims with no guard,
-  // no source verifier, no constitution clauses, no confidence footer.
-  // Bumped to 240s (matches waListener askARIA non-research budget) so the
-  // Python pipeline gets a chance to actually finish before we give up on it.
+  // Timeout layering (2026-04-08 round 5d, finalised):
+  //   waListener.askARIA  → 240s   (outermost, user-facing)
+  //   server.mjs → fly.io → 300s   (this line, must EXCEED outer)
+  //   fly.io chat_ep      → 120s on the LLM call inside
+  //
+  // The inner timeout MUST be larger than the outer or network hops + JSON
+  // serialization eat the difference and Python gets aborted right when it's
+  // about to return. 60-second buffer is comfortable on a 4-minute budget.
+  //
+  // History:
+  //   round 5c (441d02d): bumped 90s → 240s. That fixed the silent fallback
+  //     to ariaLocalChat for short questions but not for the Ghana question
+  //     because the OUTER waListener timeout was still 180s and fired first.
+  //   round 5d (this):    aligned chain — waListener at 240s, server.mjs at
+  //     300s with explicit headroom comment.
   if (ARIA_SERVICE_URL) {
     try {
       const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, session_id: sid }),
-        signal: AbortSignal.timeout(240000),  // 4 minutes — see comment above
+        signal: AbortSignal.timeout(300000),  // 5 minutes — must exceed waListener 240s
       });
       if (r.ok) {
         const data = await r.json();
@@ -2199,7 +2206,7 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, session_id: sid }),
-        signal: AbortSignal.timeout(240000),  // matches Python timeout
+        signal: AbortSignal.timeout(300000),  // 5 minutes — must exceed waListener 240s
       });
       if (r.ok) {
         const data = await r.json();
@@ -2246,16 +2253,15 @@ app.post('/api/aria/think', requireAuth, async (req, res) => {
   if (!question) return res.status(400).json({ error: 'question required' });
 
   // Try Python ARIA service first.
-  // 2026-04-08 round 5c: bumped 90s → 240s for the same reason as /chat —
-  // research-backed thinks (which call investigate + multiple LLM rounds)
-  // routinely run >90s and were silently falling through to ariaLocalThink.
+  // Round 5c → 5d: bumped 90s → 240s → 300s. Inner timeout must exceed
+  // outer waListener timeout (240s) by enough to absorb network hops.
   if (ARIA_SERVICE_URL) {
     try {
       const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/think`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question, context: context || {}, fast: fast || false }),
-        signal: AbortSignal.timeout(240000),
+        signal: AbortSignal.timeout(300000),
       });
       if (r.ok) return res.json(await r.json());
     } catch (e) { console.warn('[ARIA] Python think failed, trying brain/local:', e.message); }
@@ -2268,7 +2274,7 @@ app.post('/api/aria/think', requireAuth, async (req, res) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question, context: context || {}, fast: fast || false }),
-        signal: AbortSignal.timeout(240000),
+        signal: AbortSignal.timeout(300000),
       });
       if (r.ok) return res.json(await r.json());
     } catch (e) { console.warn('[ARIA] brain think failed, using local LLM:', e.message); }
