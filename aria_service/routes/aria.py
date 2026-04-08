@@ -1155,6 +1155,65 @@ def _detect_tool_intent(message: str) -> dict | None:
     return None
 
 
+# Domains that block scrapers as a matter of policy. When the user asks ARIA
+# to investigate one of these, an empty tool result is EXPECTED — not a sign
+# the user is wrong or that ARIA should "try harder by guessing". Used by the
+# empty-result framing below to give the LLM accurate context.
+_KNOWN_BLOCKING_DOMAINS = (
+    "linkedin.com", "facebook.com", "instagram.com", "twitter.com", "x.com",
+    "tiktok.com", "youtube.com", "reddit.com", "medium.com",
+)
+
+
+def _is_blocking_domain(url: str) -> bool:
+    if not url:
+        return False
+    u = url.lower()
+    return any(d in u for d in _KNOWN_BLOCKING_DOMAINS)
+
+
+def _no_data_warning(tool_name: str, target: str, *, blocking: bool = False) -> str:
+    """Return an explicit DO-NOT-EXTRAPOLATE warning to be appended to the
+    tool result block when the tool returned no usable data.
+
+    Why this exists
+    ───────────────
+    Past incident: a /investigate on a LinkedIn URL returned 0 facts because
+    LinkedIn blocks scrapers. ARIA then invented a 2000-word "MANUAL OSINT
+    PROTOCOL" reply that fabricated the person's family lineage, employer,
+    and commercial relevance. The CONSTITUTION clause 9 forbids this — but
+    the LLM needs an explicit, in-prompt reminder when staring at an empty
+    tool result, otherwise INTELLECTUAL COURAGE wins and it confabulates.
+    """
+    blocking_note = ""
+    if blocking:
+        blocking_note = (
+            f"\n\nNOTE: The target URL is on a domain that blocks crawlers as a matter of policy "
+            f"({target}). An empty result is EXPECTED. Do NOT 'try harder by guessing'. The user "
+            f"already knows scraping it doesn't work — they expect you to ask them for context."
+        )
+    return (
+        f"\n\n⛔ NO USABLE DATA RETURNED — CONSTITUTION CLAUSE 9 ENFORCEMENT ⛔\n"
+        f"The {tool_name} tool ran but returned no usable facts about: {target!r}\n"
+        f"\n"
+        f"YOU MUST reply approximately as follows (rephrase naturally, but keep the meaning):\n"
+        f'  "I could not access {target!r}. I have no information about this entity beyond '
+        f'what you have just shared with me. To build a useful profile, please tell me: '
+        f'(1) who they work for, (2) their role or function, (3) any context about why '
+        f"you're asking — a deal, a meeting, a referral. With that I can run targeted research.\"\n"
+        f"\n"
+        f"YOU MUST NOT:\n"
+        f"  - Invent a profile from the URL slug, username, or name pattern\n"
+        f"  - Guess at family lineage from suffixes like 'IV', 'Jr', 'III'\n"
+        f"  - Fabricate employer, role, network, sanctions exposure, or commercial relevance\n"
+        f"  - Connect the entity to current events (conflicts, deals, escalations) without evidence\n"
+        f"  - Produce a 'MANUAL OSINT' or 'PRELIMINARY ASSESSMENT' that is actually fiction\n"
+        f"\n"
+        f"The user can correct ARIA if you say 'I don't know'. They cannot un-see a fabricated profile."
+        f"{blocking_note}"
+    )
+
+
 async def _execute_tool(intent: dict, llm) -> str:
     """Run the detected tool and return a compact context string for the LLM."""
     tool = intent.get("tool")
@@ -1213,17 +1272,39 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"  - [{f.get('confidence', '?')}] {f.get('topic', '?')}: {(f.get('content') or '')[:200]}"
                 for f in facts_list[:15] if isinstance(f, dict)
             ) or "  (no facts extracted)"
-            return (
+            base = (
                 f"\n\n[TOOL: crawl_website]\n"
                 f"URL: {intent['url']}\n"
                 f"Pages crawled: {pages}\n"
                 f"Facts learned: {facts}\n"
                 f"Top extracted facts:\n{facts_preview}"
             )
+            # Append the no-data warning when the crawl produced nothing.
+            # This is what stops the LLM from inventing a "manual OSINT
+            # protocol" reply when given an empty tool result.
+            if pages == 0 or facts == 0 or not facts_list:
+                base += _no_data_warning(
+                    "crawl_website",
+                    intent["url"],
+                    blocking=_is_blocking_domain(intent["url"]),
+                )
+            return base
 
         if tool == "read":
             r = await read_article(llm, intent["url"], intent.get("context", ""))
-            return f"\n\n[TOOL: read_article]\nURL: {intent['url']}\nFacts learned: {r.get('facts_learned', 0)}\nSummary: {(r.get('summary') or r.get('analysis') or '')[:1500]}"
+            facts = r.get("facts_learned", 0) or 0
+            summary = (r.get("summary") or r.get("analysis") or "")[:1500]
+            base = (
+                f"\n\n[TOOL: read_article]\nURL: {intent['url']}\n"
+                f"Facts learned: {facts}\nSummary: {summary}"
+            )
+            if facts == 0 and not summary.strip():
+                base += _no_data_warning(
+                    "read_article",
+                    intent["url"],
+                    blocking=_is_blocking_domain(intent["url"]),
+                )
+            return base
 
         if tool in ("investigate", "investigate_url"):
             topic = intent.get("topic") or intent.get("url", "")
@@ -1231,16 +1312,41 @@ async def _execute_tool(intent: dict, llm) -> str:
             synth = r.get("synthesis") or {}
             findings = synth.get("key_findings") or []
             actions = synth.get("recommended_actions") or []
-            return (
+            articles_read = r.get("articles_read", 0) or 0
+            facts_learned = r.get("facts_learned", 0) or 0
+            base = (
                 f"\n\n[TOOL: investigate]\nTopic: {topic}\n"
-                f"Articles read: {r.get('articles_read', 0)} | Facts: {r.get('facts_learned', 0)}\n"
+                f"Articles read: {articles_read} | Facts: {facts_learned}\n"
                 f"Key findings: {json.dumps(findings)[:1200]}\n"
                 f"Recommended actions: {json.dumps(actions)[:800]}"
             )
+            if articles_read == 0 and facts_learned == 0 and not findings:
+                base += _no_data_warning(
+                    "investigate",
+                    topic,
+                    blocking=_is_blocking_domain(topic),
+                )
+            return base
 
         if tool == "profile":
             r = await build_profile(llm, intent["entity"], intent.get("ptype", "auto"))
-            return f"\n\n[TOOL: build_profile]\nEntity: {intent['entity']}\nResult: {json.dumps(r, default=str)[:2000]}"
+            payload = json.dumps(r, default=str)[:2000] if r else ""
+            base = (
+                f"\n\n[TOOL: build_profile]\nEntity: {intent['entity']}\n"
+                f"Result: {payload or '(empty)'}"
+            )
+            # Treat as empty if the profile result is missing, errored, or
+            # just an empty dict / null fields.
+            empty = (
+                not r
+                or (isinstance(r, dict) and (
+                    r.get("error")
+                    or not any(v for k, v in r.items() if k not in ("entity", "ptype"))
+                ))
+            )
+            if empty:
+                base += _no_data_warning("build_profile", intent["entity"])
+            return base
 
         if tool == "screen":
             # Quick screen — uses fuzzy sanctions module + KB hits for context

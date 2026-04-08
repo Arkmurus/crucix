@@ -71,7 +71,13 @@ INDEX_KEY = "crucix:aria:reasoning_library:index"
 META_KEY = "crucix:aria:reasoning_library:meta"
 
 MAX_CASES = 50_000
-DEFAULT_MATCH_THRESHOLD = 0.78
+# 2026-04-08 round 3: raised from 0.78 to 0.85 after the case library was
+# replaying correction-acknowledgement replies on unrelated queries (Antonio
+# asked for "Ghana opportunity summary" and got back the apology about the
+# wrong defence minister, repeatedly). Combined with the recency-boost
+# neutralisation in _recency_multiplier and the correction-filter in
+# record_response, this should stop the over-eager replay.
+DEFAULT_MATCH_THRESHOLD = 0.85
 RETENTION_DAYS = 180
 TTL_SECONDS = RETENTION_DAYS * 86400
 
@@ -328,6 +334,86 @@ def _detect_confidence_tag(response: str) -> tuple[str, float]:
     return "ASSESSED", 0.55
 
 
+# ── Anti-replay filters (2026-04-08 round 3) ─────────────────────────────────
+# These three predicates protect the case library from being polluted by
+# correction-acknowledgements and feedback exchanges. Past incident: Antonio
+# corrected ARIA on the Ghana defence minister; ARIA's apology reply got
+# cached against tokens like "ghana correction wrong"; the next question that
+# happened to mention Ghana matched the cached apology and replayed it
+# instead of producing a fresh answer.
+
+_USER_CORRECTION_RE = re.compile(
+    r"\b(?:that\s+(?:was|is)\s+(?:wrong|incorrect|the\s+wrong\s+answer)"
+    r"|you\s+(?:are|got)\s+wrong"
+    r"|you('?re|\s+are)\s+(?:wrong|incorrect|mistaken)"
+    r"|wrong\s+answer"
+    r"|not\s+relevant\s+to"
+    r"|this\s+(?:was|is)\s+not\s+relevant"
+    r"|don'?t\s+present\s+outdated"
+    r"|stop\s+(?:making\s+up|inventing|fabricating)"
+    r"|that(?:'s|\s+is)\s+not\s+correct"
+    r"|please\s+correct"
+    r"|the\s+\w+\s+breakdown\s+was\s+(?:useful|good)\s+but"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_CORRECTION_ACK_RE = re.compile(
+    r"(?:your\s+correction\s+is\s+(?:entirely\s+)?correct"
+    r"|i\s+(?:apologi[sz]e|stand\s+corrected|presented\s+(?:outdated|incorrect|false))"
+    r"|i\s+(?:was|am)\s+wrong"
+    r"|i\s+failed\s+to\s+apply"
+    r"|previous\s+error\b"
+    r"|analytical\s+failure\s+that\s+damages\s+credibility"
+    r"|i\s+should\s+have\s+flagged"
+    r"|thank\s+you\s+for\s+(?:the\s+)?correct(?:ion|ing)"
+    r")",
+    re.IGNORECASE,
+)
+
+_INVESTIGATION_REQUEST_RE = re.compile(
+    r"\b(?:investigate|research|deep[\s-]?dive|profile|due\s+diligence|"
+    r"background\s+check|look\s+into|dig\s+into|find\s+out\s+about)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_user_correction(q_lower: str) -> bool:
+    """True if the user message is a correction or feedback statement.
+
+    Caching ARIA's response to a correction is dangerous because the response
+    is intrinsically tied to the prior turn — replaying it for any future
+    question that shares overlapping vocabulary is exactly the bug we hit.
+    """
+    if not q_lower:
+        return False
+    return bool(_USER_CORRECTION_RE.search(q_lower))
+
+
+def _looks_like_correction_acknowledgement(response: str) -> bool:
+    """True if the response is itself an apology or correction acknowledgement.
+
+    These should never be served from the cache to any other question — they
+    only make sense in the context of the immediately prior user message.
+    """
+    if not response:
+        return False
+    return bool(_CORRECTION_ACK_RE.search(response[:2000]))
+
+
+def _looks_like_investigation_request(q_lower: str) -> bool:
+    """True if the user is asking for fresh research.
+
+    Investigation results are time-sensitive — sanctions lists change, board
+    members come and go, conflict events update daily. Caching an investigate
+    response means the second user gets stale intel without knowing it.
+    Better to always run fresh.
+    """
+    if not q_lower:
+        return False
+    return bool(_INVESTIGATION_REQUEST_RE.search(q_lower))
+
+
 async def record_response(
     question: str,
     response: str,
@@ -356,6 +442,20 @@ async def record_response(
     # answers are context-dependent and not safe to reuse (incident 2026-04-08).
     if _is_trivial_question(question):
         return {"recorded": False, "reason": "trivial question (greeting/liveness/identity)"}
+
+    # 2026-04-08 round 3: Don't cache responses to user-correction / feedback
+    # messages, AND don't cache responses that are themselves correction
+    # acknowledgements. Both pollute the case library — the next "Ghana
+    # opportunity?" then matched the apology and replayed it.
+    q_lower = question.strip().lower()
+    if _looks_like_user_correction(q_lower):
+        return {"recorded": False, "reason": "question is user correction/feedback"}
+    if _looks_like_correction_acknowledgement(response):
+        return {"recorded": False, "reason": "response is a correction acknowledgement"}
+    # Investigations and reports are time-sensitive — caching them
+    # creates the same staleness problem we're trying to fix. Skip.
+    if _looks_like_investigation_request(q_lower):
+        return {"recorded": False, "reason": "investigation request — always run fresh"}
 
     confidence_tag, confidence_score = _detect_confidence_tag(response)
 
@@ -447,6 +547,17 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
     if _is_trivial_question(question):
         return {"match": False, "score": 0, "case": None, "method": "skipped_trivial", "threshold": threshold}
 
+    # 2026-04-08 round 3: investigations / corrections / feedback are NEVER
+    # served from the cache, regardless of whether the index already contains
+    # polluted entries from before this fix shipped. Defence in depth — the
+    # record_response side now blocks NEW pollution; this side blocks REPLAY
+    # of any pollution that already exists.
+    q_lower = question.strip().lower()
+    if _looks_like_user_correction(q_lower):
+        return {"match": False, "score": 0, "case": None, "method": "skipped_user_correction", "threshold": threshold}
+    if _looks_like_investigation_request(q_lower):
+        return {"match": False, "score": 0, "case": None, "method": "skipped_investigation", "threshold": threshold}
+
     meta = await _load_meta()
     meta["total_lookups"] = meta.get("total_lookups", 0) + 1
 
@@ -528,12 +639,20 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
 
 
 def _recency_multiplier(ts_last_used: float) -> float:
-    """Boost recently-used cases (they reflect current intel) and decay stale ones."""
+    """Decay multiplier for stale cases.
+
+    2026-04-08 round 3: previously this BOOSTED recently-used cases (1.10
+    for <1d, 1.05 for <7d). The boost was the proximate cause of the
+    correction-replay bug — a same-session correction acknowledgement
+    matched at sim≈0.71 against an unrelated query, the +10% recency boost
+    pushed the blended score over the 0.78 threshold, and ARIA replayed
+    the apology instead of answering the new question. Now we only DECAY
+    stale cases — there is no boost for recency. A truly recent case has
+    to earn its match on semantic similarity alone.
+    """
     if not ts_last_used:
         return 0.7
     age_days = (time.time() - ts_last_used) / 86400
-    if age_days < 1:    return 1.10
-    if age_days < 7:    return 1.05
     if age_days < 30:   return 1.00
     if age_days < 90:   return 0.92
     return 0.80
