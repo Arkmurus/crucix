@@ -65,6 +65,40 @@ const ROOT = __dirname;
 const RUNS_DIR = join(ROOT, 'runs');
 const MEMORY_DIR = join(RUNS_DIR, 'memory');
 
+// ── Trivial-question short-circuit ──────────────────────────────────────────
+// Greetings, liveness probes ('are you online?'), identity questions, and
+// 'test'/'ping'/'thanks' should never go through the LLM stack. They get a
+// fixed reply with zero LLM cost. Mirrors the Python-side helper in
+// aria_service/intel/reasoning_library.trivial_reply() — keep both in sync.
+// Returns the reply string or null if the question isn't trivial.
+function trivialReply(q) {
+  if (!q || typeof q !== 'string') return null;
+  // strip optional leading "aria" or "aria,", trailing punctuation, lowercase
+  let s = q.trim().toLowerCase().replace(/[?.! ]+$/g, '');
+  s = s.replace(/^aria[,!\s]*/, '').trim();
+  if (!s) return null;
+
+  if (/^(are\s+you\s+(online|there|alive|awake|working|up|ready|here)|you\s+(online|there|alive|awake))$/.test(s)) {
+    return "✅ Yes, I'm online and ready. Send me a question, drop a document or image, or use /help for commands.";
+  }
+  if (/^(hello|hi|hey|good\s+(morning|afternoon|evening|night))$/.test(s)) {
+    return "Hi — ARIA here. Ask me anything about compliance, defence procurement, or market intel. /help shows the full command list.";
+  }
+  if (/^(who\s+are\s+you|what\s+are\s+you|what(?:'s| is)\s+your\s+name)$/.test(s)) {
+    return "I'm ARIA — Arkmurus Research Intelligence Agent. I do compliance screening (sanctions, export controls, country risk), defence procurement intel, and market/competitor research. Run /help for the full menu.";
+  }
+  if (/^(test|ping|status)$/.test(s)) {
+    return "✅ Pong. Service is up. /help for commands.";
+  }
+  if (/^(ok|yes|no)$/.test(s)) {
+    return "👍";
+  }
+  if (/^(thanks?|thank\s+you)$/.test(s)) {
+    return "You're welcome.";
+  }
+  return null;
+}
+
 // ── Timezone helper — ICU-free, honours BST/GMT (Europe/London) ─────────────
 // UK clock: BST (UTC+1) last Sun March 01:00 UTC → last Sun October 01:00 UTC
 function londonTs(date = new Date(), seconds = true) {
@@ -2094,6 +2128,25 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
   const { message, session_id } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
   const sid = session_id || `${req.user?.id || 'anon'}_${Date.now()}`;
+
+  // ── Trivial-question short-circuit (highest priority) ─────────────────
+  // Greetings, liveness probes, identity questions, 'test'/'ping', 'thanks'
+  // never go anywhere near the LLM stack, fly.io, or any context layer.
+  // Past incident 2026-04-08: 'Aria, are you online?' was hitting the local
+  // ariaLocalChat fallback which built 7 layers of Angola/Lusophone context
+  // and the LLM (steered by the heavy Lusophone system prompt) returned the
+  // same Angola briefing for every greeting. Mirrored from the Python-side
+  // fix in aria_service/intel/reasoning_library.trivial_reply().
+  const _trivial = trivialReply(message);
+  if (_trivial !== null) {
+    console.log(`[chat] trivial short-circuit (server.mjs): ${message.slice(0, 80)} → fixed reply`);
+    return res.json({
+      response: _trivial,
+      session_id: sid,
+      service: 'trivial',
+      engine: 'short-circuit',
+    });
+  }
 
   // Persist session to Redis for cross-browser recovery
   const sessionKey = `crucix:chat:session:${sid}`;
