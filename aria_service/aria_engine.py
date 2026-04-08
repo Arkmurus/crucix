@@ -788,6 +788,20 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("stale_knowledge_alerts injection failed (non-fatal): %s", e)
 
+    # Analytic principles — Tier D corpus distilled into a system-prompt
+    # operating set (Heuer ACH, CIA Tradecraft Primer, Tetlock superforecasting,
+    # cognitive bias guards). Always injected — Tier D is "modes of thought"
+    # not facts to retrieve, so it must be in the prompt for the LLM to
+    # actually apply it before producing a reply.
+    # Behind ARIA_ANALYTIC_PRINCIPLES env var (default ON).
+    try:
+        from .intel import analytic_principles as _ap
+        principles = _ap.addendum()
+        if principles:
+            addendum_parts.append(principles)
+    except Exception as e:
+        logger.debug("analytic_principles injection failed (non-fatal): %s", e)
+
     if not addendum_parts:
         return ARIA_SYSTEM_PROMPT
     return ARIA_SYSTEM_PROMPT + "\n\n" + "\n\n".join(addendum_parts)
