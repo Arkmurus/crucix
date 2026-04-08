@@ -132,10 +132,14 @@ async def extract_text_from_image(
     )
 
     # Track whether any LOCAL backend was actually available so we know
-    # whether to trigger background auto-install
+    # whether to trigger background auto-install.
+    # IMPORTANT: do NOT call _get_easyocr_reader() here. EasyOCR is removed
+    # from the chain (incident 2026-04-08) but the lazy-loader still imports
+    # easyocr and instantiates Reader(...), which loads the 200MB ONNX model
+    # into RAM on every request and OOM-kills the worker → 502. Only probe
+    # the backends actually used by the chain.
     local_backend_available = (
-        _get_easyocr_reader() is not None
-        or _check_tesseract_installed()
+        _check_tesseract_installed()
         or (await _detect_ollama_vision_model() is not None)
     )
 
@@ -369,11 +373,15 @@ _auto_install_lock = threading.Lock()
 
 
 def _trigger_auto_install() -> bool:
-    """Kick off `pip install easyocr Pillow pytesseract` in a background thread.
-
-    Single-shot: only runs once per process. Returns True if the installer was
-    triggered, False if it was already running or disabled.
+    """PERMANENTLY DISABLED — easyocr was removed from the chain (incident
+    2026-04-08) because cold-loading its 200MB ONNX model OOM-killed the
+    fly.io worker on every first image. Tesseract is now baked into the
+    Docker image as the only local backend, so there is nothing left to
+    auto-install. Kept as a no-op so older callers don't break.
     """
+    return False
+
+    # ── unreachable: original implementation retained for reference only ──
     global _auto_install_started
 
     if (os.getenv("ARIA_OCR_AUTO_INSTALL", "1") or "1").lower() in ("0", "false", "no"):
@@ -436,7 +444,9 @@ def get_auto_install_status() -> dict:
     return {
         "started": _auto_install_started,
         "enabled": (os.getenv("ARIA_OCR_AUTO_INSTALL", "1") or "1").lower() not in ("0", "false", "no"),
-        "easyocr_available": _check_tesseract_installed() or (_get_easyocr_reader() is not None),
+        # Reports whether ANY local OCR backend is usable. Do NOT call
+        # _get_easyocr_reader() — see comment in extract_text_from_image.
+        "easyocr_available": _check_tesseract_installed(),
     }
 
 
