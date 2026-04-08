@@ -923,6 +923,65 @@ async def _ocr_via_easyocr(image_data: bytes) -> Optional[dict]:
     }
 
 
+# ── Tesseract output cleaning helpers ──────────────────────────────────────
+# Tesseract on business cards / receipts / images-with-logos returns lots of
+# junk lines from decorative graphics: things like "Hh i", "Lip", "Hp |i",
+# "ES", "À". We strip those after extraction so the user sees clean text.
+_WORD_RE = re.compile(r"[A-Za-zÀ-ÿ0-9]{3,}")  # 3+ letter/digit run = a real word
+_ALPHA_RE = re.compile(r"[A-Za-zÀ-ÿ]")
+
+
+def _useful_word_count(text: str) -> int:
+    """Number of word-like tokens (3+ letters/digits) in the text. Used to
+    score competing tesseract PSM outputs — favours real content over long
+    strings of OCR noise from decorative graphics."""
+    return len(_WORD_RE.findall(text or ""))
+
+
+def _clean_tesseract_output(text: str) -> str:
+    """Drop lines that look like OCR garbage from logos / ornaments.
+
+    A line is kept if it has at least one ≥3-letter word OR contains a
+    recognisable contact-info marker (digit run for phone, '@' for email,
+    '.' between letters for URL, ':' for label). Otherwise it's noise.
+    Also collapses runs of >2 blank lines down to one.
+    """
+    if not text:
+        return ""
+    kept: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped:
+            kept.append("")
+            continue
+        # Quick keep conditions for contact-info markers
+        has_word = bool(_WORD_RE.search(stripped))
+        has_phone = bool(re.search(r"\d[\d\s\-+().]{4,}", stripped))
+        has_email = "@" in stripped and "." in stripped
+        has_url = bool(re.search(r"[A-Za-z]{2,}\.[A-Za-z]{2,}", stripped))
+        has_label = ":" in stripped and bool(_ALPHA_RE.search(stripped))
+        if has_word or has_phone or has_email or has_url or has_label:
+            # Also check that the line isn't dominated by punctuation/symbols
+            alpha_count = len(_ALPHA_RE.findall(stripped))
+            if alpha_count >= 2 or has_phone or has_email or has_url:
+                kept.append(line)
+                continue
+        # Drop the line — it's almost certainly logo/ornament noise
+    # Collapse runs of blank lines
+    out_lines: list[str] = []
+    blank_run = 0
+    for line in kept:
+        if line.strip() == "":
+            blank_run += 1
+            if blank_run <= 1:
+                out_lines.append("")
+        else:
+            blank_run = 0
+            out_lines.append(line)
+    return "\n".join(out_lines).strip()
+
+
 # ── Local OCR backend #2: Tesseract with PIL preprocessing ─────────────────
 async def _ocr_via_tesseract(image_data: bytes) -> Optional[dict]:
     """Use Tesseract OCR with image preprocessing for better accuracy.
@@ -958,11 +1017,15 @@ async def _ocr_via_tesseract(image_data: bytes) -> Optional[dict]:
         # Auto-contrast to handle dim photos
         img_gray = ImageOps.autocontrast(img_gray)
 
-        # Try a few page segmentation modes — Tesseract is sensitive to layout
-        # PSM 3 = fully automatic, PSM 6 = assume uniform block of text,
-        # PSM 4 = assume single column of text. The best one wins.
-        candidates = []
-        for psm in (3, 6, 4):
+        # Try several page segmentation modes — Tesseract is sensitive to
+        # layout. PSM 3 = fully automatic, PSM 6 = uniform block, PSM 4 =
+        # single column, PSM 11 = sparse text (best for business cards,
+        # receipts, anything with logos and scattered text). We score each
+        # candidate by useful-word count, not raw length, so a long string
+        # of garbage from a decorative logo doesn't beat clean extracted
+        # contact info.
+        candidates: list[str] = []
+        for psm in (3, 6, 4, 11):
             try:
                 cfg = f"--oem 1 --psm {psm}"
                 text = pytesseract.image_to_string(img_gray, lang="eng+por+fra+spa", config=cfg)
@@ -984,8 +1047,20 @@ async def _ocr_via_tesseract(image_data: bytes) -> Optional[dict]:
         if not candidates:
             return None
 
-        # Keep the longest result — typically the most complete extraction
-        best = max(candidates, key=len)
+        cleaned = [_clean_tesseract_output(c) for c in candidates]
+        cleaned = [c for c in cleaned if c]
+        if not cleaned:
+            # Even after cleaning every candidate became empty — return the
+            # raw longest result rather than failing the chain entirely.
+            return {
+                "text": max(candidates, key=len),
+                "method": "tesseract",
+                "confidence": 0.55,
+                "psm_variants_tried": len(candidates),
+                "note": "all PSM variants returned mostly junk after cleaning",
+            }
+
+        best = max(cleaned, key=_useful_word_count)
         return {
             "text": best,
             "method": "tesseract",
