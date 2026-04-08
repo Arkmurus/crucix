@@ -1398,6 +1398,25 @@ async def chat_ep(req: ChatRequest, request: Request):
         except Exception as e:
             _log.debug("source verification failed (non-fatal): %s", e)
 
+        # ── Confidence-tagged reply footer ──
+        # Wires existing observability signals (confidence tags +
+        # source_verifier verdict + grounded/unverified counts) into a
+        # structured footer block appended to the user-facing reply. This
+        # is the single biggest "professional intelligence vs chatbot"
+        # signal — visible epistemic state instead of bare prose.
+        # Behind ARIA_CONFIDENCE_FOOTER (default ON). Disabled → no-op.
+        try:
+            from ..intel import confidence_footer
+            footer = confidence_footer.build_footer(
+                response_text=response_text,
+                verification=result.get("verification"),
+                rag_sources_count=0,  # RAG count not currently surfaced from aria_chat
+            )
+            if footer:
+                result["response"] = (response_text or "") + footer
+        except Exception as e:
+            _log.debug("confidence footer build failed (non-fatal): %s", e)
+
         # ── Honesty judge — fire in background if response has [CONFIRMED] tags ──
         # This is another LLM round-trip and would add 2-5s of latency to the
         # chat reply if run inline. Instead we spawn it as a task that
@@ -1589,6 +1608,113 @@ async def validate_hypothesis_ep(request: Request):
 async def research_summary_ep(request: Request):
     llm = get_llm(request)
     return await get_research_summary(llm)
+
+
+# ── Tiered corpus ingest ────────────────────────────────────────────────────
+# Curated documents (Tier A primary sources, Tier B secondary intel,
+# Tier C live feeds, Tier D Arkmurus proprietary) get pushed in here with
+# explicit provenance metadata so retrieval can prefer trusted tiers.
+# Independent of /read-document which is the opportunistic-ingest path
+# for whatever gets shared in chat.
+@router.post("/corpus/ingest")
+async def corpus_ingest_ep(request: Request):
+    """Ingest a single corpus document with tier metadata.
+
+    Body shape:
+    {
+        "filename":          "SIPRI-arms-transfers-2024.pdf",
+        "content_b64":       "<base64 of file bytes>",   # OR plain "text"
+        "text":              "<plain text content>",     # if no base64
+        "mimetype":          "application/pdf",
+        "tier":              "A",                         # A/B/C/D
+        "source_class":      "SIPRI",
+        "region":            "Africa",
+        "cplp_relevant":     true,
+        "confidence":        "CONFIRMED",                 # optional default
+        "publication_date":  "2024-03",                   # optional ISO
+        "notes":             "Annual arms transfers report"
+    }
+    """
+    body = await request.json()
+    filename = (body.get("filename") or "unknown").strip()
+    tier = (body.get("tier") or "").strip().upper()
+    source_class = (body.get("source_class") or "").strip()
+    if not tier:
+        raise HTTPException(status_code=400, detail="tier required (A/B/C/D)")
+    if not source_class:
+        raise HTTPException(status_code=400, detail="source_class required")
+
+    text = body.get("text") or ""
+    content_b64 = body.get("content_b64") or ""
+    mimetype = body.get("mimetype") or ""
+
+    # If binary, extract text first
+    if not text and content_b64:
+        import base64 as _b64
+        try:
+            raw_bytes = _b64.b64decode(content_b64)
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid base64 content")
+        from ..intel import corpus_ingest as _ci
+        try:
+            text = _ci.extract_text_from_bytes(raw_bytes, filename, mimetype)
+        except _ci.ExtractError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    if not text or len(text.strip()) < 30:
+        raise HTTPException(status_code=400, detail="no usable text (min 30 chars)")
+
+    from ..intel import corpus_ingest as _ci
+    try:
+        result = await _ci.ingest_corpus_document(
+            text,
+            filename=filename,
+            tier=tier,
+            source_class=source_class,
+            region=body.get("region", ""),
+            cplp_relevant=bool(body.get("cplp_relevant", False)),
+            confidence=body.get("confidence", ""),
+            publication_date=body.get("publication_date", ""),
+            notes=body.get("notes", ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
+
+
+# ── Branded report builder ──────────────────────────────────────────────────
+# Generates Arkmurus-formatted DD / compliance / market reports by combining
+# investigate() + Tier D template retrieval + LLM template fill. Independent
+# of the chat path — has its own endpoint and its own slash command.
+@router.post("/report")
+async def report_ep(request: Request):
+    """Build a branded Arkmurus report.
+
+    Body shape:
+        {
+            "report_type":   "dd" | "compliance" | "market",
+            "subject":       "Acme Trading Corp",
+            "extra_context": "(optional free-form context the user supplied)"
+        }
+    """
+    body = await request.json()
+    report_type = (body.get("report_type") or "").strip()
+    subject = (body.get("subject") or "").strip()
+    if not report_type or not subject:
+        raise HTTPException(status_code=400, detail="report_type and subject required")
+    llm = get_llm(request)
+    from ..intel import report_builder
+    result = await report_builder.build_report(
+        llm,
+        report_type=report_type,
+        subject=subject,
+        extra_context=body.get("extra_context", ""),
+    )
+    if result.get("error"):
+        # Return 200 with error in body — the WhatsApp side renders these
+        # consistently rather than choking on a 4xx.
+        return result
+    return result
 
 
 # ── Deep Research Endpoints ──────────────────────────────────────────────────

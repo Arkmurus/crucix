@@ -669,12 +669,16 @@ async def _get_relevant_contradictions(message: str) -> str:
 
 
 async def _build_calibrated_system_prompt(message: str) -> str:
-    """Build the system prompt with calibration + contradictions injected.
+    """Build the system prompt with calibration + contradictions + structured-
+    analysis templates injected.
 
     This is the closed-loop learning instrument. Every chat call now:
       1. Reads the latest confidence calibration (cached 5 min)
       2. Looks up any contradictions relevant to the current query
-      3. Appends both as behavioural directives to the base system prompt
+      3. Detects structured-analysis intents (PMESII for country assessments)
+         and injects the corresponding template scaffold
+      4. Appends all of the above as behavioural directives to the base
+         system prompt
     """
     addendum_parts = []
 
@@ -686,6 +690,19 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     contras_addendum = await _get_relevant_contradictions(message)
     if contras_addendum:
         addendum_parts.append(contras_addendum)
+
+    # PMESII template — fires when message looks like a country assessment.
+    # Conservative detector + feature flag (ARIA_PMESII_TEMPLATE_ENABLED).
+    # Disabled → returns None and no addendum is added, preserving existing
+    # behaviour during the field-test freeze.
+    try:
+        from .intel import pmesii as _pmesii
+        country = _pmesii.detect_country_assessment(message)
+        if country:
+            addendum_parts.append(_pmesii.addendum_for(country))
+            logger.info("[pmesii] country-assessment template injected for %s", country)
+    except Exception as e:
+        logger.debug("pmesii template injection failed (non-fatal): %s", e)
 
     if not addendum_parts:
         return ARIA_SYSTEM_PROMPT
