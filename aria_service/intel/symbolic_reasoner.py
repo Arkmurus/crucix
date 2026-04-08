@@ -184,18 +184,36 @@ def _arkmurus_tier(iso: str) -> str:
 # ── Intent rules (pattern → handler) ────────────────────────────────────────
 
 def _extract_country(text: str) -> tuple[str, str]:
-    """Find a country mention in free text. Returns (iso, name) or ("", "")."""
+    """Find a country mention in free text. Returns (iso, name) or ("", "").
+
+    Round 7b: previously this returned the FIRST country name found in the
+    text via dict-iteration order. Because EMBARGOED_COUNTRIES is loaded
+    first, that biased toward returning embargoed countries even when the
+    document was clearly about a different country mentioned more often.
+    Past incident: Ghana opportunity brief screened as "Russia is EMBARGOED"
+    because Russia was in NAME_TO_ISO before Ghana.
+
+    New behaviour: count occurrences of every recognized country name,
+    return the one with the highest count. Ties broken by first appearance.
+    """
     t = text.lower()
+    counts: list[tuple[int, int, str]] = []  # (count, first_idx_neg, iso)
     for name, iso in NAME_TO_ISO.items():
-        if re.search(rf"\b{re.escape(name)}\b", t):
-            full_name = (
-                EMBARGOED_COUNTRIES.get(iso, {}).get("name")
-                or HIGH_RISK.get(iso)
-                or MEDIUM_RISK.get(iso)
-                or name.title()
-            )
-            return iso, full_name
-    return "", ""
+        matches = list(re.finditer(rf"\b{re.escape(name)}\b", t))
+        if matches:
+            # Negate the first index so tie-break still favours earlier mentions
+            counts.append((len(matches), -matches[0].start(), iso))
+    if not counts:
+        return "", ""
+    counts.sort(reverse=True)
+    iso = counts[0][2]
+    full_name = (
+        EMBARGOED_COUNTRIES.get(iso, {}).get("name")
+        or HIGH_RISK.get(iso)
+        or MEDIUM_RISK.get(iso)
+        or iso
+    )
+    return iso, full_name
 
 
 def _extract_ml_category(text: str) -> list[str]:
@@ -211,16 +229,49 @@ def _extract_ml_category(text: str) -> list[str]:
 
 # ── Handler implementations ────────────────────────────────────────────────
 
+_EXPORT_VERB_RE = re.compile(
+    r"\b(?:export|sell|ship|deliver|supply|provide|send)\b",
+    re.IGNORECASE,
+)
+
+
 def _handle_export_query(text: str) -> dict | None:
-    """Answer 'can we export X to Y' style queries from the rules tables."""
-    if not re.search(r"\b(?:export|sell|ship|deliver|supply|provide|send)\b", text, re.I):
+    """Answer 'can we export X to Y' style queries from the rules tables.
+
+    Round 7b: requires the export verb AND the country name to appear in the
+    same sentence within ~120 chars of each other. Without this proximity
+    check the rule fired on any document containing both keywords anywhere
+    — past incident: a Ghana brief mentioning "Russian-supplied weapons"
+    matched as "supply Russia" → fired EMBARGOED template.
+    """
+    verb_match = _EXPORT_VERB_RE.search(text)
+    if not verb_match:
         return None
     if not re.search(r"\bto\b", text, re.I):
         return None
 
+    # Use the most-mentioned country, not the first found
     iso, country = _extract_country(text)
     if not iso:
         return None
+
+    # Proximity check: the export verb and the chosen country must be in
+    # the same ~250-char window. Count distance in characters between
+    # the verb match and the closest country mention.
+    country_pattern = next(
+        (n for n, i in NAME_TO_ISO.items() if i == iso),
+        None,
+    )
+    if country_pattern:
+        nearest_distance = None
+        for cm in re.finditer(rf"\b{re.escape(country_pattern)}\b", text, re.IGNORECASE):
+            distance = abs(cm.start() - verb_match.start())
+            if nearest_distance is None or distance < nearest_distance:
+                nearest_distance = distance
+        if nearest_distance is None or nearest_distance > 250:
+            # Verb and country aren't in proximity — this is not a real
+            # export query, just two unrelated mentions in the same blob.
+            return None
 
     ml_cats = _extract_ml_category(text)
     tier = _country_tier(iso)
@@ -468,6 +519,26 @@ _HANDLERS = [
 ]
 
 
+# 2026-04-08 round 7b: hard-block phrases that indicate the user is asking
+# for a document review, not asking an export-feasibility question. Without
+# this guard the symbolic reasoner pattern-matches stray "supply"/"export"
+# verbs + stray country names inside the document body and emits a
+# high-confidence wrong answer (the canned EMBARGOED template). Past
+# incident: a Ghana opportunity brief was screened as "Russia is EMBARGOED"
+# because the doc mentioned Russian arms in passing.
+_DOC_REVIEW_RE = re.compile(
+    r"\b(?:double[\s-]?check|review|read|check\s+this|look\s+at|"
+    r"go\s+through|analyse|analyze|summari[sz]e|what(?:'s|\s+is)\s+in|"
+    r"give\s+me\s+(?:a\s+)?summary|tell\s+me\s+about\s+this)\b.*\b(?:document|brief|"
+    r"pdf|attachment|file|paper|report|email|message|note)s?\b",
+    re.IGNORECASE | re.DOTALL,
+)
+# Anything longer than this is treated as "probably contains pasted content,
+# not a clean question" and the symbolic reasoner skips entirely. Real export
+# questions are short — "can we export X to Y" is ~30 chars.
+_SYMBOLIC_MAX_INPUT_LEN = 600
+
+
 def reason(question: str) -> dict:
     """Try to answer a question using only symbolic rules.
 
@@ -485,6 +556,16 @@ def reason(question: str) -> dict:
         return {"confident": False, "source": "symbolic_reasoner"}
 
     text = question.strip()
+
+    # Round 7b guard: don't run rules engine on document-review requests or
+    # on long pasted content — both cases produce high-confidence wrong
+    # answers because the rules pattern-match stray verbs and country names
+    # in the body text.
+    if len(text) > _SYMBOLIC_MAX_INPUT_LEN:
+        return {"confident": False, "source": "symbolic_reasoner", "skipped": "input_too_long"}
+    if _DOC_REVIEW_RE.search(text):
+        return {"confident": False, "source": "symbolic_reasoner", "skipped": "document_review_intent"}
+
     for handler in _HANDLERS:
         try:
             result = handler(text)
