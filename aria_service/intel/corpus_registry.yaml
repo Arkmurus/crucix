@@ -40,10 +40,10 @@ sources:
     source_class: SIPRI
     category: arms_transfers
     region: global
-    ingest_strategy: html_crawl
+    ingest_strategy: manual
     frequency: quarterly
     cplp_relevant: true
-    notes: SIPRI Arms Transfers Database
+    notes: SIPRI Arms Transfers Database — JS-rendered SPA, returns 22 chars to a static crawler. Use the SIPRI bulk download (CSV/Excel) and run ingest_corpus.py on the file instead.
 
   - url: https://www.sipri.org/databases
     tier: A
@@ -159,7 +159,7 @@ sources:
     frequency: monthly
     cplp_relevant: false
 
-  - url: https://nso.nato.int/nso/nsdd/main/search
+  - url: https://nso.nato.int/nso/nsdd/main/listPromulg.html
     tier: A
     source_class: NATO
     category: standardization
@@ -167,7 +167,7 @@ sources:
     ingest_strategy: sub_index
     frequency: quarterly
     cplp_relevant: false
-    notes: NATO Standardization Document Database
+    notes: NATO Standardization Document Database — main search returned 404, this is the promulgated-list page.
 
   - url: https://www.diana.nato.int
     tier: A
@@ -224,7 +224,7 @@ sources:
     frequency: quarterly
     cplp_relevant: false
 
-  - url: https://www.unodc.org/unodc/en/firearms-protocol
+  - url: https://www.unodc.org/unodc/en/firearms-protocol/index.html
     tier: A
     source_class: UNODC
     category: firearms_control
@@ -232,6 +232,7 @@ sources:
     ingest_strategy: html_crawl
     frequency: quarterly
     cplp_relevant: false
+    notes: UNODC Firearms Protocol — original URL returned 404, added /index.html
 
   - url: https://www.sipri.org/databases/embargoes
     tier: A

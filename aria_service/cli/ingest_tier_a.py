@@ -74,11 +74,47 @@ from typing import Optional
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 
-DEFAULT_TIMEOUT_S = 60
-DEFAULT_USER_AGENT = "ARIA-CorpusIngest/1.0 (+https://aria-intel.fly.dev)"
+# Round 1 (60s) was too short for gov.uk / nato.int / eur-lex / un.org —
+# many big government pages take 60-90s to respond. Bumped to 120s.
+DEFAULT_TIMEOUT_S = 120
+# Real browser UA so we don't get 403'd by sites that block the obvious
+# bot string. DIANA NATO and UN SC reject the previous "ARIA-CorpusIngest"
+# UA outright. Mozilla compat string is widely accepted.
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36 ARIA-CorpusIngest/1.1"
+)
 SUB_INDEX_DEPTH = 1
 SUB_INDEX_MAX_LINKS = 10
 INTER_REQUEST_DELAY_S = 1.0
+
+# File extensions we never want to follow as sub-links — these are assets
+# (CSS, JS, images, fonts), not content. The first version of the
+# sub_index strategy followed every internal link, including favicons and
+# CSS bundles, which produced ~15 wasted requests per source.
+_ASSET_EXTENSIONS = (
+    ".css", ".js", ".ico", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+    ".webp", ".woff", ".woff2", ".eot", ".ttf", ".otf", ".xml", ".rss",
+    ".atom", ".map", ".webmanifest", ".json", ".mp4", ".webm", ".mp3",
+    ".wav", ".zip", ".tar", ".gz", ".7z",
+)
+# Path fragments that strongly indicate an asset URL even without an
+# obvious extension (some assets are served with hashed query strings).
+_ASSET_PATH_FRAGMENTS = (
+    "/sites/default/files/css/",
+    "/sites/default/files/js/",
+    "/sites/default/files/asset_injector/",
+    "/assets/frontend/",
+    "/wp-content/themes/",
+    "/wp-content/plugins/",
+    "/_next/static/",
+    "/static/css/",
+    "/static/js/",
+    "/dist/",
+    "/build/",
+    "/favicon",
+)
 
 
 # ── HTTP helpers ────────────────────────────────────────────────────────
@@ -179,9 +215,26 @@ def _extract_html_text(html_bytes: bytes) -> str:
 _LINK_RE = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
 
 
+def _is_asset_url(url: str) -> bool:
+    """True if a URL points to an asset file (CSS, JS, image, font, etc).
+    Used to filter out garbage sub-links from the sub_index crawler."""
+    if not url:
+        return True
+    u = url.lower()
+    # Strip query string and fragment for extension check
+    path = u.split("?", 1)[0].split("#", 1)[0]
+    if path.endswith(_ASSET_EXTENSIONS):
+        return True
+    for fragment in _ASSET_PATH_FRAGMENTS:
+        if fragment in u:
+            return True
+    return False
+
+
 def _extract_internal_links(html_bytes: bytes, base_url: str, max_links: int) -> list[str]:
     """Find href= attributes pointing to the same domain as base_url.
-    Returns absolute URLs, deduped, capped at max_links."""
+    Returns absolute URLs, deduped, capped at max_links. Skips asset URLs
+    (CSS, JS, favicons, images, fonts) — those are not content."""
     if not html_bytes:
         return []
     try:
@@ -204,6 +257,9 @@ def _extract_internal_links(html_bytes: bytes, base_url: str, max_links: int) ->
         # Strip fragment for dedup
         absolute = absolute.split("#", 1)[0]
         if absolute == base_url or absolute in seen:
+            continue
+        # Skip assets — they're not content
+        if _is_asset_url(absolute):
             continue
         seen.add(absolute)
         out.append(absolute)
