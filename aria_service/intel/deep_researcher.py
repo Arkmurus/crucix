@@ -416,6 +416,17 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
         ]
 
     # Step 2: Search and read articles for each angle
+    #
+    # 2026-04-08 round 6: this loop was the round-5 timeout bottleneck.
+    # Sequential per-article _fetch_article_text + _analyse_article calls:
+    #   thorough = 8 queries × 3 articles × 3-5s each = 72-120s
+    # Plus angle planning + final synthesis pushed total over 240s, which
+    # tripped every timeout in the chain on officeholder questions.
+    #
+    # Refactor: collect all (query, article) pairs first, then run the
+    # per-article fetch + analyse tasks in PARALLEL with a concurrency cap
+    # of 6. Same total work, ~6-10x lower wall time.
+    import asyncio as _aio
     total_facts = 0
     total_hyp = 0
     all_facts: list[dict] = []
@@ -423,28 +434,67 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
     hypotheses = await _load_hypotheses()
     read_urls = await _get_read_urls()
 
+    # Collect article jobs from all search queries first (web_search itself
+    # is fast — the bottleneck is the per-article LLM analysis below).
+    article_jobs: list[tuple[str, dict]] = []  # (query, article)
     for query in queries[:max_searches]:
-        results = await _web_search(query)
+        try:
+            results = await _web_search(query)
+        except Exception as _e:
+            logger.debug("web_search failed for %r: %s", query, _e)
+            continue
         unread = [a for a in results if a.get("link") not in read_urls]
-
         for article in unread[:max_articles_per_search]:
-            body = await _fetch_article_text(article.get("link", ""))
-            if not body or len(body) < 100:
-                continue
+            article_jobs.append((query, article))
 
+    # Run fetch + analyse in parallel with a concurrency cap so we don't
+    # blow up the deepseek API rate limit. Cap at 6 concurrent — empirically
+    # the sweet spot for deepseek's per-key throughput.
+    _semaphore = _aio.Semaphore(6)
+
+    async def _process_one_article(query: str, article: dict) -> dict | None:
+        """Fetch + analyse a single article. Returns the parsed result or None.
+        Side effects (mark_read, _process_analysis) are deferred to the
+        post-gather sequential pass to keep the hypothesis dict consistent."""
+        async with _semaphore:
+            try:
+                body = await _fetch_article_text(article.get("link", ""))
+            except Exception as e:
+                logger.debug("fetch_article_text failed: %s", e)
+                return None
+            if not body or len(body) < 100:
+                return None
             article_text = f"Title: {article['title']}\nSearch: {query}\nContent:\n{body[:4000]}"
             existing_kb = search_knowledge(article["title"])
-            parsed = await _analyse_article(llm, article_text, f"investigation:{topic[:30]}", existing_kb, hypotheses)
+            try:
+                parsed = await _analyse_article(
+                    llm, article_text, f"investigation:{topic[:30]}", existing_kb, hypotheses
+                )
+            except Exception as e:
+                logger.debug("analyse_article failed: %s", e)
+                return None
+            return {"parsed": parsed, "article": article}
 
-            if parsed:
-                fl, hg = await _process_analysis(parsed, f"investigation:{topic[:30]}", hypotheses)
-                total_facts += fl
-                total_hyp += hg
-                all_facts.extend(parsed.get("facts", []))
+    parallel_results = await _aio.gather(
+        *(_process_one_article(q, a) for q, a in article_jobs),
+        return_exceptions=False,
+    )
 
-            if article.get("link"):
-                await _mark_read(article["link"])
-            articles_read += 1
+    # Sequential post-processing so _process_analysis can mutate the
+    # hypothesis dict consistently (it isn't reentrant-safe).
+    for r in parallel_results:
+        if not r:
+            continue
+        parsed = r.get("parsed")
+        article = r.get("article", {})
+        if parsed:
+            fl, hg = await _process_analysis(parsed, f"investigation:{topic[:30]}", hypotheses)
+            total_facts += fl
+            total_hyp += hg
+            all_facts.extend(parsed.get("facts", []))
+        if article.get("link"):
+            await _mark_read(article["link"])
+        articles_read += 1
 
     await _save_hypotheses(hypotheses)
 

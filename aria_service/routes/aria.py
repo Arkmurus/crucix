@@ -1076,6 +1076,12 @@ def _detect_tool_intent(message: str) -> dict | None:
     # "Who is the current defence minister of Ghana" → fire investigate
     # immediately so the LLM has fresh web data. Without this, the LLM
     # would hallucinate from stale training data (round-4 Nitiwul incident).
+    #
+    # Round 6: pass depth='quick' for the officeholder auto-trigger.
+    # The full thorough path runs 8 search queries × 3 articles = 24
+    # sequential LLM calls and routinely exceeds the 240s budget. Quick
+    # mode does 3 × 2 = 6 article fetches, well within budget. The full
+    # depth is still available via explicit /investigate <name>.
     officeholder_match = _OFFICEHOLDER_INTENT_RE.search(msg)
     if officeholder_match and country_match:
         # Build the investigation topic from the matched fragment + country
@@ -1083,6 +1089,7 @@ def _detect_tool_intent(message: str) -> dict | None:
         return {
             "tool": "investigate",
             "topic": topic[:200],
+            "depth": "quick",  # round 6 — fast path for officeholder lookups
             "context": msg,
             "_reason": "officeholder_question",
         }
@@ -1345,7 +1352,11 @@ async def _execute_tool(intent: dict, llm) -> str:
 
         if tool in ("investigate", "investigate_url"):
             topic = intent.get("topic") or intent.get("url", "")
-            r = await investigate(llm, topic, depth="thorough")
+            # Round 6: honour explicit depth override from intent (e.g.
+            # officeholder questions auto-trigger with depth='quick' for speed).
+            # Default stays 'thorough' for explicit /investigate calls.
+            depth = intent.get("depth", "thorough")
+            r = await investigate(llm, topic, depth=depth)
             synth = r.get("synthesis") or {}
             findings = synth.get("key_findings") or []
             actions = synth.get("recommended_actions") or []
