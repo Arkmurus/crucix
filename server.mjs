@@ -96,6 +96,13 @@ function trivialReply(q) {
   if (/^(thanks?|thank\s+you)$/.test(s)) {
     return "You're welcome.";
   }
+  // Background/status meta probes — keep in sync with waListener
+  // _waTrivialReply and lib/aria/aria.mjs _ariaTrivialReply.
+  if (/^(can\s+you\s+(confirm|tell\s+me|verify)\s+)?(you('?re|\s+are)?\s+|are\s+you\s+)?(still|actually|really)?\s*(working|processing|running|on\s+it|there|alive)(\s+on\s+(it|that|this))?(\s+in\s+the\s+background)?$/.test(s)
+   || /^(still|actually)\s+(working|on\s+it|there)(\s+on\s+(it|that|this))?(\s+in\s+the\s+background)?$/.test(s)
+   || /^did\s+you\s+(get|hear|see)\s+(that|me|it|my\s+(message|question))$/.test(s)) {
+    return "✅ I'm here. I don't persist long-running tasks across messages — if your last question is still pending after ~60s, please re-send it and I'll work on it now.";
+  }
   return null;
 }
 
