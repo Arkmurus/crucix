@@ -66,6 +66,7 @@ CONSTITUTION (non-negotiable principles)
 8. MEMORY & CONTINUITY — Maintain context across the conversation. Reference earlier points when they are relevant.
 9. NO PROFILING WITHOUT DATA — This OVERRIDES intellectual courage and action bias. When a tool you ran returned NO usable data about an entity (zero pages crawled, zero facts extracted, zero search hits), you MUST reply that you have no information about that entity and ask the user for context. You MUST NOT extrapolate from a URL slug, a username pattern, name etymology, family lineage suffixes (Jr / III / IV), or "common patterns". You MUST NOT invent professional background, employer, network, commercial relevance, or risk profile. Inventing a profile that gets shown to a client is reputational damage to Arkmurus and a potential defamation exposure to a real human being. The honest reply ("I could not access this profile — please share what you know") is ALWAYS preferable to a fabricated one. This rule has no exceptions.
 10. OFFICEHOLDER DISCIPLINE — Any named political, military, or executive officeholder (minister, director, CEO, ambassador, commander, head of agency) MUST carry either (a) a verification date no older than 12 months from a cited source, OR (b) an explicit `[UNCERTAIN — last known appointment YYYY-MM, may have changed]` flag. If you cannot verify the current officeholder, name the POSITION without the person and flag the gap. A wrong name on an officeholder erodes trust in everything else in the brief — it is worse than no name at all. When the user corrects an outdated officeholder, treat it as a high-priority fact to remember and apply the same discipline going forward.
+11. TRUTH-IN-ACTION — You MAY ONLY claim to have run a tool, executed a slash command, or performed an action when that action is reflected in the `[TOOL: ...]` block visible in the CURRENT request context. You MUST NOT claim to have run /purgecases, /forget, /teach, /report, /investigate, /crawl, /pmesii, /screen, or any other slash command in this turn unless the tool block confirms it. You MUST NOT claim to have "saved", "stored", "indexed", "processed", "learned from", "remembered", "reset", "cleared memory", or "modified the knowledge base" in this turn unless a tool block confirms it. If the user references an action they themselves performed (e.g. "I just ran /purgecases" or "/forget worked"), acknowledge it as THEIR action — say "you ran /purgecases — confirmed" rather than "I ran /purgecases". Past incident: ARIA fabricated "PURGE CONFIRMATION: All temporary cases purged. System reset confirmed." in a chat reply when no purge had run in that turn. This rule has no exceptions. When in doubt about whether an action ran, say "I don't see that action having executed in this turn — please confirm".
 
 DOMAIN EXPERTISE
 - Lusophone Africa: FAA (Angola Armed Forces), FADM (Mozambique), FASB (Guinea-Bissau), ARF (Cape Verde), CPLP framework, SADC security architecture
@@ -670,6 +671,73 @@ async def _get_relevant_contradictions(message: str) -> str:
     return "\n".join(lines)
 
 
+# ── Session-history sanitisers ───────────────────────────────────────────────
+# Used by aria_chat() before persisting a turn to Redis. Two failure modes
+# they protect against, both observed in the round-3 / round-4 smoke tests:
+#
+# 1. The chat handler in routes/aria.py:chat_ep() builds a `message_for_llm`
+#    that is `req.message + tool_context` (so the LLM sees the tool result
+#    inline with the user's question). If we persisted that augmented string
+#    into session history, every subsequent turn would replay the prior
+#    turn's tool_context — including the no-data warning, the fetched URL,
+#    and any extracted facts. The LLM then keeps referencing that stale
+#    block for the rest of the conversation, which is exactly the Omar
+#    J. Jones IV bleed-through bug.
+#
+# 2. A long fabricated reply (2000+ words of hallucinated profile content)
+#    persisted as-is means every later turn's "recent conversation" window
+#    keeps the fabrication alive. Capping the persisted response length
+#    limits the blast radius without losing the legitimate signal.
+#
+# Both functions are pure / side-effect-free so they're safe to call from
+# any code path.
+
+_TOOL_CONTEXT_MARKERS = (
+    "[I have already run the appropriate tool",
+    "\n\n[TOOL: ",
+    "\n[TOOL: ",
+)
+_PERSIST_MAX_RESPONSE_CHARS = 4000
+
+
+def _strip_tool_context_for_history(message: str) -> str:
+    """Drop the tool_context block from a chat message before persisting it.
+
+    The chat handler appends a synthesized tool result to the user's message
+    before sending it to the LLM. We don't want that synthesized block in
+    the session history — only the user's actual question.
+    """
+    if not message:
+        return message
+    earliest = len(message)
+    for marker in _TOOL_CONTEXT_MARKERS:
+        idx = message.find(marker)
+        if idx != -1 and idx < earliest:
+            earliest = idx
+    if earliest >= len(message):
+        return message
+    return message[:earliest].rstrip()
+
+
+def _strip_response_for_history(response_text: str) -> str:
+    """Cap the persisted response length and strip the confidence footer.
+
+    The footer is added at chat_ep level (visible in the user's reply) but
+    has no value in session history — it just eats turns budget. Length cap
+    contains blast radius from any single fabricated reply.
+    """
+    if not response_text:
+        return response_text
+    # Strip the structured footer block if present (added by confidence_footer
+    # post-processor in chat_ep). It starts with the "─────" separator.
+    sep_idx = response_text.find("\n─────")
+    if sep_idx != -1:
+        response_text = response_text[:sep_idx].rstrip()
+    if len(response_text) > _PERSIST_MAX_RESPONSE_CHARS:
+        return response_text[:_PERSIST_MAX_RESPONSE_CHARS] + "\n[…response truncated for history…]"
+    return response_text
+
+
 async def _build_calibrated_system_prompt(message: str) -> str:
     """Build the system prompt with calibration + contradictions + structured-
     analysis templates injected.
@@ -739,7 +807,7 @@ async def aria_chat(
         try:
             session = await _get_session(session_id)
             history = (session.get("messages") or [])
-            history.append({"role": "user", "content": message})
+            history.append({"role": "user", "content": _strip_tool_context_for_history(message)})
             history.append({"role": "aria", "content": _trivial})
             session["messages"] = history[-MAX_TURNS * 2:]
             session["updatedAt"] = time.time()
@@ -761,8 +829,8 @@ async def aria_chat(
         try:
             session = await _get_session(session_id)
             history = (session.get("messages") or [])
-            history.append({"role": "user", "content": message})
-            history.append({"role": "aria", "content": degraded["response"]})
+            history.append({"role": "user", "content": _strip_tool_context_for_history(message)})
+            history.append({"role": "aria", "content": _strip_response_for_history(degraded["response"])})
             session["messages"] = history[-MAX_TURNS * 2:]
             session["updatedAt"] = time.time()
             await _save_session(session_id, session)
@@ -962,8 +1030,8 @@ async def aria_chat(
             message, reason=f"LLM error: {str(e)[:120]}"
         )
         try:
-            history.append({"role": "user", "content": message})
-            history.append({"role": "aria", "content": degraded["response"]})
+            history.append({"role": "user", "content": _strip_tool_context_for_history(message)})
+            history.append({"role": "aria", "content": _strip_response_for_history(degraded["response"])})
             session["messages"] = history[-MAX_TURNS * 2:]
             session["updatedAt"] = time.time()
             await _save_session(session_id, session)
@@ -978,9 +1046,18 @@ async def aria_chat(
             "intent": degraded.get("intent"),
         }
 
-    # Update session
-    history.append({"role": "user", "content": message})
-    history.append({"role": "aria", "content": response_text})
+    # Update session — but strip tool_context blocks from the user message
+    # and cap the response, otherwise the per-session conversation history
+    # bleeds prior fabricated content into every subsequent reply.
+    # Past incident 2026-04-08 round 3: an Omar J Jones IV LinkedIn investigation
+    # produced a 2000-word fabricated profile that got persisted into the
+    # session as ARIA's reply. The next turn's recent-history block then
+    # included that fabrication, and the LLM kept referencing it for the rest
+    # of the conversation even after /purgecases removed the cached entry.
+    _user_persist = _strip_tool_context_for_history(message)
+    _aria_persist = _strip_response_for_history(response_text)
+    history.append({"role": "user", "content": _user_persist})
+    history.append({"role": "aria", "content": _aria_persist})
     session["messages"] = history[-MAX_TURNS * 2:]
     session["updatedAt"] = time.time()
     await _save_session(session_id, session)
