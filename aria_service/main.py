@@ -15,7 +15,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
@@ -31,7 +31,7 @@ from .intel import rag_store
 from .intel import ocr as ocr_module
 from .intel import cost_tracker
 from .intel.researcher import research_and_learn, get_hypotheses, validate_hypothesis
-from .routes.aria import router as aria_router
+from .routes.aria import router as aria_router, require_aria_token
 
 logging.basicConfig(
     level=logging.INFO,
@@ -411,9 +411,15 @@ async def health():
     }
 
 
-@app.post("/api/aria/ingest")
+@app.post("/api/aria/ingest", dependencies=[Depends(require_aria_token)])
 async def ingest_sweep(data: dict):
-    """Receive sweep data from Node.js server to update intel layers + neural network."""
+    """Receive sweep data from Node.js server to update intel layers + neural network.
+
+    Auth-protected: writes to persistent intel/neural state, so this endpoint
+    must NOT be reachable without the bearer token. Mounted on `app` directly
+    rather than via `aria_router` for historical reasons, so the token check
+    is wired in explicitly here instead of inheriting it from the router.
+    """
     app.state.current_data = data
     ledger_count = await intel_ledger.ingest_sweep_signals(data)
     comp_count = await competitors.scan_for_moves(data)

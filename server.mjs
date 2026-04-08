@@ -1442,8 +1442,11 @@ app.get('/api/brain/history', requireAuth, async (req, res) => {
 // ── Brain API bridge — WhatsApp/Zoom call /api/brain/* routes ────────────────
 // These map to existing local functions so integrations work without the Python brain
 
-app.post('/api/brain/signal', async (req, res) => {
-  // Accept signals from WhatsApp/Zoom/Email — store as intelligence
+app.post('/api/brain/signal', requireAuth, async (req, res) => {
+  // Accept signals from WhatsApp/Zoom/Email — store as intelligence.
+  // requireAuth was missing on the original definition, leaving the endpoint
+  // open for anyone to push arbitrary signals into the brain (or use it as
+  // an unauthenticated relay to BRAIN_URL). Closed 2026-04-09.
   try {
     const { content, source, signal_type, trigger, market, metadata } = req.body || {};
     if (!content) return res.status(400).json({ error: 'content required' });
@@ -2436,6 +2439,25 @@ app.get('/api/self/update-log', requireAdmin, (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
+  // SECURITY 2026-04-09: Telegram lets you configure a `secret_token` when
+  // calling setWebhook; Telegram then sends it back as the
+  // X-Telegram-Bot-Api-Secret-Token header on every webhook delivery.
+  // Without this check, anyone who knows the URL can POST a fake update
+  // and have it processed by telegramAlerter._handleMessage. Soft rollout:
+  // when TELEGRAM_WEBHOOK_SECRET is unset we accept everything (with a
+  // one-time warning) so we don't break the existing bot wiring; once the
+  // secret is set on both sides we enforce strict equality.
+  const expected = (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
+  if (expected) {
+    const presented = (req.headers['x-telegram-bot-api-secret-token'] || '').toString().trim();
+    if (presented !== expected) {
+      console.warn('[Webhook] rejecting — invalid or missing X-Telegram-Bot-Api-Secret-Token');
+      return res.sendStatus(401);
+    }
+  } else if (!global.__telegramWebhookSecretWarned) {
+    console.warn('[Webhook] TELEGRAM_WEBHOOK_SECRET not set — Telegram webhook is OPEN. Configure it via setWebhook + env var to enforce.');
+    global.__telegramWebhookSecretWarned = true;
+  }
   try {
     const update = req.body;
     if (!update || !update.message) { res.sendStatus(200); return; }
@@ -2461,9 +2483,18 @@ function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Authentication required' });
 
-  // Allow ARIA internal token (used by WhatsApp, email reader, proactive system)
-  const internalToken = process.env.ARIA_INTERNAL_TOKEN || 'aria-internal';
-  if (token === internalToken) { req.user = { id: 'aria-internal', role: 'admin' }; return next(); }
+  // Allow ARIA internal token (used by WhatsApp, email reader, proactive system).
+  // SECURITY 2026-04-09: removed the hardcoded 'aria-internal' fallback. The
+  // previous default value was readable in the public source repo, so anyone
+  // could send `Authorization: Bearer aria-internal` and impersonate an admin
+  // whenever ARIA_INTERNAL_TOKEN was unset. We now require the env var to be
+  // explicitly set; if not, internal-token auth is simply unavailable and
+  // callers fall through to the JWT path.
+  const internalToken = (process.env.ARIA_INTERNAL_TOKEN || '').trim();
+  if (internalToken && token === internalToken) {
+    req.user = { id: 'aria-internal', role: 'admin' };
+    return next();
+  }
 
   try {
     const payload = verifyToken(token);
@@ -3120,6 +3151,26 @@ app.get('/api/chat/unread', requireAuth, (req, res) => {
 });
 
 app.get('/events', (req, res) => {
+  // SECURITY 2026-04-09: this stream broadcasts the entire sweep payload
+  // (intel signals, news, opportunities, BD pipeline state) — previously
+  // anyone with the URL could subscribe and receive confidential data.
+  // Now requires either a localhost-internal connection OR a valid JWT
+  // passed as ?token=<jwt> (EventSource cannot send custom headers, so the
+  // query-param pattern matches /api/search/deep above).
+  const ip = req.ip || req.socket?.remoteAddress || '';
+  const isLocalhost = (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1');
+  if (!isLocalhost) {
+    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '') || '';
+    if (!token) return res.status(401).json({ error: 'Authentication required' });
+    const internalToken = (process.env.ARIA_INTERNAL_TOKEN || '').trim();
+    if (!(internalToken && token === internalToken)) {
+      try {
+        verifyToken(token);
+      } catch {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+    }
+  }
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
