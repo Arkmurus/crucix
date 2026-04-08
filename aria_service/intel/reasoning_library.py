@@ -75,6 +75,38 @@ DEFAULT_MATCH_THRESHOLD = 0.78
 RETENTION_DAYS = 180
 TTL_SECONDS = RETENTION_DAYS * 86400
 
+# A normalised question must have at least this many salient tokens before
+# it can be cached or matched. Reason: short greetings like "are you online?"
+# normalise down to 1 token ("online") because aria/are/you are stopwords,
+# and that 1 token then collides with any other case whose normalised string
+# happens to also be "online" — exact-normalised match gives score ≥ 0.95
+# and the cached answer is returned regardless of intent. Incident
+# 2026-04-08: every "Aria are you online?" returned the same 4339-char
+# Angola briefing 9× because it had been miscached against "online".
+MIN_SALIENT_TOKENS = 3
+
+# Hard-deny list for questions that should NEVER hit the case library, even
+# if they happen to have ≥ MIN_SALIENT_TOKENS. These are identity / liveness
+# / greeting probes whose answer is context-dependent and not cacheable.
+_TRIVIAL_QUESTION_RE = re.compile(
+    r"^\s*(aria[,\s!]*)?("
+    r"are\s+you\s+(online|there|alive|awake|working|up|ready|here)"
+    r"|you\s+(online|there|alive|awake)"
+    r"|hello|hi|hey|good\s+(morning|afternoon|evening|night)"
+    r"|who\s+are\s+you|what\s+are\s+you|what(?:'s| is)\s+your\s+name"
+    r"|test|ping|status|ok\??|yes\??|no\??|thanks?|thank\s+you"
+    r")\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_trivial_question(q: str) -> bool:
+    """True if the question is a greeting / liveness probe / identity check
+    whose answer should never be served from the case library."""
+    if not q:
+        return True
+    return bool(_TRIVIAL_QUESTION_RE.match(q.strip()))
+
 # Common English/intelligence stopwords stripped during normalisation
 _STOPWORDS = frozenset({
     "a", "an", "the", "and", "or", "but", "if", "of", "in", "on", "at", "to",
@@ -259,12 +291,21 @@ async def record_response(
     if "degraded mode" in response.lower():
         return {"recorded": False, "reason": "already degraded"}
 
+    # Don't cache greetings / liveness probes / identity questions — their
+    # answers are context-dependent and not safe to reuse (incident 2026-04-08).
+    if _is_trivial_question(question):
+        return {"recorded": False, "reason": "trivial question (greeting/liveness/identity)"}
+
     confidence_tag, confidence_score = _detect_confidence_tag(response)
 
     case_id = str(uuid.uuid4())[:12]
     normalised = _normalise_question(question)
     if not normalised:
         return {"recorded": False, "reason": "no salient tokens"}
+    # A single salient token is not enough to safely identify a question —
+    # too easy to collide with unrelated cases. Require at least N tokens.
+    if len(normalised.split()) < MIN_SALIENT_TOKENS:
+        return {"recorded": False, "reason": f"too few salient tokens (<{MIN_SALIENT_TOKENS})"}
 
     embedding = _embed(question)
     case = {
@@ -338,6 +379,13 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
     if not question or len(question.strip()) < 5:
         return {"match": False, "score": 0, "case": None, "method": None, "threshold": threshold}
 
+    # Trivial / liveness / identity questions never get served from the
+    # cache. They are context-dependent and were the source of the
+    # incident-2026-04-08 over-cache (every "are you online?" returned the
+    # same Angola briefing because it was miscached against "online").
+    if _is_trivial_question(question):
+        return {"match": False, "score": 0, "case": None, "method": "skipped_trivial", "threshold": threshold}
+
     meta = await _load_meta()
     meta["total_lookups"] = meta.get("total_lookups", 0) + 1
 
@@ -346,6 +394,11 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
         return {"match": False, "score": 0, "case": None, "method": None, "threshold": threshold}
 
     normalised = _normalise_question(question)
+    # A single salient token can't safely identify a question — bail out
+    # rather than risk an exact_normalised collision against an unrelated case.
+    if len(normalised.split()) < MIN_SALIENT_TOKENS:
+        await _save_meta()
+        return {"match": False, "score": 0, "case": None, "method": "skipped_too_few_tokens", "threshold": threshold}
     query_tokens = _token_set(question)
     query_embedding = _embed(question)
 
@@ -485,6 +538,44 @@ async def get_stats() -> dict:
         "age_days": round((time.time() - meta.get("born", time.time())) / 86400, 1),
         "embedder_available": _get_embedder() is not None,
     }
+
+
+async def purge_unsafe_cases() -> dict:
+    """One-shot cleanup: remove cached cases whose normalised question has
+    fewer than MIN_SALIENT_TOKENS tokens. These are the entries that caused
+    the 2026-04-08 over-cache incident — single-token normalised strings
+    collide on exact match and serve junk to unrelated queries.
+
+    Idempotent. Safe to call on every startup.
+    """
+    index = await _load_index()
+    if not index:
+        return {"purged": 0, "remaining": 0}
+
+    purged = 0
+    new_index: list[dict] = []
+    for entry in index:
+        norm = (entry.get("normalised") or "").strip()
+        if not norm or len(norm.split()) < MIN_SALIENT_TOKENS:
+            try:
+                await rs.set_json(_case_key(entry["id"]), None, ex=1)
+            except Exception:
+                pass
+            purged += 1
+            continue
+        new_index.append(entry)
+
+    if purged:
+        _index_cache_set(new_index)
+        await _save_index()
+        meta = await _load_meta()
+        meta["total_cases"] = len(new_index)
+        meta["last_purge"] = time.time()
+        meta["last_purge_count"] = purged
+        await _save_meta()
+        logger.info("reasoning_library purge: removed %d unsafe cases (<%d salient tokens), %d remain",
+                    purged, MIN_SALIENT_TOKENS, len(new_index))
+    return {"purged": purged, "remaining": len(new_index)}
 
 
 async def consolidate() -> dict:

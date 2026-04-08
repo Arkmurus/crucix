@@ -159,6 +159,22 @@ async def lifespan(app: FastAPI):
             logger.warning("[OCR Pre-warm] failed: %s", e)
     ocr_prewarm_task = asyncio.create_task(_prewarm_ocr_bg())
 
+    # ── One-shot reasoning_library cleanup ───────────────────────────────
+    # Removes cached cases whose normalised question has < MIN_SALIENT_TOKENS
+    # tokens — these are the entries that caused the 2026-04-08 over-cache
+    # incident (every "Aria are you online?" returned the same Angola briefing
+    # because it had been miscached against the single token "online").
+    # Runs in a background task with a short delay so it can never block
+    # uvicorn from binding to 0.0.0.0:8000.
+    async def _purge_reasoning_library_bg():
+        await asyncio.sleep(5)
+        try:
+            result = await reasoning_library.purge_unsafe_cases()
+            logger.info("[Reasoning Library] startup purge: %s", result)
+        except Exception as e:
+            logger.warning("[Reasoning Library] startup purge failed (non-fatal): %s", e)
+    reasoning_purge_task = asyncio.create_task(_purge_reasoning_library_bg())
+
     # Start autonomous research scheduler (every 30 minutes)
     research_task = None
     if llm and llm.is_configured:
