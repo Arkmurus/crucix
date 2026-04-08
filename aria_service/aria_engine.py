@@ -774,6 +774,20 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("pmesii template injection failed (non-fatal): %s", e)
 
+    # Stale-knowledge alerts — inject warnings for countries with known
+    # disruptive events that invalidate pre-event leadership knowledge.
+    # Round-4 incident: ARIA confidently named Ghana's pre-2024-election
+    # defence minister; the December 2024 Mahama win replaced the cabinet.
+    # Behind ARIA_STALE_KNOWLEDGE_ALERTS env var.
+    try:
+        from .intel import stale_knowledge_alerts as _ska
+        alerts = _ska.relevant_alerts(message)
+        if alerts:
+            addendum_parts.append(_ska.addendum_for(alerts))
+            logger.info("[stale_knowledge] injected %d alert(s)", len(alerts))
+    except Exception as e:
+        logger.debug("stale_knowledge_alerts injection failed (non-fatal): %s", e)
+
     if not addendum_parts:
         return ARIA_SYSTEM_PROMPT
     return ARIA_SYSTEM_PROMPT + "\n\n" + "\n\n".join(addendum_parts)

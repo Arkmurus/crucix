@@ -1020,8 +1020,30 @@ _WEAPON_DESIGNATION_RE = re.compile(
 _COUNTRY_RE_TOOL = re.compile(
     r"\b(angola|mozambique|guinea[\-\s]bissau|cape\s+verde|nigeria|kenya|mali|"
     r"burkina\s+faso|niger|chad|sudan|ethiopia|somalia|cameroon|senegal|drc|"
-    r"south\s+africa|libya|egypt|iraq|syria|yemen|afghanistan|ukraine|russia|"
+    r"ghana|south\s+africa|libya|egypt|iraq|syria|yemen|afghanistan|ukraine|russia|"
     r"saudi\s+arabia|uae|jordan|lebanon|colombia|venezuela|haiti|myanmar)\b",
+    re.IGNORECASE,
+)
+
+# Officeholder question detection — auto-triggers investigate so the LLM
+# has fresh web data to ground against. Without this, "who is the current
+# defence minister of Ghana" goes straight to the LLM with stale training
+# data and the LLM hallucinates a current officeholder. Round-4 incident
+# 2026-04-08: ARIA confidently named Dominic Nitiwul as Ghana's current
+# defence minister; Mahama's December 2024 election had replaced the entire
+# cabinet. The LLM had no way to know — no tool ran, no fresh source.
+_OFFICEHOLDER_INTENT_RE = re.compile(
+    r"\b(?:who(?:'?s| is)|name\s+of|tell\s+me\s+who|current)\s+"
+    r"(?:the\s+)?"
+    r"(?:current\s+)?"
+    r"(?:president|prime\s+minister|defen[cs]e\s+minister|"
+    r"minister\s+(?:of|for)\s+defen[cs]e|"
+    r"minister\s+(?:of|for)\s+foreign\s+affairs|foreign\s+minister|"
+    r"interior\s+minister|finance\s+minister|"
+    r"chief\s+of\s+(?:army|navy|air\s+force|defen[cs]e\s+staff)|"
+    r"head\s+of\s+(?:state|government)|"
+    r"ambassador\s+to|"
+    r"director\s+of\s+procurement)\b",
     re.IGNORECASE,
 )
 
@@ -1049,6 +1071,21 @@ def _detect_tool_intent(message: str) -> dict | None:
     has_fuzzy       = bool(_FUZZY_KW.search(msg))
     weapon_match    = _WEAPON_DESIGNATION_RE.search(msg)
     country_match   = _COUNTRY_RE_TOOL.search(msg)
+
+    # ── Officeholder questions auto-trigger investigate ──
+    # "Who is the current defence minister of Ghana" → fire investigate
+    # immediately so the LLM has fresh web data. Without this, the LLM
+    # would hallucinate from stale training data (round-4 Nitiwul incident).
+    officeholder_match = _OFFICEHOLDER_INTENT_RE.search(msg)
+    if officeholder_match and country_match:
+        # Build the investigation topic from the matched fragment + country
+        topic = f"current {officeholder_match.group(0)} {country_match.group(0)}".strip()
+        return {
+            "tool": "investigate",
+            "topic": topic[:200],
+            "context": msg,
+            "_reason": "officeholder_question",
+        }
 
     # ── 0. Multi-entity batch detection — spawn a background research task ──
     # Triggered by patterns like "research each of these suppliers", "compare
@@ -1503,6 +1540,32 @@ async def chat_ep(req: ChatRequest, request: Request):
                 await trace_stream.attach_verification(trace_id, summary)
         except Exception as e:
             _log.debug("source verification failed (non-fatal): %s", e)
+
+        # ── Officeholder guard ──
+        # Code-level enforcement of CONSTITUTION clause 10. The LLM games
+        # the prompt clause by inventing verification dates ("re-appointed
+        # February 2023") to satisfy the rule. This post-processor scans
+        # the response for officeholder claims, demotes any [CONFIRMED] /
+        # [PROBABLE] tag that lacks tool verification or cites a date older
+        # than 12 months, and appends a visible WARNING block so the user
+        # sees the demotion explicitly.
+        # Behind ARIA_OFFICEHOLDER_GUARD env var (default ON).
+        try:
+            from ..intel import officeholder_guard
+            rewritten, demotions = officeholder_guard.review_response(
+                response_text,
+                result.get("verification"),
+            )
+            if demotions:
+                response_text = rewritten
+                result["response"] = rewritten
+                result["officeholder_demotions"] = demotions
+                _log.info(
+                    "[officeholder_guard] demoted %d claim(s) in trace %s",
+                    len(demotions), trace_id,
+                )
+        except Exception as e:
+            _log.debug("officeholder_guard failed (non-fatal): %s", e)
 
         # ── Confidence-tagged reply footer ──
         # Wires existing observability signals (confidence tags +
