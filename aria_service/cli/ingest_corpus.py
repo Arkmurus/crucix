@@ -176,8 +176,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="Free-form note about the document")
     p.add_argument("--aria-url", default=os.getenv("ARIA_SERVICE_URL", "http://localhost:8000"),
                    help="Base URL of the ARIA service (defaults to ARIA_SERVICE_URL env)")
-    p.add_argument("--token", default=os.getenv("ARIA_INT_TOKEN", ""),
-                   help="Bearer token (defaults to ARIA_INT_TOKEN env)")
+    p.add_argument("--token", default=os.getenv("ARIA_API_TOKEN", "") or os.getenv("ARIA_INT_TOKEN", ""),
+                   help="Bearer token sent as Authorization header (default ARIA_API_TOKEN, then ARIA_INT_TOKEN)")
     p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_S,
                    help="Per-request timeout in seconds")
     p.add_argument("--dry-run", action="store_true",

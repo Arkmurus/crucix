@@ -1619,13 +1619,23 @@ const BRAIN_URL = process.env.BRAIN_SERVICE_URL; // e.g. https://crucix-brain.on
 const ARIA_SERVICE_URL = process.env.ARIA_SERVICE_URL || ''; // Python ARIA service, e.g. http://localhost:8000
 
 // ── ARIA Proxy Helper — routes to Python service first, falls back to local Node.js ──
+// Build the headers used for every fly.io ARIA call. Adds the bearer token
+// when ARIA_API_TOKEN is set in env (matches the soft-rollout pattern on
+// the Python side: token unset = no auth, token set = enforced both ends).
+function _ariaHeaders(extra = {}) {
+  const headers = { 'Content-Type': 'application/json', ...extra };
+  const token = process.env.ARIA_API_TOKEN;
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
 async function ariaProxy(req, res, path, { method = 'GET', fallback } = {}) {
   if (ARIA_SERVICE_URL) {
     try {
       const url = `${ARIA_SERVICE_URL}${path}`;
       const opts = {
         method: method || req.method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: _ariaHeaders(),
         signal: AbortSignal.timeout(30000),
       };
       if (method === 'POST' && req.body) opts.body = JSON.stringify(req.body);
@@ -1650,7 +1660,7 @@ async function pushSweepToARIA(data) {
   try {
     await fetch(`${ARIA_SERVICE_URL}/api/aria/ingest`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: _ariaHeaders(),
       body: JSON.stringify(data),
       signal: AbortSignal.timeout(30000),
     });
@@ -2100,7 +2110,7 @@ app.post('/api/aria/research', requireAuth, async (req, res) => {
         // Also store in Python service
         if (ARIA_SERVICE_URL) {
           fetch(`${ARIA_SERVICE_URL}/api/aria/knowledge/fact`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: _ariaHeaders(),
             body: JSON.stringify({ topic: topic + ' — ' + (ins.title || '').slice(0, 40), content: (ins.summary || ins.title || '').slice(0, 300), confidence: 'ASSESSED' }),
           }).catch(() => {});
         }
@@ -2179,7 +2189,7 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
     try {
       const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: _ariaHeaders(),
         body: JSON.stringify({ message, session_id: sid }),
         signal: AbortSignal.timeout(300000),  // 5 minutes — must exceed waListener 240s
       });
@@ -2238,7 +2248,7 @@ app.get('/api/aria/session/:sessionId', requireAuth, async (req, res) => {
       // Python ARIA stores sessions in Redis under crucix:aria:session:{sid}
       const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: _ariaHeaders(),
         body: JSON.stringify({ message: '__session_recovery__', session_id: sid }),
         signal: AbortSignal.timeout(5000),
       });
@@ -2259,7 +2269,7 @@ app.post('/api/aria/think', requireAuth, async (req, res) => {
     try {
       const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/think`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: _ariaHeaders(),
         body: JSON.stringify({ question, context: context || {}, fast: fast || false }),
         signal: AbortSignal.timeout(300000),
       });
@@ -2310,7 +2320,7 @@ app.post('/api/aria/send-whatsapp', requireAuth, async (req, res) => {
       try {
         const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: _ariaHeaders(),
           body: JSON.stringify({ message: question, session_id: sid }),
           signal: AbortSignal.timeout(60000),
         });
@@ -2363,7 +2373,7 @@ Write the email body only. Be concise and professional. Sign off as "ARIA — Ar
       try {
         const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: _ariaHeaders(),
           body: JSON.stringify({ message: prompt, session_id: sid }),
           signal: AbortSignal.timeout(60000),
         });

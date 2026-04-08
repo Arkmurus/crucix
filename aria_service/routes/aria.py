@@ -67,7 +67,64 @@ from ..intel import honesty_judge
 import logging
 _log = logging.getLogger("aria.routes")
 
-router = APIRouter(prefix="/api/aria", tags=["aria"])
+# Router-wide bearer-token enforcement. The require_aria_token dependency
+# is defined below; the forward reference works because FastAPI resolves
+# dependencies at request time, not import time. Soft-rollout: no-op when
+# ARIA_API_TOKEN is unset, enforces when set.
+def _router_auth_dep(request: Request) -> None:
+    require_aria_token(request)
+
+router = APIRouter(prefix="/api/aria", tags=["aria"], dependencies=[Depends(_router_auth_dep)])
+
+
+# ── Bearer-token auth ───────────────────────────────────────────────────────
+# 2026-04-08 round 7: protect the fly.io endpoints with a shared-secret
+# bearer token. Set ARIA_API_TOKEN as a fly secret + on the seenode side
+# (server.mjs uses INT_TOKEN-equivalent header) to enable enforcement.
+#
+# Soft-rollout design: when ARIA_API_TOKEN is UNSET, this dependency is a
+# no-op (logs a warning once on startup so we know the service is open).
+# When SET, every request to a protected route must carry
+#   Authorization: Bearer <token>
+# matching the secret, otherwise 401. This lets us deploy auth code, then
+# set the secret in a separate step, then update server.mjs and the CLIs
+# to send the token, all without a coordinated big-bang.
+import os as _os
+
+_AUTH_WARNING_LOGGED = False
+
+
+def _aria_token() -> str:
+    """Return the configured shared-secret token, or empty string if unset."""
+    return (_os.getenv("ARIA_API_TOKEN") or "").strip()
+
+
+def require_aria_token(request: Request) -> None:
+    """FastAPI dependency that enforces a bearer-token check when
+    ARIA_API_TOKEN is set. No-op when unset (soft rollout)."""
+    global _AUTH_WARNING_LOGGED
+    expected = _aria_token()
+    if not expected:
+        if not _AUTH_WARNING_LOGGED:
+            _log.warning(
+                "[auth] ARIA_API_TOKEN not set — fly.io endpoints are OPEN to the public internet. "
+                "Set the secret to enable enforcement."
+            )
+            _AUTH_WARNING_LOGGED = True
+        return
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or malformed Authorization header. Expected 'Bearer <token>'.",
+        )
+    presented = auth_header[7:].strip()
+    # Constant-time-ish comparison — Python's == is technically not constant
+    # time but for a short shared secret on a low-volume API the timing leak
+    # is negligible. If we ever go higher-stakes, swap for hmac.compare_digest.
+    if presented != expected:
+        raise HTTPException(status_code=401, detail="Invalid bearer token")
+
 
 # ── Input sanitisation ──────────────────────────────────────────────────────
 _COUNTRY_RE = re.compile(r"^[a-zA-Z\s\-']{2,60}$")

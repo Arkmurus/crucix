@@ -373,8 +373,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="List what would be ingested without sending")
     p.add_argument("--aria-url", default=os.getenv("ARIA_SERVICE_URL", "https://aria-intel.fly.dev"),
                    help="Base URL of the ARIA service (default ARIA_SERVICE_URL or https://aria-intel.fly.dev)")
-    p.add_argument("--token", default=os.getenv("ARIA_INT_TOKEN", ""),
-                   help="Bearer token (default ARIA_INT_TOKEN)")
+    p.add_argument("--token", default=os.getenv("ARIA_API_TOKEN", "") or os.getenv("ARIA_INT_TOKEN", ""),
+                   help="Bearer token sent as Authorization header (default ARIA_API_TOKEN, then ARIA_INT_TOKEN)")
     p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_S, help="Per-request timeout in seconds")
     args = p.parse_args(argv)
 
