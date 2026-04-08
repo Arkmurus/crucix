@@ -175,11 +175,20 @@ async def lifespan(app: FastAPI):
             logger.warning("[Reasoning Library] startup purge failed (non-fatal): %s", e)
     reasoning_purge_task = asyncio.create_task(_purge_reasoning_library_bg())
 
-    # Start autonomous research scheduler (every 30 minutes)
+    # Start autonomous research scheduler (every 30 minutes).
+    # Can be disabled entirely with ARIA_AUTONOMOUS_RESEARCH_ENABLED=0 — useful
+    # during interactive testing because the research cycle's sync model.encode()
+    # calls block the event loop and starve chat replies on a 2GB fly machine.
     research_task = None
-    if llm and llm.is_configured:
+    research_enabled = (_os.getenv("ARIA_AUTONOMOUS_RESEARCH_ENABLED", "1") or "1").lower() not in ("0", "false", "no")
+    if not research_enabled:
+        logger.info("Research scheduler DISABLED via ARIA_AUTONOMOUS_RESEARCH_ENABLED=0")
+    if llm and llm.is_configured and research_enabled:
         async def _research_loop():
-            await asyncio.sleep(60)  # Wait 1 min after startup before first research
+            # 5-minute startup delay (was 1 minute) so cold-start chat traffic
+            # has a clean window before the research loop starts hammering
+            # sentence-transformers and saturating CPU.
+            await asyncio.sleep(300)
             while True:
                 # Attribute every LLM call this loop fires to the
                 # "autonomous_research" feature so /cost separates it

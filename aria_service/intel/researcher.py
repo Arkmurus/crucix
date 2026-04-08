@@ -14,6 +14,7 @@ This is what makes ARIA a learning analyst, not a chatbot.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -1205,6 +1206,12 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
     existing_hypotheses = await _load_hypotheses()
 
     for article in top_articles:
+        # Yield control before each article so chat replies and other
+        # interactive handlers can interleave with the heavy research work.
+        # Without this, a long article-processing run holds the event loop
+        # for the entire batch (~30-90s) and starves chat traffic.
+        await asyncio.sleep(0.1)
+
         body = ""
         if article.get("link"):
             body = await _fetch_article_text(article["link"])
