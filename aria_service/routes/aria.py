@@ -1054,8 +1054,31 @@ async def learn_ep(req: LearningRequest):
 _URL_RE = re.compile(r"https?://[^\s<>\"'\]\)]+", re.IGNORECASE)
 _DOMAIN_RE = re.compile(r"\b(?:[a-z0-9-]+\.)+(?:com|co\.uk|org|net|gov|edu|io|ai|de|fr|pt|es|br|mz|ao|cv|ke|ng|za|cn|ru)(?:/\S*)?", re.IGNORECASE)
 
-# Imperative verbs that signal "go do something" rather than "answer me"
-_INVESTIGATE_KW = re.compile(r"\b(investigate|research|look\s+into|dig\s+into|find\s+out\s+about|deep[\-\s]?dive|do\s+a\s+deep\s+dive|tell\s+me\s+everything\s+about|explore)\b", re.IGNORECASE)
+# Imperative verbs (and noun equivalents) that signal "go do something"
+# rather than "answer me from training data". The noun forms were added
+# 2026-04-09 19:38 after the DUMA Engineering incident: the user said
+# "Aria, investigation https://duma-engineering.com?" (noun, not verb)
+# and the regex missed it, so the chain fell through to route 3
+# (extract_url, single page) instead of route 2 (deep_research, 5-angle
+# + extracts). The resulting brief only saw the homepage and called
+# DUMA a "potential shell entity" because off-site OSINT (Jane's,
+# LinkedIn, Crunchbase) was never queried.
+_INVESTIGATE_KW = re.compile(
+    r"\b("
+    r"investigate|investigation|investigations|investigating|"
+    r"research|researching|researches|"
+    r"look\s+into|looking\s+into|"
+    r"dig\s+into|digging\s+into|"
+    r"find\s+out\s+about|"
+    r"deep[\-\s]?dive|do\s+a\s+deep\s+dive|"
+    r"tell\s+me\s+everything\s+about|"
+    r"explore|exploring|"
+    r"due\s+diligence|"
+    r"DD\s+(?:on|of)|"
+    r"background\s+check"
+    r")\b",
+    re.IGNORECASE,
+)
 _CRAWL_KW       = re.compile(r"\b(crawl|spider|scrape|harvest)\b", re.IGNORECASE)
 _READ_KW        = re.compile(r"\b(read|fetch|grab|pull\s+in|ingest|summari[sz]e\s+(?:this|the)\s+(?:url|page|article|link))\b", re.IGNORECASE)
 _PROFILE_KW     = re.compile(r"\b(profile|build\s+a\s+profile\s+on|background\s+check|due\s+diligence\s+on)\b", re.IGNORECASE)
@@ -1317,7 +1340,18 @@ def _detect_tool_intent(message: str) -> dict | None:
             "", ctx_no_url, flags=re.IGNORECASE,
         )
         ctx_clean = re.sub(
-            r"\b(investigate|research|crawl|check|screen|look\s+into|find\s+out\s+about|tell\s+me\s+about|profile)\b",
+            r"\b("
+            r"investigate|investigation|investigations|investigating|"
+            r"research|researching|researches|"
+            r"crawl|check|screen|"
+            r"look\s+into|looking\s+into|"
+            r"dig\s+into|digging\s+into|"
+            r"find\s+out\s+about|"
+            r"tell\s+me\s+about|tell\s+me\s+everything\s+about|"
+            r"profile|profiling|"
+            r"due\s+diligence|background\s+check|"
+            r"explore|exploring"
+            r")\b",
             "", ctx_clean, flags=re.IGNORECASE,
         )
         # Strip common framing prefixes — accept "this/that/the" before
@@ -1381,10 +1415,16 @@ def _detect_tool_intent(message: str) -> dict | None:
     if has_investigate:
         verb_match = _INVESTIGATE_KW.search(msg)
         topic = msg[verb_match.end():].strip(" .,:;-?!\"'")
-        topic = re.sub(r"^(this|that|the|a|an|on|about|into|of)\s+", "", topic, flags=re.IGNORECASE)
-        # Strip common framing noise like "the company and it is people:"
+        # Strip leading determiners and prepositions including "this/that"
         topic = re.sub(
-            r"^(?:the\s+)?(company|firm|broker|entity|organisation|organization|person|individual)\s+(?:and\s+(?:it\s+is|its)\s+(?:people|directors|team)\s*)?[:\-]?\s*",
+            r"^(this|that|the|a|an|on|about|into|of|for|regarding|re)\s+",
+            "", topic, flags=re.IGNORECASE,
+        )
+        # Strip common framing noise like "(this/the) company and it is people:"
+        # 2026-04-09 19:38: expanded determiner to accept this/that/a/an in
+        # addition to the/optional, same fix as route 2 for the DUMA-pattern.
+        topic = re.sub(
+            r"^(?:this|that|the|a|an)?\s*(company|companies|firm|broker|entity|organisation|organization|person|individual|business|corporation|corp|ltd|limited|gmbh)\s*(?:and\s+(?:it\s+is|its|they\s+are|their)\s+(?:people|directors|team|leadership|owners|founders|management|staff|employees)\s*)?[:\-]?\s*",
             "", topic, flags=re.IGNORECASE,
         )
         topic = topic.strip(" .,:;-?!\"'\n")

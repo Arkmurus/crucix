@@ -409,6 +409,53 @@ def test_intent_detector_handles_generic_placeholder_with_url():
     assert "modirum" in intent3["entity"].lower()
 
 
+def test_intent_detector_handles_noun_form_investigation():
+    """Past incident 2026-04-09 19:38 — DUMA Engineering second probe:
+    user said 'Aria, investigation https://duma-engineering.com?' (noun
+    form, not verb). The _INVESTIGATE_KW regex only matched the verb
+    'investigate', so has_investigate was False, the chain fell through
+    to route 3 (extract_url, single homepage), and the brief only saw
+    the duma homepage instead of running the 5-angle deep_research +
+    extracts. The brief honestly described it as 'minimal digital
+    footprint' but missed all the off-site OSINT (Jane's coverage,
+    LinkedIn 1821 followers, Crunchbase, Bloomberg).
+
+    Fix: expanded _INVESTIGATE_KW to match 'investigation', 'investigations',
+    'investigating', 'researching', 'looking into', 'digging into',
+    'due diligence', 'background check', 'DD on', 'exploring'.
+    """
+    from aria_service.routes.aria import _detect_tool_intent
+
+    # Exact second-probe shape: noun form
+    intent = _detect_tool_intent("Aria, investigation https://duma-engineering.com?")
+    assert intent is not None, "noun form 'investigation' must trigger intent detection"
+    assert intent["tool"] == "deep_research", (
+        f"must route to deep_research (5-angle search), not extract_url. "
+        f"Got tool={intent.get('tool')!r}"
+    )
+    assert "duma" in intent["entity"].lower(), (
+        f"entity must derive from URL hostname when phrase is generic. "
+        f"Got entity={intent['entity']!r}"
+    )
+
+    # Other noun / variant forms must also work
+    for phrase in [
+        "Aria, investigations on Modirum Gespi",
+        "Aria, investigating https://example.com",
+        "Aria, due diligence on https://example.com",
+        "Aria, background check on Vision International",
+        "Aria, DD on https://example.com",
+        "Aria, exploring this entity https://example.com",
+        "Aria, looking into this firm https://example.com",
+        "Aria, digging into Modirum",
+    ]:
+        intent2 = _detect_tool_intent(phrase)
+        assert intent2 is not None, f"phrase failed to match: {phrase!r}"
+        assert intent2["tool"] in ("deep_research", "profile"), (
+            f"phrase {phrase!r} routed to wrong tool: {intent2.get('tool')!r}"
+        )
+
+
 def test_self_improvement_detector_ignores_tool_augmented_messages():
     """Past incident 2026-04-09 19:18 — DUMA Engineering: aria_chat() was
     calling detect_self_improvement_request against the message AFTER the
