@@ -1919,6 +1919,47 @@ async def purge_cases_ep(request: Request):
     return await _rl.purge_polluted_cases(dry_run=dry_run)
 
 
+@router.post("/admin/purge-signals")
+async def purge_signals_ep(request: Request):
+    """Surgical purge of intel-ledger signals matching one or more keywords.
+
+    Designed for cleanup after a polluted current-event signal has bled
+    across multiple chat replies (past incident 2026-04-09: a single
+    intelslava Telegram post about Lebanon airstrikes propagated into
+    unrelated commercial conversations because the signal sat in the
+    30-day rolling intel ledger and got pulled by every chat reply).
+
+    Body:
+        {
+            "keywords": ["lebanon", "hms dragon", "112 killed"],
+            "dry_run": true  // optional, default false
+        }
+
+    Returns:
+        {
+            "matched": <count>,
+            "removed": <count>,        // 0 if dry_run
+            "remaining": <count>,
+            "sample": [{"text": ..., "source": ..., "ts": ...}, ...],
+            "dry_run": <bool>,
+            "keywords": [...]
+        }
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    keywords = body.get("keywords") or []
+    if isinstance(keywords, str):
+        keywords = [keywords]
+    if not isinstance(keywords, list) or not keywords:
+        raise HTTPException(status_code=400, detail="Body must include non-empty 'keywords' list")
+    dry_run = bool(body.get("dry_run", False))
+    from ..intel import intel_ledger as _il
+    return await _il.purge_signals_by_keyword(keywords, dry_run=dry_run)
+
+
 @router.post("/session/forget")
 async def session_forget_ep(request: Request):
     """Wipe the conversation history for one session_id.

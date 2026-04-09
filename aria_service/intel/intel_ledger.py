@@ -98,6 +98,54 @@ async def init() -> None:
     logger.info(f"Intel ledger loaded: {len((_cache or {}).get('signals', []))} signals")
 
 
+async def purge_signals_by_keyword(keywords: list[str], dry_run: bool = False) -> dict:
+    """Remove signals from the ledger whose text contains ANY of the given
+    keywords (case-insensitive). Designed for surgical cleanup of polluted
+    signals — e.g. fabricated current-event claims that bled into multiple
+    chat replies.
+
+    Returns a summary dict with the number matched, removed, and a sample
+    of the matched texts so callers can verify before committing.
+
+    When dry_run=True, returns the same shape but does not actually delete.
+    """
+    db = await _load()
+    if not keywords:
+        return {"matched": 0, "removed": 0, "sample": [], "dry_run": dry_run}
+    needles = [k.lower() for k in keywords if k]
+    matched_signals = []
+    surviving = []
+    for s in db.get("signals", []):
+        text = (s.get("text", "") or "").lower()
+        source = (s.get("source", "") or "").lower()
+        if any(n in text or n in source for n in needles):
+            matched_signals.append(s)
+        else:
+            surviving.append(s)
+
+    sample = [
+        {"text": s.get("text", "")[:200], "source": s.get("source", ""), "ts": s.get("ts", "")}
+        for s in matched_signals[:10]
+    ]
+
+    if not dry_run and matched_signals:
+        db["signals"] = surviving
+        await _save()
+        logger.warning(
+            "Ledger purge: removed %d signal(s) matching keywords=%s",
+            len(matched_signals), keywords,
+        )
+
+    return {
+        "matched": len(matched_signals),
+        "removed": 0 if dry_run else len(matched_signals),
+        "remaining": len(surviving) if not dry_run else len(db.get("signals", [])),
+        "sample": sample,
+        "dry_run": dry_run,
+        "keywords": keywords,
+    }
+
+
 async def ingest_sweep_signals(current_data: dict) -> int:
     """Parse sweep data, extract entities, dedup, store. Returns count added."""
     db = await _load()
