@@ -1133,9 +1133,62 @@ _OFFICEHOLDER_INTENT_RE = re.compile(
 )
 
 
+# Past incident 2026-04-09 19:18 — DUMA Engineering investigation:
+# the WhatsApp listener prepends `[WhatsApp group context]\n[<sender>]: ...`
+# blocks containing recent message history into the chat envelope. The
+# previous turns leak into intent detection: a duma-engineering.com URL
+# investigation got 5 web_search angles all containing "Iraq tenders" from
+# the prior turn, returned 5 Iraq RFP extracts and ZERO duma data, and
+# the LLM responded with a fabricated "self-improvement plan" instead of
+# an honest brief. Root cause: entity extraction took the first 200 chars
+# of the message blob (which started with `[WhatsApp group context]`),
+# not the actual current question.
+#
+# This regex strips the listener-side context blocks so that intent
+# detection only sees the user's current message text. Strips:
+#   - leading "[WhatsApp group context]\n[Sender]: ...\n[Sender]: ...\n"
+#   - "[Question from <sender>]\n" markers
+# Returns the trailing message body. Idempotent: messages without these
+# markers pass through unchanged.
+_LISTENER_CONTEXT_PREFIX_RE = re.compile(
+    r"^\s*\[WhatsApp group context\][\s\S]*?\[Question from [^\]]+\]\s*",
+    re.IGNORECASE,
+)
+_LISTENER_QUESTION_MARKER_RE = re.compile(
+    r"\[Question from [^\]]+\]\s*",
+    re.IGNORECASE,
+)
+
+
+def _strip_listener_context(message: str) -> str:
+    """Strip the WhatsApp listener context-block prefix from a chat message.
+
+    The listener prepends recent conversation history as a `[WhatsApp group
+    context]` block followed by `[Question from <sender>]\\n<actual message>`.
+    For intent detection we ONLY want the actual current message — the
+    history is already persisted server-side via session_id-based history
+    storage and does not need to be re-injected through the message body.
+    """
+    if not message:
+        return message
+    # Fast path: no context block present
+    if "[WhatsApp group context]" not in message and "[Question from" not in message:
+        return message
+    stripped = _LISTENER_CONTEXT_PREFIX_RE.sub("", message, count=1)
+    if stripped == message:
+        # Prefix didn't match (maybe partial pattern) — just strip the
+        # `[Question from <sender>]` marker if it appears anywhere
+        stripped = _LISTENER_QUESTION_MARKER_RE.sub("", message)
+    return stripped.strip()
+
+
 def _detect_tool_intent(message: str) -> dict | None:
     """Parse free-form text into a structured tool call. Returns None if no tool intent."""
-    msg = message.strip()
+    # Strip the WhatsApp listener context prefix BEFORE any pattern matching.
+    # This prevents prior-turn topics (e.g. "Iraq tenders") from contaminating
+    # the entity extraction for the current turn (e.g. "duma-engineering.com").
+    # Past incident 2026-04-09 19:18 — DUMA Engineering investigation.
+    msg = _strip_listener_context(message).strip()
     if not msg:
         return None
 
@@ -1945,6 +1998,33 @@ async def chat_ep(req: ChatRequest, request: Request):
     if not req.message:
         raise HTTPException(status_code=400, detail="message required")
     session_id = req.session_id or str(uuid.uuid4())[:12]
+
+    # Past incident 2026-04-09 19:18 — DUMA Engineering investigation:
+    # the WhatsApp listener prepends `[WhatsApp group context]\n[Sender]: ...
+    # \n[Question from <sender>]\n` blocks containing recent message history.
+    # That history was bleeding into intent detection (the entity for a
+    # duma-engineering.com URL became the first 200 chars of conversation
+    # history starting with "Iraq tenders 2026"), into tool query construction
+    # (5 web_search angles all containing Iraq), into the LLM prompt (the
+    # LLM saw the polluted message and confabulated a self-improvement reply
+    # instead of an honest brief), and into the verifier (which then flagged
+    # NO_CITATIONS because no real duma data was extracted).
+    #
+    # Strip the listener context block at the very top of the chat handler
+    # so EVERY downstream consumer (intent detection, context layer build,
+    # LLM prompt construction, session history persistence, verifier,
+    # honesty judge, mem0 summariser) sees ONLY the actual current user
+    # message. Idempotent on messages without the prefix.
+    req.message = _strip_listener_context(req.message)
+    if not req.message.strip():
+        # If stripping leaves nothing, the listener sent a context-only
+        # blob with no actual question — return a clarification rather
+        # than firing tools on garbage.
+        return {
+            "response": "I see context from the conversation but no specific question for me. What would you like me to look at?",
+            "session_id": session_id,
+            "trivial": True,
+        }
 
     # ── Trivial-question short-circuit (highest priority, runs before
     # tool detection / tracing / verification / cost-tracking).

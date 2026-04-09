@@ -315,3 +315,49 @@ def test_redis_store_has_atomic_helpers():
     assert hasattr(redis_store, "incr"), "redis_store missing incr"
     assert hasattr(redis_store, "incrbyfloat"), "redis_store missing incrbyfloat"
     assert hasattr(redis_store, "expire"), "redis_store missing expire"
+
+
+def test_listener_context_strip():
+    """Past incident 2026-04-09 19:18 — DUMA Engineering investigation:
+    the WhatsApp listener prepends `[WhatsApp group context]\\n[<sender>]: ...
+    \\n[Question from <sender>]\\n<message>` blocks containing recent message
+    history. That history was bleeding into intent detection (a
+    duma-engineering.com URL investigation got 5 web_search angles all
+    containing 'Iraq tenders' from the prior turn) and into the LLM prompt
+    (the LLM saw the polluted message and confabulated a self-improvement
+    plan instead of a real DUMA brief).
+
+    The fix is _strip_listener_context() in routes/aria.py, called at the
+    very top of chat_ep BEFORE intent detection / context layer build /
+    LLM prompt construction. This test pins the exact incident shape so
+    a future regression in the regex breaks the test loudly.
+    """
+    from aria_service.routes.aria import _strip_listener_context
+
+    # Exact incident shape from fly logs at 2026-04-09 18:18:11
+    polluted = (
+        "[WhatsApp group context]\n"
+        "[Antonio]: Aria, are you online?\n"
+        "[Antonio]: Aria, find the latest defence procurement tenders for Iraq 2026?\n"
+        "[Antonio]: Aria, investigate this company and it is people https://duma-engineering.com?\n\n"
+        "[Question from Antonio]\n"
+        "Aria, investigate this company and it is people https://duma-engineering.com?"
+    )
+    cleaned = _strip_listener_context(polluted)
+    assert cleaned == "Aria, investigate this company and it is people https://duma-engineering.com?", (
+        f"strip failed — got: {cleaned!r}"
+    )
+    assert "Iraq" not in cleaned, "Iraq from prior turn must NOT survive the strip"
+    assert "WhatsApp group context" not in cleaned
+
+    # Idempotency: a clean message must pass through unchanged
+    clean = "Aria, investigate Modirum Gespi https://modirumgespi.com"
+    assert _strip_listener_context(clean) == clean
+
+    # Empty input safety
+    assert _strip_listener_context("") == ""
+
+    # Bare context block with no Question marker — fallback path strips
+    # the marker if it appears anywhere
+    weird = "[Question from User] just the actual question"
+    assert _strip_listener_context(weird) == "just the actual question"

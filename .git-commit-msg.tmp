@@ -1,0 +1,126 @@
+fix(routes): strip WhatsApp listener context block before intent detection
+
+Past incident 2026-04-09 19:18 — DUMA Engineering investigation:
+
+Antonio asked "Aria, investigate this company and it is people
+https://duma-engineering.com?" via WhatsApp. ARIA returned a
+fabricated "self-improvement plan" instead of a brief, citing
+hallucinated file paths (aria_service/intel/approach.py — does not
+exist) and made-up line numbers, with the verifier flagging the
+response as no_citations.
+
+ROOT CAUSE
+──────────
+The WhatsApp listener (lib/whatsapp/waListener.mjs:1707) wraps every
+chat message with the recent group context as a literal text block:
+
+    [WhatsApp group context]
+    [Antonio]: Aria, are you online?
+    [Antonio]: Aria, find the latest defence procurement tenders for Iraq 2026?
+    [Antonio]: Aria, investigate this company and it is people https://duma-engineering.com?
+
+    [Question from Antonio]
+    Aria, investigate this company and it is people https://duma-engineering.com?
+
+The fly logs prove this contaminated EVERY downstream consumer:
+
+  1. _detect_tool_intent extracted the entity from the first 200 chars
+     of the wrapped blob, which started with "[WhatsApp group context]
+     \n[Antonio]: Aria, are you online?... defence procurement tenders
+     for Iraq 2026" — NOT "duma engineering". The entity ended up as
+     200 chars of conversation history.
+
+  2. deep_research fired 5 web_search angles all containing the
+     polluted entity blob. Brave Search took the first 200 chars
+     (containing "Iraq tenders 2026") and dutifully returned 5 Iraq
+     RFP / tender extracts (iraqrfp.com, tendersontime.com,
+     globaltenders.com/iraq-tenders, biddetail.com/iraq-tenders,
+     tendersinfo.com/global-iraq-tenders.php) plus the duma
+     homepage (which extract_url_deep correctly fetched from the URL
+     field).
+
+  3. The LLM saw a topic-mismatched tool result (5 Iraq extracts +
+     1 small DUMA extract) and confabulated a "self-improvement plan"
+     response — pattern-matching its apology format against training
+     data instead of producing an honest "I have no good data" reply.
+     The plan referenced files that don't exist
+     (aria_service/intel/approach.py) and made-up line numbers.
+
+  4. The verifier flagged no_citations because the LLM generated no
+     [from snippet #N] / [EXTRACT N] markers — it was talking ABOUT
+     the failure, not citing the data.
+
+  5. handle_self_improvement_chat() did NOT actually fire (none of
+     its regex patterns match "investigate this company"). The plan
+     format was pure LLM hallucination on top of polluted input.
+
+THE FIX (server-side, this commit)
+──────────────────────────────────
+aria_service/routes/aria.py — added _strip_listener_context() helper
+and call it at the very TOP of chat_ep() BEFORE any other processing
+(intent detection, context layer build, LLM prompt construction,
+session history persistence, verifier, honesty judge, mem0 summariser).
+The strip removes:
+
+  - leading "[WhatsApp group context]\n[Sender]: ...\n" prefix
+  - the "[Question from <sender>]\n" marker
+  - any trailing whitespace before the actual message
+
+The strip is idempotent: messages without the markers pass through
+unchanged. Messages with the markers come through as the trailing
+text only.
+
+Also added a defensive duplicate strip inside _detect_tool_intent()
+as a safety net for any code path that calls intent detection
+directly without going through chat_ep.
+
+If stripping leaves nothing (the listener sent a context-only blob
+with no actual question), return a clarification reply rather than
+firing tools on garbage.
+
+WHAT THIS FIXES
+───────────────
+Once deployed, "investigate this company https://duma-engineering.com"
+via WhatsApp will produce:
+
+  - Entity correctly extracted as "duma engineering" (or just
+    "investigate this company and it is people https://duma-engineering.com?",
+    short enough to be a clean Brave query)
+  - 5 web_search angles all targeted at duma, NOT Iraq
+  - 5 verbatim extracts from duma-engineering.com pages
+  - LLM synthesis with proper [from EXTRACT N] citations
+  - Verifier verdict: grounded
+  - Footer: actual confidence floor of the body
+
+WHAT THIS DOES NOT FIX (architectural debt for next session)
+─────────────────────────────────────────────────────────────
+The listener side (lib/whatsapp/waListener.mjs) STILL wraps the
+message body with the [WhatsApp group context] block. The proper
+fix is to send group context as a SEPARATE field (e.g.
+{message, session_id, group_context}) and have fly.io treat it as
+a context layer, not as part of the user's question. Fly.io aria_engine
+already persists session history per session_id via _get_session(),
+so the listener wrapping is structurally redundant.
+
+For now the server-side strip handles the symptom completely — the
+markers are unambiguous, the strip is idempotent, and the regex
+matches the exact format the listener produces. Tested against the
+exact incident shape from the 18:18 fly logs.
+
+SMOKE TEST ADDED
+────────────────
+test_imports.py — test_listener_context_strip pins the exact incident
+shape from the fly logs so future regex regressions break the test
+loudly. Covers:
+  - The exact 5-message DUMA incident blob → must extract the trailing
+    "Aria, investigate this company..." line
+  - "Iraq" must NOT survive the strip
+  - Idempotency on already-clean messages
+  - Empty input safety
+  - Bare [Question from] marker fallback path
+
+DEPLOY TARGETS
+──────────────
+fly.io aria-intel only. The listener side (seenode) is unchanged —
+the server-side strip is sufficient for now and the listener can be
+refactored properly in a future session.
