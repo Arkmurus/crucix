@@ -248,6 +248,113 @@ Modirum Gespi query.
 
 ---
 
+## Session entry — 2026-04-09 (long session, 30+ commits)
+
+**Headline**: Phase 2 deep_research went from "broken silently" to "production-grade"; Phase 3 cherry-picks 1-4 + Phase 3c-α (autonomous engine bootstrap) shipped; the entire DUMA Engineering 4-bug fix chain landed; auth chain hardened across both services; semantic_search index rebuild path added.
+
+### Commit chain (in order — start `4f2b4ce` → end `f2ccd00`)
+
+| Commit | Theme |
+|---|---|
+| `12595bb` | Diagnostic INFO logging on web_search + deep_research entry — caught the import-os bug via WARNING-level exception capture |
+| `b6e51211` | One-line fix: `import os` at top of `researcher.py`. Phase 2 deep_research started actually firing 5 parallel Brave angles after this |
+| `98aa281` | **Pre-Phase-3 cleanup batch** (HIGH/CRITICAL): closed 5 unauth WhatsApp listener routes, removed `'aria-internal'` hardcoded fallback, fixed footer-confidence regression (3rd time), promoted 5 silent-swallow patterns from DEBUG to WARNING, fixed `VALID_TIERS` mismatch between corpus_registry / corpus_ingest |
+| `5054f0b` | **Phase 3 prep batch**: latency cap on deep_research (60s budget, 4 extracts, 2500-char text), constitution clause 15 (inline citation enforcement on tool-derived facts), `/admin/rebuild-semantic-index` endpoint, `/admin/brain/{session_id}` 8-layer observability endpoint, smoke test suite (36 modules + 4 targeted), `aria_service/.env.example` |
+| `edbd987` | Brain admin endpoint patch: 3 bug fixes (wrong import path + 2 sync/async confusion) + made the semantic rebuild background-async with status polling endpoint |
+| `65a4546` | Verifier + footer regex fixes: source_verifier now recognises clause-15 inline marker citations (`[from snippet #N]`, `[EXTRACT N]`, `[from RAG]`, `[from ATTACHED DOCUMENT]`); confidence_footer regex matches `[TAG — caveat]` not just bare `[TAG]` |
+| `661f37f` | **Phase 3 cherry-picks 1-4** from architecture proposal: 8-step research sequence (MEMORY → CORPUS → DECOMP → SEARCH → TRIANGULATE → GAPS → DISINFO → SYNTHESIS) appended to `researcher_principles.py`, named CPLP source pointers per market (Angola → Jornal de Angola etc), procurement + time-sensitive intent triggers, MEM0 NOTEBOOK RECALL as a dedicated context layer with provenance markers. Plus `aria_service/autonomous/AUTONOMOUS_ENGINE.md` (1700+ line spec doc) |
+| `ab079a0` | **Phase 3c-α — autonomous research engine bootstrap**. New `aria_service/autonomous/` package: `safety.py` (5 mandatory guardrails), `tasks.py` (Task dataclass + cron matcher + execution wrapper), `tasks.yaml` (1 starter task DISABLED by default), `delivery.py` (3-channel routing), `engine.py` (60s asyncio polling loop, lifecycle, manual run-now). 7 admin endpoints under `/api/aria/autonomous/*`. **Triple-gated safety**: `ARIA_AUTONOMOUS_ENABLED=0`, per-task `enabled: false`, `ARIA_AUTONOMOUS_DRY_RUN=1` — all default OFF |
+| `6353739` | DUMA fix #1: server-side `_strip_listener_context()` at top of `chat_ep` removes the `[WhatsApp group context]\n...[Question from <sender>]\n` wrapper |
+| `7978c7b` | DUMA fix #2 + #3: generic placeholder phrase fallback to URL hostname (`"this company"` → `"duma engineering"`); strip `[I have already run the appropriate tool...]` block before `detect_self_improvement_request` so tool block content can't trigger false self-improvement plans |
+| `0fd4203` | DUMA fix #4: expanded `_INVESTIGATE_KW` to match noun forms (`investigation`, `researching`, `looking into`, `due diligence`, `DD on`, `background check`, etc.) so the chain doesn't fall through to extract_url single-page when the user uses noun phrasing |
+| `f2ccd00` | **Three-fix bundle**: (a) 7 new slash command aliases `/investigate`, `/investigation`, `/dd`, `/duediligence`, `/due-diligence`, `/background`, `/profile` in seenode listener; (b) alert poll auth fix (raw `fetch` → `_ariaFetch` + 30s timeout) — closes the "Alert poll cycle failed: timeout" log spam; (c) `group_context` as a separate `ChatRequest` field — proper architectural close-out for the DUMA bug class. The listener now sends `{message, session_id, group_context}` instead of wrapping the message body. fly.io chat_ep builds `message_for_llm` in 3 layers (user → group_context → tool result) with the group_context block tagged so the LLM treats it as background-only |
+
+### The DUMA Engineering bug chain (4 distinct bugs, each peeled by validation)
+
+| Bug | Symptom | Root cause | Fix commit |
+|---|---|---|---|
+| 1 | Searched for "Iraq tenders" instead of duma | Listener prepended last 5 group messages as `[WhatsApp group context]\n...` block — first 200 chars contained "Iraq tenders 2026" from prior turn, became the entity | `6353739` |
+| 2 | Searched for "People Magazine" articles | After context strip, the cleaned message was `"investigate this company and it is people https://duma..."` — the noun-strip regex required `the` not `this` so "this company and it is people" survived as the entity. Brave interpreted "people" as People Magazine | `7978c7b` |
+| 3 | Generated fabricated self-improvement plan with hallucinated file paths (`approach.py`) | `aria_chat()` called `detect_self_improvement_request(message_for_llm)` AFTER the tool-block was prepended. Tool block contained verbs/nouns matching the loose self_improve regex patterns → false positive → LLM generated improvement plan instead of brief | `7978c7b` |
+| 4 | Brief said "minimal digital footprint" because only homepage extracted | User sent `"Aria, investigation https://..."` (noun, not verb). `_INVESTIGATE_KW` regex only matched verb forms. `has_investigate=False` → fell through to route 3 (extract_url single page) instead of route 2 (deep_research 5-angle) | `0fd4203` |
+
+**Each bug had its own regression test** in `aria_service/tests/test_imports.py` pinning the exact incident shape.
+
+### Phase 3c-α architectural decisions (autonomous engine)
+
+- **Scheduling backend**: rejected APScheduler + Redis jobstore in favour of a 60s asyncio polling loop in the FastAPI lifespan hook. Rationale: consistent with the four existing in-process loops in `main.py` (autonomous_research, self_improve, student loops, proactive watch), zero new dependencies, direct access to all brain layers and the constitutional pipeline.
+- **Task config format**: YAML, not Python. Lets the operator edit `tasks.yaml` and call `POST /admin/autonomous/reload-tasks` without redeploying.
+- **3 starter tasks**, NOT 12 from the proposal. `DAILY-PROC-ANGOLA` only for Phase 3c-α; `WEEKLY-COMP-UK` and `WEEKLY-CP-SCAN` deferred to Phase 3c-γ.
+- **Triple-gated safety** ensures the deploy itself fires nothing.
+- **Delivery routing** through `delivery.py`: mem0 (no-op, aria_chat already fires the summariser), intel_ledger (real signal write), whatsapp (POST to seenode `/api/wa-listener/send` — auth-gated by `_waRequireAuth` from `98aa281`).
+
+### Layer scorecard delta (start of session 3 → end of session 3)
+
+| Layer | Was | Now | Delta | Notes |
+|---|---|---|---|---|
+| TIERS (corpus → chromadb) | 85% | 90% | +5 | RAG store grew from 2,719 docs / 312 facts to ~2,776 / 446+ during the session via auto-extraction loop |
+| WEB SEARCH (sweep + crawl) | 85% | **95%** | +10 | Phase 2 deep_research orchestrator validated end-to-end on Modirum (Finland HQ correctly identified) and DUMA (DUMA ENGINEERING GROUP SL, founded 2006, ASV350 product, 4 named execs) |
+| AUTONOMOUS RESEARCH | 40% | **70%** | +30 | Engine bootstrap shipped (`ab079a0`), dormant by triple-gated safety, manual run-now validated |
+| MEM0 (personal notebook) | 70% | 80% | +10 | New `retrieve_for_query()` function, dedicated MEM0 NOTEBOOK RECALL context layer with provenance markers — verified firing in production DUMA brief |
+| OUTCOME TRACKING | 85% | **95%** | +10 | Verifier now recognises clause-15 inline markers (`grounded` verdict on tool-using turns); footer reflects body confidence floor; 4 new regression tests for the DUMA pattern |
+| COUNTERPARTY DD | 80% | **95%** | +15 | Ghost detection + jurisdiction inference guard + 8-step sequence + named CPLP sources combined produce production-grade DD briefs |
+| CONTRACT REVIEW | 60% | 85% | +25 | Validated end-to-end on a real $12.5M C4 explosives contract (ARK-SER-01) — 7 red flags identified, omission analysis working, clauses cited by exact number |
+
+**Aggregate readiness: ~78% → ~88%** — biggest single-session jump of the project.
+
+### Status of both services at end of session
+
+| Service | Latest commit live | Pending action |
+|---|---|---|
+| fly.io aria-intel | `f2ccd00` ✅ | none |
+| seenode bridge | `ab079a0` ⚠️ | needs redeploy to pick up `f2ccd00` (slash commands + alert poll fix + group_context architectural fix) |
+
+### Pending for next session (Phase 3c-β onwards)
+
+**Operational (do first)**:
+1. Antonio: redeploy seenode to pick up `f2ccd00`. Restart suffices (Redis-backed Baileys auth survives — 37 files saved). Then test `/investigate https://duma-engineering.com` from WhatsApp.
+2. Antonio: optionally set `WA_ALERT_GROUP_ID=120363427813573577@g.us` so proactive alerts push to WhatsApp instead of being log-only.
+
+**Phase 3c-β through ε ramp-up** (when Antonio is ready):
+1. Set `ARIA_AUTONOMOUS_ENABLED=1` → engine starts polling, no fires (all tasks disabled in yaml)
+2. Manually fire `POST /api/aria/autonomous/run-now/DAILY-PROC-ANGOLA` → validate run record in DRY_RUN
+3. Edit `tasks.yaml` to set `enabled: true` and `whatsapp_group_id: 120363427813573577@g.us`, POST `/reload-tasks`
+4. Watch 5 weekday runs in DRY_RUN mode
+5. `flyctl secrets set ARIA_AUTONOMOUS_DRY_RUN=0 -a aria-intel` to enable real delivery
+6. Bump daily cost cap from $1 to $5 once validated
+7. Phase 3c-γ: add `WEEKLY-COMP-UK` and `WEEKLY-CP-SCAN` to tasks.yaml, reload
+8. Phase 3c-δ: build `counterparty_scan` tool that pulls active list from mem0 by tag
+9. Phase 3c-ε: expand to remaining 9 tasks from architecture proposal, one at a time
+
+**Quality issues worth investigating**:
+1. **Honesty score 0.069** — 6.9% rolling honesty rate is alarmingly low. Need to pull a sample of the 28 suspicious judgments to understand what she's getting flagged for, then tune the system prompt.
+2. **Baileys SessionEntry log noise** — every libsignal session rotation dumps full crypto material to seenode logs. Configure Baileys logger to suppress.
+3. **Boot-time Redis auth restore** — works at runtime (Baileys code 515 reconnect uses it cleanly) but failed silently after the morning seenode redeploy. Probably a race between Baileys starting and Upstash becoming reachable. Add retry with backoff.
+4. **`messages_heard` zombie state** — at one point during the session, `connected: true` but `messages_heard` stuck at 1 for 50min while the user sent 3 test messages. Probably code 515 leaving the socket half-broken. Worth adding a heartbeat / sentinel test.
+
+**5 open questions for Antonio** (from `aria_service/autonomous/AUTONOMOUS_ENGINE.md` section 10):
+1. WhatsApp group ID for autonomous briefs — recommendation: use the existing `120363427813573577@g.us` ARIA group, or create a dedicated `#aria-intel-feed` group for autonomous output to keep it separate from interactive chat
+2. Daily cost cap — starting $1, recommend bumping to $5 after one week of validation
+3. Escalation channel — same as brief delivery, or separate alerts channel?
+4. Counterparty list source — does Antonio maintain an active counterparty list in mem0 already? If not, Phase 3c-δ needs an upstream seeding step
+5. First-task validation window — recommendation: one full week of weekday firings (5 runs of `DAILY-PROC-ANGOLA`) before adding the second task
+
+**Architectural ideas for future sessions**:
+- **Replace regex-based entity extraction with a small LLM call**. The DUMA chain proved 4 distinct bugs hide behind regex-based natural language parsing. A small LLM call (~$0.001 per turn) takes the user message + URL and returns `{entity, entity_type}` — would eliminate the entire bug class.
+- **Multi-turn agentic tool iteration** — the LLM should be able to follow up on a specific snippet with a verbatim extract on the SAME turn instead of waiting for the user to send a new message. Larger refactor, design needed.
+- **Frontend Angular tool buttons** — explicit profile/screen/contract review/investigate buttons. M effort.
+- **Cheap-model intent routing** — Haiku for trivial classification, DeepSeek/Sonnet for synthesis. 30-50% cost reduction. S effort but risk of breaking chat path so needs careful design.
+
+### Operational lessons from this session
+
+1. **Diagnostic logging pays for itself immediately**. The `import os` bug was invisible for 2 days because `asyncio.gather(return_exceptions=True)` swallowed the NameError silently. One INFO log line per gather angle made it visible in 30 seconds.
+2. **Validation discipline catches bug chains**. Each fix in the DUMA chain was found by running the SAME probe again after the previous fix. Without that loop we would have shipped 1 of the 4 fixes and called it done.
+3. **Triple-gated safety on autonomous systems is non-negotiable**. The autonomous engine is dormant by default in three independent ways (env var, per-task flag, dry-run flag) so a deploy cannot accidentally start firing. This is the right shape for any system that runs without human supervision.
+4. **Architectural fixes vs defensive strips**. Commit `6353739` added a server-side strip as a band-aid; commit `f2ccd00` added the proper architectural fix (separate JSON field). Both are in the codebase — strip as safety net, field as clean path. Belt and braces.
+5. **Smoke tests are cheap insurance**. Adding 4 new regression tests per fix (one per bug in the DUMA chain) means the next regression breaks loudly on first push instead of silently for 2 days.
+
+---
+
 ## How to read this scorecard going forward
 
 **Each new entry should answer:**
