@@ -334,18 +334,41 @@ def _looks_like_propaganda_source(source_str: str) -> bool:
 
 def _query_keywords(message: str) -> set[str]:
     """Extract content keywords from the user query for relevance filtering.
-    Drops common stopwords + words shorter than 4 chars to avoid noise."""
+    Drops common stopwords + words shorter than 4 chars to avoid noise.
+
+    Generic words that frequently appear in BOTH the query and unrelated
+    intel signals (minister, defence, current, cabinet, etc.) are also
+    excluded — these were the leak vectors in the 2026-04-09 Lebanon
+    contamination incident: a Ghana defence-minister query passed the
+    relevance filter for an unrelated Lebanon "minister" signal because
+    they shared the single common word.
+    """
     if not message:
         return set()
     _STOP = {
+        # Generic English stopwords
         "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
         "be", "been", "being", "have", "has", "had", "do", "does", "did",
         "will", "would", "could", "should", "may", "might", "must", "shall",
         "can", "this", "that", "these", "those", "with", "from", "into",
         "about", "your", "you", "yours", "what", "when", "where", "why",
         "how", "who", "which", "give", "tell", "show", "find", "please",
+        # Conversational filler
         "aria", "investigate", "feedback", "professional", "people",
         "company", "companies", "thanks", "thank",
+        # High-frequency domain words that match TOO MANY signals (these
+        # are the leak vectors — added 2026-04-09 after "minister" alone
+        # let Lebanon prime-minister content match a Ghana defence-minister
+        # query). Real entity matching happens via the +5 country / +4
+        # OEM / +4 product scoring in query_ledger; the relevance filter
+        # in _build_intel_context relies on UNCOMMON keywords only.
+        "minister", "ministry", "current", "cabinet", "officeholder",
+        "defence", "defense", "military", "armed", "forces", "force",
+        "weapon", "weapons", "ammunition", "ammo", "vehicle", "vehicles",
+        "system", "systems", "deal", "deals", "tender", "tenders",
+        "contract", "contracts", "supply", "supplier", "buyer",
+        "today", "yesterday", "recent", "current", "latest", "active",
+        "country", "countries", "market", "markets", "region", "regional",
     }
     words = set()
     for w in message.lower().split():
@@ -368,15 +391,29 @@ def _item_text_for_match(item) -> str:
     return str(item).lower()
 
 
-def _has_query_overlap(item, keywords: set[str]) -> bool:
-    """Return True if an intel item shares at least one content keyword
-    with the user query. Items that share NO keywords are dropped to
-    prevent unrelated context (e.g. a Lebanon airstrike headline) from
-    bleeding into a Vision International ammunition RFQ analysis."""
+def _has_query_overlap(item, keywords: set[str], min_matches: int = 2) -> bool:
+    """Return True if an intel item shares at least `min_matches` content
+    keywords with the user query (after high-frequency stopword filtering).
+
+    Items that share fewer than min_matches keywords are dropped to
+    prevent unrelated context from bleeding into the reply. Default
+    threshold is 2 — single common-word matches were the leak vector in
+    the 2026-04-09 incident (Lebanon "minister" content passed the
+    filter for a Ghana defence-minister query because they shared the
+    single word "minister"; "minister" is now a stopword AND we require
+    a 2-word minimum overlap as defence in depth).
+
+    SPECIAL CASE: very short queries (≤2 keywords after stopword strip)
+    fall back to a 1-word minimum because requiring 2 matches on a
+    1-keyword query would always return False. Better to risk slight
+    bleed than drop ALL context for a "Aria, what about Angola?" query.
+    """
     if not keywords:
         return True  # No filter — pass everything through
     text = _item_text_for_match(item)
-    return any(kw in text for kw in keywords)
+    threshold = 1 if len(keywords) <= 2 else min_matches
+    matches = sum(1 for kw in keywords if kw in text)
+    return matches >= threshold
 
 
 def _format_news_item(item) -> str:
