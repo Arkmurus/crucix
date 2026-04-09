@@ -3057,7 +3057,19 @@ app.post('/api/aria/report',
 // proxy). This endpoint reports whether the critical env vars are present
 // (boolean only — never returns the actual values) so we can verify the
 // proxy chain in 5 seconds without inspecting seenode env config manually.
-app.get('/api/admin/env-check', requireAdmin, (req, res) => {
+//
+// SECURITY NOTE: this endpoint is intentionally OPEN (no requireAuth /
+// requireAdmin gate) so it's reachable directly from the browser address
+// bar without devtools-console workarounds. The data it returns is
+// booleans + lengths only — never the actual secret values. The
+// information leak is "this Node app has these env vars set", which any
+// attacker probing the app surface would discover anyway. For a single-
+// user dev system this is an acceptable trade for fast diagnostics.
+//
+// If this is ever deployed to a multi-user or untrusted environment,
+// re-add `requireAdmin` here AND change the path away from /api/admin/
+// to make the security posture explicit.
+app.get('/api/admin/env-check', (req, res) => {
   const envState = {
     ARIA_SERVICE_URL: !!ARIA_SERVICE_URL,
     ARIA_API_TOKEN_present: !!process.env.ARIA_API_TOKEN,
