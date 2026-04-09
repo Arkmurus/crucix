@@ -1373,6 +1373,42 @@ async def aria_chat(
     except Exception as e:
         logger.warning("Neural learning failed: %s", e)
 
+    # ── MEM0: per-turn personal-notebook summariser (fire-and-forget) ──
+    # Spec: Antonio's mental module — MEM0 = personal notebook (grows
+    # with every conversation). On every substantive reply, fire a small
+    # background LLM call that distills the turn into a single sentence
+    # of "what should be remembered". Stored as a knowledge fact with
+    # source `mem0:session_<id>:<ts>` so existing knowledge.search picks
+    # it up on relevant future queries via the standard chat context layer.
+    # Skips trivial / refusal / failure replies. Behind ARIA_MEM0_ENABLED
+    # env var (default ON).
+    try:
+        from .intel import mem0 as _mem0
+        mem0_task = asyncio.create_task(
+            _mem0.summarise_and_store(message, response_text, session_id, llm)
+        )
+        # Hold a strong reference so the GC can't collect mid-task; log
+        # the result asynchronously when done so we have visibility into
+        # how often MEM0 actually fires vs skips.
+        def _on_mem0_done(t):
+            try:
+                if t.cancelled():
+                    return
+                exc = t.exception()
+                if exc:
+                    logger.debug("MEM0 task exception: %s", exc)
+                    return
+                r = t.result() or {}
+                if r.get("ok"):
+                    logger.info("[mem0] stored: %s", (r.get("summary") or "")[:120])
+                elif r.get("skipped") and r.get("skipped_reason") not in ("not_substantive", "summariser_returned_none"):
+                    logger.debug("[mem0] skipped: %s", r.get("skipped_reason"))
+            except Exception:
+                pass
+        mem0_task.add_done_callback(_on_mem0_done)
+    except Exception as e:
+        logger.debug("MEM0 hook setup failed (non-fatal): %s", e)
+
     # Record for training
     try:
         await training_data.record_conversation(

@@ -11,6 +11,28 @@ primary_region = 'lhr'
   auto_start_machines = true
   min_machines_running = 1
 
+# ── Persistent storage for chromadb (RAG store) ─────────────────────────────
+# Past incident 2026-04-09: chromadb was running with no volume mounted at
+# /data, so _resolve_rag_path() in rag_store.py fell back to /tmp/aria_rag
+# (ephemeral). Every machine restart wiped the corpus. The 615 chunks from
+# the morning's Tier A bulk ingest were lost on the next deploy. Fix: mount
+# a fly.io volume at /data so the rag_store path resolves to /data/aria_rag
+# (persistent across restarts and deploys).
+#
+# Volume created via:  flyctl volumes create aria_rag --region lhr --size 5 -a aria-intel
+#
+# Single-machine constraint: fly.io volumes are NOT shared across machines.
+# Each machine that wants to use the volume needs its own copy (which would
+# diverge as ingests happen on one but not the other). For now we run a
+# single machine (min_machines_running=1) and accept the loss of HA — the
+# alternative is two independent RAG stores which is worse for data
+# coherence. The volume itself has scheduled snapshots so backup is
+# automatic.
+[mounts]
+  source = 'aria_rag'
+  destination = '/data'
+  initial_size = '5gb'
+
 [[vm]]
   size = 'shared-cpu-1x'
   memory = '1024mb'
