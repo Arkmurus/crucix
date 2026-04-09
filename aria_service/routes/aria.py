@@ -29,6 +29,8 @@ from ..intel.researcher import (
     read_document,
     extract_url_text,
     extract_url_deep,
+    web_search,
+    deep_research,
     validate_hypothesis,
     get_hypotheses,
     get_research_summary,
@@ -1211,32 +1213,73 @@ def _detect_tool_intent(message: str) -> dict | None:
     if has_crawl and url:
         return {"tool": "crawl", "url": url, "context": msg}
 
-    # 2. Investigate / research / look-into a URL → FAST EXTRACT the page
-    # Past incident 2026-04-09: this previously routed to crawl_website(15)
-    # which made 15 LLM-analysed page calls and routinely took 90+ seconds
-    # for JS-rendered SPAs, returning thin or no content. The chat LLM
-    # then fell back to session memory + general knowledge and confabulated
-    # entire company profiles (modirumgespi.com became a "Portuguese
-    # consultancy" with fabricated registry data). The fix: route to
-    # extract_url which does ONE static fetch + structured extraction in
-    # ~5-15s and injects the verbatim site content into the LLM context
-    # via the tool block. Same defence pattern as document injection
-    # (clause 12) — the LLM sees the real content and can quote from it
-    # under clauses 9 and 14, or refuse if extraction failed.
+    # 2. Investigate / research / look-into a URL → DEEP RESEARCH the entity
+    # AND the URL together. Phase 2 evolution (2026-04-09 evening):
+    # extract_url alone (even multi-page) only sees what the company
+    # publishes on its own website. For real DD, ARIA needs the OFF-site
+    # OSINT surface too — registry filings, news articles, LinkedIn,
+    # think tank coverage. deep_research orchestrates 5 parallel web
+    # searches (different angles) + extracts the top 5 URLs in parallel
+    # + extract_url_deep on the user-provided URL — one tool call,
+    # everything aggregated.
+    #
+    # Past incident 2026-04-09 evening: ARIA called Modirum Gespi a
+    # "Portuguese OEM" because it could only see the homepage marketing
+    # copy (which had hreflang="pt-pt") and inferred nationality from
+    # the language variant. The actual jurisdiction (Finnish HQ +
+    # Brazilian defence operations) was nowhere on the company website
+    # but is presumably documented in news articles, registry filings,
+    # and LinkedIn profiles — i.e. exactly the kind of OFF-site sources
+    # web search surfaces.
     if has_investigate and url:
-        return {"tool": "extract_url", "url": url, "context": msg}
+        # Try to derive a clean entity name for the search query
+        ctx = msg
+        ctx_no_url = re.sub(r"https?://\S+", "", ctx).strip()
+        ctx_clean = re.sub(
+            r"^\s*(aria[,\s]*|please\s+|kindly\s+|can\s+you\s+)*",
+            "", ctx_no_url, flags=re.IGNORECASE,
+        )
+        ctx_clean = re.sub(
+            r"\b(investigate|research|crawl|check|screen|look\s+into|find\s+out\s+about|tell\s+me\s+about|profile)\b",
+            "", ctx_clean, flags=re.IGNORECASE,
+        )
+        ctx_clean = re.sub(
+            r"^\s*(the\s+)?(company|firm|broker|entity|organisation|organization)\s+(and\s+(it\s+is|its)\s+(people|directors|team))?\s*[:\-]?\s*",
+            "", ctx_clean, flags=re.IGNORECASE,
+        )
+        entity = ctx_clean.strip(" ,.:;-?!\"'\n")[:200]
+        if not entity:
+            # Fallback to the domain name
+            try:
+                from urllib.parse import urlparse as _up
+                host = _up(url).netloc.lower().replace("www.", "")
+                entity = host.split(".")[0]
+            except Exception:
+                entity = url
+        return {"tool": "deep_research", "entity": entity, "url": url, "context": msg}
 
     # 3. Read / summarise URL — bare URL with no verb, or explicit "read this"
     if (has_read and url) or (url and not (has_investigate or has_crawl or has_profile)):
         return {"tool": "read", "url": url, "context": msg}
 
-    # 4. Investigate topic (no URL) — extract topic after the verb
+    # 4. Investigate topic (no URL) — fire deep_research for thorough OSINT.
+    # Phase 2 evolution: this used to route to web_search (snippet-only)
+    # and even earlier to the slow deep_researcher.investigate() (which
+    # took >2 min and timed out). deep_research is the right primitive
+    # — multi-query web search + parallel extract of top results in one
+    # tool call, ~10-25s wall time.
     if has_investigate:
         verb_match = _INVESTIGATE_KW.search(msg)
         topic = msg[verb_match.end():].strip(" .,:;-?!\"'")
         topic = re.sub(r"^(this|that|the|a|an|on|about|into|of)\s+", "", topic, flags=re.IGNORECASE)
+        # Strip common framing noise like "the company and it is people:"
+        topic = re.sub(
+            r"^(?:the\s+)?(company|firm|broker|entity|organisation|organization|person|individual)\s+(?:and\s+(?:it\s+is|its)\s+(?:people|directors|team)\s*)?[:\-]?\s*",
+            "", topic, flags=re.IGNORECASE,
+        )
+        topic = topic.strip(" .,:;-?!\"'\n")
         if topic and len(topic) >= 3:
-            return {"tool": "investigate", "topic": topic[:200], "context": msg}
+            return {"tool": "deep_research", "entity": topic[:200], "context": msg}
 
     # 5. Profile / background check on entity
     if has_profile:
@@ -1373,6 +1416,161 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"Do NOT try to give the answer yourself — it does not exist yet."
             )
 
+        if tool == "deep_research":
+            # THE THOROUGH RESEARCH PATH (Phase 2, 2026-04-09 evening).
+            # Orchestrates multiple parallel web searches across different
+            # angles (entity / company / headquarters / directors / news),
+            # deduplicates + ranks results by source-tier authority, then
+            # extracts verbatim content from the top 5 URLs in parallel.
+            # Optionally also runs extract_url_deep on a primary_url if
+            # the user provided one.
+            #
+            # This is the "go through every single bit of information"
+            # primitive Antonio asked for. NO LLM call, NO RAG ingest —
+            # pure HTTP fetching + structured extraction. Returns the
+            # entire research dossier verbatim to the LLM in one tool
+            # block.
+            entity = (intent.get("entity") or intent.get("query") or "").strip()
+            primary_url = (intent.get("url") or "").strip()
+            r = await deep_research(
+                entity, primary_url=primary_url, max_queries=5, max_extracts=5,
+            )
+            if not r.get("ok"):
+                return (
+                    f"\n\n[TOOL: deep_research — FAILED]\n"
+                    f"Entity: {entity}\n"
+                    f"Error: {r.get('error', 'unknown')}\n"
+                    f"Duration: {r.get('duration_ms', 0)}ms\n"
+                    + _no_data_warning("deep_research", entity, blocking=False)
+                )
+            # Format the snippets section
+            snippets = r.get("snippets_top") or []
+            if snippets:
+                snippets_block = "\n".join(
+                    f"  [{i+1}] [tier={s['tier_score']} angles={len(s['angles'])}] {s['title']}\n"
+                    f"      URL: {s['url']}\n"
+                    f"      Snippet: {s['snippet']}"
+                    for i, s in enumerate(snippets[:12])
+                )
+            else:
+                snippets_block = "  (no snippets returned across any angle)"
+
+            # Format the extracted pages section
+            extracted = r.get("extracted_pages") or []
+            if extracted:
+                extracted_block = "\n\n".join(
+                    f"--- EXTRACT {i+1}: {p['url']} {'(deep multi-page)' if p.get('is_deep') else '(single page)'} ---\n"
+                    f"Title: {p.get('title','')}\n"
+                    f"Description: {p.get('description','')}\n"
+                    f"Social: {', '.join((p.get('social') or [])[:5]) or '(none)'}\n"
+                    f"Emails: {', '.join((p.get('emails') or [])[:3]) or '(none)'}\n"
+                    f"Text:\n{p.get('text','')}"
+                    for i, p in enumerate(extracted[:6])
+                )
+            else:
+                extracted_block = "(no pages successfully extracted)"
+
+            queries_run = ", ".join(repr(q) for q in (r.get("queries_run") or []))
+            return (
+                f"\n\n[TOOL: deep_research — multi-query OSINT + verbatim extracts]\n"
+                f"Entity: {entity}\n"
+                f"Primary URL: {primary_url or '(none)'}\n"
+                f"Queries run: {queries_run}\n"
+                f"Snippets per provider: {r.get('snippet_count_per_provider', {})}\n"
+                f"Snippets per angle: {r.get('snippet_count_per_angle', {})}\n"
+                f"Total unique URLs surfaced: {r.get('snippets_total', 0)}\n"
+                f"Pages extracted verbatim: {r.get('extracted_count', 0)}\n"
+                f"Duration: {r.get('duration_ms', 0)}ms\n"
+                f"\n--- TOP-RANKED SEARCH SNIPPETS (sorted by source-tier score + cross-angle bonus) ---\n"
+                f"{snippets_block}\n"
+                f"--- End snippets ---\n"
+                f"\n--- VERBATIM EXTRACTS FROM TOP URLS ---\n"
+                f"{extracted_block}\n"
+                f"--- End extracts ---\n"
+                f"\nIMPORTANT — clauses 9, 13, 14 + researcher principles:\n"
+                f"  (a) You now have BOTH snippet-level OSINT pointers AND verbatim "
+                f"text from the highest-ranked URLs. Cite the source URL inline "
+                f"for every fact. The format is '[from <url>]' or '[snippet #N]'.\n"
+                f"  (b) Apply the source-tier hierarchy: registry / official "
+                f"records (tier 1, score 95-100) override think tanks (tier 2, "
+                f"score 80) which override defence trade press (tier 3, score "
+                f"65) which override quality journalism (tier 4, score 50) "
+                f"which override generic web / Wikipedia (tier 5, score "
+                f"10-45). Tag each fact with its tier source.\n"
+                f"  (c) Apply the triangulation rule: single-source = "
+                f"`[ASSESSED — single source]`, two independent sources = "
+                f"`[PROBABLE]`, three+ independent sources = `[CONFIRMED]`.\n"
+                f"  (d) Do NOT invent any verifiable fact (company number, "
+                f"address, director name, jurisdiction, NACE code, financial "
+                f"figure) that is not present in the materials above. If "
+                f"absent, say so explicitly under GAPS.\n"
+                f"  (e) Do NOT infer nationality / jurisdiction from URL TLDs "
+                f"or hreflang language variants — only from explicit text in "
+                f"the snippets or extracts.\n"
+                f"  (f) Required output sections: BOTTOM LINE, ENTITY IDENTITY, "
+                f"BENEFICIAL OWNERSHIP, GHOST DETECTION CHECKLIST (if "
+                f"counterparty DD), SANCTIONS SCREEN, DIGITAL FOOTPRINT, "
+                f"GAPS, RECOMMENDED ACTION, NEXT STEP."
+            )
+
+        if tool == "web_search":
+            # Standalone web search for entity-only investigations (no URL).
+            # Past incident 2026-04-09: ARIA could only investigate
+            # entities for which the user provided a URL — there was no
+            # way for her to discover related URLs (registry filings,
+            # LinkedIn, news articles) on her own. This tool gives her
+            # snippet-level OSINT discovery via Brave Search API
+            # (preferred) or DuckDuckGo HTML scraping (free fallback).
+            query = intent.get("query") or intent.get("topic") or ""
+            r = await web_search(query, max_results=8)
+            if not r.get("ok"):
+                return (
+                    f"\n\n[TOOL: web_search — FAILED]\n"
+                    f"Query: {query}\n"
+                    f"Provider: {r.get('provider', 'none')}\n"
+                    f"Error: {r.get('error', 'unknown')}\n"
+                    f"Duration: {r.get('duration_ms', 0)}ms\n"
+                    + _no_data_warning(
+                        "web_search", query,
+                        blocking=False,
+                    )
+                )
+            results = r.get("results") or []
+            if not results:
+                return (
+                    f"\n\n[TOOL: web_search — NO RESULTS]\n"
+                    f"Query: {query}\n"
+                    f"Provider: {r.get('provider')}\n"
+                    f"Duration: {r.get('duration_ms', 0)}ms\n"
+                    f"\nThe search returned zero results. Treat this as "
+                    f"INSUFFICIENT DATA per clause 9 — do not extrapolate "
+                    f"or invent information about the entity."
+                )
+            results_block = "\n".join(
+                f"  [{i+1}] {r['title']}\n      URL: {r['url']}\n      Snippet: {r['snippet']}"
+                for i, r in enumerate(results)
+            )
+            return (
+                f"\n\n[TOOL: web_search — verbatim search results below]\n"
+                f"Query: {query}\n"
+                f"Provider: {r.get('provider')}\n"
+                f"Results: {len(results)}\n"
+                f"Duration: {r.get('duration_ms', 0)}ms\n"
+                f"\n--- Search results (verbatim, in rank order) ---\n"
+                f"{results_block}\n"
+                f"--- End search results ---\n"
+                f"\nIMPORTANT — clauses 9, 13, 14: these snippets are "
+                f"EXCERPTS from third-party pages. They are POINTERS to "
+                f"sources, not verified facts. To produce a confident "
+                f"finding about the entity, you must (a) cite the source "
+                f"URL inline, (b) tag the claim with at most "
+                f"[ASSESSED — single search snippet] unless multiple "
+                f"snippets corroborate, and (c) recommend a follow-up "
+                f"extract_url call on the most relevant result for "
+                f"verbatim verification. Do NOT fabricate facts that go "
+                f"beyond the snippets."
+            )
+
         if tool == "extract_url":
             # Multi-page DD extraction (Phase 2 fix, 2026-04-09 evening).
             # Fetches the URL plus 4 high-value internal links (about / team /
@@ -1396,7 +1594,55 @@ async def _execute_tool(intent: dict, llm) -> str:
             # parallel and aggregates the result. Same defensive pattern
             # (no LLM call, no RAG ingest, returns verbatim text), just
             # broader coverage.
-            r = await extract_url_deep(intent["url"], max_pages=5)
+            # Run extract_url_deep AND a parallel web_search on the entity
+            # name, so the LLM has BOTH the verbatim site content AND the
+            # broader OSINT surface (registry filings, news, LinkedIn, etc.).
+            # The web search gives the LLM a way to discover information
+            # the company doesn't publish on its own website — past
+            # incident 2026-04-09 evening: Modirum Gespi's Finnish HQ +
+            # Brazilian operations were not on their own homepage at all,
+            # so single-domain extraction missed the actual jurisdiction.
+            from urllib.parse import urlparse as _urlparse
+            entity_hint = (intent.get("context") or "").strip()
+            # Try to extract a clean entity name for the search query
+            search_query = ""
+            if entity_hint:
+                # Strip the URL out of the context
+                search_query = re.sub(r"https?://\S+", "", entity_hint).strip()
+                # Strip ARIA mention prefixes / common verbs
+                search_query = re.sub(
+                    r"^\s*(aria[,\s]*|please\s+|kindly\s+|can\s+you\s+)*",
+                    "", search_query, flags=re.IGNORECASE,
+                )
+                search_query = re.sub(
+                    r"\b(investigate|research|crawl|check|screen|look\s+into|find\s+out\s+about|tell\s+me\s+about|profile)\b",
+                    "", search_query, flags=re.IGNORECASE,
+                )
+                search_query = re.sub(
+                    r"^\s*(the\s+)?(company|firm|broker|entity|organisation|organization)\s+(and\s+(it\s+is|its)\s+(people|directors|team))?\s*[:\-]?\s*",
+                    "", search_query, flags=re.IGNORECASE,
+                )
+                search_query = search_query.strip(" ,.:;-?!\"'\n")[:200]
+            if not search_query:
+                # Fallback: derive from the domain
+                try:
+                    host = _urlparse(intent["url"]).netloc.lower()
+                    search_query = host.replace("www.", "").split(".")[0]
+                except Exception:
+                    search_query = intent["url"]
+
+            extract_task = extract_url_deep(intent["url"], max_pages=5)
+            search_task = web_search(search_query, max_results=8)
+            r, search_r = await asyncio.gather(
+                extract_task, search_task, return_exceptions=True,
+            )
+            # Defensive: handle either task throwing
+            if isinstance(r, Exception):
+                logger.warning("extract_url_deep failed: %s", r)
+                r = {"extraction_ok": False, "error": str(r)[:200], "url": intent["url"]}
+            if isinstance(search_r, Exception):
+                logger.warning("web_search parallel call failed: %s", search_r)
+                search_r = {"ok": False, "results": [], "error": str(search_r)[:200], "provider": "none"}
             if not r.get("extraction_ok"):
                 return (
                     f"\n\n[TOOL: extract_url — FETCH/EXTRACTION FAILED]\n"
@@ -1415,8 +1661,29 @@ async def _execute_tool(intent: dict, llm) -> str:
             # facts). Cap to keep the prompt budget sane.
             pages_fetched = r.get("pages_fetched") or [intent["url"]]
             pages_count = r.get("pages_count") or len(pages_fetched)
+            # Build the parallel web search results section
+            search_results = (search_r or {}).get("results") or []
+            if search_results:
+                search_block = "\n".join(
+                    f"  [{i+1}] {sr.get('title','(no title)')}\n      URL: {sr.get('url','')}\n      Snippet: {sr.get('snippet','')}"
+                    for i, sr in enumerate(search_results)
+                )
+                search_section = (
+                    f"\n--- Parallel web search results (provider: {search_r.get('provider','none')}, "
+                    f"query: {search_query!r}) ---\n"
+                    f"{search_block}\n"
+                    f"--- End web search results ---\n"
+                )
+            elif search_r and search_r.get("ok") is False:
+                search_section = (
+                    f"\n--- Parallel web search FAILED ({search_r.get('provider','none')}: "
+                    f"{search_r.get('error','unknown')}) — fall back on extracted text only ---\n"
+                )
+            else:
+                search_section = "\n--- Parallel web search returned 0 results ---\n"
+
             return (
-                f"\n\n[TOOL: extract_url_deep — verbatim multi-page site content below]\n"
+                f"\n\n[TOOL: extract_url_deep + web_search — verbatim content + OSINT pointers below]\n"
                 f"Root URL: {intent['url']}\n"
                 f"Pages fetched ({pages_count}):\n"
                 + "\n".join(f"  - {p}" for p in pages_fetched) + "\n"
@@ -1427,22 +1694,32 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"Emails: {', '.join(r.get('emails', [])[:5]) or '(none across fetched pages)'}\n"
                 f"Phones: {', '.join(r.get('phones', [])[:5]) or '(none across fetched pages)'}\n"
                 f"\n--- Full extracted text (verbatim from the fetched pages, in order) ---\n"
-                f"{(r.get('text','') or '')[:14000]}\n"
+                f"{(r.get('text','') or '')[:12000]}\n"
                 f"--- End extracted text ---\n"
-                f"\nIMPORTANT — clauses 9 and 14: you may ONLY state facts about "
-                f"this entity that are verifiably present in the extracted text "
-                f"above. Do NOT invent company numbers, NACE codes, registered "
+                f"{search_section}"
+                f"\nIMPORTANT — clauses 9, 13, 14:\n"
+                f"  (a) You may ONLY state facts about this entity that are "
+                f"verifiably present in EITHER the extracted page text OR a "
+                f"specific web search snippet above. Cite the source inline "
+                f"for every fact: '[from <url>]' or '[from search snippet #N]'.\n"
+                f"  (b) Do NOT invent company numbers, NACE codes, registered "
                 f"addresses, executive names, jurisdictions, or any other "
-                f"verifiable identifiers. If a fact is not in the text above, "
-                f"say so explicitly: 'I cannot verify <fact> from the extracted "
-                f"page content.' DO NOT infer nationality from language "
-                f"variants in the URL or HTML (e.g. /en, hreflang='pt-pt') — "
-                f"language variants reflect target audience, not company "
-                f"origin. State the actual jurisdiction ONLY if it appears in "
-                f"the verbatim extracted text (e.g. on a /about, /contact, or "
-                f"/locations page). If multiple jurisdictions appear (HQ in "
-                f"one country, subsidiaries in another), report each one with "
-                f"its specific page source."
+                f"verifiable identifiers. If a fact is not in the materials "
+                f"above, say so explicitly: 'I cannot verify <fact> from the "
+                f"available data.'\n"
+                f"  (c) DO NOT infer nationality from language variants in "
+                f"the URL or HTML (e.g. /en, hreflang='pt-pt') — language "
+                f"variants reflect target audience, not company origin. State "
+                f"the actual jurisdiction ONLY if it appears in the extracted "
+                f"text or a search snippet. If multiple jurisdictions appear "
+                f"(HQ in one country, subsidiaries in another), report each "
+                f"one with its specific source.\n"
+                f"  (d) Web search snippets are POINTERS, not verified facts. "
+                f"Tag findings derived from a single snippet at most as "
+                f"[ASSESSED — single search snippet]. Tag findings present "
+                f"in BOTH the extracted text AND a snippet as [PROBABLE]. "
+                f"Tag findings only present in 3+ independent snippets as "
+                f"[CONFIRMED]."
             )
 
         if tool == "crawl":

@@ -927,6 +927,402 @@ async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -
     return facts_learned, hyp_generated
 
 
+# ── Public: Web search (Brave API preferred, DuckDuckGo HTML fallback) ──────
+
+async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) -> dict:
+    """Perform a web search and return structured results.
+
+    Tries providers in order:
+      1. Brave Search API (when BRAVE_SEARCH_API_KEY env var is set —
+         2k queries/month free, 1 q/s rate limit, well-structured JSON)
+      2. DuckDuckGo HTML scraping (free, no key, fragile but adequate
+         for low-volume DD)
+
+    Returns:
+      {
+        "ok": bool,
+        "query": str,
+        "provider": "brave" | "ddg" | "none",
+        "results": [{"title": str, "url": str, "snippet": str}, ...],
+        "error": str (only present when ok=False),
+        "duration_ms": int,
+      }
+
+    Past incident 2026-04-09: ARIA's URL-only investigation of
+    modirumgespi.com couldn't surface the company's actual jurisdiction
+    (Finnish HQ + Brazilian defence ops + multi-jurisdiction structure)
+    because all that information lives in OSINT sources OFF the company
+    website (news articles, registries, LinkedIn). Web search closes
+    this gap by giving the LLM a snippet-level view of the broader OSINT
+    surface for an entity, which then guides further extract_url calls
+    on the most relevant results.
+    """
+    t0 = time.time()
+    if not query or not isinstance(query, str):
+        return {
+            "ok": False, "query": "", "provider": "none", "results": [],
+            "error": "empty query", "duration_ms": 0,
+        }
+    query = query.strip()[:300]  # cap query length
+
+    # ── Provider 1: Brave Search API ──────────────────────────────────
+    brave_key = (os.getenv("BRAVE_SEARCH_API_KEY") or "").strip()
+    if brave_key:
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                resp = await client.get(
+                    "https://api.search.brave.com/res/v1/web/search",
+                    params={"q": query, "count": min(max_results, 20)},
+                    headers={
+                        "Accept": "application/json",
+                        "X-Subscription-Token": brave_key,
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json() or {}
+                    results = []
+                    for r in (data.get("web", {}) or {}).get("results", [])[:max_results]:
+                        if not isinstance(r, dict):
+                            continue
+                        results.append({
+                            "title": (r.get("title") or "")[:200],
+                            "url": r.get("url") or "",
+                            "snippet": (r.get("description") or "")[:400],
+                        })
+                    return {
+                        "ok": True, "query": query, "provider": "brave",
+                        "results": results,
+                        "duration_ms": int((time.time() - t0) * 1000),
+                    }
+                else:
+                    logger.warning(
+                        "web_search Brave API returned HTTP %d for query %r",
+                        resp.status_code, query[:80],
+                    )
+        except Exception as e:
+            logger.warning("web_search Brave API failed for %r: %s", query[:80], e)
+        # fall through to DuckDuckGo
+
+    # ── Provider 2: DuckDuckGo HTML scraping ──────────────────────────
+    # Free, no key required. The HTML endpoint at html.duckduckgo.com
+    # returns standard HTML with anchor tags we can parse out. Fragile
+    # against DDG layout changes but works as of 2026-04-09.
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            resp = await client.post(
+                "https://html.duckduckgo.com/html/",
+                data={"q": query, "kl": "us-en"},
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/126.0.0.0 Safari/537.36"
+                    ),
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "en-GB,en;q=0.9",
+                },
+            )
+            if resp.status_code != 200:
+                return {
+                    "ok": False, "query": query, "provider": "ddg",
+                    "results": [],
+                    "error": f"DuckDuckGo HTML returned HTTP {resp.status_code}",
+                    "duration_ms": int((time.time() - t0) * 1000),
+                }
+            html = resp.text
+    except Exception as e:
+        return {
+            "ok": False, "query": query, "provider": "ddg",
+            "results": [],
+            "error": f"DuckDuckGo HTML fetch failed: {str(e)[:200]}",
+            "duration_ms": int((time.time() - t0) * 1000),
+        }
+
+    # Parse the DDG HTML — each result is in a <a class="result__a"> with
+    # the snippet in the next sibling. Use loose regexes (DDG markup is
+    # stable enough for this).
+    from urllib.parse import urlparse, parse_qs, unquote
+    results = []
+    # Each result block: <a class="result__a" href="...">title</a> ... <a class="result__snippet">snippet</a>
+    # The href is often a redirect URL like /l/?uddg=<encoded_real_url>
+    block_re = re.compile(
+        r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>'
+        r'.*?<a[^>]*class="result__snippet"[^>]*>(.*?)</a>',
+        re.DOTALL | re.IGNORECASE,
+    )
+    for m in block_re.finditer(html):
+        if len(results) >= max_results:
+            break
+        raw_href, raw_title, raw_snippet = m.group(1), m.group(2), m.group(3)
+        # Unwrap DDG redirect: /l/?uddg=https%3A%2F%2Fexample.com%2Fpath
+        actual_url = raw_href
+        if raw_href.startswith("/l/?"):
+            try:
+                qs = parse_qs(urlparse(raw_href).query)
+                uddg = qs.get("uddg", [""])[0]
+                if uddg:
+                    actual_url = unquote(uddg)
+            except Exception:
+                pass
+        elif raw_href.startswith("//"):
+            actual_url = "https:" + raw_href
+        # Strip HTML tags from title/snippet
+        title = re.sub(r"<[^>]+>", "", raw_title)
+        title = re.sub(r"&\w+;", " ", title).strip()[:200]
+        snippet = re.sub(r"<[^>]+>", "", raw_snippet)
+        snippet = re.sub(r"&\w+;", " ", snippet).strip()[:400]
+        if actual_url and title:
+            results.append({"title": title, "url": actual_url, "snippet": snippet})
+
+    return {
+        "ok": True, "query": query, "provider": "ddg",
+        "results": results,
+        "duration_ms": int((time.time() - t0) * 1000),
+    }
+
+
+# ── Public: Deep multi-query research orchestrator (no LLM, no RAG) ─────────
+
+# Source-tier scoring hints — used to rank URLs returned by web_search.
+# Higher score = more authoritative source. Same hierarchy as the
+# `researcher_principles.py` addendum tells the LLM about, but applied
+# DETERMINISTICALLY at retrieval time so the top-ranked URLs are
+# inherently higher-quality before the LLM ever sees them.
+_DOMAIN_TIER_SCORES: list[tuple[str, int]] = [
+    # Tier 1 — official records, registries, governments (score 100)
+    ("companieshouse.gov.uk",        100),
+    ("gov.uk",                       100),
+    ("treasury.gov",                 100),
+    ("ofac.treasury.gov",            100),
+    ("sanctionssearch.ofac.treas.gov", 100),
+    ("eur-lex.europa.eu",            100),
+    ("europa.eu",                    100),
+    ("un.org",                       100),
+    ("nato.int",                     100),
+    ("ohchr.org",                    100),
+    ("portaldojusticia.pt",          100),
+    ("racius.com",                   100),  # Portuguese registry aggregator
+    ("registocomercial.pt",          100),
+    ("ytj.fi",                       100),  # Finnish business registry
+    ("prh.fi",                       100),  # Finnish patent + registry
+    ("kbo-bce.fgov.be",              100),  # Belgian crossroads bank
+    ("rejestr.io",                   100),  # Polish registry
+    ("opencorporates.com",            95),
+    ("opensanctions.org",             95),
+    ("offshoreleaks.icij.org",        95),
+    # Tier 2 — institutional / think tanks (score 80)
+    ("sipri.org",                     80),
+    ("rand.org",                      80),
+    ("rusi.org",                      80),
+    ("iiss.org",                      80),
+    ("csis.org",                      80),
+    ("cfr.org",                       80),
+    ("carnegieendowment.org",         80),
+    ("worldbank.org",                 80),
+    ("imf.org",                       80),
+    ("acleddata.com",                 80),
+    ("fatf-gafi.org",                 80),
+    ("transparency.org",              80),
+    ("oecd.org",                      80),
+    # Tier 3 — specialist defence trade press (score 65)
+    ("janes.com",                     65),
+    ("defensenews.com",               65),
+    ("breakingdefense.com",           65),
+    ("naval-news.com",                65),
+    ("navalnews.com",                 65),
+    ("shephardmedia.com",             65),
+    ("c4isrnet.com",                  65),
+    ("army-technology.com",           65),
+    ("air-force-technology.com",      65),
+    ("naval-technology.com",          65),
+    ("armyrecognition.com",           65),
+    ("defenceweb.co.za",              65),
+    # Tier 4 — quality journalism (score 50)
+    ("ft.com",                        50),
+    ("reuters.com",                   50),
+    ("apnews.com",                    50),
+    ("bbc.com",                       50),
+    ("bbc.co.uk",                     50),
+    ("economist.com",                 50),
+    ("lemonde.fr",                    50),
+    ("lusa.pt",                       50),
+    ("expresso.pt",                   50),
+    ("publico.pt",                    50),
+    ("jornaldenegocios.pt",           50),
+    ("clubofmozambique.com",          50),
+    ("bloomberg.com",                 50),
+    ("nytimes.com",                   50),
+    ("washingtonpost.com",            50),
+    # Tier 5 — secondary (score 30) — wikipedia, generic press releases
+    ("wikipedia.org",                 30),
+    ("crunchbase.com",                40),
+    ("linkedin.com",                  45),  # higher than generic — DD valuable
+    ("dnb.com",                       45),  # Dun & Bradstreet
+]
+
+
+def _score_url_by_domain_tier(url: str) -> int:
+    """Return a domain-tier score for ranking search results. Higher =
+    more authoritative source. URLs not in the tier list get score 10
+    (uncategorised — treated as low-trust generic web)."""
+    if not url:
+        return 0
+    u = url.lower()
+    for hint, score in _DOMAIN_TIER_SCORES:
+        if hint in u:
+            return score
+    return 10
+
+
+async def deep_research(
+    entity: str,
+    *,
+    primary_url: str = "",
+    max_queries: int = 5,
+    max_extracts: int = 5,
+    timeout: float = 15.0,
+) -> dict:
+    """Orchestrated multi-query, multi-extract research on an entity.
+
+    Workflow:
+      1. Issue `max_queries` parallel web searches with different angles
+         (entity / entity+company / entity+headquarters / entity+directors
+         / entity+news) so different facets of the OSINT surface are
+         covered, not just the most generic Google-style query.
+      2. Aggregate + dedup the snippet results across all queries.
+      3. Rank URLs by source-tier score (registry > think tank > trade
+         press > journalism > generic web).
+      4. Extract verbatim content from the top `max_extracts` URLs in
+         parallel via extract_url_text.
+      5. If a `primary_url` is supplied (the user gave us the entity's
+         own website), ALSO run extract_url_deep on it for multi-page
+         coverage of that specific domain — homepage marketing copy
+         alone is rarely enough.
+      6. Return ONE unified result with: all snippets, all extracted text,
+         the ranked URL list, the source-tier breakdown.
+
+    NO LLM call, NO RAG ingest. Pure HTTP fetching + structured extraction.
+    The chat-path tool result block embeds the entire output verbatim so
+    the main chat LLM can read all sources before producing its reply.
+
+    Past incident 2026-04-09 (evening): Antonio asked ARIA to investigate
+    Modirum Gespi. ARIA had only one tool (extract_url_deep on the URL
+    he provided) and could only see what the company published on its
+    own homepage. The actual jurisdiction (Finnish HQ) and operational
+    structure (Brazilian defence ops + multi-jurisdiction) were nowhere
+    on the company website — they live in Finnish trade press, the
+    Finnish business registry, LinkedIn, and news articles. Without web
+    search, ARIA was structurally blind to all of that. deep_research
+    fixes this by ALWAYS doing snippet-level OSINT discovery alongside
+    site extraction.
+    """
+    t0 = time.time()
+    if not entity or not isinstance(entity, str):
+        return {
+            "ok": False, "entity": "", "error": "empty entity",
+            "duration_ms": 0,
+        }
+    entity = entity.strip()[:200]
+
+    # ── Step 1: build a small set of search angles ────────────────────
+    # Each angle surfaces a different facet of the OSINT surface. Order
+    # matters — earlier queries are more important if we have to truncate.
+    angles = [
+        entity,                                    # generic discovery
+        f"{entity} company",                       # corporate identity
+        f"{entity} headquarters location",         # jurisdiction
+        f"{entity} directors leadership",          # people
+        f"{entity} news",                          # recent activity
+    ][:max_queries]
+
+    # ── Step 2: parallel web searches ─────────────────────────────────
+    search_tasks = [web_search(angle, max_results=8, timeout=timeout) for angle in angles]
+    search_results_per_angle = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+    # ── Step 3: aggregate + dedup snippets across all angles ──────────
+    snippets_by_url: dict[str, dict] = {}
+    snippet_count_per_provider: dict[str, int] = {}
+    snippet_count_per_angle: dict[str, int] = {}
+    for angle, sr in zip(angles, search_results_per_angle):
+        if isinstance(sr, Exception):
+            logger.debug("deep_research search angle %r failed: %s", angle, sr)
+            continue
+        if not isinstance(sr, dict) or not sr.get("ok"):
+            continue
+        provider = sr.get("provider", "?")
+        snippet_count_per_provider[provider] = snippet_count_per_provider.get(provider, 0)
+        for r in sr.get("results") or []:
+            url = (r.get("url") or "").strip()
+            if not url:
+                continue
+            # Dedup by URL — keep the first snippet but record which angles
+            # surfaced this URL (signal of cross-angle relevance)
+            if url not in snippets_by_url:
+                snippets_by_url[url] = {
+                    "title": r.get("title", ""),
+                    "url": url,
+                    "snippet": r.get("snippet", ""),
+                    "tier_score": _score_url_by_domain_tier(url),
+                    "angles": [angle],
+                }
+            else:
+                if angle not in snippets_by_url[url]["angles"]:
+                    snippets_by_url[url]["angles"].append(angle)
+            snippet_count_per_provider[provider] += 1
+            snippet_count_per_angle[angle] = snippet_count_per_angle.get(angle, 0) + 1
+
+    all_snippets = list(snippets_by_url.values())
+
+    # ── Step 4: rank URLs (tier_score + cross-angle bonus) ────────────
+    for s in all_snippets:
+        # Cross-angle bonus: a URL that appears in 2+ angle results is
+        # significantly more on-topic than one that appears in just one
+        s["rank_score"] = s["tier_score"] + (len(s["angles"]) - 1) * 15
+
+    all_snippets.sort(key=lambda s: s["rank_score"], reverse=True)
+    top_for_extract = [s for s in all_snippets if s["url"] != primary_url][:max_extracts]
+
+    # ── Step 5: parallel verbatim extraction of top URLs ──────────────
+    extract_tasks = [extract_url_text(s["url"], timeout=timeout) for s in top_for_extract]
+    if primary_url:
+        # Also do a deep multi-page fetch on the primary URL if provided
+        extract_tasks.append(extract_url_deep(primary_url, max_pages=4, timeout=timeout))
+    extracted_results = await asyncio.gather(*extract_tasks, return_exceptions=True)
+
+    extracted_pages: list[dict] = []
+    for ext in extracted_results:
+        if isinstance(ext, Exception):
+            logger.debug("deep_research extraction failed: %s", ext)
+            continue
+        if not isinstance(ext, dict) or not ext.get("extraction_ok"):
+            continue
+        extracted_pages.append({
+            "url": ext.get("url", ""),
+            "title": ext.get("title", ""),
+            "description": ext.get("description", ""),
+            "text": (ext.get("text") or "")[:4000],
+            "social": ext.get("social") or [],
+            "emails": ext.get("emails") or [],
+            "phones": ext.get("phones") or [],
+            "is_deep": ext.get("deep_mode", False),
+            "pages_fetched": ext.get("pages_fetched") or [ext.get("url", "")],
+        })
+
+    return {
+        "ok": True,
+        "entity": entity,
+        "primary_url": primary_url or None,
+        "queries_run": angles,
+        "snippet_count_per_provider": snippet_count_per_provider,
+        "snippet_count_per_angle": snippet_count_per_angle,
+        "snippets_total": len(all_snippets),
+        "snippets_top": all_snippets[:15],  # cap for token budget
+        "extracted_pages": extracted_pages,
+        "extracted_count": len(extracted_pages),
+        "duration_ms": int((time.time() - t0) * 1000),
+    }
+
+
 # ── Public: Multi-page deep URL extraction (no LLM, no RAG) ──────────────────
 
 # High-value internal link path fragments worth following on a corporate

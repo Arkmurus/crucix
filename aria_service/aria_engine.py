@@ -1093,6 +1093,27 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("contract_review_principles injection failed (non-fatal): %s", e)
 
+    # Researcher principles — conditional Tier D addendum (Phase 2,
+    # 2026-04-09 evening). Fires on research / investigation intent and
+    # tells ARIA HOW to use the new web_search + extract_url_deep tools:
+    # source tier hierarchy, triangulation requirement, gap assessment,
+    # disinformation detection, snippet → verbatim escalation rule, CPLP
+    # specialisation, and the jurisdiction-inference guard from the
+    # Modirum 'Portuguese OEM' incident. The split is the same as
+    # Antonio's spec from 2026-04-09: this addendum tells her HOW to
+    # research, the tools (web_search / extract_url_deep) give her the
+    # ABILITY to actually do it. Behind ARIA_RESEARCHER_PRINCIPLES env
+    # var (default ON).
+    try:
+        from .intel import researcher_principles as _rp
+        if _rp.detect_research_intent(message):
+            rp = _rp.addendum()
+            if rp:
+                addendum_parts.append(rp)
+                logger.info("[researcher_principles] addendum injected")
+    except Exception as e:
+        logger.debug("researcher_principles injection failed (non-fatal): %s", e)
+
     # Recent user corrections — facts that users have provided in chat to
     # correct earlier ARIA replies. These OVERRIDE training data and other
     # knowledge layers for the same subject (highest-trust channel). Pulled
