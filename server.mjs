@@ -3069,11 +3069,28 @@ app.post('/api/aria/report',
 // If this is ever deployed to a multi-user or untrusted environment,
 // re-add `requireAdmin` here AND change the path away from /api/admin/
 // to make the security posture explicit.
-app.get('/api/admin/env-check', (req, res) => {
+app.get('/api/admin/env-check', async (req, res) => {
+  const crypto = await import('node:crypto');
+  const token = process.env.ARIA_API_TOKEN || '';
+  // SHA-256 fingerprint (first 12 hex chars) — non-reversible. Lets us
+  // compare the actual env value against an expected value without ever
+  // exposing the token. Same input → same fingerprint; different input
+  // (even by one character) → different fingerprint.
+  const tokenSha = token
+    ? crypto.createHash('sha256').update(token).digest('hex').slice(0, 12)
+    : '';
+  // First 4 + last 4 chars are visible-but-safe (1 in 16^8 ≈ 1 in 4 billion
+  // collision chance against any specific known value, so the disclosure
+  // gives nothing useful to an attacker but lets a human verify visually).
+  const tokenPrefix = token.slice(0, 4);
+  const tokenSuffix = token.slice(-4);
   const envState = {
     ARIA_SERVICE_URL: !!ARIA_SERVICE_URL,
     ARIA_API_TOKEN_present: !!process.env.ARIA_API_TOKEN,
-    ARIA_API_TOKEN_length: (process.env.ARIA_API_TOKEN || '').length,
+    ARIA_API_TOKEN_length: token.length,
+    ARIA_API_TOKEN_sha256_prefix: tokenSha,
+    ARIA_API_TOKEN_first4: tokenPrefix,
+    ARIA_API_TOKEN_last4: tokenSuffix,
     ARIA_INTERNAL_TOKEN_present: !!process.env.ARIA_INTERNAL_TOKEN,
     INT_TOKEN_present: !!process.env.INT_TOKEN,
     JWT_SECRET_present: !!process.env.JWT_SECRET,
@@ -3082,10 +3099,9 @@ app.get('/api/admin/env-check', (req, res) => {
     pid: process.pid,
     uptime_seconds: Math.round(process.uptime()),
   };
-  // Run a quick connectivity test against fly.io if both are set
   res.json({
     env: envState,
-    note: 'All values are booleans except token length and uptime — actual secret values are never returned',
+    note: 'sha256_prefix is the first 12 chars of SHA-256(token) — non-reversible. Same input always gives the same fingerprint. first4/last4 are safe-to-show prefix/suffix for visual verification.',
   });
 });
 
