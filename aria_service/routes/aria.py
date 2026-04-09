@@ -2948,36 +2948,57 @@ async def semantic_stats_ep():
 @router.get("/admin/brain/{session_id}")
 async def admin_brain_ep(session_id: str, query: str = ""):
     """Returns a unified snapshot of what each brain layer holds for
-    a given session. Optional `query` param scopes RAG / semantic /
-    neural recall to a specific topic for relevance-style debugging.
+    a given session. Optional `query` param scopes RAG / neural recall
+    to a specific topic for relevance-style debugging.
+
+    Each layer is wrapped in its own try/except so a failure in one
+    layer doesn't kill the rest of the snapshot — partial visibility
+    beats no visibility.
     """
+    import inspect as _inspect
     out: dict = {"session_id": session_id, "query": query or None}
 
-    # 1. Session conversation history
+    async def _maybe_await(value):
+        """Await value if it's a coroutine, otherwise return as-is.
+        Several brain modules have a mix of sync and async stats functions
+        and we don't want to know which is which at call site."""
+        if _inspect.iscoroutine(value):
+            return await value
+        return value
+
+    # 1. Session history (best-effort — there is no top-level history
+    #    module; session state lives in Redis under crucix:aria:sessions)
     try:
-        from ..intel import history as _hist
-        sess = await _hist.get_session(session_id)
-        out["session"] = {
-            "exists": bool(sess),
-            "turn_count": len(sess.get("history", [])) // 2 if sess else 0,
-            "last_turn_at": sess.get("updated_at") if sess else None,
-        }
+        sess_data = await rs.get_json(f"crucix:aria:sessions:{session_id}")
+        if sess_data and isinstance(sess_data, dict):
+            history = sess_data.get("history", [])
+            out["session"] = {
+                "exists": True,
+                "turn_count": len(history) // 2,
+                "history_length": len(history),
+            }
+        else:
+            out["session"] = {"exists": False}
     except Exception as e:
         out["session"] = {"error": f"{type(e).__name__}: {e}"}
 
-    # 2. RAG store
+    # 2. RAG store stats
     try:
         from ..intel import rag_store as _rs
-        rag_stats = _rs.get_stats() if hasattr(_rs, "get_stats") else {}
+        rag_stats = await _maybe_await(_rs.get_stats()) if hasattr(_rs, "get_stats") else {}
+        if not isinstance(rag_stats, dict):
+            rag_stats = {}
         out["rag"] = {
             "documents_indexed": rag_stats.get("documents_indexed", 0),
             "facts_indexed": rag_stats.get("facts_indexed", 0),
             "total_chunks": rag_stats.get("total_chunks", 0),
+            "embedding_model": rag_stats.get("embedding_model"),
         }
         if query and hasattr(_rs, "get_rag_context"):
             try:
-                ctx = _rs.get_rag_context(query, max_chars=600)
-                out["rag"]["preview_for_query"] = ctx[:600]
+                ctx = await _maybe_await(_rs.get_rag_context(query, max_chars=600))
+                if isinstance(ctx, str):
+                    out["rag"]["preview_for_query"] = ctx[:600]
             except Exception as e:
                 out["rag"]["preview_error"] = str(e)[:200]
     except Exception as e:
@@ -2990,7 +3011,7 @@ async def admin_brain_ep(session_id: str, query: str = ""):
         out["knowledge"] = {
             "total_facts": len(facts),
             "recent_facts": [
-                {"topic": f.get("topic", "")[:80], "content": (f.get("content", "") or "")[:120]}
+                {"topic": (f.get("topic") or "")[:80], "content": (f.get("content") or "")[:120]}
                 for f in facts[-5:]
             ],
         }
@@ -3003,36 +3024,38 @@ async def admin_brain_ep(session_id: str, query: str = ""):
     except Exception as e:
         out["semantic_search"] = {"error": f"{type(e).__name__}: {e}"}
 
-    # 5. Neural memory
+    # 5. Neural memory stats
     try:
-        ns = neural_memory.get_stats() if hasattr(neural_memory, "get_stats") else {}
+        ns = await _maybe_await(neural_memory.get_stats()) if hasattr(neural_memory, "get_stats") else {}
+        if not isinstance(ns, dict):
+            ns = {}
         out["neural_memory"] = {
             "total_neurons": ns.get("total_neurons", 0),
             "total_edges": ns.get("total_edges", 0),
             "total_activations": ns.get("total_activations", 0),
         }
-        if query and hasattr(neural_memory, "recall"):
-            try:
-                recall = neural_memory.recall(query, top_k=5)
-                out["neural_memory"]["recall_for_query"] = recall[:5] if recall else []
-            except Exception as e:
-                out["neural_memory"]["recall_error"] = str(e)[:200]
     except Exception as e:
         out["neural_memory"] = {"error": f"{type(e).__name__}: {e}"}
 
     # 6. Reasoning library
     try:
-        rl_stats = reasoning_library.get_stats() if hasattr(reasoning_library, "get_stats") else {}
+        rl_stats = await _maybe_await(reasoning_library.get_stats()) if hasattr(reasoning_library, "get_stats") else {}
+        if not isinstance(rl_stats, dict):
+            rl_stats = {}
         out["reasoning_library"] = {
             "total_cases": rl_stats.get("total_cases", 0),
             "hit_rate": rl_stats.get("hit_rate", 0),
+            "total_lookups": rl_stats.get("total_lookups", 0),
+            "total_hits": rl_stats.get("total_hits", 0),
         }
     except Exception as e:
         out["reasoning_library"] = {"error": f"{type(e).__name__}: {e}"}
 
-    # 7. Intel ledger (signal count)
+    # 7. Intel ledger
     try:
-        led = await intel_ledger.get_stats()
+        led = await _maybe_await(intel_ledger.get_stats())
+        if not isinstance(led, dict):
+            led = {}
         out["intel_ledger"] = {
             "total_signals": led.get("totalSignals", 0),
             "by_type": led.get("byType", {}),
@@ -3040,14 +3063,22 @@ async def admin_brain_ep(session_id: str, query: str = ""):
     except Exception as e:
         out["intel_ledger"] = {"error": f"{type(e).__name__}: {e}"}
 
-    # 8. Recent corrections
+    # 8. Recent corrections (best-effort — module API varies)
     try:
         from ..intel import correction_learner as _cl
-        if hasattr(_cl, "get_recent_corrections"):
-            corrections = _cl.get_recent_corrections(limit=5)
-            out["recent_corrections"] = corrections
+        for fn_name in ("get_recent_corrections", "recent", "list_recent"):
+            if hasattr(_cl, fn_name):
+                fn = getattr(_cl, fn_name)
+                try:
+                    corrections = await _maybe_await(fn(limit=5))
+                    out["recent_corrections"] = corrections
+                    break
+                except TypeError:
+                    corrections = await _maybe_await(fn())
+                    out["recent_corrections"] = corrections[:5] if corrections else []
+                    break
         else:
-            out["recent_corrections"] = []
+            out["recent_corrections"] = {"note": "no recent-corrections accessor found in module"}
     except Exception as e:
         out["recent_corrections"] = {"error": f"{type(e).__name__}: {e}"}
 
@@ -3055,22 +3086,43 @@ async def admin_brain_ep(session_id: str, query: str = ""):
 
 
 # Pre-Phase-3 admin endpoint 2026-04-09 — manually rebuild the in-memory
-# semantic_search index from the persistent knowledge.facts store. The
-# index is in-memory and rebuilds on every machine restart, so when the
-# startup-time bulk build is disabled (ARIA_SEMANTIC_INDEX_BUILD=0 — used
-# to avoid GIL contention during boot) the index sits at 2 documents
-# while knowledge.py has 896. This endpoint forces a backfill on demand.
+# semantic_search index from the persistent knowledge.facts store.
+#
+# The index is in-memory and rebuilds on every machine restart. The
+# startup-time bulk build is disabled via ARIA_SEMANTIC_INDEX_BUILD=0
+# (set after a past GIL-contention incident on 2026-04-08 where the
+# encode loop blocked uvicorn binding and broke fly health checks).
+# Result: index sits at ~2 documents while knowledge.py has ~900 facts.
+#
+# Original implementation awaited the rebuild inline in the request,
+# which times out on any HTTP client (~900 facts × 0.5-1s/fact encode
+# = 8-15 minutes wall-clock). Now: spawns the rebuild as a background
+# task and returns immediately with a job marker. Poll /semantic/stats
+# to track progress.
+_semantic_rebuild_state = {"running": False, "started_at": None, "facts_to_index": 0, "last_result": None}
+
+
 @router.post("/admin/rebuild-semantic-index")
 async def rebuild_semantic_index_ep():
-    """Manually rebuild the semantic_search in-memory index from
-    knowledge.facts. Runs the rebuild in a thread executor so it doesn't
-    block the event loop. Safe to call multiple times — idempotent."""
+    """Spawn a background rebuild of the semantic_search in-memory index
+    from knowledge.facts. Returns immediately with a job marker. Safe
+    to call multiple times — idempotent. Skips if a rebuild is already
+    in progress (returns the existing state)."""
     import asyncio as _aio
-    from ..intel import knowledge as _kn
+    import time as _time
     from ..intel.semantic_search import rebuild_index_from_knowledge
 
-    facts_data = await _kn._load()
-    facts = (facts_data or {}).get("facts", []) if isinstance(facts_data, dict) else []
+    if _semantic_rebuild_state["running"]:
+        return {
+            "ok": True,
+            "status": "already_running",
+            "started_at": _semantic_rebuild_state["started_at"],
+            "facts_to_index": _semantic_rebuild_state["facts_to_index"],
+            "current_index": get_index_stats(),
+        }
+
+    kb = await knowledge_mod._load()
+    facts = (kb or {}).get("facts", []) if isinstance(kb, dict) else []
 
     before_stats = get_index_stats()
     if not facts:
@@ -3080,24 +3132,56 @@ async def rebuild_semantic_index_ep():
             "note": "knowledge.facts is empty — nothing to rebuild",
         }
 
-    loop = _aio.get_running_loop()
-    try:
-        count = await loop.run_in_executor(None, rebuild_index_from_knowledge, facts)
-    except Exception as e:
-        _log.error("[admin/rebuild-semantic-index] rebuild raised: %s", e)
-        return {
-            "ok": False, "error": f"{type(e).__name__}: {e}",
-            "facts_to_index": len(facts),
-            "before": before_stats,
-        }
+    _semantic_rebuild_state["running"] = True
+    _semantic_rebuild_state["started_at"] = _time.time()
+    _semantic_rebuild_state["facts_to_index"] = len(facts)
 
-    after_stats = get_index_stats()
+    async def _rebuild_bg():
+        try:
+            loop = _aio.get_running_loop()
+            count = await loop.run_in_executor(None, rebuild_index_from_knowledge, facts)
+            elapsed = _time.time() - _semantic_rebuild_state["started_at"]
+            _log.info(
+                "[admin/rebuild-semantic-index] background rebuild complete: "
+                "%d facts indexed in %.1fs", count, elapsed,
+            )
+            _semantic_rebuild_state["last_result"] = {
+                "ok": True, "facts_indexed": count, "elapsed_s": round(elapsed, 1),
+            }
+        except Exception as e:
+            _log.error("[admin/rebuild-semantic-index] background rebuild raised: %s", e)
+            _semantic_rebuild_state["last_result"] = {
+                "ok": False, "error": f"{type(e).__name__}: {e}",
+            }
+        finally:
+            _semantic_rebuild_state["running"] = False
+
+    _aio.create_task(_rebuild_bg())
+
     return {
         "ok": True,
+        "status": "started_background",
         "facts_to_index": len(facts),
-        "facts_indexed": count,
         "before": before_stats,
-        "after": after_stats,
+        "note": (
+            "Rebuild is running in the background. Poll "
+            "/api/aria/semantic/stats to watch indexed_documents grow, "
+            "or GET /api/aria/admin/rebuild-semantic-index/status for the job state. "
+            "Expected duration: ~%d-%d seconds for %d facts."
+        ) % (len(facts) // 2, len(facts), len(facts)),
+    }
+
+
+@router.get("/admin/rebuild-semantic-index/status")
+async def rebuild_semantic_index_status_ep():
+    """Returns the state of the most recent rebuild job (running, last
+    result, current index size)."""
+    return {
+        "running": _semantic_rebuild_state["running"],
+        "started_at": _semantic_rebuild_state["started_at"],
+        "facts_to_index": _semantic_rebuild_state["facts_to_index"],
+        "last_result": _semantic_rebuild_state["last_result"],
+        "current_index": get_index_stats(),
     }
 
 
