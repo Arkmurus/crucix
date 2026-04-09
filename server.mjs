@@ -2960,6 +2960,70 @@ app.get('/api/admin/audit', requireAdmin, (req, res) => {
   res.json(getAuditLog(limit));
 });
 
+// ── User-panel consistency check — find phantom admins ────────────────────
+// Cross-references the audit log against the actual user store to surface
+// admin actions whose adminId doesn't resolve to a real user. This is the
+// detection tool for the "missing users in user panel" symptom: phantom
+// admins from the closed `aria-internal` hardcoded fallback (commit
+// 9c0830d) would have left audit entries with adminId='aria-internal'
+// (or any other value not in users.json).
+//
+// Returns:
+//   {
+//     totalAuditEntries: <int>,
+//     totalUsers: <int>,
+//     uniqueAdminIds: <int>,
+//     unresolvedAdminIds: ["aria-internal", ...],  // phantom admin ids
+//     phantomEntryCount: <int>,                     // total audit entries by phantoms
+//     phantomActions: { "approve": 3, "delete": 1, ... },  // breakdown by action
+//     samples: [{adminId, action, targetEmail, ts, ...}, ...],  // first 20 phantom entries
+//     isClean: <bool>
+//   }
+app.get('/api/admin/audit-user-consistency', requireAdmin, (req, res) => {
+  try {
+    const allAudit = getAuditLog(500);  // full window
+    const allUsers = listUsers();
+    const userIdSet = new Set(allUsers.map(u => u.id));
+    const adminIdsInAudit = new Set();
+    const unresolvedAdminIds = new Set();
+    const phantomEntries = [];
+    const phantomActions = {};
+
+    for (const entry of allAudit) {
+      const aid = entry.adminId;
+      if (!aid) continue;
+      adminIdsInAudit.add(aid);
+      if (!userIdSet.has(aid)) {
+        unresolvedAdminIds.add(aid);
+        phantomEntries.push(entry);
+        phantomActions[entry.action] = (phantomActions[entry.action] || 0) + 1;
+      }
+    }
+
+    res.json({
+      totalAuditEntries: allAudit.length,
+      totalUsers: allUsers.length,
+      uniqueAdminIds: adminIdsInAudit.size,
+      unresolvedAdminIds: Array.from(unresolvedAdminIds),
+      phantomEntryCount: phantomEntries.length,
+      phantomActions,
+      samples: phantomEntries.slice(0, 20).map(e => ({
+        ts:          e.ts,
+        adminId:     e.adminId,
+        adminEmail:  e.adminEmail || '(none)',
+        action:      e.action,
+        targetEmail: e.targetEmail,
+        targetName:  e.targetName,
+        notes:       e.notes,
+      })),
+      isClean: unresolvedAdminIds.size === 0,
+    });
+  } catch (err) {
+    console.error('[Audit Consistency] Error:', err);
+    res.status(500).json({ error: err.message || 'Consistency check failed' });
+  }
+});
+
 app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
   try {
     if (req.params.id === req.user.userId) {
