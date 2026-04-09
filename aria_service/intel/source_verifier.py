@@ -78,6 +78,28 @@ URL_RE = re.compile(
 # Markdown brackets and prose punctuation gets caught by the main regex.
 URL_TRAILING_TRIM = ".,;:!?\"')]}"
 
+# Pre-Phase-3 fix 2026-04-09: clause 15 of the constitution tells the LLM
+# to cite tool-derived facts using one of these inline marker formats:
+#   - [from <url>]                       (URL — picked up by URL_RE)
+#   - [from snippet #N] / [snippet #N]   (deep_research snippet ref)
+#   - [from EXTRACT N] / [EXTRACT N]     (deep_research verbatim extract ref)
+#   - [from ATTACHED DOCUMENT: <name>]   (uploaded document ref)
+#   - [from RAG] / [RAG — CONFIRMED]     (RAG-store retrieval ref)
+# All of these markers ONLY exist when a tool actually ran and produced
+# output, so they count as grounded citations even though they don't
+# contain a URL. Without this fix the verifier returned `no_citations`
+# on tool-using turns where the LLM correctly cited every fact via the
+# new marker formats — under-counting the grounded rate dramatically.
+TOOL_REF_RE = re.compile(
+    r"\[(?:from\s+)?"
+    r"(?:snippet\s*#?\d+"
+    r"|EXTRACT\s+\d+"
+    r"|ATTACHED\s+DOCUMENT\s*:\s*[^\]]+"
+    r"|RAG(?:\s*[—–-]\s*[A-Z]+)?"
+    r")\]",
+    re.IGNORECASE,
+)
+
 
 def extract_urls(text: str) -> list[str]:
     """Pull URLs out of a string, dedupe, and normalise.
@@ -156,6 +178,20 @@ def _looks_suspicious(url: str) -> bool:
     return False
 
 
+def count_tool_refs(text: str) -> int:
+    """Count clause-15 inline marker citations in a response.
+
+    These markers ([from snippet #N], [EXTRACT N], [from ATTACHED DOCUMENT: ...],
+    [from RAG]) only exist when a tool produced output to cite, so they
+    are inherently grounded — the LLM cannot fabricate them without a
+    tool block in context. Used by verify_response() as a fallback when
+    no URLs are cited but the markers are.
+    """
+    if not text:
+        return 0
+    return len(TOOL_REF_RE.findall(text))
+
+
 def verify_response(response_text: str, tool_context: str) -> dict:
     """Compute the grounding verdict for one chat response.
 
@@ -167,10 +203,13 @@ def verify_response(response_text: str, tool_context: str) -> dict:
       - grounded_rate         : grounded / cited (None if no citations)
       - suspicious_count      : number of unverified URLs that also fail
                                 the looks-suspicious heuristic
+      - tool_refs             : count of clause-15 inline marker citations
+                                ([from snippet #N], [EXTRACT N], etc.)
       - verdict               : "grounded" | "partial" | "ungrounded" | "no_citations" | "no_tool"
     """
     cited = extract_urls(response_text or "")
     fetched = extract_urls(tool_context or "")
+    tool_refs = count_tool_refs(response_text or "")
 
     if not tool_context:
         return {
@@ -180,9 +219,27 @@ def verify_response(response_text: str, tool_context: str) -> dict:
             "unverified": cited,  # No tool ran — nothing to verify against
             "grounded_rate": None,
             "suspicious_count": sum(1 for u in cited if _looks_suspicious(u)),
+            "tool_refs": tool_refs,
             "verdict": "no_tool",
         }
     if not cited:
+        # Pre-Phase-3 fix 2026-04-09: previously this branch always returned
+        # `no_citations` on tool-using turns where the LLM cited only via
+        # the new clause-15 markers ([from snippet #N], [EXTRACT N], etc).
+        # Now: if the response contains tool-ref markers (which only exist
+        # when a tool produced output), treat as grounded — the LLM cannot
+        # fabricate these markers without a tool block in context.
+        if tool_refs > 0:
+            return {
+                "cited_urls": [],
+                "fetched_urls": fetched,
+                "grounded": [],
+                "unverified": [],
+                "grounded_rate": 1.0,
+                "suspicious_count": 0,
+                "tool_refs": tool_refs,
+                "verdict": "grounded",
+            }
         return {
             "cited_urls": [],
             "fetched_urls": fetched,
@@ -190,6 +247,7 @@ def verify_response(response_text: str, tool_context: str) -> dict:
             "unverified": [],
             "grounded_rate": None,
             "suspicious_count": 0,
+            "tool_refs": 0,
             "verdict": "no_citations",
         }
 
@@ -226,6 +284,7 @@ def verify_response(response_text: str, tool_context: str) -> dict:
         "unverified": unverified,
         "grounded_rate": round(rate, 3) if rate is not None else None,
         "suspicious_count": sum(1 for u in unverified if _looks_suspicious(u)),
+        "tool_refs": tool_refs,
         "verdict": verdict,
     }
 

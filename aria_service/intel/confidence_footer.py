@@ -46,7 +46,17 @@ _TAG_TO_CONFIDENCE = {
     "UNCERTAIN":   0.40,
     "SPECULATIVE": 0.20,
 }
-_TAG_RE = re.compile(r"\[(CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN|SPECULATIVE)\]")
+# Pre-Phase-3 fix 2026-04-09: previously this regex was a strict exact-match
+# `\[(...)\]` which missed the very common `[UNCERTAIN — insufficient data]`
+# / `[ASSESSED — single source]` / `[PROBABLE — two sources]` patterns the
+# LLM produces with caveat text inside the bracket. As a result the footer
+# silently dropped UNCERTAIN tags, picked the next-strongest tag instead,
+# and undercounted confidence floors. Now matches an optional caveat after
+# the tag word.
+_TAG_RE = re.compile(
+    r"\[(CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN|SPECULATIVE)(?:\s*[—–-][^\]]*)?\]",
+    re.IGNORECASE,
+)
 
 # Lines starting with one of these markers are picked up as "assumption to
 # validate" candidates. Conservative — only counts lines the LLM has explicitly
@@ -84,7 +94,9 @@ def _dominant_tag(response_text: str) -> str | None:
     """
     if not response_text:
         return None
-    found = set(_TAG_RE.findall(response_text))
+    # Normalize to upper-case because _TAG_RE is now IGNORECASE — the LLM
+    # occasionally writes [Probable] or [uncertain] instead of [PROBABLE].
+    found = {t.upper() for t in _TAG_RE.findall(response_text)}
     if not found:
         return None
     # Iterate weakest → strongest. First match wins, so the weakest tag
