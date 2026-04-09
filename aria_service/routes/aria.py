@@ -1320,17 +1320,50 @@ def _detect_tool_intent(message: str) -> dict | None:
             r"\b(investigate|research|crawl|check|screen|look\s+into|find\s+out\s+about|tell\s+me\s+about|profile)\b",
             "", ctx_clean, flags=re.IGNORECASE,
         )
+        # Strip common framing prefixes — accept "this/that/the" before
+        # company/firm/etc, plus the trailing "and (it is|its) people/
+        # directors/team" framing. Past incident 2026-04-09 19:18 — DUMA
+        # Engineering: the regex previously only accepted "the" before
+        # the noun, so "this company and it is people" (referring to
+        # the URL) was NOT stripped, the entity ended up as the literal
+        # string "this company and it is people", and Brave Search
+        # returned People Magazine articles instead of duma data.
         ctx_clean = re.sub(
-            r"^\s*(the\s+)?(company|firm|broker|entity|organisation|organization)\s+(and\s+(it\s+is|its)\s+(people|directors|team))?\s*[:\-]?\s*",
+            r"^\s*(this|that|the|a|an)?\s*(company|companies|firm|broker|entity|organisation|organization|business|corporation|corp|ltd|limited|gmbh)\s*(and\s+(it\s+is|its|they\s+are|their)\s+(people|directors|team|leadership|owners|founders|management|staff|employees))?\s*[:\-]?\s*",
             "", ctx_clean, flags=re.IGNORECASE,
         )
         entity = ctx_clean.strip(" ,.:;-?!\"'\n")[:200]
-        if not entity:
-            # Fallback to the domain name
+
+        # Past incident 2026-04-09 19:18 — DUMA Engineering: detect generic
+        # placeholder phrases that survived the regex strip and fall back
+        # to the URL hostname. This is the safety net when the user phrases
+        # the request as "investigate this/it/them <url>" — the placeholder
+        # is meaningless to a search engine and the URL is the real entity.
+        _GENERIC_PLACEHOLDERS = {
+            "", "this", "that", "it", "them", "they",
+            "this one", "that one", "this company", "that company",
+            "the company", "this firm", "the firm", "this entity",
+            "the entity", "this people", "the people", "people",
+            "this business", "the business",
+        }
+        if entity.lower().strip() in _GENERIC_PLACEHOLDERS or len(entity.strip()) < 3:
             try:
                 from urllib.parse import urlparse as _up
                 host = _up(url).netloc.lower().replace("www.", "")
-                entity = host.split(".")[0]
+                # Use the second-level domain as the entity name
+                # (e.g. duma-engineering.com → duma-engineering)
+                entity = host.split(".")[0] if host else url
+                # Replace hyphens with spaces for nicer search queries
+                entity = entity.replace("-", " ").replace("_", " ").strip()
+            except Exception:
+                entity = url
+
+        if not entity:
+            # Final fallback to the raw domain
+            try:
+                from urllib.parse import urlparse as _up
+                host = _up(url).netloc.lower().replace("www.", "")
+                entity = host.split(".")[0] if host else url
             except Exception:
                 entity = url
         return {"tool": "deep_research", "entity": entity, "url": url, "context": msg}

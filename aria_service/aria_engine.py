@@ -1211,10 +1211,30 @@ async def aria_chat(
         }
 
     # Detect self-improvement requests ("improve your X", "fix your Y", etc.)
-    improvement_request = self_improve.detect_self_improvement_request(message)
+    #
+    # Past incident 2026-04-09 19:18 — DUMA Engineering: detect_self_improvement_request
+    # was being called against `message` which by the time we reach this line
+    # contains the user's text PLUS the appended `[I have already run the
+    # appropriate tool on your request. Use the data below ...]` block PLUS
+    # the entire deep_research tool result. The tool block contains words
+    # that match the loose self-improve patterns ("Cite the source URL inline",
+    # "Apply the source-tier hierarchy", "create more specific queries"...),
+    # so the detector falsely fired on real research queries and the LLM
+    # generated a fabricated self-improvement plan instead of a brief.
+    #
+    # Fix: strip the tool-augmented suffix before checking. Self-improvement
+    # detection should only see what the USER actually said.
+    _user_message_only = message
+    _tool_marker = "\n\n[I have already run the appropriate tool on your request"
+    if _tool_marker in _user_message_only:
+        _user_message_only = _user_message_only.split(_tool_marker, 1)[0]
+    # Also strip any [TOOL: ...] block that may have been embedded directly
+    if "\n\n[TOOL:" in _user_message_only:
+        _user_message_only = _user_message_only.split("\n\n[TOOL:", 1)[0]
+    improvement_request = self_improve.detect_self_improvement_request(_user_message_only)
     if improvement_request:
         try:
-            plan = await self_improve.handle_self_improvement_chat(message, llm)
+            plan = await self_improve.handle_self_improvement_chat(_user_message_only, llm)
             if plan and plan.get("detected"):
                 # If there's a concrete plan with files, execute it
                 if plan.get("plan") and not plan.get("needs_approval", True):

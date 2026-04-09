@@ -361,3 +361,82 @@ def test_listener_context_strip():
     # the marker if it appears anywhere
     weird = "[Question from User] just the actual question"
     assert _strip_listener_context(weird) == "just the actual question"
+
+
+def test_intent_detector_handles_generic_placeholder_with_url():
+    """Past incident 2026-04-09 19:18 — DUMA Engineering: the user said
+    'investigate this company and it is people https://duma-engineering.com'
+    where 'this company' was a placeholder for the URL. The entity
+    extraction left 'this company and it is people' as the entity, which
+    Brave Search interpreted as 'People Magazine'. The fix detects generic
+    placeholder phrases and falls back to the URL hostname."""
+    from aria_service.routes.aria import _detect_tool_intent
+
+    # Exact incident shape — placeholder phrase + URL
+    intent = _detect_tool_intent(
+        "Aria, investigate this company and it is people https://duma-engineering.com?"
+    )
+    assert intent is not None
+    assert intent["tool"] == "deep_research"
+    # Entity must NOT contain "people" (would route to People Magazine)
+    assert "people" not in intent["entity"].lower(), (
+        f"placeholder 'people' leaked into entity: {intent['entity']!r}"
+    )
+    # Entity SHOULD be derived from the URL hostname
+    assert "duma" in intent["entity"].lower(), (
+        f"entity should be duma-derived, got: {intent['entity']!r}"
+    )
+
+    # Less polluted variants — these should still resolve via the URL
+    for phrase in [
+        "Aria, investigate this https://duma-engineering.com",
+        "Aria, investigate it https://duma-engineering.com",
+        "Aria, investigate the company https://duma-engineering.com",
+        "Aria, look into this firm https://duma-engineering.com",
+    ]:
+        intent2 = _detect_tool_intent(phrase)
+        assert intent2 is not None, f"failed to route: {phrase!r}"
+        assert intent2["tool"] == "deep_research"
+        assert "duma" in intent2["entity"].lower(), (
+            f"phrase {phrase!r} produced entity {intent2['entity']!r}"
+        )
+
+    # Real entity name should still be preserved (don't break Modirum-style queries)
+    intent3 = _detect_tool_intent(
+        "Aria, investigate Modirum Gespi https://modirumgespi.com"
+    )
+    assert intent3 is not None
+    assert "modirum" in intent3["entity"].lower()
+
+
+def test_self_improvement_detector_ignores_tool_augmented_messages():
+    """Past incident 2026-04-09 19:18 — DUMA Engineering: aria_chat() was
+    calling detect_self_improvement_request against the message AFTER the
+    `[I have already run the appropriate tool on your request...]` block
+    was prepended. The tool block contained verbs and nouns that matched
+    the loose self-improvement regexes, falsely triggering the
+    self-improvement plan generator on real research queries.
+
+    The fix strips the tool marker block before checking. We can validate
+    by importing detect_self_improvement_request directly and confirming
+    it returns None for the cleaned user message, even if the
+    tool-augmented version would have matched."""
+    from aria_service.intel.self_improve import detect_self_improvement_request
+
+    # Pure user research query — must NOT trigger self-improvement
+    clean_user_msg = "Aria, investigate this company and it is people https://duma-engineering.com?"
+    assert detect_self_improvement_request(clean_user_msg) is None, (
+        "research query must not trigger self-improvement detector"
+    )
+
+    # The Modirum probe must also be safe
+    modirum = "Aria, investigate Modirum Gespi https://modirumgespi.com"
+    assert detect_self_improvement_request(modirum) is None
+
+    # The procurement intent must also be safe
+    proc = "Aria, find the latest defence procurement tenders for Angola in 2026"
+    assert detect_self_improvement_request(proc) is None
+
+    # A genuine self-improvement request SHOULD still trigger
+    improve = "Aria, improve your prompt to be more concise"
+    assert detect_self_improvement_request(improve) is not None
