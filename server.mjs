@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
+import { createHash } from 'node:crypto';
 import cron from 'node-cron';
 import config from './crucix.config.mjs';
 import { getLocale, currentLanguage, getSupportedLocales } from './lib/i18n.mjs';
@@ -3069,15 +3070,14 @@ app.post('/api/aria/report',
 // If this is ever deployed to a multi-user or untrusted environment,
 // re-add `requireAdmin` here AND change the path away from /api/admin/
 // to make the security posture explicit.
-app.get('/api/admin/env-check', async (req, res) => {
-  const crypto = await import('node:crypto');
+app.get('/api/admin/env-check', (req, res) => {
   const token = process.env.ARIA_API_TOKEN || '';
   // SHA-256 fingerprint (first 12 hex chars) — non-reversible. Lets us
   // compare the actual env value against an expected value without ever
   // exposing the token. Same input → same fingerprint; different input
   // (even by one character) → different fingerprint.
   const tokenSha = token
-    ? crypto.createHash('sha256').update(token).digest('hex').slice(0, 12)
+    ? createHash('sha256').update(token).digest('hex').slice(0, 12)
     : '';
   // First 4 + last 4 chars are visible-but-safe (1 in 16^8 ≈ 1 in 4 billion
   // collision chance against any specific known value, so the disclosure
