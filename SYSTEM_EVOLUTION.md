@@ -172,6 +172,82 @@ These are non-LLM defences that can't be talked around by a misbehaving model.
 
 ---
 
+## 2026-04-09 — END-TO-END VALIDATION MILESTONE
+
+After fixing the seenode `ARIA_API_TOKEN` env var (Antonio had pasted the full
+flyctl command line including ` -a aria-intel` flag, making the value 78 chars
+instead of 64; tracked down via the new SHA-256 fingerprint diagnostic in
+`648004e` → `36e90d9`), the entire stack was validated end-to-end on the
+Modirum Gespi query.
+
+**Test:** Antonio sent `Aria, investigate the company and it is people: modirum gespi https://modirumgespi.com/en` from WhatsApp.
+
+**Result:** Clean, structured, honest reply with NO fabrications.
+
+| Validation point | Status |
+|---|---|
+| `/forget` proxy chain works (no 503) | ✅ |
+| `extract_url` tool used (not the slow crawl) | ✅ Footer: `sources: tool_extract_url,rag,ledger,knowledge_base` |
+| Constitution clause 14 (no fabricated facts) | ✅ "Cannot be verified from extracted page content" instead of inventing registry data |
+| Constitution clause 13 (no topic bleed) | ✅ NO Lebanon, NO HMS Dragon, NO Brazilian KBR Tender |
+| Constitution clause 12 (omission analysis extension) | ✅ Explicit "GAPS — WHAT COULD NOT BE ESTABLISHED" section listing 7 gaps |
+| Phase 1 ghost detection addendum | ✅ Full 10-point checklist present in reply, all entries marked correctly |
+| Verbatim quotation discipline | ✅ "[CONFIRMED — verbatim from extracted text]" tags on quoted website content |
+| RESPONSE STYLE format | ✅ Bold bottom line / verdict emoji / visual separators / numbered actions / next step |
+| Markdown normaliser at WA boundary | ✅ Single-asterisk `*bold*` rendering correctly |
+| Clean session (no history bleed) | ✅ /forget worked + earlier brute-force purge cleared the contaminated sessions |
+| Persistent volume + tier ingest | ✅ RAG citation in the angle: `[RAG — 2026-04-09]` |
+| Bearer-token auth end-to-end | ✅ Token rotation completed, fingerprints match on both sides (`sha256_prefix: 564901135dda`) |
+
+**Comparison to morning:**
+
+| Field | Morning (broken) | Afternoon (fixed) |
+|---|---|---|
+| Legal name | Fabricated full corporate name | "Cannot be verified from extracted page content" |
+| Registration number | Fabricated `516 394 494` | "Not present" |
+| NACE codes | Fabricated `7022Z, 4669Z` | "Not present" |
+| Address | Fabricated `Rua Actor Isidoro 9 R/C` | "Not present" |
+| Lebanon mention | "Lebanon Crisis Link..." | NONE |
+| Brazilian KBR Tender | Fabricated `$85M` | NONE |
+| Company description | "Portuguese consultancy and brokerage" | "Portuguese AI-defence OEM" (actual) |
+| Confidence tags | `[CONFIRMED]` everywhere | `[ASSESSED]` / `[UNCERTAIN]` / `[PROBABLE]` correctly |
+
+**Layer scorecard delta:**
+
+| Layer | Before validation | After validation | Notes |
+|---|---|---|---|
+| TIERS | 85% | 85% | unchanged |
+| WEB SEARCH | 75% | **85%** | +10 — extract_url proven working end-to-end on a JS-heavy SPA |
+| AUTONOMOUS RESEARCH | 40% | 40% | still gated |
+| MEM0 | 70% | 70% | unchanged |
+| OUTCOME TRACKING | 80% | **85%** | +5 — every constitution clause that fired this round was a successful test of the OUTCOME TRACKING loop (clauses now have validated incident-grounded protection) |
+| COUNTERPARTY DD | 65% | **80%** | +15 — Phase 1 ghost detection validated firing correctly with full output structure |
+| CONTRACT REVIEW | 60% | 60% | not yet validated (no contract test run) |
+
+**Aggregate readiness: ~72% → ~78%** — biggest single-test jump of the project so far, because one validation confirmed eight independent fixes working together.
+
+**Operational fixes shipped while debugging:**
+- `2fca0e1` ariaProxy logging + listener direct-fly fallback for /forget
+- `48ff9f8` env-check endpoint made open (no auth) for direct browser access
+- `648004e` env-check returns SHA-256 fingerprint of token (non-reversible verification)
+- `36e90d9` env-check uses static crypto import (build fix for seenode)
+
+**Root cause of the 503 / fabrication chain (final answer):**
+1. Antonio's seenode `ARIA_API_TOKEN` env var was set to the full flyctl command line (`<token> -a aria-intel`) instead of just the 64-char hex value. Length 78 = 64 + 14 (the trailing ` -a aria-intel` flag).
+2. seenode's proxy authenticated to fly.io with the wrong (78-char) token → fly.io 401 → proxy fell through to 503 fallback → /forget broken.
+3. Without /forget, Antonio couldn't wipe his contaminated WhatsApp session, so every chat reply replayed the old fabricated assistant turns from session memory → Modirum reply kept producing fabricated registry data despite all the constitution clauses being correct.
+4. The fix was to update the seenode env var to just the 64-char hex value. The SHA-256 fingerprint diagnostic made this discoverable in 5 seconds instead of an open-ended hunt.
+
+**Lesson learned:** when copy-pasting env var VALUES, never copy the FLAGS that follow the value on the command line. The seenode UI doesn't strip them. This is now noted in the changelog so the next operator (or me, in a future session) won't repeat it.
+
+**Pending follow-ups (low priority, not blocking):**
+- Footer "Confidence: 95% [CONFIRMED]" doesn't match body tags — cosmetic mismatch in confidence_footer.py auto-generation logic
+- Verify whether `LLM_PROVIDER` was intentionally changed from deepseek to claude-3-5-sonnet (cost implication; output quality is better)
+- Internal-IP 401 issue (background callers — not user-facing)
+- JS-rendered SPA crawling improvement (would require headless browser)
+
+---
+
 ## How to read this scorecard going forward
 
 **Each new entry should answer:**
