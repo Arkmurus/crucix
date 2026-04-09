@@ -487,3 +487,23 @@ def test_self_improvement_detector_ignores_tool_augmented_messages():
     # A genuine self-improvement request SHOULD still trigger
     improve = "Aria, improve your prompt to be more concise"
     assert detect_self_improvement_request(improve) is not None
+
+
+def test_chat_request_accepts_group_context_field():
+    """Phase 3c follow-up 2026-04-09: ChatRequest model must accept the
+    new `group_context` field that the WhatsApp listener now sends as
+    a separate JSON field instead of polluting the message body. The
+    field is optional with default empty string so existing curl /
+    frontend / autonomous-engine callers continue to work without
+    sending it."""
+    from aria_service.routes.aria import ChatRequest
+    # Empty group_context — current curl/frontend pattern
+    req = ChatRequest(message="hello", session_id="test")
+    assert req.group_context == ""
+    # Populated group_context — new WhatsApp listener pattern
+    req2 = ChatRequest(
+        message="Aria, investigate https://duma-engineering.com",
+        session_id="wa_group_Antonio",
+        group_context="[Antonio]: prior turn 1\n[Antonio]: prior turn 2",
+    )
+    assert "prior turn" in req2.group_context

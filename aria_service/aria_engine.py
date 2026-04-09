@@ -1231,6 +1231,12 @@ async def aria_chat(
     # Also strip any [TOOL: ...] block that may have been embedded directly
     if "\n\n[TOOL:" in _user_message_only:
         _user_message_only = _user_message_only.split("\n\n[TOOL:", 1)[0]
+    # Also strip the [GROUP CONTEXT — ...] block added when chat_ep gets a
+    # group_context field from the WhatsApp listener. The block contains
+    # text from prior conversational turns which must not contaminate
+    # the self-improvement detector or the entity extraction.
+    if "\n\n[GROUP CONTEXT" in _user_message_only:
+        _user_message_only = _user_message_only.split("\n\n[GROUP CONTEXT", 1)[0]
     improvement_request = self_improve.detect_self_improvement_request(_user_message_only)
     if improvement_request:
         try:
