@@ -46,9 +46,15 @@ from typing import Any
 
 logger = logging.getLogger("aria.corpus_ingest")
 
-# Tier vocabulary — kept loose so we can add more (E proprietary email, etc.)
-# without breaking existing data. Caller should use one of these strings.
-VALID_TIERS = {"A", "B", "C", "D", "unknown"}
+# Tier vocabulary — MUST stay in sync with corpus_registry.py:VALID_TIERS.
+# Past incident 2026-04-09: this set was missing B+, C+, and E even though
+# corpus_registry.py defines all 7 tiers and the bulk-ingest CLIs accept
+# them via --tier. The result was that Tier C+ ingest (the Lusophone moat,
+# 19 sources) failed wholesale on the server side with HTTP 400 even
+# though the registry and CLI both supported the tier name. The Tier B+
+# (64 sources) and Tier E (15 sources) ingests would have failed the
+# same way. Always update both sets together when adding tiers.
+VALID_TIERS = {"A", "B", "B+", "C", "C+", "D", "E", "unknown"}
 
 # Sentinel for "we tried every extractor and got nothing useful"
 class ExtractError(ValueError):
