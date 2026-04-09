@@ -146,16 +146,72 @@ async def purge_signals_by_keyword(keywords: list[str], dry_run: bool = False) -
     }
 
 
+# Propaganda-tier sources — these channels are monitored for OSINT
+# situational awareness via the sweep cycle but their content is NOT
+# trustworthy enough to enter the chat-injection layer. Keeping them out
+# of the intel ledger entirely is the cleanest defence: every downstream
+# code path (query_ledger, _build_intel_context, the LLM prompt) becomes
+# safe by construction. The list mirrors apis/sources/telegram.mjs
+# DEFAULT_CHANNELS — when new biased channels are added there, this set
+# must be updated in lockstep.
+#
+# Past incident 2026-04-09: a single intelslava "Lebanon airstrikes 112
+# killed" post propagated into the Vision International ammunition RFQ
+# analysis, the Modirum Gespi investigation, AND the Ghana defence
+# minister query, with [CONFIRMED] tags. Even after constitution clause
+# 13 + the relevance filter + a manual purge, the sweep cycle kept
+# re-ingesting fresh propaganda content every cycle and the bleed
+# returned. The only structural fix is to block these sources at the
+# ledger boundary.
+_PROPAGANDA_SOURCES = {
+    # Russian state / Russian-aligned
+    "intelslava", "mod_russia", "rvvoenkor", "readovkanews", "readovka",
+    # Conflict Intelligence Team is sometimes Russian-aligned content
+    "cig_telegram",
+    # Ukrainian state / Ukrainian-aligned (also single-perspective)
+    "deepstateua", "operativnozsu", "generalstaffzsu", "legitimniy",
+    "ukraine frontline",
+    # Generic single-channel buckets that proved high-noise in 2026-04-09
+    "telegram", "tg",
+}
+
+
+def _is_propaganda_source(source: str) -> bool:
+    """Return True if this source identifier matches the propaganda set.
+    Case-insensitive substring match — catches both 'intelslava' as a
+    full source string and 'telegram:intelslava' as a prefixed one."""
+    if not source:
+        return False
+    s = source.lower().strip()
+    if s in _PROPAGANDA_SOURCES:
+        return True
+    return any(p in s for p in _PROPAGANDA_SOURCES if len(p) > 3)
+
+
 async def ingest_sweep_signals(current_data: dict) -> int:
-    """Parse sweep data, extract entities, dedup, store. Returns count added."""
+    """Parse sweep data, extract entities, dedup, store. Returns count added.
+
+    Propaganda-tier sources (intelslava, mod_russia, CIG_telegram, etc.)
+    are SKIPPED at ingest time — they never enter the ledger and therefore
+    can never be auto-injected into chat replies. This is the structural
+    fix for the 2026-04-09 Lebanon contamination incident; clause 13 and
+    the relevance filter handle the same content if it slips through via
+    other paths, but the ledger boundary is the cleanest place to block.
+    """
     db = await _load()
     existing = {s.get("text", "")[:150].lower() for s in db["signals"]}
     added = 0
+    skipped_propaganda = 0
     now = datetime.now(timezone.utc).isoformat()
 
     def _add(text: str, source: str, sig_type: str, url: str = "", severity: str = "medium"):
-        nonlocal added
-        if not text or text[:150].lower() in existing:
+        nonlocal added, skipped_propaganda
+        if not text:
+            return
+        if _is_propaganda_source(source):
+            skipped_propaganda += 1
+            return
+        if text[:150].lower() in existing:
             return
         ent = _extract_entities(text)
         db["signals"].insert(0, {
@@ -197,7 +253,13 @@ async def ingest_sweep_signals(current_data: dict) -> int:
 
     _prune()
     await _save()
-    logger.info(f"Ledger ingested {added} new signals")
+    if skipped_propaganda > 0:
+        logger.info(
+            "Ledger ingested %d new signals (%d propaganda-tier signals skipped at boundary)",
+            added, skipped_propaganda,
+        )
+    else:
+        logger.info("Ledger ingested %d new signals", added)
     return added
 
 
