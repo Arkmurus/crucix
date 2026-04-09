@@ -48,3 +48,6 @@ MAINTAINER_DECISIONS.local.md
 
 # Local deploy config
 dashboard/public/vercel.json
+
+# Tier C ingest scheduler state (per-machine, not source-controlled)
+aria_service/cli/.tier_c_state.json
