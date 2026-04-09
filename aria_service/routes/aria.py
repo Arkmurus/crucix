@@ -1069,6 +1069,30 @@ _CONFLICT_KW    = re.compile(r"\b(conflict|kinetic|escalation|violence|attacks?|
 _TECH_KW        = re.compile(r"\b(what\s+is\s+(?:a|the)\s+|specs?\s+(?:of|for)\s+|tell\s+me\s+about\s+(?:the\s+)?|"
                               r"classify\s+(?:this|these)|extract\s+items|what\s+ml\s+category)\b", re.IGNORECASE)
 _FUZZY_KW       = re.compile(r"\b(fuzzy|alias|alternate\s+spelling|transliteration|name\s+variant)\b", re.IGNORECASE)
+
+# Phase 3 cherry-pick from aria_research_architecture.py 2026-04-09:
+# Procurement / tender intent — fires deep_research with a procurement-
+# scoped query. Conservative regex: requires both a procurement noun
+# AND a market or year so we don't trigger on every "I had a contract".
+_PROCUREMENT_KW = re.compile(
+    r"\b(tender|RFP|RFQ|RFI|procurement|concurso|"
+    r"public\s+(?:contract|notice)|contract\s+award|"
+    r"bid\s+(?:submission|opportunit)|opportunit(?:y|ies)\s+for|"
+    r"request\s+for\s+(?:proposal|quote|information))\b",
+    re.IGNORECASE,
+)
+
+# Time-sensitive trigger — when the user uses a temporal word the answer
+# is almost always going to be wrong from training data alone, so we
+# should fire deep_research instead of trusting the LLM's stale memory.
+# Past incidents driving this: officeholder hallucinations (Nitiwul/Ghana),
+# stale conflict casualty figures, expired sanctions designations.
+_TIME_SENSITIVE_KW = re.compile(
+    r"\b(current(?:ly)?|latest|recent(?:ly)?|today|this\s+week|"
+    r"this\s+month|right\s+now|these\s+days|as\s+of|2025|2026|2027|"
+    r"in\s+the\s+last\s+\d+\s+(?:days?|weeks?|months?))\b",
+    re.IGNORECASE,
+)
 # Known weapon systems - matched against tech_classifier's database
 _WEAPON_DESIGNATION_RE = re.compile(
     r"\b(F[\-/]?\d{1,3}|Su[\-/]?\d{1,3}|MiG[\-/]?\d{1,3}|MQ[\-/]?\d|TB\d|"
@@ -1306,6 +1330,48 @@ def _detect_tool_intent(message: str) -> dict | None:
     # 8. Weapon system / technical explainer — designation present
     if weapon_match:
         return {"tool": "tech_explain", "designation": weapon_match.group(0), "context": msg}
+
+    # ── Phase 3 cherry-pick triggers (added 2026-04-09 from architecture
+    # proposal). Each one is conservative — requires the corresponding
+    # keyword PLUS a discriminator (market/country/entity) so we don't
+    # fire deep_research on every chat with a stray temporal word.
+
+    # 9. Procurement / tender / RFQ — fires deep_research scoped to the
+    # procurement question. Requires the procurement keyword AND either a
+    # country OR a year-like time word so a generic "what's an RFP" stays
+    # in pure-LLM mode.
+    proc_match = _PROCUREMENT_KW.search(msg)
+    if proc_match and (country_match or _TIME_SENSITIVE_KW.search(msg)):
+        # Build a deep_research entity that captures the procurement subject
+        ctx_clean = re.sub(
+            r"^\s*(aria[,\s]*|please\s+|kindly\s+|can\s+you\s+)*",
+            "", msg, flags=re.IGNORECASE,
+        )[:200]
+        return {
+            "tool": "deep_research",
+            "entity": ctx_clean.strip(" .,:;-?!\"'\n"),
+            "context": msg,
+            "_reason": "procurement_query",
+        }
+
+    # 10. Time-sensitive question with a country — fires deep_research so
+    # the LLM has fresh OSINT instead of stale training data. Conservative:
+    # requires both the time word AND the country, so a chit-chat
+    # "what's the latest with you" doesn't trigger. Past incidents driving
+    # this: officeholder hallucinations on Ghana / Modirum, stale figures.
+    if _TIME_SENSITIVE_KW.search(msg) and country_match and len(msg) > 25:
+        # Avoid colliding with officeholder route (already handled at top)
+        if not officeholder_match:
+            ctx_clean = re.sub(
+                r"^\s*(aria[,\s]*|please\s+|kindly\s+|can\s+you\s+)*",
+                "", msg, flags=re.IGNORECASE,
+            )[:200]
+            return {
+                "tool": "deep_research",
+                "entity": ctx_clean.strip(" .,:;-?!\"'\n"),
+                "context": msg,
+                "_reason": "time_sensitive_country_query",
+            }
 
     return None
 

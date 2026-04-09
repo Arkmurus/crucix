@@ -671,8 +671,18 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
     and stored in chromadb. At query time we pull the most relevant passages
     and inject them straight into the LLM context.
     """
+    # Phase 3 cherry-pick from aria_research_architecture.py 2026-04-09:
+    # mem0 retrieval is now a SEPARATE first-class context layer instead of
+    # being silently mixed into the generic knowledge block. This lets the
+    # LLM see "this came from a prior conversation" provenance distinct
+    # from "this is a verified knowledge fact". The mem0 layer sits right
+    # after RAG so prior conversational context arrives before generic
+    # knowledge but still after proprietary corpus intel.
+    from .intel.mem0 import retrieve_for_query as _mem0_retrieve
+
     layer_fns = [
         ("rag",         lambda: _sync_rag_context(message)),  # FIRST — proprietary intel takes priority
+        ("mem0",        lambda: _mem0_retrieve(message)),     # NEW — notebook recall from prior chats
         ("live_intel",  lambda: _build_intel_context(intel_data, message)),
         ("knowledge",   lambda: search_knowledge(message)),
         ("ledger",      lambda: query_ledger(message)),

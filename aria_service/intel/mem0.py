@@ -270,3 +270,115 @@ async def summarise_and_store(
 
     out["duration_ms"] = int((time.time() - t0) * 1000)
     return out
+
+
+# ── Public: retrieval for chat-time prompt injection ────────────────────────
+#
+# Phase 3 cherry-pick from aria_research_architecture.py 2026-04-09:
+# the proposal's run_aria_research() does mem0 retrieval BEFORE the LLM
+# call so prior conversational facts can shape the next reply. ARIA already
+# stores mem0 facts via knowledge.store_fact() with source `mem0:session_*`,
+# and the chat-time `search_knowledge()` layer already retrieves them as
+# part of the generic KNOWLEDGE BASE block. The problem with that path:
+# the LLM cannot tell which facts came from a verified /teach call vs
+# which came from a prior chat summary, which matters for confidence
+# tagging.
+#
+# This function returns a SEPARATE context block tagged "MEM0 NOTEBOOK
+# RECALL" so the LLM sees mem0 facts distinctly from KNOWLEDGE BASE
+# facts. Same retrieval (still hits the same knowledge.facts cache) but
+# filtered to mem0-tagged facts only and presented with explicit
+# provenance. Used by aria_engine._build_7_layer_context() as a new
+# layer slot.
+
+# Conservative size cap so the recall block can never blow up the
+# context window — even with hundreds of mem0 facts in the cache, only
+# the top-N by keyword overlap make it into the prompt.
+_MAX_MEM0_RECALL_CHARS = 1200
+_MAX_MEM0_RECALL_FACTS = 6
+
+
+def retrieve_for_query(query: str) -> str:
+    """Pull mem0-stored notebook facts that look relevant to `query` and
+    return them as a formatted prompt-injection block.
+
+    Returns the empty string when:
+      - The feature flag is off
+      - The knowledge cache is empty / unloaded
+      - No mem0 facts match the query
+      - mem0 facts exist but none score above the keyword threshold
+
+    The function is intentionally synchronous and side-effect free —
+    same shape as `knowledge.search_knowledge()` so it can drop into the
+    layer-fns list in aria_engine._build_7_layer_context() without any
+    new async wiring.
+    """
+    if not is_enabled() or not query or not isinstance(query, str):
+        return ""
+
+    try:
+        from . import knowledge
+    except Exception:
+        return ""
+
+    cache = getattr(knowledge, "_cache", None)
+    if not cache:
+        return ""
+
+    facts = cache.get("facts", []) if isinstance(cache, dict) else []
+    if not facts:
+        return ""
+
+    # Word-overlap scorer mirroring search_knowledge() but filtered to
+    # mem0-tagged facts only. Keep the scoring identical so behaviour is
+    # predictable for the LLM consumer.
+    words = [w.lower() for w in query.split() if len(w) > 2]
+    if not words:
+        return ""
+
+    scored: list[tuple[float, dict]] = []
+    for f in facts:
+        source = (f.get("source") or "")
+        if not source.startswith("mem0:"):
+            continue
+        text = f"{f.get('topic', '')} {f.get('content', '')}".lower()
+        score = sum(3 for w in words if w in text)
+        if score > 0:
+            scored.append((score, f))
+
+    if not scored:
+        return ""
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[:_MAX_MEM0_RECALL_FACTS]
+
+    lines = ["\n[MEM0 NOTEBOOK RECALL — facts captured from prior conversations]"]
+    total = len(lines[0])
+    for _, f in top:
+        # Trim source down to a short provenance marker so the LLM
+        # sees "from a prior turn on date X" without leaking the full
+        # session id
+        source = f.get("source") or ""
+        date_marker = ""
+        # source format: "mem0:session_<id>:<iso8601>"
+        if source.startswith("mem0:session_"):
+            try:
+                ts_part = source.split(":", 2)[2] if source.count(":") >= 2 else ""
+                date_marker = ts_part[:10] if ts_part else ""
+            except Exception:
+                date_marker = ""
+        prov = f" (mem0 {date_marker})" if date_marker else " (mem0)"
+        line = f"- {f.get('content', '')[:200]}{prov}"
+        if total + len(line) + 1 > _MAX_MEM0_RECALL_CHARS:
+            break
+        lines.append(line)
+        total += len(line) + 1
+
+    if len(lines) <= 1:
+        return ""
+
+    lines.append(
+        "(These are notebook facts from past chats — useful for continuity but"
+        " always re-verify with a tool before tagging [CONFIRMED])"
+    )
+    return "\n".join(lines)

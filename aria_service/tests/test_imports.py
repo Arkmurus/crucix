@@ -173,3 +173,71 @@ def test_confidence_footer_returns_weakest_tag():
         "not the highest, so a reply that mixes [CONFIRMED] facts with "
         "[UNCERTAIN] gaps is presented as [UNCERTAIN] overall."
     )
+
+
+def test_confidence_footer_matches_tag_with_caveat():
+    """Phase 3 fix: the regex must match `[UNCERTAIN — insufficient data]`
+    not just bare `[UNCERTAIN]`. The LLM almost always adds a caveat
+    after the tag word, and the old strict-bracket regex was missing
+    every caveat-bearing tag in the body."""
+    from aria_service.intel.confidence_footer import _dominant_tag
+    body_with_caveats = (
+        "Identity [PROBABLE — multiple sources] confirms Finland HQ.\n"
+        "Ownership [UNCERTAIN — insufficient data] could not be traced.\n"
+    )
+    assert _dominant_tag(body_with_caveats) == "UNCERTAIN", (
+        "Regex must allow `[TAG — caveat text]` not just `[TAG]`. "
+        "Validation evidence: Modirum probe had `[UNCERTAIN — insufficient data]` "
+        "in the body but the footer reported `[ASSESSED]` because the regex failed."
+    )
+
+
+def test_verifier_recognises_clause15_markers():
+    """Phase 3 fix: source_verifier.count_tool_refs() must recognise
+    the inline marker formats clause 15 tells the LLM to use:
+    [from snippet #N], [EXTRACT N], [from ATTACHED DOCUMENT: ...], [RAG].
+    These don't contain URLs but they ARE inherently grounded because
+    the markers can only exist when a tool produced output."""
+    from aria_service.intel.source_verifier import count_tool_refs, verify_response
+    body = (
+        "Modirum Gespi is headquartered in Helsinki [from EXTRACT 2]. "
+        "Acquired GESPI in Brazil [from snippet #8]. "
+        "Multi-language website confirmed [from RAG — CONFIRMED]. "
+        "Contract terms reviewed [from ATTACHED DOCUMENT: ARK-SER-01.pdf]."
+    )
+    refs = count_tool_refs(body)
+    assert refs == 4, f"expected 4 tool refs, got {refs}"
+
+    # And the verdict should be `grounded` when only marker citations
+    # are present (no URLs but a tool ran).
+    result = verify_response(body, tool_context="some non-empty tool block")
+    assert result["verdict"] == "grounded", (
+        f"verifier should treat marker-only citations as grounded, got {result['verdict']}"
+    )
+    assert result["tool_refs"] == 4
+
+
+def test_mem0_retrieve_for_query_handles_empty_cache():
+    """Phase 3 cherry-pick: retrieve_for_query() must safely return
+    empty string when the knowledge cache hasn't been loaded yet,
+    instead of raising. This is the first-call-after-restart path."""
+    from aria_service.intel.mem0 import retrieve_for_query
+    # Cache might not exist (we haven't loaded knowledge.py)
+    result = retrieve_for_query("modirum gespi finland")
+    assert isinstance(result, str), "must always return str, never None"
+
+
+def test_researcher_principles_includes_8_step_sequence():
+    """Phase 3 cherry-pick: the addendum must contain the 8-step research
+    sequence + the per-country source pointers. Both were added to
+    researcher_principles.py from the architecture proposal."""
+    from aria_service.intel.researcher_principles import addendum
+    text = addendum()
+    # 8-step sequence sentinels
+    assert "STEP 1 — MEMORY CHECK" in text
+    assert "STEP 4 — LIVE SEARCH EXECUTION" in text
+    assert "STEP 8 — SYNTHESIS + STORAGE" in text
+    # Per-country source pointers sentinels
+    assert "Jornal de Angola" in text
+    assert "Club of Mozambique" in text
+    assert "Macauhub" in text
