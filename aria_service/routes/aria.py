@@ -841,8 +841,8 @@ async def student_quiz_ep(request: Request):
     body = {}
     try:
         body = await request.json()
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning("student_quiz_ep: failed to parse request body, using defaults: %s", e)
     n = max(1, min(int(body.get("num_questions", 5)), 20))
     return await student.self_quiz(num_questions=n)
 
@@ -855,8 +855,8 @@ async def student_study_ep(request: Request):
     body = {}
     try:
         body = await request.json()
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning("student_study_ep: failed to parse request body, using defaults: %s", e)
     n = max(1, min(int(body.get("num_articles", 4)), 10))
     llm = get_llm(request)
     return await student.reading_session(llm=llm, num_articles=n)
@@ -2055,11 +2055,11 @@ async def chat_ep(req: ChatRequest, request: Request):
                                 result_summary["stored"],
                             )
                     except Exception as e:
-                        _log.debug("correction_learner bg failed: %s", e)
+                        _log.warning("correction_learner bg failed: %s: %s", type(e).__name__, e)
                 import asyncio as _aio
                 _aio.create_task(_learn_correction_bg())
         except Exception as e:
-            _log.debug("correction_learner dispatch failed: %s", e)
+            _log.warning("correction_learner dispatch failed: %s: %s", type(e).__name__, e)
 
         # ── Honesty judge — fire in background if response has [CONFIRMED] tags ──
         # This is another LLM round-trip and would add 2-5s of latency to the
@@ -2091,11 +2091,11 @@ async def chat_ep(req: ChatRequest, request: Request):
                             response_preview=_resp,
                         )
                     except Exception as e:
-                        _log.debug("honesty judge bg failed: %s", e)
+                        _log.warning("honesty judge bg failed: %s: %s", type(e).__name__, e)
                 import asyncio as _aio
                 _aio.create_task(_judge_bg())
         except Exception as e:
-            _log.debug("honesty judge dispatch failed: %s", e)
+            _log.warning("honesty judge dispatch failed: %s: %s", type(e).__name__, e)
 
         return result
     finally:

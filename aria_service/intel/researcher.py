@@ -1067,8 +1067,12 @@ async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) ->
                 uddg = qs.get("uddg", [""])[0]
                 if uddg:
                     actual_url = unquote(uddg)
-            except Exception:
-                pass
+            except Exception as e:
+                # Don't silently feed the raw /l/? redirect to the LLM as a
+                # "search result" — that produces dead URLs and the LLM cites
+                # nothing useful. Log + skip this result.
+                logger.warning("DDG redirect unwrap failed for %r: %s", raw_href[:80], e)
+                continue
         elif raw_href.startswith("//"):
             actual_url = "https:" + raw_href
         # Strip HTML tags from title/snippet
@@ -1311,7 +1315,12 @@ async def deep_research(
     extracted_pages: list[dict] = []
     for ext in extracted_results:
         if isinstance(ext, Exception):
-            logger.debug("deep_research extraction failed: %s", ext)
+            # WARNING (was DEBUG) — same lesson as the import-os bug:
+            # silent gather-swallowed exceptions hide real failures.
+            logger.warning(
+                "deep_research extraction RAISED: %s: %s",
+                type(ext).__name__, ext,
+            )
             continue
         if not isinstance(ext, dict) or not ext.get("extraction_ok"):
             continue
@@ -1397,7 +1406,8 @@ def _collect_internal_dd_links(homepage_html: str, base_url: str, max_links: int
         # Resolve relative URLs
         try:
             full = urljoin(base_url, href)
-        except Exception:
+        except Exception as e:
+            logger.debug("urljoin failed for href=%r base=%r: %s", href[:80], base_url[:80], e)
             continue
         parsed = urlparse(full)
         # Same-domain only

@@ -1495,28 +1495,41 @@ async def aria_chat(
     # the divergence, and update her mastery. This is what makes ARIA
     # actively learn from her teacher rather than passively cache him.
     # We fire-and-forget so it doesn't slow the user response.
+    # Pre-Phase-3 cleanup 2026-04-09: the previous done_callbacks called
+    # `t.exception()` and threw the result away — same silent-swallow class
+    # as the import-os bug. Now they actually log when a background task
+    # raises so failures are visible in fly logs at WARNING level.
+    def _bg_done(name):
+        def _cb(t):
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.warning("background task %s raised: %s: %s", name, type(exc).__name__, exc)
+        return _cb
+
     try:
         # Hold strong references so the GC can't collect mid-task
         # (asyncio.create_task() with no reference is a known footgun)
         compare_task = asyncio.create_task(
             student.compare_local_silently(message, response_text)
         )
-        compare_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+        compare_task.add_done_callback(_bg_done("student.compare_local_silently"))
 
         topics = student.detect_topics(f"{message} {response_text}")
         if topics:
             mastery_task = asyncio.create_task(
                 student.update_mastery(topics, correct=True, weight=0.15)
             )
-            mastery_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+            mastery_task.add_done_callback(_bg_done("student.update_mastery"))
 
         # Proactive: track this query for knowledge-gap detection. If the
         # same topic gets asked 3+ times and ARIA's mastery is weak, the
         # proactive watch will push an alert + auto-prep a reading session.
         gap_task = asyncio.create_task(proactive.detect_knowledge_gaps(message))
-        gap_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+        gap_task.add_done_callback(_bg_done("proactive.detect_knowledge_gaps"))
     except Exception as e:
-        logger.debug("Student/proactive hooks failed: %s", e)
+        logger.warning("Student/proactive hooks failed at scheduling stage: %s", e)
 
     return {
         "response": response_text,

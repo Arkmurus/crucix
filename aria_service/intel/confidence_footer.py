@@ -65,18 +65,31 @@ def is_enabled() -> bool:
 
 
 def _dominant_tag(response_text: str) -> str | None:
-    """Return the highest-rank confidence tag present in the response.
+    """Return the WEAKEST confidence tag present in the response.
 
-    'Highest' = strongest confidence (CONFIRMED beats PROBABLE beats ASSESSED…)
-    so the headline reflects what ARIA most confidently asserted, not the
-    weakest hedge in the reply.
+    Pre-Phase-3 cleanup 2026-04-09: this used to return the strongest tag
+    (CONFIRMED beats PROBABLE beats ASSESSED…) on the theory that the headline
+    should reflect what ARIA most confidently asserted. That was wrong in
+    practice. It produced three known incidents (Modirum, Modirum-rerun,
+    ARK-SER-01 contract review) where the footer reported
+    "Confidence: 95% [CONFIRMED]" while the body had [UNCERTAIN] and
+    [ASSESSED] sections — misleading readers about the actual confidence
+    floor of the assessment.
+
+    The correct rule: the footer reflects the WEAKEST tag in the body, so a
+    reply that mixes [CONFIRMED] facts with [UNCERTAIN] gaps is presented as
+    [UNCERTAIN] overall. The body still shows the per-section tags so the
+    reader sees both the high-confidence facts and the low-confidence gaps —
+    but the headline cannot oversell the assessment.
     """
     if not response_text:
         return None
     found = set(_TAG_RE.findall(response_text))
     if not found:
         return None
-    for tag in ("CONFIRMED", "PROBABLE", "ASSESSED", "UNCERTAIN", "SPECULATIVE"):
+    # Iterate weakest → strongest. First match wins, so the weakest tag
+    # present in the body becomes the headline.
+    for tag in ("SPECULATIVE", "UNCERTAIN", "ASSESSED", "PROBABLE", "CONFIRMED"):
         if tag in found:
             return tag
     return None
