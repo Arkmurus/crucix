@@ -27,6 +27,10 @@ desktop.ini
 .claude/
 CLAUDE.md
 AGENTS.md
+# Heredoc workaround scratch file used by Claude Code when committing
+# multi-line messages with apostrophes (avoids bash quoting issues).
+# Should never be committed.
+.git-commit-msg.tmp
 
 
 # Playwright
