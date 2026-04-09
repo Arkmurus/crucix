@@ -967,6 +967,10 @@ async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) ->
 
     # ── Provider 1: Brave Search API ──────────────────────────────────
     brave_key = (os.getenv("BRAVE_SEARCH_API_KEY") or "").strip()
+    logger.info(
+        "web_search ENTRY query=%r brave_key_present=%s brave_key_len=%d",
+        query[:80], bool(brave_key), len(brave_key),
+    )
     if brave_key:
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -1223,6 +1227,10 @@ async def deep_research(
             "duration_ms": 0,
         }
     entity = entity.strip()[:200]
+    logger.info(
+        "deep_research ENTRY entity=%r primary_url=%r max_queries=%d max_extracts=%d",
+        entity[:80], primary_url[:120] if primary_url else "", max_queries, max_extracts,
+    )
 
     # ── Step 1: build a small set of search angles ────────────────────
     # Each angle surfaces a different facet of the OSINT surface. Order
@@ -1236,8 +1244,18 @@ async def deep_research(
     ][:max_queries]
 
     # ── Step 2: parallel web searches ─────────────────────────────────
+    logger.info("deep_research firing %d parallel web_search angles: %r", len(angles), angles)
     search_tasks = [web_search(angle, max_results=8, timeout=timeout) for angle in angles]
     search_results_per_angle = await asyncio.gather(*search_tasks, return_exceptions=True)
+    for angle, sr in zip(angles, search_results_per_angle):
+        if isinstance(sr, Exception):
+            logger.warning("deep_research angle=%r RAISED: %s: %s", angle, type(sr).__name__, sr)
+        elif isinstance(sr, dict):
+            logger.info(
+                "deep_research angle=%r ok=%s provider=%s results=%d error=%s",
+                angle, sr.get("ok"), sr.get("provider"),
+                len(sr.get("results") or []), sr.get("error", ""),
+            )
 
     # ── Step 3: aggregate + dedup snippets across all angles ──────────
     snippets_by_url: dict[str, dict] = {}
