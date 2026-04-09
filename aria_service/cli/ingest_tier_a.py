@@ -411,7 +411,22 @@ def _process_sub_index(source, *, aria_url: str, token: str, timeout: int) -> li
     return results
 
 
-_SKIP_STRATEGIES = {"api", "manual", "principles_only", "rss"}
+# Strategies the bulk-ingest CLI does NOT handle inline. Each is skipped
+# with a SKIP marker so the operator sees it but the run continues.
+#   api              — needs an API client adapter (e.g. Brave Search,
+#                      OpenSanctions, FATF — separate ingest path)
+#   manual           — needs human upload (PDF on a registry login etc)
+#   principles_only  — Tier D analytic principles, distilled into the
+#                      system prompt addendum, not RAG-indexed
+#   rss              — has its own scheduled RSS poller (Phase 4)
+#   deferred         — Phase 4 work — most are JS-rendered SPAs, signal
+#                      feeds (AIS / ADS-B / satellite imagery), or
+#                      paywalled databases (Lloyd's List, World-Check).
+#                      Marked as deferred in corpus_registry.yaml so the
+#                      registry knows about them and the operator can
+#                      see what is on the roadmap, but the bulk html
+#                      crawler skips them.
+_SKIP_STRATEGIES = {"api", "manual", "principles_only", "rss", "deferred"}
 
 _STRATEGY_HANDLERS = {
     "html_crawl": _process_html_crawl,

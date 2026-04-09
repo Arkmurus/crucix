@@ -43,7 +43,7 @@ _REGISTRY_PATH = Path(__file__).parent / "corpus_registry.yaml"
 
 # Valid tier values — used for validation when loading. Anything outside
 # this set is logged but not rejected (forward-compatible).
-VALID_TIERS = {"A", "B", "B+", "C", "C+", "D", "E", "unknown"}
+VALID_TIERS = {"A", "A+", "B", "B+", "C", "C+", "D", "E", "F", "unknown"}
 
 
 @dataclass

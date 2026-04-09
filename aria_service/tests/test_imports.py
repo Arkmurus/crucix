@@ -156,11 +156,20 @@ def test_researcher_has_required_tool_functions():
 
 def test_corpus_tier_validation_is_symmetric():
     """corpus_registry.VALID_TIERS and corpus_ingest.VALID_TIERS must be
-    identical, otherwise tier C+ ingest fails wholesale (past incident)."""
+    identical, otherwise tier ingest fails wholesale (past incident
+    2026-04-09: Tier C+ broken because the two sets had drifted)."""
     from aria_service.intel.corpus_registry import VALID_TIERS as registry_tiers
     from aria_service.intel.corpus_ingest import VALID_TIERS as ingest_tiers
     assert registry_tiers == ingest_tiers, (
         f"VALID_TIERS mismatch: registry={registry_tiers} ingest={ingest_tiers}"
+    )
+    # All 9 tiers (8 letter tiers + "unknown") plus the new A+ and F
+    # added in the 2026-04-09 evening corpus expansion v3 must be present.
+    expected_tiers = {"A", "A+", "B", "B+", "C", "C+", "D", "E", "F", "unknown"}
+    assert registry_tiers == expected_tiers, (
+        f"expected {expected_tiers}, got {registry_tiers}. "
+        f"If you added or removed a tier, update both corpus_registry.py "
+        f"and corpus_ingest.py and update this test."
     )
 
 

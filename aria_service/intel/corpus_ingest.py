@@ -54,7 +54,12 @@ logger = logging.getLogger("aria.corpus_ingest")
 # though the registry and CLI both supported the tier name. The Tier B+
 # (64 sources) and Tier E (15 sources) ingests would have failed the
 # same way. Always update both sets together when adding tiers.
-VALID_TIERS = {"A", "B", "B+", "C", "C+", "D", "E", "unknown"}
+#
+# 2026-04-09 corpus expansion v3: added A+ (real-time physical world
+# tracking — most are deferred to Phase 4 because they need API keys
+# or signal-stream infrastructure, but a few static sources go here)
+# and F (private military companies / non-state armed actors).
+VALID_TIERS = {"A", "A+", "B", "B+", "C", "C+", "D", "E", "F", "unknown"}
 
 # Sentinel for "we tried every extractor and got nothing useful"
 class ExtractError(ValueError):

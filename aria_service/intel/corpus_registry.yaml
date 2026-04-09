@@ -1807,3 +1807,1412 @@ sources:
     ingest_strategy: html_crawl
     frequency: quarterly
     cplp_relevant: false
+
+
+  # ════════════════════════════════════════════════════════════════════════
+  # CORPUS EXPANSION v3 — 2026-04-09 evening
+  # Source list: Antonio's "everything genuinely missing" list
+  #
+  # Tier mapping note:
+  #   A+ — Real-time physical world tracking (live signal feeds)
+  #        Most A+ sources are DEFERRED to Phase 4 because they require
+  #        API keys (MarineTraffic, FlightRadar24, ADS-B Exchange) or
+  #        signal-stream processors (AIS feeds, ADS-B mesh). Only the
+  #        few static / browseable A+ sources are added here.
+  #   B+ — Regional intelligence + emerging domains (think tanks)
+  #   C  — Critical minerals & financial intelligence
+  #   D  — Academic & threat intel (most academic dbs deferred — need
+  #        scholarly search APIs not HTML scrape)
+  #   E  — International law & language-specific global sources
+  #   F  — Private military companies / non-state armed actors (NEW)
+  #
+  # Sources marked with `ingest_strategy: deferred` and a `notes` line
+  # explaining why are present so the registry knows about them but the
+  # bulk ingest CLI skips them. They become Phase 4 work.
+  # ════════════════════════════════════════════════════════════════════════
+
+  # ── 🛸 TIER A+ — REAL-TIME PHYSICAL WORLD TRACKING ──────────────────────
+  # Most are deferred. Listed for inventory completeness so the next
+  # operator (or Antonio) can see what is on the roadmap and what is in.
+
+  - url: https://www.marinetraffic.com
+    tier: A+
+    source_class: MarineTraffic
+    category: maritime_ais
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: true
+    notes: AIS vessel tracking — JS SPA, requires MarineTraffic API key + paid tier for bulk access. Phase 4 integration via dedicated AIS adapter, NOT html_crawl.
+
+  - url: https://www.vesselfinder.com
+    tier: A+
+    source_class: VesselFinder
+    category: maritime_ais
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: true
+    notes: Same shape as MarineTraffic — JS SPA, API key required. Phase 4.
+
+  - url: https://www.fleetmon.com
+    tier: A+
+    source_class: FleetMon
+    category: maritime_ais
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: true
+    notes: AIS aggregator. Phase 4 — needs API key.
+
+  - url: https://www.equasis.org
+    tier: A+
+    source_class: Equasis
+    category: ship_safety
+    region: global
+    ingest_strategy: deferred
+    frequency: monthly
+    cplp_relevant: true
+    notes: IMO ship safety database — free but requires registration + manual vessel lookup. Phase 4 (entity-driven lookup, not bulk crawl).
+
+  - url: https://gisis.imo.org/public
+    tier: A+
+    source_class: IMO GISIS
+    category: imo_databases
+    region: global
+    ingest_strategy: deferred
+    frequency: quarterly
+    cplp_relevant: true
+    notes: IMO Global Integrated Shipping Information System — multi-database hub, JS-rendered. Phase 4 entity-driven lookups.
+
+  - url: https://www.itu.int/mmsapp/ShipSearch
+    tier: A+
+    source_class: ITU MMS
+    category: maritime_radio
+    region: global
+    ingest_strategy: deferred
+    frequency: quarterly
+    cplp_relevant: false
+    notes: ITU Maritime Mobile Service identity database — search-only form, no bulk listing. Phase 4 entity-driven.
+
+  - url: https://www.submarinecablemap.com
+    tier: A+
+    source_class: TeleGeography
+    category: undersea_infrastructure
+    region: global
+    ingest_strategy: deferred
+    frequency: quarterly
+    cplp_relevant: true
+    notes: Submarine cable map — JS interactive map, no static index. Phase 4 — extract via TeleGeography data exports.
+
+  - url: https://www.flightradar24.com
+    tier: A+
+    source_class: Flightradar24
+    category: aviation_ads_b
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: false
+    notes: ADS-B aircraft tracking — JS SPA, paid API. Phase 4.
+
+  - url: https://www.adsbexchange.com
+    tier: A+
+    source_class: ADS-B Exchange
+    category: aviation_ads_b
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: false
+    notes: Open ADS-B mesh — has free API tier (Phase 4 integration)
+
+  - url: https://www.flightaware.com
+    tier: A+
+    source_class: FlightAware
+    category: aviation_ads_b
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: false
+    notes: Aircraft tracking — paid API. Phase 4.
+
+  - url: https://globe.adsbexchange.com
+    tier: A+
+    source_class: ADS-B Exchange Globe
+    category: aviation_ads_b
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: false
+    notes: Live ADS-B mesh viewer. Phase 4.
+
+  - url: https://www.radarbox.com
+    tier: A+
+    source_class: RadarBox
+    category: aviation_ads_b
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: false
+    notes: Aircraft tracking. Phase 4.
+
+  - url: https://www.planefinder.net
+    tier: A+
+    source_class: Plane Finder
+    category: aviation_ads_b
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: false
+    notes: Aircraft tracking. Phase 4.
+
+  - url: https://sentinel.esa.int/web/sentinel/home
+    tier: A+
+    source_class: ESA Sentinel
+    category: satellite_imagery
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: true
+    notes: ESA Copernicus Sentinel programme homepage. Imagery itself is Phase 4 (separate satellite_adapter). Static homepage indexes the products.
+
+  - url: https://www.planet.com/open
+    tier: A+
+    source_class: Planet
+    category: satellite_imagery
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: true
+    notes: Planet Open Data initiative landing page
+
+  - url: https://earthengine.google.com
+    tier: A+
+    source_class: Google Earth Engine
+    category: satellite_imagery
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: true
+
+  - url: https://www.usgs.gov/earthexplorer
+    tier: A+
+    source_class: USGS Earth Explorer
+    category: satellite_imagery
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+
+  - url: https://zoom.earth
+    tier: A+
+    source_class: Zoom Earth
+    category: satellite_imagery
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+  - url: https://www.globalforestwatch.org
+    tier: A+
+    source_class: Global Forest Watch
+    category: environmental_monitoring
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+    notes: Deforestation tracking — useful for Lusophone Africa illicit timber networks
+
+  - url: https://www.nasa.gov/earth
+    tier: A+
+    source_class: NASA Earth
+    category: satellite_imagery
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+  - url: https://tearline.mil
+    tier: A+
+    source_class: TearLine
+    category: open_source_intel
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: NGA's open intelligence reports — high quality OSINT briefs
+
+  - url: https://www.gpsjam.org
+    tier: A+
+    source_class: GPSJam
+    category: electronic_warfare
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: true
+    notes: GPS jamming heatmap — JS map, ADS-B-derived. Phase 4 — extract via the underlying ADS-B data feed when ADS-B Exchange is wired.
+
+  - url: https://www.defcon.no
+    tier: A+
+    source_class: DEFCON Norway
+    category: electronic_warfare
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+
+  # ── 🌍 TIER B+ — SOUTH ASIA ─────────────────────────────────────────────
+
+  - url: https://carnegieendowment.org/programs/south-asia
+    tier: B+
+    source_class: Carnegie South Asia
+    category: regional_security
+    region: south_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.orfonline.org
+    tier: B+
+    source_class: ORF (Observer Research Foundation)
+    category: regional_security
+    region: south_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://idsa.in
+    tier: B+
+    source_class: IDSA India
+    category: regional_security
+    region: south_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: Manohar Parrikar Institute for Defence Studies and Analyses
+
+  - url: https://www.ipcs.org
+    tier: B+
+    source_class: IPCS
+    category: regional_security
+    region: south_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: Institute of Peace and Conflict Studies (Delhi)
+
+  - url: https://www.rusi.org/regions/south-asia
+    tier: B+
+    source_class: RUSI South Asia
+    category: regional_security
+    region: south_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.stimson.org/programs/south-asia
+    tier: B+
+    source_class: Stimson Center South Asia
+    category: regional_security
+    region: south_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.satp.org
+    tier: B+
+    source_class: SATP
+    category: counterterrorism
+    region: south_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: South Asia Terrorism Portal
+
+  - url: https://www.c4ids.org
+    tier: B+
+    source_class: C4IDS
+    category: regional_security
+    region: south_asia
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+
+  # ── 🌍 TIER B+ — SOUTHEAST ASIA & PACIFIC ───────────────────────────────
+
+  - url: https://www.iseas.edu.sg
+    tier: B+
+    source_class: ISEAS Yusof Ishak Institute
+    category: regional_security
+    region: southeast_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://amti.csis.org
+    tier: B+
+    source_class: CSIS Asia Maritime Transparency Initiative
+    category: maritime_security
+    region: southeast_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.asean.org
+    tier: B+
+    source_class: ASEAN
+    category: regional_organisation
+    region: southeast_asia
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+  - url: https://www.rsis.edu.sg
+    tier: B+
+    source_class: RSIS Singapore
+    category: regional_security
+    region: southeast_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.iiss.org/regions/asia-pacific
+    tier: B+
+    source_class: IISS Asia Pacific
+    category: regional_security
+    region: southeast_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.theasanforum.org
+    tier: B+
+    source_class: Asan Forum
+    category: regional_security
+    region: east_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.lowyinstitute.org/the-interpreter
+    tier: B+
+    source_class: Lowy Institute Interpreter
+    category: regional_security
+    region: indo_pacific
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.internationalaffairs.org.au
+    tier: B+
+    source_class: AIIA
+    category: regional_security
+    region: indo_pacific
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+
+  # ── 🌍 TIER B+ — EAST ASIA ──────────────────────────────────────────────
+
+  - url: https://www.38north.org
+    tier: B+
+    source_class: 38 North
+    category: dprk_analysis
+    region: east_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.csis.org/programs/korea-chair
+    tier: B+
+    source_class: CSIS Korea Chair
+    category: regional_security
+    region: east_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.nbr.org/publication_type/nbranalysis
+    tier: B+
+    source_class: NBR
+    category: regional_security
+    region: east_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://chinapower.csis.org
+    tier: B+
+    source_class: CSIS China Power
+    category: regional_security
+    region: east_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.merics.org/en
+    tier: B+
+    source_class: MERICS
+    category: china_analysis
+    region: east_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://jamestown.org/programs/chinabrief
+    tier: B+
+    source_class: Jamestown China Brief
+    category: china_analysis
+    region: east_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+
+  # ── 🌍 TIER B+ — CENTRAL ASIA & CAUCASUS ────────────────────────────────
+
+  - url: https://www.eurasianet.org
+    tier: B+
+    source_class: Eurasianet
+    category: regional_security
+    region: central_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://cabar.asia
+    tier: B+
+    source_class: CABAR Central Asian Bureau
+    category: regional_security
+    region: central_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.caci-analyst.org
+    tier: B+
+    source_class: CACI Analyst
+    category: regional_security
+    region: central_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.crisisgroup.org/europe-central-asia
+    tier: B+
+    source_class: Crisis Group Europe & Central Asia
+    category: regional_security
+    region: central_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.ponarseurasia.org
+    tier: B+
+    source_class: PONARS Eurasia
+    category: regional_security
+    region: central_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+
+  # ── 🌍 TIER B+ — MIDDLE EAST DEEPER ─────────────────────────────────────
+
+  - url: https://www.mei.edu
+    tier: B+
+    source_class: Middle East Institute
+    category: regional_security
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.agsiw.org
+    tier: B+
+    source_class: AGSIW
+    category: gulf_analysis
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: Arab Gulf States Institute Washington
+
+  - url: https://www.al-monitor.com
+    tier: B+
+    source_class: Al-Monitor
+    category: regional_security
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.arabcenterdc.org
+    tier: B+
+    source_class: Arab Center DC
+    category: regional_security
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.besacenter.org
+    tier: B+
+    source_class: BESA Center
+    category: regional_security
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: Begin-Sadat Center for Strategic Studies (Bar-Ilan University, Israel)
+
+  - url: https://www.inss.org.il
+    tier: B+
+    source_class: INSS Israel
+    category: regional_security
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: Institute for National Security Studies, Tel Aviv
+
+  - url: https://www.gulf-international-forum.com
+    tier: B+
+    source_class: Gulf International Forum
+    category: gulf_analysis
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+
+  # ── 🌍 TIER B+ — SUB-SAHARAN AFRICA BEYOND CPLP ─────────────────────────
+
+  - url: https://www.africaportal.org
+    tier: B+
+    source_class: Africa Portal
+    category: regional_security
+    region: sub_saharan_africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  - url: https://www.enoughproject.org
+    tier: B+
+    source_class: Enough Project
+    category: conflict_prevention
+    region: sub_saharan_africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  - url: https://www.globalinitiative.net
+    tier: B+
+    source_class: Global Initiative Against Transnational Organized Crime
+    category: organised_crime
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  - url: https://www.acss.africa
+    tier: B+
+    source_class: Africa Center for Strategic Studies
+    category: regional_security
+    region: sub_saharan_africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+    notes: ACSS — National Defense University Africa centre
+
+  - url: https://reliefweb.int
+    tier: B+
+    source_class: ReliefWeb
+    category: humanitarian
+    region: global
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: true
+    notes: OCHA humanitarian reports — has RSS feeds
+
+
+  # ── 🌍 TIER B+ — LATIN AMERICA DEEPER ───────────────────────────────────
+
+  - url: https://www.americasquarterly.org
+    tier: B+
+    source_class: Americas Quarterly
+    category: regional_security
+    region: latin_america
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+    notes: Brazil-relevant for CPLP cross-coverage
+
+  - url: https://www.resdal.org
+    tier: B+
+    source_class: RESDAL
+    category: regional_security
+    region: latin_america
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+    notes: Red de Seguridad y Defensa de América Latina
+
+  - url: https://www.flacso.org
+    tier: B+
+    source_class: FLACSO
+    category: regional_security
+    region: latin_america
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+  - url: https://igarape.org.br
+    tier: B+
+    source_class: Igarape Institute
+    category: regional_security
+    region: latin_america
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+    notes: Brazilian think tank — directly relevant to Lusophone defence cooperation
+
+
+  # ── 🌍 TIER B+ — ARCTIC & POLAR ─────────────────────────────────────────
+
+  - url: https://www.highnorthnews.com
+    tier: B+
+    source_class: High North News
+    category: arctic_security
+    region: arctic
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.thearcticinstitute.org
+    tier: B+
+    source_class: Arctic Institute
+    category: arctic_security
+    region: arctic
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.sipri.org/research/security-and-development/arctic-security
+    tier: B+
+    source_class: SIPRI Arctic
+    category: arctic_security
+    region: arctic
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+
+  # ── 🔬 TIER B+ — CYBER & INFORMATION WARFARE ────────────────────────────
+
+  - url: https://attack.mitre.org
+    tier: B+
+    source_class: MITRE ATT&CK
+    category: cyber_threat_framework
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+  - url: https://www.cisa.gov/news-events/alerts
+    tier: B+
+    source_class: CISA Alerts
+    category: cyber_threats
+    region: global
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: false
+
+  - url: https://www.enisa.europa.eu/publications
+    tier: B+
+    source_class: ENISA
+    category: cyber_security
+    region: eu
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.cyberscoop.com
+    tier: B+
+    source_class: CyberScoop
+    category: cyber_news
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.lawfaremedia.org/collections/cybersecurity
+    tier: B+
+    source_class: Lawfare Cyber
+    category: cyber_legal
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+
+  # ── 🔬 TIER B+ — SPACE & SATELLITE DOMAIN ───────────────────────────────
+
+  - url: https://swfound.org
+    tier: B+
+    source_class: Secure World Foundation
+    category: space_security
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://aerospace.org/reportsresearch
+    tier: B+
+    source_class: Aerospace Corporation
+    category: space_security
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+  - url: https://www.csis.org/programs/aerospace-security
+    tier: B+
+    source_class: CSIS Aerospace Security
+    category: space_security
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.unoosa.org/oosa/en/ourwork/spacelaw
+    tier: B+
+    source_class: UN OOSA
+    category: space_law
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+  - url: https://www.thespacereview.com
+    tier: B+
+    source_class: The Space Review
+    category: space_news
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://spacenews.com
+    tier: B+
+    source_class: SpaceNews
+    category: space_news
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+
+  # ── 🔬 TIER B+ — AI IN DEFENCE ──────────────────────────────────────────
+
+  - url: https://www.cnas.org/artificial-intelligence-and-national-security
+    tier: B+
+    source_class: CNAS AI & National Security
+    category: ai_defence
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.turing.ac.uk/research/interest-groups/defence-security
+    tier: B+
+    source_class: Alan Turing Institute Defence
+    category: ai_defence
+    region: uk
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+  - url: https://hai.stanford.edu/policy
+    tier: B+
+    source_class: Stanford HAI Policy
+    category: ai_policy
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+
+  # ── 🔬 TIER B+ — UNMANNED SYSTEMS & DRONES ──────────────────────────────
+
+  - url: https://www.unmannedairspace.info
+    tier: B+
+    source_class: Unmanned Airspace
+    category: drone_industry
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://uvs-info.com
+    tier: B+
+    source_class: UVS International
+    category: drone_industry
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+  - url: https://www.auvsi.org/resources
+    tier: B+
+    source_class: AUVSI
+    category: drone_industry
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+  - url: https://droneii.com/research
+    tier: B+
+    source_class: Drone Industry Insights
+    category: drone_industry
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+
+  # ── 🔬 TIER B+ — HYPERSONICS & EMERGING WEAPONS ─────────────────────────
+
+  - url: https://www.armscontrol.org
+    tier: B+
+    source_class: Arms Control Association
+    category: arms_control
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://missilethreat.csis.org
+    tier: B+
+    source_class: CSIS Missile Threat
+    category: missile_systems
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.nti.org/about/programs/nuclear
+    tier: B+
+    source_class: NTI Nuclear
+    category: nuclear_security
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+
+  # ── ⛏️ TIER C — CRITICAL MINERALS ───────────────────────────────────────
+
+  - url: https://www.iea.org/topics/critical-minerals
+    tier: C
+    source_class: IEA Critical Minerals
+    category: critical_minerals
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+  - url: https://www.usgs.gov/centers/national-minerals-information-center
+    tier: C
+    source_class: USGS Minerals Information
+    category: critical_minerals
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+  - url: https://resourcegovernance.org
+    tier: C
+    source_class: NRGI
+    category: extractive_governance
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+    notes: Natural Resource Governance Institute — directly relevant for Angola/Mozambique extractive deals
+
+  - url: https://www.mining.com
+    tier: C
+    source_class: Mining.com
+    category: mining_news
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  - url: https://www.miningweekly.com
+    tier: C
+    source_class: Mining Weekly
+    category: mining_news
+    region: africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  - url: https://www.globalwitness.org
+    tier: C
+    source_class: Global Witness
+    category: extractive_corruption
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+
+  # ── 💰 TIER C — FINANCIAL CRIME & ILLICIT FLOWS ─────────────────────────
+
+  - url: https://gfintegrity.org
+    tier: C
+    source_class: Global Financial Integrity
+    category: financial_crime
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  - url: https://www.occrp.org
+    tier: C
+    source_class: OCCRP
+    category: investigative_journalism
+    region: global
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: true
+    notes: Organized Crime and Corruption Reporting Project — has exposed more defence corruption than any think tank
+
+  - url: https://www.icij.org
+    tier: C
+    source_class: ICIJ
+    category: investigative_journalism
+    region: global
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: true
+    notes: International Consortium of Investigative Journalists — Pandora Papers, etc.
+
+  - url: https://www.fatf-gafi.org/en/publications.html
+    tier: C
+    source_class: FATF Publications
+    category: aml_standards
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+  - url: https://www.rusi.org/research/financial-crime
+    tier: C
+    source_class: RUSI Financial Crime
+    category: financial_crime
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.traceinternational.org
+    tier: C
+    source_class: TRACE International
+    category: anti_bribery
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+
+  # ── 💰 TIER C — CORPORATE INTELLIGENCE / GLOBAL REGISTRIES ──────────────
+
+  - url: https://opencorporates.com
+    tier: C
+    source_class: OpenCorporates
+    category: corporate_registry
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: true
+    notes: Corporate registry aggregator — needs API key for bulk access. Phase 4 entity-driven lookup adapter.
+
+  - url: https://www.gleif.org
+    tier: C
+    source_class: GLEIF
+    category: legal_entity_identifiers
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+    notes: Global Legal Entity Identifier Foundation — LEI database with public lookups
+
+  - url: https://www.companieshouse.gov.uk
+    tier: C
+    source_class: UK Companies House
+    category: corporate_registry
+    region: uk
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: false
+    notes: UK Companies House — has free API. Phase 4 entity-driven adapter.
+
+  - url: https://www.opensanctions.org
+    tier: C
+    source_class: OpenSanctions
+    category: sanctions_aggregator
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: true
+    notes: Sanctions list aggregator — already has fallback to Treasury RSS in apis/sources/openSanctions.mjs. Phase 4 — get OpenSanctions API key for full coverage.
+
+
+  # ── 🕵️ TIER D — DISINFORMATION MONITORING ──────────────────────────────
+
+  - url: https://www.disinfo.eu
+    tier: D
+    source_class: EU DisinfoLab
+    category: disinformation_monitoring
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.euvsdisinfo.eu
+    tier: D
+    source_class: EUvsDisinfo
+    category: disinformation_monitoring
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.rand.org/research/projects/truth-decay.html
+    tier: D
+    source_class: RAND Truth Decay
+    category: disinformation_research
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+
+
+  # ── ⚖️ TIER E — INTERNATIONAL COURTS & TRIBUNALS ────────────────────────
+
+  - url: https://www.icj-cij.org
+    tier: E
+    source_class: ICJ
+    category: international_court
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+  - url: https://www.icc-cpi.int
+    tier: E
+    source_class: ICC
+    category: international_court
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+  - url: https://www.itlos.org
+    tier: E
+    source_class: ITLOS
+    category: maritime_law
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+  - url: https://pca-cpa.org
+    tier: E
+    source_class: PCA
+    category: arbitration
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: true
+
+  - url: https://www.echr.coe.int
+    tier: E
+    source_class: ECHR
+    category: human_rights_court
+    region: europe
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+
+  # ── ⚖️ TIER E — HUMAN RIGHTS & ACCOUNTABILITY ───────────────────────────
+
+  - url: https://www.hrw.org
+    tier: E
+    source_class: Human Rights Watch
+    category: human_rights
+    region: global
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: true
+
+  - url: https://www.amnesty.org
+    tier: E
+    source_class: Amnesty International
+    category: human_rights
+    region: global
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: true
+
+  - url: https://www.ohchr.org
+    tier: E
+    source_class: OHCHR
+    category: human_rights
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  - url: https://www.globalr2p.org
+    tier: E
+    source_class: Global R2P
+    category: human_rights
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+  - url: https://www.ictj.org
+    tier: E
+    source_class: ICTJ
+    category: transitional_justice
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+
+  # ── ⚖️ TIER E — ARMS TRADE TREATY & MULTILATERAL LAW ────────────────────
+
+  - url: https://www.thearmstradetreaty.org
+    tier: E
+    source_class: Arms Trade Treaty
+    category: arms_control_law
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+  - url: https://www.reachingcriticalwill.org
+    tier: E
+    source_class: Reaching Critical Will
+    category: arms_control_law
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+  - url: https://unidir.org
+    tier: E
+    source_class: UNIDIR
+    category: arms_control_research
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  - url: https://www.paxforpeace.nl
+    tier: E
+    source_class: PAX for Peace
+    category: peace_research
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+
+
+  # ── 🌐 TIER E — LANGUAGE-SPECIFIC GLOBAL SOURCES ────────────────────────
+
+  # Arabic (MENA primary sources for cross-validation)
+  - url: https://www.aljazeera.net
+    tier: E
+    source_class: Al Jazeera Arabic
+    category: arabic_news
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: Arabic edition — different content from English Al Jazeera
+
+  - url: https://www.alarabiya.net
+    tier: E
+    source_class: Al Arabiya
+    category: arabic_news
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://carnegie-mec.org/ar
+    tier: E
+    source_class: Carnegie Middle East Center Arabic
+    category: arabic_analysis
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  # French (Francophone Africa adjacency to CPLP markets)
+  - url: https://www.rfi.fr/fr/afrique
+    tier: E
+    source_class: RFI Afrique
+    category: french_news
+    region: francophone_africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+    notes: Francophone Africa — competitive pressure on Lusophone markets
+
+  - url: https://www.jeuneafrique.com
+    tier: E
+    source_class: Jeune Afrique
+    category: french_news
+    region: francophone_africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  - url: https://www.africanews.com/french
+    tier: E
+    source_class: AfricaNews French
+    category: french_news
+    region: francophone_africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  - url: https://www.france24.com/fr/afrique
+    tier: E
+    source_class: France 24 Afrique
+    category: french_news
+    region: francophone_africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  # Spanish (Latin America and Spain defence press)
+  - url: https://www.infodefensa.com
+    tier: E
+    source_class: Infodefensa
+    category: spanish_defence_news
+    region: spain_latam
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+    notes: Spain & Latin America defence — Brazil cross-coverage
+
+  - url: https://www.defensa.com
+    tier: E
+    source_class: Defensa.com
+    category: spanish_defence_news
+    region: spain_latam
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  - url: https://www.seguridadinternacional.es
+    tier: E
+    source_class: Seguridad Internacional
+    category: spanish_security_analysis
+    region: spain
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+
+  # English-language regional press
+  - url: https://www.scmp.com
+    tier: E
+    source_class: South China Morning Post
+    category: china_news
+    region: east_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.thehindu.com
+    tier: E
+    source_class: The Hindu
+    category: indian_news
+    region: south_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://timesofindia.indiatimes.com
+    tier: E
+    source_class: Times of India
+    category: indian_news
+    region: south_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://www.thenews.com.pk
+    tier: E
+    source_class: The News Pakistan
+    category: pakistan_news
+    region: south_asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://nation.africa
+    tier: E
+    source_class: Nation Media (Kenya)
+    category: east_africa_news
+    region: east_africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+  - url: https://businessday.ng
+    tier: E
+    source_class: BusinessDay Nigeria
+    category: west_africa_news
+    region: west_africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+
+
+  # ── 🔗 TIER F — PRIVATE MILITARY & NON-STATE ACTORS ─────────────────────
+  # NEW TIER added 2026-04-09 — the grey zone of PMCs and proxies that
+  # operate adjacent to legitimate defence procurement.
+
+  - url: https://acleddata.com/dashboard
+    tier: F
+    source_class: ACLED Dashboard
+    category: conflict_event_data
+    region: global
+    ingest_strategy: deferred
+    frequency: continuous
+    cplp_relevant: true
+    notes: ACLED conflict event data — already wired in apis/sources/acled.mjs. Listed here for inventory completeness. Phase 4 — bulk export adapter.
+
+  - url: https://stanfordmilitantmapping.org
+    tier: F
+    source_class: Stanford Mapping Militants Project
+    category: armed_non_state_actors
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+    notes: Profiles of armed non-state actors — directly relevant for African conflict ecosystems
