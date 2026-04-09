@@ -2960,6 +2960,45 @@ app.get('/api/admin/audit', requireAdmin, (req, res) => {
   res.json(getAuditLog(limit));
 });
 
+// ── Proxy routes for listener slash commands ─────────────────────────────
+// The WhatsApp listener historically called fly.io directly via _ariaFetch
+// for /forget, /purgecases, /purge-signals, and /report. That required
+// ARIA_API_TOKEN to be in the listener process environment, which broke
+// when seenode ran the listener as a separate worker without the env var
+// (past incident 2026-04-09: /forget returned HTTP 401 because the
+// listener process had no token, even though server.mjs did). These
+// proxy routes let the listener call localhost:port/api/aria/<path>
+// with INT_TOKEN, then ariaProxy uses _ariaHeaders() to inject the
+// correct bearer token for the fly.io call. Single env var dependency,
+// centralised in server.mjs.
+app.post('/api/aria/session/forget',
+  express.json({ limit: '8kb' }),
+  requireAuth,
+  (req, res) => ariaProxy(req, res, '/api/aria/session/forget', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'session/forget unavailable — ARIA service offline' });
+  }}));
+
+app.post('/api/aria/admin/purge-cases',
+  express.json({ limit: '8kb' }),
+  requireAuth,
+  (req, res) => ariaProxy(req, res, '/api/aria/admin/purge-cases', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'purge-cases unavailable — ARIA service offline' });
+  }}));
+
+app.post('/api/aria/admin/purge-signals',
+  express.json({ limit: '16kb' }),
+  requireAuth,
+  (req, res) => ariaProxy(req, res, '/api/aria/admin/purge-signals', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'purge-signals unavailable — ARIA service offline' });
+  }}));
+
+app.post('/api/aria/report',
+  express.json({ limit: '32kb' }),
+  requireAuth,
+  (req, res) => ariaProxy(req, res, '/api/aria/report', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'report builder unavailable — ARIA service offline' });
+  }}));
+
 // ── User-panel consistency check — find phantom admins ────────────────────
 // Cross-references the audit log against the actual user store to surface
 // admin actions whose adminId doesn't resolve to a real user. This is the
