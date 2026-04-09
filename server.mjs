@@ -1633,26 +1633,58 @@ function _ariaHeaders(extra = {}) {
 }
 
 async function ariaProxy(req, res, path, { method = 'GET', fallback } = {}) {
+  let lastStatus = 0;
+  let lastErr = '';
   if (ARIA_SERVICE_URL) {
     try {
       const url = `${ARIA_SERVICE_URL}${path}`;
+      const headers = _ariaHeaders();
+      // Diagnostic visibility: log whether we have a bearer token at all.
+      // Past incident 2026-04-09: /forget kept returning 503 because the
+      // fly.io call was silently 401'ing on a missing ARIA_API_TOKEN env
+      // var, but ariaProxy logged nothing on non-2xx responses, so the
+      // root cause was invisible. This block makes the failure mode
+      // visible in seenode logs.
+      const hasBearer = !!headers['Authorization'];
       const opts = {
         method: method || req.method,
-        headers: _ariaHeaders(),
+        headers,
         signal: AbortSignal.timeout(30000),
       };
       if (method === 'POST' && req.body) opts.body = JSON.stringify(req.body);
       const r = await fetch(url, opts);
+      lastStatus = r.status;
       if (r.ok) {
         const ct = r.headers.get('content-type') || '';
         if (ct.includes('application/json')) return res.json(await r.json());
         return res.type(ct).send(await r.text());
       }
-    } catch (e) { console.warn(`[ARIA proxy] ${path} failed:`, e.message); }
+      // Non-2xx — capture the body for diagnostics and log it. ariaProxy
+      // historically swallowed non-2xx responses silently, which made it
+      // impossible to tell whether fly.io rejected the request, returned
+      // a 5xx, or whether the proxy itself was misconfigured.
+      try {
+        lastErr = (await r.text()).slice(0, 300);
+      } catch {/* swallow */}
+      console.warn(
+        `[ARIA proxy] ${path} → fly.io HTTP ${r.status} bearer=${hasBearer} body=${lastErr}`,
+      );
+    } catch (e) {
+      lastErr = e && e.message ? e.message : String(e);
+      console.warn(`[ARIA proxy] ${path} threw: ${lastErr}`);
+    }
+  } else {
+    console.warn(`[ARIA proxy] ${path} skipped — ARIA_SERVICE_URL not set`);
   }
-  // Fallback to local Node.js implementation
-  if (fallback) return fallback();
-  res.status(503).json({ error: 'ARIA service unavailable' });
+  // Fallback to local Node.js implementation. Pass the captured status +
+  // error so the fallback can include it in the response (vs the previous
+  // generic "ARIA service unavailable" with no diagnostic detail).
+  if (fallback) return fallback({ lastStatus, lastErr });
+  res.status(503).json({
+    error: 'ARIA service unavailable',
+    fly_status: lastStatus,
+    fly_error: lastErr,
+  });
 }
 
 // Send sweep data to Python ARIA service (called after each sweep)
@@ -2974,30 +3006,76 @@ app.get('/api/admin/audit', requireAdmin, (req, res) => {
 app.post('/api/aria/session/forget',
   express.json({ limit: '8kb' }),
   requireAuth,
-  (req, res) => ariaProxy(req, res, '/api/aria/session/forget', { method: 'POST', fallback: async () => {
-    res.status(503).json({ error: 'session/forget unavailable — ARIA service offline' });
+  (req, res) => ariaProxy(req, res, '/api/aria/session/forget', { method: 'POST', fallback: async ({ lastStatus, lastErr } = {}) => {
+    res.status(503).json({
+      error: 'session/forget unavailable',
+      fly_status: lastStatus || 0,
+      fly_error: lastErr || '',
+      hint: lastStatus === 401
+        ? 'fly.io rejected the bearer token — ARIA_API_TOKEN env var on seenode is missing, wrong, or out of sync with fly.io'
+        : (lastStatus === 0 ? 'no response from fly.io — connectivity or ARIA_SERVICE_URL issue' : `fly.io returned HTTP ${lastStatus}`),
+    });
   }}));
 
 app.post('/api/aria/admin/purge-cases',
   express.json({ limit: '8kb' }),
   requireAuth,
-  (req, res) => ariaProxy(req, res, '/api/aria/admin/purge-cases', { method: 'POST', fallback: async () => {
-    res.status(503).json({ error: 'purge-cases unavailable — ARIA service offline' });
+  (req, res) => ariaProxy(req, res, '/api/aria/admin/purge-cases', { method: 'POST', fallback: async ({ lastStatus, lastErr } = {}) => {
+    res.status(503).json({
+      error: 'purge-cases unavailable',
+      fly_status: lastStatus || 0,
+      fly_error: lastErr || '',
+    });
   }}));
 
 app.post('/api/aria/admin/purge-signals',
   express.json({ limit: '16kb' }),
   requireAuth,
-  (req, res) => ariaProxy(req, res, '/api/aria/admin/purge-signals', { method: 'POST', fallback: async () => {
-    res.status(503).json({ error: 'purge-signals unavailable — ARIA service offline' });
+  (req, res) => ariaProxy(req, res, '/api/aria/admin/purge-signals', { method: 'POST', fallback: async ({ lastStatus, lastErr } = {}) => {
+    res.status(503).json({
+      error: 'purge-signals unavailable',
+      fly_status: lastStatus || 0,
+      fly_error: lastErr || '',
+    });
   }}));
 
 app.post('/api/aria/report',
   express.json({ limit: '32kb' }),
   requireAuth,
-  (req, res) => ariaProxy(req, res, '/api/aria/report', { method: 'POST', fallback: async () => {
-    res.status(503).json({ error: 'report builder unavailable — ARIA service offline' });
+  (req, res) => ariaProxy(req, res, '/api/aria/report', { method: 'POST', fallback: async ({ lastStatus, lastErr } = {}) => {
+    res.status(503).json({
+      error: 'report builder unavailable',
+      fly_status: lastStatus || 0,
+      fly_error: lastErr || '',
+    });
   }}));
+
+// ── Diagnostic: env-check for the seenode → fly.io proxy chain ─────────────
+// Past incident 2026-04-09: /forget proxy returned 503 because ARIA_API_TOKEN
+// was missing in server.mjs's process env on seenode (chat worked through a
+// different code path that hand-built headers without going through the
+// proxy). This endpoint reports whether the critical env vars are present
+// (boolean only — never returns the actual values) so we can verify the
+// proxy chain in 5 seconds without inspecting seenode env config manually.
+app.get('/api/admin/env-check', requireAdmin, (req, res) => {
+  const envState = {
+    ARIA_SERVICE_URL: !!ARIA_SERVICE_URL,
+    ARIA_API_TOKEN_present: !!process.env.ARIA_API_TOKEN,
+    ARIA_API_TOKEN_length: (process.env.ARIA_API_TOKEN || '').length,
+    ARIA_INTERNAL_TOKEN_present: !!process.env.ARIA_INTERNAL_TOKEN,
+    INT_TOKEN_present: !!process.env.INT_TOKEN,
+    JWT_SECRET_present: !!process.env.JWT_SECRET,
+    BRAIN_URL_present: !!process.env.BRAIN_URL,
+    NODE_ENV: process.env.NODE_ENV || '(unset)',
+    pid: process.pid,
+    uptime_seconds: Math.round(process.uptime()),
+  };
+  // Run a quick connectivity test against fly.io if both are set
+  res.json({
+    env: envState,
+    note: 'All values are booleans except token length and uptime — actual secret values are never returned',
+  });
+});
 
 // ── User-panel consistency check — find phantom admins ────────────────────
 // Cross-references the audit log against the actual user store to surface
