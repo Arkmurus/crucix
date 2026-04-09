@@ -27,6 +27,7 @@ from ..intel.researcher import (
     research_and_learn,
     read_article,
     read_document,
+    extract_url_text,
     validate_hypothesis,
     get_hypotheses,
     get_research_summary,
@@ -1202,18 +1203,27 @@ def _detect_tool_intent(message: str) -> dict | None:
                     "context": msg,
                 }
 
-    # 1. Explicit crawl request — needs a URL
+    # 1. Explicit crawl request — needs a URL. Only fires when the user
+    # explicitly asks to crawl/spider a site (full multi-page LLM analysis,
+    # 75-150s). For inline chat use this is too slow; users should type
+    # "crawl <url>" specifically when they want it.
     if has_crawl and url:
         return {"tool": "crawl", "url": url, "context": msg}
 
-    # 2. Investigate / research / look-into a URL → CRAWL the actual website
-    # This routes "research wearwiser.com" / "tell me about acme.io" / "look
-    # into example.com" to crawl_website() which spiders the real site, NOT
-    # to investigate() which only does Google News searches around the URL.
-    # The previous version sent these to investigate() and got 0-2 facts
-    # because the URL itself wasn't a news article — it was a company root.
+    # 2. Investigate / research / look-into a URL → FAST EXTRACT the page
+    # Past incident 2026-04-09: this previously routed to crawl_website(15)
+    # which made 15 LLM-analysed page calls and routinely took 90+ seconds
+    # for JS-rendered SPAs, returning thin or no content. The chat LLM
+    # then fell back to session memory + general knowledge and confabulated
+    # entire company profiles (modirumgespi.com became a "Portuguese
+    # consultancy" with fabricated registry data). The fix: route to
+    # extract_url which does ONE static fetch + structured extraction in
+    # ~5-15s and injects the verbatim site content into the LLM context
+    # via the tool block. Same defence pattern as document injection
+    # (clause 12) — the LLM sees the real content and can quote from it
+    # under clauses 9 and 14, or refuse if extraction failed.
     if has_investigate and url:
-        return {"tool": "crawl", "url": url, "context": msg, "max_pages": 15}
+        return {"tool": "extract_url", "url": url, "context": msg}
 
     # 3. Read / summarise URL — bare URL with no verb, or explicit "read this"
     if (has_read and url) or (url and not (has_investigate or has_crawl or has_profile)):
@@ -1360,6 +1370,57 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"be pushed to the group automatically when complete. You can "
                 f"check status anytime with /task {spawn['id']}.'\n"
                 f"Do NOT try to give the answer yourself — it does not exist yet."
+            )
+
+        if tool == "extract_url":
+            # FAST primitive: fetch + structured extract, no LLM, no RAG.
+            # Past incident 2026-04-09: routing chat-path "investigate URL"
+            # to crawl_website (15 LLM-analysed pages) took 90+ seconds and
+            # often returned thin content for JS-rendered SPAs. The chat
+            # LLM then fell back to session memory + general knowledge and
+            # confabulated a "Portuguese consultancy" profile for an actual
+            # AI-defence systems integrator. extract_url returns the
+            # verbatim site content (title + description + headings + JSON-LD
+            # + emails + phones + social links) directly to the LLM via the
+            # tool block, the same pattern document injection uses for
+            # attached files. The main chat LLM then quotes from the real
+            # content (or refuses per clauses 9, 12, 14 if extraction failed).
+            r = await extract_url_text(intent["url"])
+            if not r.get("extraction_ok"):
+                return (
+                    f"\n\n[TOOL: extract_url — FETCH/EXTRACTION FAILED]\n"
+                    f"URL: {intent['url']}\n"
+                    f"Error: {r.get('error', 'unknown')}\n"
+                    f"Duration: {r.get('duration_ms', 0)}ms\n"
+                    + _no_data_warning(
+                        "extract_url",
+                        intent["url"],
+                        blocking=_is_blocking_domain(intent["url"]),
+                    )
+                )
+            # Successful extraction — surface the verbatim content. The
+            # chat LLM will read this and quote from it under clauses 9
+            # (no profiling without data) and 14 (no fabricated verifiable
+            # facts). Cap to keep the prompt budget sane.
+            return (
+                f"\n\n[TOOL: extract_url — verbatim site content below]\n"
+                f"URL: {intent['url']}\n"
+                f"Extracted in: {r.get('duration_ms', 0)}ms\n"
+                f"Title: {r.get('title','')}\n"
+                f"Description: {r.get('description','')}\n"
+                f"Social profiles: {', '.join(r.get('social', [])[:8]) or '(none on homepage)'}\n"
+                f"Emails: {', '.join(r.get('emails', [])[:5]) or '(none on homepage)'}\n"
+                f"Phones: {', '.join(r.get('phones', [])[:5]) or '(none on homepage)'}\n"
+                f"\n--- Full extracted text (verbatim from {intent['url']}) ---\n"
+                f"{(r.get('text','') or '')[:6000]}\n"
+                f"--- End extracted text ---\n"
+                f"\nIMPORTANT: per CONSTITUTION clauses 9 and 14, you may ONLY "
+                f"state facts about this entity that are verifiably present in "
+                f"the extracted text above. Do NOT invent company numbers, "
+                f"NACE codes, registered addresses, executive names, or any "
+                f"other verifiable identifiers. If a fact is not in the text "
+                f"above, say so explicitly: 'I cannot verify <fact> from the "
+                f"extracted page content.'"
             )
 
         if tool == "crawl":

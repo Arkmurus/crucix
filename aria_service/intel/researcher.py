@@ -927,6 +927,121 @@ async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -
     return facts_learned, hyp_generated
 
 
+# ── Public: Fast URL text extraction (no LLM, no RAG) ────────────────────────
+
+async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
+    """Fetch a URL and return STRUCTURED extracted text. NO LLM call, NO RAG ingest.
+
+    This is the FAST primitive for the chat-path URL handling. It exists
+    because read_article() and crawl_website() both make per-page LLM calls
+    AND chromadb RAG ingests, which together can take 30-150 seconds —
+    far too slow for inline use in a chat reply.
+
+    Past incident 2026-04-09: ARIA fabricated a "Portuguese consultancy"
+    profile for modirumgespi.com (an AI-defence systems integrator) because
+    the chat-path auto-crawl on the URL was taking 90+ seconds and
+    timing out before returning useful content. The LLM then fell back
+    to session memory + general knowledge and confabulated registry data.
+    The fix is this fast extractor — chat injects its result into the
+    message envelope as `[CRAWLED PAGE: ...]` so the main LLM has the
+    verbatim site content and can quote from it (or refuse per clauses
+    9, 12, 14 if empty).
+
+    Returns the same shape as `_extract_structured_html` plus a `url`
+    field, an `extraction_ok` boolean, and an `error` field on failure.
+    On any error returns `extraction_ok=False` so callers can tell the
+    LLM "the fetch failed — refuse per clause 9".
+    """
+    from .security import sanitise_url
+    url = sanitise_url(url)
+    if not url:
+        return {"url": url, "extraction_ok": False, "error": "invalid url", "text": ""}
+
+    t0 = time.time()
+    html = ""
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            resp = await client.get(url, headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/126.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-GB,en;q=0.9",
+            })
+            if resp.status_code == 200:
+                html = resp.text
+            elif resp.status_code in (401, 402, 403):
+                logger.info("extract_url_text: %s returned %d, trying archive", url[:80], resp.status_code)
+                html = await _try_archive_fallbacks(url, timeout=timeout)
+            else:
+                return {
+                    "url": url, "extraction_ok": False,
+                    "error": f"HTTP {resp.status_code}", "text": "",
+                    "duration_ms": int((time.time() - t0) * 1000),
+                }
+    except Exception as e:
+        logger.debug("extract_url_text fetch failed for %s: %s", url[:80], e)
+        try:
+            html = await _try_archive_fallbacks(url, timeout=timeout)
+        except Exception:
+            html = ""
+        if not html:
+            return {
+                "url": url, "extraction_ok": False,
+                "error": str(e)[:200], "text": "",
+                "duration_ms": int((time.time() - t0) * 1000),
+            }
+
+    if not html or len(html) < 100:
+        return {
+            "url": url, "extraction_ok": False,
+            "error": "fetched content too short or empty", "text": "",
+            "duration_ms": int((time.time() - t0) * 1000),
+        }
+
+    extracted = _extract_structured_html(html)
+    text = extracted.get("text", "") or ""
+    if not text or len(text) < 50:
+        # Static fetcher returned thin content (likely JS-rendered site).
+        # Surface what little we got via meta tags + JSON-LD so the LLM
+        # has SOMETHING to quote from, plus an explicit warning.
+        meta_bits = []
+        if extracted.get("title"):
+            meta_bits.append(f"TITLE: {extracted['title']}")
+        if extracted.get("description"):
+            meta_bits.append(f"DESCRIPTION: {extracted['description']}")
+        for jsd in (extracted.get("structured") or [])[:3]:
+            try:
+                meta_bits.append(f"JSON-LD: {json.dumps(jsd)[:600]}")
+            except Exception:
+                pass
+        if meta_bits:
+            text = "\n\n".join(meta_bits)
+        else:
+            return {
+                "url": url, "extraction_ok": False,
+                "error": "fetched but extraction returned no usable text — likely a JS-rendered SPA",
+                "text": "",
+                "duration_ms": int((time.time() - t0) * 1000),
+            }
+
+    return {
+        "url": url,
+        "extraction_ok": True,
+        "text": text[:8000],
+        "title": extracted.get("title", ""),
+        "description": extracted.get("description", ""),
+        "headings": extracted.get("headings") or [],
+        "social": extracted.get("social") or [],
+        "emails": extracted.get("emails") or [],
+        "phones": extracted.get("phones") or [],
+        "structured": extracted.get("structured") or [],
+        "duration_ms": int((time.time() - t0) * 1000),
+    }
+
+
 # ── Public: Read a specific article URL ──────────────────────────────────────
 
 async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
