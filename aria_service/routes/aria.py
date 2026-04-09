@@ -28,6 +28,7 @@ from ..intel.researcher import (
     read_article,
     read_document,
     extract_url_text,
+    extract_url_deep,
     validate_hypothesis,
     get_hypotheses,
     get_research_summary,
@@ -1373,19 +1374,29 @@ async def _execute_tool(intent: dict, llm) -> str:
             )
 
         if tool == "extract_url":
-            # FAST primitive: fetch + structured extract, no LLM, no RAG.
-            # Past incident 2026-04-09: routing chat-path "investigate URL"
-            # to crawl_website (15 LLM-analysed pages) took 90+ seconds and
-            # often returned thin content for JS-rendered SPAs. The chat
-            # LLM then fell back to session memory + general knowledge and
-            # confabulated a "Portuguese consultancy" profile for an actual
-            # AI-defence systems integrator. extract_url returns the
-            # verbatim site content (title + description + headings + JSON-LD
-            # + emails + phones + social links) directly to the LLM via the
-            # tool block, the same pattern document injection uses for
-            # attached files. The main chat LLM then quotes from the real
-            # content (or refuses per clauses 9, 12, 14 if extraction failed).
-            r = await extract_url_text(intent["url"])
+            # Multi-page DD extraction (Phase 2 fix, 2026-04-09 evening).
+            # Fetches the URL plus 4 high-value internal links (about / team /
+            # contact / leadership / products / locations / etc.) and
+            # aggregates the content into ONE result for the LLM.
+            #
+            # Past incident sequence:
+            #   1. Original chat-path crawl was crawl_website(15 pages, 15
+            #      LLM calls per page) — 90+ seconds, frequently timed out.
+            #   2. Replaced with extract_url_text() (single page, no LLM)
+            #      — fast but only saw the homepage.
+            #   3. The single-page extraction gave the LLM only marketing
+            #      copy + meta tags. ARIA confidently misclassified
+            #      Modirum Gespi as "Portuguese OEM" because the homepage
+            #      had hreflang="pt-pt" but no jurisdiction info — the
+            #      actual Finnish HQ + Brazilian defence operations live
+            #      on /about / /contact / /locations pages that the
+            #      single-page extractor never touched.
+            #
+            # extract_url_deep follows 3-5 high-value internal links in
+            # parallel and aggregates the result. Same defensive pattern
+            # (no LLM call, no RAG ingest, returns verbatim text), just
+            # broader coverage.
+            r = await extract_url_deep(intent["url"], max_pages=5)
             if not r.get("extraction_ok"):
                 return (
                     f"\n\n[TOOL: extract_url — FETCH/EXTRACTION FAILED]\n"
@@ -1402,25 +1413,36 @@ async def _execute_tool(intent: dict, llm) -> str:
             # chat LLM will read this and quote from it under clauses 9
             # (no profiling without data) and 14 (no fabricated verifiable
             # facts). Cap to keep the prompt budget sane.
+            pages_fetched = r.get("pages_fetched") or [intent["url"]]
+            pages_count = r.get("pages_count") or len(pages_fetched)
             return (
-                f"\n\n[TOOL: extract_url — verbatim site content below]\n"
-                f"URL: {intent['url']}\n"
+                f"\n\n[TOOL: extract_url_deep — verbatim multi-page site content below]\n"
+                f"Root URL: {intent['url']}\n"
+                f"Pages fetched ({pages_count}):\n"
+                + "\n".join(f"  - {p}" for p in pages_fetched) + "\n"
                 f"Extracted in: {r.get('duration_ms', 0)}ms\n"
                 f"Title: {r.get('title','')}\n"
                 f"Description: {r.get('description','')}\n"
-                f"Social profiles: {', '.join(r.get('social', [])[:8]) or '(none on homepage)'}\n"
-                f"Emails: {', '.join(r.get('emails', [])[:5]) or '(none on homepage)'}\n"
-                f"Phones: {', '.join(r.get('phones', [])[:5]) or '(none on homepage)'}\n"
-                f"\n--- Full extracted text (verbatim from {intent['url']}) ---\n"
-                f"{(r.get('text','') or '')[:6000]}\n"
+                f"Social profiles: {', '.join(r.get('social', [])[:8]) or '(none across fetched pages)'}\n"
+                f"Emails: {', '.join(r.get('emails', [])[:5]) or '(none across fetched pages)'}\n"
+                f"Phones: {', '.join(r.get('phones', [])[:5]) or '(none across fetched pages)'}\n"
+                f"\n--- Full extracted text (verbatim from the fetched pages, in order) ---\n"
+                f"{(r.get('text','') or '')[:14000]}\n"
                 f"--- End extracted text ---\n"
-                f"\nIMPORTANT: per CONSTITUTION clauses 9 and 14, you may ONLY "
-                f"state facts about this entity that are verifiably present in "
-                f"the extracted text above. Do NOT invent company numbers, "
-                f"NACE codes, registered addresses, executive names, or any "
-                f"other verifiable identifiers. If a fact is not in the text "
-                f"above, say so explicitly: 'I cannot verify <fact> from the "
-                f"extracted page content.'"
+                f"\nIMPORTANT — clauses 9 and 14: you may ONLY state facts about "
+                f"this entity that are verifiably present in the extracted text "
+                f"above. Do NOT invent company numbers, NACE codes, registered "
+                f"addresses, executive names, jurisdictions, or any other "
+                f"verifiable identifiers. If a fact is not in the text above, "
+                f"say so explicitly: 'I cannot verify <fact> from the extracted "
+                f"page content.' DO NOT infer nationality from language "
+                f"variants in the URL or HTML (e.g. /en, hreflang='pt-pt') — "
+                f"language variants reflect target audience, not company "
+                f"origin. State the actual jurisdiction ONLY if it appears in "
+                f"the verbatim extracted text (e.g. on a /about, /contact, or "
+                f"/locations page). If multiple jurisdictions appear (HQ in "
+                f"one country, subsidiaries in another), report each one with "
+                f"its specific page source."
             )
 
         if tool == "crawl":

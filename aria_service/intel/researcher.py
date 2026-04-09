@@ -927,6 +927,190 @@ async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -
     return facts_learned, hyp_generated
 
 
+# ── Public: Multi-page deep URL extraction (no LLM, no RAG) ──────────────────
+
+# High-value internal link path fragments worth following on a corporate
+# site DD. Order matters — earlier entries are higher priority. The follower
+# stops after collecting `max_pages` distinct links.
+_DD_LINK_FRAGMENTS = (
+    "/about", "/about-us", "/who-we-are", "/our-company", "/company",
+    "/team", "/leadership", "/management", "/people", "/founders",
+    "/board", "/directors",
+    "/contact", "/contact-us", "/get-in-touch",
+    "/products", "/solutions", "/services", "/portfolio", "/offerings",
+    "/history", "/story", "/heritage", "/our-story",
+    "/locations", "/offices", "/where-we-are", "/global-presence",
+    "/news", "/press", "/media",
+    "/clients", "/partners", "/customers",
+    "/careers", "/jobs",  # careers pages often reveal locations + headcount
+)
+
+# Asset / nav-junk patterns to skip when collecting internal links.
+_DD_LINK_SKIP = (
+    ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf",
+    ".webp", ".woff", ".woff2", ".ico", ".xml", ".rss", ".zip",
+    "/login", "/signin", "/signup", "/register", "/cart", "/checkout",
+    "/wp-", "/wp-content", "/wp-admin", "/wp-includes",
+    "javascript:", "mailto:", "tel:", "#",
+)
+
+
+def _collect_internal_dd_links(homepage_html: str, base_url: str, max_links: int = 5) -> list[str]:
+    """Parse the homepage HTML for high-value internal links worth following
+    on a corporate DD investigation. Returns a deduplicated list, capped at
+    max_links, prioritised by the order of _DD_LINK_FRAGMENTS."""
+    if not homepage_html:
+        return []
+    from urllib.parse import urljoin, urlparse
+    base_host = urlparse(base_url).netloc.lower()
+    if not base_host:
+        return []
+
+    # Extract every href from the HTML (cheap regex — good enough for DD link
+    # discovery, doesn't need a real HTML parser)
+    hrefs = []
+    for m in re.finditer(r'href=["\']([^"\'\s>]+)', homepage_html, re.IGNORECASE):
+        hrefs.append(m.group(1))
+
+    # Score each href by how early its path matches a DD fragment
+    candidates: dict[str, int] = {}  # url → priority (lower = higher prio)
+    for href in hrefs:
+        # Skip obviously non-content links
+        href_lower = href.lower()
+        if any(skip in href_lower for skip in _DD_LINK_SKIP):
+            continue
+        # Resolve relative URLs
+        try:
+            full = urljoin(base_url, href)
+        except Exception:
+            continue
+        parsed = urlparse(full)
+        # Same-domain only
+        if parsed.netloc.lower() != base_host:
+            continue
+        # Strip query string + fragment for dedup
+        clean = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+        if not clean or clean.lower() == base_url.rstrip("/").lower():
+            continue
+        # Find the best DD fragment match (lowest index = highest priority)
+        for idx, frag in enumerate(_DD_LINK_FRAGMENTS):
+            if frag in parsed.path.lower():
+                if clean not in candidates or candidates[clean] > idx:
+                    candidates[clean] = idx
+                break
+        # Note: links with no DD fragment match are NOT added — we only
+        # follow high-value pages, not the full sitemap
+
+    # Sort by priority then return top N
+    sorted_links = sorted(candidates.items(), key=lambda kv: kv[1])
+    return [url for url, _ in sorted_links[:max_links]]
+
+
+async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) -> dict:
+    """Multi-page DD extraction. Fetches the URL plus N high-value internal
+    links (about / team / contact / products / leadership / etc.), aggregates
+    the structured content, and returns ONE combined result.
+
+    This is the FAST primitive for chat-path "investigate URL" intent (vs
+    `extract_url_text` which is single-page only). NO LLM call, NO RAG ingest.
+
+    Past incident 2026-04-09 (afternoon): ARIA's single-page extract_url
+    on modirumgespi.com only saw the homepage meta tags + skeleton, missed
+    the company's actual jurisdiction (Brazilian defence operations + mixed
+    locations), and the LLM confabulated "Portuguese OEM" from the
+    `hreflang="pt-pt"` language-variant attribute. Multi-page extraction
+    surfaces /about / /contact / /locations / /team etc. where the real
+    jurisdiction + leadership info typically lives.
+
+    Returns the same shape as extract_url_text plus a `pages_fetched` list
+    showing every URL that contributed to the result.
+    """
+    t0 = time.time()
+    # Step 1: fetch the homepage and extract structured content
+    homepage = await extract_url_text(url, timeout=timeout)
+    if not homepage.get("extraction_ok"):
+        return {
+            **homepage,
+            "pages_fetched": [url],
+            "deep_mode": True,
+        }
+
+    # Step 2: parse homepage for high-value internal links
+    # Re-fetch the raw HTML so we can scan the hrefs (extract_url_text
+    # only returns the cleaned text, not the original markup)
+    from .security import sanitise_url
+    sanitised = sanitise_url(url)
+    raw_html = ""
+    if sanitised:
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                resp = await client.get(sanitised, headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/126.0.0.0 Safari/537.36"
+                    ),
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                })
+                if resp.status_code == 200:
+                    raw_html = resp.text
+        except Exception as e:
+            logger.debug("extract_url_deep raw HTML re-fetch failed: %s", e)
+
+    internal_links = _collect_internal_dd_links(raw_html, sanitised or url, max_links=max_pages - 1)
+
+    # Step 3: fetch each internal link in parallel (capped concurrency)
+    pages_fetched = [url]
+    aggregate_text_parts = [f"=== HOMEPAGE: {url} ===\n{homepage.get('text', '')}"]
+    aggregate_emails = set(homepage.get("emails") or [])
+    aggregate_phones = set(homepage.get("phones") or [])
+    aggregate_social = set(homepage.get("social") or [])
+    aggregate_jsonld = list(homepage.get("structured") or [])
+    aggregate_headings = list(homepage.get("headings") or [])
+
+    if internal_links:
+        # Run sub-fetches in parallel — much faster than sequential
+        sub_results = await asyncio.gather(
+            *[extract_url_text(link, timeout=timeout) for link in internal_links],
+            return_exceptions=True,
+        )
+        for link, result in zip(internal_links, sub_results):
+            if isinstance(result, Exception):
+                logger.debug("extract_url_deep sub-fetch failed for %s: %s", link, result)
+                continue
+            if not isinstance(result, dict) or not result.get("extraction_ok"):
+                continue
+            pages_fetched.append(link)
+            aggregate_text_parts.append(f"=== {link} ===\n{result.get('text', '')}")
+            aggregate_emails.update(result.get("emails") or [])
+            aggregate_phones.update(result.get("phones") or [])
+            aggregate_social.update(result.get("social") or [])
+            aggregate_jsonld.extend(result.get("structured") or [])
+            for h in (result.get("headings") or []):
+                if h not in aggregate_headings:
+                    aggregate_headings.append(h)
+
+    # Cap the aggregated text to keep prompt budget sane
+    full_text = "\n\n".join(aggregate_text_parts)[:24000]
+
+    return {
+        "url": url,
+        "extraction_ok": True,
+        "deep_mode": True,
+        "pages_fetched": pages_fetched,
+        "pages_count": len(pages_fetched),
+        "text": full_text,
+        "title": homepage.get("title", ""),
+        "description": homepage.get("description", ""),
+        "headings": aggregate_headings[:60],
+        "emails": sorted(aggregate_emails)[:30],
+        "phones": sorted(aggregate_phones)[:20],
+        "social": sorted(aggregate_social)[:20],
+        "structured": aggregate_jsonld,
+        "duration_ms": int((time.time() - t0) * 1000),
+    }
+
+
 # ── Public: Fast URL text extraction (no LLM, no RAG) ────────────────────────
 
 async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
