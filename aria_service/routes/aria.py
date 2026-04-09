@@ -2941,6 +2941,166 @@ async def semantic_stats_ep():
     return get_index_stats()
 
 
+# Pre-Phase-3 brain observability endpoint 2026-04-09 — single-call view
+# of every persistent brain layer for a given session. Used to debug
+# "ARIA keeps saying X" / "she should remember Y" reports without having
+# to grep across 6 different stats endpoints.
+@router.get("/admin/brain/{session_id}")
+async def admin_brain_ep(session_id: str, query: str = ""):
+    """Returns a unified snapshot of what each brain layer holds for
+    a given session. Optional `query` param scopes RAG / semantic /
+    neural recall to a specific topic for relevance-style debugging.
+    """
+    out: dict = {"session_id": session_id, "query": query or None}
+
+    # 1. Session conversation history
+    try:
+        from ..intel import history as _hist
+        sess = await _hist.get_session(session_id)
+        out["session"] = {
+            "exists": bool(sess),
+            "turn_count": len(sess.get("history", [])) // 2 if sess else 0,
+            "last_turn_at": sess.get("updated_at") if sess else None,
+        }
+    except Exception as e:
+        out["session"] = {"error": f"{type(e).__name__}: {e}"}
+
+    # 2. RAG store
+    try:
+        from ..intel import rag_store as _rs
+        rag_stats = _rs.get_stats() if hasattr(_rs, "get_stats") else {}
+        out["rag"] = {
+            "documents_indexed": rag_stats.get("documents_indexed", 0),
+            "facts_indexed": rag_stats.get("facts_indexed", 0),
+            "total_chunks": rag_stats.get("total_chunks", 0),
+        }
+        if query and hasattr(_rs, "get_rag_context"):
+            try:
+                ctx = _rs.get_rag_context(query, max_chars=600)
+                out["rag"]["preview_for_query"] = ctx[:600]
+            except Exception as e:
+                out["rag"]["preview_error"] = str(e)[:200]
+    except Exception as e:
+        out["rag"] = {"error": f"{type(e).__name__}: {e}"}
+
+    # 3. Knowledge facts (Redis)
+    try:
+        kb = await knowledge_mod._load()
+        facts = (kb or {}).get("facts", []) if isinstance(kb, dict) else []
+        out["knowledge"] = {
+            "total_facts": len(facts),
+            "recent_facts": [
+                {"topic": f.get("topic", "")[:80], "content": (f.get("content", "") or "")[:120]}
+                for f in facts[-5:]
+            ],
+        }
+    except Exception as e:
+        out["knowledge"] = {"error": f"{type(e).__name__}: {e}"}
+
+    # 4. Semantic search index
+    try:
+        out["semantic_search"] = get_index_stats()
+    except Exception as e:
+        out["semantic_search"] = {"error": f"{type(e).__name__}: {e}"}
+
+    # 5. Neural memory
+    try:
+        ns = neural_memory.get_stats() if hasattr(neural_memory, "get_stats") else {}
+        out["neural_memory"] = {
+            "total_neurons": ns.get("total_neurons", 0),
+            "total_edges": ns.get("total_edges", 0),
+            "total_activations": ns.get("total_activations", 0),
+        }
+        if query and hasattr(neural_memory, "recall"):
+            try:
+                recall = neural_memory.recall(query, top_k=5)
+                out["neural_memory"]["recall_for_query"] = recall[:5] if recall else []
+            except Exception as e:
+                out["neural_memory"]["recall_error"] = str(e)[:200]
+    except Exception as e:
+        out["neural_memory"] = {"error": f"{type(e).__name__}: {e}"}
+
+    # 6. Reasoning library
+    try:
+        rl_stats = reasoning_library.get_stats() if hasattr(reasoning_library, "get_stats") else {}
+        out["reasoning_library"] = {
+            "total_cases": rl_stats.get("total_cases", 0),
+            "hit_rate": rl_stats.get("hit_rate", 0),
+        }
+    except Exception as e:
+        out["reasoning_library"] = {"error": f"{type(e).__name__}: {e}"}
+
+    # 7. Intel ledger (signal count)
+    try:
+        led = await intel_ledger.get_stats()
+        out["intel_ledger"] = {
+            "total_signals": led.get("totalSignals", 0),
+            "by_type": led.get("byType", {}),
+        }
+    except Exception as e:
+        out["intel_ledger"] = {"error": f"{type(e).__name__}: {e}"}
+
+    # 8. Recent corrections
+    try:
+        from ..intel import correction_learner as _cl
+        if hasattr(_cl, "get_recent_corrections"):
+            corrections = _cl.get_recent_corrections(limit=5)
+            out["recent_corrections"] = corrections
+        else:
+            out["recent_corrections"] = []
+    except Exception as e:
+        out["recent_corrections"] = {"error": f"{type(e).__name__}: {e}"}
+
+    return out
+
+
+# Pre-Phase-3 admin endpoint 2026-04-09 — manually rebuild the in-memory
+# semantic_search index from the persistent knowledge.facts store. The
+# index is in-memory and rebuilds on every machine restart, so when the
+# startup-time bulk build is disabled (ARIA_SEMANTIC_INDEX_BUILD=0 — used
+# to avoid GIL contention during boot) the index sits at 2 documents
+# while knowledge.py has 896. This endpoint forces a backfill on demand.
+@router.post("/admin/rebuild-semantic-index")
+async def rebuild_semantic_index_ep():
+    """Manually rebuild the semantic_search in-memory index from
+    knowledge.facts. Runs the rebuild in a thread executor so it doesn't
+    block the event loop. Safe to call multiple times — idempotent."""
+    import asyncio as _aio
+    from ..intel import knowledge as _kn
+    from ..intel.semantic_search import rebuild_index_from_knowledge
+
+    facts_data = await _kn._load()
+    facts = (facts_data or {}).get("facts", []) if isinstance(facts_data, dict) else []
+
+    before_stats = get_index_stats()
+    if not facts:
+        return {
+            "ok": True, "facts_to_index": 0,
+            "before": before_stats, "after": before_stats,
+            "note": "knowledge.facts is empty — nothing to rebuild",
+        }
+
+    loop = _aio.get_running_loop()
+    try:
+        count = await loop.run_in_executor(None, rebuild_index_from_knowledge, facts)
+    except Exception as e:
+        _log.error("[admin/rebuild-semantic-index] rebuild raised: %s", e)
+        return {
+            "ok": False, "error": f"{type(e).__name__}: {e}",
+            "facts_to_index": len(facts),
+            "before": before_stats,
+        }
+
+    after_stats = get_index_stats()
+    return {
+        "ok": True,
+        "facts_to_index": len(facts),
+        "facts_indexed": count,
+        "before": before_stats,
+        "after": after_stats,
+    }
+
+
 # ── OCR ──────────────────────────────────────────────────────────────────────
 
 # GET /api/aria/vision-status — Diagnostic for image OCR configuration

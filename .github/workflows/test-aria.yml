@@ -1,0 +1,53 @@
+name: Test ARIA Python service
+
+# Runs the smoke test suite on every push to main + every PR.
+# The whole point of this workflow is to catch the bug class that bit
+# us on 2026-04-09: a missing `import os` in researcher.py silently
+# raised NameError on every web_search call for two days, swallowed by
+# asyncio.gather(return_exceptions=True). A trivial smoke test that
+# imports the module would have caught it in 5 seconds.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'aria_service/**'
+      - '.github/workflows/test-aria.yml'
+  pull_request:
+    paths:
+      - 'aria_service/**'
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install only what the smoke tests need — full requirements.txt
+          # would pull torch + sentence-transformers (3 GB) and slow CI to
+          # 5+ minutes. The smoke tests just need to import modules, not
+          # actually run inference.
+          pip install pytest pytest-asyncio fastapi pydantic httpx \
+                      python-multipart redis pyyaml beautifulsoup4 \
+                      lxml requests numpy
+
+      - name: Run smoke tests
+        env:
+          # Disable any features that need network or external services
+          ARIA_SEMANTIC_INDEX_BUILD: '0'
+          ARIA_RAG_BACKFILL_ENABLED: 'false'
+          REDIS_URL: 'redis://localhost:6379'  # not actually used, but config wants it
+          LLM_PROVIDER: 'deepseek'
+        run: |
+          cd ${{ github.workspace }}
+          python -m pytest aria_service/tests/test_imports.py -v --tb=short

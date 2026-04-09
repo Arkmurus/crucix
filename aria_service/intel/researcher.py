@@ -1188,8 +1188,9 @@ async def deep_research(
     *,
     primary_url: str = "",
     max_queries: int = 5,
-    max_extracts: int = 5,
-    timeout: float = 15.0,
+    max_extracts: int = 4,
+    timeout: float = 12.0,
+    overall_budget: float = 60.0,
 ) -> dict:
     """Orchestrated multi-query, multi-extract research on an entity.
 
@@ -1248,10 +1249,27 @@ async def deep_research(
         f"{entity} news",                          # recent activity
     ][:max_queries]
 
-    # ── Step 2: parallel web searches ─────────────────────────────────
+    # ── Step 2: parallel web searches with overall budget cap ────────
+    # Pre-Phase-3 latency cap 2026-04-09: previously the gather had no
+    # overall wall-clock budget — slow providers (Brave timeout, DDG
+    # rate-limiting) could push the entire chat turn past 5 minutes.
+    # Now we wait at most overall_budget/2 for the search step, and the
+    # extraction step gets the remaining budget. Past incident: rolling
+    # mean turn latency was 348s with deep_research, vs <90s target.
     logger.info("deep_research firing %d parallel web_search angles: %r", len(angles), angles)
-    search_tasks = [web_search(angle, max_results=8, timeout=timeout) for angle in angles]
-    search_results_per_angle = await asyncio.gather(*search_tasks, return_exceptions=True)
+    search_budget = max(8.0, overall_budget * 0.45)
+    search_tasks = [web_search(angle, max_results=6, timeout=timeout) for angle in angles]
+    try:
+        search_results_per_angle = await asyncio.wait_for(
+            asyncio.gather(*search_tasks, return_exceptions=True),
+            timeout=search_budget,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "deep_research search step exceeded budget %.1fs — using empty results",
+            search_budget,
+        )
+        search_results_per_angle = [TimeoutError("search budget exceeded")] * len(angles)
     for angle, sr in zip(angles, search_results_per_angle):
         if isinstance(sr, Exception):
             logger.warning("deep_research angle=%r RAISED: %s: %s", angle, type(sr).__name__, sr)
@@ -1306,11 +1324,26 @@ async def deep_research(
     top_for_extract = [s for s in all_snippets if s["url"] != primary_url][:max_extracts]
 
     # ── Step 5: parallel verbatim extraction of top URLs ──────────────
+    # Latency cap: extraction step gets the remaining wall-clock budget
+    # (subtract whatever the search step consumed). Hard floor of 8s so
+    # that fast searches don't starve the extraction.
+    elapsed_so_far = time.time() - t0
+    extract_budget = max(8.0, overall_budget - elapsed_so_far - 1.0)
     extract_tasks = [extract_url_text(s["url"], timeout=timeout) for s in top_for_extract]
     if primary_url:
         # Also do a deep multi-page fetch on the primary URL if provided
-        extract_tasks.append(extract_url_deep(primary_url, max_pages=4, timeout=timeout))
-    extracted_results = await asyncio.gather(*extract_tasks, return_exceptions=True)
+        extract_tasks.append(extract_url_deep(primary_url, max_pages=3, timeout=timeout))
+    try:
+        extracted_results = await asyncio.wait_for(
+            asyncio.gather(*extract_tasks, return_exceptions=True),
+            timeout=extract_budget,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "deep_research extract step exceeded budget %.1fs — partial results lost",
+            extract_budget,
+        )
+        extracted_results = [TimeoutError("extract budget exceeded")] * len(extract_tasks)
 
     extracted_pages: list[dict] = []
     for ext in extracted_results:
@@ -1324,17 +1357,27 @@ async def deep_research(
             continue
         if not isinstance(ext, dict) or not ext.get("extraction_ok"):
             continue
+        # Latency cap 2026-04-09: text capped at 2500 chars (was 4000) to
+        # cut LLM context cost. Mean turn was 25k tokens at 4000-char
+        # extracts × 5 pages — too expensive for sub-90s turns.
         extracted_pages.append({
             "url": ext.get("url", ""),
             "title": ext.get("title", ""),
             "description": ext.get("description", ""),
-            "text": (ext.get("text") or "")[:4000],
-            "social": ext.get("social") or [],
-            "emails": ext.get("emails") or [],
-            "phones": ext.get("phones") or [],
+            "text": (ext.get("text") or "")[:2500],
+            "social": (ext.get("social") or [])[:3],
+            "emails": (ext.get("emails") or [])[:3],
+            "phones": (ext.get("phones") or [])[:2],
             "is_deep": ext.get("deep_mode", False),
             "pages_fetched": ext.get("pages_fetched") or [ext.get("url", "")],
         })
+
+    total_elapsed_ms = int((time.time() - t0) * 1000)
+    if total_elapsed_ms > overall_budget * 1000:
+        logger.warning(
+            "deep_research exceeded overall budget: %dms vs %dms cap",
+            total_elapsed_ms, int(overall_budget * 1000),
+        )
 
     return {
         "ok": True,
@@ -1344,10 +1387,11 @@ async def deep_research(
         "snippet_count_per_provider": snippet_count_per_provider,
         "snippet_count_per_angle": snippet_count_per_angle,
         "snippets_total": len(all_snippets),
-        "snippets_top": all_snippets[:15],  # cap for token budget
+        "snippets_top": all_snippets[:10],  # was 15 — context-budget cut
         "extracted_pages": extracted_pages,
         "extracted_count": len(extracted_pages),
-        "duration_ms": int((time.time() - t0) * 1000),
+        "duration_ms": total_elapsed_ms,
+        "budget_ms": int(overall_budget * 1000),
     }
 
 
