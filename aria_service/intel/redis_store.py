@@ -105,6 +105,54 @@ async def lrange(key: str, start: int, stop: int) -> list[str]:
     return lst[start : stop + 1 if stop >= 0 else None]
 
 
+async def incr(key: str, amount: int = 1) -> int:
+    """Atomic integer increment. Used by rate-limit token buckets and
+    similar counters where racing callers must not lose increments.
+    Falls back to a non-atomic get+set on the in-memory store.
+    """
+    if _client:
+        try:
+            return int(await _client.incrby(key, amount))
+        except Exception as e:
+            logger.warning("Redis INCR %s failed: %s", key, e)
+    # In-memory fallback (NOT atomic — only used when Redis is offline)
+    current = int(_mem_store.get(key, "0") or "0")
+    new_val = current + amount
+    _mem_store[key] = str(new_val)
+    return new_val
+
+
+async def incrbyfloat(key: str, amount: float) -> float:
+    """Atomic float increment for cost / metric counters. Used by the
+    autonomous engine cost cap so concurrent task cost writes don't
+    race. Falls back to non-atomic get+set on the in-memory store.
+    """
+    if _client:
+        try:
+            return float(await _client.incrbyfloat(key, amount))
+        except Exception as e:
+            logger.warning("Redis INCRBYFLOAT %s failed: %s", key, e)
+    current = float(_mem_store.get(key, "0") or "0")
+    new_val = current + amount
+    _mem_store[key] = f"{new_val:.6f}"
+    return new_val
+
+
+async def expire(key: str, seconds: int) -> bool:
+    """Set TTL on an existing key. Returns True if the key existed.
+    No-op on the in-memory store (no TTL implementation, but the
+    next process restart clears everything anyway).
+    """
+    if _client:
+        try:
+            return bool(await _client.expire(key, seconds))
+        except Exception as e:
+            logger.warning("Redis EXPIRE %s failed: %s", key, e)
+            return False
+    # In-memory fallback has no TTL — present-key check only
+    return key in _mem_store
+
+
 async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     """Return keys matching a glob pattern (uses SCAN for Redis, filter for in-memory)."""
     if _client:

@@ -3251,6 +3251,150 @@ async def rebuild_semantic_index_status_ep():
     }
 
 
+# ════════════════════════════════════════════════════════════════════════
+# AUTONOMOUS ENGINE ADMIN ENDPOINTS (Phase 3c-α — added 2026-04-09)
+# ════════════════════════════════════════════════════════════════════════
+#
+# Five endpoints to manage the autonomous research engine from outside
+# the process. These give the operator (Antonio) an emergency stop, a
+# manual fire button, a status view, and a tasks-yaml reload trigger
+# without needing SSH access. Critical for incident response.
+#
+# All five are router-protected by the existing bearer-token dependency.
+# See aria_service/autonomous/AUTONOMOUS_ENGINE.md for the full design.
+
+@router.get("/autonomous/status")
+async def autonomous_status_ep():
+    """One-shot view of the autonomous engine state: env-var flags,
+    in-process loop state, safety counters (rate limit + cost cap),
+    loaded tasks summary, and the last 20 task run records."""
+    try:
+        from ..autonomous import engine as _eng, safety as _safety, tasks as _tsk
+        engine_state = _eng.get_engine_status()
+        safety_state = await _safety.get_safety_state()
+        loaded = _tsk.get_loaded_tasks()
+        tasks_summary = [
+            {
+                "id": t.id,
+                "name": t.name,
+                "cron": t.cron,
+                "enabled": t.enabled,
+                "priority": t.priority,
+                "delivery_channels": t.delivery_channels,
+                "paused": await _safety.is_task_paused(t.id),
+            }
+            for t in loaded.values()
+        ]
+        recent_runs = await _tsk.get_recent_runs(limit=20)
+        return {
+            "ok": True,
+            "engine": engine_state,
+            "safety": safety_state,
+            "tasks_loaded": len(loaded),
+            "tasks": tasks_summary,
+            "recent_runs": recent_runs,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/autonomous/pause")
+async def autonomous_pause_ep(request: Request):
+    """Global pause switch — stops ALL tasks immediately. Resume with
+    /autonomous/resume. Used as the emergency stop button when a task
+    starts misbehaving and the operator needs to halt the engine
+    without redeploying.
+    """
+    try:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+        reason = (body.get("reason") if isinstance(body, dict) else "") or "(no reason)"
+        from ..autonomous import safety as _safety
+        await _safety.pause_engine(reason=reason)
+        return {"ok": True, "paused": True, "reason": reason}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/autonomous/resume")
+async def autonomous_resume_ep():
+    """Lift the global pause and let the engine fire scheduled tasks again.
+    Per-task pauses are unaffected — use /autonomous/resume-task/<id>
+    to lift those individually."""
+    try:
+        from ..autonomous import safety as _safety
+        await _safety.resume_engine()
+        return {"ok": True, "paused": False}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/autonomous/pause-task/{task_id}")
+async def autonomous_pause_task_ep(task_id: str):
+    """Pause a single task without stopping the engine. Useful when
+    one task is failing but the others are healthy."""
+    try:
+        from ..autonomous import safety as _safety
+        await _safety.pause_task(task_id)
+        return {"ok": True, "task_id": task_id, "paused": True}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/autonomous/resume-task/{task_id}")
+async def autonomous_resume_task_ep(task_id: str):
+    """Lift the per-task pause."""
+    try:
+        from ..autonomous import safety as _safety
+        await _safety.resume_task(task_id)
+        return {"ok": True, "task_id": task_id, "paused": False}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/autonomous/run-now/{task_id}")
+async def autonomous_run_now_ep(task_id: str, request: Request):
+    """Manually fire a single task immediately, bypassing the cron and
+    the per-task enabled flag. Safety guardrails (rate limit, cost cap,
+    engine pause) STILL apply.
+
+    The DRY_RUN env var still applies — to actually deliver to WhatsApp
+    you must set ARIA_AUTONOMOUS_DRY_RUN=0 first. There is intentionally
+    no per-call dry_run override on this endpoint — the override has to
+    be a deliberate env var change so a curl typo cannot trigger a
+    real WhatsApp post.
+    """
+    try:
+        from ..autonomous import engine as _eng
+        llm = get_llm(request)
+        if llm is None or not getattr(llm, "is_configured", False):
+            return {"ok": False, "error": "LLM provider not configured"}
+        result = await _eng.run_task_now(task_id, llm)
+        return result
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/autonomous/reload-tasks")
+async def autonomous_reload_tasks_ep():
+    """Re-read tasks.yaml from disk and replace the in-process task
+    cache. Use this after editing tasks.yaml to apply changes without
+    restarting the service."""
+    try:
+        from ..autonomous import tasks as _tsk
+        loaded = _tsk.load_tasks()
+        return {
+            "ok": True,
+            "tasks_loaded": len(loaded),
+            "task_ids": sorted(loaded.keys()),
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
 # ── OCR ──────────────────────────────────────────────────────────────────────
 
 # GET /api/aria/vision-status — Diagnostic for image OCR configuration

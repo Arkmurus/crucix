@@ -67,6 +67,12 @@ CORE_MODULES = [
     "aria_service.intel.symbolic_reasoner",
     "aria_service.intel.ocr",
     "aria_service.intel.self_improve",
+    # Phase 3c-α — autonomous research engine modules (added 2026-04-09)
+    "aria_service.autonomous",
+    "aria_service.autonomous.safety",
+    "aria_service.autonomous.tasks",
+    "aria_service.autonomous.delivery",
+    "aria_service.autonomous.engine",
 ]
 
 
@@ -241,3 +247,71 @@ def test_researcher_principles_includes_8_step_sequence():
     assert "Jornal de Angola" in text
     assert "Club of Mozambique" in text
     assert "Macauhub" in text
+
+
+def test_autonomous_engine_disabled_by_default():
+    """Phase 3c-α safety: the autonomous engine MUST be disabled by
+    default (env var unset). A deploy that flips this on by accident
+    would start firing scheduled research tasks immediately, so the
+    default has to be conservative."""
+    import os as _os
+    # Clear the env var if set in the test environment
+    saved = _os.environ.pop("ARIA_AUTONOMOUS_ENABLED", None)
+    try:
+        from aria_service.autonomous import engine
+        assert engine.is_enabled() is False, (
+            "Autonomous engine must default to disabled. "
+            "Without an explicit ARIA_AUTONOMOUS_ENABLED=1 env var, the "
+            "scheduled research tasks should never fire."
+        )
+        assert engine.is_dry_run() is True, (
+            "Autonomous engine must default to dry-run. "
+            "Set ARIA_AUTONOMOUS_DRY_RUN=0 only after validation."
+        )
+    finally:
+        if saved is not None:
+            _os.environ["ARIA_AUTONOMOUS_ENABLED"] = saved
+
+
+def test_autonomous_cron_matcher_basics():
+    """Phase 3c-α: the cron matcher must handle the four cases that
+    matter for the starter task (DAILY-PROC-ANGOLA fires "0 6 * * mon-fri")."""
+    from aria_service.autonomous.tasks import cron_matches
+    import time as _time
+    # Build a struct_time for Mon 2026-04-13 06:00 UTC
+    when_mon_6am = _time.strptime("2026-04-13 06:00:00", "%Y-%m-%d %H:%M:%S")
+    assert cron_matches("0 6 * * mon-fri", when_mon_6am) is True
+    # Mon 06:01 — should not fire
+    when_mon_601am = _time.strptime("2026-04-13 06:01:00", "%Y-%m-%d %H:%M:%S")
+    assert cron_matches("0 6 * * mon-fri", when_mon_601am) is False
+    # Sat 06:00 — should not fire (mon-fri only)
+    when_sat_6am = _time.strptime("2026-04-11 06:00:00", "%Y-%m-%d %H:%M:%S")
+    assert cron_matches("0 6 * * mon-fri", when_sat_6am) is False
+    # Wildcard match
+    assert cron_matches("* * * * *", when_mon_6am) is True
+
+
+def test_autonomous_starter_task_yaml_loads():
+    """Phase 3c-α: tasks.yaml must parse and contain DAILY-PROC-ANGOLA
+    in disabled state. If this test fails the YAML is malformed."""
+    from aria_service.autonomous.tasks import load_tasks
+    loaded = load_tasks()
+    assert "DAILY-PROC-ANGOLA" in loaded, (
+        "tasks.yaml must contain the DAILY-PROC-ANGOLA starter task"
+    )
+    starter = loaded["DAILY-PROC-ANGOLA"]
+    assert starter.enabled is False, (
+        "Starter task must be disabled by default — operator must "
+        "explicitly opt in via tasks.yaml + reload-tasks endpoint"
+    )
+    assert starter.tool_chain, "Starter task must have a non-empty tool chain"
+    assert starter.cost_cap_usd > 0
+
+
+def test_redis_store_has_atomic_helpers():
+    """Phase 3c-α: safety.py needs incr/incrbyfloat/expire on the Redis
+    wrapper. Regression test for the redis_store.py expansion."""
+    from aria_service.intel import redis_store
+    assert hasattr(redis_store, "incr"), "redis_store missing incr"
+    assert hasattr(redis_store, "incrbyfloat"), "redis_store missing incrbyfloat"
+    assert hasattr(redis_store, "expire"), "redis_store missing expire"

@@ -43,19 +43,40 @@ infrastructure already running.
 
 ---
 
-## 2. Decision: APScheduler in-process, not separate worker
+## 2. Decision: 60-second asyncio polling loop, in-process
 
-We have three plausible scheduling backends. The trade-offs:
+**Updated 2026-04-09 during Phase 3c-α implementation:** the original
+draft of this spec recommended APScheduler with a Redis jobstore. While
+implementing, we noticed that `aria_service/main.py` already runs four
+in-process schedulers (autonomous_research, self_improve, student
+quiz/reading/library_consolidate, proactive watch) using bare
+`asyncio.create_task` + `asyncio.sleep` loops. Adding APScheduler would
+have been inconsistent with the existing code, pulled in a new
+dependency (`apscheduler` + `pytz` + `tzlocal`), and added Redis
+jobstore complexity for no practical gain.
 
-| Backend | Pros | Cons | Recommended? |
+**Final decision**: a single 60-second asyncio polling loop spawned
+from the lifespan hook, evaluating cron expressions against the
+current UTC minute on each tick. This is the same pattern as the
+existing schedulers, zero new dependencies, and fits the rest of the
+codebase.
+
+| Backend | Pros | Cons | Decision |
 |---|---|---|---|
-| **fly.io scheduled machines** | Native to fly.io, no extra process, auto-scaled | Coarse cron resolution (1 min minimum), each invocation is a fresh container start (~30s cold-start cost), no shared state with the main API process | ❌ |
-| **Separate fly.io worker app** (`aria-autonomous`) | Process isolation, dedicated resource budget, can be scaled independently | Doubles deploy/billing complexity, no shared brain state with the main API (would need IPC over the public HTTP boundary), introduces a second auth token | ❌ |
-| **APScheduler inside the existing FastAPI process** | Runs in the same process as the API → direct access to all 5 brain layers, all 14 conditional addenda, the LLM provider, and all observability hooks. Zero deploy complexity. Survives restarts via Redis-backed jobstore. Shares the same cost tracker, trace stream, and verifier. | One extra dependency (`apscheduler`). Slight risk of long-running tasks contending with chat turns for the event loop — mitigated by running each task in `loop.run_in_executor()`. | ✅ **YES** |
+| **fly.io scheduled machines** | Native to fly.io, no extra process | Coarse cron, 30s cold-start per fire, no shared state with the main API process | ❌ |
+| **Separate fly.io worker app** (`aria-autonomous`) | Process isolation | Doubles deploy/billing complexity, IPC over HTTP, second auth token | ❌ |
+| **APScheduler in-process** | Atomic schedule semantics, Redis jobstore for crash recovery | New dependency, inconsistent with existing scheduler pattern | ❌ |
+| **60-second asyncio polling loop in-process** ✅ | Same code style as existing schedulers, zero new deps, direct access to all brain layers / addenda / LLM / cost meter / verifier, survives restart cleanly (cron is the source of truth, no in-process state to lose), pause/resume via Redis flag | 60-second precision (acceptable for daily/weekly tasks) | ✅ **YES** |
 
-**Decision**: APScheduler in-process with a Redis jobstore for crash
-recovery. This is the smallest possible change that delivers the
-capability without breaking the deploy model.
+The polling loop:
+1. Sleeps for `STARTUP_DELAY_SECONDS` (default 90s) so the service is
+   fully warm before the first tick
+2. Wakes every `POLL_INTERVAL_SECONDS` (default 60s)
+3. For each loaded task with `enabled: true`, evaluates the 5-field
+   cron expression against the current UTC minute
+4. For each match, runs the safety guardrails, then `execute_task()`
+5. Tasks fire **serially** (one at a time) so we can never burn the
+   rate budget on parallel fires
 
 ---
 

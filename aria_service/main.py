@@ -351,10 +351,40 @@ async def lifespan(app: FastAPI):
     proactive_task = asyncio.create_task(_proactive_loop())
     logger.info("Proactive watch started: daily briefing + mastery prep (hourly)")
 
+    # ── ARIA LAYER 3 — AUTONOMOUS RESEARCH ENGINE ───────────────────────
+    # Phase 3c-α (2026-04-09): scheduled research tasks defined in
+    # aria_service/autonomous/tasks.yaml. Gated behind TWO independent
+    # enable flags so a deploy cannot accidentally turn it on:
+    #   1. ARIA_AUTONOMOUS_ENABLED env var (default OFF)
+    #   2. per-task `enabled: true` in tasks.yaml (default false on every task)
+    # Even with both flags on, the engine runs in DRY_RUN mode by default
+    # (set ARIA_AUTONOMOUS_DRY_RUN=0 to enable real delivery to WhatsApp /
+    # intel ledger). See aria_service/autonomous/AUTONOMOUS_ENGINE.md.
+    try:
+        from .autonomous import engine as autonomous_engine
+        if autonomous_engine.is_enabled():
+            started = autonomous_engine.start_engine(llm)
+            if started:
+                logger.info(
+                    "Autonomous engine started (dry_run=%s) — see /api/aria/autonomous/status",
+                    autonomous_engine.is_dry_run(),
+                )
+        else:
+            logger.info(
+                "Autonomous engine NOT started — set ARIA_AUTONOMOUS_ENABLED=1 to enable"
+            )
+    except Exception as e:
+        logger.warning("Autonomous engine bootstrap failed (non-fatal): %s", e)
+
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────
+    try:
+        from .autonomous import engine as _autonomous_engine
+        await _autonomous_engine.stop_engine()
+    except Exception as e:
+        logger.warning("Autonomous engine shutdown failed (non-fatal): %s", e)
     if research_task:
         research_task.cancel()
     if self_improve_task:

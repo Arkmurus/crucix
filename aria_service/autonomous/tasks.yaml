@@ -1,0 +1,77 @@
+# ARIA Autonomous Engine — task schedule
+#
+# Edit this file and POST /api/aria/autonomous/reload-tasks to apply
+# without redeploying. The cron field uses standard 5-field syntax with
+# UTC time:
+#   minute hour day-of-month month day-of-week
+#
+# Supported features:
+#   - exact integers           "0", "5", "23"
+#   - wildcard                 "*"
+#   - comma lists              "0,15,30,45"
+#   - ranges                   "0-5", "mon-fri"
+#   - step values on wildcard  "*/5"
+#   - day-of-week names        "mon", "tue", "wed", "thu", "fri", "sat", "sun"
+#
+# IMPORTANT — Phase 3c-α conservative defaults:
+#
+#   - Every task starts with `enabled: false` so the engine NEVER fires
+#     anything until the operator explicitly turns it on. Manual run-now
+#     via /api/aria/autonomous/run-now/<task_id> bypasses the enabled
+#     flag for one-shot validation testing.
+#
+#   - The engine itself is also gated behind ARIA_AUTONOMOUS_ENABLED=1
+#     (default OFF). Both flags must flip before anything fires.
+#
+#   - Even with both flags on, the engine runs in DRY_RUN mode by
+#     default — task results are computed and logged but NOT delivered
+#     to WhatsApp / intel ledger. Set ARIA_AUTONOMOUS_DRY_RUN=0 to
+#     enable real delivery.
+#
+# This means the safe ramp-up sequence is:
+#
+#   1. Deploy with engine OFF — verify no tasks fire (default)
+#   2. Set ARIA_AUTONOMOUS_ENABLED=1 — engine starts polling, still
+#      no fires because all tasks are disabled here
+#   3. Manually run a task via /api/aria/autonomous/run-now/<id> in
+#      DRY_RUN mode — verify the response is sane, watch the cost
+#   4. Enable the task here, reload — task fires on schedule but in
+#      DRY_RUN mode (no real delivery)
+#   5. Watch for 5+ runs, verify the run history in /status
+#   6. Set ARIA_AUTONOMOUS_DRY_RUN=0 — real delivery now active
+
+tasks:
+
+  # ──────────────────────────────────────────────────────────────────
+  # DAILY-PROC-ANGOLA — Angola defence procurement scan
+  # ──────────────────────────────────────────────────────────────────
+  - id: DAILY-PROC-ANGOLA
+    name: Angola defence procurement scan
+    description: |
+      Daily 06:00 UTC scan for new defence / security / military
+      procurement notices in Angola. Tool chain runs deep_research
+      with the Angolan procurement context. Escalates on keywords
+      that signal a real Arkmurus opportunity.
+
+    cron: "0 6 * * mon-fri"
+    enabled: false
+    priority: HIGH
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+
+    tool_chain:
+      - tool: deep_research
+        entity: "Angola defence procurement tender 2026 SIMPORTEX FAA"
+
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""   # leave empty until Antonio answers open question 1
+
+    escalate_if:
+      - "new tender"
+      - "contract award"
+      - "FAA"
+      - "SIMPORTEX"
+      - "MINFAR"
+      - "OGE 2026"
+
+    mem0_tags: [angola, procurement, tender, daily, autonomous]
