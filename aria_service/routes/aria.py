@@ -2002,6 +2002,33 @@ async def _execute_tool(intent: dict, llm) -> str:
                     topic,
                     blocking=_is_blocking_domain(topic),
                 )
+
+            # ── AUTO-CHAIN: sanctions screen after every investigation ──
+            # Ensures ARIA never says "sanctions — not performed". The
+            # investigation topic is used as the entity name for fuzzy
+            # screening against OpenSanctions (OFAC, EU, UK OFSI, UN).
+            # Non-fatal: if screening fails, investigation still returns.
+            try:
+                entity_for_screen = intent.get("entity") or topic
+                if entity_for_screen and len(entity_for_screen.strip()) >= 3:
+                    screen_r = await aria_sanctions.fuzzy_screen(entity_for_screen)
+                    top = (screen_r.get("matches") or [])[:3]
+                    top_str = "\n".join(
+                        f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')}"
+                        for m in top
+                    ) or "  - No matches found"
+                    base += (
+                        f"\n\n[TOOL: auto_sanctions_screen]\n"
+                        f"Entity: {entity_for_screen}\n"
+                        f"Variants tried: {screen_r.get('variants_tried', [])[:4]}\n"
+                        f"Top matches:\n{top_str}\n"
+                        f"Blocked: {screen_r.get('blocked', False)}\n"
+                        f"Top score: {screen_r.get('top_score', 0)}"
+                    )
+            except Exception as e:
+                logger.debug("Auto sanctions screen failed (non-fatal): %s", e)
+                base += "\n\n[TOOL: auto_sanctions_screen — FAILED (non-fatal)]"
+
             return base
 
         if tool == "profile":
@@ -2022,6 +2049,25 @@ async def _execute_tool(intent: dict, llm) -> str:
             )
             if empty:
                 base += _no_data_warning("build_profile", intent["entity"])
+
+            # Auto-chain sanctions screen on profile builds
+            try:
+                entity = intent.get("entity", "")
+                if entity and len(entity.strip()) >= 3:
+                    screen_r = await aria_sanctions.fuzzy_screen(entity)
+                    top = (screen_r.get("matches") or [])[:3]
+                    top_str = "\n".join(
+                        f"  - {m.get('name')} [{m.get('list')}] score={m.get('score')}"
+                        for m in top
+                    ) or "  - No matches found"
+                    base += (
+                        f"\n\n[TOOL: auto_sanctions_screen]\nEntity: {entity}\n"
+                        f"Top matches:\n{top_str}\n"
+                        f"Blocked: {screen_r.get('blocked', False)}"
+                    )
+            except Exception as e:
+                logger.debug("Auto sanctions screen on profile failed: %s", e)
+
             return base
 
         if tool == "screen":
