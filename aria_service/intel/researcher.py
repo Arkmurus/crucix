@@ -619,13 +619,54 @@ def _translate_query(query: str, lang_code: str) -> str:
 
 
 async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
-    """Multi-language search for articles via Google News RSS.
+    """ARIA's independent multi-backend web search.
 
-    Always searches English first; for queries that mention francophone /
-    lusophone / arabophone / hispanophone countries, also runs region-specific
-    searches in the relevant language to capture local press coverage that
-    English-only searches miss completely.
+    Uses ARIA's own search engine (web_search.py) which queries multiple
+    backends in parallel (Brave, SearXNG, Google News, Bing News),
+    deduplicates, applies credibility scoring, and returns ranked results.
+
+    Falls back to legacy Google News RSS if the search engine fails.
+
+    INDEPENDENCE: ARIA does not depend on any single search provider.
+    If Brave is down, SearXNG covers. If SearXNG is down, Google News
+    RSS covers. ARIA always returns results.
     """
+    try:
+        from . import web_search as ws
+
+        # Detect languages for multilingual search
+        extra_langs = _detect_target_languages(query)
+        languages = ["en"] + list(extra_langs)
+
+        # Use ARIA's multi-backend search with multilingual support
+        raw_results = await ws.search_multilingual(
+            query, languages=languages, max_results=30,
+        )
+
+        # Convert SearchResult objects to the dict format the rest of
+        # the pipeline expects (title, link, snippet, source)
+        results = []
+        for r in raw_results:
+            results.append({
+                "title": r.title,
+                "link": r.url,
+                "snippet": r.snippet,
+                "source": r.source,
+                "_credibility_tier": r.credibility_tier,
+                "_relevance_score": r.relevance_score,
+                "_language": r.language if r.language != "en" else None,
+            })
+
+        if results:
+            logger.info("ARIA search: %d results for %r (backends: %s)",
+                        len(results), query[:60],
+                        ", ".join(set(r["source"].split(":")[0] for r in results)))
+            return results
+
+    except Exception as e:
+        logger.warning("ARIA search engine failed, falling back to Google News RSS: %s", e)
+
+    # ── Legacy fallback: Google News RSS only ─────────────────────────
     encoded = quote_plus(query)
     base_url = f"https://news.google.com/rss/search?q={encoded}&hl=en&gl=US&ceid=US:en"
     results = await _fetch_rss(base_url, timeout)
@@ -647,7 +688,6 @@ async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
         except Exception as e:
             logger.debug("Multilingual search failed for %s: %s", lang, e)
 
-    # Dedup by link
     seen_links: set[str] = set()
     deduped = []
     for r in results:

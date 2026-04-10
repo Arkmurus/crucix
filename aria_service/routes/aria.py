@@ -5458,6 +5458,41 @@ async def law_refresh_ep():
     return result
 
 
+# ── Search Engine ─────────────────────────────────────────────────────────────
+
+@router.get("/search/health")
+async def search_health_ep():
+    """Check which search backends are available."""
+    from ..intel import web_search
+    health = await web_search.get_search_health()
+    return health
+
+
+class SearchRequest(BaseModel):
+    query: str
+    max_results: int = 10
+    language: str = "en"
+    require_triangulation: bool = False
+
+
+@router.post("/search/web")
+async def search_web_ep(req: SearchRequest):
+    """Run ARIA's independent multi-backend web search."""
+    from ..intel import web_search
+    results = await web_search.search(
+        req.query,
+        max_results=req.max_results,
+        language=req.language,
+        require_triangulation=req.require_triangulation,
+    )
+    return {
+        "query": req.query,
+        "results": [r.to_dict() for r in results],
+        "count": len(results),
+        "triangulated": req.require_triangulation,
+    }
+
+
 @router.get("/law/sections")
 async def law_sections_ep():
     """List available international law sections."""
