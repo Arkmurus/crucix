@@ -11,7 +11,7 @@ import { AuthGuard } from "./guards/auth.guard";
 const routes: Routes = [
   {
     path: '',
-    redirectTo: 'auth/landing',
+    redirectTo: 'dashboard/aria',
     pathMatch: 'full',
   },
   { path: '', component: FullLayoutComponent, canActivate: [AuthGuard], data: { title: 'full Views' }, children: Full_ROUTES },

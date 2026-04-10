@@ -1,5 +1,7 @@
-import { Component, OnInit, ViewChild, ElementRef, AfterViewChecked } from '@angular/core';
-import { CrucixApiService } from '../../services/crucix-api.service';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, AfterViewChecked, ChangeDetectorRef } from '@angular/core';
+import { CrucixApiService, AriaChatEvent } from '../../services/crucix-api.service';
+import { AuthService } from '../../services/auth.service';
+import { Subscription } from 'rxjs';
 
 interface ChatMessage {
   role: 'user' | 'aria';
@@ -9,6 +11,15 @@ interface ChatMessage {
   epistemic?: string;
   selfGrade?: string;
   isThinking?: boolean;
+  streaming?: boolean;
+  statusText?: string;
+}
+
+interface Conversation {
+  session_id: string;
+  title: string;
+  updatedAt: number;
+  messageCount: number;
 }
 
 @Component({
@@ -16,7 +27,7 @@ interface ChatMessage {
   templateUrl: './aria.component.html',
   styleUrls: ['./aria.component.scss']
 })
-export class AriaComponent implements OnInit, AfterViewChecked {
+export class AriaComponent implements OnInit, OnDestroy, AfterViewChecked {
   @ViewChild('chatScroll') chatScroll!: ElementRef;
   @ViewChild('msgInput')   msgInput!: ElementRef;
 
@@ -27,24 +38,43 @@ export class AriaComponent implements OnInit, AfterViewChecked {
   messages: ChatMessage[] = [];
   inputText = '';
   sending = false;
+  streaming = false;
   thinkMode = false;
-  sessionId = `aria_${Date.now()}`;
+  sessionId = '';
   sidePanel: 'identity' | 'thoughts' | 'curiosity' | null = null;
 
-  private shouldScroll = false;
+  // Conversation sidebar
+  conversations: Conversation[] = [];
+  activeConversationId = '';
+  showConversations = true;
+  renamingId = '';
+  renameText = '';
 
-  constructor(private api: CrucixApiService) {}
+  private shouldScroll = false;
+  private streamSub: Subscription | null = null;
+  private userId = '';
+
+  constructor(
+    private api: CrucixApiService,
+    private auth: AuthService,
+    private cdr: ChangeDetectorRef,
+  ) {}
 
   ngOnInit(): void {
+    const user = this.auth.getCurrentUser();
+    this.userId = user?.id || 'anon';
+    this.newConversation();
+
     this.api.getAriaIdentity().subscribe(id  => { this.identity  = id; });
     this.api.getAriaThoughts().subscribe(t   => { this.thoughts  = t || []; });
     this.api.getAriaCuriosity().subscribe(c  => { this.curiosity = c?.open_threads || []; });
 
-    this.messages = [{
-      role: 'aria',
-      content: 'I am ARIA — Arkmurus Research Intelligence Agent. I reason about defence procurement intelligence, Lusophone Africa markets, and export control compliance.\n\nAsk me anything, or switch to Think Mode for deep 6-step analysis with self-critique.',
-      timestamp: new Date().toISOString(),
-    }];
+    this.loadConversations();
+  }
+
+  ngOnDestroy(): void {
+    this.streamSub?.unsubscribe();
+    this.api.stopStream();
   }
 
   ngAfterViewChecked(): void {
@@ -55,16 +85,89 @@ export class AriaComponent implements OnInit, AfterViewChecked {
     }
   }
 
+  // ── Conversation Management ─────────────────────────────────────────────
+
+  loadConversations(): void {
+    this.api.getConversations().subscribe(res => {
+      this.conversations = (res?.conversations || []).map((c: any) => ({
+        session_id: c.session_id,
+        title: c.title || 'Untitled',
+        updatedAt: c.updatedAt || 0,
+        messageCount: c.messageCount || 0,
+      }));
+    });
+  }
+
+  newConversation(): void {
+    this.sessionId = `${this.userId}_${Date.now()}`;
+    this.activeConversationId = this.sessionId;
+    this.messages = [{
+      role: 'aria',
+      content: 'I am ARIA — the world\'s most capable specialised intelligence system for global defence BD and compliance. I operate globally with deep expertise in defence procurement, export controls, and geopolitical intelligence.\n\nAsk me anything.',
+      timestamp: new Date().toISOString(),
+    }];
+  }
+
+  selectConversation(convo: Conversation): void {
+    if (convo.session_id === this.activeConversationId) return;
+    this.activeConversationId = convo.session_id;
+    this.sessionId = convo.session_id;
+    this.messages = [{ role: 'aria', content: 'Loading conversation...', timestamp: new Date().toISOString(), isThinking: true }];
+
+    this.api.loadConversation(convo.session_id).subscribe(res => {
+      if (res?.messages?.length) {
+        this.messages = res.messages.map((m: any) => ({
+          role: m.role === 'user' ? 'user' : 'aria',
+          content: m.content,
+          timestamp: new Date().toISOString(),
+        }));
+      } else {
+        this.messages = [{ role: 'aria', content: 'No messages found.', timestamp: new Date().toISOString() }];
+      }
+      this.shouldScroll = true;
+    });
+  }
+
+  deleteConversation(convo: Conversation, event: Event): void {
+    event.stopPropagation();
+    this.api.deleteConversation(convo.session_id).subscribe(() => {
+      this.conversations = this.conversations.filter(c => c.session_id !== convo.session_id);
+      if (this.activeConversationId === convo.session_id) {
+        this.newConversation();
+      }
+    });
+  }
+
+  startRename(convo: Conversation, event: Event): void {
+    event.stopPropagation();
+    this.renamingId = convo.session_id;
+    this.renameText = convo.title;
+  }
+
+  confirmRename(convo: Conversation): void {
+    if (this.renameText.trim()) {
+      this.api.renameConversation(convo.session_id, this.renameText.trim()).subscribe(() => {
+        convo.title = this.renameText.trim();
+        this.renamingId = '';
+      });
+    }
+  }
+
+  cancelRename(): void {
+    this.renamingId = '';
+  }
+
   togglePanel(panel: 'identity' | 'thoughts' | 'curiosity'): void {
     this.sidePanel = this.sidePanel === panel ? null : panel;
   }
+
+  // ── Chat ─────────────────────────────────────────────────────────────────
 
   send(): void {
     const msg = this.inputText.trim();
     if (!msg || this.sending) return;
 
     this.messages.push({ role: 'user', content: msg, timestamp: new Date().toISOString() });
-    this.messages.push({ role: 'aria', content: '', timestamp: new Date().toISOString(), isThinking: true });
     this.inputText = '';
     this.sending = true;
     this.shouldScroll = true;
@@ -75,15 +178,88 @@ export class AriaComponent implements OnInit, AfterViewChecked {
     }
 
     if (this.thinkMode) {
+      // Think mode stays non-streaming (deep 6-step reasoning)
+      this.messages.push({ role: 'aria', content: '', timestamp: new Date().toISOString(), isThinking: true });
       this.api.ariaThink(msg, {}, false).subscribe({
         next: res  => { this.replaceThinking(res); this.sending = false; this.shouldScroll = true; },
         error: err => { this.replaceThinking({ error: err.message || 'Request failed' }); this.sending = false; },
       });
     } else {
-      this.api.ariaChat(msg, this.sessionId).subscribe({
-        next: res  => { this.replaceThinking({ response: res.response, fallback: res.fallback }); this.sending = false; this.shouldScroll = true; },
-        error: err => { this.replaceThinking({ error: err.message || 'Request failed' }); this.sending = false; },
-      });
+      // Streaming mode
+      this.sendStreaming(msg);
+    }
+  }
+
+  private sendStreaming(msg: string): void {
+    this.streaming = true;
+    const ariaMsg: ChatMessage = {
+      role: 'aria',
+      content: '',
+      timestamp: new Date().toISOString(),
+      streaming: true,
+      statusText: 'Connecting...',
+    };
+    this.messages.push(ariaMsg);
+
+    this.streamSub = this.api.ariaChatStream(msg, this.sessionId).subscribe({
+      next: (event: AriaChatEvent) => {
+        switch (event.type) {
+          case 'status':
+            ariaMsg.statusText = event.message || '';
+            ariaMsg.isThinking = true;
+            break;
+          case 'chunk':
+            ariaMsg.isThinking = false;
+            ariaMsg.statusText = '';
+            ariaMsg.content += event.text || '';
+            this.shouldScroll = true;
+            break;
+          case 'done':
+            ariaMsg.streaming = false;
+            this.streaming = false;
+            this.sending = false;
+            this.shouldScroll = true;
+            // Refresh conversation list
+            this.loadConversations();
+            break;
+          case 'error':
+            ariaMsg.streaming = false;
+            ariaMsg.isThinking = false;
+            ariaMsg.content = ariaMsg.content || `Error: ${event.message || 'Stream failed'}`;
+            this.streaming = false;
+            this.sending = false;
+            break;
+          case 'meta':
+            // Supplementary metadata (tool_used, etc.)
+            break;
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        ariaMsg.streaming = false;
+        ariaMsg.content = ariaMsg.content || 'Connection lost.';
+        this.streaming = false;
+        this.sending = false;
+        this.cdr.detectChanges();
+      },
+      complete: () => {
+        ariaMsg.streaming = false;
+        this.streaming = false;
+        this.sending = false;
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  stopGeneration(): void {
+    this.api.stopStream();
+    this.streaming = false;
+    this.sending = false;
+    // Mark the last message as not streaming
+    const last = this.messages[this.messages.length - 1];
+    if (last?.streaming) {
+      last.streaming = false;
+      last.content += '\n\n*[Generation stopped]*';
     }
   }
 
@@ -95,7 +271,7 @@ export class AriaComponent implements OnInit, AfterViewChecked {
     if (idx === -1) return;
 
     if (res.error) {
-      this.messages[idx] = { role: 'aria', content: `⚠ ${res.error}`, timestamp: new Date().toISOString() };
+      this.messages[idx] = { role: 'aria', content: `Error: ${res.error}`, timestamp: new Date().toISOString() };
       return;
     }
 
@@ -136,17 +312,24 @@ export class AriaComponent implements OnInit, AfterViewChecked {
   }
 
   clearChat(): void {
-    this.sessionId = `aria_${Date.now()}`;
-    this.messages = [{
-      role: 'aria',
-      content: 'New session started. What would you like to explore?',
-      timestamp: new Date().toISOString(),
-    }];
+    this.newConversation();
   }
 
   formatTime(iso: string): string {
     try {
       return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    } catch { return ''; }
+  }
+
+  formatDate(ts: number): string {
+    if (!ts) return '';
+    try {
+      const d = new Date(ts * 1000);
+      const now = new Date();
+      if (d.toDateString() === now.toDateString()) {
+        return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+      }
+      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
     } catch { return ''; }
   }
 

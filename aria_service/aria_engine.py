@@ -34,6 +34,7 @@ from .intel import reasoning_router
 from .intel import reasoning_library
 from .intel import student
 from .intel import proactive
+from .intel import conversation_store
 
 logger = logging.getLogger("aria.engine")
 
@@ -1515,6 +1516,18 @@ async def aria_chat(
     session["updatedAt"] = time.time()
     await _save_session(session_id, session)
 
+    # Update conversation index (fire-and-forget)
+    try:
+        # Extract user_id from session_id format: {userId}_{timestamp}
+        user_id = session_id.rsplit("_", 1)[0] if "_" in session_id else ""
+        if user_id:
+            if len(history) <= 2:
+                await conversation_store.create_conversation(user_id, session_id, _user_persist)
+            else:
+                await conversation_store.touch_conversation(session_id, user_id)
+    except Exception as e:
+        logger.debug("Conversation store update failed (non-fatal): %s", e)
+
     # Auto-extract facts (non-blocking)
     try:
         await auto_extract_facts(message, response_text)
@@ -1694,6 +1707,287 @@ async def aria_chat(
         "source": "cloud_llm",
         "independent": False,
     }
+
+
+async def aria_chat_stream(
+    message: str,
+    session_id: str,
+    llm: LLMProvider,
+    intel_data: dict | None = None,
+):
+    """Streaming variant of aria_chat — yields SSE event dicts.
+
+    Event types:
+      {"type": "status", "message": "..."}    — progress updates (tool exec, context build)
+      {"type": "chunk",  "text": "..."}       — streaming text delta from LLM
+      {"type": "done",   "session_id": "...", "model": "...", ...}  — final metadata
+
+    Non-streamable paths (trivial, degraded, self-improvement, local reasoning)
+    emit one chunk with the full text + done event.
+    """
+
+    def _emit(etype: str, **kw) -> dict:
+        return {"type": etype, **kw}
+
+    # ── Trivial-question short-circuit ─────────────────────────────────
+    _trivial = reasoning_library.trivial_reply(message)
+    if _trivial is not None:
+        try:
+            session = await _get_session(session_id)
+            history = (session.get("messages") or [])
+            history.append({"role": "user", "content": _strip_tool_context_for_history(message)})
+            history.append({"role": "aria", "content": _trivial})
+            session["messages"] = history[-MAX_TURNS * 2:]
+            session["updatedAt"] = time.time()
+            await _save_session(session_id, session)
+        except Exception:
+            pass
+        yield _emit("chunk", text=_trivial)
+        yield _emit("done", session_id=session_id, trivial=True)
+        return
+
+    # ── No LLM → degraded ─────────────────────────────────────────────
+    if not llm or not llm.is_configured:
+        degraded = await local_brain.degraded_response(
+            message, reason="no LLM provider configured"
+        )
+        yield _emit("chunk", text=degraded["response"])
+        yield _emit("done", session_id=session_id, degraded=True)
+        return
+
+    # ── Self-improvement detection ────────────────────────────────────
+    _user_message_only = message
+    _tool_marker = "\n\n[I have already run the appropriate tool on your request"
+    if _tool_marker in _user_message_only:
+        _user_message_only = _user_message_only.split(_tool_marker, 1)[0]
+    if "\n\n[TOOL:" in _user_message_only:
+        _user_message_only = _user_message_only.split("\n\n[TOOL:", 1)[0]
+    if "\n\n[GROUP CONTEXT" in _user_message_only:
+        _user_message_only = _user_message_only.split("\n\n[GROUP CONTEXT", 1)[0]
+    improvement_request = self_improve.detect_self_improvement_request(_user_message_only)
+    if improvement_request:
+        try:
+            plan = await self_improve.handle_self_improvement_chat(_user_message_only, llm)
+            if plan and plan.get("detected"):
+                response = plan.get("response", "I understand you want me to improve.")
+                yield _emit("chunk", text=response)
+                yield _emit("done", session_id=session_id, self_improvement=True)
+                return
+        except Exception as e:
+            logger.warning("Self-improvement stream handling failed: %s", e)
+
+    # ── Local reasoning attempt ───────────────────────────────────────
+    try:
+        local_attempt = await reasoning_router.try_local_reasoning(message)
+        if local_attempt.get("answered"):
+            try:
+                session = await _get_session(session_id)
+                history = (session.get("messages") or [])
+                history.append({"role": "user", "content": message})
+                history.append({"role": "aria", "content": local_attempt["response"]})
+                session["messages"] = history[-MAX_TURNS * 2:]
+                session["updatedAt"] = time.time()
+                await _save_session(session_id, session)
+            except Exception:
+                pass
+            yield _emit("chunk", text=local_attempt["response"])
+            yield _emit("done", session_id=session_id, source="local", independent=True)
+            return
+    except Exception as e:
+        logger.warning("Reasoning router failed (continuing to cloud stream): %s", e)
+
+    # ── Build context (same as aria_chat) ─────────────────────────────
+    yield _emit("status", message="Building intelligence context...")
+
+    session = await _get_session(session_id)
+    history = (session.get("messages") or [])[-MAX_TURNS * 2:]
+
+    try:
+        neural_ctx = await neural_memory.get_neural_context(message)
+        _neural_ctx_var.set(neural_ctx)
+    except Exception:
+        _neural_ctx_var.set("")
+
+    try:
+        from .intel import rag_store
+        rag_ctx = await rag_store.get_rag_context(message, max_chars=6000)
+        _rag_ctx_var.set(rag_ctx)
+    except Exception:
+        _rag_ctx_var.set("")
+
+    import asyncio as _aio
+    context = await _aio.to_thread(_build_7_layer_context, message, intel_data)
+
+    lang_hint = _detect_language_hint(message)
+
+    # Format conversation history — same logic as aria_chat
+    if history:
+        recent_cutoff = 10 * 2
+        if len(history) > recent_cutoff:
+            older = history[:-recent_cutoff]
+            recent = history[-recent_cutoff:]
+            older_summary = "\n".join(
+                f"- {'User asked' if m['role'] == 'user' else 'ARIA said'}: {m['content'][:150]}"
+                for m in older
+            )
+            recent_formatted = "\n\n".join(
+                f"{'User' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
+                for m in recent
+            )
+            user_prompt = (
+                f"{lang_hint}"
+                f"[Earlier in conversation — summary]\n{older_summary}\n\n"
+                f"[Recent conversation]\n{recent_formatted}\n\n"
+                f"[Current message]\nUser: {message}{context}"
+            )
+        else:
+            formatted = "\n\n".join(
+                f"{'User' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
+                for m in history
+            )
+            user_prompt = f"{lang_hint}[Previous conversation]\n{formatted}\n\n[Current message]\nUser: {message}{context}"
+    else:
+        user_prompt = f"{lang_hint}{message}{context}"
+
+    system_prompt = await _build_calibrated_system_prompt(message)
+
+    # ── Stream the LLM response ───────────────────────────────────────
+    yield _emit("status", message="Generating response...")
+
+    full_text = ""
+    stream_result = None
+
+    def _on_stream_done(result: LLMResult):
+        nonlocal stream_result
+        stream_result = result
+
+    try:
+        async for chunk in llm.stream(
+            system_prompt, user_prompt,
+            max_tokens=4000, timeout=120.0,
+            on_done=_on_stream_done,
+        ):
+            full_text += chunk
+            yield _emit("chunk", text=chunk)
+
+    except Exception as e:
+        logger.error("ARIA stream LLM error: %s — falling back to local_brain", e)
+        try:
+            await self_improve.record_error("llm_error", str(e), "aria_engine.py", "aria_chat_stream")
+        except Exception:
+            pass
+        degraded = await local_brain.degraded_response(message, reason=f"LLM error: {str(e)[:120]}")
+        yield _emit("chunk", text=degraded["response"])
+        yield _emit("done", session_id=session_id, degraded=True)
+        return
+
+    response_text = full_text
+
+    # ── Persist session (same as aria_chat) ───────────────────────────
+    _user_persist = _strip_tool_context_for_history(message)
+    _aria_persist = _strip_response_for_history(response_text)
+    history.append({"role": "user", "content": _user_persist})
+    history.append({"role": "aria", "content": _aria_persist})
+    session["messages"] = history[-MAX_TURNS * 2:]
+    session["updatedAt"] = time.time()
+    await _save_session(session_id, session)
+
+    # Update conversation index
+    try:
+        # Extract user_id from session_id format: {userId}_{timestamp}
+        user_id = session_id.rsplit("_", 1)[0] if "_" in session_id else ""
+        if user_id:
+            if len(history) <= 2:
+                await conversation_store.create_conversation(user_id, session_id, _user_persist)
+            else:
+                await conversation_store.touch_conversation(session_id, user_id)
+    except Exception:
+        pass
+
+    # ── Fire-and-forget background tasks (same as aria_chat) ──────────
+    def _bg_done(name):
+        def _cb(t):
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.warning("background task %s raised: %s: %s", name, type(exc).__name__, exc)
+        return _cb
+
+    try:
+        await auto_extract_facts(message, response_text)
+    except Exception:
+        pass
+
+    try:
+        await neural_memory.learn_from_text(
+            f"{message} {response_text}", source=f"chat:{session_id}", llm=llm
+        )
+    except Exception:
+        pass
+
+    try:
+        from .intel import mem0 as _mem0
+        mem0_task = asyncio.create_task(
+            _mem0.summarise_and_store(message, response_text, session_id, llm)
+        )
+        mem0_task.add_done_callback(_bg_done("mem0"))
+    except Exception:
+        pass
+
+    try:
+        await training_data.record_conversation(
+            ARIA_SYSTEM_PROMPT, message, response_text,
+            {"hadIntelContext": bool(intel_data), "contextLength": len(context)},
+        )
+    except Exception:
+        pass
+
+    try:
+        provider_name = getattr(llm, "name", "cloud") or "cloud"
+        await reasoning_router.record_cloud_llm_response(
+            message, response_text,
+            intent="chat",
+            context_keys=["live_intel", "knowledge", "ledger", "neural"],
+            source_brain=provider_name,
+        )
+    except Exception:
+        pass
+
+    try:
+        compare_task = asyncio.create_task(student.compare_local_silently(message, response_text))
+        compare_task.add_done_callback(_bg_done("student.compare"))
+        topics = student.detect_topics(f"{message} {response_text}")
+        if topics:
+            mastery_task = asyncio.create_task(student.update_mastery(topics, correct=True, weight=0.15))
+            mastery_task.add_done_callback(_bg_done("student.mastery"))
+        gap_task = asyncio.create_task(proactive.detect_knowledge_gaps(message))
+        gap_task.add_done_callback(_bg_done("proactive.gaps"))
+    except Exception:
+        pass
+
+    try:
+        from .metacognitive import engine as _metacog_engine
+        if _metacog_engine.is_enabled():
+            _metacog_domain = _detect_metacog_domain(message)
+            metacog_task = asyncio.create_task(
+                _metacog_engine.self_assess_output(
+                    query=message, aria_output=response_text,
+                    domain=_metacog_domain, llm=llm, session_id=session_id,
+                )
+            )
+            metacog_task.add_done_callback(_bg_done("metacognitive"))
+    except Exception:
+        pass
+
+    # ── Done event with metadata ──────────────────────────────────────
+    model = stream_result.model if stream_result else ""
+    yield _emit("done",
+        session_id=session_id,
+        model=model,
+        turn=len(history) // 2,
+        source="cloud_llm",
+    )
 
 
 async def aria_think(

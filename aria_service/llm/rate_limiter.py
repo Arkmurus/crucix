@@ -144,6 +144,19 @@ class RateLimitedProvider(LLMProvider):
         used = self._requests_in_window(60.0)
         return max(0, self._rpm - used)
 
+    async def _acquire_slot(self) -> None:
+        """Acquire a rate-limit slot based on current priority."""
+        priority = _current_priority.get()
+        if priority == Priority.INTERACTIVE:
+            headroom = self._headroom()
+            if headroom <= 0:
+                wait = min(5.0, 60.0 / self._rpm)
+                logger.debug("Interactive request near limit, brief wait %.1fs", wait)
+                await asyncio.sleep(wait)
+        else:
+            await self._wait_for_slot(priority)
+        self._request_times.append(time.monotonic())
+
     async def complete(
         self,
         system_prompt: str,
@@ -152,30 +165,30 @@ class RateLimitedProvider(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 60.0,
     ) -> LLMResult:
-        priority = _current_priority.get()
-
-        # Interactive requests: always go through (up to burst limit)
-        if priority == Priority.INTERACTIVE:
-            headroom = self._headroom()
-            if headroom <= 0:
-                # Even interactive is over limit — wait briefly
-                wait = min(5.0, 60.0 / self._rpm)
-                logger.debug("Interactive request near limit, brief wait %.1fs", wait)
-                await asyncio.sleep(wait)
-        else:
-            # Background/normal: yield if near limit
-            await self._wait_for_slot(priority)
-
-        # Record the request
-        self._request_times.append(time.monotonic())
-
-        # Forward to inner provider
+        await self._acquire_slot()
         result = await self._inner.complete(
             system_prompt, user_message,
             max_tokens=max_tokens, timeout=timeout,
         )
         result.routed_via = f"rate_limited:{self._inner.name}"
         return result
+
+    async def stream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        *,
+        max_tokens: int = 4096,
+        timeout: float = 120.0,
+        on_done=None,
+    ):
+        """Rate-limited streaming — same slot logic, then yield from inner."""
+        await self._acquire_slot()
+        async for chunk in self._inner.stream(
+            system_prompt, user_message,
+            max_tokens=max_tokens, timeout=timeout, on_done=on_done,
+        ):
+            yield chunk
 
     async def _wait_for_slot(self, priority: Priority) -> None:
         """Wait until there's headroom for a background request.

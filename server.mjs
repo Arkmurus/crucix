@@ -2276,6 +2276,83 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
   res.json(result);
 });
 
+// ARIA chat streaming — SSE proxy to Python ARIA service
+app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
+  const { message, session_id, auto_tools, group_context } = req.body || {};
+  if (!message) return res.status(400).json({ error: 'message required' });
+  const sid = session_id || `${req.user?.id || 'anon'}_${Date.now()}`;
+
+  // Trivial short-circuit — no need to call Python for greetings
+  const _trivial = trivialReply(message);
+  if (_trivial !== null) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    res.write(`data: ${JSON.stringify({type:'chunk',text:_trivial})}\n\n`);
+    res.write(`data: ${JSON.stringify({type:'done',session_id:sid,trivial:true})}\n\n`);
+    return res.end();
+  }
+
+  if (!ARIA_SERVICE_URL) {
+    // No Python service — fall back to non-streaming local
+    return res.status(503).json({ error: 'Streaming requires ARIA Python service' });
+  }
+
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat/stream`, {
+      method: 'POST',
+      headers: _ariaHeaders(),
+      body: JSON.stringify({
+        message,
+        session_id: sid,
+        user_id: req.user?.id || '',
+        auto_tools: auto_tools !== false,
+        group_context: group_context || '',
+      }),
+      signal: AbortSignal.timeout(300000),
+    });
+
+    if (!r.ok) {
+      const errBody = await r.text().catch(() => '');
+      res.write(`data: ${JSON.stringify({type:'error',message:`Python ${r.status}: ${errBody.slice(0,200)}`})}\n\n`);
+      return res.end();
+    }
+
+    // Pipe the SSE stream from Python directly to the browser
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        res.write(chunk);
+      }
+    } catch (e) {
+      // Client disconnected or stream error
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify({type:'error',message:e.message})}\n\n`);
+      }
+    }
+  } catch (e) {
+    console.warn('[ARIA] Stream proxy error:', e.message);
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({type:'error',message:e.message})}\n\n`);
+    }
+  }
+
+  if (!res.writableEnded) res.end();
+});
+
 // Session recovery — get conversation history from Python ARIA's Redis
 app.get('/api/aria/session/:sessionId', requireAuth, async (req, res) => {
   const sid = req.params.sessionId;
@@ -2292,6 +2369,61 @@ app.get('/api/aria/session/:sessionId', requireAuth, async (req, res) => {
     } catch {}
   }
   res.json({ session_id: sid, note: 'Session persisted in ARIA service Redis (24h TTL)' });
+});
+
+// ── Conversation History CRUD (proxy to Python ARIA service) ─────────────
+
+app.get('/api/aria/conversations', requireAuth, async (req, res) => {
+  const userId = req.user?.id || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  const offset = parseInt(req.query.offset) || 0;
+  const limit = parseInt(req.query.limit) || 30;
+  await ariaProxy(req, res, `/api/aria/conversations?user_id=${userId}&offset=${offset}&limit=${limit}`, {
+    fallback: { conversations: [], user_id: userId },
+  });
+});
+
+app.get('/api/aria/conversations/:sessionId', requireAuth, async (req, res) => {
+  const sid = req.params.sessionId;
+  await ariaProxy(req, res, `/api/aria/conversations/${sid}/detail`, {
+    fallback: null,
+  });
+});
+
+app.delete('/api/aria/conversations/:sessionId', requireAuth, async (req, res) => {
+  const sid = req.params.sessionId;
+  const userId = req.user?.id || '';
+  if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'ARIA service unavailable' });
+  try {
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/conversations/${sid}?user_id=${userId}`, {
+      method: 'DELETE',
+      headers: _ariaHeaders(),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await r.json();
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/aria/conversations/:sessionId/title', requireAuth, async (req, res) => {
+  const sid = req.params.sessionId;
+  const { title } = req.body || {};
+  if (!title) return res.status(400).json({ error: 'title required' });
+  if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'ARIA service unavailable' });
+  try {
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/conversations/${sid}/title`, {
+      method: 'PUT',
+      headers: _ariaHeaders(),
+      body: JSON.stringify({ title }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await r.json();
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/aria/think', requireAuth, async (req, res) => {

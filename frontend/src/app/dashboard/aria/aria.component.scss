@@ -12,12 +12,247 @@
 
 .aria-shell {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: calc(100vh - 64px);
   background: #0f0a1e;
   color: #e8eaed;
   font-family: inherit;
   overflow: hidden;
+}
+
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+// ── Conversation Sidebar ──────────────────────────────────────────────────
+
+.conv-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: #0a0716;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.2s ease, opacity 0.2s ease;
+  overflow: hidden;
+
+  &:not(.open) {
+    width: 0;
+    opacity: 0;
+    border-right: none;
+  }
+}
+
+.conv-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.new-chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid rgba(206, 147, 216, 0.3);
+  border-radius: 8px;
+  background: transparent;
+  color: #ce93d8;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: rgba(206, 147, 216, 0.1);
+  }
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
+}
+
+.sidebar-close {
+  display: none;
+  @media (max-width: 768px) {
+    display: flex;
+  }
+}
+
+.conv-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.conv-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  position: relative;
+  transition: background 0.1s;
+
+  &:hover {
+    background: rgba(255,255,255,0.04);
+
+    .conv-actions { opacity: 1; }
+  }
+
+  &.active {
+    background: rgba(145, 59, 255, 0.1);
+    border-left-color: #913BFF;
+  }
+}
+
+.conv-title {
+  font-size: 0.8rem;
+  color: #c8c8d0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 50px;
+}
+
+.conv-meta {
+  font-size: 0.68rem;
+  color: #546e7a;
+  margin-top: 2px;
+}
+
+.conv-actions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.conv-action-btn {
+  background: none;
+  border: none;
+  color: #78909c;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+
+  &:hover { color: #e8eaed; background: rgba(255,255,255,0.08); }
+  &.delete:hover { color: #ef5350; }
+
+  mat-icon { font-size: 15px; width: 15px; height: 15px; }
+}
+
+.rename-input {
+  width: 100%;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(206, 147, 216, 0.4);
+  border-radius: 4px;
+  color: #e8eaed;
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.conv-empty {
+  padding: 24px 14px;
+  font-size: 0.78rem;
+  color: #546e7a;
+  text-align: center;
+}
+
+// ── Streaming cursor ────────────────────────────────────────────────────────
+
+.stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: #ce93d8;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  animation: blink-cursor 0.7s step-end infinite;
+}
+
+@keyframes blink-cursor {
+  50% { opacity: 0; }
+}
+
+.streaming-text {
+  white-space: pre-wrap;
+}
+
+// ── Stop button ─────────────────────────────────────────────────────────────
+
+.stop-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(239, 83, 80, 0.5);
+  background: rgba(239, 83, 80, 0.1);
+  color: #ef5350;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: rgba(239, 83, 80, 0.2);
+  }
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.streaming-hint {
+  color: #ce93d8 !important;
+}
+
+.aria-dot.streaming {
+  background: #ce93d8;
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+
+// ── Mobile responsive ───────────────────────────────────────────────────────
+
+@media (max-width: 768px) {
+  .conv-sidebar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 100;
+    width: 280px;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+
+    &:not(.open) {
+      width: 0;
+    }
+  }
+
+  .aria-descriptor {
+    display: none;
+  }
+
+  .aria-divider {
+    display: none;
+  }
 }
 
 // ── Header ───────────────────────────────────────────────────────────────────

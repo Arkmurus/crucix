@@ -4,6 +4,16 @@
     <div class="logo-name">ARKMURUS</div>
   </div>
   <nav class="sidebar-menu">
+
+    <!-- ── ARIA — Primary action ── -->
+    <mat-nav-list class="aria-nav-primary">
+      <a mat-list-item routerLink="dashboard/aria" routerLinkActive="active-link"
+         style="color:#ce93d8; font-weight:600; font-size:0.92rem; margin:4px 8px; border-radius:8px; background:rgba(145,59,255,0.08)">
+        <mat-icon style="color:#9c27b0; font-size:22px; width:22px; height:22px; margin-right:8px">psychology</mat-icon>
+        ARIA Chat
+      </a>
+    </mat-nav-list>
+
     <mat-accordion class="example-headers-align" multi>
 
       <!-- ── Intelligence ── -->
@@ -23,9 +33,6 @@
           </a>
           <a mat-list-item routerLink="dashboard/explorer">
             <mat-icon>travel_explore</mat-icon>Explorer
-          </a>
-          <a mat-list-item routerLink="dashboard/aria" style="color:#ce93d8">
-            <mat-icon style="color:#9c27b0">psychology</mat-icon>ARIA
           </a>
         </mat-nav-list>
       </mat-expansion-panel>

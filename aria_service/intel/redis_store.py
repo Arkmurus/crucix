@@ -153,6 +153,85 @@ async def expire(key: str, seconds: int) -> bool:
     return key in _mem_store
 
 
+# ── Sorted set operations (conversation index) ─────────────────────────
+
+
+async def zadd(key: str, score: float, member: str) -> None:
+    """Add or update a member in a sorted set."""
+    if _client:
+        try:
+            await _client.zadd(key, {member: score})
+            return
+        except Exception as e:
+            logger.warning("Redis ZADD %s failed: %s", key, e)
+    # In-memory fallback — list of (score, member) tuples
+    raw = json.loads(_mem_store.get(key, "[]"))
+    entries = [(s, m) for s, m in raw if m != member]
+    entries.append((score, member))
+    entries.sort(key=lambda x: x[0])
+    _mem_store[key] = json.dumps(entries)
+
+
+async def zrevrange(key: str, start: int, stop: int) -> list[str]:
+    """Return members in descending score order (highest first)."""
+    if _client:
+        try:
+            return await _client.zrevrange(key, start, stop)
+        except Exception as e:
+            logger.warning("Redis ZREVRANGE %s failed: %s", key, e)
+    raw = json.loads(_mem_store.get(key, "[]"))
+    entries = sorted(raw, key=lambda x: x[0], reverse=True)
+    return [m for _, m in entries[start : stop + 1 if stop >= 0 else None]]
+
+
+async def zrem(key: str, member: str) -> bool:
+    """Remove a member from a sorted set. Returns True if removed."""
+    if _client:
+        try:
+            return bool(await _client.zrem(key, member))
+        except Exception as e:
+            logger.warning("Redis ZREM %s failed: %s", key, e)
+    raw = json.loads(_mem_store.get(key, "[]"))
+    before = len(raw)
+    raw = [(s, m) for s, m in raw if m != member]
+    _mem_store[key] = json.dumps(raw)
+    return len(raw) < before
+
+
+async def zcard(key: str) -> int:
+    """Return the number of members in a sorted set."""
+    if _client:
+        try:
+            return await _client.zcard(key)
+        except Exception as e:
+            logger.warning("Redis ZCARD %s failed: %s", key, e)
+    raw = json.loads(_mem_store.get(key, "[]"))
+    return len(raw)
+
+
+async def hset(key: str, mapping: dict) -> None:
+    """Set multiple hash fields."""
+    if _client:
+        try:
+            await _client.hset(key, mapping=mapping)
+            return
+        except Exception as e:
+            logger.warning("Redis HSET %s failed: %s", key, e)
+    existing = json.loads(_mem_store.get(key, "{}"))
+    existing.update(mapping)
+    _mem_store[key] = json.dumps(existing)
+
+
+async def hgetall(key: str) -> dict:
+    """Get all hash fields."""
+    if _client:
+        try:
+            return await _client.hgetall(key)
+        except Exception as e:
+            logger.warning("Redis HGETALL %s failed: %s", key, e)
+    return json.loads(_mem_store.get(key, "{}"))
+
+
 async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     """Return keys matching a glob pattern (uses SCAN for Redis, filter for in-memory)."""
     if _client:

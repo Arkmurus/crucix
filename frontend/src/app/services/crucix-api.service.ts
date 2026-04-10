@@ -1,8 +1,20 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, of } from 'rxjs';
+import { Observable, of, Subject } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
+
+export interface AriaChatEvent {
+  type: 'status' | 'chunk' | 'done' | 'error' | 'meta';
+  text?: string;
+  message?: string;
+  session_id?: string;
+  model?: string;
+  tool_used?: string;
+  trivial?: boolean;
+  degraded?: boolean;
+  [key: string]: any;
+}
 
 // JWT Bearer token is added automatically by AuthInterceptor for all requests.
 // No manual Authorization headers needed here.
@@ -181,6 +193,110 @@ export class CrucixApiService {
   ariaThink(question: string, context?: any, fast = false): Observable<any> {
     return this.http.post(`${this.base}/api/aria/think`, { question, context: context || {}, fast })
       .pipe(catchError(err => of({ error: err.error?.error || 'ARIA brain service not connected' })));
+  }
+
+  // ── Streaming ARIA Chat ─────────────────────────────────────────────────────
+
+  private _streamAbort: AbortController | null = null;
+
+  /**
+   * Stream a chat message to ARIA via SSE. Returns an Observable that emits
+   * AriaChatEvent objects as they arrive from the SSE stream.
+   */
+  ariaChatStream(message: string, sessionId?: string): Observable<AriaChatEvent> {
+    const subject = new Subject<AriaChatEvent>();
+    const token = localStorage.getItem('ark_token');
+
+    // Cancel any existing stream
+    this.stopStream();
+    this._streamAbort = new AbortController();
+
+    const url = `${this.base}/api/aria/chat/stream`;
+    const body = JSON.stringify({ message, session_id: sessionId || '' });
+
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
+      body,
+      signal: this._streamAbort.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          subject.next({ type: 'error', message: `HTTP ${response.status}` });
+          subject.complete();
+          return;
+        }
+
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split('\n');
+            buf = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith('data: ')) continue;
+              try {
+                const event: AriaChatEvent = JSON.parse(trimmed.slice(6));
+                subject.next(event);
+              } catch {}
+            }
+          }
+        } catch (e: any) {
+          if (e.name !== 'AbortError') {
+            subject.next({ type: 'error', message: e.message });
+          }
+        }
+
+        subject.complete();
+      })
+      .catch((e: any) => {
+        if (e.name !== 'AbortError') {
+          subject.next({ type: 'error', message: e.message || 'Stream failed' });
+        }
+        subject.complete();
+      });
+
+    return subject.asObservable();
+  }
+
+  stopStream(): void {
+    if (this._streamAbort) {
+      this._streamAbort.abort();
+      this._streamAbort = null;
+    }
+  }
+
+  // ── Conversation History ────────────────────────────────────────────────────
+
+  getConversations(offset = 0, limit = 30): Observable<any> {
+    return this.http.get(`${this.base}/api/aria/conversations?offset=${offset}&limit=${limit}`)
+      .pipe(catchError(() => of({ conversations: [] })));
+  }
+
+  loadConversation(sessionId: string): Observable<any> {
+    return this.http.get(`${this.base}/api/aria/conversations/${sessionId}`)
+      .pipe(catchError(() => of(null)));
+  }
+
+  deleteConversation(sessionId: string): Observable<any> {
+    return this.http.delete(`${this.base}/api/aria/conversations/${sessionId}`)
+      .pipe(catchError(() => of({ deleted: false })));
+  }
+
+  renameConversation(sessionId: string, title: string): Observable<any> {
+    return this.http.put(`${this.base}/api/aria/conversations/${sessionId}/title`, { title })
+      .pipe(catchError(() => of({ ok: false })));
   }
 
   // ── Actions ─────────────────────────────────────────────────────────────────

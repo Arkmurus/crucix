@@ -1,278 +1,352 @@
-<div class="aria-shell" [class.panel-open]="sidePanel">
+<div class="aria-shell" [class.panel-open]="sidePanel" [class.sidebar-open]="showConversations">
 
-  <!-- ── HEADER ── -->
-  <header class="aria-header">
-    <div class="aria-brand">
-      <div class="aria-avatar-sm">
-        <mat-icon>psychology</mat-icon>
-      </div>
-      <span class="aria-wordmark">ARIA</span>
-      <span class="aria-divider">·</span>
-      <span class="aria-descriptor">Arkmurus Research Intelligence Agent</span>
-    </div>
-
-    <div class="header-actions">
-      <!-- Mode toggle -->
-      <div class="mode-switch">
-        <button class="mode-pill" [class.active]="!thinkMode" (click)="thinkMode=false" title="Fast chat">
-          <mat-icon>bolt</mat-icon> Fast
-        </button>
-        <button class="mode-pill think" [class.active]="thinkMode" (click)="thinkMode=true" title="6-step deep reasoning">
-          <mat-icon>psychology</mat-icon> Think
-        </button>
-      </div>
-
-      <!-- Status -->
-      <div class="status-dot" [class.online]="identity?.status === 'online'" [class.offline]="!identity || identity?.status !== 'online'"
-           [title]="identity?.llm_provider || identity?.status || 'loading'">
-        <span class="dot-pulse"></span>
-        <span class="status-label">{{ identity?.status === 'online' ? (identity?.llm_provider || 'online') : 'offline' }}</span>
-      </div>
-
-      <div class="header-sep"></div>
-
-      <!-- Panel toggles -->
-      <button class="icon-btn" [class.active]="sidePanel==='identity'" (click)="togglePanel('identity')" title="ARIA identity">
-        <mat-icon>manage_accounts</mat-icon>
+  <!-- == CONVERSATION SIDEBAR == -->
+  <aside class="conv-sidebar" [class.open]="showConversations">
+    <div class="conv-sidebar-header">
+      <button class="new-chat-btn" (click)="newConversation()" title="New conversation">
+        <mat-icon>add</mat-icon> New chat
       </button>
-      <button class="icon-btn" [class.active]="sidePanel==='thoughts'" (click)="togglePanel('thoughts')" title="Recent thoughts">
-        <mat-icon>lightbulb</mat-icon>
-        <span class="icon-badge" *ngIf="thoughts.length > 0">{{ thoughts.length }}</span>
-      </button>
-      <button class="icon-btn" [class.active]="sidePanel==='curiosity'" (click)="togglePanel('curiosity')" title="Open questions">
-        <mat-icon>help_outline</mat-icon>
-        <span class="icon-badge blue" *ngIf="curiosity.length > 0">{{ curiosity.length }}</span>
-      </button>
-
-      <div class="header-sep"></div>
-
-      <button class="icon-btn" (click)="clearChat()" title="New session">
-        <mat-icon>edit_note</mat-icon>
+      <button class="icon-btn sidebar-close" (click)="showConversations = false">
+        <mat-icon>chevron_left</mat-icon>
       </button>
     </div>
-  </header>
 
-  <!-- ── MAIN AREA ── -->
-  <div class="aria-body">
+    <div class="conv-list">
+      <div *ngFor="let convo of conversations"
+           class="conv-item"
+           [class.active]="convo.session_id === activeConversationId"
+           (click)="selectConversation(convo)">
 
-    <!-- Chat column -->
-    <div class="chat-col">
+        <!-- Renaming mode -->
+        <ng-container *ngIf="renamingId === convo.session_id; else showTitle">
+          <input class="rename-input"
+                 [(ngModel)]="renameText"
+                 (keydown.enter)="confirmRename(convo)"
+                 (keydown.escape)="cancelRename()"
+                 (blur)="confirmRename(convo)"
+                 autofocus>
+        </ng-container>
 
-      <!-- Message list -->
-      <div class="messages" #chatScroll>
-        <div *ngFor="let msg of messages; let i = index"
-             class="msg-wrap"
-             [class.msg-user]="msg.role === 'user'"
-             [class.msg-aria]="msg.role === 'aria'">
-
-          <!-- ARIA message -->
-          <ng-container *ngIf="msg.role === 'aria'">
-            <div class="msg-aria-row">
-              <div class="aria-dot" [class.thinking]="msg.isThinking"></div>
-              <div class="aria-msg-block" [class.think-response]="msg.epistemic">
-
-                <!-- Thinking state -->
-                <div *ngIf="msg.isThinking" class="thinking-state">
-                  <span class="thinking-label">{{ thinkMode ? 'Reasoning' : 'Thinking' }}</span>
-                  <span class="thinking-bar">
-                    <span></span><span></span><span></span>
-                  </span>
-                </div>
-
-                <!-- Message content -->
-                <div *ngIf="!msg.isThinking" class="aria-text">{{ msg.content }}</div>
-
-                <!-- Inline meta (think mode) -->
-                <div *ngIf="!msg.isThinking && (msg.epistemic || msg.confidence || msg.selfGrade)" class="inline-meta">
-                  <span *ngIf="msg.epistemic" class="meta-chip"
-                        [style.color]="epistemicColor(msg.epistemic)"
-                        [style.border-color]="epistemicColor(msg.epistemic) + '55'">{{ msg.epistemic }}</span>
-                  <span *ngIf="msg.confidence" class="meta-chip"
-                        [style.color]="confidenceColor(msg.confidence)"
-                        [style.border-color]="confidenceColor(msg.confidence) + '55'">{{ msg.confidence }}% confidence</span>
-                  <span *ngIf="msg.selfGrade" class="meta-chip"
-                        [style.color]="gradeColor(msg.selfGrade)"
-                        [style.border-color]="gradeColor(msg.selfGrade) + '55'">Grade {{ msg.selfGrade }}</span>
-                </div>
-
-                <div class="msg-time" *ngIf="!msg.isThinking">{{ formatTime(msg.timestamp) }}</div>
-              </div>
-            </div>
-          </ng-container>
-
-          <!-- User message -->
-          <ng-container *ngIf="msg.role === 'user'">
-            <div class="user-bubble">
-              <div class="user-text">{{ msg.content }}</div>
-              <div class="msg-time user-time">{{ formatTime(msg.timestamp) }}</div>
-            </div>
-          </ng-container>
-
-        </div>
-
-        <!-- Bottom padding so last message isn't behind input -->
-        <div style="height:24px"></div>
-      </div>
-
-      <!-- Input bar -->
-      <div class="input-bar" [class.think-active]="thinkMode">
-        <div class="input-wrap">
-          <textarea #msgInput
-                    class="chat-textarea"
-                    [(ngModel)]="inputText"
-                    (keydown)="onKeydown($event)"
-                    (input)="autoGrow(msgInput)"
-                    [placeholder]="thinkMode
-                      ? 'Ask ARIA to reason deeply — she will work through 6 steps with self-critique...'
-                      : 'Message ARIA...'"
-                    rows="1"
-                    [disabled]="sending">
-          </textarea>
-
-          <div class="input-footer">
-            <div class="input-hint">
-              <mat-icon *ngIf="thinkMode" class="think-icon">psychology</mat-icon>
-              <span *ngIf="thinkMode" class="think-label">Think Mode — 6-step reasoning · 20–60s</span>
-              <span *ngIf="!thinkMode" class="hint-text">⏎ send &nbsp;·&nbsp; ⇧⏎ new line</span>
-            </div>
-            <button class="send-btn" (click)="send()" [disabled]="sending || !inputText.trim()" [class.active]="inputText.trim() && !sending">
-              <mat-icon *ngIf="!sending">arrow_upward</mat-icon>
-              <div *ngIf="sending" class="send-spinner"></div>
+        <ng-template #showTitle>
+          <div class="conv-title">{{ convo.title }}</div>
+          <div class="conv-meta">{{ formatDate(convo.updatedAt) }}</div>
+          <div class="conv-actions">
+            <button class="conv-action-btn" (click)="startRename(convo, $event)" title="Rename">
+              <mat-icon>edit</mat-icon>
+            </button>
+            <button class="conv-action-btn delete" (click)="deleteConversation(convo, $event)" title="Delete">
+              <mat-icon>delete_outline</mat-icon>
             </button>
           </div>
-        </div>
+        </ng-template>
       </div>
 
-    </div><!-- /chat-col -->
+      <div *ngIf="conversations.length === 0" class="conv-empty">
+        No conversations yet
+      </div>
+    </div>
+  </aside>
 
-    <!-- ── SIDE PANEL ── -->
-    <aside class="side-panel" [class.open]="sidePanel">
+  <!-- == MAIN CHAT AREA == -->
+  <div class="chat-main">
 
-      <div class="panel-header">
-        <span class="panel-title">
-          <ng-container [ngSwitch]="sidePanel">
-            <ng-container *ngSwitchCase="'identity'">Identity</ng-container>
-            <ng-container *ngSwitchCase="'thoughts'">Recent Thoughts</ng-container>
-            <ng-container *ngSwitchCase="'curiosity'">Open Questions</ng-container>
-          </ng-container>
-        </span>
-        <button class="icon-btn" (click)="sidePanel = null">
-          <mat-icon>close</mat-icon>
+    <!-- == HEADER == -->
+    <header class="aria-header">
+      <div class="aria-brand">
+        <!-- Sidebar toggle -->
+        <button class="icon-btn" (click)="showConversations = !showConversations" title="Conversations">
+          <mat-icon>{{ showConversations ? 'menu_open' : 'menu' }}</mat-icon>
+        </button>
+
+        <div class="aria-avatar-sm">
+          <mat-icon>psychology</mat-icon>
+        </div>
+        <span class="aria-wordmark">ARIA</span>
+        <span class="aria-divider">·</span>
+        <span class="aria-descriptor">Arkmurus Research Intelligence Agent</span>
+      </div>
+
+      <div class="header-actions">
+        <!-- Mode toggle -->
+        <div class="mode-switch">
+          <button class="mode-pill" [class.active]="!thinkMode" (click)="thinkMode=false" title="Fast streaming chat">
+            <mat-icon>bolt</mat-icon> Stream
+          </button>
+          <button class="mode-pill think" [class.active]="thinkMode" (click)="thinkMode=true" title="6-step deep reasoning">
+            <mat-icon>psychology</mat-icon> Think
+          </button>
+        </div>
+
+        <!-- Status -->
+        <div class="status-dot" [class.online]="identity?.status === 'online'" [class.offline]="!identity || identity?.status !== 'online'"
+             [title]="identity?.llm_provider || identity?.status || 'loading'">
+          <span class="dot-pulse"></span>
+          <span class="status-label">{{ identity?.status === 'online' ? (identity?.llm_provider || 'online') : 'offline' }}</span>
+        </div>
+
+        <div class="header-sep"></div>
+
+        <!-- Panel toggles -->
+        <button class="icon-btn" [class.active]="sidePanel==='identity'" (click)="togglePanel('identity')" title="ARIA identity">
+          <mat-icon>manage_accounts</mat-icon>
+        </button>
+        <button class="icon-btn" [class.active]="sidePanel==='thoughts'" (click)="togglePanel('thoughts')" title="Recent thoughts">
+          <mat-icon>lightbulb</mat-icon>
+          <span class="icon-badge" *ngIf="thoughts.length > 0">{{ thoughts.length }}</span>
+        </button>
+        <button class="icon-btn" [class.active]="sidePanel==='curiosity'" (click)="togglePanel('curiosity')" title="Open questions">
+          <mat-icon>help_outline</mat-icon>
+          <span class="icon-badge blue" *ngIf="curiosity.length > 0">{{ curiosity.length }}</span>
+        </button>
+
+        <div class="header-sep"></div>
+
+        <button class="icon-btn" (click)="clearChat()" title="New session">
+          <mat-icon>edit_note</mat-icon>
         </button>
       </div>
+    </header>
 
-      <div class="panel-body">
+    <!-- == BODY == -->
+    <div class="aria-body">
 
-        <!-- ── IDENTITY ── -->
-        <ng-container *ngIf="sidePanel === 'identity'">
-          <div *ngIf="!identity || identity.status !== 'online'" class="panel-empty">
-            <mat-icon style="font-size:28px;width:28px;height:28px;color:#37474f;margin-bottom:8px">cloud_off</mat-icon>
-            <div style="font-size:0.82rem;color:#546e7a">Set <code>LLM_PROVIDER</code> and <code>LLM_API_KEY</code> to enable ARIA.</div>
-          </div>
+      <!-- Chat column -->
+      <div class="chat-col">
 
-          <div *ngIf="identity?.status === 'online'">
-            <!-- Mode badge -->
-            <div class="mode-badge" [class.brain]="identity.mode === 'brain'">
-              {{ identity.mode === 'brain' ? '🧠 Brain mode' : '⚡ Local LLM — ' + identity.llm_provider }}
-            </div>
+        <!-- Message list -->
+        <div class="messages" #chatScroll>
+          <div *ngFor="let msg of messages; let i = index"
+               class="msg-wrap"
+               [class.msg-user]="msg.role === 'user'"
+               [class.msg-aria]="msg.role === 'aria'">
 
-            <!-- Stats (brain only) -->
-            <div *ngIf="identity.mode === 'brain'" class="stat-grid">
-              <div class="stat-cell"><div class="stat-n">{{ identity.age_days }}</div><div class="stat-l">days</div></div>
-              <div class="stat-cell"><div class="stat-n">{{ identity.total_sweeps || 0 }}</div><div class="stat-l">sweeps</div></div>
-              <div class="stat-cell"><div class="stat-n">{{ identity.total_thoughts || 0 }}</div><div class="stat-l">thoughts</div></div>
-              <div class="stat-cell"><div class="stat-n">{{ identity.total_leads || 0 }}</div><div class="stat-l">leads</div></div>
-            </div>
+            <!-- ARIA message -->
+            <ng-container *ngIf="msg.role === 'aria'">
+              <div class="msg-aria-row">
+                <div class="aria-dot" [class.thinking]="msg.isThinking" [class.streaming]="msg.streaming"></div>
+                <div class="aria-msg-block" [class.think-response]="msg.epistemic">
 
-            <!-- Domain expertise -->
-            <div class="panel-section-label">Domain expertise</div>
-            <ng-container *ngIf="identity.domains_mastered?.length; else localDomains">
-              <div *ngFor="let d of identity.domains_mastered" class="panel-list-item">
-                <mat-icon class="item-check">check</mat-icon>{{ d }}
+                  <!-- Status text (tool running, etc.) -->
+                  <div *ngIf="msg.statusText && msg.isThinking" class="thinking-state">
+                    <span class="thinking-label">{{ msg.statusText }}</span>
+                    <span class="thinking-bar">
+                      <span></span><span></span><span></span>
+                    </span>
+                  </div>
+
+                  <!-- Thinking state (no status text) -->
+                  <div *ngIf="msg.isThinking && !msg.statusText" class="thinking-state">
+                    <span class="thinking-label">{{ thinkMode ? 'Reasoning' : 'Thinking' }}</span>
+                    <span class="thinking-bar">
+                      <span></span><span></span><span></span>
+                    </span>
+                  </div>
+
+                  <!-- Message content (rendered with basic formatting) -->
+                  <div *ngIf="!msg.isThinking && msg.content" class="aria-text"
+                       [class.streaming-text]="msg.streaming">{{ msg.content }}</div>
+
+                  <!-- Streaming cursor -->
+                  <span *ngIf="msg.streaming && !msg.isThinking" class="stream-cursor"></span>
+
+                  <!-- Inline meta (think mode) -->
+                  <div *ngIf="!msg.isThinking && (msg.epistemic || msg.confidence || msg.selfGrade)" class="inline-meta">
+                    <span *ngIf="msg.epistemic" class="meta-chip"
+                          [style.color]="epistemicColor(msg.epistemic)"
+                          [style.border-color]="epistemicColor(msg.epistemic) + '55'">{{ msg.epistemic }}</span>
+                    <span *ngIf="msg.confidence" class="meta-chip"
+                          [style.color]="confidenceColor(msg.confidence)"
+                          [style.border-color]="confidenceColor(msg.confidence) + '55'">{{ msg.confidence }}% confidence</span>
+                    <span *ngIf="msg.selfGrade" class="meta-chip"
+                          [style.color]="gradeColor(msg.selfGrade)"
+                          [style.border-color]="gradeColor(msg.selfGrade) + '55'">Grade {{ msg.selfGrade }}</span>
+                  </div>
+
+                  <div class="msg-time" *ngIf="!msg.isThinking && !msg.streaming">{{ formatTime(msg.timestamp) }}</div>
+                </div>
               </div>
             </ng-container>
-            <ng-template #localDomains>
-              <div *ngFor="let d of ['Defence procurement & arms brokering','Lusophone Africa — Angola, Mozambique, Cape Verde, Guinea-Bissau','Export controls — UK ECJU, ITAR/EAR, EU dual-use, OFAC','CPLP security framework & SADC','SIPRI arms transfer analysis','Geopolitical OSINT synthesis']" class="panel-list-item">
-                <mat-icon class="item-check">check</mat-icon>{{ d }}
-              </div>
-            </ng-template>
 
-            <!-- Self-awareness (brain only) -->
-            <ng-container *ngIf="identity.mode === 'brain' && identity.strongest_skill">
-              <div class="panel-section-label" style="margin-top:16px">Self-awareness</div>
-              <div class="panel-kv">
-                <span class="kv-label">Strongest</span>
-                <span class="kv-val">{{ identity.strongest_skill }}</span>
-              </div>
-              <div class="panel-kv" *ngIf="identity.admitted_weakness">
-                <span class="kv-label">Weakness</span>
-                <span class="kv-val warn">{{ identity.admitted_weakness }}</span>
+            <!-- User message -->
+            <ng-container *ngIf="msg.role === 'user'">
+              <div class="user-bubble">
+                <div class="user-text">{{ msg.content }}</div>
+                <div class="msg-time user-time">{{ formatTime(msg.timestamp) }}</div>
               </div>
             </ng-container>
 
-            <!-- Learning log -->
-            <ng-container *ngIf="identity.learning_log?.length">
-              <div class="panel-section-label" style="margin-top:16px">Recent learning</div>
-              <div *ngFor="let l of (identity.learning_log | slice:-4).reverse()" class="learning-row">
-                <span class="learning-date">{{ l.date }}</span>
-                <span class="learning-text">{{ l.learned }}</span>
+          </div>
+
+          <!-- Bottom padding -->
+          <div style="height:24px"></div>
+        </div>
+
+        <!-- Input bar -->
+        <div class="input-bar" [class.think-active]="thinkMode">
+          <div class="input-wrap">
+            <textarea #msgInput
+                      class="chat-textarea"
+                      [(ngModel)]="inputText"
+                      (keydown)="onKeydown($event)"
+                      (input)="autoGrow(msgInput)"
+                      [placeholder]="thinkMode
+                        ? 'Ask ARIA to reason deeply — she will work through 6 steps with self-critique...'
+                        : 'Message ARIA...'"
+                      rows="1"
+                      [disabled]="sending">
+            </textarea>
+
+            <div class="input-footer">
+              <div class="input-hint">
+                <mat-icon *ngIf="thinkMode" class="think-icon">psychology</mat-icon>
+                <span *ngIf="thinkMode" class="think-label">Think Mode — 6-step reasoning</span>
+                <span *ngIf="!thinkMode && !streaming" class="hint-text">Enter send · Shift+Enter new line</span>
+                <span *ngIf="streaming" class="hint-text streaming-hint">Streaming response...</span>
               </div>
+
+              <!-- Stop button (visible during streaming) -->
+              <button *ngIf="streaming" class="stop-btn" (click)="stopGeneration()" title="Stop generation">
+                <mat-icon>stop_circle</mat-icon>
+              </button>
+
+              <!-- Send button -->
+              <button *ngIf="!streaming" class="send-btn" (click)="send()"
+                      [disabled]="sending || !inputText.trim()"
+                      [class.active]="inputText.trim() && !sending">
+                <mat-icon *ngIf="!sending">arrow_upward</mat-icon>
+                <div *ngIf="sending" class="send-spinner"></div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /chat-col -->
+
+      <!-- == SIDE PANEL (identity/thoughts/curiosity) == -->
+      <aside class="side-panel" [class.open]="sidePanel">
+
+        <div class="panel-header">
+          <span class="panel-title">
+            <ng-container [ngSwitch]="sidePanel">
+              <ng-container *ngSwitchCase="'identity'">Identity</ng-container>
+              <ng-container *ngSwitchCase="'thoughts'">Recent Thoughts</ng-container>
+              <ng-container *ngSwitchCase="'curiosity'">Open Questions</ng-container>
             </ng-container>
-          </div>
-        </ng-container>
+          </span>
+          <button class="icon-btn" (click)="sidePanel = null">
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
 
-        <!-- ── THOUGHTS ── -->
-        <ng-container *ngIf="sidePanel === 'thoughts'">
-          <div *ngIf="thoughts.length === 0" class="panel-empty">
-            <mat-icon style="font-size:28px;width:28px;height:28px;color:#37474f;margin-bottom:8px">lightbulb_outline</mat-icon>
-            <div style="font-size:0.82rem;color:#546e7a">No reasoning cycles yet. Use Think Mode to generate thoughts.</div>
-          </div>
-          <div *ngFor="let t of thoughts" class="thought-row">
-            <div class="thought-q">{{ t.question }}</div>
-            <div *ngIf="t.conclusion?.statement" class="thought-ans">
-              {{ t.conclusion.statement | slice:0:240 }}{{ t.conclusion.statement?.length > 240 ? '…' : '' }}
+        <div class="panel-body">
+
+          <!-- == IDENTITY == -->
+          <ng-container *ngIf="sidePanel === 'identity'">
+            <div *ngIf="!identity || identity.status !== 'online'" class="panel-empty">
+              <mat-icon style="font-size:28px;width:28px;height:28px;color:#37474f;margin-bottom:8px">cloud_off</mat-icon>
+              <div style="font-size:0.82rem;color:#546e7a">Set <code>LLM_PROVIDER</code> and <code>LLM_API_KEY</code> to enable ARIA.</div>
             </div>
-            <div class="thought-chips">
-              <span *ngIf="t.conclusion?.epistemic_status" class="meta-chip"
-                    [style.color]="epistemicColor(t.conclusion.epistemic_status)"
-                    [style.border-color]="epistemicColor(t.conclusion.epistemic_status) + '55'">
-                {{ t.conclusion.epistemic_status }}
-              </span>
-              <span *ngIf="t.metacognition?.self_grade" class="meta-chip"
-                    [style.color]="gradeColor(t.metacognition.self_grade)"
-                    [style.border-color]="gradeColor(t.metacognition.self_grade) + '55'">
-                Grade {{ t.metacognition.self_grade }}
-              </span>
-              <span *ngIf="t.confidence" class="meta-chip"
-                    [style.color]="confidenceColor(t.confidence)"
-                    [style.border-color]="confidenceColor(t.confidence) + '55'">
-                {{ t.confidence }}%
-              </span>
+
+            <div *ngIf="identity?.status === 'online'">
+              <div class="mode-badge" [class.brain]="identity.mode === 'brain'">
+                {{ identity.mode === 'brain' ? 'Brain mode' : 'Local LLM — ' + identity.llm_provider }}
+              </div>
+
+              <div *ngIf="identity.mode === 'brain'" class="stat-grid">
+                <div class="stat-cell"><div class="stat-n">{{ identity.age_days }}</div><div class="stat-l">days</div></div>
+                <div class="stat-cell"><div class="stat-n">{{ identity.total_sweeps || 0 }}</div><div class="stat-l">sweeps</div></div>
+                <div class="stat-cell"><div class="stat-n">{{ identity.total_thoughts || 0 }}</div><div class="stat-l">thoughts</div></div>
+                <div class="stat-cell"><div class="stat-n">{{ identity.total_leads || 0 }}</div><div class="stat-l">leads</div></div>
+              </div>
+
+              <div class="panel-section-label">Domain expertise</div>
+              <ng-container *ngIf="identity.domains_mastered?.length; else localDomains">
+                <div *ngFor="let d of identity.domains_mastered" class="panel-list-item">
+                  <mat-icon class="item-check">check</mat-icon>{{ d }}
+                </div>
+              </ng-container>
+              <ng-template #localDomains>
+                <div *ngFor="let d of ['Defence procurement & arms brokering','Lusophone Africa — Angola, Mozambique, Cape Verde, Guinea-Bissau','Export controls — UK ECJU, ITAR/EAR, EU dual-use, OFAC','CPLP security framework & SADC','SIPRI arms transfer analysis','Geopolitical OSINT synthesis']" class="panel-list-item">
+                  <mat-icon class="item-check">check</mat-icon>{{ d }}
+                </div>
+              </ng-template>
+
+              <ng-container *ngIf="identity.mode === 'brain' && identity.strongest_skill">
+                <div class="panel-section-label" style="margin-top:16px">Self-awareness</div>
+                <div class="panel-kv">
+                  <span class="kv-label">Strongest</span>
+                  <span class="kv-val">{{ identity.strongest_skill }}</span>
+                </div>
+                <div class="panel-kv" *ngIf="identity.admitted_weakness">
+                  <span class="kv-label">Weakness</span>
+                  <span class="kv-val warn">{{ identity.admitted_weakness }}</span>
+                </div>
+              </ng-container>
+
+              <ng-container *ngIf="identity.learning_log?.length">
+                <div class="panel-section-label" style="margin-top:16px">Recent learning</div>
+                <div *ngFor="let l of (identity.learning_log | slice:-4).reverse()" class="learning-row">
+                  <span class="learning-date">{{ l.date }}</span>
+                  <span class="learning-text">{{ l.learned }}</span>
+                </div>
+              </ng-container>
             </div>
-          </div>
-        </ng-container>
+          </ng-container>
 
-        <!-- ── CURIOSITY ── -->
-        <ng-container *ngIf="sidePanel === 'curiosity'">
-          <div class="panel-desc">
-            Intelligence gaps ARIA identified herself from the signal stream.
-          </div>
-          <div *ngIf="curiosity.length === 0" class="panel-empty">
-            <mat-icon style="font-size:28px;width:28px;height:28px;color:#37474f;margin-bottom:8px">help_outline</mat-icon>
-            <div style="font-size:0.82rem;color:#546e7a">No open questions yet. Run a sweep to generate curiosity threads.</div>
-          </div>
-          <div *ngFor="let t of curiosity; let i = index" class="curiosity-row">
-            <div class="curiosity-num">{{ i + 1 }}</div>
-            <div>
-              <div class="curiosity-q">{{ t.question }}</div>
-              <div class="curiosity-date" *ngIf="t.raised_at">Raised {{ t.raised_at }}</div>
+          <!-- == THOUGHTS == -->
+          <ng-container *ngIf="sidePanel === 'thoughts'">
+            <div *ngIf="thoughts.length === 0" class="panel-empty">
+              <mat-icon style="font-size:28px;width:28px;height:28px;color:#37474f;margin-bottom:8px">lightbulb_outline</mat-icon>
+              <div style="font-size:0.82rem;color:#546e7a">No reasoning cycles yet. Use Think Mode to generate thoughts.</div>
             </div>
-          </div>
-        </ng-container>
+            <div *ngFor="let t of thoughts" class="thought-row">
+              <div class="thought-q">{{ t.question }}</div>
+              <div *ngIf="t.conclusion?.statement" class="thought-ans">
+                {{ t.conclusion.statement | slice:0:240 }}{{ t.conclusion.statement?.length > 240 ? '...' : '' }}
+              </div>
+              <div class="thought-chips">
+                <span *ngIf="t.conclusion?.epistemic_status" class="meta-chip"
+                      [style.color]="epistemicColor(t.conclusion.epistemic_status)"
+                      [style.border-color]="epistemicColor(t.conclusion.epistemic_status) + '55'">
+                  {{ t.conclusion.epistemic_status }}
+                </span>
+                <span *ngIf="t.metacognition?.self_grade" class="meta-chip"
+                      [style.color]="gradeColor(t.metacognition.self_grade)"
+                      [style.border-color]="gradeColor(t.metacognition.self_grade) + '55'">
+                  Grade {{ t.metacognition.self_grade }}
+                </span>
+                <span *ngIf="t.confidence" class="meta-chip"
+                      [style.color]="confidenceColor(t.confidence)"
+                      [style.border-color]="confidenceColor(t.confidence) + '55'">
+                  {{ t.confidence }}%
+                </span>
+              </div>
+            </div>
+          </ng-container>
 
-      </div><!-- /panel-body -->
-    </aside>
+          <!-- == CURIOSITY == -->
+          <ng-container *ngIf="sidePanel === 'curiosity'">
+            <div class="panel-desc">
+              Intelligence gaps ARIA identified herself from the signal stream.
+            </div>
+            <div *ngIf="curiosity.length === 0" class="panel-empty">
+              <mat-icon style="font-size:28px;width:28px;height:28px;color:#37474f;margin-bottom:8px">help_outline</mat-icon>
+              <div style="font-size:0.82rem;color:#546e7a">No open questions yet. Run a sweep to generate curiosity threads.</div>
+            </div>
+            <div *ngFor="let t of curiosity; let i = index" class="curiosity-row">
+              <div class="curiosity-num">{{ i + 1 }}</div>
+              <div>
+                <div class="curiosity-q">{{ t.question }}</div>
+                <div class="curiosity-date" *ngIf="t.raised_at">Raised {{ t.raised_at }}</div>
+              </div>
+            </div>
+          </ng-container>
 
-  </div><!-- /aria-body -->
+        </div><!-- /panel-body -->
+      </aside>
+
+    </div><!-- /aria-body -->
+
+  </div><!-- /chat-main -->
 
 </div>

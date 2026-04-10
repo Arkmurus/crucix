@@ -52,6 +52,33 @@ class MeteredProvider(LLMProvider):
         # without us listing every field.
         return getattr(self._inner, item)
 
+    def _record_cost(self, started: float, result, success: bool, error: str) -> None:
+        """Fire-and-forget cost recording. Never blocks the caller."""
+        latency_ms = int((time.time() - started) * 1000)
+        try:
+            from ..intel import cost_tracker
+            model = ""
+            in_tk = 0
+            out_tk = 0
+            if result is not None:
+                model = getattr(result, "model", "") or getattr(self._inner, "model", "")
+                in_tk = int(getattr(result, "input_tokens", 0) or 0)
+                out_tk = int(getattr(result, "output_tokens", 0) or 0)
+            else:
+                model = getattr(self._inner, "model", "") or getattr(self._inner, "name", "")
+            import asyncio as _aio
+            _aio.create_task(cost_tracker.record_call(
+                model=model or "",
+                input_tokens=in_tk,
+                output_tokens=out_tk,
+                latency_ms=latency_ms,
+                provider_name=getattr(self._inner, "name", ""),
+                success=success,
+                error=error,
+            ))
+        except Exception as e:
+            logger.debug("MeteredProvider record dispatch failed: %s", e)
+
     async def complete(
         self,
         system_prompt: str,
@@ -77,34 +104,35 @@ class MeteredProvider(LLMProvider):
             error = str(e)
             raise
         finally:
-            latency_ms = int((time.time() - started) * 1000)
-            try:
-                # Lazy import — cost_tracker imports redis_store which is
-                # heavy at module load. Keep this off the import path of
-                # llm/factory.py.
-                from ..intel import cost_tracker
-                model = ""
-                in_tk = 0
-                out_tk = 0
-                if result is not None:
-                    model = getattr(result, "model", "") or getattr(self._inner, "model", "")
-                    in_tk = int(getattr(result, "input_tokens", 0) or 0)
-                    out_tk = int(getattr(result, "output_tokens", 0) or 0)
-                else:
-                    # Failed call — still record so error rates show up
-                    # in /cost stats. Use the inner provider's configured
-                    # model for attribution.
-                    model = getattr(self._inner, "model", "") or getattr(self._inner, "name", "")
-                # Fire-and-forget: never block the LLM caller on Redis IO
-                import asyncio as _aio
-                _aio.create_task(cost_tracker.record_call(
-                    model=model or "",
-                    input_tokens=in_tk,
-                    output_tokens=out_tk,
-                    latency_ms=latency_ms,
-                    provider_name=getattr(self._inner, "name", ""),
-                    success=success,
-                    error=error,
-                ))
-            except Exception as e:
-                logger.debug("MeteredProvider record dispatch failed: %s", e)
+            self._record_cost(started, result, success, error)
+
+    async def stream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        *,
+        max_tokens: int = 4096,
+        timeout: float = 120.0,
+        on_done=None,
+    ):
+        """Metered streaming — yields chunks, records cost after stream ends."""
+        started = time.time()
+        final_result = None
+
+        def _capture_done(result):
+            nonlocal final_result
+            final_result = result
+            if on_done:
+                on_done(result)
+
+        try:
+            async for chunk in self._inner.stream(
+                system_prompt, user_message,
+                max_tokens=max_tokens, timeout=timeout,
+                on_done=_capture_done,
+            ):
+                yield chunk
+            self._record_cost(started, final_result, True, "")
+        except Exception as e:
+            self._record_cost(started, final_result, False, str(e))
+            raise

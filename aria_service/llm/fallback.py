@@ -40,6 +40,27 @@ class FallbackProvider(LLMProvider):
     def is_configured(self) -> bool:
         return len(self.providers) > 0
 
+    def _should_skip(self, stats: dict) -> bool:
+        """Check if a provider is in cooldown."""
+        return (
+            stats.get("last_failure", 0) > time.time() - 300
+            and stats.get("failures", 0) > 3
+        )
+
+    def _record_success(self, provider, stats: dict):
+        if stats.get("failures", 0) > 0:
+            logger.info("Provider %s recovered after %d failures",
+                        provider.name, stats["failures"])
+        stats["failures"] = 0
+
+    def _record_failure(self, provider, stats: dict, error: Exception):
+        stats["failures"] = stats.get("failures", 0) + 1
+        stats["last_failure"] = time.time()
+        logger.warning(
+            "Provider %s failed (attempt %d): %s — trying next",
+            provider.name, stats["failures"], str(error)[:200],
+        )
+
     async def complete(
         self,
         system_prompt: str,
@@ -52,14 +73,10 @@ class FallbackProvider(LLMProvider):
 
         for provider in self.providers:
             stats = self._stats.get(provider.name, {})
-
-            # Skip provider if it failed recently (cooldown: 5 minutes)
-            if stats.get("last_failure", 0) > time.time() - 300:
-                recent_fails = stats.get("failures", 0)
-                if recent_fails > 3:
-                    logger.debug("Skipping %s (cooling down, %d recent failures)",
-                                 provider.name, recent_fails)
-                    continue
+            if self._should_skip(stats):
+                logger.debug("Skipping %s (cooling down, %d recent failures)",
+                             provider.name, stats.get("failures", 0))
+                continue
 
             try:
                 stats["calls"] = stats.get("calls", 0) + 1
@@ -67,25 +84,49 @@ class FallbackProvider(LLMProvider):
                     system_prompt, user_message,
                     max_tokens=max_tokens, timeout=timeout,
                 )
-                # Success — reset failure count
-                if stats.get("failures", 0) > 0:
-                    logger.info("Provider %s recovered after %d failures",
-                                provider.name, stats["failures"])
-                stats["failures"] = 0
+                self._record_success(provider, stats)
                 result.routed_via = f"fallback:{provider.name}"
                 return result
 
             except Exception as e:
-                stats["failures"] = stats.get("failures", 0) + 1
-                stats["last_failure"] = time.time()
+                self._record_failure(provider, stats, e)
                 last_error = e
-                logger.warning(
-                    "Provider %s failed (attempt %d): %s — trying next",
-                    provider.name, stats["failures"], str(e)[:200],
-                )
 
-        # All providers failed
         raise last_error or RuntimeError("All LLM providers failed")
+
+    async def stream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        *,
+        max_tokens: int = 4096,
+        timeout: float = 120.0,
+        on_done=None,
+    ):
+        """Streaming with fallback — tries providers in order."""
+        last_error = None
+
+        for provider in self.providers:
+            stats = self._stats.get(provider.name, {})
+            if self._should_skip(stats):
+                logger.debug("Skipping %s for stream (cooling down)", provider.name)
+                continue
+
+            try:
+                stats["calls"] = stats.get("calls", 0) + 1
+                async for chunk in provider.stream(
+                    system_prompt, user_message,
+                    max_tokens=max_tokens, timeout=timeout, on_done=on_done,
+                ):
+                    yield chunk
+                self._record_success(provider, stats)
+                return  # stream completed successfully
+
+            except Exception as e:
+                self._record_failure(provider, stats, e)
+                last_error = e
+
+        raise last_error or RuntimeError("All LLM providers failed (stream)")
 
     def get_stats(self) -> dict:
         """Get reliability stats for all providers."""
