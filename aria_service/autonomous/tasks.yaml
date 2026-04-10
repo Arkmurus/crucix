@@ -54,7 +54,7 @@ tasks:
       that signal a real Arkmurus opportunity.
 
     cron: "0 6 * * mon-fri"
-    enabled: false
+    enabled: true
     priority: HIGH
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -85,7 +85,7 @@ tasks:
       Daily 06:10 UTC scan for Mozambique defence procurement, Cabo
       Delgado insurgency updates, and security cooperation developments.
     cron: "10 6 * * mon-fri"
-    enabled: false
+    enabled: true
     priority: HIGH
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -102,7 +102,7 @@ tasks:
       Daily 06:20 UTC scan for Guinea-Bissau stability, security sector,
       and Cape Verde updates.
     cron: "20 6 * * mon-fri"
-    enabled: false
+    enabled: true
     priority: HIGH
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -122,7 +122,7 @@ tasks:
       Weekly Tuesday 07:00 UTC scan for defence procurement across
       Nigeria, Senegal, Cote d'Ivoire, Ghana.
     cron: "0 7 * * tue"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -139,7 +139,7 @@ tasks:
       Weekly Thursday 07:00 UTC scan for Kenya, Ethiopia, Somalia,
       Uganda defence and security developments.
     cron: "0 7 * * thu"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -157,7 +157,7 @@ tasks:
     name: EU TED defence tenders
     description: Daily 08:00 UTC scan for new EU defence tenders on TED.
     cron: "0 8 * * mon-fri"
-    enabled: false
+    enabled: true
     priority: HIGH
     timeout_seconds: 120
     cost_cap_usd: 0.15
@@ -172,7 +172,7 @@ tasks:
     name: US SAM.gov defence tenders
     description: Daily 08:15 UTC scan for new US FMS/defence tenders on SAM.gov.
     cron: "15 8 * * mon-fri"
-    enabled: false
+    enabled: true
     priority: HIGH
     timeout_seconds: 120
     cost_cap_usd: 0.15
@@ -187,7 +187,7 @@ tasks:
     name: UK Contracts Finder defence tenders
     description: Daily 08:30 UTC scan for UK defence tenders.
     cron: "30 8 * * mon-fri"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 120
     cost_cap_usd: 0.15
@@ -205,7 +205,7 @@ tasks:
     name: Gulf security and procurement trends
     description: Weekly Thursday 11:00 UTC Gulf region defence scan.
     cron: "0 11 * * thu"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -220,7 +220,7 @@ tasks:
     name: Turkish defence industry expansion
     description: Weekly Wednesday 10:00 UTC Turkish defence export scan.
     cron: "0 10 * * wed"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -238,7 +238,7 @@ tasks:
     name: UK ECJU export licensing updates
     description: Weekly Tuesday 09:00 UTC UK export control scan.
     cron: "0 9 * * tue"
-    enabled: false
+    enabled: true
     priority: HIGH
     timeout_seconds: 120
     cost_cap_usd: 0.15
@@ -253,7 +253,7 @@ tasks:
     name: International sanctions updates
     description: Weekly Tuesday 10:00 UTC sanctions scan across OFAC, EU, UN.
     cron: "0 10 * * tue"
-    enabled: false
+    enabled: true
     priority: HIGH
     timeout_seconds: 120
     cost_cap_usd: 0.15
@@ -271,7 +271,7 @@ tasks:
     name: New military platform announcements
     description: Weekly Monday 14:00 UTC scan for new platform announcements and deals.
     cron: "0 14 * * mon"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -286,7 +286,7 @@ tasks:
     name: Combat equipment performance tracking
     description: Weekly Wednesday 15:00 UTC — Oryx-style combat loss tracking and equipment performance.
     cron: "0 15 * * wed"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -304,7 +304,7 @@ tasks:
     name: NATO and European defence posture
     description: Weekly Monday 09:00 UTC — NATO force posture, European defence procurement, PESCO updates.
     cron: "0 9 * * mon"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -319,7 +319,7 @@ tasks:
     name: Indo-Pacific defence and security
     description: Weekly Tuesday 12:00 UTC — AUKUS, Quad, ASEAN defence, Korean peninsula, Taiwan Strait.
     cron: "0 12 * * tue"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -334,7 +334,7 @@ tasks:
     name: Latin America and Brazil defence
     description: Weekly Thursday 13:00 UTC — Brazil defence industry, CPLP Americas, LatAm security.
     cron: "0 13 * * thu"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -349,7 +349,7 @@ tasks:
     name: North Africa and Sahel security
     description: Weekly Wednesday 08:00 UTC — Libya, Algeria, Morocco, Sahel security dynamics.
     cron: "0 8 * * wed"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -364,7 +364,7 @@ tasks:
     name: US ITAR and DDTC export control updates
     description: Weekly Wednesday 09:00 UTC — ITAR amendments, DDTC notices, FMS updates.
     cron: "0 9 * * wed"
-    enabled: false
+    enabled: true
     priority: HIGH
     timeout_seconds: 120
     cost_cap_usd: 0.15
@@ -379,7 +379,7 @@ tasks:
     name: Turkish defence industry global expansion
     description: Weekly Friday 10:00 UTC — Baykar, ASELSAN, ROKETSAN, SSB export campaigns.
     cron: "0 10 * * fri"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -394,7 +394,7 @@ tasks:
     name: Defence industry M&A and joint ventures
     description: Weekly Thursday 14:00 UTC — global defence M&A, JVs, consortium formations.
     cron: "0 14 * * thu"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -409,7 +409,7 @@ tasks:
     name: Central Asia and Caucasus security
     description: Weekly Friday 11:00 UTC — Kazakhstan, Azerbaijan, Georgia, Turkmenistan defence.
     cron: "0 11 * * fri"
-    enabled: false
+    enabled: true
     priority: LOW
     timeout_seconds: 180
     cost_cap_usd: 0.20
@@ -424,7 +424,7 @@ tasks:
     name: Daily sanctions update screening
     description: Daily 07:00 UTC — check OFAC, EU, UN sanctions feeds for new designations.
     cron: "0 7 * * mon-fri"
-    enabled: false
+    enabled: true
     priority: HIGH
     timeout_seconds: 120
     cost_cap_usd: 0.15
@@ -444,7 +444,7 @@ tasks:
       Friday 16:00 UTC — synthesise the week's autonomous findings
       into a structured executive brief covering key markets.
     cron: "0 16 * * fri"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 240
     cost_cap_usd: 0.25
@@ -468,7 +468,7 @@ tasks:
       legal knowledge stays current as treaties are amended, sanctions
       updated, and new case law emerges.
     cron: "0 5 1-7 * sun"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 300
     cost_cap_usd: 0.10
@@ -485,7 +485,7 @@ tasks:
       content, indexes changes into RAG store, and identifies regional
       coverage gaps. Keeps ARIA's knowledge base current.
     cron: "0 6 * * sun"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 600
     cost_cap_usd: 0.05
@@ -506,7 +506,7 @@ tasks:
       and aggregation. Feeds into the weekly consciousness review.
 
     cron: "0 22 * * *"
-    enabled: false
+    enabled: true
     priority: LOW
     timeout_seconds: 30
     cost_cap_usd: 0.00
@@ -531,7 +531,7 @@ tasks:
       reflection stored permanently. Requires one LLM call (~$0.05).
 
     cron: "0 20 * * sun"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 120
     cost_cap_usd: 0.10
@@ -556,7 +556,7 @@ tasks:
       auto-deploys. Requires 3-4 LLM calls (~$0.15-0.20).
 
     cron: "0 18 1-7 * sun"
-    enabled: false
+    enabled: true
     priority: LOW
     timeout_seconds: 300
     cost_cap_usd: 0.30
