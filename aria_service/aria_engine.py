@@ -1155,6 +1155,22 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("researcher_principles injection failed (non-fatal): %s", e)
 
+    # V3 consolidated pillar prompts — enhanced researcher/analyst/investigator
+    # addenda with structured output formats, 8-step research sequence,
+    # 6-protocol investigation, PMESII+ACH+risk matrix. Cherry-picked from
+    # the v3 architecture proposal. Behind ARIA_V3_PROMPTS_ENABLED env var
+    # (default ON). These complement the existing principles modules — the
+    # existing modules provide the WHY (doctrine), these provide the HOW
+    # (structured output templates).
+    try:
+        from .intel import v3_prompts as _v3p
+        v3_addendum = _v3p.addendum(message)
+        if v3_addendum:
+            addendum_parts.append(v3_addendum)
+            logger.info("[v3_prompts] %s pillar addendum injected", _v3p.detect_pillar(message))
+    except Exception as e:
+        logger.debug("v3_prompts injection failed (non-fatal): %s", e)
+
     # Recent user corrections — facts that users have provided in chat to
     # correct earlier ARIA replies. These OVERRIDE training data and other
     # knowledge layers for the same subject (highest-trust channel). Pulled
