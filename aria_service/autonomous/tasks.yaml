@@ -303,6 +303,46 @@ tasks:
     mem0_tags: [summary, weekly, executive-brief, autonomous]
 
   # ──────────────────────────────────────────────────────────────────
+  # BLOCK H — Knowledge Maintenance
+  # ──────────────────────────────────────────────────────────────────
+  - id: MONTHLY-LAW-REFRESH
+    name: International law knowledge refresh
+    description: |
+      First Sunday of each month, 05:00 UTC. Re-ingests the static
+      international law library (12 sections covering LOAC, sanctions,
+      arms control, AML, etc.) and crawls live legal sources (ICRC,
+      ICJ, FATF, OFAC, ECJU, Wassenaar) for updates. Ensures ARIA's
+      legal knowledge stays current as treaties are amended, sanctions
+      updated, and new case law emerges.
+    cron: "0 5 1-7 * sun"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 300
+    cost_cap_usd: 0.10
+    tool_chain:
+      - tool: law_refresh
+    delivery_channels: [mem0]
+    escalate_if: ["new sanctions", "treaty amendment", "new regulation"]
+    mem0_tags: [international-law, compliance, monthly, autonomous]
+
+  - id: WEEKLY-CORPUS-REFRESH
+    name: Weekly corpus crawl and gap detection
+    description: |
+      Sunday 06:00 UTC. Crawls all registered corpus URLs for fresh
+      content, indexes changes into RAG store, and identifies regional
+      coverage gaps. Keeps ARIA's knowledge base current.
+    cron: "0 6 * * sun"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 600
+    cost_cap_usd: 0.05
+    tool_chain:
+      - tool: corpus_weekly_crawl
+    delivery_channels: [mem0]
+    escalate_if: []
+    mem0_tags: [corpus, weekly, maintenance, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
   # METACOG-DAILY — Daily metacognitive self-check
   # ──────────────────────────────────────────────────────────────────
   - id: METACOG-DAILY

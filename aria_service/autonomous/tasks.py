@@ -328,6 +328,34 @@ async def get_recent_runs(limit: int = 20) -> list[dict[str, Any]]:
     return out
 
 
+# ── Direct tool execution (non-chat tools) ────────────────────────────────
+
+async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
+    """Execute a tool that calls a module function directly (not via chat)."""
+    if tool_kind == "law_refresh":
+        from ..intel import international_law
+        return await international_law.refresh_law_knowledge()
+
+    elif tool_kind == "corpus_weekly_crawl":
+        from ..intel import corpus_manager
+        return await corpus_manager.run_weekly_crawl()
+
+    elif tool_kind == "metacognitive_daily_check":
+        from ..metacognitive import engine as metacog
+        return await metacog.run_daily_check() if hasattr(metacog, "run_daily_check") else {"skipped": "not implemented"}
+
+    elif tool_kind == "metacognitive_weekly_review":
+        from ..metacognitive import engine as metacog
+        return await metacog.run_weekly_review(llm) if hasattr(metacog, "run_weekly_review") else {"skipped": "not implemented"}
+
+    elif tool_kind == "metacognitive_monthly_sprint":
+        from ..metacognitive import engine as metacog
+        return await metacog.run_monthly_sprint(llm) if hasattr(metacog, "run_monthly_sprint") else {"skipped": "not implemented"}
+
+    else:
+        return {"error": f"unknown direct tool: {tool_kind}"}
+
+
 # ── Task execution wrapper ─────────────────────────────────────────────────
 
 async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, Any]:
@@ -396,6 +424,31 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
         elif tool_kind == "investigate":
             topic = (first.get("topic") or first.get("entity") or "").strip()
             user_msg = f"Aria, investigate: {topic}"
+        elif tool_kind in ("law_refresh", "corpus_weekly_crawl",
+                           "metacognitive_daily_check", "metacognitive_weekly_review",
+                           "metacognitive_monthly_sprint"):
+            # Direct-call tools — these don't go through chat, they call
+            # their module function directly and return a summary.
+            try:
+                direct_result = await _execute_direct_tool(tool_kind, task, llm)
+                record["status"] = "ok"
+                record["response_preview"] = str(direct_result)[:400]
+                record["response_length"] = len(str(direct_result))
+                record["tool_used"] = tool_kind
+                record["duration_ms"] = int((time.time() - t0) * 1000)
+                if not dry_run:
+                    from .delivery import deliver
+                    record["delivery"] = await deliver(task, str(direct_result), dry_run=False)
+                else:
+                    record["delivery"] = "dry_run_skipped"
+                await record_run(record)
+                return record
+            except Exception as e:
+                record["status"] = "error"
+                record["error"] = f"direct tool {tool_kind} failed: {e}"
+                record["duration_ms"] = int((time.time() - t0) * 1000)
+                await record_run(record)
+                return record
         else:
             record["status"] = "error"
             record["error"] = f"unsupported tool kind in first chain entry: {tool_kind!r}"

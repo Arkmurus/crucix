@@ -5438,3 +5438,40 @@ async def neural_conflicts_resolve_ep(req: ConflictResolveRequest):
     from ..intel import neural_memory
     ok = await neural_memory.resolve_conflict(req.entity)
     return {"resolved": ok, "entity": req.entity}
+
+
+# ── International Law Module ─────────────────────────────────────────────────
+
+@router.post("/law/ingest")
+async def law_ingest_ep():
+    """Ingest the international law library into RAG store."""
+    from ..intel import international_law
+    result = await international_law.ingest_all_sections()
+    return result
+
+
+@router.post("/law/refresh")
+async def law_refresh_ep():
+    """Full refresh: re-ingest static sections + crawl live legal sources."""
+    from ..intel import international_law
+    result = await international_law.refresh_law_knowledge()
+    return result
+
+
+@router.get("/law/sections")
+async def law_sections_ep():
+    """List available international law sections."""
+    from ..intel import international_law
+    sections = []
+    for name, data in international_law.ALL_SECTIONS.items():
+        sections.append({
+            "section": name,
+            "domain": data["domain"],
+            "tags": data["tags"],
+            "content_length": len(data["content"]),
+        })
+    return {
+        "sections": sections,
+        "total": len(sections),
+        "total_chars": sum(s["content_length"] for s in sections),
+    }
