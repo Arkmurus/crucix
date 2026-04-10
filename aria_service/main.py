@@ -104,8 +104,21 @@ async def lifespan(app: FastAPI):
 
     rag_backfill_task = asyncio.create_task(_rag_init_bg())
 
-    # Create LLM provider with automatic fallback chain
-    api_key = settings.llm_api_key or settings.deepseek_api_key
+    # Create LLM provider with automatic fallback chain.
+    # Auto-detect the right API key based on the provider name so that
+    # setting ANTHROPIC_API_KEY + LLM_PROVIDER=anthropic works without
+    # also needing to duplicate the key into LLM_API_KEY.
+    _provider_key_map = {
+        "anthropic": settings.anthropic_api_key,
+        "openai": settings.openai_api_key,
+        "gemini": settings.gemini_api_key,
+        "deepseek": settings.deepseek_api_key,
+    }
+    api_key = (
+        settings.llm_api_key
+        or _provider_key_map.get(settings.llm_provider.lower().strip(), "")
+        or settings.deepseek_api_key
+    )
     llm = create_fallback_chain(
         primary_provider=settings.llm_provider,
         primary_key=api_key,
