@@ -436,6 +436,29 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Autonomous engine bootstrap failed (non-fatal): %s", e)
 
+    # ── Knowledge seeding (background) ─────────────────────────────────
+    # Seed the international law library and register corpus manager URLs
+    # on startup. Runs after RAG store is warm (25s delay). Idempotent —
+    # rag_store.ingest_document() deduplicates by source URL.
+    async def _seed_knowledge_bg():
+        await asyncio.sleep(25)  # Wait for RAG + sentence-transformers
+        try:
+            from .intel import international_law
+            result = await international_law.ingest_all_sections()
+            logger.info("[Knowledge Seed] Law: %d/%d sections, %d chunks",
+                        result.get("sections_ingested", 0),
+                        result.get("total_sections", 0),
+                        result.get("total_chunks", 0))
+        except Exception as e:
+            logger.warning("[Knowledge Seed] Law ingestion failed (non-fatal): %s", e)
+        try:
+            from .intel import international_law
+            reg = await international_law.register_law_sources()
+            logger.info("[Knowledge Seed] Law sources registered: %d", reg.get("registered", 0))
+        except Exception as e:
+            logger.warning("[Knowledge Seed] Law source registration failed (non-fatal): %s", e)
+    knowledge_seed_task = asyncio.create_task(_seed_knowledge_bg())
+
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
     yield
 
@@ -445,6 +468,8 @@ async def lifespan(app: FastAPI):
         await _autonomous_engine.stop_engine()
     except Exception as e:
         logger.warning("Autonomous engine shutdown failed (non-fatal): %s", e)
+    if knowledge_seed_task:
+        knowledge_seed_task.cancel()
     if research_task:
         research_task.cancel()
     if self_improve_task:
