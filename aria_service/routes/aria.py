@@ -164,6 +164,7 @@ class FactRequest(BaseModel):
     topic: str
     content: str
     confidence: str = "CONFIRMED"
+    source: str = "user"
 
 class ContactRequest(BaseModel):
     name: str
@@ -246,8 +247,8 @@ async def knowledge_ep():
 # 5. POST /api/aria/knowledge/fact
 @router.post("/knowledge/fact")
 async def store_fact_ep(req: FactRequest):
-    await knowledge.store_fact(req.topic, req.content, "user", req.confidence)
-    return {"ok": True, "message": "Fact stored"}
+    result = await knowledge.store_fact(req.topic, req.content, req.source, req.confidence)
+    return {"ok": True, "message": "Fact stored", "action": result.get("action", "unknown")}
 
 
 # 6. GET /api/aria/ledger

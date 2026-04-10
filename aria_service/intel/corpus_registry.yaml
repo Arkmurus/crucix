@@ -1113,6 +1113,125 @@ sources:
     frequency: monthly
     cplp_relevant: false
 
+  # ── 🟢 TIER B+ — ARKMURUS HARDWARE LIBRARY (LOCAL CORPUS) ────────────────
+  # Curated military hardware knowledge library — 11 sections covering
+  # small arms, ammunition, armoured vehicles, artillery, air defence,
+  # aviation, naval, UAS/drones, combat performance, export controls,
+  # and the structured comparison framework. All open-source data.
+  # Ingest via: python -m aria_service.cli.ingest_corpus --tier B+ \
+  #   --source-class "Arkmurus Hardware Library" --region global \
+  #   --cplp-relevant true aria_service/intel/corpus/hardware_library/
+
+  - url: file://aria_service/intel/corpus/hardware_library/01_small_arms.md
+    tier: B+
+    source_class: Arkmurus Hardware Library
+    category: military_hardware
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: Small arms & personal weapons — AK variants, M16/M4, SCAR, sniper rifles, MGs
+
+  - url: file://aria_service/intel/corpus/hardware_library/02_ammunition.md
+    tier: B+
+    source_class: Arkmurus Hardware Library
+    category: military_hardware
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: Ammunition intelligence — all calibres, producers, supply chain, export controls
+
+  - url: file://aria_service/intel/corpus/hardware_library/03_armoured_vehicles.md
+    tier: B+
+    source_class: Arkmurus Hardware Library
+    category: military_hardware
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: AFVs — MBTs (T-72/Leopard/Abrams), IFVs (BMP/Bradley), MRAPs, wheeled armour
+
+  - url: file://aria_service/intel/corpus/hardware_library/04_artillery.md
+    tier: B+
+    source_class: Arkmurus Hardware Library
+    category: military_hardware
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: Artillery & indirect fire — SPH, towed, MLRS (Grad, HIMARS), Chinese exports
+
+  - url: file://aria_service/intel/corpus/hardware_library/05_air_defence.md
+    tier: B+
+    source_class: Arkmurus Hardware Library
+    category: military_hardware
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: Air defence — MANPADS, short/medium range, Patriot, NASAMS, Iron Dome
+
+  - url: file://aria_service/intel/corpus/hardware_library/06_aviation.md
+    tier: B+
+    source_class: Arkmurus Hardware Library
+    category: military_hardware
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: Military aviation — fighters (Su-27/F-16/Rafale/F-35), COIN (Super Tucano), helicopters
+
+  - url: file://aria_service/intel/corpus/hardware_library/07_naval.md
+    tier: B+
+    source_class: Arkmurus Hardware Library
+    category: military_hardware
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: Naval systems — OPVs, patrol craft, corvettes, anti-ship missiles
+
+  - url: file://aria_service/intel/corpus/hardware_library/08_uas_drones.md
+    tier: B+
+    source_class: Arkmurus Hardware Library
+    category: military_hardware
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: UAS/drones — TB2, Shahed, MQ-9, Wing Loong, HAROP, FPV drones
+
+  - url: file://aria_service/intel/corpus/hardware_library/09_combat_performance.md
+    tier: B+
+    source_class: Arkmurus Hardware Library
+    category: combat_verification
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: Verified combat performance — Ukraine, Nagorno-Karabakh, Mali, Angola, Mozambique
+
+  - url: file://aria_service/intel/corpus/hardware_library/10_export_control_matrix.md
+    tier: B+
+    source_class: Arkmurus Hardware Library
+    category: export_controls
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: Hardware export control quick-reference — SITCL triggers, Wassenaar ML, ITAR categories
+
+  - url: file://aria_service/intel/corpus/hardware_library/11_comparison_framework.md
+    tier: B+
+    source_class: Arkmurus Hardware Library
+    category: assessment_framework
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: Structured comparison template for hardware procurement advisory outputs
+
   # ── 🔵 TIER C — LIVE FEEDS ──────────────────────────────────────────────
 
   # Procurement & Tenders

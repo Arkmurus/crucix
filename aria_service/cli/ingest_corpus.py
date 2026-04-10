@@ -160,8 +160,9 @@ def main(argv: list[str] | None = None) -> int:
         description="Push curated documents into ARIA's RAG store with tier metadata.",
     )
     p.add_argument("input", help="Path to a single file or a folder of files")
-    p.add_argument("--tier", required=True, choices=["A", "B", "C", "D"],
-                   help="Corpus tier: A=primary, B=secondary, C=live, D=proprietary")
+    p.add_argument("--tier", required=True,
+                   choices=["A", "A+", "B", "B+", "C", "C+", "D", "E", "F"],
+                   help="Corpus tier: A/A+=primary, B/B+=secondary, C/C+=live, D=proprietary, E=compliance, F=non-state")
     p.add_argument("--source-class", required=True,
                    help="Publisher / origin label, e.g. 'SIPRI' or 'Arkmurus DD report'")
     p.add_argument("--region", default="",
