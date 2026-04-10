@@ -842,6 +842,8 @@ def detect_conflict(entity: str, new_text: str) -> dict | None:
     metadata and connected neurons. Returns a conflict dict if opposing
     signals are found, or None if no conflict.
     """
+    if not _loaded:
+        return None  # Neural memory not initialized yet
     neuron = _find_neuron(entity)
     if not neuron:
         return None

@@ -1400,6 +1400,13 @@ async def aria_chat(
     session = await _get_session(session_id)
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
 
+    # Persist user_id in session — extracted from session_id format {userId}_{ts}
+    # on first access, then available from session dict for all future calls.
+    if not session.get("userId"):
+        _uid = session_id.rsplit("_", 1)[0] if "_" in session_id else ""
+        if _uid and _uid != "anon":
+            session["userId"] = _uid
+
     # Pre-fetch neural memory (async) and set per-request context
     try:
         neural_ctx = await neural_memory.get_neural_context(message)
@@ -1518,8 +1525,7 @@ async def aria_chat(
 
     # Update conversation index (fire-and-forget)
     try:
-        # Extract user_id from session_id format: {userId}_{timestamp}
-        user_id = session_id.rsplit("_", 1)[0] if "_" in session_id else ""
+        user_id = session.get("userId", "")
         if user_id:
             if len(history) <= 2:
                 await conversation_store.create_conversation(user_id, session_id, _user_persist)
@@ -1802,6 +1808,12 @@ async def aria_chat_stream(
     session = await _get_session(session_id)
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
 
+    # Persist user_id in session (same as aria_chat)
+    if not session.get("userId"):
+        _uid = session_id.rsplit("_", 1)[0] if "_" in session_id else ""
+        if _uid and _uid != "anon":
+            session["userId"] = _uid
+
     try:
         neural_ctx = await neural_memory.get_neural_context(message)
         _neural_ctx_var.set(neural_ctx)
@@ -1894,8 +1906,7 @@ async def aria_chat_stream(
 
     # Update conversation index
     try:
-        # Extract user_id from session_id format: {userId}_{timestamp}
-        user_id = session_id.rsplit("_", 1)[0] if "_" in session_id else ""
+        user_id = session.get("userId", "")
         if user_id:
             if len(history) <= 2:
                 await conversation_store.create_conversation(user_id, session_id, _user_persist)

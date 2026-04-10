@@ -239,6 +239,9 @@ async def propose_url(url: str, context: str = "", llm=None) -> URLProposal:
 
 async def add_url_directly(url: str, tier: str) -> bool:
     """Human-directed addition — bypasses classification."""
+    if tier not in TIER_CRITERIA:
+        logger.warning("[corpus] Rejected add: invalid tier %r for %s", tier, url)
+        return False
     registry = await load_registry()
     if tier not in registry:
         registry[tier] = []
