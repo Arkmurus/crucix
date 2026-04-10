@@ -163,12 +163,8 @@ async def monthly_gap_closure_sprint(
 
 async def get_cycle_status() -> dict:
     """Return the last-run status of each cycle."""
-    daily = await rs.get(_DAILY_LAST_RUN)
-    weekly = await rs.get(_WEEKLY_LAST_RUN)
-    monthly = await rs.get(_MONTHLY_LAST_RUN)
-
     return {
-        "daily": json.loads(daily) if daily else None,
-        "weekly": json.loads(weekly) if weekly else None,
-        "monthly": json.loads(monthly) if monthly else None,
+        "daily": await rs.get_json(_DAILY_LAST_RUN),
+        "weekly": await rs.get_json(_WEEKLY_LAST_RUN),
+        "monthly": await rs.get_json(_MONTHLY_LAST_RUN),
     }

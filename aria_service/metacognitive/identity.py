@@ -11,7 +11,10 @@ drives her own improvement.
 """
 from __future__ import annotations
 
+import logging
 import os
+
+logger = logging.getLogger("aria.metacognitive.identity")
 
 ARIA_METACOGNITIVE_IDENTITY = """
 ══════════════════════════════════════════════════════════════════════
@@ -146,7 +149,7 @@ async def get_identity_with_calibration() -> str:
         cal_addendum = await calibration.get_calibration_addendum()
         if cal_addendum:
             parts.append(cal_addendum)
-    except Exception:
-        pass  # calibration data not yet available — identity alone is fine
+    except Exception as e:
+        logger.debug("Calibration addendum failed (non-fatal): %s", e)
 
     return "\n".join(parts)

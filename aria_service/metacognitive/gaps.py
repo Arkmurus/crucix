@@ -194,24 +194,37 @@ async def detect_gaps_from_document(
     return result
 
 
+def _safe_json_list(raw: list[str]) -> list[dict]:
+    """Parse a list of JSON strings, skipping corrupted entries."""
+    out = []
+    for r in raw:
+        if not r:
+            continue
+        try:
+            out.append(json.loads(r))
+        except (json.JSONDecodeError, TypeError):
+            logger.debug("Skipping corrupted Redis entry: %s", r[:80])
+    return out
+
+
 async def get_recent_gaps(limit: int = 30) -> list[dict]:
     raw = await rs.lrange(_GAPS_LIST, 0, limit - 1)
-    return [json.loads(r) for r in raw if r]
+    return _safe_json_list(raw)
 
 
 async def get_recent_corrections(limit: int = 20) -> list[dict]:
     raw = await rs.lrange(_CORRECTIONS_LIST, 0, limit - 1)
-    return [json.loads(r) for r in raw if r]
+    return _safe_json_list(raw)
 
 
 async def get_recent_methodology_updates(limit: int = 20) -> list[dict]:
     raw = await rs.lrange(_METHODOLOGY_LIST, 0, limit - 1)
-    return [json.loads(r) for r in raw if r]
+    return _safe_json_list(raw)
 
 
 async def get_documents_read(limit: int = 50) -> list[dict]:
     raw = await rs.lrange(_DOCUMENTS_READ_LIST, 0, limit - 1)
-    return [json.loads(r) for r in raw if r]
+    return _safe_json_list(raw)
 
 
 async def get_high_severity_gaps(limit: int = 10) -> list[dict]:
@@ -395,7 +408,7 @@ async def _store_operational_gap(gap: dict) -> dict:
 async def get_operational_gaps(limit: int = 30) -> list[dict]:
     """Return recent operational gap signals."""
     raw = await rs.lrange(_OPERATIONAL_GAPS_LIST, 0, limit - 1)
-    return [json.loads(r) for r in raw if r]
+    return _safe_json_list(raw)
 
 
 async def get_operational_gap_summary() -> dict:

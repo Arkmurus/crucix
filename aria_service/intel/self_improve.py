@@ -304,11 +304,12 @@ async def deploy_improvement(improvement_id: str) -> dict:
 
     await _log_improvement("deployed", target)
 
-    # Record a coding lesson for the metacognitive pattern library
+    # Record a coding lesson for the metacognitive pattern library.
+    # Hold a strong reference so GC can't collect mid-task.
     try:
         from ..metacognitive import coding_lessons
         import asyncio
-        asyncio.create_task(coding_lessons.record_lesson(
+        _lesson_task = asyncio.create_task(coding_lessons.record_lesson(
             reference=improvement_id,
             outcome="SUCCESS",
             what_worked=target["description"],
@@ -316,6 +317,10 @@ async def deploy_improvement(improvement_id: str) -> dict:
             gap_type=target.get("change_type", ""),
             file_changed=file_path,
         ))
+        _lesson_task.add_done_callback(
+            lambda t: logger.warning("coding lesson task raised: %s", t.exception())
+            if not t.cancelled() and t.exception() else None
+        )
     except Exception as e:
         logger.debug("Coding lesson record failed (non-fatal): %s", e)
 
@@ -362,11 +367,12 @@ async def rollback_improvement(improvement_id: str) -> dict:
 
     await _log_improvement("rolled_back", target)
 
-    # Record a coding lesson from the rollback — what failed matters
+    # Record a coding lesson from the rollback — what failed matters.
+    # Hold a strong reference so GC can't collect mid-task.
     try:
         from ..metacognitive import coding_lessons
         import asyncio
-        asyncio.create_task(coding_lessons.record_lesson(
+        _rb_lesson_task = asyncio.create_task(coding_lessons.record_lesson(
             reference=improvement_id,
             outcome="ROLLED_BACK",
             what_worked="",
@@ -374,6 +380,10 @@ async def rollback_improvement(improvement_id: str) -> dict:
             gap_type=target.get("change_type", ""),
             file_changed=file_path,
         ))
+        _rb_lesson_task.add_done_callback(
+            lambda t: logger.warning("coding lesson (rollback) task raised: %s", t.exception())
+            if not t.cancelled() and t.exception() else None
+        )
     except Exception as e:
         logger.debug("Coding lesson (rollback) record failed (non-fatal): %s", e)
 

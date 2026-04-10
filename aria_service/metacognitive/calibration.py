@@ -75,6 +75,10 @@ async def record_assessment(
     return record
 
 
+_RESOLVED_KEY = "crucix:metacog:calibration:resolved"
+_MAX_RESOLVED = 1000
+
+
 async def resolve_assessment(
     assessment_id: str,
     outcome: bool,
@@ -82,7 +86,8 @@ async def resolve_assessment(
     """Resolve a previously unresolved assessment with its outcome.
 
     Scans recent assessments for the ID, computes Brier contribution,
-    updates the domain aggregate. Returns the updated record or None.
+    updates the domain aggregate. Stores the resolution in a separate
+    resolved list to avoid duplicating the original record.
     """
     records = await rs.lrange(_ASSESSMENTS_KEY, 0, _MAX_ASSESSMENTS - 1)
     for i, raw in enumerate(records):
@@ -103,10 +108,11 @@ async def resolve_assessment(
         rec["brier_contribution"] = brier
         rec["resolved_at"] = datetime.now(timezone.utc).isoformat()
 
-        # We can't update a list element in Redis atomically without
-        # Lua — store the resolution as a separate correction record
-        # and recompute aggregates from the full list periodically.
-        await rs.lpush(_ASSESSMENTS_KEY, json.dumps(rec))
+        # Store resolution in a separate list to avoid duplicating in
+        # the main assessments list (can't atomically update a list
+        # element in Redis without Lua).
+        await rs.lpush(_RESOLVED_KEY, json.dumps(rec))
+        await rs.ltrim(_RESOLVED_KEY, 0, _MAX_RESOLVED - 1)
         await _update_domain_aggregate(rec["domain"], brier)
         return rec
 
@@ -152,14 +158,14 @@ async def get_domain_brier(domain: str) -> dict:
     elif avg < 0.20:
         calibration = "POOR"
         rec = (
-            f"Overconfident in {domain}. Reduce stated confidence by 15%% "
+            f"Overconfident in {domain}. Reduce stated confidence by 15% "
             f"and trigger a gap detection session."
         )
     else:
         calibration = "CRITICAL"
         rec = (
             f"Severely miscalibrated in {domain} (Brier {avg:.3f}). "
-            f"Reduce stated confidence by 30%% immediately. "
+            f"Reduce stated confidence by 30% immediately. "
             f"Urgent gap detection review required."
         )
 
@@ -246,12 +252,12 @@ async def get_calibration_addendum() -> str:
         if brier > 0.20:
             lines.append(
                 f"  CRITICAL: You are severely miscalibrated in {domain_name} "
-                f"(Brier {brier:.3f}). REDUCE stated confidence by 30%% in this domain."
+                f"(Brier {brier:.3f}). REDUCE stated confidence by 30% in this domain."
             )
         elif brier > 0.15:
             lines.append(
                 f"  WARNING: You are overconfident in {domain_name} "
-                f"(Brier {brier:.3f}). Reduce stated confidence by 15%%."
+                f"(Brier {brier:.3f}). Reduce stated confidence by 15%."
             )
 
     if not any_data or not lines:
