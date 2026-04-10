@@ -2003,6 +2003,24 @@ async def _execute_tool(intent: dict, llm) -> str:
                     blocking=_is_blocking_domain(topic),
                 )
 
+            # ── AUTO-CHAIN: Companies House lookup for UK entities ──
+            # If the topic mentions a UK company number or looks like a UK entity,
+            # auto-fetch profile + officers + PSC + ghost signals from Companies House.
+            try:
+                from ..intel import companies_house as _ch
+                ch_number = _ch.extract_company_number(topic)
+                ch_result = None
+                if ch_number:
+                    ch_result = await _ch.investigate_uk_entity(company_number=ch_number)
+                elif intent.get("entity"):
+                    ch_result = await _ch.investigate_uk_entity(company_name=intent["entity"])
+                if ch_result and ch_result.get("found"):
+                    ch_block = _ch.format_for_prompt(ch_result)
+                    if ch_block:
+                        base += ch_block
+            except Exception as e:
+                logger.debug("Auto Companies House lookup failed (non-fatal): %s", e)
+
             # ── AUTO-CHAIN: sanctions screen after every investigation ──
             # Ensures ARIA never says "sanctions — not performed". The
             # investigation topic is used as the entity name for fuzzy
@@ -2049,6 +2067,17 @@ async def _execute_tool(intent: dict, llm) -> str:
             )
             if empty:
                 base += _no_data_warning("build_profile", intent["entity"])
+
+            # Auto-chain Companies House on profile builds
+            try:
+                from ..intel import companies_house as _ch
+                entity = intent.get("entity", "")
+                if entity:
+                    ch_r = await _ch.investigate_uk_entity(company_name=entity)
+                    if ch_r and ch_r.get("found"):
+                        base += _ch.format_for_prompt(ch_r)
+            except Exception as e:
+                logger.debug("Auto CH lookup on profile failed: %s", e)
 
             # Auto-chain sanctions screen on profile builds
             try:
@@ -4886,6 +4915,37 @@ async def metacognitive_operational_gaps(limit: int = 30):
 # Cherry-picked from v3 — 4-strategy document extraction pipeline.
 # Supports PDFs (pdfplumber → OCR → LLM vision → online search),
 # plus plaintext, HTML, .docx, and images.
+
+class CompaniesHouseRequest(BaseModel):
+    company_number: Optional[str] = None
+    company_name: Optional[str] = None
+
+
+@router.post("/companies-house/investigate")
+async def companies_house_investigate_ep(req: CompaniesHouseRequest):
+    """POST /api/aria/companies-house/investigate — full UK entity investigation
+    via Companies House (profile + officers + PSC + filings + ghost signals)."""
+    try:
+        from ..intel import companies_house
+        result = await companies_house.investigate_uk_entity(
+            company_number=req.company_number,
+            company_name=req.company_name,
+        )
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/companies-house/search")
+async def companies_house_search_ep(q: str, limit: int = 5):
+    """GET /api/aria/companies-house/search?q=company+name — search UK registry."""
+    try:
+        from ..intel import companies_house
+        results = await companies_house.search_companies(q, limit=limit)
+        return {"results": results, "count": len(results)}
+    except Exception as e:
+        return {"error": str(e)}
+
 
 class ReadDocumentRequest(BaseModel):
     source: str  # file path or URL
