@@ -5006,6 +5006,142 @@ async def companies_house_search_ep(q: str, limit: int = 5):
         return {"error": str(e)}
 
 
+# ── ZOOM INTEGRATION ENDPOINTS ─────────────────────────────────────────────
+
+@router.get("/zoom/status")
+async def zoom_status_ep():
+    """GET /api/aria/zoom/status — Zoom integration configuration status."""
+    try:
+        from ..intel import zoom_integration as zoom
+        return zoom.get_status()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/zoom/recordings")
+async def zoom_recordings_ep(days: int = 7, user_id: str = "me"):
+    """GET /api/aria/zoom/recordings — list recent cloud recordings."""
+    try:
+        from ..intel import zoom_integration as zoom
+        recordings = await zoom.list_recordings(user_id=user_id, days=days)
+        return {"recordings": recordings, "count": len(recordings)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class ProcessTranscriptRequest(BaseModel):
+    meeting_id: str
+    transcript_text: str = ""
+    transcript_url: str = ""
+    topic: str = ""
+
+
+@router.post("/zoom/process-transcript")
+async def zoom_process_transcript_ep(
+    req: ProcessTranscriptRequest,
+    llm=Depends(get_llm),
+):
+    """POST /api/aria/zoom/process-transcript — process a meeting transcript
+    through ARIA's learning pipeline."""
+    try:
+        from ..intel import zoom_integration as zoom
+        # Download transcript if URL provided
+        transcript = req.transcript_text
+        if not transcript and req.transcript_url:
+            transcript = await zoom.download_transcript(req.transcript_url)
+        if not transcript:
+            return {"error": "No transcript text or valid URL provided"}
+        result = await zoom.process_meeting_transcript(
+            meeting_id=req.meeting_id,
+            transcript_text=transcript,
+            meeting_topic=req.topic or "Untitled Meeting",
+            llm=llm,
+        )
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/zoom/process-all-recent")
+async def zoom_process_all_recent_ep(
+    days: int = 7,
+    llm=Depends(get_llm),
+):
+    """POST /api/aria/zoom/process-all-recent — download and process all
+    recent meeting transcripts that haven't been processed yet."""
+    try:
+        from ..intel import zoom_integration as zoom
+        recordings = await zoom.list_recordings(days=days)
+        processed = []
+        for rec in recordings:
+            if not rec.get("has_transcript") or not rec.get("transcript_url"):
+                continue
+            transcript = await zoom.download_transcript(rec["transcript_url"])
+            if not transcript:
+                continue
+            result = await zoom.process_meeting_transcript(
+                meeting_id=rec["meeting_id"],
+                transcript_text=transcript,
+                meeting_topic=rec.get("topic", ""),
+                llm=llm,
+            )
+            processed.append(result)
+        return {"processed": len(processed), "results": processed}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class CreateMeetingRequest(BaseModel):
+    topic: str
+    duration: int = 60
+    start_time: str = ""
+    agenda: str = ""
+
+
+@router.post("/zoom/create-meeting")
+async def zoom_create_meeting_ep(req: CreateMeetingRequest):
+    """POST /api/aria/zoom/create-meeting — create a Zoom meeting (ARIA's own link)."""
+    try:
+        from ..intel import zoom_integration as zoom
+        meeting = await zoom.create_meeting(
+            topic=req.topic,
+            duration=req.duration,
+            start_time=req.start_time,
+            agenda=req.agenda,
+        )
+        if meeting:
+            return {"ok": True, **meeting}
+        return {"ok": False, "error": "Failed to create meeting — check Zoom credentials"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/zoom/upcoming")
+async def zoom_upcoming_ep():
+    """GET /api/aria/zoom/upcoming — list upcoming scheduled meetings."""
+    try:
+        from ..intel import zoom_integration as zoom
+        meetings = await zoom.list_upcoming_meetings()
+        return {"meetings": meetings, "count": len(meetings)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/zoom/transcripts")
+async def zoom_transcripts_ep(limit: int = 20):
+    """GET /api/aria/zoom/transcripts — recently processed transcripts."""
+    try:
+        from ..intel import zoom_integration as zoom
+        return {"transcripts": await zoom.get_processed_transcripts(limit)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# Zoom webhook — mounted on the main app (not the router) because
+# Zoom sends events without our bearer token. See main.py for the
+# actual webhook endpoint registration.
+
+
 class ReadDocumentRequest(BaseModel):
     source: str  # file path or URL
     query: str = ""

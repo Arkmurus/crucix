@@ -15,7 +15,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
@@ -471,6 +471,36 @@ async def health():
         "llm_configured": bool(llm and llm.is_configured),
         "llm_fallback_stats": llm_stats,
     }
+
+
+@app.post("/api/aria/zoom/webhook")
+async def zoom_webhook_ep(request: Request):
+    """Zoom webhook receiver — NOT auth-protected (Zoom sends its own signature).
+
+    Handles:
+      - recording.completed → auto-download + process transcript
+      - meeting.ended → log metadata
+      - endpoint.url_validation → Zoom verification challenge
+    """
+    try:
+        from .intel import zoom_integration as zoom
+        body = await request.json()
+
+        # Verify Zoom signature if webhook secret is set
+        signature = request.headers.get("x-zm-signature", "")
+        timestamp = request.headers.get("x-zm-request-timestamp", "")
+        if zoom._WEBHOOK_SECRET and signature:
+            raw_body = await request.body()
+            if not zoom.verify_webhook_signature(raw_body, signature, timestamp):
+                from fastapi import HTTPException
+                raise HTTPException(status_code=401, detail="Invalid Zoom webhook signature")
+
+        llm = getattr(app.state, "llm_provider", None)
+        result = await zoom.handle_webhook(body, llm=llm)
+        return result
+    except Exception as e:
+        logger.warning("Zoom webhook error: %s", e)
+        return {"error": str(e)}
 
 
 @app.post("/api/aria/ingest", dependencies=[Depends(require_aria_token)])
