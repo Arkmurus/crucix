@@ -211,10 +211,10 @@ async def lifespan(app: FastAPI):
         logger.info("Research scheduler DISABLED via ARIA_AUTONOMOUS_RESEARCH_ENABLED=0")
     if llm and llm.is_configured and research_enabled:
         async def _research_loop():
-            # 5-minute startup delay (was 1 minute) so cold-start chat traffic
-            # has a clean window before the research loop starts hammering
-            # sentence-transformers and saturating CPU.
-            await asyncio.sleep(300)
+            # 15-minute startup delay (was 5 min). Staggered far from
+            # self-improve (10min) and student (20/25min) to prevent
+            # thundering herd on Anthropic tier-1 rate limits.
+            await asyncio.sleep(900)
             while True:
                 # Tag as BACKGROUND priority so the rate limiter yields
                 # to interactive chat when Anthropic quota is tight.
@@ -264,7 +264,7 @@ async def lifespan(app: FastAPI):
     self_improve_task = None
     if llm and llm.is_configured:
         async def _self_improve_loop():
-            await asyncio.sleep(300)  # Wait 5 min after startup
+            await asyncio.sleep(600)  # Wait 10 min after startup (staggered from research at 15min)
             while True:
                 from .llm.rate_limiter import set_priority, reset_priority, Priority
                 _p = set_priority(Priority.BACKGROUND)
@@ -300,9 +300,9 @@ async def lifespan(app: FastAPI):
     library_consolidate_task = None
 
     async def _quiz_loop():
-        # First quiz happens 10 min after startup so the library has time
-        # to receive at least one cloud answer worth quizzing on.
-        await asyncio.sleep(600)
+        # First quiz happens 20 min after startup (staggered from research
+        # at 15min and self-improve at 10min to prevent rate limit storms).
+        await asyncio.sleep(1200)
         while True:
             from .llm.rate_limiter import set_priority, reset_priority, Priority
             _p = set_priority(Priority.BACKGROUND)
@@ -323,8 +323,9 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(3 * 3600)  # Every 3 hours
 
     async def _reading_loop():
-        # First reading session 15 min after startup so feeds are warm
-        await asyncio.sleep(900)
+        # First reading session 25 min after startup (last in the stagger
+        # sequence: self-improve 10m → research 15m → quiz 20m → reading 25m).
+        await asyncio.sleep(1500)
         while True:
             from .llm.rate_limiter import set_priority, reset_priority, Priority
             _p = set_priority(Priority.BACKGROUND)
