@@ -282,6 +282,159 @@ tasks:
     escalate_if: ["new platform", "contract", "Africa", "Baykar", "Elbit"]
     mem0_tags: [hardware, platforms, weekly, autonomous]
 
+  - id: WEEKLY-HW-COMBAT
+    name: Combat equipment performance tracking
+    description: Weekly Wednesday 15:00 UTC — Oryx-style combat loss tracking and equipment performance.
+    cron: "0 15 * * wed"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "combat equipment performance loss tracking Oryx verified military 2026"
+    delivery_channels: [mem0]
+    escalate_if: ["combat proven", "destroyed", "captured", "new deployment"]
+    mem0_tags: [hardware, combat-performance, weekly, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # BLOCK F+ — Extended Global Coverage (10 new tasks)
+  # ──────────────────────────────────────────────────────────────────
+  - id: WEEKLY-GEO-NATO
+    name: NATO and European defence posture
+    description: Weekly Monday 09:00 UTC — NATO force posture, European defence procurement, PESCO updates.
+    cron: "0 9 * * mon"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "NATO European defence procurement PESCO EDF force posture 2026"
+    delivery_channels: [mem0]
+    escalate_if: ["NATO", "PESCO", "European Defence Fund", "new programme"]
+    mem0_tags: [nato, europe, defence, weekly, autonomous]
+
+  - id: WEEKLY-GEO-ASIA
+    name: Indo-Pacific defence and security
+    description: Weekly Tuesday 12:00 UTC — AUKUS, Quad, ASEAN defence, Korean peninsula, Taiwan Strait.
+    cron: "0 12 * * tue"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "Indo-Pacific AUKUS Quad ASEAN defence security procurement Japan South Korea Taiwan 2026"
+    delivery_channels: [mem0]
+    escalate_if: ["AUKUS", "Taiwan", "South Korea", "Japan defence"]
+    mem0_tags: [asia-pacific, defence, weekly, autonomous]
+
+  - id: WEEKLY-GEO-LATAM
+    name: Latin America and Brazil defence
+    description: Weekly Thursday 13:00 UTC — Brazil defence industry, CPLP Americas, LatAm security.
+    cron: "0 13 * * thu"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "Brazil Latin America defence procurement Embraer Avibras CPLP security 2026"
+    delivery_channels: [mem0]
+    escalate_if: ["Embraer", "Brazil", "Avibras", "Super Tucano", "CPLP"]
+    mem0_tags: [latin-america, brazil, cplp, weekly, autonomous]
+
+  - id: WEEKLY-AFRICA-NORTH
+    name: North Africa and Sahel security
+    description: Weekly Wednesday 08:00 UTC — Libya, Algeria, Morocco, Sahel security dynamics.
+    cron: "0 8 * * wed"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "North Africa Sahel Libya Algeria Morocco defence security Wagner Sahel 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["Wagner", "Libya", "Sahel", "coup", "instability"]
+    mem0_tags: [north-africa, sahel, security, weekly, autonomous]
+
+  - id: WEEKLY-COMP-ITAR
+    name: US ITAR and DDTC export control updates
+    description: Weekly Wednesday 09:00 UTC — ITAR amendments, DDTC notices, FMS updates.
+    cron: "0 9 * * wed"
+    enabled: false
+    priority: HIGH
+    timeout_seconds: 120
+    cost_cap_usd: 0.15
+    tool_chain:
+      - tool: deep_research
+        entity: "US ITAR DDTC export control FMS Congressional notification defence 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["ITAR", "DDTC", "FMS", "Congressional notification", "new rule"]
+    mem0_tags: [us, itar, compliance, weekly, autonomous]
+
+  - id: WEEKLY-BD-TURKEY
+    name: Turkish defence industry global expansion
+    description: Weekly Friday 10:00 UTC — Baykar, ASELSAN, ROKETSAN, SSB export campaigns.
+    cron: "0 10 * * fri"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "Turkey Turkish defence industry export Baykar TB2 ASELSAN ROKETSAN SSB Africa Asia 2026"
+    delivery_channels: [mem0]
+    escalate_if: ["Baykar", "TB2", "Anka", "ASELSAN", "Africa", "new contract"]
+    mem0_tags: [turkey, defence-export, bd, weekly, autonomous]
+
+  - id: WEEKLY-BD-MA
+    name: Defence industry M&A and joint ventures
+    description: Weekly Thursday 14:00 UTC — global defence M&A, JVs, consortium formations.
+    cron: "0 14 * * thu"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "defence industry merger acquisition joint venture consortium 2026"
+    delivery_channels: [mem0]
+    escalate_if: ["acquisition", "merger", "joint venture", "consortium"]
+    mem0_tags: [defence-industry, ma, weekly, autonomous]
+
+  - id: WEEKLY-GEO-CENTRAL-ASIA
+    name: Central Asia and Caucasus security
+    description: Weekly Friday 11:00 UTC — Kazakhstan, Azerbaijan, Georgia, Turkmenistan defence.
+    cron: "0 11 * * fri"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "Central Asia Caucasus Kazakhstan Azerbaijan Georgia defence security procurement 2026"
+    delivery_channels: [mem0]
+    escalate_if: ["Kazakhstan", "Azerbaijan", "Georgia", "Turkey"]
+    mem0_tags: [central-asia, caucasus, weekly, autonomous]
+
+  - id: DAILY-SANCTIONS-SCREENING
+    name: Daily sanctions update screening
+    description: Daily 07:00 UTC — check OFAC, EU, UN sanctions feeds for new designations.
+    cron: "0 7 * * mon-fri"
+    enabled: false
+    priority: HIGH
+    timeout_seconds: 120
+    cost_cap_usd: 0.15
+    tool_chain:
+      - tool: deep_research
+        entity: "sanctions update OFAC SDN EU UN new designation defence Africa 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["new designation", "sanctions", "OFAC", "Africa", "defence"]
+    mem0_tags: [sanctions, daily, compliance, autonomous]
+
   # ──────────────────────────────────────────────────────────────────
   # BLOCK G — Weekly Summary (Friday)
   # ──────────────────────────────────────────────────────────────────
