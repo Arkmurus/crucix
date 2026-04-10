@@ -252,23 +252,43 @@ async def deploy_improvement(improvement_id: str) -> dict:
     file_path = target["file"]
     full_path = _root / file_path
 
-    # Backup current file
+    # Backup current file — structured backup with metadata for the
+    # metacognitive coding_lessons module to track rollback history.
     backup_path = None
+    backup_metadata = None
     if full_path.exists():
         backup_dir = _root / "runs" / "backups" / "aria_self"
         backup_dir.mkdir(parents=True, exist_ok=True)
-        backup_name = f"{file_path.replace('/', '_')}_{int(time.time())}.bak"
+        ts = int(time.time())
+        backup_name = f"{file_path.replace('/', '_')}_{ts}.bak"
         backup_path = backup_dir / backup_name
-        backup_path.write_text(full_path.read_text(encoding="utf-8"), encoding="utf-8")
+        original_content = full_path.read_text(encoding="utf-8")
+        backup_path.write_text(original_content, encoding="utf-8")
+        backup_metadata = {
+            "file": file_path,
+            "backup_path": str(backup_path),
+            "backed_up_at": ts,
+            "original_lines": original_content.count("\n") + 1,
+            "improvement_id": improvement_id,
+        }
+        # Store backup metadata to Redis for the metacognitive system
+        try:
+            backups_log = await rs.get_json("crucix:aria:backup_log") or []
+            backups_log.append(backup_metadata)
+            backups_log = backups_log[-100:]  # keep last 100 backups
+            await rs.set_json("crucix:aria:backup_log", backups_log, ex=30 * 86400)
+        except Exception as e:
+            logger.debug("Backup metadata store failed (non-fatal): %s", e)
 
     # Write new content
     try:
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(target["new_content"], encoding="utf-8")
     except Exception as e:
-        # Rollback
+        # Rollback on failure — restore from backup
         if backup_path and backup_path.exists():
             full_path.write_text(backup_path.read_text(encoding="utf-8"), encoding="utf-8")
+            logger.info("Auto-rollback: restored %s from backup after deploy failure", file_path)
         return {"error": f"Deploy failed: {e}"}
 
     # Git commit
@@ -283,6 +303,21 @@ async def deploy_improvement(improvement_id: str) -> dict:
     await rs.set_json(STAGED_KEY, staged, ex=7 * 86400)
 
     await _log_improvement("deployed", target)
+
+    # Record a coding lesson for the metacognitive pattern library
+    try:
+        from ..metacognitive import coding_lessons
+        import asyncio
+        asyncio.create_task(coding_lessons.record_lesson(
+            reference=improvement_id,
+            outcome="SUCCESS",
+            what_worked=target["description"],
+            what_failed="",
+            gap_type=target.get("change_type", ""),
+            file_changed=file_path,
+        ))
+    except Exception as e:
+        logger.debug("Coding lesson record failed (non-fatal): %s", e)
 
     return {
         "deployed": True,
@@ -326,6 +361,21 @@ async def rollback_improvement(improvement_id: str) -> dict:
     await rs.set_json(STAGED_KEY, staged, ex=7 * 86400)
 
     await _log_improvement("rolled_back", target)
+
+    # Record a coding lesson from the rollback — what failed matters
+    try:
+        from ..metacognitive import coding_lessons
+        import asyncio
+        asyncio.create_task(coding_lessons.record_lesson(
+            reference=improvement_id,
+            outcome="ROLLED_BACK",
+            what_worked="",
+            what_failed=f"Fix to {file_path} was rolled back: {target.get('description', '')}",
+            gap_type=target.get("change_type", ""),
+            file_changed=file_path,
+        ))
+    except Exception as e:
+        logger.debug("Coding lesson (rollback) record failed (non-fatal): %s", e)
 
     return {"rolled_back": True, "id": improvement_id, "file": file_path}
 

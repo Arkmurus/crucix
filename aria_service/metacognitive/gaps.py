@@ -219,3 +219,194 @@ async def get_high_severity_gaps(limit: int = 10) -> list[dict]:
     all_gaps = await get_recent_gaps(limit=200)
     high = [g for g in all_gaps if g.get("severity") == "HIGH"]
     return high[:limit]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# OPERATIONAL GAP SIGNALS — 4 real-time detectors that fire during chat
+# ══════════════════════════════════════════════════════════════════════════════
+# These complement the document-based gap detection above. While that system
+# identifies gaps when ARIA *reads*, these identify gaps when ARIA *operates*.
+#
+# Signal 1: CONFIDENCE_FAILURE — output confidence below threshold
+# Signal 2: MEMORY_MISS — expected knowledge missing from retrieval
+# Signal 3: RESEARCH_FAILURE — web search returned no useful results
+# Signal 4: OUTPUT_REJECTION — human corrected ARIA's output
+#
+# Each signal is stored to Redis with a per-type counter. When the same
+# signal type accumulates GAP_TRIGGER_COUNT times, it auto-triggers a
+# code fix proposal via the self-improvement codegen pipeline.
+
+_OPERATIONAL_GAPS_LIST = "crucix:metacog:gaps:operational"
+_OPERATIONAL_COUNTER_KEY = "crucix:metacog:gaps:counter:{gap_type}"
+_OPERATIONAL_MAX = 500
+
+# Number of same-type gaps before triggering a code fix proposal
+GAP_TRIGGER_COUNT = 3
+
+# Confidence threshold below which a gap is logged
+CONFIDENCE_THRESHOLD = 0.60
+
+# Map gap types to suggested fix targets
+_FIX_TARGETS = {
+    "CONFIDENCE_FAILURE": {
+        "file": "aria_service/intel/knowledge.py",
+        "approach": "Expand knowledge taxonomy or add source",
+        "risk": "MEDIUM",
+    },
+    "MEMORY_MISS": {
+        "file": "aria_service/intel/neural_memory.py",
+        "approach": "Improve memory tagging or retrieval query construction",
+        "risk": "HIGH",
+    },
+    "RESEARCH_FAILURE": {
+        "file": "aria_service/intel/researcher.py",
+        "approach": "Add source URL, improve search queries, or add extraction logic",
+        "risk": "MEDIUM",
+    },
+    "OUTPUT_REJECTION": {
+        "file": "aria_service/intel/training_data.py",
+        "approach": "Add correct example to training data or correction learner",
+        "risk": "LOW",
+    },
+}
+
+
+async def log_confidence_failure(
+    query: str,
+    confidence: float,
+    domain: str = "",
+    missing_knowledge: str = "",
+) -> dict:
+    """Signal 1: ARIA produced output with confidence below threshold."""
+    if confidence >= CONFIDENCE_THRESHOLD:
+        return {"logged": False, "reason": "above_threshold"}
+    gap = {
+        "type": "CONFIDENCE_FAILURE",
+        "detected_at": datetime.now(timezone.utc).isoformat(),
+        "query": query[:500],
+        "confidence": confidence,
+        "domain": domain,
+        "missing_knowledge": missing_knowledge[:300],
+        "suggested_fix": _FIX_TARGETS["CONFIDENCE_FAILURE"],
+    }
+    return await _store_operational_gap(gap)
+
+
+async def log_memory_miss(
+    query: str,
+    expected_category: str = "",
+    retrieved_count: int = 0,
+) -> dict:
+    """Signal 2: memory retrieval returned empty for a topic that should exist."""
+    gap = {
+        "type": "MEMORY_MISS",
+        "detected_at": datetime.now(timezone.utc).isoformat(),
+        "query": query[:500],
+        "expected_category": expected_category,
+        "retrieved_count": retrieved_count,
+        "suggested_fix": _FIX_TARGETS["MEMORY_MISS"],
+    }
+    return await _store_operational_gap(gap)
+
+
+async def log_research_failure(
+    search_query: str,
+    expected_tier: str = "",
+    results_count: int = 0,
+) -> dict:
+    """Signal 3: web search returned no relevant results."""
+    gap = {
+        "type": "RESEARCH_FAILURE",
+        "detected_at": datetime.now(timezone.utc).isoformat(),
+        "search_query": search_query[:500],
+        "expected_tier": expected_tier,
+        "results_count": results_count,
+        "suggested_fix": _FIX_TARGETS["RESEARCH_FAILURE"],
+    }
+    return await _store_operational_gap(gap)
+
+
+async def log_output_rejection(
+    query: str,
+    human_correction: str,
+    correction_reason: str = "",
+) -> dict:
+    """Signal 4: human corrected ARIA's output — highest priority gap.
+
+    OUTPUT_REJECTION always triggers an immediate code fix proposal
+    regardless of the counter threshold.
+    """
+    gap = {
+        "type": "OUTPUT_REJECTION",
+        "detected_at": datetime.now(timezone.utc).isoformat(),
+        "query": query[:500],
+        "human_correction": human_correction[:500],
+        "correction_reason": correction_reason[:300],
+        "suggested_fix": _FIX_TARGETS["OUTPUT_REJECTION"],
+        "priority": "HIGH",
+    }
+    result = await _store_operational_gap(gap)
+    # Human corrections always trigger immediate proposal
+    result["trigger_immediate"] = True
+    return result
+
+
+async def _store_operational_gap(gap: dict) -> dict:
+    """Store an operational gap and check if the trigger threshold is hit."""
+    gap_type = gap["type"]
+
+    # Store the gap record
+    await rs.lpush(_OPERATIONAL_GAPS_LIST, json.dumps(gap))
+    await rs.ltrim(_OPERATIONAL_GAPS_LIST, 0, _OPERATIONAL_MAX - 1)
+
+    # Also push to the main gaps list so it shows up in the consciousness report
+    await rs.lpush(_GAPS_LIST, json.dumps({
+        "gap": f"Operational: {gap_type}",
+        "domain": gap.get("domain", "operational"),
+        "severity": "HIGH" if gap_type == "OUTPUT_REJECTION" else "MEDIUM",
+        "detected_at": gap["detected_at"],
+        "source_doc_type": f"operational_signal:{gap_type}",
+        "corrective_action": gap.get("suggested_fix", {}).get("approach", ""),
+    }))
+
+    # Increment per-type counter (24h TTL so stale gaps don't accumulate)
+    counter_key = _OPERATIONAL_COUNTER_KEY.format(gap_type=gap_type)
+    count = await rs.incr(counter_key)
+    # Set 24h expiry on first increment
+    if count == 1:
+        await rs.expire(counter_key, 86400)
+
+    triggered = count >= GAP_TRIGGER_COUNT or gap_type == "OUTPUT_REJECTION"
+
+    logger.info(
+        "[operational gap] %s count=%d triggered=%s",
+        gap_type, count, triggered,
+    )
+
+    return {
+        "logged": True,
+        "gap_type": gap_type,
+        "count": count,
+        "threshold": GAP_TRIGGER_COUNT,
+        "triggered": triggered,
+    }
+
+
+async def get_operational_gaps(limit: int = 30) -> list[dict]:
+    """Return recent operational gap signals."""
+    raw = await rs.lrange(_OPERATIONAL_GAPS_LIST, 0, limit - 1)
+    return [json.loads(r) for r in raw if r]
+
+
+async def get_operational_gap_summary() -> dict:
+    """Aggregate summary of operational gaps by type."""
+    gaps = await get_operational_gaps(limit=200)
+    by_type: dict[str, int] = {}
+    for g in gaps:
+        t = g.get("type", "UNKNOWN")
+        by_type[t] = by_type.get(t, 0) + 1
+    return {
+        "total": len(gaps),
+        "by_type": by_type,
+        "most_recent": gaps[0] if gaps else None,
+    }

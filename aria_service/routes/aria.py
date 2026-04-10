@@ -4756,3 +4756,70 @@ async def metacognitive_codegen_pending(limit: int = 10):
         return {"proposals": proposals}
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.get("/metacognitive/codegen/by-risk/{risk_level}")
+async def metacognitive_codegen_by_risk(risk_level: str, limit: int = 10):
+    """GET /api/aria/metacognitive/codegen/by-risk/{LOW|MEDIUM|HIGH|CRITICAL}"""
+    try:
+        from ..metacognitive import self_improvement_codegen as codegen
+        proposals = await codegen.get_proposals_by_risk(risk_level.upper(), limit)
+        return {"risk_level": risk_level.upper(), "proposals": proposals}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/metacognitive/lessons")
+async def metacognitive_lessons(limit: int = 20):
+    """GET /api/aria/metacognitive/lessons — coding pattern library."""
+    try:
+        from ..metacognitive import coding_lessons
+        lessons = await coding_lessons.get_recent_lessons(limit=limit)
+        patterns = await coding_lessons.get_patterns()
+        stats = await coding_lessons.get_lesson_stats()
+        return {"lessons": lessons, "patterns": patterns, "stats": stats}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class RecordLessonRequest(BaseModel):
+    reference: str
+    outcome: str
+    what_worked: str
+    what_failed: str = ""
+    gap_type: str = ""
+    domain: str = ""
+    file_changed: str = ""
+    pattern_name: str = ""
+
+
+@router.post("/metacognitive/lessons/record")
+async def metacognitive_record_lesson(req: RecordLessonRequest):
+    """POST /api/aria/metacognitive/lessons/record — record a coding lesson."""
+    try:
+        from ..metacognitive import coding_lessons
+        result = await coding_lessons.record_lesson(
+            reference=req.reference,
+            outcome=req.outcome,
+            what_worked=req.what_worked,
+            what_failed=req.what_failed,
+            gap_type=req.gap_type,
+            domain=req.domain,
+            file_changed=req.file_changed,
+            pattern_name=req.pattern_name,
+        )
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/metacognitive/operational-gaps")
+async def metacognitive_operational_gaps(limit: int = 30):
+    """GET /api/aria/metacognitive/operational-gaps — real-time gap signals."""
+    try:
+        from ..metacognitive import gaps
+        operational = await gaps.get_operational_gaps(limit=limit)
+        summary = await gaps.get_operational_gap_summary()
+        return {"operational_gaps": operational, "summary": summary}
+    except Exception as e:
+        return {"error": str(e)}
