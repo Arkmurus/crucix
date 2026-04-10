@@ -149,10 +149,11 @@ async def detect_gaps_from_document(
     analysis["domain"] = domain
 
     # Persist gaps, corrections, methodology updates separately for
-    # efficient retrieval by the consciousness engine
-    knowledge_gaps = analysis.get("knowledge_gaps_identified", [])
-    corrections = analysis.get("corrections_required", [])
-    methodology_gaps = analysis.get("methodology_gaps_identified", [])
+    # efficient retrieval by the consciousness engine.
+    # Use `or []` to guard against LLM returning null instead of [].
+    knowledge_gaps = analysis.get("knowledge_gaps_identified") or []
+    corrections = analysis.get("corrections_required") or []
+    methodology_gaps = analysis.get("methodology_gaps_identified") or []
 
     for gap in knowledge_gaps:
         gap["detected_at"] = ts

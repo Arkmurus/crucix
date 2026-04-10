@@ -1016,6 +1016,8 @@ def _detect_metacog_domain(message: str) -> str:
         return "writing_and_communication"
     if any(w in m for w in ("ach", "pmesii", "hypothesis", "red team", "scenario", "bias")):
         return "intelligence_analysis"
+    if any(w in m for w in ("code", "python", "api", "redis", "deploy", "bug", "module", "script")):
+        return "coding_and_systems"
     return "general"
 
 
