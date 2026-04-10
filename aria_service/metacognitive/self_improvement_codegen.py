@@ -160,6 +160,15 @@ async def generate_improvement_code(
                       else "(no current code — new module or target unknown)"),
     )
 
+    # Inject prior coding lessons so ARIA doesn't repeat past mistakes
+    try:
+        from . import coding_lessons
+        lessons_block = await coding_lessons.lessons_addendum_for_codegen(gap_description)
+        if lessons_block:
+            prompt += lessons_block
+    except Exception as e:
+        logger.debug("Coding lessons injection failed (non-fatal): %s", e)
+
     try:
         from ..intel import cost_tracker
         with cost_tracker.feature("metacognitive"):
