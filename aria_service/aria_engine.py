@@ -1630,6 +1630,40 @@ async def aria_chat(
     except Exception as e:
         logger.debug("Metacognitive self-assessment hook failed (non-fatal): %s", e)
 
+    # ── OPERATIONAL GAP SIGNALS — fire-and-forget background detection ──
+    # Wire the 4 gap signal types into the live chat pipeline so ARIA
+    # detects confidence failures, memory misses, research failures,
+    # and output rejections in real-time. Each signal accumulates a
+    # Redis counter; 3 of the same type triggers a code fix proposal.
+    try:
+        from .metacognitive import gaps as _metacog_gaps
+        if _metacog_gaps.is_enabled() if hasattr(_metacog_gaps, 'is_enabled') else True:
+            # Signal 1: MEMORY_MISS — if 7-layer context came back empty
+            _ctx_len = len(context) if context else 0
+            if _ctx_len < 50 and len(message) > 100:
+                _mm_task = asyncio.create_task(
+                    _metacog_gaps.log_memory_miss(
+                        query=message[:300],
+                        expected_category=_detect_metacog_domain(message),
+                        retrieved_count=0,
+                    )
+                )
+                _mm_task.add_done_callback(_bg_done("metacog.log_memory_miss"))
+
+            # Signal 3: RESEARCH_FAILURE — if tool-augmented message had
+            # a FETCH/EXTRACTION FAILED marker, research didn't work
+            if "[TOOL:" in message and "FAILED" in message:
+                _rf_task = asyncio.create_task(
+                    _metacog_gaps.log_research_failure(
+                        search_query=message[:300],
+                        expected_tier="TIER_B",
+                        results_count=0,
+                    )
+                )
+                _rf_task.add_done_callback(_bg_done("metacog.log_research_failure"))
+    except Exception as e:
+        logger.debug("Operational gap signal hooks failed (non-fatal): %s", e)
+
     try:
         # Hold strong references so the GC can't collect mid-task
         # (asyncio.create_task() with no reference is a known footgun)

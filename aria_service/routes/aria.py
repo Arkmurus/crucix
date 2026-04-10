@@ -300,6 +300,17 @@ async def correct_ep(req: CorrectionRequest):
         req.originalQuery, req.originalResponse, req.correction, req.correctAnswer,
     )
     await knowledge.store_learning(req.correction, req.originalQuery)
+    # Signal 4: OUTPUT_REJECTION — human corrected ARIA, highest priority gap
+    try:
+        from ..metacognitive import gaps as _metacog_gaps
+        await _metacog_gaps.log_output_rejection(
+            query=req.originalQuery or "",
+            human_correction=req.correctAnswer or req.correction or "",
+            correction_reason=req.correction or "",
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger("aria.routes").debug("Output rejection gap signal failed (non-fatal): %s", e)
     return {"ok": True, "message": "Correction recorded — ARIA will learn from this"}
 
 
@@ -4821,5 +4832,71 @@ async def metacognitive_operational_gaps(limit: int = 30):
         operational = await gaps.get_operational_gaps(limit=limit)
         summary = await gaps.get_operational_gap_summary()
         return {"operational_gaps": operational, "summary": summary}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── DOCUMENT READER ENDPOINTS ──────────────────────────────────────────────
+# Cherry-picked from v3 — 4-strategy document extraction pipeline.
+# Supports PDFs (pdfplumber → OCR → LLM vision → online search),
+# plus plaintext, HTML, .docx, and images.
+
+class ReadDocumentRequest(BaseModel):
+    source: str  # file path or URL
+    query: str = ""
+    language_hint: str = ""
+
+
+@router.post("/read-document")
+async def read_document_ep(
+    req: ReadDocumentRequest,
+    llm=Depends(get_llm),
+):
+    """POST /api/aria/read-document — extract text from any document using
+    the 4-strategy fallback pipeline."""
+    try:
+        from ..intel import document_reader
+        result = await document_reader.read_document(
+            source=req.source,
+            llm=llm,
+            query=req.query,
+            language_hint=req.language_hint,
+        )
+        return {
+            "text": result.text[:10000],
+            "method": result.method,
+            "confidence": result.confidence,
+            "is_usable": result.is_usable,
+            "pages_extracted": result.pages_extracted,
+            "total_pages": result.total_pages,
+            "summary": result.summary,
+            "warnings": result.warnings,
+            "strategies_attempted": result.strategies_attempted,
+            "gap_description": result.gap_description,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class ReadContractRequest(BaseModel):
+    source: str
+    market: str = ""
+
+
+@router.post("/read-contract")
+async def read_contract_ep(
+    req: ReadContractRequest,
+    llm=Depends(get_llm),
+):
+    """POST /api/aria/read-contract — read and analyse a contract for SITCL
+    triggers and missing clauses."""
+    try:
+        from ..intel import document_reader
+        result = await document_reader.analyse_contract(
+            source=req.source,
+            llm=llm,
+            market=req.market,
+        )
+        return result
     except Exception as e:
         return {"error": str(e)}
