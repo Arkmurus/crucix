@@ -179,9 +179,23 @@ async def spawn_research_task(
     }
     await _save_task(task)
 
-    # Schedule the actual work — fire-and-forget but keep a strong ref
-    coro = _run_task(task_id, llm)
-    job = asyncio.create_task(coro, name=f"research_task:{task_id}")
+    # Schedule the actual work — fire-and-forget but keep a strong ref.
+    # Wrap with a 10-minute hard timeout so tasks can't hang forever
+    # (incident 2026-04-10: rt_1775813834565 stuck in "running" indefinitely).
+    _TASK_HARD_TIMEOUT = 600  # 10 minutes
+    async def _run_with_timeout():
+        try:
+            await asyncio.wait_for(_run_task(task_id, llm), timeout=_TASK_HARD_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning("Research task %s hit hard timeout (%ds)", task_id, _TASK_HARD_TIMEOUT)
+            await _update_task(
+                task_id, status="failed",
+                progress="timeout", error=f"Hard timeout after {_TASK_HARD_TIMEOUT}s",
+                failed_at=time.time(),
+            )
+            await _push_failure_alert(task_id, task, TimeoutError(f"Task exceeded {_TASK_HARD_TIMEOUT}s"))
+
+    job = asyncio.create_task(_run_with_timeout(), name=f"research_task:{task_id}")
     _running_tasks[task_id] = job
     job.add_done_callback(lambda t: _running_tasks.pop(task_id, None))
 
@@ -485,6 +499,63 @@ async def _push_failure_alert(task_id: str, task: dict, err: Exception) -> None:
         })
     except Exception as e:
         logger.warning("Push failure alert failed: %s", e)
+
+
+# ── Cancel + cleanup ──────────────────────────────────────────────────────
+
+async def cancel_task(task_id: str) -> dict:
+    """Cancel a running research task. Marks it as failed + cancelled."""
+    job = _running_tasks.get(task_id)
+    if job and not job.done():
+        job.cancel()
+        await _update_task(
+            task_id, status="failed",
+            progress="cancelled", error="Cancelled by user/admin",
+            failed_at=time.time(),
+        )
+        _running_tasks.pop(task_id, None)
+        return {"ok": True, "task_id": task_id, "status": "cancelled"}
+
+    # Task not in memory — might be a stale "running" record from a
+    # prior process (e.g. pre-deploy). Force-update Redis status.
+    task = await get_task(task_id)
+    if task and task.get("status") == "running":
+        await _update_task(
+            task_id, status="failed",
+            progress="cancelled_stale",
+            error="Marked as failed — task was stale (process likely restarted)",
+            failed_at=time.time(),
+        )
+        return {"ok": True, "task_id": task_id, "status": "cancelled_stale"}
+
+    return {"ok": False, "error": f"Task {task_id} not found or not running"}
+
+
+async def cleanup_stale_tasks(max_age_seconds: int = 900) -> dict:
+    """Find tasks stuck in 'running' status beyond max_age and mark them failed.
+
+    This handles the case where a deploy/restart killed the asyncio task
+    but Redis still shows status=running. Default: 15 minutes.
+    """
+    index = await rs.get_json(TASKS_INDEX_KEY) or []
+    now = time.time()
+    cleaned = 0
+    for entry in index:
+        if entry.get("status") != "running":
+            continue
+        task = await get_task(entry.get("id", ""))
+        if not task:
+            continue
+        started = task.get("started_at") or task.get("created_at", 0)
+        if now - started > max_age_seconds:
+            await _update_task(
+                task["id"], status="failed",
+                progress="stale_cleanup",
+                error=f"Task was running for {int(now - started)}s — marked stale by cleanup",
+                failed_at=now,
+            )
+            cleaned += 1
+    return {"cleaned": cleaned, "max_age_seconds": max_age_seconds}
 
 
 # ── Stats ───────────────────────────────────────────────────────────────────

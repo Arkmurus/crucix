@@ -793,7 +793,46 @@ async def autonomous_improvement_cycle(llm) -> dict:
     except Exception as e:
         logger.warning("[Self-Improve] Neural memory maintenance failed: %s", e)
 
-    # ── Step 4: Code learning — study own codebase patterns ────────────
+    # ── Step 4: Check metacognitive gap signals for triggered thresholds ──
+    # The metacognitive gaps module logs CONFIDENCE_FAILURE, MEMORY_MISS,
+    # RESEARCH_FAILURE, OUTPUT_REJECTION signals with per-type Redis counters.
+    # When 3+ of the same type accumulate (24h window), we generate a code
+    # fix proposal targeting the suggested file.
+    try:
+        from ..metacognitive import gaps as _metacog_gaps
+        from ..metacognitive import self_improvement_codegen as _codegen
+        op_summary = await _metacog_gaps.get_operational_gap_summary()
+        gap_fixes_proposed = 0
+        for gap_type, count in (op_summary.get("by_type") or {}).items():
+            if count >= _metacog_gaps.GAP_TRIGGER_COUNT:
+                fix_target = _metacog_gaps._FIX_TARGETS.get(gap_type, {})
+                if fix_target:
+                    # Read recent gaps of this type for context
+                    recent = await _metacog_gaps.get_operational_gaps(limit=5)
+                    related = [g for g in recent if g.get("type") == gap_type]
+                    proposal = await _codegen.generate_improvement_code(
+                        gap_description=(
+                            f"Recurring {gap_type} ({count} occurrences in 24h). "
+                            f"Target: {fix_target.get('file', 'unknown')}. "
+                            f"Approach: {fix_target.get('approach', 'unknown')}."
+                        ),
+                        requirements=f"Fix the root cause of {gap_type} signals.",
+                        domain="coding_and_systems",
+                        llm=llm,
+                        related_gaps=related,
+                        target_file=fix_target.get("file", ""),
+                    )
+                    if proposal.get("ok"):
+                        gap_fixes_proposed += 1
+                        logger.info(
+                            "[Self-Improve] Gap signal %s triggered code proposal: %s",
+                            gap_type, proposal.get("reference", "?"),
+                        )
+        results["gap_fixes_proposed"] = gap_fixes_proposed
+    except Exception as e:
+        logger.warning("[Self-Improve] Gap signal check failed: %s", e)
+
+    # ── Step 5: Code learning — study own codebase patterns ────────────
     try:
         state = await rs.get_json(SELF_IMPROVEMENT_STATE_KEY) or {}
         last_code_study = state.get("last_code_study", 0)

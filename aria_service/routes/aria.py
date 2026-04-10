@@ -300,6 +300,7 @@ async def correct_ep(req: CorrectionRequest):
         req.originalQuery, req.originalResponse, req.correction, req.correctAnswer,
     )
     await knowledge.store_learning(req.correction, req.originalQuery)
+
     # Signal 4: OUTPUT_REJECTION — human corrected ARIA, highest priority gap
     try:
         from ..metacognitive import gaps as _metacog_gaps
@@ -309,8 +310,36 @@ async def correct_ep(req: CorrectionRequest):
             correction_reason=req.correction or "",
         )
     except Exception as e:
-        import logging
-        logging.getLogger("aria.routes").debug("Output rejection gap signal failed (non-fatal): %s", e)
+        _log.debug("Output rejection gap signal failed (non-fatal): %s", e)
+
+    # Wire confidence tag from the original response into the calibration engine.
+    # This closes the loop: ARIA states confidence → user corrects → calibration
+    # records the error → future prompts adjust confidence thresholds.
+    try:
+        from ..metacognitive import calibration as _cal
+        import re as _re_cal
+        original = req.originalResponse or ""
+        # Extract confidence tag: [CONFIRMED], [PROBABLE], [ASSESSED], [UNCERTAIN], [SPECULATIVE]
+        tag_match = _re_cal.search(r"\[(CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN|SPECULATIVE)\]", original)
+        if tag_match:
+            tag = tag_match.group(1)
+            confidence_map = {
+                "CONFIRMED": 0.95, "PROBABLE": 0.75,
+                "ASSESSED": 0.55, "UNCERTAIN": 0.35, "SPECULATIVE": 0.15,
+            }
+            stated_conf = confidence_map.get(tag, 0.5)
+            # A correction means the original was WRONG — outcome=False
+            await _cal.record_assessment(
+                assessment_id=f"correction:{hash((req.originalQuery or '')[:100])}",
+                domain="general",
+                claim=f"ARIA stated [{tag}]: {(req.originalQuery or '')[:200]}",
+                stated_confidence=stated_conf,
+                outcome=False,
+            )
+            _log.info("[calibration] Recorded correction: stated %s (%.0f%%) was wrong", tag, stated_conf * 100)
+    except Exception as e:
+        _log.debug("Confidence→calibration wiring failed (non-fatal): %s", e)
+
     return {"ok": True, "message": "Correction recorded — ARIA will learn from this"}
 
 
@@ -438,6 +467,18 @@ async def research_list_ep(limit: int = 30, status: str | None = None):
 async def research_stats_ep():
     """Overview of the research task system."""
     return await research_tasks.get_stats()
+
+
+@router.post("/research/task/{task_id}/cancel")
+async def research_cancel_ep(task_id: str):
+    """Cancel a running or stale research task."""
+    return await research_tasks.cancel_task(task_id)
+
+
+@router.post("/research/cleanup-stale")
+async def research_cleanup_stale_ep(max_age_seconds: int = 900):
+    """Clean up research tasks stuck in 'running' status (default: 15 min)."""
+    return await research_tasks.cleanup_stale_tasks(max_age_seconds)
 
 
 # ── Feedback: WhatsApp reaction → ground-truth signal ────────────────────
@@ -2556,6 +2597,24 @@ async def read_document_ep(request: Request):
             llm = get_llm(request)
             ocr_result = await aria_ocr.extract_text_from_image(raw_bytes, filename, context, llm)
             extracted = ocr_result.get("text", "")
+
+        # V3 document_reader fallback for PDFs — 4-strategy pipeline
+        if (not extracted or len(extracted) < 30) and ("pdf" in mime_lower or fname_lower.endswith(".pdf")):
+            try:
+                import tempfile
+                from ..intel import document_reader as _dr
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False, prefix="aria_wa_") as tmp:
+                    tmp.write(raw_bytes)
+                    tmp_path = tmp.name
+                llm = get_llm(request)
+                dr_result = await _dr.read_document(source=tmp_path, llm=llm, query=context)
+                if dr_result.is_usable:
+                    extracted = dr_result.text[:15000]
+                    _log.info("[read-document] v3 fallback succeeded: %s %.0f%%", dr_result.method, dr_result.confidence * 100)
+                import os
+                os.unlink(tmp_path)
+            except Exception as e:
+                _log.debug("V3 document_reader fallback failed (non-fatal): %s", e)
 
         if not extracted or len(extracted) < 30:
             raise HTTPException(status_code=400, detail="Could not extract text from binary document")
@@ -4953,13 +5012,13 @@ class ReadDocumentRequest(BaseModel):
     language_hint: str = ""
 
 
-@router.post("/read-document")
-async def read_document_ep(
+@router.post("/extract-document")
+async def extract_document_ep(
     req: ReadDocumentRequest,
     llm=Depends(get_llm),
 ):
-    """POST /api/aria/read-document — extract text from any document using
-    the 4-strategy fallback pipeline."""
+    """POST /api/aria/extract-document — extract text from any document
+    using the v3 4-strategy fallback pipeline (file path or URL)."""
     try:
         from ..intel import document_reader
         result = await document_reader.read_document(
