@@ -1901,8 +1901,8 @@ async def aria_chat_stream(
                 await conversation_store.create_conversation(user_id, session_id, _user_persist)
             else:
                 await conversation_store.touch_conversation(session_id, user_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Conversation store update failed in stream (non-fatal): %s", e)
 
     # ── Fire-and-forget background tasks (same as aria_chat) ──────────
     def _bg_done(name):

@@ -41,7 +41,14 @@ async def create_conversation(
     await rs.zadd(_CONV_KEY.format(user_id=user_id), now, session_id)
     await rs.hset(_META_KEY.format(session_id=session_id), meta)
 
-    return {"session_id": session_id, **meta, "messageCount": 1}
+    return {
+        "session_id": session_id,
+        "title": title,
+        "userId": user_id,
+        "createdAt": now,
+        "updatedAt": now,
+        "messageCount": 1,
+    }
 
 
 async def touch_conversation(session_id: str, user_id: str = "") -> None:

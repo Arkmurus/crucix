@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -47,7 +47,7 @@ class LLMProvider(ABC):
         *,
         max_tokens: int = 4096,
         timeout: float = 120.0,
-        on_done: "Optional[callable]" = None,
+        on_done: "Optional[Callable]" = None,
     ) -> AsyncGenerator[str, None]:
         """Yield text chunks as the LLM generates them.
 

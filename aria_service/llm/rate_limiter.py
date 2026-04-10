@@ -173,7 +173,7 @@ class RateLimitedProvider(LLMProvider):
         result.routed_via = f"rate_limited:{self._inner.name}"
         return result
 
-    async def stream(
+    async def stream(  # type: ignore[override]
         self,
         system_prompt: str,
         user_message: str,

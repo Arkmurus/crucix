@@ -10,7 +10,7 @@ import asyncio
 import json as _json
 import httpx
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from typing import Optional
 
 from .provider import LLMProvider, LLMResult
@@ -129,7 +129,7 @@ class AnthropicProvider(LLMProvider):
         *,
         max_tokens: int = 4096,
         timeout: float = 120.0,
-        on_done: "Optional[callable]" = None,
+        on_done: "Optional[Callable]" = None,
     ) -> AsyncGenerator[str, None]:
         """Yield text chunks as Anthropic generates them.
 
