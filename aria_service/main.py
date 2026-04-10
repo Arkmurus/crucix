@@ -351,6 +351,25 @@ async def lifespan(app: FastAPI):
     proactive_task = asyncio.create_task(_proactive_loop())
     logger.info("Proactive watch started: daily briefing + mastery prep (hourly)")
 
+    # ── METACOGNITIVE ENGINE STATUS ───────────────────────────────────────
+    # Phase 3 metacognitive stack: self-assessment, gap detection, Brier
+    # scoring, consciousness mapping, self-improvement code generation.
+    # The engine hooks into the chat pipeline (post-output self-assessment)
+    # and the autonomous engine (daily/weekly/monthly cycles). No background
+    # loop needed — just log readiness status at startup.
+    try:
+        from .metacognitive.identity import is_enabled as metacog_enabled
+        if metacog_enabled():
+            logger.info(
+                "Metacognitive engine ENABLED — self-assessment on chat pipeline, "
+                "identity+calibration injected into system prompt. "
+                "Admin: /api/aria/metacognitive/status"
+            )
+        else:
+            logger.info("Metacognitive engine DISABLED — set ARIA_METACOGNITIVE_ENABLED=1 to enable")
+    except Exception as e:
+        logger.warning("Metacognitive engine status check failed (non-fatal): %s", e)
+
     # ── ARIA LAYER 3 — AUTONOMOUS RESEARCH ENGINE ───────────────────────
     # Phase 3c-α (2026-04-09): scheduled research tasks defined in
     # aria_service/autonomous/tasks.yaml. Gated behind TWO independent

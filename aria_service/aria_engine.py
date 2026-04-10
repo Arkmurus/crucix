@@ -989,6 +989,36 @@ def _strip_response_for_history(response_text: str) -> str:
     return response_text
 
 
+def _detect_metacog_domain(message: str) -> str:
+    """Best-effort domain classification for the metacognitive self-assessment.
+
+    Maps user message keywords to ARIA capability domains so the
+    self-assessment evaluates against the right professional standard.
+    """
+    if not message:
+        return "general"
+    m = message.lower()
+    if any(w in m for w in ("investigate", "screen", "due diligence", "ubo", "shell", "ghost", "dd on")):
+        return "due_diligence_investigation"
+    if any(w in m for w in ("sitcl", "itar", "export control", "ecju", "wassenaar", "sanction", "embargo", "licence")):
+        return "export_control_compliance"
+    if any(w in m for w in ("angola", "mozambique", "cplp", "lusophone", "guinea-bissau", "cape verde")):
+        return "lusophone_africa_geopolitics"
+    if any(w in m for w in ("tank", "artillery", "ammunition", "drone", "uav", "missile", "naval", "armour", "weapon")):
+        return "military_hardware"
+    if any(w in m for w in ("osint", "intelligence", "signal", "source", "verify")):
+        return "osint_methodology"
+    if any(w in m for w in ("research", "search", "find out", "look into", "web search")):
+        return "research_methodology"
+    if any(w in m for w in ("geopolit", "nato", "russia", "china", "conflict", "war")):
+        return "world_geopolitics"
+    if any(w in m for w in ("report", "brief", "write", "executive summary", "proposal")):
+        return "writing_and_communication"
+    if any(w in m for w in ("ach", "pmesii", "hypothesis", "red team", "scenario", "bias")):
+        return "intelligence_analysis"
+    return "general"
+
+
 async def _build_calibrated_system_prompt(message: str) -> str:
     """Build the system prompt with calibration + contradictions + structured-
     analysis templates injected.
@@ -1138,6 +1168,20 @@ async def _build_calibrated_system_prompt(message: str) -> str:
             logger.info("[correction_learner] injected recent corrections addendum")
     except Exception as e:
         logger.debug("correction_learner addendum injection failed (non-fatal): %s", e)
+
+    # Metacognitive identity + live calibration — gives ARIA self-awareness
+    # principles (8 operating doctrines) and dynamic confidence recalibration
+    # from her own Brier scoring data. Behind ARIA_METACOGNITIVE_ENABLED
+    # env var (default ON). This is the bridge between ARIA's self-assessment
+    # engine and her real-time behaviour.
+    try:
+        from .metacognitive.identity import get_identity_with_calibration
+        metacog = await get_identity_with_calibration()
+        if metacog:
+            addendum_parts.append(metacog)
+            logger.info("[metacognitive] identity + calibration addendum injected")
+    except Exception as e:
+        logger.debug("metacognitive identity injection failed (non-fatal): %s", e)
 
     if not addendum_parts:
         return ARIA_SYSTEM_PROMPT
@@ -1544,6 +1588,29 @@ async def aria_chat(
             if exc is not None:
                 logger.warning("background task %s raised: %s: %s", name, type(exc).__name__, exc)
         return _cb
+
+    # ── METACOGNITIVE: post-output self-assessment (fire-and-forget) ──
+    # After every substantive output, ARIA scores herself against
+    # professional standards. Results feed into calibration engine +
+    # weekly consciousness report. Gated: only fires on research /
+    # investigation / analysis outputs (not casual chat). Behind
+    # ARIA_METACOGNITIVE_ENABLED env var (default ON).
+    try:
+        from .metacognitive import engine as _metacog_engine
+        if _metacog_engine.is_enabled():
+            _metacog_domain = _detect_metacog_domain(message)
+            metacog_task = asyncio.create_task(
+                _metacog_engine.self_assess_output(
+                    query=message,
+                    aria_output=response_text,
+                    domain=_metacog_domain,
+                    llm=llm,
+                    session_id=session_id,
+                )
+            )
+            metacog_task.add_done_callback(_bg_done("metacognitive.self_assess"))
+    except Exception as e:
+        logger.debug("Metacognitive self-assessment hook failed (non-fatal): %s", e)
 
     try:
         # Hold strong references so the GC can't collect mid-task

@@ -75,3 +75,77 @@ tasks:
       - "OGE 2026"
 
     mem0_tags: [angola, procurement, tender, daily, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # METACOG-DAILY — Daily metacognitive self-check
+  # ──────────────────────────────────────────────────────────────────
+  - id: METACOG-DAILY
+    name: Daily metacognitive self-check
+    description: |
+      Daily 22:00 UTC aggregation of self-assessment scores, gap counts,
+      and calibration data. Light-weight — no LLM call, just Redis reads
+      and aggregation. Feeds into the weekly consciousness review.
+
+    cron: "0 22 * * *"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 30
+    cost_cap_usd: 0.00
+
+    tool_chain:
+      - tool: metacognitive_daily_check
+
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [metacognitive, daily, self-check]
+
+  # ──────────────────────────────────────────────────────────────────
+  # METACOG-WEEKLY — Weekly consciousness review
+  # ──────────────────────────────────────────────────────────────────
+  - id: METACOG-WEEKLY
+    name: Weekly consciousness review
+    description: |
+      Sunday 20:00 UTC full consciousness report. ARIA reflects on
+      the week's performance: self-assessment scores, gap detections,
+      calibration data, corrections made. Generates a structured
+      reflection stored permanently. Requires one LLM call (~$0.05).
+
+    cron: "0 20 * * sun"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 120
+    cost_cap_usd: 0.10
+
+    tool_chain:
+      - tool: metacognitive_weekly_review
+
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [metacognitive, weekly, consciousness, reflection]
+
+  # ──────────────────────────────────────────────────────────────────
+  # METACOG-MONTHLY — Monthly gap-closure sprint
+  # ──────────────────────────────────────────────────────────────────
+  - id: METACOG-MONTHLY
+    name: Monthly gap-closure sprint
+    description: |
+      First Sunday of each month, 18:00 UTC. Reviews the top 3
+      persistent HIGH-severity gaps and generates code proposals to
+      close them. All proposals have PENDING_REVIEW status — nothing
+      auto-deploys. Requires 3-4 LLM calls (~$0.15-0.20).
+
+    cron: "0 18 1-7 * sun"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 300
+    cost_cap_usd: 0.30
+
+    tool_chain:
+      - tool: metacognitive_monthly_sprint
+
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [metacognitive, monthly, gap-closure, code-generation]

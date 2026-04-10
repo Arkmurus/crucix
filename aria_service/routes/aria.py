@@ -4558,3 +4558,201 @@ Prioritise: Lusophone Africa (incumbent advantage), then established markets whe
         return {"leads": result.text, "generated_at": datetime.now(timezone.utc).isoformat()}
     except Exception as e:
         return {"leads": f"⚠️ Lead hunt failed: {e}", "error": True}
+
+
+# ── METACOGNITIVE ADMIN ENDPOINTS ──────────────────────────────────────────
+# Phase 3 metacognitive engine — self-assessment, gap detection, calibration,
+# consciousness mapping. All behind the same bearer token auth as the rest
+# of the router.
+
+@router.get("/metacognitive/status")
+async def metacognitive_status():
+    """GET /api/aria/metacognitive/status — full metacognitive engine state."""
+    try:
+        from ..metacognitive import consciousness, calibration, engine as metacog_engine, cycle
+        state = await consciousness.get_consciousness_state()
+        cycle_status = await cycle.get_cycle_status()
+        return {
+            "enabled": metacog_engine.is_enabled(),
+            "consciousness_state": state,
+            "cycle_status": cycle_status,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/metacognitive/calibration")
+async def metacognitive_calibration():
+    """GET /api/aria/metacognitive/calibration — full Brier scoring report."""
+    try:
+        from ..metacognitive import calibration
+        report = await calibration.get_full_calibration_report()
+        recent = await calibration.get_recent_assessments(limit=10)
+        return {"report": report, "recent_assessments": recent}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/metacognitive/assessments")
+async def metacognitive_assessments(limit: int = 20):
+    """GET /api/aria/metacognitive/assessments — recent self-assessment records."""
+    try:
+        from ..metacognitive import engine as metacog_engine
+        records = await metacog_engine.get_recent_assessments(limit=limit)
+        stats = await metacog_engine.get_assessment_stats()
+        return {"assessments": records, "stats": stats}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/metacognitive/gaps")
+async def metacognitive_gaps(limit: int = 30):
+    """GET /api/aria/metacognitive/gaps — detected knowledge + methodology gaps."""
+    try:
+        from ..metacognitive import gaps
+        knowledge_gaps = await gaps.get_recent_gaps(limit=limit)
+        corrections = await gaps.get_recent_corrections(limit=20)
+        methodology = await gaps.get_recent_methodology_updates(limit=20)
+        docs_read = await gaps.get_documents_read(limit=20)
+        return {
+            "knowledge_gaps": knowledge_gaps,
+            "corrections": corrections,
+            "methodology_updates": methodology,
+            "documents_read": docs_read,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/metacognitive/consciousness")
+async def metacognitive_consciousness(limit: int = 3):
+    """GET /api/aria/metacognitive/consciousness — recent consciousness reports."""
+    try:
+        from ..metacognitive import consciousness
+        reports = await consciousness.get_recent_reports(limit=limit)
+        profiles = await consciousness.get_all_profiles()
+        return {"reports": reports, "capability_profiles": profiles}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class ReadAndLearnRequest(BaseModel):
+    document: str
+    doc_type: str = "general"
+    domain: str = "general"
+
+
+@router.post("/metacognitive/read-and-learn")
+async def metacognitive_read_and_learn(
+    req: ReadAndLearnRequest,
+    llm=Depends(get_llm),
+):
+    """POST /api/aria/metacognitive/read-and-learn — ARIA reads a document
+    and performs gap detection against her capability profile."""
+    try:
+        from ..metacognitive import gaps
+        result = await gaps.detect_gaps_from_document(
+            document_content=req.document,
+            doc_type=req.doc_type,
+            domain=req.domain,
+            llm=llm,
+        )
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class RecordAssessmentRequest(BaseModel):
+    assessment_id: str
+    domain: str
+    claim: str
+    stated_confidence: float
+    outcome: Optional[bool] = None
+
+
+@router.post("/metacognitive/record-assessment")
+async def metacognitive_record_assessment(req: RecordAssessmentRequest):
+    """POST /api/aria/metacognitive/record-assessment — record a prediction
+    for Brier scoring."""
+    try:
+        from ..metacognitive import calibration
+        record = await calibration.record_assessment(
+            assessment_id=req.assessment_id,
+            domain=req.domain,
+            claim=req.claim,
+            stated_confidence=req.stated_confidence,
+            outcome=req.outcome,
+        )
+        return {"ok": True, "record": record}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class ResolveAssessmentRequest(BaseModel):
+    assessment_id: str
+    outcome: bool
+
+
+@router.post("/metacognitive/resolve-assessment")
+async def metacognitive_resolve_assessment(req: ResolveAssessmentRequest):
+    """POST /api/aria/metacognitive/resolve-assessment — resolve a prediction
+    with its actual outcome for Brier scoring."""
+    try:
+        from ..metacognitive import calibration
+        record = await calibration.resolve_assessment(
+            assessment_id=req.assessment_id,
+            outcome=req.outcome,
+        )
+        if record:
+            return {"ok": True, "record": record}
+        return {"ok": False, "error": "Assessment not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/metacognitive/run-daily")
+async def metacognitive_run_daily(llm=Depends(get_llm)):
+    """POST /api/aria/metacognitive/run-daily — manually trigger the daily
+    self-check cycle."""
+    try:
+        from ..metacognitive import cycle
+        result = await cycle.daily_self_check(llm)
+        return {"ok": True, "result": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/metacognitive/run-weekly")
+async def metacognitive_run_weekly(llm=Depends(get_llm)):
+    """POST /api/aria/metacognitive/run-weekly — manually trigger the weekly
+    consciousness review."""
+    try:
+        from ..metacognitive import cycle
+        result = await cycle.weekly_consciousness_review(llm)
+        return {"ok": True, "result": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/metacognitive/run-monthly")
+async def metacognitive_run_monthly(llm=Depends(get_llm)):
+    """POST /api/aria/metacognitive/run-monthly — manually trigger the monthly
+    gap-closure sprint."""
+    try:
+        from ..metacognitive import cycle
+        result = await cycle.monthly_gap_closure_sprint(llm, top_n_gaps=3)
+        return {"ok": True, "result": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/metacognitive/codegen/pending")
+async def metacognitive_codegen_pending(limit: int = 10):
+    """GET /api/aria/metacognitive/codegen/pending — pending self-improvement
+    code proposals."""
+    try:
+        from ..metacognitive import self_improvement_codegen as codegen
+        proposals = await codegen.get_pending_proposals(limit=limit)
+        return {"proposals": proposals}
+    except Exception as e:
+        return {"error": str(e)}
