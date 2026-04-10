@@ -146,6 +146,19 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("MeteredProvider wrap failed (non-fatal): %s", e)
 
+    # Wrap with priority-aware rate limiter so background loops don't
+    # starve interactive chat of Anthropic quota. Interactive requests
+    # always go through; background tasks yield when near the limit.
+    # ARIA_LLM_RPM env var sets the requests-per-minute cap (default 50).
+    if llm:
+        try:
+            from .llm.rate_limiter import RateLimitedProvider
+            llm = RateLimitedProvider(llm)
+            logger.info("LLM provider wrapped with rate limiter (rpm=%s)",
+                        _os.getenv("ARIA_LLM_RPM", "50"))
+        except Exception as e:
+            logger.warning("RateLimitedProvider wrap failed (non-fatal): %s", e)
+
     app.state.llm_provider = llm
     app.state.current_data = None  # Will be set by sweep integration
 
@@ -203,6 +216,10 @@ async def lifespan(app: FastAPI):
             # sentence-transformers and saturating CPU.
             await asyncio.sleep(300)
             while True:
+                # Tag as BACKGROUND priority so the rate limiter yields
+                # to interactive chat when Anthropic quota is tight.
+                from .llm.rate_limiter import set_priority, reset_priority, Priority
+                _p = set_priority(Priority.BACKGROUND)
                 # Attribute every LLM call this loop fires to the
                 # "autonomous_research" feature so /cost separates it
                 # from interactive chat and on-demand research_tasks.
@@ -237,6 +254,7 @@ async def lifespan(app: FastAPI):
                     logger.warning(f"[Research] Cycle failed: {e}")
                 finally:
                     cost_tracker.reset_feature(_t)
+                    reset_priority(_p)
                 await asyncio.sleep(30 * 60)  # Every 30 minutes
 
         research_task = asyncio.create_task(_research_loop())
@@ -248,6 +266,8 @@ async def lifespan(app: FastAPI):
         async def _self_improve_loop():
             await asyncio.sleep(300)  # Wait 5 min after startup
             while True:
+                from .llm.rate_limiter import set_priority, reset_priority, Priority
+                _p = set_priority(Priority.BACKGROUND)
                 _t = cost_tracker.set_feature("self_improve")
                 try:
                     logger.info("[Self-Improve] Starting autonomous improvement cycle...")
@@ -262,6 +282,7 @@ async def lifespan(app: FastAPI):
                     logger.warning("[Self-Improve] Cycle failed: %s", e)
                 finally:
                     cost_tracker.reset_feature(_t)
+                    reset_priority(_p)
                 await asyncio.sleep(2 * 3600)  # Every 2 hours
 
         self_improve_task = asyncio.create_task(_self_improve_loop())
@@ -283,6 +304,8 @@ async def lifespan(app: FastAPI):
         # to receive at least one cloud answer worth quizzing on.
         await asyncio.sleep(600)
         while True:
+            from .llm.rate_limiter import set_priority, reset_priority, Priority
+            _p = set_priority(Priority.BACKGROUND)
             _t = cost_tracker.set_feature("student_quiz")
             try:
                 result = await student.self_quiz(num_questions=5)
@@ -296,12 +319,15 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Student] Quiz failed: %s", e)
             finally:
                 cost_tracker.reset_feature(_t)
+                reset_priority(_p)
             await asyncio.sleep(3 * 3600)  # Every 3 hours
 
     async def _reading_loop():
         # First reading session 15 min after startup so feeds are warm
         await asyncio.sleep(900)
         while True:
+            from .llm.rate_limiter import set_priority, reset_priority, Priority
+            _p = set_priority(Priority.BACKGROUND)
             _t = cost_tracker.set_feature("student_reading")
             try:
                 result = await student.reading_session(llm=llm, num_articles=4)
@@ -314,6 +340,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("[Student] Reading session failed: %s", e)
             finally:
                 cost_tracker.reset_feature(_t)
+                reset_priority(_p)
             await asyncio.sleep(6 * 3600)  # Every 6 hours
 
     async def _library_consolidate_loop():
