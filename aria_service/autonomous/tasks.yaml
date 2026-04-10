@@ -77,6 +77,232 @@ tasks:
     mem0_tags: [angola, procurement, tender, daily, autonomous]
 
   # ──────────────────────────────────────────────────────────────────
+  # BLOCK A — Lusophone Africa (CRITICAL — Arkmurus core moat)
+  # ──────────────────────────────────────────────────────────────────
+  - id: DAILY-LUSO-MOZAMBIQUE
+    name: Mozambique defence and Cabo Delgado security scan
+    description: |
+      Daily 06:10 UTC scan for Mozambique defence procurement, Cabo
+      Delgado insurgency updates, and security cooperation developments.
+    cron: "10 6 * * mon-fri"
+    enabled: false
+    priority: HIGH
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "Mozambique defence security Cabo Delgado FADM procurement 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["FADM", "Cabo Delgado", "Rwanda", "SADC", "contract award", "tender"]
+    mem0_tags: [mozambique, procurement, security, daily, autonomous]
+
+  - id: DAILY-LUSO-GUINEA-BISSAU
+    name: Guinea-Bissau and Cape Verde security scan
+    description: |
+      Daily 06:20 UTC scan for Guinea-Bissau stability, security sector,
+      and Cape Verde updates.
+    cron: "20 6 * * mon-fri"
+    enabled: false
+    priority: HIGH
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "Guinea-Bissau Cape Verde defence security stability ECOWAS 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["coup", "instability", "ECOWAS", "military", "tender"]
+    mem0_tags: [guinea-bissau, cape-verde, security, daily, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # BLOCK B — Extended Africa (weekly scans)
+  # ──────────────────────────────────────────────────────────────────
+  - id: WEEKLY-AFRICA-WEST
+    name: West Africa defence procurement scan
+    description: |
+      Weekly Tuesday 07:00 UTC scan for defence procurement across
+      Nigeria, Senegal, Cote d'Ivoire, Ghana.
+    cron: "0 7 * * tue"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "West Africa Nigeria Senegal Ghana defence procurement tender 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["tender", "contract award", "Nigeria", "ECOWAS"]
+    mem0_tags: [west-africa, procurement, weekly, autonomous]
+
+  - id: WEEKLY-AFRICA-EAST
+    name: East Africa defence and security scan
+    description: |
+      Weekly Thursday 07:00 UTC scan for Kenya, Ethiopia, Somalia,
+      Uganda defence and security developments.
+    cron: "0 7 * * thu"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "East Africa Kenya Ethiopia Somalia Uganda defence security procurement 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["tender", "contract award", "peacekeeping", "AMISOM"]
+    mem0_tags: [east-africa, procurement, weekly, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # BLOCK C — Global Procurement Portals (daily)
+  # ──────────────────────────────────────────────────────────────────
+  - id: DAILY-PROC-TED
+    name: EU TED defence tenders
+    description: Daily 08:00 UTC scan for new EU defence tenders on TED.
+    cron: "0 8 * * mon-fri"
+    enabled: false
+    priority: HIGH
+    timeout_seconds: 120
+    cost_cap_usd: 0.15
+    tool_chain:
+      - tool: deep_research
+        entity: "TED tenders defence military security procurement Europe last 7 days 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["new tender", "defence", "military", "security equipment"]
+    mem0_tags: [eu, ted, procurement, daily, autonomous]
+
+  - id: DAILY-PROC-SAM
+    name: US SAM.gov defence tenders
+    description: Daily 08:15 UTC scan for new US FMS/defence tenders on SAM.gov.
+    cron: "15 8 * * mon-fri"
+    enabled: false
+    priority: HIGH
+    timeout_seconds: 120
+    cost_cap_usd: 0.15
+    tool_chain:
+      - tool: deep_research
+        entity: "SAM.gov defence military Africa security procurement last 7 days 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["FMS", "defence", "Africa", "NAICS 336"]
+    mem0_tags: [us, sam-gov, procurement, daily, autonomous]
+
+  - id: DAILY-PROC-UK
+    name: UK Contracts Finder defence tenders
+    description: Daily 08:30 UTC scan for UK defence tenders.
+    cron: "30 8 * * mon-fri"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 120
+    cost_cap_usd: 0.15
+    tool_chain:
+      - tool: deep_research
+        entity: "UK Contracts Finder defence military security procurement last 7 days 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["MOD", "defence", "DSTL", "DESA"]
+    mem0_tags: [uk, contracts-finder, procurement, daily, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # BLOCK D — Geopolitical (weekly)
+  # ──────────────────────────────────────────────────────────────────
+  - id: WEEKLY-GEO-GULF
+    name: Gulf security and procurement trends
+    description: Weekly Thursday 11:00 UTC Gulf region defence scan.
+    cron: "0 11 * * thu"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "Gulf UAE Saudi Arabia Qatar defence procurement security trends 2026"
+    delivery_channels: [mem0]
+    escalate_if: ["contract award", "new programme", "offset"]
+    mem0_tags: [gulf, geopolitics, procurement, weekly, autonomous]
+
+  - id: WEEKLY-GEO-TURKEY
+    name: Turkish defence industry expansion
+    description: Weekly Wednesday 10:00 UTC Turkish defence export scan.
+    cron: "0 10 * * wed"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "Turkey defence industry export Baykar ASELSAN ROKETSAN SSB 2026 Africa Asia"
+    delivery_channels: [mem0]
+    escalate_if: ["TB2", "Baykar", "ASELSAN", "Africa", "export"]
+    mem0_tags: [turkey, defence-industry, weekly, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # BLOCK E — Export Control and Compliance (weekly)
+  # ──────────────────────────────────────────────────────────────────
+  - id: WEEKLY-COMP-ECJU
+    name: UK ECJU export licensing updates
+    description: Weekly Tuesday 09:00 UTC UK export control scan.
+    cron: "0 9 * * tue"
+    enabled: false
+    priority: HIGH
+    timeout_seconds: 120
+    cost_cap_usd: 0.15
+    tool_chain:
+      - tool: deep_research
+        entity: "UK ECJU export control licence SIEL OIEL SITCL update 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["SITCL", "new regulation", "licence", "embargo", "sanctions"]
+    mem0_tags: [uk, ecju, compliance, weekly, autonomous]
+
+  - id: WEEKLY-COMP-SANCTIONS
+    name: International sanctions updates
+    description: Weekly Tuesday 10:00 UTC sanctions scan across OFAC, EU, UN.
+    cron: "0 10 * * tue"
+    enabled: false
+    priority: HIGH
+    timeout_seconds: 120
+    cost_cap_usd: 0.15
+    tool_chain:
+      - tool: deep_research
+        entity: "sanctions update OFAC SDN EU UN Security Council embargo 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["new sanctions", "designation", "OFAC", "embargo", "Africa"]
+    mem0_tags: [sanctions, compliance, weekly, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # BLOCK F — Hardware and Capability (weekly)
+  # ──────────────────────────────────────────────────────────────────
+  - id: WEEKLY-HW-PLATFORMS
+    name: New military platform announcements
+    description: Weekly Monday 14:00 UTC scan for new platform announcements and deals.
+    cron: "0 14 * * mon"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "new military platform announcement defence deal contract 2026 Africa Asia"
+    delivery_channels: [mem0]
+    escalate_if: ["new platform", "contract", "Africa", "Baykar", "Elbit"]
+    mem0_tags: [hardware, platforms, weekly, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # BLOCK G — Weekly Summary (Friday)
+  # ──────────────────────────────────────────────────────────────────
+  - id: WEEKLY-SUMMARY
+    name: Friday intelligence digest
+    description: |
+      Friday 16:00 UTC — synthesise the week's autonomous findings
+      into a structured executive brief covering key markets.
+    cron: "0 16 * * fri"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 240
+    cost_cap_usd: 0.25
+    tool_chain:
+      - tool: deep_research
+        entity: "Arkmurus weekly intelligence summary Angola Mozambique Guinea-Bissau Turkey Gulf procurement compliance 2026"
+    delivery_channels: [mem0]
+    escalate_if: ["urgent", "immediate action", "critical"]
+    mem0_tags: [summary, weekly, executive-brief, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
   # METACOG-DAILY — Daily metacognitive self-check
   # ──────────────────────────────────────────────────────────────────
   - id: METACOG-DAILY

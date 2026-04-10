@@ -5348,3 +5348,93 @@ async def rename_conversation_ep(session_id: str, req: RenameConversationRequest
     if not ok:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"ok": True, "session_id": session_id, "title": req.title}
+
+
+# ── Corpus Manager ───────────────────────────────────────────────────────────
+
+@router.get("/corpus/registry")
+async def corpus_registry_ep():
+    """Get corpus URL registry summary."""
+    from ..intel import corpus_manager
+    summary = await corpus_manager.get_registry_summary()
+    gaps = await corpus_manager.identify_regional_gaps()
+    return {**summary, "regional_gaps": gaps}
+
+
+class CorpusProposalRequest(BaseModel):
+    url: str
+    context: str = ""
+
+
+@router.post("/corpus/propose")
+async def corpus_propose_ep(req: CorpusProposalRequest, request: Request):
+    """Propose a new URL for the corpus. Auto-adds LOW risk, queues MEDIUM/HIGH."""
+    from ..intel import corpus_manager
+    llm = get_llm(request)
+    proposal = await corpus_manager.propose_url(req.url, req.context, llm)
+    return proposal.to_dict()
+
+
+class CorpusAddRequest(BaseModel):
+    url: str
+    tier: str = "C"
+
+
+@router.post("/corpus/add")
+async def corpus_add_ep(req: CorpusAddRequest):
+    """Directly add a URL to a tier (human-directed, bypasses classification)."""
+    from ..intel import corpus_manager
+    added = await corpus_manager.add_url_directly(req.url, req.tier)
+    return {"added": added, "url": req.url, "tier": req.tier}
+
+
+@router.get("/corpus/proposals")
+async def corpus_proposals_ep():
+    """Get pending proposals awaiting human review."""
+    from ..intel import corpus_manager
+    proposals = await corpus_manager.get_pending_proposals()
+    return {"proposals": proposals}
+
+
+@router.post("/corpus/approve")
+async def corpus_approve_ep(req: CorpusProposalRequest):
+    """Approve a pending URL proposal."""
+    from ..intel import corpus_manager
+    ok = await corpus_manager.approve_proposal(req.url)
+    return {"approved": ok, "url": req.url}
+
+
+@router.post("/corpus/crawl")
+async def corpus_crawl_ep():
+    """Trigger a weekly corpus crawl (indexes new/changed content)."""
+    from ..intel import corpus_manager
+    summary = await corpus_manager.run_weekly_crawl()
+    return summary
+
+
+@router.get("/corpus/gaps")
+async def corpus_gaps_ep():
+    """Identify regions with thin corpus coverage."""
+    from ..intel import corpus_manager
+    gaps = await corpus_manager.identify_regional_gaps()
+    return {"gaps": gaps}
+
+
+@router.get("/corpus/conflicts")
+async def neural_conflicts_ep():
+    """Get detected memory conflicts for review."""
+    from ..intel import neural_memory
+    conflicts = await neural_memory.get_conflicts()
+    return {"conflicts": conflicts}
+
+
+class ConflictResolveRequest(BaseModel):
+    entity: str
+
+
+@router.post("/corpus/conflicts/resolve")
+async def neural_conflicts_resolve_ep(req: ConflictResolveRequest):
+    """Resolve conflicts for an entity."""
+    from ..intel import neural_memory
+    ok = await neural_memory.resolve_conflict(req.entity)
+    return {"resolved": ok, "entity": req.entity}

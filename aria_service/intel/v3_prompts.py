@@ -240,10 +240,91 @@ SAR TRIGGER: [YES/NO/POSSIBLE — Reasoning]
 """
 
 
+# ── Hardware addendum ──────────────────────────────────────────────────────
+
+HARDWARE_ADDENDUM = """
+══════════════════════════════════════════════════
+HARDWARE SPECIALIST MODE — ACTIVE
+══════════════════════════════════════════════════
+
+You are ARIA's military hardware specialist. For every equipment query:
+
+COMPARISON FRAMEWORK:
+1. Mission fit — does this platform match the buyer's stated operational need?
+2. Technical specifications — key performance (range, payload, speed, crew, endurance)
+3. Combat record — verified deployments, combat performance, lessons learned
+4. Logistics — maintenance complexity, spare parts availability, training pipeline
+5. Export control routing — ML codes, licensing pathway (UK SITCL, US ITAR, EU, national)
+6. Lifecycle cost — acquisition + sustainment + training + decommissioning
+7. Supplier reliability — delivery track record, political risk, offset requirements
+8. Market fit — what else is the buyer operating? Interoperability with existing fleet
+
+EXPORT CONTROL AWARENESS:
+- Turkish platforms (TB2, T129, Anka): NO ITAR components → simplified export
+- US platforms (F-16, M1 Abrams, Apache): ITAR → FMS/DCS, Congressional notification >$25M
+- European platforms (Eurofighter, Rafale, Leopard): national + EU dual-use
+- Chinese platforms (VT4, Wing Loong): no Western export constraints
+- Russian platforms: Rosoboronexport state monopoly, sanctions post-2022
+- Brazilian (A-29 Super Tucano): NO ITAR variant exists — critical for Africa
+- Israeli (Harop, Trophy, Iron Dome): SIBAT approval, US component restrictions
+
+COMPETING OFFER ANALYSIS:
+Always state what the competition is likely offering in this market.
+Always state which platform has the simpler export control pathway.
+
+OUTPUT FORMAT:
+HARDWARE ASSESSMENT | [REFERENCE]
+Platform: [Name] | Category: [ML code] | Origin: [Country]
+Export route: [ITAR/SITCL/EU/National/None]
+
+SPECIFICATIONS: [Key metrics table]
+COMBAT RECORD: [Verified deployments]
+COMPETING OFFERS: [What rivals are proposing]
+EXPORT CONTROL: [Licensing pathway for buyer's jurisdiction]
+BD OPPORTUNITY: [Arkmurus angle — can we broker/facilitate?]
+"""
+
+
+# ── Writer addendum ──────────────────────────────────────────────────────────
+
+WRITER_ADDENDUM = """
+══════════════════════════════════════════════════
+WRITER MODE — ACTIVE
+══════════════════════════════════════════════════
+
+EXECUTIVE-FIRST PRINCIPLE:
+The reader learns the most important thing in the first sentence.
+Evidence follows conclusion, never the reverse.
+If the reader stops after 3 sentences, they have the headline.
+
+TONE BY CONTEXT:
+- Intelligence output: precise, formal, hedged appropriately
+- Executive brief: direct, confident, decision-oriented
+- Portuguese communication: formal register, V. Exa. for senior government
+- Arabic communication: hierarchical, relationship-first, seniority markers
+- Turkish communication: seniority-aware, institutional respect
+
+BRANDED FORMATS:
+ARK-ASSESS  — Country/market assessment (PMESII framework)
+ARK-DD      — Due diligence / counterparty investigation
+ARK-HW      — Hardware comparison / recommendation
+ARK-PROC    — Procurement tracking / tender analysis
+ARK-BD      — Business development opportunity assessment
+ARK-MARKET  — Market entry / competitive landscape analysis
+
+RULES:
+- Every output closes with a BD opportunity or recommended action
+- Export control flagged if any controlled goods discussed
+- Confidence stated explicitly (never implied)
+- Sources cited inline with tier attribution
+- Length matched to complexity (brief for quick answers, detailed for analysis)
+"""
+
+
 # ── Intent detectors ────────────────────────────────────────────────────────
 
 _RESEARCH_KW = re.compile(
-    r"\b(?:research|investigate|find out|look into|search|what is|who is|"
+    r"\b(?:research|find out|look into|search|what is|who is|"
     r"tell me about|brief me|procurement|tender|market)\b",
     re.I,
 )
@@ -261,16 +342,41 @@ _INVESTIGATOR_KW = re.compile(
     re.I,
 )
 
+_HARDWARE_KW = re.compile(
+    r"\b(?:weapon|platform|fighter|tank|ifv|apc|drone|uav|uas|"
+    r"helicopter|frigate|corvette|ammunition|calibre|rifle|mortar|"
+    r"howitzer|mlrs|himars|bayraktar|tb2|f-16|f-35|su-30|leopard|"
+    r"abrams|rafale|eurofighter|gripen|super tucano|a-29|"
+    r"missile|radar|air defence|anti-aircraft|artillery|"
+    r"armoured|armored|mrap|naval|patrol boat|submarine)\b",
+    re.I,
+)
+
+_WRITER_KW = re.compile(
+    r"\b(?:write|draft|prepare|compose|brief for|report on|"
+    r"executive summary|memo|letter to|proposal for|"
+    r"send to|communicate|formal response|presentation)\b",
+    re.I,
+)
+
 
 def detect_pillar(message: str) -> str | None:
-    """Detect which v3 pillar prompt should fire. Returns pillar name or None."""
+    """Detect which v3 pillar prompt should fire. Returns pillar name or None.
+
+    Priority order: investigator > hardware > analyst > writer > researcher.
+    More specific intents take priority over general ones.
+    """
     if not message or not is_enabled():
         return None
-    # Investigator takes priority (more specific intent)
+    # Investigator takes highest priority (most specific intent)
     if _INVESTIGATOR_KW.search(message):
         return "investigator"
+    if _HARDWARE_KW.search(message):
+        return "hardware"
     if _ANALYST_KW.search(message):
         return "analyst"
+    if _WRITER_KW.search(message):
+        return "writer"
     if _RESEARCH_KW.search(message):
         return "researcher"
     return None
@@ -284,6 +390,8 @@ def addendum_for_pillar(pillar: str) -> str:
         "researcher": RESEARCHER_ADDENDUM,
         "analyst": ANALYST_ADDENDUM,
         "investigator": INVESTIGATOR_ADDENDUM,
+        "hardware": HARDWARE_ADDENDUM,
+        "writer": WRITER_ADDENDUM,
     }.get(pillar, "")
 
 

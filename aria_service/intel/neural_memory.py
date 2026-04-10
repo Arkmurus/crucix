@@ -434,6 +434,15 @@ async def learn_from_text(text: str, source: str = "conversation",
     if not concepts:
         return {"neurons_activated": 0, "connections_formed": 0}
 
+    # Conflict detection — check if new text contradicts existing knowledge
+    conflicts_found = []
+    for concept, category in concepts:
+        if category in ("person", "organisation", "oem"):
+            conflict = detect_conflict(concept, text)
+            if conflict:
+                conflicts_found.append(conflict)
+                await log_conflict(conflict)
+
     neurons = []
     for concept, category in concepts:
         n = _find_or_create(concept, category, source, confidence)
@@ -465,6 +474,7 @@ async def learn_from_text(text: str, source: str = "conversation",
         "neurons_activated": len(neurons),
         "connections_formed": connections,
         "concepts": [c for c, _ in concepts],
+        "conflicts": conflicts_found,
     }
 
 
@@ -810,3 +820,108 @@ async def get_cluster(concept: str, depth: int = 1) -> dict:
                 frontier.append((target_id, d + 1))
 
     return {"found": True, "concept": concept, "nodes": nodes, "edges": edges_out}
+
+
+# ── Conflict Detection ──────────────────────────────────────────────────────
+# When new intelligence arrives about an entity, check if it contradicts
+# what ARIA already knows. Flag contradictions for human review rather
+# than silently overwriting.
+
+CONFLICT_KEY = "crucix:aria:neural_conflicts"
+
+_HIGH_RISK_SIGNALS = {"sanctioned", "high risk", "embargo", "blacklist", "fraud",
+                      "shell company", "ghost", "suspicious", "debarred", "prohibited"}
+_LOW_RISK_SIGNALS = {"compliant", "low risk", "cleared", "verified", "reputable",
+                     "legitimate", "approved", "clean"}
+
+
+def detect_conflict(entity: str, new_text: str) -> dict | None:
+    """Check if new intelligence about an entity contradicts stored knowledge.
+
+    Scans new text for risk signals and compares against existing neuron
+    metadata and connected neurons. Returns a conflict dict if opposing
+    signals are found, or None if no conflict.
+    """
+    neuron = _find_neuron(entity)
+    if not neuron:
+        return None
+
+    new_lower = new_text.lower()
+    new_high = any(s in new_lower for s in _HIGH_RISK_SIGNALS)
+    new_low = any(s in new_lower for s in _LOW_RISK_SIGNALS)
+
+    if not new_high and not new_low:
+        return None  # no risk signals in new text
+
+    # Check existing neuron metadata for opposing signals
+    existing_meta = json.dumps(neuron.get("metadata", {})).lower()
+    existing_source = (neuron.get("source") or "").lower()
+    existing_label = neuron.get("label", "").lower()
+
+    # Also check connected neurons for context
+    connected_text = ""
+    for target_id, weight in _edges.get(neuron["id"], {}).items():
+        if weight > 0.15:  # only strong connections
+            target = _neurons.get(target_id)
+            if target:
+                connected_text += " " + target.get("label", "") + " " + json.dumps(target.get("metadata", {}))
+    connected_lower = connected_text.lower()
+    all_existing = f"{existing_meta} {existing_source} {existing_label} {connected_lower}"
+
+    existing_high = any(s in all_existing for s in _HIGH_RISK_SIGNALS)
+    existing_low = any(s in all_existing for s in _LOW_RISK_SIGNALS)
+
+    # Conflict: new intel says HIGH risk but existing says LOW (or vice versa)
+    if (new_high and existing_low) or (new_low and existing_high):
+        conflict = {
+            "entity": entity,
+            "neuron_id": neuron["id"],
+            "existing_assessment": "HIGH_RISK" if existing_high else "LOW_RISK",
+            "new_assessment": "HIGH_RISK" if new_high else "LOW_RISK",
+            "existing_source": neuron.get("source", "unknown"),
+            "existing_confidence": neuron.get("confidence", "ASSESSED"),
+            "detected_at": time.time(),
+            "new_text_preview": new_text[:300],
+        }
+        return conflict
+
+    return None
+
+
+async def log_conflict(conflict: dict) -> None:
+    """Store a detected conflict for human review."""
+    try:
+        conflicts = await rs.get_json(CONFLICT_KEY) or []
+        conflicts.append(conflict)
+        # Keep last 100 conflicts
+        if len(conflicts) > 100:
+            conflicts = conflicts[-100:]
+        await rs.set_json(CONFLICT_KEY, conflicts)
+        logger.warning(
+            "[conflict] %s: existing=%s new=%s — flagged for review",
+            conflict.get("entity"),
+            conflict.get("existing_assessment"),
+            conflict.get("new_assessment"),
+        )
+    except Exception as e:
+        logger.debug("Conflict logging failed: %s", e)
+
+
+async def get_conflicts(limit: int = 20) -> list[dict]:
+    """Retrieve recent conflicts for review."""
+    conflicts = await rs.get_json(CONFLICT_KEY) or []
+    return conflicts[-limit:]
+
+
+async def resolve_conflict(entity: str) -> bool:
+    """Remove resolved conflicts for an entity."""
+    try:
+        conflicts = await rs.get_json(CONFLICT_KEY) or []
+        before = len(conflicts)
+        conflicts = [c for c in conflicts if c.get("entity", "").lower() != entity.lower()]
+        if len(conflicts) < before:
+            await rs.set_json(CONFLICT_KEY, conflicts)
+            return True
+        return False
+    except Exception:
+        return False
