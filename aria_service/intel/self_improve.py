@@ -952,6 +952,24 @@ def detect_self_improvement_request(message: str) -> Optional[str]:
     Returns the type of improvement or None."""
     m = message.lower().strip()
 
+    # Exclusion: if the message contains writing/editing task indicators,
+    # it's asking ARIA to improve USER CONTENT, not improve herself.
+    # Past incident 2026-04-10: "improve our reply regarding the C4 deal"
+    # was misclassified as a self-improvement request because "improve"
+    # matched the enhance pattern.
+    _WRITING_TASK_INDICATORS = (
+        "our reply", "our response", "our email", "our message",
+        "our proposal", "our letter", "our brief", "our report",
+        "this reply", "this response", "this email", "this message",
+        "this text", "this draft", "this letter", "this proposal",
+        "my reply", "my response", "my email", "my message",
+        "the reply", "the response", "the email", "the draft",
+        "below:", "reply below", "draft below", "text below",
+        "improve our", "rewrite our", "redraft", "polish",
+    )
+    if any(indicator in m for indicator in _WRITING_TASK_INDICATORS):
+        return None
+
     for pattern in _IMPROVE_PATTERNS:
         if pattern.search(m):
             # Classify the type
