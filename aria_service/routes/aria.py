@@ -204,6 +204,30 @@ def get_intel_data(request: Request):
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 # 1. GET /api/aria/identity
+# M7: memory tier diagnostics — visibility for cross-tier drift.
+@router.get("/memory/tiers")
+async def memory_tiers_ep():
+    """Snapshot of every memory tier (knowledge, mem0, neural, rag) so
+    ops can spot drift before it causes user-visible contradictions."""
+    from ..intel import memory_diagnostics
+    return await memory_diagnostics.snapshot_tiers()
+
+
+@router.get("/memory/diagnose")
+async def memory_diagnose_ep(topic: str = ""):
+    """Walk every memory tier for a topic and return what each says.
+    Use when ARIA appears to contradict herself across sessions."""
+    from ..intel import memory_diagnostics
+    return await memory_diagnostics.diagnose_topic(topic)
+
+
+@router.get("/quota")
+async def user_quota_ep(user: str = ""):
+    """Per-user quota state (H3) — see user_quota.py for field meanings."""
+    from ..intel import user_quota as _uq
+    return await _uq.get_user_state(user or "anon")
+
+
 @router.get("/identity")
 async def identity_ep():
     idn = await get_identity()
