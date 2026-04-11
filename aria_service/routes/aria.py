@@ -1642,6 +1642,61 @@ def _detect_dd_intent(message: str) -> dict | None:
             jurisdiction = inferred_display
             jurisdiction_iso2 = inferred_iso2
 
+    # ── Rich hint extraction from the surrounding message ──
+    # Users routinely paste a CUI / registration number, a website, and
+    # a claimed founding year in the same chat turn as the DD request.
+    # Pull them out so the orchestrator's identity layer can cross-
+    # check CUI → incorporation-date → website claim → ghost indicators
+    # 11 and 12 without requiring a structured API call.
+    extra: dict = {}
+
+    # Romanian CUI — look for "CUI 12345" / "CIF 12345" / "RO12345678"
+    cui_match = re.search(r"\b(?:cui|cif|ro)\s*:?\s*(\d{5,10})\b", message, re.IGNORECASE)
+    if cui_match:
+        extra["cui"] = cui_match.group(1)
+
+    # Website / domain — look for "s3rban.com" / "https://example.com"
+    # Only capture if it looks like a standalone URL / domain token.
+    url_match = re.search(r"\b(https?://[^\s,;)]+|(?:[a-z0-9-]+\.)+[a-z]{2,})\b", message, re.IGNORECASE)
+    if url_match:
+        raw_url = url_match.group(1)
+        # Strip scheme + path to get just the domain
+        clean = re.sub(r"^https?://", "", raw_url, flags=re.IGNORECASE).split("/", 1)[0]
+        # Avoid capturing obvious false positives (common abbreviations)
+        if "." in clean and len(clean) >= 4 and not clean.lower().startswith(("e.g.", "i.e.", "vs.", "etc.")):
+            extra["website"] = clean.lower()
+
+    # Claimed founding year — look for "founded in YYYY" / "since YYYY" /
+    # "est. YYYY" / "YYYY-present" patterns in the user message. Narrow
+    # YYYY window (1800-current year) to avoid false hits on tender
+    # numbers or ISO dates.
+    from datetime import datetime as _dt
+    _current_year = _dt.now().year
+    year_patterns = [
+        r"\bfounded\s+(?:in\s+)?(\d{4})\b",
+        r"\bsince\s+(\d{4})\b",
+        r"\bestablished\s+(?:in\s+)?(\d{4})\b",
+        r"\best\.?\s+(\d{4})\b",
+        r"\bin\s+business\s+since\s+(\d{4})\b",
+        r"\b(\d{4})\s*[-–]\s*(?:present|current|now|today)\b",
+    ]
+    for pat in year_patterns:
+        ym = re.search(pat, message, re.IGNORECASE)
+        if ym:
+            try:
+                y = int(ym.group(1))
+                if 1800 <= y <= _current_year:
+                    extra["claimed_founding_year"] = y
+                    break
+            except ValueError:
+                pass
+
+    # CAEN / NACE / SIC code — Romanian CAEN specifically for this case
+    caen_match = re.search(r"\bCAEN[\s:]*(\d{4})\b", message, re.IGNORECASE)
+    if caen_match:
+        extra["caen_code"] = caen_match.group(1)
+        extra["declared_activity_code"] = f"CAEN {caen_match.group(1)}"
+
     return {
         "tool": "dd_orchestrate",
         "name": name,
@@ -1651,6 +1706,7 @@ def _detect_dd_intent(message: str) -> dict | None:
         "registered_address": registered_address,
         "mode": "standard",
         "context": message,
+        **extra,
     }
 
 
@@ -2150,6 +2206,11 @@ async def _execute_tool(intent: dict, llm) -> str:
                 "jurisdiction": intent.get("jurisdiction"),
                 "jurisdiction_iso2": intent.get("jurisdiction_iso2"),
                 "registered_address": intent.get("registered_address"),
+                "cui": intent.get("cui"),
+                "website": intent.get("website"),
+                "claimed_founding_year": intent.get("claimed_founding_year"),
+                "caen_code": intent.get("caen_code"),
+                "declared_activity_code": intent.get("declared_activity_code"),
                 "product_description": intent.get("product_description"),
                 "transaction_value_usd": intent.get("transaction_value_usd"),
             }

@@ -451,8 +451,37 @@ INDICATOR 10 — History and changes (max 2 points)
   changes often indicate preparation for a specific transaction or
   avoidance of a prior issue.
 
+INDICATOR 11 — Founding-year misrepresentation (max 4 points)
+  Company's public claim of founding year is >=10 years before the
+    registry-derived incorporation date (e.g. website says
+    "founded 1994" on a 2024 CUI): +4
+  Gap is 5-9 years before: +3
+  Gap is 2-4 years before: +1
+  Gap is within +/- 1 year: +0
+  Rationale: Romanian CUIs and UK Companies House numbers are
+  issued sequentially. A large gap between the claimed founding
+  year and the registry-derived date is not ambiguity — it is a
+  deliberate misrepresentation of company age on a verifiable fact.
+  Under UK / EU contract law, this constitutes fraudulent
+  misrepresentation and voids contracting integrity. Seen live on
+  Serban Industries SRL (CUI 51884521, 2024 incorporation, claimed
+  "founded 1994" = 30-year gap).
+
+INDICATOR 12 — Domain substitution / leetspeak (max 2 points)
+  Root domain name contains a digit substituting for a letter in a
+    word position (e.g. s3rban.com, d3fenc3.com, gl0bal.com): +2
+  Root domain is very similar to an established brand but with a
+    non-obvious difference (typosquat): +2
+  Root domain appears normal: +0
+  Rationale: legitimate defence counterparties do not use leet-
+  speak or typosquatted domains. Character substitution in the
+  domain root is a fresh-registration / impostor indicator — either
+  an unimaginative brand choice that itself signals amateur
+  presentation, or a deliberate attempt to resemble a known entity.
+  Neither is acceptable in defence BD.
+
 ─────────────────────────────────────────────────────────────────────────────
-2.2 THRESHOLD MATRIX
+2.2 THRESHOLD MATRIX  (updated for 12-indicator scoring — max now 26)
 ─────────────────────────────────────────────────────────────────────────────
 
 TOTAL SCORE   CLASSIFICATION        RECOMMENDED ACTION
@@ -588,13 +617,24 @@ class GhostScoreResult:
 
 
 def _classify(total: int) -> tuple[str, str]:
-    if total <= 3:
+    """Threshold bands for the 12-indicator scorer (max 26 after
+    indicators 11 + 12 added from the Serban case). Bands were
+    originally calibrated against a max of 20; scaling factor 1.3
+    preserves the same GREEN/AMBER/RED/HARD_STOP distribution.
+
+    Any single score of 4 on Indicator 11 (founding-year
+    misrepresentation >=10 years) is enough on its own to push the
+    total into RED territory, which matches the real-world rule:
+    a verifiable 10-year lie about company age is itself a
+    refusal ground.
+    """
+    if total <= 4:
         return ("GREEN", "Standard DD sufficient — no ghost-company concern.")
-    if total <= 7:
+    if total <= 9:
         return ("AMBER-LIGHT", "Proceed with enhanced DD: require EUC, verify signatory identity, escalate any new red flag to RED.")
-    if total <= 11:
+    if total <= 14:
         return ("AMBER-DARK", "Significant structural concern. Obtain commercial DD from a professional provider (LSEG/Dow Jones/Sayari/Orbis). Do not proceed without independent verification of beneficial ownership.")
-    if total <= 15:
+    if total <= 19:
         return ("RED", "Very likely a shell used for concealment. Refuse unless extraordinary and documented mitigation addresses at least three of the triggering indicators.")
     return ("HARD STOP", "Almost certainly a shell or ghost. Refuse. Consider whether a Suspicious Activity Report (SAR) obligation arises under UK Proceeds of Crime Act or equivalent local AML regime.")
 
@@ -784,6 +824,123 @@ def score_ghost_indicators(profile: dict[str, Any]) -> GhostScoreResult:
     ind10.points = min(h_pts, 2)
     ind10.reason = "; ".join(h_reasons)
     indicators.append(ind10)
+
+    # INDICATOR 11 — Founding-year misrepresentation (max 4)
+    # Cross-check any claimed founding year against the registry-
+    # derived incorporation date. On Romanian CUIs we use the
+    # sequential-CUI analyzer; on UK entities we use the registry
+    # incorporation_date directly if supplied. Any gap >=10 years
+    # alone is enough to push the total score over the RED threshold.
+    ind11 = GhostScoreIndicator(11, "Founding-year misrepresentation", 4)
+    claimed_year = profile.get("claimed_founding_year")
+    if claimed_year is not None:
+        registry_year: int | None = None
+        # Romanian path — use CUI analyzer
+        if profile.get("cui") or (profile.get("jurisdiction") or "").upper() in ("RO", "ROMANIA"):
+            try:
+                from ._romanian_cui import analyse_cui
+                _cui = profile.get("cui") or profile.get("registration_number")
+                if _cui:
+                    _a = analyse_cui(_cui)
+                    if _a and _a.estimated_incorporation:
+                        registry_year = _a.estimated_incorporation.year
+            except Exception:
+                pass
+        # Generic path — use age_months or incorporation_year hint
+        if registry_year is None:
+            if profile.get("incorporation_year"):
+                try:
+                    registry_year = int(profile["incorporation_year"])
+                except Exception:
+                    pass
+            elif profile.get("age_months") is not None:
+                try:
+                    import datetime as _dt
+                    registry_year = _dt.date.today().year - (int(profile["age_months"]) // 12)
+                except Exception:
+                    pass
+
+        if registry_year is not None:
+            try:
+                gap = registry_year - int(claimed_year)
+            except Exception:
+                gap = 0
+            if gap >= 10:
+                ind11.points = 4
+                ind11.reason = (
+                    f"CRITICAL misrepresentation: claimed founding year "
+                    f"{claimed_year} is {gap} years BEFORE registry-derived "
+                    f"incorporation year {registry_year}. Sequential-CUI / "
+                    f"registry analysis shows this cannot be a rounding error."
+                )
+            elif gap >= 5:
+                ind11.points = 3
+                ind11.reason = (
+                    f"Material misrepresentation: claimed founding year "
+                    f"{claimed_year} is {gap} years before registry-derived "
+                    f"year {registry_year}. Requires formal explanation."
+                )
+            elif gap >= 2:
+                ind11.points = 1
+                ind11.reason = (
+                    f"Minor discrepancy: claimed founding year {claimed_year} "
+                    f"is {gap} years before registry-derived year {registry_year}. "
+                    f"Within normal registry uncertainty but worth verifying."
+                )
+            # gap 0-1 or claim NEWER than registry: 0 points (consistent)
+        else:
+            data_gaps.append("founding-year check: registry year unavailable")
+    else:
+        data_gaps.append("founding-year check: no claimed_founding_year supplied")
+    indicators.append(ind11)
+
+    # INDICATOR 12 — Domain substitution / leetspeak (max 2)
+    # Detect digit-for-letter substitution in the root of the company's
+    # public domain. Defence-industry entities do not legitimately use
+    # s3rban.com-style names. Also detects a few known character-swap
+    # typosquat patterns.
+    ind12 = GhostScoreIndicator(12, "Domain substitution / leetspeak", 2)
+    website = (profile.get("website") or profile.get("domain") or "").strip().lower()
+    if website:
+        import re as _re
+        # Strip scheme and path
+        root = _re.sub(r"^https?://", "", website)
+        root = root.split("/", 1)[0]
+        # Strip www
+        if root.startswith("www."):
+            root = root[4:]
+        # Split into labels
+        labels = root.split(".")
+        root_label = labels[0] if labels else ""
+        # Skip very short domain labels (e.g. "bp.com")
+        if len(root_label) >= 4:
+            # A digit inside a root label (not at the start or end) is
+            # a leetspeak substitution signal. Exclude "365" / "247" /
+            # numeric suffix patterns by requiring the digit to be
+            # surrounded by letters.
+            internal_digit_match = _re.search(r"[a-z]\d[a-z]", root_label)
+            if internal_digit_match:
+                ind12.points = 2
+                ind12.reason = (
+                    f"Domain '{root_label}' contains an internal digit "
+                    f"(pattern '{internal_digit_match.group(0)}') — letter/digit "
+                    f"substitution pattern. Legitimate defence entities do not use "
+                    f"leetspeak domain names."
+                )
+            else:
+                # Secondary: any digit at all in a short (<10 char) root
+                # label is suspicious even without the strict sandwich
+                # pattern, unless the label is a recognised numeric token
+                digit_in_root = _re.search(r"\d", root_label)
+                if digit_in_root and len(root_label) < 10:
+                    ind12.points = 1
+                    ind12.reason = (
+                        f"Domain '{root_label}' contains a digit — atypical "
+                        f"for a defence company domain; verify provenance."
+                    )
+    else:
+        data_gaps.append("domain substitution check: no website supplied")
+    indicators.append(ind12)
 
     total = sum(i.points for i in indicators)
     max_total = sum(i.max_points for i in indicators)

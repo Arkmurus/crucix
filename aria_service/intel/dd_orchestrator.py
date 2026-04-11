@@ -123,6 +123,54 @@ async def _run_identity(
     report.identity.jurisdiction_iso2 = jurisdiction_iso2
     report.identity.registration_number = registration_number
 
+    hard_stop = False
+
+    # Romanian CUI → incorporation-date analyzer. If the caller
+    # supplies a CUI (directly, via registration_number on a RO
+    # jurisdiction, or in free text extracted by the chat intent
+    # detector), run the sequential-CUI analysis and emit a finding.
+    # This runs BEFORE the ghost scorer so the orchestrator can
+    # surface the CUI-derived incorporation estimate as a first-class
+    # identity signal, not just as an internal input to ghost
+    # indicator 11.
+    if (jurisdiction_iso2 == "RO" or (jurisdiction or "").lower() == "romania") and (target.get("cui") or registration_number):
+        try:
+            from . import _romanian_cui as _ro_cui
+            _analysis = _ro_cui.analyse_cui(target.get("cui") or registration_number)
+            if _analysis and _analysis.estimated_incorporation:
+                report.identity.incorporation_date = _analysis.estimated_incorporation.isoformat()
+                report.identity.findings.append(Finding(
+                    severity="info",
+                    title=f"Romanian CUI {_analysis.cui} estimates incorporation ≈ {_analysis.estimated_incorporation.isoformat()}",
+                    detail=(
+                        f"Sequential-CUI analysis places incorporation at "
+                        f"{_analysis.estimated_incorporation.isoformat()} "
+                        f"(±{_analysis.uncertainty_months} months). "
+                        f"Company age: {_analysis.age_months_now} months. "
+                        f"{_analysis.notes}. "
+                        f"VERIFY against ONRC portal (https://portal.onrc.ro) "
+                        f"before relying on this date."
+                    ),
+                    source="_romanian_cui.analyse_cui",
+                    confidence="ASSESSED",
+                ))
+                # Also cross-check claimed founding year if supplied
+                _claimed = target.get("claimed_founding_year")
+                if _claimed is not None:
+                    _cmp = _ro_cui.compare_claimed_founding(_analysis.cui, int(_claimed))
+                    if _cmp["severity"] in ("red", "hard_stop"):
+                        report.identity.findings.append(Finding(
+                            severity=_cmp["severity"],
+                            title=f"Founding-year misrepresentation: claimed {_claimed} vs CUI-estimated {_cmp['estimated_incorporation_year']}",
+                            detail=_cmp["detail"],
+                            source="_romanian_cui.compare_claimed_founding",
+                            confidence="PROBABLE",
+                        ))
+                        if _cmp["severity"] == "hard_stop":
+                            hard_stop = True
+        except Exception as e:
+            logger.debug("Romanian CUI analysis failed (non-fatal): %s", e)
+
     # If the caller supplied a registered address (via chat intent or
     # direct API), use it as the initial identity signal. Registry
     # lookup may overwrite it with authoritative data later.
@@ -155,8 +203,6 @@ async def _run_identity(
                 source="dd_orchestrator.residential_address_pattern",
                 confidence="ASSESSED",
             ))
-
-    hard_stop = False
 
     # ── 1a. Sanctions screen (always runs) ──
     #
@@ -295,6 +341,28 @@ async def _run_identity(
         _tval = target.get("transaction_value_usd")
         if _tval:
             profile["transaction_value_usd"] = _tval
+
+        # Serban-case detectors — CUI, website, claimed founding year.
+        # Any of these passed via the target dict (from chat intent
+        # detection, API body, or autonomous task watchlist entry)
+        # gets threaded into the ghost scorer so indicators 11 and 12
+        # fire when the evidence is there.
+        _cui = target.get("cui") or target.get("registration_number")
+        if _cui:
+            profile["cui"] = _cui
+        _website = target.get("website") or target.get("domain")
+        if _website:
+            profile["website"] = _website
+        _claimed_year = target.get("claimed_founding_year")
+        if _claimed_year is not None:
+            profile["claimed_founding_year"] = _claimed_year
+        _residential_address = report.identity.registered_address
+        if _residential_address and any(p in _residential_address.lower() for p in (
+            "apt.", "apt ", " ap.", " ap ", " ap,", "apartment", "flat ",
+            "unit ", "sc. ", "bl. ", "et. ", "etaj ", "floor ",
+        )):
+            profile["registered_address_type"] = "residential"
+
         ghost = _dd.score_ghost_indicators(profile)
         report.identity.ghost_score = ghost.as_dict()
         report.identity.meta.subcalls += 1

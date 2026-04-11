@@ -492,6 +492,7 @@ async def lifespan(app: FastAPI):
             ("regional_compliance",     "Regional compliance",   "ingest_all_sections"),
             ("due_diligence_playbooks", "DD playbooks",          "ingest_all_sections"),
             ("risk_indices",            "Risk indices",          "ingest_all_sections"),
+            ("dd_case_library",         "DD case library",       "ingest_all_cases"),
         ]
         for modname, label, fn in modules:
             try:
