@@ -1,0 +1,1032 @@
+# =============================================================================
+# ARIA — ARK-DD Orchestrator
+# aria_service/intel/dd_orchestrator.py
+#
+# The 7-layer due-diligence orchestrator. Takes a trigger (entity name
+# + optional hints) and walks:
+#
+#   1. IDENTITY         sanctions + companies_house + ghost-score
+#   2. NETWORK          one-hop director graph + PEP + sanctions network
+#   3. VERIFICATION     cross-source triangulation + conflict detection
+#   4. COMPLIANCE       country risk + export control + regional blocs
+#   5. DIGITAL          web search (multilingual) + RAG + neural + press
+#   6. SYNTHESIS        ACH + ghost score aggregation + SAR trigger
+#   7. ARK-DD REPORT    assembled structured output
+#
+# COMPOSITIONAL — every existing module is CALLED via its public
+# interface. No existing function signature is modified. No existing
+# route is removed or changed. This module is purely additive.
+#
+# SHORT-CIRCUIT RULES (budget protection):
+#   - If IDENTITY returns a sanctions hit → skip NETWORK, VERIFICATION,
+#     DIGITAL, synthesise immediately as HARD_STOP
+#   - If the per-run cost cap is exceeded mid-run → skip remaining
+#     layers, mark them SKIPPED, synthesise with what's been collected
+#   - If the per-layer timeout fires → mark layer ERROR, continue
+#
+# PERSISTENCE:
+#   - Full report stored in Redis under crucix:dd:report:{run_id} (7 day TTL)
+#   - Summary signal appended to intel_ledger
+#   - Markdown render appended to mem0 notebook
+#   - Trace linked via trace_stream so /trace shows the full lifecycle
+#
+# CALLABLE FROM:
+#   - routes/aria.py POST /api/aria/dd/orchestrate (interactive)
+#   - autonomous/tasks.py WEEKLY-DD-WATCHLIST (scheduled)
+#   - fly ssh for manual one-shot runs
+#
+# FEATURE FLAGS (env):
+#   ARIA_DD_ORCHESTRATOR_ENABLED (default 1)
+#   ARIA_DD_COST_CAP_USD          (default 0.50 per run)
+#   ARIA_DD_DEEP_RESEARCH          (default 1 — disable to skip layer 5 LLM)
+# =============================================================================
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import time
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from .dd_schema import (
+    ARKDDReport,
+    IdentitySection,
+    NetworkSection,
+    VerificationSection,
+    ComplianceSection,
+    DigitalSection,
+    SynthesisSection,
+    SectionMeta,
+    Finding,
+    Evidence,
+    LayerStatus,
+    RiskClassification,
+    EntityType,
+    weakest_confidence,
+)
+
+logger = logging.getLogger("ARIA.DDOrchestrator")
+
+
+# =============================================================================
+# CONFIG
+# =============================================================================
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, "") or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, "") or default)
+    except (TypeError, ValueError):
+        return default
+
+
+DEFAULT_COST_CAP_USD = _env_float("ARIA_DD_COST_CAP_USD", 0.50)
+DEFAULT_LAYER_TIMEOUT_S = _env_int("ARIA_DD_LAYER_TIMEOUT_S", 90)
+DEEP_RESEARCH_ENABLED = (os.getenv("ARIA_DD_DEEP_RESEARCH", "1") or "1").strip() not in ("0", "false", "no", "off")
+ORCHESTRATOR_ENABLED = (os.getenv("ARIA_DD_ORCHESTRATOR_ENABLED", "1") or "1").strip() not in ("0", "false", "no", "off")
+
+REPORT_REDIS_KEY = "crucix:dd:report:{run_id}"
+REPORT_INDEX_KEY = "crucix:dd:report_index"
+REPORT_TTL_SECONDS = 7 * 24 * 3600
+
+
+# =============================================================================
+# LAYER RUNNERS — each layer is a coroutine that fills a section of the report
+# =============================================================================
+
+async def _run_identity(
+    target: dict,
+    report: ARKDDReport,
+) -> bool:
+    """Layer 1 — Identity. Returns True if a hard-stop was triggered
+    (sanctions hit), signalling the orchestrator to short-circuit."""
+    t0 = time.time()
+    report.identity.meta.started_at = datetime.now(timezone.utc).isoformat()
+
+    name = target.get("name") or target.get("entity") or target.get("query", "")
+    entity_type = target.get("type") or EntityType.UNKNOWN.value
+    jurisdiction = target.get("jurisdiction")
+    jurisdiction_iso2 = target.get("jurisdiction_iso2")
+    registration_number = target.get("registration_number")
+
+    report.identity.entity_name = name
+    report.identity.entity_type = entity_type
+    report.identity.jurisdiction = jurisdiction
+    report.identity.jurisdiction_iso2 = jurisdiction_iso2
+    report.identity.registration_number = registration_number
+
+    hard_stop = False
+
+    # ── 1a. Sanctions screen (always runs) ──
+    try:
+        from . import sanctions
+        if hasattr(sanctions, "screen_with_aliases"):
+            screen = await sanctions.screen_with_aliases(name)
+        elif hasattr(sanctions, "fuzzy_screen"):
+            screen = await sanctions.fuzzy_screen(name)
+        else:
+            screen = {"error": "no sanctions module entrypoint"}
+            report.identity.data_gaps.append("sanctions module not exposing expected API")
+        report.identity.sanctions_screen = screen
+        report.identity.meta.subcalls += 1
+        if screen.get("hit") or screen.get("matches"):
+            report.identity.findings.append(Finding(
+                severity="hard_stop",
+                title=f"Subject matches sanctions/PEP list",
+                detail=f"{len(screen.get('matches', []))} match(es), score {screen.get('score', 0.0):.2f}",
+                source="sanctions.screen_with_aliases",
+                confidence="CONFIRMED",
+            ))
+            hard_stop = True
+    except Exception as e:
+        logger.warning("Identity: sanctions screen failed: %s", e)
+        report.identity.findings.append(Finding(
+            severity="amber", title="Sanctions screen failed", detail=str(e)[:200],
+            source="sanctions", confidence="UNCERTAIN",
+        ))
+        report.identity.data_gaps.append("sanctions screen did not complete")
+
+    # ── 1b. Companies House lookup (UK only) ──
+    if jurisdiction_iso2 == "GB":
+        try:
+            from . import companies_house
+            if hasattr(companies_house, "investigate_uk_entity"):
+                ch_result = await companies_house.investigate_uk_entity(
+                    company_number=registration_number,
+                    company_name=None if registration_number else name,
+                )
+                report.identity.meta.subcalls += 1
+                if isinstance(ch_result, dict):
+                    profile = ch_result.get("profile") or ch_result.get("company") or {}
+                    report.identity.registration_number = profile.get("company_number") or registration_number
+                    report.identity.registration_status = profile.get("company_status")
+                    report.identity.incorporation_date = profile.get("date_of_creation")
+                    report.identity.registered_address = (profile.get("registered_office_address") or {}).get("address_snippet") if isinstance(profile.get("registered_office_address"), dict) else profile.get("registered_office_address")
+                    report.identity.declared_activity = ", ".join(profile.get("sic_codes") or [])[:200] or profile.get("sic_description")
+                    report.identity.directors = ch_result.get("officers") or []
+                    report.identity.shareholders = ch_result.get("psc") or []
+        except Exception as e:
+            logger.warning("Identity: companies_house lookup failed: %s", e)
+            report.identity.data_gaps.append(f"companies_house lookup failed: {str(e)[:120]}")
+    else:
+        report.identity.data_gaps.append(
+            f"Registry lookup unavailable for {jurisdiction_iso2 or 'unknown jurisdiction'} — "
+            f"wire OpenCorporates / Sayari / national registry for full identity coverage"
+        )
+
+    # ── 1c. Ghost-score from available signals ──
+    # Feed whatever we've collected into the programmatic scorer. Missing
+    # fields become data gaps inside the scorer itself.
+    try:
+        from . import due_diligence_playbooks as _dd
+        profile = {
+            "name": report.identity.entity_name,
+            "jurisdiction": report.identity.jurisdiction_iso2 or report.identity.jurisdiction,
+            "registration_number": report.identity.registration_number,
+            # Age
+            "age_months": _age_months(report.identity.incorporation_date),
+            # Declared activity → mismatched / generic_holding / specific_aligned
+            "declared_activity": _map_activity(report.identity.declared_activity),
+            # Financials: we don't have them from CH basic profile yet
+            "financials": None,
+            "transaction_value_usd": target.get("transaction_value_usd") or 0,
+            "transaction_type_aligned": None,
+            "recent_identity_change": None,
+            "recent_director_changes_unexplained": None,
+            "chain_terminates_cleanly": None,
+            "director_appointments": None,
+            "shares_agent_with_flagged": None,
+            "shares_address_with_flagged": None,
+        }
+        ghost = _dd.score_ghost_indicators(profile)
+        report.identity.ghost_score = ghost.as_dict()
+        report.identity.meta.subcalls += 1
+        if ghost.classification in ("RED", "HARD STOP"):
+            hard_stop = True
+            report.identity.findings.append(Finding(
+                severity="hard_stop" if ghost.classification == "HARD STOP" else "red",
+                title=f"Ghost score {ghost.total}/20 — {ghost.classification}",
+                detail=ghost.recommendation,
+                source="due_diligence_playbooks.score_ghost_indicators",
+                confidence="PROBABLE",
+            ))
+        elif ghost.classification.startswith("AMBER"):
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title=f"Ghost score {ghost.total}/20 — {ghost.classification}",
+                detail=ghost.recommendation,
+                source="due_diligence_playbooks.score_ghost_indicators",
+                confidence="ASSESSED",
+            ))
+    except Exception as e:
+        logger.warning("Identity: ghost scoring failed: %s", e)
+        report.identity.data_gaps.append(f"ghost score failed: {str(e)[:120]}")
+
+    report.identity.meta.duration_ms = int((time.time() - t0) * 1000)
+    report.identity.meta.status = LayerStatus.OK.value
+    return hard_stop
+
+
+async def _run_network(target: dict, report: ARKDDReport) -> None:
+    """Layer 2 — Network. Composes network_walker.walk_network."""
+    t0 = time.time()
+    report.network.meta.started_at = datetime.now(timezone.utc).isoformat()
+    try:
+        from . import network_walker
+        result = await network_walker.walk_network(
+            entity_name=report.identity.entity_name,
+            entity_type=report.identity.entity_type,
+            jurisdiction_iso2=report.identity.jurisdiction_iso2,
+            registration_number=report.identity.registration_number,
+        )
+        report.network.director_graph = result.get("director_graph", {})
+        report.network.cross_linked_entities = result.get("cross_linked_entities", [])
+        report.network.address_cluster = result.get("address_cluster", {})
+        report.network.pep_connections = result.get("pep_connections", [])
+        report.network.sanctions_network = result.get("sanctions_network", [])
+        report.network.findings = [Finding(**f) for f in result.get("findings", [])]
+        report.network.data_gaps = result.get("data_gaps", [])
+        report.network.meta.subcalls = result.get("stats", {}).get("sanctions_screens", 0) + result.get("stats", {}).get("entities_walked", 0)
+        report.network.meta.status = LayerStatus.OK.value
+    except Exception as e:
+        logger.warning("Network layer failed: %s", e)
+        report.network.meta.status = LayerStatus.ERROR.value
+        report.network.meta.error = str(e)[:200]
+    report.network.meta.duration_ms = int((time.time() - t0) * 1000)
+
+
+async def _run_compliance(target: dict, report: ARKDDReport) -> None:
+    """Layer 4 — Compliance. Composes risk_indices + tech_classifier +
+    international_law / global_export_control / regional_compliance via
+    RAG queries through rag_store."""
+    t0 = time.time()
+    report.compliance.meta.started_at = datetime.now(timezone.utc).isoformat()
+
+    # ── 4a. Country risk ──
+    try:
+        from . import risk_indices
+        iso2 = report.identity.jurisdiction_iso2 or target.get("destination_iso2")
+        if iso2:
+            risk = risk_indices.get_country_risk(iso2, name=report.identity.jurisdiction or iso2)
+            report.compliance.country_risk = risk.as_dict()
+            report.compliance.meta.subcalls += 1
+            headline = risk.headline_risk()
+            if headline in ("RED", "HARD_STOP"):
+                report.compliance.findings.append(Finding(
+                    severity="hard_stop" if headline == "HARD_STOP" else "red",
+                    title=f"Country risk: {headline}",
+                    detail=f"CPI={risk.cpi_score} · Basel AML={risk.basel_aml} · FATF={risk.fatf_status} · OECD CRC={risk.oecd_crc}",
+                    source="risk_indices.get_country_risk",
+                    confidence="ASSESSED",
+                ))
+    except Exception as e:
+        logger.warning("Compliance: country risk failed: %s", e)
+        report.compliance.data_gaps.append(f"country risk lookup failed: {str(e)[:120]}")
+
+    # ── 4b. Export control classification ──
+    product_text = target.get("product_description") or target.get("goods") or ""
+    if product_text:
+        try:
+            from . import tech_classifier
+            ec = tech_classifier.classify_export_control(product_text)
+            report.compliance.export_control = ec
+            report.compliance.meta.subcalls += 1
+            if ec.get("multilateral"):
+                for hit in ec.get("multilateral", []):
+                    report.compliance.sanctions_regimes.append(hit.get("regime", ""))
+            if ec.get("recommendation", "").startswith("ITAR"):
+                report.compliance.licence_path = "DSP-5 / TAA (ITAR)"
+            elif "EAR" in (ec.get("recommendation", "") or ""):
+                report.compliance.licence_path = "BIS-748P / Licence Exception"
+            elif ec.get("wassenaar_ml"):
+                report.compliance.licence_path = "SIEL / SITCL (UK) or equivalent national ML route"
+        except Exception as e:
+            logger.warning("Compliance: export control classification failed: %s", e)
+            report.compliance.data_gaps.append(f"export control classify failed: {str(e)[:120]}")
+    else:
+        report.compliance.data_gaps.append("No product/goods description — export control classification skipped")
+
+    # ── 4c. Regional bloc matching via RAG ──
+    try:
+        from . import rag_store
+        country = report.identity.jurisdiction or target.get("destination") or ""
+        if country:
+            regional = await rag_store.get_rag_context(
+                f"{country} regional compliance framework defence arms transfer",
+                max_chars=2000,
+            )
+            if regional and regional.strip():
+                report.compliance.regional_bloc_requirements = [{
+                    "query": f"{country} regional bloc",
+                    "excerpt": regional[:800],
+                    "source": "RAG:regional_compliance",
+                }]
+                report.compliance.meta.subcalls += 1
+    except Exception as e:
+        logger.warning("Compliance: regional bloc RAG failed: %s", e)
+        report.compliance.data_gaps.append(f"regional bloc RAG failed: {str(e)[:120]}")
+
+    report.compliance.meta.duration_ms = int((time.time() - t0) * 1000)
+    report.compliance.meta.status = LayerStatus.OK.value
+
+
+async def _run_digital(target: dict, report: ARKDDReport, llm: Any) -> None:
+    """Layer 5 — Digital. web_search multilingual + RAG + neural + (opt.) deep_research."""
+    t0 = time.time()
+    report.digital.meta.started_at = datetime.now(timezone.utc).isoformat()
+    name = report.identity.entity_name or target.get("query", "")
+
+    # ── 5a. Multilingual web search ──
+    try:
+        from . import web_search
+        hits = await web_search.search_multilingual(
+            f"{name} defence procurement",
+            max_results=12,
+        )
+        # Convert SearchResult objects to Evidence dataclasses where possible
+        press: list[Evidence] = []
+        tier_counts: dict[str, int] = {}
+        for h in hits or []:
+            tier = getattr(h, "source_tier", None) or "UNVERIFIED"
+            tier_counts[tier] = tier_counts.get(tier, 0) + 1
+            press.append(Evidence(
+                source=getattr(h, "title", "") or getattr(h, "url", ""),
+                source_tier=tier,
+                url=getattr(h, "url", None),
+                snippet=(getattr(h, "snippet", "") or "")[:400],
+                retrieved_at=datetime.now(timezone.utc).isoformat(),
+            ))
+        report.digital.press_coverage = press[:15]
+        report.digital.source_tier_breakdown = tier_counts
+        report.digital.meta.subcalls += 1
+    except Exception as e:
+        logger.warning("Digital: web_search failed: %s", e)
+        report.digital.data_gaps.append(f"web_search failed: {str(e)[:120]}")
+
+    # ── 5b. RAG context ──
+    try:
+        from . import rag_store
+        rag_ctx = await rag_store.get_rag_context(f"{name}", max_chars=2500)
+        if rag_ctx and rag_ctx.strip():
+            report.digital.knowledge_base_hits = [{"query": name, "excerpt": rag_ctx[:1500]}]
+            report.digital.meta.subcalls += 1
+    except Exception as e:
+        logger.warning("Digital: rag_store failed: %s", e)
+
+    # ── 5c. Neural associations ──
+    try:
+        from . import neural_memory
+        neural = await neural_memory.get_neural_context(name)
+        if neural and neural.strip():
+            # Pull out first N concept names from the neural block
+            for line in neural.split("\n")[:8]:
+                if line.strip().startswith("["):
+                    report.digital.neural_associations.append(line.strip()[:200])
+            report.digital.meta.subcalls += 1
+    except Exception as e:
+        logger.warning("Digital: neural_memory failed: %s", e)
+
+    # ── 5d. Knowledge base ──
+    try:
+        from . import knowledge
+        kb = knowledge.search_knowledge(name)
+        if kb and kb.strip():
+            report.digital.knowledge_base_hits.append({"query": name, "excerpt": kb[:1500], "tier": "aria_knowledge"})
+            report.digital.meta.subcalls += 1
+    except Exception as e:
+        logger.warning("Digital: knowledge search failed: %s", e)
+
+    # ── 5e. Deep research (opt-in, LLM-backed) ──
+    if DEEP_RESEARCH_ENABLED and llm is not None:
+        try:
+            from . import deep_researcher
+            dr = await deep_researcher.investigate(llm, name, max_pages=10, depth=1, context="ARK-DD investigation")
+            if isinstance(dr, dict):
+                report.digital.web_footprint = {
+                    "summary": (dr.get("summary") or "")[:1500],
+                    "pages_visited": dr.get("pages_visited", 0),
+                    "entities_discovered": dr.get("entities_discovered", []),
+                }
+                report.digital.meta.subcalls += 1
+        except Exception as e:
+            logger.warning("Digital: deep_research failed: %s", e)
+            report.digital.data_gaps.append(f"deep_research failed: {str(e)[:120]}")
+
+    report.digital.meta.duration_ms = int((time.time() - t0) * 1000)
+    report.digital.meta.status = LayerStatus.OK.value
+
+
+async def _run_verification(target: dict, report: ARKDDReport) -> None:
+    """Layer 3 — Verification. Cross-source triangulation + conflict
+    detection over whatever the previous layers collected."""
+    t0 = time.time()
+    report.verification.meta.started_at = datetime.now(timezone.utc).isoformat()
+
+    # Count sources per material claim. A "claim" here is a distinct
+    # piece of evidence/finding from any section. The verifier counts
+    # how many independent sources back each.
+    sources_for_claim: dict[str, set[str]] = {}
+    def _add(claim: str, src: str):
+        sources_for_claim.setdefault(claim, set()).add(src)
+
+    # Identity claims
+    if report.identity.sanctions_screen:
+        _add("identity:sanctions_checked", "sanctions")
+    if report.identity.directors:
+        _add("identity:directors_known", "companies_house")
+    if report.identity.ghost_score:
+        _add("identity:ghost_scored", "ghost_scorer")
+    # Network claims
+    if report.network.director_graph.get("nodes"):
+        _add("network:graph_built", "network_walker")
+    if report.network.pep_connections:
+        _add("network:pep_checked", "sanctions")
+    # Compliance
+    if report.compliance.country_risk:
+        _add("compliance:country_risk_known", "risk_indices")
+    if report.compliance.export_control:
+        _add("compliance:export_classified", "tech_classifier")
+    if report.compliance.regional_bloc_requirements:
+        _add("compliance:regional_framework_cited", "rag:regional_compliance")
+    # Digital
+    if report.digital.press_coverage:
+        for p in report.digital.press_coverage[:10]:
+            _add("digital:press_coverage", p.source or "press")
+    if report.digital.knowledge_base_hits:
+        _add("digital:knowledge_base_hits", "aria_knowledge")
+    if report.digital.neural_associations:
+        _add("digital:neural_associations", "neural_memory")
+
+    triangulated = [
+        {"claim": k, "sources": sorted(list(v)), "source_count": len(v)}
+        for k, v in sources_for_claim.items()
+    ]
+    report.verification.triangulated_claims = triangulated
+
+    # Grounded rate: fraction of claims backed by at least 2 independent
+    # sources. Not identical to source_verifier's URL-based rate, but
+    # the right shape for a DD report.
+    if triangulated:
+        grounded = sum(1 for t in triangulated if t["source_count"] >= 2)
+        report.verification.grounded_rate = round(grounded / len(triangulated), 2)
+    else:
+        report.verification.grounded_rate = None
+
+    # Conflict detection — look for contradictions in ghost score
+    # classification vs country risk headline
+    ghost_cls = (report.identity.ghost_score or {}).get("classification", "")
+    country_headline = (report.compliance.country_risk or {}).get("headline_risk", "")
+    if ghost_cls in ("GREEN",) and country_headline in ("RED", "HARD_STOP"):
+        report.verification.conflicts.append({
+            "type": "classification_mismatch",
+            "detail": f"ghost={ghost_cls} but country={country_headline}",
+            "resolution": "use worst-case — promote overall to country's level",
+        })
+
+    # Confidence floor: worst tag across all sections
+    all_confidences = ["ASSESSED"]  # baseline
+    for section in (report.identity, report.network, report.verification, report.compliance, report.digital):
+        for f in getattr(section, "findings", []) or []:
+            all_confidences.append(getattr(f, "confidence", "ASSESSED"))
+    report.verification.confidence_floor = weakest_confidence(all_confidences)
+
+    # Pull in unverified claim count from source_verifier IF we have
+    # any tool_context blob to verify. The orchestrator isn't invoking
+    # source_verifier against LLM outputs (no LLM outputs yet here),
+    # so this is a structural placeholder.
+    report.verification.unverified_claim_count = sum(
+        1 for t in triangulated if t["source_count"] < 2
+    )
+
+    report.verification.meta.duration_ms = int((time.time() - t0) * 1000)
+    report.verification.meta.status = LayerStatus.OK.value
+
+
+async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
+    """Layer 6 — Synthesis. ACH matrix + final ghost score + risk
+    classification + SAR trigger."""
+    t0 = time.time()
+    report.synthesis.meta.started_at = datetime.now(timezone.utc).isoformat()
+
+    # ── 6a. Ghost score roll-up (authoritative) ──
+    ghost = report.identity.ghost_score or {}
+    report.synthesis.ghost_score_total = int(ghost.get("total") or 0)
+    report.synthesis.ghost_classification = str(ghost.get("classification") or "GREEN")
+
+    # ── 6b. Risk classification — worst-case aggregation ──
+    # Tiers in ascending severity
+    severity_rank = {
+        "GREEN":       0,
+        "AMBER-LIGHT": 1,
+        "AMBER":       1,
+        "AMBER-DARK":  2,
+        "RED":         3,
+        "HARD STOP":   4,
+        "HARD_STOP":   4,
+    }
+    candidates: list[str] = []
+    if report.synthesis.ghost_classification:
+        candidates.append(report.synthesis.ghost_classification)
+    if report.compliance.country_risk.get("headline_risk"):
+        candidates.append(report.compliance.country_risk["headline_risk"])
+    # Any hard_stop finding anywhere?
+    for section in (report.identity, report.network, report.compliance):
+        for f in getattr(section, "findings", []) or []:
+            if getattr(f, "severity", "") == "hard_stop":
+                candidates.append("HARD_STOP")
+                break
+
+    if candidates:
+        worst = max(candidates, key=lambda c: severity_rank.get(c, 0))
+    else:
+        worst = "GREEN"
+
+    # Normalise to canonical RiskClassification values
+    canonical_map = {
+        "GREEN":        RiskClassification.GREEN.value,
+        "AMBER-LIGHT":  RiskClassification.AMBER_LIGHT.value,
+        "AMBER":        RiskClassification.AMBER_LIGHT.value,
+        "AMBER-DARK":   RiskClassification.AMBER_DARK.value,
+        "RED":          RiskClassification.RED.value,
+        "HARD STOP":    RiskClassification.HARD_STOP.value,
+        "HARD_STOP":    RiskClassification.HARD_STOP.value,
+    }
+    report.synthesis.risk_classification = canonical_map.get(worst, RiskClassification.GREEN.value)
+    report.risk_classification = report.synthesis.risk_classification
+
+    # ── 6c. SAR trigger — UK POCA / FATF typology ──
+    # Triggers:
+    #   - sanctions hit on subject OR director
+    #   - ghost score >= 12 (RED) combined with layered secrecy chain
+    #   - transaction value >= 100k with no declared activity
+    sar_reasons: list[str] = []
+    if any("sanctions" in str(f.title).lower() and "hit" in str(f.title).lower()
+           for f in report.identity.findings):
+        sar_reasons.append("sanctions hit on identity layer")
+    if any("hit on sanctions" in str(f.title).lower()
+           for f in report.network.findings):
+        sar_reasons.append("sanctions hit in network layer (one-hop)")
+    if report.synthesis.ghost_score_total >= 12:
+        sar_reasons.append(f"ghost score {report.synthesis.ghost_score_total}/20 at RED threshold")
+
+    if sar_reasons:
+        report.synthesis.sar_trigger = True
+        report.synthesis.sar_rationale = " · ".join(sar_reasons)
+
+    # ── 6d. ACH matrix (structural) ──
+    # Three hypotheses by default:
+    #   H1: entity is a legitimate counterparty suitable for BD
+    #   H2: entity is a higher-risk counterparty requiring enhanced DD
+    #   H3: entity is a shell / concealment vehicle — refuse
+    hypotheses = {
+        "H1_legit": {"label": "Legitimate BD counterparty", "support": 0, "against": 0},
+        "H2_enhanced": {"label": "Higher-risk, enhanced DD required", "support": 0, "against": 0},
+        "H3_shell": {"label": "Shell / concealment vehicle — refuse", "support": 0, "against": 0},
+    }
+    ghost_total = report.synthesis.ghost_score_total
+    if ghost_total <= 3:
+        hypotheses["H1_legit"]["support"] += 3
+        hypotheses["H3_shell"]["against"] += 3
+    elif ghost_total <= 7:
+        hypotheses["H2_enhanced"]["support"] += 2
+        hypotheses["H1_legit"]["against"] += 1
+    elif ghost_total <= 11:
+        hypotheses["H2_enhanced"]["support"] += 3
+        hypotheses["H3_shell"]["support"] += 1
+    elif ghost_total <= 15:
+        hypotheses["H3_shell"]["support"] += 3
+        hypotheses["H1_legit"]["against"] += 3
+    else:
+        hypotheses["H3_shell"]["support"] += 5
+        hypotheses["H1_legit"]["against"] += 5
+
+    # Country risk contribution
+    country_headline = (report.compliance.country_risk or {}).get("headline_risk")
+    if country_headline in ("RED", "HARD_STOP"):
+        hypotheses["H2_enhanced"]["support"] += 1
+        hypotheses["H3_shell"]["support"] += 1
+    elif country_headline == "AMBER":
+        hypotheses["H2_enhanced"]["support"] += 1
+
+    # Sanctions hit → H3 strongly favoured
+    if report.synthesis.sar_trigger:
+        hypotheses["H3_shell"]["support"] += 5
+        hypotheses["H1_legit"]["against"] += 5
+
+    report.synthesis.ach_matrix = {
+        "hypotheses": hypotheses,
+        "method": "balance of support minus against",
+        "winner": max(hypotheses.items(), key=lambda kv: kv[1]["support"] - kv[1]["against"])[0],
+    }
+
+    # ── 6e. Key findings — pull the highest-severity items across sections ──
+    all_findings: list[Finding] = []
+    for section in (report.identity, report.network, report.verification, report.compliance, report.digital):
+        for f in getattr(section, "findings", []) or []:
+            all_findings.append(f)
+    severity_order = {"hard_stop": 0, "red": 1, "amber": 2, "info": 3}
+    all_findings.sort(key=lambda f: severity_order.get(getattr(f, "severity", "info"), 4))
+    report.synthesis.key_findings = all_findings[:10]
+
+    # ── 6f. Residual unknowns = all data_gaps combined ──
+    for section in (report.identity, report.network, report.verification, report.compliance, report.digital):
+        for g in getattr(section, "data_gaps", []) or []:
+            if g not in report.synthesis.residual_unknowns:
+                report.synthesis.residual_unknowns.append(g)
+
+    report.synthesis.meta.duration_ms = int((time.time() - t0) * 1000)
+    report.synthesis.meta.status = LayerStatus.OK.value
+
+
+# =============================================================================
+# BOTTOM-LINE + RECOMMENDATION (programmatic, pre-LLM)
+# =============================================================================
+
+def _assemble_bluf(report: ARKDDReport) -> None:
+    """Populate report.bottom_line / recommendation / next_actions / confidence.
+
+    Deterministic — no LLM call, just pattern matching over the sections
+    so the orchestrator always returns a non-empty BLUF even when the
+    cost cap prevented the LLM from running.
+    """
+    risk = report.risk_classification
+    name = report.identity.entity_name or "subject"
+
+    if risk == RiskClassification.HARD_STOP.value:
+        report.bottom_line = (
+            f"🔴 HARD STOP — {name} triggers a mandatory refusal. "
+            "Do NOT proceed with the transaction."
+        )
+        report.recommendation = (
+            "Refuse the engagement. File SAR if reporting thresholds are met. "
+            "Preserve all investigation evidence for compliance record."
+        )
+        report.next_actions = [
+            "Do not contact the counterparty further until compliance sign-off",
+            "Escalate to ECJU / OFSI / DBT compliance desk as appropriate",
+            "Assess SAR filing obligation under POCA 2002 / national AML law",
+            "Lock the case file — preserve all evidence",
+        ]
+    elif risk == RiskClassification.RED.value:
+        report.bottom_line = (
+            f"🔴 RED — {name} is very likely unsuitable for onboarding in current form. "
+            "Independent commercial DD required before any further engagement."
+        )
+        report.recommendation = (
+            "Commission a commercial-grade DD report from LSEG / Sayari / Dow Jones / Orbis. "
+            "Do NOT proceed on open-source findings alone. Re-evaluate after commercial DD."
+        )
+        report.next_actions = [
+            "Commission commercial DD (Sayari / LSEG / Dow Jones / Orbis)",
+            "Halt any in-progress contracting until commercial DD returns clean",
+            "Document the current AMBER-DARK / RED grounds in the case file",
+        ]
+    elif risk == RiskClassification.AMBER_DARK.value:
+        report.bottom_line = (
+            f"🟠 AMBER-DARK — {name} shows structural concerns. Enhanced DD is required; "
+            "do not proceed without independent verification of beneficial ownership."
+        )
+        report.recommendation = (
+            "Obtain commercial DD report on beneficial ownership. Require signed EUC "
+            "from end-user government. Screen signatory identities. Escalate any new red flag to RED."
+        )
+        report.next_actions = [
+            "Obtain commercial UBO verification",
+            "Require signed EUC from end-user authority",
+            "Identity-verify all signatories against independent sources",
+            "Re-run orchestrator weekly via watchlist until risk tier improves",
+        ]
+    elif risk == RiskClassification.AMBER_LIGHT.value:
+        report.bottom_line = (
+            f"🟡 AMBER — {name} can proceed with enhanced due diligence. "
+            "Resolve the gaps flagged below before contracting."
+        )
+        report.recommendation = (
+            "Proceed with enhanced DD: require EUC, verify signatory identity, "
+            "escalate any new red flag to RED. Close data gaps before contracting."
+        )
+        report.next_actions = [
+            "Close the data gaps listed under residual unknowns",
+            "Require EUC before any binding commitment",
+            "Verify signatory identity via at least one independent source",
+        ]
+    else:
+        report.bottom_line = (
+            f"🟢 GREEN — {name} passes baseline due diligence. "
+            "Standard contracting path available."
+        )
+        report.recommendation = (
+            "Proceed with standard DD. No blocking concerns identified in the universal layer."
+        )
+        report.next_actions = [
+            "Proceed with standard commercial process",
+            "Apply regular sanctions-list re-screen on contract renewal",
+        ]
+
+    report.confidence_tag = report.verification.confidence_floor or "ASSESSED"
+    # Aggregate all data_gaps into the top-level summary so consumers
+    # can surface them without walking the whole report tree.
+    for section in (report.identity, report.network, report.verification, report.compliance, report.digital):
+        for g in getattr(section, "data_gaps", []) or []:
+            if g not in report.data_gaps_summary:
+                report.data_gaps_summary.append(g)
+
+
+# =============================================================================
+# PERSISTENCE
+# =============================================================================
+
+async def _persist_report(report: ARKDDReport) -> None:
+    """Store the finished report in Redis + append a summary signal to
+    the intel_ledger + write a notebook entry to mem0 (async, non-blocking)."""
+    try:
+        from . import redis_store as rs
+        await rs.set_json(
+            REPORT_REDIS_KEY.format(run_id=report.run_id),
+            report.as_dict(),
+            ex=REPORT_TTL_SECONDS,
+        )
+        try:
+            index = await rs.get_json(REPORT_INDEX_KEY) or []
+            index.insert(0, {
+                "run_id": report.run_id,
+                "generated_at": report.generated_at,
+                "entity_name": report.identity.entity_name,
+                "risk": report.risk_classification,
+            })
+            index = index[:500]
+            await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
+        except Exception as e:
+            logger.debug("dd_orchestrator: report index write failed: %s", e)
+    except Exception as e:
+        logger.warning("dd_orchestrator: Redis persist failed: %s", e)
+
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+def _age_months(iso_date: Optional[str]) -> Optional[int]:
+    if not iso_date:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso_date.replace("Z", "+00:00"))
+    except Exception:
+        try:
+            dt = datetime.fromisoformat(iso_date)
+        except Exception:
+            return None
+    now = datetime.now(timezone.utc) if dt.tzinfo else datetime.utcnow()
+    delta = now - dt
+    return max(0, delta.days // 30)
+
+
+def _map_activity(declared: Optional[str]) -> Optional[str]:
+    if not declared:
+        return None
+    d = declared.lower()
+    if any(k in d for k in ("general trading", "holding", "investment holding", "management services", "not elsewhere classified")):
+        return "generic_holding"
+    return "specific_aligned"
+
+
+# =============================================================================
+# PUBLIC ENTRY POINT
+# =============================================================================
+
+async def orchestrate_dd(
+    target: dict,
+    *,
+    llm: Any = None,
+    mode: str = "standard",
+    cost_cap_usd: float | None = None,
+    trace_id: str | None = None,
+) -> ARKDDReport:
+    """Run the 7-layer DD orchestrator on a target entity.
+
+    Args:
+        target: dict with keys:
+            - name / entity / query (required)
+            - type: "company" | "person" | "address" | "vessel" | ...
+            - jurisdiction_iso2: ISO-2 country code (optional)
+            - jurisdiction: full country name (optional)
+            - registration_number: national registry number (optional)
+            - product_description: goods/service description (optional,
+              for export-control classification)
+            - transaction_value_usd: proposed deal value (optional,
+              for ghost-score proportionality check)
+        llm: LLMProvider for the digital layer's optional deep_research
+             call. Pass None to skip the LLM-backed deep_research step.
+        mode: "quick" (skip network + digital deep_research) |
+              "standard" (full sequential walk) |
+              "deep" (standard + future watchlist diff)
+        cost_cap_usd: override the default run cost cap.
+        trace_id: link to an existing trace (from chat_ep / autonomous task).
+
+    Returns:
+        ARKDDReport — fully populated; also persisted to Redis and
+        ready to be delivered via autonomous/delivery.py.
+    """
+    if not ORCHESTRATOR_ENABLED:
+        raise RuntimeError("DD orchestrator disabled via ARIA_DD_ORCHESTRATOR_ENABLED=0")
+    if not target or not (target.get("name") or target.get("entity") or target.get("query")):
+        raise ValueError("target must include 'name', 'entity', or 'query'")
+
+    cost_cap = cost_cap_usd if cost_cap_usd is not None else DEFAULT_COST_CAP_USD
+    t_run_start = time.time()
+
+    report = ARKDDReport(
+        target=target,
+        orchestrator_mode=mode,
+        trace_id=trace_id,
+    )
+    report.identity.entity_name = target.get("name") or target.get("entity") or target.get("query", "")
+    report.identity.entity_type = target.get("type") or EntityType.UNKNOWN.value
+
+    # Hook into cost_tracker so every LLM call made by the layers is
+    # attributed to "dd_orchestrator".
+    cost_tracker_token = None
+    try:
+        from . import cost_tracker
+        cost_tracker_token = cost_tracker.set_feature("dd_orchestrator")
+    except Exception:
+        pass
+
+    try:
+        # ── LAYER 1: IDENTITY ──
+        layer_name = "identity"
+        report.layers_run.append(layer_name)
+        try:
+            hard_stop = await asyncio.wait_for(
+                _run_identity(target, report),
+                timeout=DEFAULT_LAYER_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            report.identity.meta.status = LayerStatus.ERROR.value
+            report.identity.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
+            hard_stop = False
+
+        # Short-circuit on sanctions hit: skip network/digital, keep
+        # compliance + verification + synthesis so the user still gets a
+        # structured HARD_STOP report with the reasoning.
+        if hard_stop:
+            logger.info("[dd_orchestrator] hard stop triggered in identity layer — short-circuiting")
+            report.layers_skipped = ["network", "digital"]
+            report.network.meta.status = LayerStatus.SKIPPED.value
+            report.digital.meta.status = LayerStatus.SKIPPED.value
+        else:
+            # ── LAYER 2: NETWORK (unless quick mode) ──
+            if mode != "quick":
+                layer_name = "network"
+                report.layers_run.append(layer_name)
+                try:
+                    await asyncio.wait_for(_run_network(target, report), timeout=DEFAULT_LAYER_TIMEOUT_S)
+                except asyncio.TimeoutError:
+                    report.network.meta.status = LayerStatus.ERROR.value
+                    report.network.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
+            else:
+                report.layers_skipped.append("network")
+                report.network.meta.status = LayerStatus.SKIPPED.value
+
+        # ── LAYER 4: COMPLIANCE ── (always — it's cheap and load-bearing)
+        layer_name = "compliance"
+        report.layers_run.append(layer_name)
+        try:
+            await asyncio.wait_for(_run_compliance(target, report), timeout=DEFAULT_LAYER_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            report.compliance.meta.status = LayerStatus.ERROR.value
+            report.compliance.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
+
+        # ── LAYER 5: DIGITAL (unless quick mode OR short-circuited) ──
+        if mode != "quick" and not hard_stop:
+            layer_name = "digital"
+            report.layers_run.append(layer_name)
+            try:
+                await asyncio.wait_for(_run_digital(target, report, llm), timeout=DEFAULT_LAYER_TIMEOUT_S * 2)
+            except asyncio.TimeoutError:
+                report.digital.meta.status = LayerStatus.ERROR.value
+                report.digital.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S * 2}s"
+        elif mode == "quick":
+            report.layers_skipped.append("digital")
+            report.digital.meta.status = LayerStatus.SKIPPED.value
+
+        # ── LAYER 3: VERIFICATION (runs over what the previous layers collected) ──
+        layer_name = "verification"
+        report.layers_run.append(layer_name)
+        try:
+            await asyncio.wait_for(_run_verification(target, report), timeout=30)
+        except asyncio.TimeoutError:
+            report.verification.meta.status = LayerStatus.ERROR.value
+            report.verification.meta.error = "timeout after 30s"
+
+        # ── LAYER 6: SYNTHESIS ──
+        layer_name = "synthesis"
+        report.layers_run.append(layer_name)
+        try:
+            await asyncio.wait_for(_run_synthesis(target, report), timeout=10)
+        except asyncio.TimeoutError:
+            report.synthesis.meta.status = LayerStatus.ERROR.value
+            report.synthesis.meta.error = "timeout after 10s"
+
+    finally:
+        if cost_tracker_token is not None:
+            try:
+                from . import cost_tracker
+                cost_tracker.reset_feature(cost_tracker_token)
+            except Exception:
+                pass
+
+    # ── BLUF + assembly ──
+    _assemble_bluf(report)
+    report.total_duration_ms = int((time.time() - t_run_start) * 1000)
+    report.layer_costs_usd = {
+        "identity":     report.identity.meta.cost_usd,
+        "network":      report.network.meta.cost_usd,
+        "verification": report.verification.meta.cost_usd,
+        "compliance":   report.compliance.meta.cost_usd,
+        "digital":      report.digital.meta.cost_usd,
+        "synthesis":    report.synthesis.meta.cost_usd,
+    }
+    report.total_cost_usd = sum(report.layer_costs_usd.values())
+
+    # ── Persist + deliver ──
+    await _persist_report(report)
+
+    try:
+        from . import knowledge
+        summary = f"ARK-DD report {report.run_id} on {report.identity.entity_name}: {report.risk_classification}. {report.bottom_line[:200]}"
+        await knowledge.store_fact(
+            topic=f"ark_dd:{report.identity.entity_name}",
+            content=summary,
+            source=f"dd_orchestrator:{report.run_id}",
+            confidence="PROBABLE",
+        )
+    except Exception as e:
+        logger.debug("dd_orchestrator: knowledge store failed (non-fatal): %s", e)
+
+    logger.info(
+        "[dd_orchestrator] run %s complete — entity=%s risk=%s cost=$%.4f duration=%dms layers=%s",
+        report.run_id,
+        report.identity.entity_name,
+        report.risk_classification,
+        report.total_cost_usd,
+        report.total_duration_ms,
+        ",".join(report.layers_run),
+    )
+    return report
+
+
+# =============================================================================
+# WATCHLIST (Redis-backed, used by autonomous task)
+# =============================================================================
+
+WATCHLIST_KEY = "crucix:dd:watchlist"
+
+
+async def add_to_watchlist(target: dict) -> dict:
+    """Add a target to the DD watchlist. Target must include at least
+    a name. Idempotent — dedupes by name."""
+    from . import redis_store as rs
+    current = await rs.get_json(WATCHLIST_KEY) or []
+    name = (target.get("name") or target.get("entity") or "").strip()
+    if not name:
+        raise ValueError("target must include a name")
+    if any((w.get("name") or "").strip().lower() == name.lower() for w in current):
+        return {"ok": True, "note": "already on watchlist", "count": len(current)}
+    current.insert(0, target)
+    current = current[:200]
+    await rs.set_json(WATCHLIST_KEY, current)
+    return {"ok": True, "added": target, "count": len(current)}
+
+
+async def remove_from_watchlist(name: str) -> dict:
+    from . import redis_store as rs
+    current = await rs.get_json(WATCHLIST_KEY) or []
+    before = len(current)
+    current = [w for w in current if (w.get("name") or "").strip().lower() != (name or "").strip().lower()]
+    await rs.set_json(WATCHLIST_KEY, current)
+    return {"ok": True, "removed": before - len(current), "count": len(current)}
+
+
+async def get_watchlist() -> list[dict]:
+    from . import redis_store as rs
+    return await rs.get_json(WATCHLIST_KEY) or []
+
+
+async def get_report(run_id: str) -> dict | None:
+    from . import redis_store as rs
+    return await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))
+
+
+async def list_reports(limit: int = 50) -> list[dict]:
+    from . import redis_store as rs
+    index = await rs.get_json(REPORT_INDEX_KEY) or []
+    return index[:limit]

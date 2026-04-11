@@ -220,6 +220,179 @@ async def knowledge_reseed_ep(request: Request, force: bool = True):
     return {"ok": True, "forced": force, "result": result}
 
 
+# ── ARK-DD Orchestrator endpoints ──────────────────────────────────────
+# 7-layer due-diligence orchestrator. Composes sanctions, companies_house,
+# network_walker, ghost-score, risk_indices, export-control classifier,
+# web_search, RAG, neural, deep_research → structured ARKDDReport.
+# All additive — existing /api/aria/compliance/screen + /api/aria/research/*
+# endpoints continue to work unchanged. This is the entry point when a
+# caller wants a full structured report instead of ad-hoc chat reasoning.
+
+@router.post("/dd/orchestrate")
+async def dd_orchestrate_ep(req: Request):
+    """Run the 7-layer DD orchestrator on a target entity.
+
+    Request body (JSON):
+      {
+        "name":                  str (required),
+        "type":                  "company" | "person" | "address" | "vessel",
+        "jurisdiction_iso2":     "GB" | "AO" | ...,
+        "jurisdiction":          "United Kingdom" | "Angola" | ...,
+        "registration_number":   "12345678",
+        "product_description":   "Bayraktar TB2 UAVs + munitions",
+        "transaction_value_usd": 50000000,
+        "mode":                  "quick" | "standard" | "deep",
+        "format":                "json" | "markdown"    (default json)
+      }
+    """
+    body = await req.json()
+    if not isinstance(body, dict) or not (body.get("name") or body.get("entity")):
+        raise HTTPException(status_code=400, detail="request body must include 'name' or 'entity'")
+
+    mode = (body.get("mode") or "standard").lower()
+    if mode not in ("quick", "standard", "deep"):
+        mode = "standard"
+    output_format = (body.get("format") or "json").lower()
+
+    llm = get_llm(req)
+
+    # Start a trace so /api/aria/trace/{trace_id} shows the DD lifecycle.
+    trace_id = await trace_stream.start_trace(
+        question=f"dd_orchestrate: {body.get('name') or body.get('entity')}",
+        session_id=body.get("session_id", ""),
+        user=body.get("user", ""),
+        source="dd_orchestrator",
+    )
+
+    try:
+        from ..intel import dd_orchestrator
+        report = await dd_orchestrator.orchestrate_dd(
+            target=body,
+            llm=llm,
+            mode=mode,
+            trace_id=trace_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        _log.exception("dd_orchestrate failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"dd_orchestrate error: {e}")
+
+    try:
+        await trace_stream.finish_trace(
+            trace_id,
+            response=f"ARK-DD {report.risk_classification}",
+            tool_used="dd_orchestrator",
+            status="ok" if report.risk_classification != "HARD_STOP" else "hard_stop",
+        )
+    except Exception:
+        pass
+
+    if output_format == "markdown":
+        return {
+            "run_id": report.run_id,
+            "risk": report.risk_classification,
+            "markdown": report.render_markdown(concise=False),
+        }
+    return report.as_dict()
+
+
+@router.get("/dd/report/{run_id}")
+async def dd_report_ep(run_id: str, format: str = "json"):
+    from ..intel import dd_orchestrator
+    report = await dd_orchestrator.get_report(run_id)
+    if not report:
+        raise HTTPException(status_code=404, detail=f"report not found: {run_id}")
+    if format == "markdown":
+        # Re-hydrate a lightweight renderer by re-importing the schema
+        from ..intel import dd_schema
+        try:
+            rebuilt = _rebuild_report_from_dict(report, dd_schema)
+            return {"run_id": run_id, "markdown": rebuilt.render_markdown(concise=False)}
+        except Exception as e:
+            _log.debug("dd report markdown rebuild failed (falling back to raw): %s", e)
+    return report
+
+
+@router.get("/dd/reports")
+async def dd_reports_index_ep(limit: int = 50):
+    from ..intel import dd_orchestrator
+    return {"reports": await dd_orchestrator.list_reports(limit=limit)}
+
+
+@router.get("/dd/watchlist")
+async def dd_watchlist_get_ep():
+    from ..intel import dd_orchestrator
+    return {"watchlist": await dd_orchestrator.get_watchlist()}
+
+
+@router.post("/dd/watchlist")
+async def dd_watchlist_add_ep(req: Request):
+    body = await req.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+    from ..intel import dd_orchestrator
+    try:
+        return await dd_orchestrator.add_to_watchlist(body)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/dd/watchlist/{name}")
+async def dd_watchlist_delete_ep(name: str):
+    from ..intel import dd_orchestrator
+    return await dd_orchestrator.remove_from_watchlist(name)
+
+
+def _rebuild_report_from_dict(d: dict, dd_schema):
+    """Rehydrate an ARKDDReport from its stored dict so render_markdown
+    works. Only the fields used by render_markdown need to be re-typed."""
+    # Minimal rehydrate — we don't need full type safety for rendering.
+    # Cheap cast via a blank report + field-by-field assignment.
+    rpt = dd_schema.ARKDDReport()
+    for k, v in d.items():
+        if hasattr(rpt, k):
+            setattr(rpt, k, v)
+    # Sections come back as dicts; rebuild SectionMeta + Finding so the
+    # render code can access attributes rather than dict keys.
+    def _make_section(cls, payload):
+        if not isinstance(payload, dict):
+            return cls()
+        sec = cls()
+        for k, v in payload.items():
+            if k == "meta" and isinstance(v, dict):
+                m = dd_schema.SectionMeta()
+                for mk, mv in v.items():
+                    if hasattr(m, mk):
+                        setattr(m, mk, mv)
+                setattr(sec, "meta", m)
+            elif k == "findings" and isinstance(v, list):
+                findings = []
+                for fi in v:
+                    if isinstance(fi, dict):
+                        findings.append(dd_schema.Finding(
+                            severity=fi.get("severity", "info"),
+                            title=fi.get("title", ""),
+                            detail=fi.get("detail", ""),
+                            source=fi.get("source", ""),
+                            confidence=fi.get("confidence", "ASSESSED"),
+                        ))
+                setattr(sec, "findings", findings)
+            elif hasattr(sec, k):
+                setattr(sec, k, v)
+        return sec
+
+    rpt.identity     = _make_section(dd_schema.IdentitySection,     d.get("identity"))
+    rpt.network      = _make_section(dd_schema.NetworkSection,      d.get("network"))
+    rpt.verification = _make_section(dd_schema.VerificationSection, d.get("verification"))
+    rpt.compliance   = _make_section(dd_schema.ComplianceSection,   d.get("compliance"))
+    rpt.digital      = _make_section(dd_schema.DigitalSection,      d.get("digital"))
+    rpt.synthesis    = _make_section(dd_schema.SynthesisSection,    d.get("synthesis"))
+    return rpt
+
+
 # M7: memory tier diagnostics — visibility for cross-tier drift.
 @router.get("/memory/tiers")
 async def memory_tiers_ep():

@@ -568,3 +568,38 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: []
     mem0_tags: [metacognitive, monthly, gap-closure, code-generation]
+
+  # ──────────────────────────────────────────────────────────────────
+  # BLOCK I — ARK-DD Orchestrator (disabled by default)
+  # ──────────────────────────────────────────────────────────────────
+  # Walks the DD watchlist once a week and runs the 7-layer
+  # dd_orchestrator on every entity registered via
+  # POST /api/aria/dd/watchlist. Entities can be added manually (by
+  # Antonio / Ari) or programmatically when the BD intelligence layer
+  # surfaces a new counterparty worth tracking.
+  #
+  # Disabled by default so existing deploys don't suddenly start burning
+  # cost on an empty watchlist. Flip `enabled: true` AND ensure at
+  # least one entity has been added via the watchlist endpoint before
+  # the first scheduled run.
+  - id: WEEKLY-DD-WATCHLIST
+    name: ARK-DD watchlist sweep
+    description: |
+      Weekly Monday 07:00 UTC — runs the 7-layer due-diligence
+      orchestrator on every entity registered in crucix:dd:watchlist.
+      Each entity is walked through identity → network → compliance →
+      digital → verification → synthesis, producing a structured
+      ARK-DD report stored in Redis (7-day TTL). Any run that comes
+      back RED or HARD_STOP fires an escalation signal to the
+      autonomous/delivery.py pipeline.
+    cron: "0 7 * * mon"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 600
+    cost_cap_usd: 2.00
+    tool_chain:
+      - tool: dd_watchlist_sweep
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if: ["RED", "HARD_STOP", "SAR"]
+    mem0_tags: [dd, orchestrator, watchlist, weekly, autonomous]
