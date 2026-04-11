@@ -2227,7 +2227,9 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
         method: 'POST',
         headers: _ariaHeaders(),
         body: JSON.stringify({ message, session_id: sid }),
-        signal: AbortSignal.timeout(300000),  // 5 minutes — must exceed waListener 240s
+        // 2026-04-11 Hanwha: waListener research timeout bumped to 360s;
+        // this outer MUST exceed it. 420s = 7 minutes gives 60s headroom.
+        signal: AbortSignal.timeout(420000),
       });
       if (r.ok) {
         const data = await r.json();

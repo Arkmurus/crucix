@@ -111,20 +111,56 @@ class FallbackProvider(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 60.0,
     ) -> LLMResult:
+        """Try each provider in order. The caller's `timeout` is the TOTAL
+        budget for the fallback call, NOT the per-provider budget — we
+        divide it across the eligible providers so the worst case stays
+        bounded. Without this, a 120s caller budget produced a 360s
+        worst-case (3 providers × 120s each) and blew through the
+        outer waListener 240s cap. Incident 2026-04-11 21:06: Hanwha
+        Redback research prompt timed out after Anthropic stalled."""
         last_error = None
+        import time as _t
+        t_start = _t.monotonic()
 
+        # Build the eligible provider shortlist first so we know how to
+        # divide the timeout. Providers in cool-down are skipped here,
+        # not inside the loop, so the divisor is accurate.
+        eligible = []
         for provider in self.providers:
             stats = self._stats.get(provider.name, {})
             if self._should_skip(stats):
                 logger.debug("Skipping %s (cooling down, %d recent failures)",
                              provider.name, stats.get("failures", 0))
                 continue
+            eligible.append(provider)
 
+        if not eligible:
+            raise ProviderError(
+                "fallback", "no eligible providers (all in cool-down)",
+                kind="other", retryable=True,
+            )
+
+        # Per-provider share of the budget. Leave a 10% headroom so the
+        # last provider isn't cut off right as it's about to return.
+        share = max(20.0, (timeout * 0.9) / max(1, len(eligible)))
+
+        for i, provider in enumerate(eligible):
+            stats = self._stats.get(provider.name, {})
+            elapsed = _t.monotonic() - t_start
+            remaining_total = max(0.0, timeout - elapsed)
+            # Each provider gets min(share, remaining). Bail out if no budget left.
+            per_call = min(share, remaining_total)
+            if per_call < 15.0:
+                logger.warning(
+                    "Fallback budget exhausted (%.1fs remaining); skipping %s",
+                    remaining_total, provider.name,
+                )
+                break
             try:
                 stats["calls"] = stats.get("calls", 0) + 1
                 result = await provider.complete(
                     system_prompt, user_message,
-                    max_tokens=max_tokens, timeout=timeout,
+                    max_tokens=max_tokens, timeout=per_call,
                 )
                 self._record_success(provider, stats)
                 result.routed_via = f"fallback:{provider.name}"
@@ -134,9 +170,6 @@ class FallbackProvider(LLMProvider):
                 self._record_failure(provider, stats, e)
                 last_error = e
 
-        # Wrap the final error as a ProviderError so downstream handlers
-        # (streaming generator, route handlers, degraded-mode catchers)
-        # can render a user-safe message instead of a vendor URL.
         if isinstance(last_error, ProviderError):
             raise last_error
         raise ProviderError(

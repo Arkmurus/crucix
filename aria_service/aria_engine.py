@@ -1684,8 +1684,17 @@ async def aria_chat(
     # past errors. This is the closed loop: confidence calibration → behaviour.
     system_prompt = await _build_calibrated_system_prompt(message)
 
+    # Timeout tuning: when the message already carries a tool_context block
+    # (deep_research, dd_orchestrate, extract_url, …) the LLM's job is
+    # narrative synthesis over pre-fetched data, NOT reasoning from
+    # scratch — it completes much faster AND the outer waListener / server
+    # timeout has already burned ~60s on the tool call. Use 75s here so
+    # the fallback chain has room to try a second provider if the primary
+    # stalls. Non-tool chat keeps the full 120s budget.
+    _llm_timeout = 75.0 if "[TOOL:" in message or "[I have already run" in message else 120.0
+
     try:
-        result = await llm.complete(system_prompt, user_prompt, max_tokens=4000, timeout=120.0)
+        result = await llm.complete(system_prompt, user_prompt, max_tokens=4000, timeout=_llm_timeout)
         response_text = result.text
     except Exception as e:
         # Record error for autonomous self-improvement
