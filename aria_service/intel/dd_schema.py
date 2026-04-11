@@ -362,6 +362,25 @@ class ARKDDReport:
             if self.digital.source_tier_breakdown:
                 parts = [f"{k}:{v}" for k, v in self.digital.source_tier_breakdown.items()]
                 lines.append(f"Source tiers: {', '.join(parts)}")
+            # Deep-research summary (deep_researcher.investigate)
+            _wf = self.digital.web_footprint or {}
+            if isinstance(_wf, dict):
+                if _wf.get("summary"):
+                    lines.append(f"Deep-research ({_wf.get('depth','quick')}, {_wf.get('articles_read',0)} articles, {_wf.get('facts_learned',0)} facts): {str(_wf.get('summary'))[:500]}")
+                # Link-investigator tree walk (Phase 2 — deep mode only)
+                _lt = _wf.get("link_tree") or {}
+                if _lt:
+                    _budget = " (budget exceeded)" if _lt.get("budget_exceeded") else ""
+                    lines.append(
+                        f"Link tree: seed={_lt.get('seed_url','?')} · "
+                        f"{_lt.get('pages_fetched',0)} pages fetched "
+                        f"(failed {_lt.get('pages_failed',0)}), depth "
+                        f"{_lt.get('max_depth_reached',0)}, "
+                        f"{_lt.get('fused_fact_count',0)} fused facts · "
+                        f"{_lt.get('duration_ms',0)}ms{_budget}"
+                    )
+                    if _lt.get('tree_id'):
+                        lines.append(f"  → full tree: /api/aria/research/link-tree/{_lt['tree_id']}")
             for f in self.digital.findings[:5 if concise else 20]:
                 lines.append(f"  • [{f.severity}] {f.title}")
             lines.append("")

@@ -1508,10 +1508,13 @@ _DD_COUNTRY_TO_ISO2: dict[str, str] = {
     "romania": "RO", "slovakia": "SK", "slovenia": "SI", "spain": "ES",
     "sweden": "SE", "iceland": "IS", "norway": "NO", "switzerland": "CH",
     "liechtenstein": "LI",
-    # UK + crown dependencies
+    # UK + crown dependencies + British Overseas Territories
     "united kingdom": "GB", "uk": "GB", "great britain": "GB",
     "britain": "GB", "england": "GB", "scotland": "GB", "wales": "GB",
     "northern ireland": "GB",
+    "gibraltar": "GI", "isle of man": "IM", "jersey": "JE", "guernsey": "GG",
+    "cayman islands": "KY", "bermuda": "BM", "british virgin islands": "VG",
+    "bvi": "VG", "turks and caicos": "TC", "anguilla": "AI",
     # Americas
     "united states": "US", "usa": "US", "us": "US", "america": "US",
     "canada": "CA", "mexico": "MX", "brazil": "BR", "brasil": "BR",
@@ -1770,6 +1773,49 @@ def _detect_dd_intent(message: str) -> dict | None:
     if caen_match:
         extra["caen_code"] = caen_match.group(1)
         extra["declared_activity_code"] = f"CAEN {caen_match.group(1)}"
+
+    # Named officeholders — "represented by its Director X", "Director X",
+    # "CEO X", "CFO X", "Managing Director X". Captured names flow through
+    # to the orchestrator's identity layer so each individual is
+    # separately sanctions-screened. Without this the DD run only screens
+    # the legal entity and the UBO/director screen shows up as a gap.
+    _directors: list[dict] = []
+    _role_words_re = re.compile(
+        r"^(?:the\s+)?(?:director|managing\s+director|ceo|cfo|coo|chairman|chairwoman|"
+        r"chairperson|president|founder|owner|general\s+manager|representative)\s+",
+        re.IGNORECASE,
+    )
+    # Handle UK/EU style: "represented by its Director <Name>"
+    rep_match = re.search(
+        r"represented\s+by\s+(?:its\s+)?"
+        r"((?:(?:director|managing\s+director|ceo|cfo|chairman|chairwoman|chairperson|owner|founder|president|general\s+manager)\s+)?"
+        r"[A-Z][A-Za-z'\-]+(?:\s+[A-Z][A-Za-z'\-]+){1,3})",
+        message,
+        re.IGNORECASE,
+    )
+    if rep_match:
+        _raw = rep_match.group(1).strip()
+        _role_hit = _role_words_re.match(_raw)
+        if _role_hit:
+            _role = _role_hit.group(0).strip().title()
+            _nm = _raw[_role_hit.end():].strip()
+        else:
+            _role = "Representative"
+            _nm = _raw
+        if _nm:
+            _directors.append({"role": _role, "name": _nm})
+    # Catch additional "Director X" / "CEO X" mentions after "represented by"
+    role_re = re.compile(
+        r"\b(?:Director|Managing\s+Director|CEO|CFO|COO|Chairman|Chairwoman|Chairperson|"
+        r"President|Founder|Owner|General\s+Manager)\s+"
+        r"([A-Z][A-Za-z'\-]+(?:\s+[A-Z][A-Za-z'\-]+){1,3})",
+    )
+    for m in role_re.finditer(message):
+        _nm = m.group(1).strip()
+        if not any(d["name"].lower() == _nm.lower() for d in _directors):
+            _directors.append({"role": "Director", "name": _nm})
+    if _directors:
+        extra["directors"] = _directors
 
     # Mode hint — "deep/comprehensive/full DD" → mode=deep unlocks
     # deep_researcher depth=thorough + Phase 2 link_investigator tree walk.
@@ -2290,6 +2336,7 @@ async def _execute_tool(intent: dict, llm) -> str:
                 "cui": intent.get("cui"),
                 "nip": intent.get("nip"),
                 "mswia_concession": intent.get("mswia_concession"),
+                "directors": intent.get("directors") or [],
                 "website": intent.get("website"),
                 "claimed_founding_year": intent.get("claimed_founding_year"),
                 "caen_code": intent.get("caen_code"),

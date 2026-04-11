@@ -296,6 +296,66 @@ async def _run_identity(
         ))
         report.identity.data_gaps.append("sanctions screen did not complete")
 
+    # ── 1a2. Named-officeholder sanctions screen ──
+    # When the caller supplies directors / beneficial owners / named
+    # representatives (chat intent extracts "represented by its
+    # Director X"), each individual is sanctions-screened separately.
+    # This closes the "director screening gap" that previously had to
+    # be chased manually after every DD run.
+    _directors_in = target.get("directors") or []
+    if _directors_in:
+        try:
+            from . import sanctions as _sanc
+            from ._sanctions_classify import classify_matches as _cm
+            _screen_fn = getattr(_sanc, "screen_with_aliases", None) or getattr(_sanc, "fuzzy_screen", None)
+            for _d in _directors_in[:8]:  # hard cap — don't hammer the API
+                _nm = (_d.get("name") or "").strip()
+                if not _nm or len(_nm) < 4:
+                    continue
+                try:
+                    _dscreen = await _screen_fn(_nm) if _screen_fn else {"matches": []}
+                    _dcls = _cm(_dscreen.get("matches") or [], query_name=_nm)
+                    _role = _d.get("role") or "Officer"
+                    report.identity.meta.subcalls += 1
+                    if _dcls["worst_severity"] == "hard_stop":
+                        report.identity.findings.append(Finding(
+                            severity="hard_stop",
+                            title=f"{_role} {_nm} on active sanctions list",
+                            detail=_dcls["summary"],
+                            source="sanctions.director_screen",
+                            confidence="CONFIRMED",
+                        ))
+                        hard_stop = True
+                    elif _dcls["worst_severity"] == "red":
+                        report.identity.findings.append(Finding(
+                            severity="red",
+                            title=f"{_role} {_nm} linked to crime/debarment list",
+                            detail=_dcls["summary"],
+                            source="sanctions.director_screen",
+                            confidence="PROBABLE",
+                        ))
+                    elif _dcls["worst_severity"] == "amber":
+                        report.identity.findings.append(Finding(
+                            severity="amber",
+                            title=f"{_role} {_nm} on PEP / adverse-media list",
+                            detail=_dcls["summary"] + " — enhanced DD required on individual.",
+                            source="sanctions.director_screen",
+                            confidence="ASSESSED",
+                        ))
+                    else:
+                        report.identity.findings.append(Finding(
+                            severity="info",
+                            title=f"{_role} {_nm} — sanctions screen CLEAN",
+                            detail=f"No matches for {_nm} across OFAC / UK OFSI / EU / UN / OpenSanctions datasets.",
+                            source="sanctions.director_screen",
+                            confidence="CONFIRMED",
+                        ))
+                except Exception as _e:
+                    logger.warning("Director screen failed for %s: %s", _nm, _e)
+                    report.identity.data_gaps.append(f"director sanctions screen failed for {_nm}")
+        except Exception as e:
+            logger.warning("Identity: director screen block failed: %s", e)
+
     # ── 1b. Companies House lookup (UK only) ──
     if jurisdiction_iso2 == "GB":
         try:
@@ -1060,6 +1120,15 @@ def _map_activity(declared: Optional[str]) -> Optional[str]:
 _NATIONAL_REGISTRY_HINTS: dict[str, str] = {
     # Europe
     "GB": "already covered automatically via Companies House",
+    "GI": "check Gibraltar Companies House at https://www.companieshouse.gi — separate registry from UK CH; paid per extract. Also check Gibraltar Beneficial Ownership Register (Companies Act 2014, as amended 2019).",
+    "IM": "check Isle of Man Companies Registry at https://services.gov.im/ded/services/companiesregistry — paid per extract",
+    "JE": "check Jersey Financial Services Commission Registry at https://www.jerseyfsc.org — paid per extract",
+    "GG": "check Guernsey Registry at https://www.greg.gg — paid per extract",
+    "KY": "check Cayman Islands General Registry at https://www.ciregistry.ky — restricted access; UBO via Beneficial Ownership Transparency Act",
+    "BM": "check Bermuda Registrar of Companies at https://www.gov.bm/department/registrar-companies — paid per extract",
+    "VG": "check BVI Financial Services Commission at https://www.bvifsc.vg — restricted; BOSS (Beneficial Ownership Secure Search) system",
+    "TC": "check Turks & Caicos Financial Services Commission — paid extracts only",
+    "AI": "check Anguilla Commercial Registry (ACORN) — paid per extract",
     "RO": "check ONRC (Oficiul Național al Registrului Comerțului) at https://portal.onrc.ro — free public Romanian registry",
     "DE": "check Handelsregister at https://www.handelsregister.de — free German commercial register (fee per extract)",
     "FR": "check INFOGREFFE / Pappers at https://www.pappers.fr — free French commercial registry aggregator",
