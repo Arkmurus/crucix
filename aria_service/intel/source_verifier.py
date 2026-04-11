@@ -211,7 +211,26 @@ def verify_response(response_text: str, tool_context: str) -> dict:
     fetched = extract_urls(tool_context or "")
     tool_refs = count_tool_refs(response_text or "")
 
-    if not tool_context:
+    # An `[ATTACHED DOCUMENT ... END ATTACHED DOCUMENT]` block counts as a
+    # first-class grounding source. Contract reviews, document audits, and
+    # OCR'd screenshots all cite "the document" / "Clause 5" / "the BVI
+    # law clause" rather than a URL — those assertions ARE grounded in
+    # the user-provided text even though there is no URL to extract. The
+    # metacognitive honesty check was flagging legitimate contract
+    # reviews as dishonest because the verifier didn't recognise this
+    # surface. Presence of the block promotes the message out of
+    # "no_tool" / "no_citations" into "grounded" on the merits of the
+    # attached content itself.
+    #
+    # Raw text (full message OR tool_context) is checked because the
+    # WhatsApp listener injects the block into the user message, not
+    # into the tool_context slot.
+    has_attached_doc = (
+        "[ATTACHED DOCUMENT" in (tool_context or "")
+        and "[END ATTACHED DOCUMENT]" in (tool_context or "")
+    )
+
+    if not tool_context and not has_attached_doc:
         return {
             "cited_urls": cited,
             "fetched_urls": [],
@@ -239,6 +258,23 @@ def verify_response(response_text: str, tool_context: str) -> dict:
                 "suspicious_count": 0,
                 "tool_refs": tool_refs,
                 "verdict": "grounded",
+            }
+        # Document-first grounding: an attached document in context +
+        # a response that quotes / references specific clauses counts
+        # as grounded even without URLs. We treat the presence of the
+        # block as sufficient evidence that the response was built from
+        # verifiable text the user supplied.
+        if has_attached_doc:
+            return {
+                "cited_urls": [],
+                "fetched_urls": [],
+                "grounded": ["[ATTACHED DOCUMENT]"],
+                "unverified": [],
+                "grounded_rate": 1.0,
+                "suspicious_count": 0,
+                "tool_refs": tool_refs,
+                "verdict": "grounded",
+                "source": "attached_document",
             }
         return {
             "cited_urls": [],

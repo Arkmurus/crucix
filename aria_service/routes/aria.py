@@ -1311,13 +1311,37 @@ def _extract_attached_document(message: str) -> str:
     return inner
 
 
+def _strip_attached_document(message: str) -> str:
+    """Remove any `[ATTACHED DOCUMENT ... END ATTACHED DOCUMENT]` block from
+    the message so downstream query builders (tool intent detection, web
+    search angle construction) don't turn the raw document text into a
+    Brave query. The document itself is still available via
+    _extract_attached_document for the review pipeline that needs it.
+
+    Past bug: _detect_tool_intent passed the full message (including the
+    ~4KB document block) as the `entity` argument to deep_research, which
+    stuffed it into Brave's `q=` param. Brave silently truncated and
+    returned nonsense results for a 'contract review' query.
+    """
+    if not message or "[ATTACHED DOCUMENT" not in message:
+        return message
+    stripped = _ATTACHED_DOC_RE.sub(" ", message)
+    # Collapse the whitespace left behind
+    import re as _re
+    return _re.sub(r"\s+", " ", stripped).strip()
+
+
 def _detect_tool_intent(message: str) -> dict | None:
     """Parse free-form text into a structured tool call. Returns None if no tool intent."""
     # Strip the WhatsApp listener context prefix BEFORE any pattern matching.
     # This prevents prior-turn topics (e.g. "Iraq tenders") from contaminating
     # the entity extraction for the current turn (e.g. "duma-engineering.com").
     # Past incident 2026-04-09 19:18 — DUMA Engineering investigation.
-    msg = _strip_listener_context(message).strip()
+    #
+    # Also strip [ATTACHED DOCUMENT ... END] blocks so the raw document text
+    # never reaches the Brave query builder. The contract-review pipeline
+    # still retrieves the document via _extract_attached_document.
+    msg = _strip_attached_document(_strip_listener_context(message)).strip()
     if not msg:
         return None
 
@@ -2422,7 +2446,14 @@ async def chat_ep(req: ChatRequest, request: Request):
         # ── Cited-source verification (deterministic hallucination check) ──
         try:
             if response_text:
-                verification = source_verifier.verify_response(response_text, tool_context)
+                # Include the attached-document block (if any) in the
+                # verifier's tool_context surface so document-grounded
+                # responses (contract reviews, OCR screenshots) get the
+                # correct grounded verdict instead of no_tool / no_citations.
+                _verifier_ctx = tool_context or ""
+                if "[ATTACHED DOCUMENT" in (req.message or ""):
+                    _verifier_ctx = (_verifier_ctx + "\n" + req.message) if _verifier_ctx else req.message
+                verification = source_verifier.verify_response(response_text, _verifier_ctx)
                 saved = await source_verifier.record_verification(
                     verification,
                     request_id=session_id,
