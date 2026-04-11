@@ -204,6 +204,22 @@ def get_intel_data(request: Request):
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 # 1. GET /api/aria/identity
+# Manual knowledge-corpus reseed. Use this when a machine rolled mid-
+# seed or when a new knowledge module has been added and you want to
+# force immediate ingestion without waiting for the next deploy. The
+# startup seed is idempotent via a 6h Redis marker — this endpoint
+# bypasses the marker when force=true. Pass `?force=0` to respect the
+# marker (default is force=true since the usual reason to call this
+# endpoint is to override the marker).
+@router.post("/knowledge/reseed")
+async def knowledge_reseed_ep(request: Request, force: bool = True):
+    fn = getattr(request.app.state, "run_knowledge_seed", None)
+    if fn is None:
+        raise HTTPException(status_code=503, detail="knowledge seed function not wired at startup")
+    result = await fn(force=force)
+    return {"ok": True, "forced": force, "result": result}
+
+
 # M7: memory tier diagnostics — visibility for cross-tier drift.
 @router.get("/memory/tiers")
 async def memory_tiers_ep():

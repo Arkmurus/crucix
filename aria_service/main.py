@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os as _os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
@@ -452,67 +454,103 @@ async def lifespan(app: FastAPI):
     #                                    GPI, GTI, OECD CRC)
     #   6. international_law sources    (crawl registration for refresh)
     #   7. contract_intelligence.ingest_clause_library (clause library)
-    async def _seed_knowledge_bg():
-        await asyncio.sleep(25)  # Wait for RAG + sentence-transformers
-        try:
-            from .intel import international_law
-            result = await international_law.ingest_all_sections()
-            logger.info("[Knowledge Seed] Law: %d/%d sections, %d chunks",
-                        result.get("sections_ingested", 0),
-                        result.get("total_sections", 0),
-                        result.get("total_chunks", 0))
-        except Exception as e:
-            logger.warning("[Knowledge Seed] Law ingestion failed (non-fatal): %s", e)
-        try:
-            from .intel import global_export_control
-            result = await global_export_control.ingest_all_sections()
-            logger.info("[Knowledge Seed] Global export control: %d/%d sections, %d chunks",
-                        result.get("sections_ingested", 0),
-                        result.get("total_sections", 0),
-                        result.get("total_chunks", 0))
-        except Exception as e:
-            logger.warning("[Knowledge Seed] Global export control ingestion failed (non-fatal): %s", e)
-        try:
-            from .intel import regional_compliance
-            result = await regional_compliance.ingest_all_sections()
-            logger.info("[Knowledge Seed] Regional compliance: %d/%d sections, %d chunks",
-                        result.get("sections_ingested", 0),
-                        result.get("total_sections", 0),
-                        result.get("total_chunks", 0))
-        except Exception as e:
-            logger.warning("[Knowledge Seed] Regional compliance ingestion failed (non-fatal): %s", e)
-        try:
-            from .intel import due_diligence_playbooks
-            result = await due_diligence_playbooks.ingest_all_sections()
-            logger.info("[Knowledge Seed] DD playbooks: %d/%d sections, %d chunks",
-                        result.get("sections_ingested", 0),
-                        result.get("total_sections", 0),
-                        result.get("total_chunks", 0))
-        except Exception as e:
-            logger.warning("[Knowledge Seed] DD playbooks ingestion failed (non-fatal): %s", e)
-        try:
-            from .intel import risk_indices
-            result = await risk_indices.ingest_all_sections()
-            logger.info("[Knowledge Seed] Risk indices: %d/%d sections, %d chunks",
-                        result.get("sections_ingested", 0),
-                        result.get("total_sections", 0),
-                        result.get("total_chunks", 0))
-        except Exception as e:
-            logger.warning("[Knowledge Seed] Risk indices ingestion failed (non-fatal): %s", e)
+    # Seed-completion marker in Redis. If the seed finished within the
+    # last SEED_CACHE_TTL seconds on a previous boot, skip re-running to
+    # avoid pinning CPU/memory on rolling restarts. Force re-ingest via
+    # POST /api/aria/knowledge/reseed or by setting ARIA_FORCE_RESEED=1.
+    _SEED_MARKER_KEY = "crucix:knowledge_seed:last_completed"
+    _SEED_CACHE_TTL = 6 * 3600  # 6 hours
+
+    async def run_knowledge_seed(force: bool = False) -> dict:
+        """Idempotent knowledge-corpus seeding.
+
+        Runs every module sequentially. Each ingest_all_sections call is
+        internally deduped by rag_store via source URL, so re-running is
+        cheap. Returns a summary dict. Safe to call from startup, from
+        /api/aria/knowledge/reseed, or manually via fly ssh.
+        """
+        from .intel import redis_store as _rs
+        summary: dict = {}
+        if not force:
+            try:
+                last = await _rs.get(_SEED_MARKER_KEY)
+                if last:
+                    age = time.time() - float(last)
+                    if age < _SEED_CACHE_TTL:
+                        logger.info(
+                            "[Knowledge Seed] skipping — completed %.0fs ago (within %ds cache window). "
+                            "Set ARIA_FORCE_RESEED=1 or POST /api/aria/knowledge/reseed to override.",
+                            age, _SEED_CACHE_TTL,
+                        )
+                        return {"skipped": True, "last_completed_age_s": int(age)}
+            except Exception as e:
+                logger.debug("seed marker read failed (non-fatal): %s", e)
+
+        modules = [
+            ("international_law",       "Law",                   "ingest_all_sections"),
+            ("global_export_control",   "Global export control", "ingest_all_sections"),
+            ("regional_compliance",     "Regional compliance",   "ingest_all_sections"),
+            ("due_diligence_playbooks", "DD playbooks",          "ingest_all_sections"),
+            ("risk_indices",            "Risk indices",          "ingest_all_sections"),
+        ]
+        for modname, label, fn in modules:
+            try:
+                mod = __import__(f"aria_service.intel.{modname}", fromlist=[fn])
+                result = await getattr(mod, fn)()
+                summary[modname] = result
+                logger.info(
+                    "[Knowledge Seed] %s: %d/%d sections, %d chunks",
+                    label,
+                    result.get("sections_ingested", 0),
+                    result.get("total_sections", 0),
+                    result.get("total_chunks", 0),
+                )
+            except Exception as e:
+                summary[modname] = {"error": str(e)}
+                logger.warning("[Knowledge Seed] %s ingestion failed (non-fatal): %s", label, e)
+
         try:
             from .intel import international_law
             reg = await international_law.register_law_sources()
+            summary["law_sources"] = reg
             logger.info("[Knowledge Seed] Law sources registered: %d", reg.get("registered", 0))
         except Exception as e:
+            summary["law_sources"] = {"error": str(e)}
             logger.warning("[Knowledge Seed] Law source registration failed (non-fatal): %s", e)
         try:
             from .intel import contract_intelligence
             clause_result = await contract_intelligence.ingest_clause_library()
-            logger.info("[Knowledge Seed] Clause library: %d clauses, %d chunks",
-                        clause_result.get("clauses_ingested", 0),
-                        clause_result.get("total_chunks", 0))
+            summary["clause_library"] = clause_result
+            logger.info(
+                "[Knowledge Seed] Clause library: %d clauses, %d chunks",
+                clause_result.get("clauses_ingested", 0),
+                clause_result.get("total_chunks", 0),
+            )
         except Exception as e:
+            summary["clause_library"] = {"error": str(e)}
             logger.warning("[Knowledge Seed] Clause library ingestion failed (non-fatal): %s", e)
+
+        # Mark seed completion. Even a partial run counts — the URL-dedup
+        # layer makes the next run cheap, and the marker prevents
+        # thundering-herd retries on rolling restarts.
+        try:
+            await _rs.set(_SEED_MARKER_KEY, str(time.time()), ex=_SEED_CACHE_TTL * 4)
+        except Exception as e:
+            logger.debug("seed marker write failed (non-fatal): %s", e)
+        summary["completed_at"] = time.time()
+        return summary
+
+    # Expose for the /api/aria/knowledge/reseed route.
+    app.state.run_knowledge_seed = run_knowledge_seed
+
+    async def _seed_knowledge_bg():
+        await asyncio.sleep(25)  # Wait for RAG + sentence-transformers
+        force = (_os.getenv("ARIA_FORCE_RESEED", "") or "").strip().lower() in ("1", "true", "yes", "on")
+        try:
+            await run_knowledge_seed(force=force)
+        except Exception as e:
+            logger.warning("[Knowledge Seed] unhandled error (non-fatal): %s", e)
+
     knowledge_seed_task = asyncio.create_task(_seed_knowledge_bg())
 
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")

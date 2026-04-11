@@ -171,6 +171,206 @@ _ML_KEYWORDS = {
 }
 
 
+# ── US Munitions List (USML) keyword index — P5 expansion ───────────────────
+# Maps USML Categories I-XXI (22 CFR 121.1) to descriptive keywords.
+# Used when ARIA needs to reason about a product's US jurisdictional
+# position (ITAR vs EAR vs EAR99). Note: since the 2013 Export Control
+# Reform, many commercial-derived items moved from USML to CCL 600-series.
+# This keyword index captures the PRE-ECR USML definitions so ARIA can
+# still reason about legacy systems AND flag items likely to still be
+# ITAR-controlled.
+
+_USML_KEYWORDS = {
+    "I":     ["firearm", "rifle", "pistol", "revolver", "shotgun", "carbine",
+              "submachine gun", "assault rifle", "sniper rifle"],
+    "II":    ["gun", "howitzer", "cannon", "mortar", "recoilless", "artillery",
+              "self-propelled gun", "flamethrower"],
+    "III":   ["ammunition", "cartridge", "round", "fuze", "shell", "projectile",
+              "propellant charge", "primer"],
+    "IV":    ["launch vehicle", "missile", "rocket", "torpedo", "bomb", "mine",
+              "atgm", "manpads", "cruise missile", "ballistic missile",
+              "depth charge", "warhead"],
+    "V":     ["explosive", "propellant", "rdx", "hmx", "tnt", "c4",
+              "composition b", "pbx", "incendiary", "pyrotechnic",
+              "detonator", "blasting cap"],
+    "VI":    ["warship", "frigate", "corvette", "destroyer", "submarine",
+              "patrol boat", "minesweeper", "naval vessel", "auxiliary vessel"],
+    "VII":   ["ground vehicle", "tank", "armoured fighting vehicle", "afv",
+              "apc", "ifv", "mrap", "self-propelled artillery"],
+    "VIII":  ["military aircraft", "fighter", "bomber", "attack aircraft",
+              "military helicopter", "military transport", "gunship",
+              "aew&c", "awacs", "maritime patrol aircraft", "uav",
+              "drone", "unmanned aircraft"],
+    "IX":    ["military training equipment", "flight simulator", "combat simulator",
+              "training aid", "targetry"],
+    "X":     ["body armour", "ballistic vest", "helmet", "ballistic plate",
+              "personal protective equipment", "ppe"],
+    "XI":    ["military electronics", "c4isr", "ground station", "jammer",
+              "electronic warfare", "ew system", "signals intelligence",
+              "sigint", "elint", "comint", "military communication",
+              "military crypto"],
+    "XII":   ["fire control", "targeting system", "laser designator",
+              "rangefinder", "night vision", "thermal imager",
+              "electro-optical", "lidar", "guidance system", "imaging sensor",
+              "image intensifier"],
+    "XIII":  ["military material", "armour plate", "ceramic armour",
+              "composite armour", "reactive armour", "specialty metal",
+              "tungsten heavy alloy"],
+    "XIV":   ["chemical agent", "biological agent", "toxin", "nerve agent",
+              "mustard gas", "riot control agent", "incapacitating agent",
+              "pepper spray military"],
+    "XV":    ["spacecraft", "satellite", "launch vehicle", "reentry vehicle",
+              "space-qualified", "star tracker", "on-orbit", "payload"],
+    "XVI":   ["nuclear weapon", "nuclear-related", "weapon of mass destruction"],
+    "XVII":  ["classified article", "classified data", "classified defense service"],
+    "XVIII": ["directed-energy weapon", "laser weapon", "high-energy laser",
+              "microwave weapon", "particle beam"],
+    "XIX":   ["gas turbine engine", "military jet engine", "afterburner",
+              "fadec military"],
+    "XX":    ["submersible", "submarine vehicle", "underwater vehicle",
+              "submersible weapon system"],
+    "XXI":   ["catch-all defense article", "defense service", "technical data"],
+}
+
+
+# ── EAR Commerce Control List (CCL) — dual-use categories 0-9 ───────────────
+# Each EAR category is 0-9, product group A-E (systems/test/materials/
+# software/technology). This keyword index maps descriptions to the likely
+# ECCN category. Used when ARIA needs to reason about dual-use items.
+
+_EAR_CATEGORY_KEYWORDS = {
+    "0": ["nuclear", "uranium", "plutonium", "heavy water", "zirconium",
+          "radiation detector", "isotope separation", "reactor"],
+    "1": ["special material", "composite material", "ceramic material",
+          "toxin", "pathogen", "chemical precursor", "polymer",
+          "high-strength alloy", "metal powder"],
+    "2": ["machine tool", "five-axis", "cnc machine", "isostatic press",
+          "electron beam welding", "laser cutting", "ceramic manufacturing",
+          "numerically controlled", "precision grinding"],
+    "3": ["semiconductor", "integrated circuit", "microprocessor",
+          "asic", "fpga", "high-speed adc", "dac", "rf transceiver",
+          "power mosfet", "gallium nitride", "gan", "silicon carbide"],
+    "4": ["high-performance computer", "supercomputer", "ai accelerator",
+          "gpu cluster", "teraflop", "petaflop", "neural processor",
+          "tpu"],
+    "5": ["telecommunications equipment", "microwave radio", "satellite terminal",
+          "satcom", "encryption", "cipher", "cryptographic module",
+          "hsm", "information security", "vpn gateway", "intrusion detection"],
+    "6": ["sensor", "infrared detector", "cooled detector", "laser",
+          "night vision tube", "image intensifier", "focal plane array",
+          "hyperspectral", "lidar", "acoustic sensor", "magnetometer"],
+    "7": ["inertial measurement", "imu", "gyroscope", "accelerometer",
+          "gnss", "gps receiver", "ring laser gyro", "fiber optic gyro",
+          "star tracker", "autopilot", "flight control computer"],
+    "8": ["underwater", "submarine technology", "acoustic array",
+          "marine propulsion", "uuv", "rov", "sonar"],
+    "9": ["aerospace", "jet engine", "afterburner", "hot section",
+          "titanium alloy aero", "rocket motor", "solid propellant",
+          "liquid propellant", "reentry", "hypersonic"],
+}
+
+
+# ── EU Common Military List (CML) — 22 categories ─────────────────────────
+# The EU CML mirrors Wassenaar ML and largely parallels UK ML1-22 and
+# USML I-XXI. The numbering is IDENTICAL to Wassenaar ML/UK ML (ML1-22)
+# so the _ML_KEYWORDS index above is the authoritative mapping. We note
+# here that the same keyword hit implies coverage under:
+#   - Wassenaar Munitions List
+#   - UK SECL UKML (ML1-22)
+#   - EU CML (ML1-22)
+# and a typical US USML equivalent (see _ML_TO_USML_MAP below).
+
+_ML_TO_USML_MAP = {
+    "ML1":  ["I"],        # Small arms → USML I
+    "ML2":  ["II"],       # Artillery → USML II
+    "ML3":  ["III"],      # Ammunition → USML III
+    "ML4":  ["IV"],       # Missiles/rockets → USML IV
+    "ML5":  ["XII"],      # Fire control → USML XII
+    "ML6":  ["VII"],      # Ground vehicles → USML VII
+    "ML7":  ["XIV"],      # CBRN agents → USML XIV
+    "ML8":  ["V"],        # Energetics → USML V
+    "ML9":  ["VI", "XX"], # Naval vessels + submersibles
+    "ML10": ["VIII"],     # Aircraft/UAVs → USML VIII
+    "ML11": ["XI"],       # Military electronics → USML XI
+    "ML12": ["IV"],       # Kinetic energy → USML IV
+    "ML13": ["X", "XIII"],# Body armour + material
+    "ML14": ["IX"],       # Training equipment → USML IX
+    "ML15": ["XII"],      # Imaging/countermeasures → USML XII
+    "ML17": ["XIII"],     # Misc material → USML XIII
+    "ML19": ["XVIII"],    # Directed energy → USML XVIII
+    "ML21": ["XVII"],     # Software → USML XVII
+    "ML22": ["XVII"],     # Technology → USML XVII
+}
+
+
+# ── Multilateral regime hooks ─────────────────────────────────────────────
+# Maps item category patterns to applicable multilateral regimes so
+# ARIA can cite them automatically.
+
+_MULTILATERAL_HOOKS = {
+    "missile_mtcr_cat_1": {
+        "triggers": ["cruise missile >=300km", "ballistic missile >=300km",
+                     "rocket >=300km range >=500kg payload", "mq-9", "mq-1",
+                     "predator", "reaper", "tomahawk", "storm shadow",
+                     "scalp", "brahmos"],
+        "regime": "MTCR Category I",
+        "note": "Strong presumption of denial under MTCR Cat I. 300km range "
+                "/ 500kg payload threshold.",
+    },
+    "missile_mtcr_cat_2": {
+        "triggers": ["short range missile", "air-to-air missile",
+                     "short range rocket"],
+        "regime": "MTCR Category II",
+        "note": "Case-by-case review under MTCR Cat II.",
+    },
+    "nuclear_nsg": {
+        "triggers": ["reactor", "uranium enrichment", "plutonium", "heavy water",
+                     "fuel fabrication", "reprocessing", "hexafluoride"],
+        "regime": "NSG Trigger List",
+        "note": "NSG export-control regime applies. IAEA safeguards required "
+                "for non-NWS.",
+    },
+    "chemical_cwc": {
+        "triggers": ["nerve agent", "sarin", "vx", "mustard gas",
+                     "schedule 1 chemical", "schedule 2 chemical",
+                     "phosgene", "thiodiglycol"],
+        "regime": "CWC Schedule 1/2/3",
+        "note": "Chemical Weapons Convention schedules apply. OPCW oversight.",
+    },
+    "biological_ag": {
+        "triggers": ["anthrax", "botulinum", "pathogen", "toxin",
+                     "biological agent", "dual-use biology"],
+        "regime": "Australia Group + BTWC",
+        "note": "Australia Group export controls + Biological and Toxin "
+                "Weapons Convention obligations.",
+    },
+    "dual_use_wassenaar": {
+        "triggers": ["high-performance computer", "encryption module",
+                     "inertial measurement unit", "fiber optic gyro",
+                     "cryptographic"],
+        "regime": "Wassenaar Dual-Use",
+        "note": "Wassenaar Arrangement dual-use controls apply across all "
+                "participating states.",
+    },
+}
+
+
+def _match_multilateral_hooks(text_lower: str) -> list[dict]:
+    """Return the list of multilateral regimes implicated by the text."""
+    hits: list[dict] = []
+    for hook_id, spec in _MULTILATERAL_HOOKS.items():
+        for trig in spec["triggers"]:
+            if trig in text_lower:
+                hits.append({
+                    "hook": hook_id,
+                    "regime": spec["regime"],
+                    "note": spec["note"],
+                    "trigger": trig,
+                })
+                break
+    return hits
+
+
 # ── Quantity & unit extraction ──────────────────────────────────────────────
 
 _QUANTITY_RE = re.compile(
@@ -247,7 +447,7 @@ def classify_text(text: str) -> dict:
         if designation.lower() in sample_lower:
             found_systems.append({"designation": designation, **meta})
 
-    # ── 3. ML categories from keywords ──
+    # ── 3. ML categories from keywords (Wassenaar ML / UK ML / EU CML) ──
     ml_categories: set[str] = set()
     for code, kws in _ML_KEYWORDS.items():
         if any(kw in sample_lower for kw in kws):
@@ -258,6 +458,25 @@ def classify_text(text: str) -> dict:
     for cal in found_calibres.values():
         if cal.get("ml"):
             ml_categories.add(cal["ml"])
+
+    # ── 3a. USML categories (US ITAR) — direct keyword match + ML mapping ──
+    usml_categories: set[str] = set()
+    for cat, kws in _USML_KEYWORDS.items():
+        if any(kw in sample_lower for kw in kws):
+            usml_categories.add(cat)
+    # Also project from ML matches via the mapping table.
+    for ml in ml_categories:
+        for us in _ML_TO_USML_MAP.get(ml, []):
+            usml_categories.add(us)
+
+    # ── 3b. EAR CCL dual-use categories (0-9) from keywords ──
+    ear_categories: set[str] = set()
+    for cat, kws in _EAR_CATEGORY_KEYWORDS.items():
+        if any(kw in sample_lower for kw in kws):
+            ear_categories.add(cat)
+
+    # ── 3c. Multilateral regime hooks (MTCR, NSG, AG, CWC, Wassenaar DU) ──
+    multilateral = _match_multilateral_hooks(sample_lower)
 
     # ── 4. Quantities ──
     quantities = _extract_quantities(sample)
@@ -286,10 +505,89 @@ def classify_text(text: str) -> dict:
         "calibres": list(found_calibres.values()),
         "systems": found_systems,
         "ml_categories": sorted(ml_categories),
+        "usml_categories": sorted(usml_categories),
+        "ear_categories": sorted(ear_categories),
+        "multilateral_regimes": multilateral,
         "quantities": quantities,
         "controlled_items_count": controlled_count,
         "embargo_risks": embargo_risks,
         "raw_summary": raw_summary,
+    }
+
+
+def classify_export_control(text: str) -> dict:
+    """High-level export-control classification for a free-text item description.
+
+    Returns the full regime stack ARIA would need to cite in a brief:
+      {
+        "wassenaar_ml":      ["ML4", "ML10", ...]   (UK ML / EU CML / Wassenaar)
+        "usml":              ["IV", "VIII", ...]    (US ITAR categories)
+        "ear_ccl":           ["3", "9", ...]        (EAR dual-use categories)
+        "multilateral":      [{hook, regime, note, trigger}, ...]
+        "systems":           [<system-db-matches>]
+        "recommendation":    "ITAR primary" | "EAR primary" | "civilian" | "mixed"
+        "confidence":        0.0-1.0
+        "notes":             [...]
+      }
+
+    This is the P5 replacement for the audit's "stub" tech_classifier
+    — it's a real multi-regime classifier that lets ARIA answer "what
+    regime does this fall under" in structured form, from any free
+    text description.
+    """
+    inner = classify_text(text)
+    wass_ml = inner.get("ml_categories") or []
+    usml = inner.get("usml_categories") or []
+    ear = inner.get("ear_categories") or []
+    multi = inner.get("multilateral_regimes") or []
+
+    # Recommendation heuristic:
+    # - USML hit → ITAR primary (the strictest regime)
+    # - ML hit but no USML → likely EAR 600-series (post-ECR)
+    # - EAR category hit only → EAR primary (dual-use)
+    # - No hits → civilian or un-classified
+    has_usml = bool(usml)
+    has_ml   = bool(wass_ml)
+    has_ear  = bool(ear)
+
+    if has_usml:
+        recommendation = "ITAR primary"
+        confidence = 0.85 if len(usml) <= 3 else 0.70
+    elif has_ml and not has_ear:
+        recommendation = "EAR 600-series / ITAR legacy"
+        confidence = 0.75
+    elif has_ml and has_ear:
+        recommendation = "mixed — confirm ITAR vs EAR jurisdiction"
+        confidence = 0.60
+    elif has_ear:
+        recommendation = "EAR dual-use primary"
+        confidence = 0.75
+    else:
+        recommendation = "civilian or unclassified"
+        confidence = 0.40
+
+    notes = []
+    if multi:
+        notes.append(f"{len(multi)} multilateral regime(s) implicated")
+    if inner.get("embargo_risks"):
+        notes.append(f"{len(inner['embargo_risks'])} embargo-risk flag(s)")
+    if inner.get("systems"):
+        notes.append(f"{len(inner['systems'])} known system(s) identified")
+    if not (has_usml or has_ml or has_ear):
+        notes.append("No export-control hits — verify classification with specific product datasheet")
+
+    return {
+        "wassenaar_ml": wass_ml,
+        "usml": usml,
+        "ear_ccl": ear,
+        "multilateral": multi,
+        "systems": inner.get("systems", []),
+        "embargo_risks": inner.get("embargo_risks", []),
+        "quantities": inner.get("quantities", []),
+        "recommendation": recommendation,
+        "confidence": confidence,
+        "notes": notes,
+        "raw_summary": inner.get("raw_summary", ""),
     }
 
 

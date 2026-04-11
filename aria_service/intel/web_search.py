@@ -421,35 +421,182 @@ async def search_entity(
     return results[:max_results]
 
 
+# ── P6: Native-language query expansion ──────────────────────────────────
+#
+# search_multilingual previously only switched the language LOCALE on the
+# same English query. A query like "Angola defence tender" run against
+# Portuguese locale still matched English words — missing actual
+# Portuguese-language terms like "concurso defesa" or "licitação forças
+# armadas". The fix is to translate the defence-BD core vocabulary into
+# the target language and run the translated query alongside the English
+# one. ARIA is a GLOBAL advisor, so she must be able to find
+# Portuguese/French/Arabic/Spanish/Russian/Turkish/Chinese procurement
+# portals even when the user asks in English.
+#
+# The dictionary below covers the high-frequency defence-BD terms that
+# dominate procurement and compliance queries. It is NOT a full machine-
+# translation layer — it is a targeted substitution map that captures
+# 80% of the language-barrier value for 5% of the complexity.
+
+_TERM_TRANSLATIONS: dict[str, dict[str, list[str]]] = {
+    # Core procurement vocabulary
+    "tender":       {"pt": ["concurso", "licitação"], "fr": ["appel d'offres"], "es": ["licitación"], "ar": ["مناقصة"], "ru": ["тендер"], "tr": ["ihale"], "zh": ["招标"]},
+    "tenders":      {"pt": ["concursos", "licitações"], "fr": ["appels d'offres"], "es": ["licitaciones"], "ar": ["مناقصات"], "ru": ["тендеры"], "tr": ["ihaleler"], "zh": ["招标"]},
+    "procurement":  {"pt": ["aquisição", "compra pública"], "fr": ["marché public", "acquisition"], "es": ["adquisición", "contratación pública"], "ar": ["مشتريات", "شراء"], "ru": ["закупки"], "tr": ["tedarik", "satın alma"], "zh": ["采购"]},
+    "contract":     {"pt": ["contrato"], "fr": ["contrat", "marché"], "es": ["contrato"], "ar": ["عقد"], "ru": ["контракт"], "tr": ["sözleşme"], "zh": ["合同"]},
+    "contract award":{"pt": ["adjudicação"], "fr": ["attribution de marché"], "es": ["adjudicación"], "ar": ["ترسية"], "ru": ["присуждение контракта"], "tr": ["ihale tahsisi"], "zh": ["合同授予"]},
+    "bid":          {"pt": ["proposta"], "fr": ["offre"], "es": ["oferta"], "ar": ["عرض"], "ru": ["заявка"], "tr": ["teklif"], "zh": ["投标"]},
+
+    # Defence vocabulary
+    "defence":      {"pt": ["defesa"], "fr": ["défense"], "es": ["defensa"], "ar": ["دفاع"], "ru": ["оборона"], "tr": ["savunma"], "zh": ["国防"]},
+    "defense":      {"pt": ["defesa"], "fr": ["défense"], "es": ["defensa"], "ar": ["دفاع"], "ru": ["оборона"], "tr": ["savunma"], "zh": ["国防"]},
+    "military":     {"pt": ["militar"], "fr": ["militaire"], "es": ["militar"], "ar": ["عسكري"], "ru": ["военный"], "tr": ["askeri"], "zh": ["军事"]},
+    "army":         {"pt": ["exército"], "fr": ["armée"], "es": ["ejército"], "ar": ["جيش"], "ru": ["армия"], "tr": ["ordu"], "zh": ["陆军"]},
+    "navy":         {"pt": ["marinha"], "fr": ["marine"], "es": ["marina"], "ar": ["بحرية"], "ru": ["военно-морской флот"], "tr": ["donanma"], "zh": ["海军"]},
+    "air force":    {"pt": ["força aérea"], "fr": ["armée de l'air"], "es": ["fuerza aérea"], "ar": ["القوات الجوية"], "ru": ["военно-воздушные силы"], "tr": ["hava kuvvetleri"], "zh": ["空军"]},
+    "armed forces": {"pt": ["forças armadas"], "fr": ["forces armées"], "es": ["fuerzas armadas"], "ar": ["القوات المسلحة"], "ru": ["вооружённые силы"], "tr": ["silahlı kuvvetler"], "zh": ["武装部队"]},
+    "weapon":       {"pt": ["arma"], "fr": ["arme"], "es": ["arma"], "ar": ["سلاح"], "ru": ["оружие"], "tr": ["silah"], "zh": ["武器"]},
+    "weapons":      {"pt": ["armas", "armamento"], "fr": ["armes", "armement"], "es": ["armas", "armamento"], "ar": ["أسلحة"], "ru": ["оружие", "вооружение"], "tr": ["silahlar"], "zh": ["武器"]},
+    "ammunition":   {"pt": ["munição"], "fr": ["munitions"], "es": ["munición"], "ar": ["ذخيرة"], "ru": ["боеприпасы"], "tr": ["mühimmat"], "zh": ["弹药"]},
+    "missile":      {"pt": ["míssil"], "fr": ["missile"], "es": ["misil"], "ar": ["صاروخ"], "ru": ["ракета"], "tr": ["füze"], "zh": ["导弹"]},
+    "drone":        {"pt": ["drone"], "fr": ["drone"], "es": ["dron"], "ar": ["طائرة بدون طيار"], "ru": ["беспилотник"], "tr": ["insansız hava aracı"], "zh": ["无人机"]},
+    "uav":          {"pt": ["VANT"], "fr": ["drone"], "es": ["VANT"], "ar": ["طائرة بدون طيار"], "ru": ["БПЛА"], "tr": ["İHA"], "zh": ["无人机"]},
+    "tank":         {"pt": ["carro de combate"], "fr": ["char"], "es": ["tanque"], "ar": ["دبابة"], "ru": ["танк"], "tr": ["tank"], "zh": ["坦克"]},
+    "artillery":    {"pt": ["artilharia"], "fr": ["artillerie"], "es": ["artillería"], "ar": ["مدفعية"], "ru": ["артиллерия"], "tr": ["topçu"], "zh": ["炮兵"]},
+
+    # Compliance/regulatory
+    "sanction":     {"pt": ["sanção"], "fr": ["sanction"], "es": ["sanción"], "ar": ["عقوبة"], "ru": ["санкция"], "tr": ["yaptırım"], "zh": ["制裁"]},
+    "sanctions":    {"pt": ["sanções"], "fr": ["sanctions"], "es": ["sanciones"], "ar": ["عقوبات"], "ru": ["санкции"], "tr": ["yaptırımlar"], "zh": ["制裁"]},
+    "embargo":      {"pt": ["embargo"], "fr": ["embargo"], "es": ["embargo"], "ar": ["حظر"], "ru": ["эмбарго"], "tr": ["ambargo"], "zh": ["禁运"]},
+    "export":       {"pt": ["exportação"], "fr": ["exportation"], "es": ["exportación"], "ar": ["تصدير"], "ru": ["экспорт"], "tr": ["ihracat"], "zh": ["出口"]},
+    "import":       {"pt": ["importação"], "fr": ["importation"], "es": ["importación"], "ar": ["استيراد"], "ru": ["импорт"], "tr": ["ithalat"], "zh": ["进口"]},
+    "licence":      {"pt": ["licença"], "fr": ["licence"], "es": ["licencia"], "ar": ["ترخيص"], "ru": ["лицензия"], "tr": ["lisans"], "zh": ["许可证"]},
+    "license":      {"pt": ["licença"], "fr": ["licence"], "es": ["licencia"], "ar": ["ترخيص"], "ru": ["лицензия"], "tr": ["lisans"], "zh": ["许可证"]},
+    "broker":       {"pt": ["corretor", "intermediário"], "fr": ["courtier"], "es": ["corredor", "intermediario"], "ar": ["وسيط"], "ru": ["брокер", "посредник"], "tr": ["aracı"], "zh": ["经纪人"]},
+    "brokering":    {"pt": ["corretagem", "intermediação"], "fr": ["courtage"], "es": ["correduría", "intermediación"], "ar": ["الوساطة"], "ru": ["брокерство"], "tr": ["aracılık"], "zh": ["经纪"]},
+    "compliance":   {"pt": ["conformidade"], "fr": ["conformité"], "es": ["cumplimiento"], "ar": ["امتثال"], "ru": ["соблюдение"], "tr": ["uyum"], "zh": ["合规"]},
+
+    # Government entities
+    "ministry of defence":{"pt": ["ministério da defesa"], "fr": ["ministère de la défense"], "es": ["ministerio de defensa"], "ar": ["وزارة الدفاع"], "ru": ["министерство обороны"], "tr": ["savunma bakanlığı"], "zh": ["国防部"]},
+    "government":   {"pt": ["governo"], "fr": ["gouvernement"], "es": ["gobierno"], "ar": ["حكومة"], "ru": ["правительство"], "tr": ["hükümet"], "zh": ["政府"]},
+
+    # Country names (only where they differ materially)
+    "turkey":       {"pt": ["turquia"], "fr": ["turquie"], "es": ["turquía"], "ar": ["تركيا"], "ru": ["турция"], "tr": ["türkiye"], "zh": ["土耳其"]},
+    "russia":       {"pt": ["rússia"], "fr": ["russie"], "es": ["rusia"], "ar": ["روسيا"], "ru": ["россия"], "tr": ["rusya"], "zh": ["俄罗斯"]},
+    "china":        {"pt": ["china"], "fr": ["chine"], "es": ["china"], "ar": ["الصين"], "ru": ["китай"], "tr": ["çin"], "zh": ["中国"]},
+    "france":       {"pt": ["frança"], "fr": ["france"], "es": ["francia"], "ar": ["فرنسا"], "ru": ["франция"], "tr": ["fransa"], "zh": ["法国"]},
+}
+
+
+def _translate_query(query: str, lang: str) -> str:
+    """Substitute known defence-BD terms in `query` with their `lang` equivalents.
+
+    Longest-phrase-first matching to prevent "air force" being broken into
+    "air" + "force". Returns the English query unchanged if no substitutions
+    apply — we still issue the original query alongside to catch
+    English-language sources in the target locale.
+    """
+    if not query or lang == "en":
+        return query
+    q = query
+    # Sort by descending phrase length so multi-word keys match before
+    # their single-word components.
+    for term in sorted(_TERM_TRANSLATIONS.keys(), key=lambda k: -len(k)):
+        choices = _TERM_TRANSLATIONS[term].get(lang)
+        if not choices:
+            continue
+        replacement = choices[0]
+        # Case-insensitive replacement with word boundaries on
+        # alphabetic terms; Arabic / Chinese scripts don't use \b so
+        # we fall back to plain replacement for non-latin.
+        pat = re.compile(r"\b" + re.escape(term) + r"\b", re.IGNORECASE)
+        q = pat.sub(replacement, q)
+    return q
+
+
 async def search_multilingual(
     query: str,
     languages: list[str] | None = None,
     *,
     max_results: int = 15,
+    translate_query: bool = True,
 ) -> list[SearchResult]:
     """Search in multiple languages simultaneously.
 
-    For CPLP markets, automatically searches in Portuguese + English.
-    For MENA markets, adds Arabic + French.
+    When translate_query is True (default), defence-BD terms in the
+    query are substituted into each target language so ARIA actually
+    finds native-language procurement sources — not just English
+    sources that happen to be in a different locale. Critical for
+    discovering Angolan, Turkish, Russian, Chinese procurement
+    portals that publish in their native language.
+
+    Auto-detects regional languages from query content:
+      - Lusophone countries + CPLP → add pt
+      - Turkey + Turkish OEMs       → add tr
+      - Russia / former USSR         → add ru
+      - LatAm Spanish markets        → add es
+      - MENA Arabic markets          → add ar
+      - Francophone Africa            → add fr
+      - China / Chinese OEMs         → add zh
     """
     if languages is None:
         languages = ["en"]
-        # Auto-detect regional languages from query content
         q_lower = query.lower()
+        # Portuguese (Lusophone Africa + Brazil + Portugal)
         if any(kw in q_lower for kw in ["angola", "mozambique", "guinea-bissau",
-                                         "cape verde", "portugal", "brazil", "cplp", "lusophone"]):
+                                         "cape verde", "cabo verde", "portugal",
+                                         "brazil", "brasil", "cplp", "lusophone",
+                                         "são tomé", "sao tome"]):
             languages.append("pt")
-        if any(kw in q_lower for kw in ["morocco", "algeria", "tunisia", "libya",
-                                         "egypt", "saudi", "uae", "qatar", "iraq"]):
-            languages.append("ar")
+        # French (Francophone Africa + France)
         if any(kw in q_lower for kw in ["senegal", "mali", "niger", "chad",
-                                         "cote d'ivoire", "burkina", "cameroon", "drc", "congo"]):
+                                         "cote d'ivoire", "ivory coast",
+                                         "burkina", "cameroon", "cameroun",
+                                         "drc", "congo", "gabon", "benin",
+                                         "togo", "france", "french"]):
             languages.append("fr")
-        if any(kw in q_lower for kw in ["turkey", "turkiye", "baykar", "aselsan"]):
+        # Arabic (MENA + Gulf)
+        if any(kw in q_lower for kw in ["morocco", "algeria", "tunisia", "libya",
+                                         "egypt", "saudi", "uae", "emirates",
+                                         "qatar", "kuwait", "bahrain", "oman",
+                                         "iraq", "jordan", "lebanon", "yemen"]):
+            languages.append("ar")
+        # Turkish
+        if any(kw in q_lower for kw in ["turkey", "turkiye", "türkiye", "baykar",
+                                         "aselsan", "roketsan", "ssb", "otokar"]):
             languages.append("tr")
+        # Russian (CIS + former Soviet)
+        if any(kw in q_lower for kw in ["russia", "belarus", "kazakhstan",
+                                         "uzbekistan", "armenia", "azerbaijan",
+                                         "rosoboronexport", "kalashnikov",
+                                         "almaz-antey", "s-400", "s-300"]):
+            languages.append("ru")
+        # Spanish (LatAm)
+        if any(kw in q_lower for kw in ["argentina", "chile", "peru", "colombia",
+                                         "mexico", "ecuador", "venezuela", "spain",
+                                         "bolivia", "uruguay", "paraguay"]):
+            languages.append("es")
+        # Chinese
+        if any(kw in q_lower for kw in ["china", "chinese", "norinco", "chengdu",
+                                         "poly technologies", "sastind", "catic"]):
+            languages.append("zh")
 
-    tasks = [search(query, max_results=max_results // len(languages) + 2, language=lang)
-             for lang in languages]
+    # Build translated-query variants per language
+    queries_by_lang: list[tuple[str, str]] = []
+    for lang in languages:
+        if translate_query and lang != "en":
+            translated = _translate_query(query, lang)
+            queries_by_lang.append((lang, translated))
+            # Also run the untranslated query with target locale — catches
+            # English-language sources indexed against the locale.
+            if translated != query:
+                queries_by_lang.append((lang, query))
+        else:
+            queries_by_lang.append((lang, query))
+
+    per_query_cap = max(3, max_results // max(1, len(queries_by_lang)) + 2)
+    tasks = [search(q, max_results=per_query_cap, language=lang)
+             for lang, q in queries_by_lang]
     raw = await asyncio.gather(*tasks, return_exceptions=True)
 
     seen = {}

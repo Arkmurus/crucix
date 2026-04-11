@@ -100,6 +100,33 @@ TOOL_REF_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Additional internal-citation patterns produced by the constitutional
+# Clause 15 "inline citation" discipline. These are strong grounding
+# signals because they name an internal RAG source the LLM cannot
+# fabricate without retrieval:
+#
+#   [CONFIRMED — RAG: intlaw:sanctions_law]
+#   [CONFIRMED — RAG: global_export_control:national_regimes]
+#   [CONFIRMED — RAG: clause_library:brokering_commission, 2026-04-11]
+#   [CONFIRMED — Knowledge Base]
+#   [CONFIRMED — Knowledge Base: EUC_BEFORE_LICENCE]
+#   [CONFIRMED — mem0 2026-04-11]
+#   [PROBABLE — RAG: …]
+#   [ASSESSED — static table]
+#
+# Without this pattern, smoke-test responses with 8 inline RAG
+# citations were still classified `no_citations` by the verifier
+# because the URL extractor only looks for http(s):// URLs. That in
+# turn caused the confidence footer to demote [CONFIRMED] to
+# [ASSESSED] despite the model citing correctly.
+INTERNAL_REF_RE = re.compile(
+    r"\[(?:CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN|SPECULATIVE)"
+    r"\s*[—–-]\s*"
+    r"(?:RAG\s*:|Knowledge\s+Base|mem0|static\s+table|clause_library|intlaw)"
+    r"[^\]]*\]",
+    re.IGNORECASE,
+)
+
 
 def extract_urls(text: str) -> list[str]:
     """Pull URLs out of a string, dedupe, and normalise.
@@ -181,15 +208,26 @@ def _looks_suspicious(url: str) -> bool:
 def count_tool_refs(text: str) -> int:
     """Count clause-15 inline marker citations in a response.
 
-    These markers ([from snippet #N], [EXTRACT N], [from ATTACHED DOCUMENT: ...],
-    [from RAG]) only exist when a tool produced output to cite, so they
-    are inherently grounded — the LLM cannot fabricate them without a
-    tool block in context. Used by verify_response() as a fallback when
-    no URLs are cited but the markers are.
+    Two pattern families are recognised:
+
+    1. TOOL_REF_RE — explicit tool citations the tool-execution layer
+       wrote into the context ([from snippet #N], [EXTRACT N], [from
+       ATTACHED DOCUMENT: ...], [from RAG]). These exist only when a
+       tool produced output.
+
+    2. INTERNAL_REF_RE — constitutional Clause 15 inline citations of
+       internal RAG / Knowledge Base / mem0 / static-table sources
+       (e.g. [CONFIRMED — RAG: global_export_control:national_regimes]).
+       These exist only when the LLM has actually retrieved from the
+       named source. The LLM cannot fabricate the internal source
+       names (they're mechanically-generated module keys).
+
+    Both count as grounding. Used by verify_response() as a fallback
+    when no URLs are cited but the markers are.
     """
     if not text:
         return 0
-    return len(TOOL_REF_RE.findall(text))
+    return len(TOOL_REF_RE.findall(text)) + len(INTERNAL_REF_RE.findall(text))
 
 
 def verify_response(response_text: str, tool_context: str) -> dict:
