@@ -81,6 +81,41 @@ _PAUSE_KEY = "crucix:autonomous:paused"  # "1" if engine is paused
 _PAUSE_TASK_FMT = "crucix:autonomous:paused:task:{task_id}"
 
 
+# ── In-memory cost circuit breaker (H8) ───────────────────────────────────
+# Redis is the authoritative cost counter, but it fails open on read.
+# A Redis outage used to mean unlimited spend until it recovered. We now
+# also track spend in-process with a UTC-day reset, and enforce the cap
+# whichever counter is higher. If Redis is down, the in-memory counter
+# still stops the engine at ARIA_AUTONOMOUS_DAILY_COST_CAP_USD.
+_memory_cost_lock = None  # lazily created asyncio.Lock
+_memory_cost_day = ""
+_memory_cost_spent = 0.0
+
+
+def _today_utc() -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def _memory_cost_get() -> float:
+    global _memory_cost_day, _memory_cost_spent
+    today = _today_utc()
+    if today != _memory_cost_day:
+        _memory_cost_day = today
+        _memory_cost_spent = 0.0
+    return _memory_cost_spent
+
+
+def _memory_cost_add(usd: float) -> float:
+    global _memory_cost_day, _memory_cost_spent
+    today = _today_utc()
+    if today != _memory_cost_day:
+        _memory_cost_day = today
+        _memory_cost_spent = 0.0
+    if usd > 0:
+        _memory_cost_spent += usd
+    return _memory_cost_spent
+
+
 # ── Public: rate limit ─────────────────────────────────────────────────────
 
 async def check_and_increment_rate() -> tuple[bool, int]:
@@ -122,26 +157,34 @@ async def check_cost_cap() -> tuple[bool, float]:
     """Circuit breaker on daily LLM cost.
 
     Returns (within_budget, current_daily_spent_usd).
-    Reads from the existing cost_tracker Redis key for the autonomous
-    feature so the cap is enforced against the same numbers /cost shows.
+
+    H8: uses BOTH a Redis counter (authoritative across processes) and
+    an in-memory counter (survives Redis outages). The higher of the two
+    is compared against the cap — so a Redis outage no longer opens the
+    floodgates. Previously Redis failure failed open with unlimited spend.
     """
-    today = time.strftime("%Y-%m-%d", time.gmtime())
+    today = _today_utc()
     key = _COST_KEY_FMT.format(date=today)
+    mem_spent = _memory_cost_get()
+    redis_spent = 0.0
+    redis_ok = True
     try:
         spent_str = await rs.get(key) or "0"
-        spent = float(spent_str)
+        redis_spent = float(spent_str)
     except Exception as e:
+        redis_ok = False
         logger.warning(
-            "[autonomous safety] cost cap read failed (Redis): %s — failing open",
-            e,
+            "[autonomous safety] cost cap Redis read failed: %s — falling back to in-memory counter ($%.4f)",
+            e, mem_spent,
         )
-        return True, 0.0
+
+    spent = max(mem_spent, redis_spent)
     within = spent < DAILY_COST_CAP_USD
     if not within:
         logger.warning(
-            "[autonomous safety] daily cost cap hit: $%.4f spent vs cap $%.2f. "
-            "Tasks will be skipped until %s 00:00 UTC.",
-            spent, DAILY_COST_CAP_USD, today,
+            "[autonomous safety] daily cost cap hit: $%.4f spent vs cap $%.2f "
+            "(redis=$%.4f mem=$%.4f redis_ok=%s). Tasks skipped until %s 00:00 UTC.",
+            spent, DAILY_COST_CAP_USD, redis_spent, mem_spent, redis_ok, today,
         )
     return within, spent
 
@@ -149,11 +192,13 @@ async def check_cost_cap() -> tuple[bool, float]:
 async def record_task_cost(usd: float) -> None:
     """Record the cost of a single task run against today's budget.
 
-    Uses INCRBYFLOAT to avoid races between concurrent tasks.
+    Writes to both the in-memory counter (H8 fallback) and Redis. The
+    in-memory counter is authoritative when Redis is offline.
     """
     if usd <= 0:
         return
-    today = time.strftime("%Y-%m-%d", time.gmtime())
+    _memory_cost_add(usd)
+    today = _today_utc()
     key = _COST_KEY_FMT.format(date=today)
     try:
         # Most Redis libraries expose incrbyfloat directly. The intel

@@ -479,9 +479,24 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                 timeout=task.timeout_seconds,
             )
         except asyncio.TimeoutError:
+            # M5: timeouts still consumed tokens up to the cancellation
+            # point. The per-call cost_tracker already recorded those,
+            # but safety.record_task_cost (which feeds the daily cap
+            # circuit breaker) never ran. Charge the per-task cap as a
+            # conservative upper bound so a task that times out
+            # repeatedly can't silently bypass the cost cap.
             record["status"] = "timeout"
             record["error"] = f"task exceeded timeout {task.timeout_seconds}s"
             record["duration_ms"] = int((time.time() - t0) * 1000)
+            try:
+                from . import safety as _sf
+                await _sf.record_task_cost(float(task.cost_cap_usd or 0))
+                logger.warning(
+                    "[autonomous] task %s timed out — charged cap $%.2f to safety counter",
+                    task.id, task.cost_cap_usd or 0,
+                )
+            except Exception as _cost_e:
+                logger.debug("timeout cost charge failed: %s", _cost_e)
             await record_run(record)
             return record
         finally:

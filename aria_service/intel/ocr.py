@@ -649,6 +649,8 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
     bypasses it and calls the underlying vendor APIs directly with the correct
     image content blocks.
     """
+    import time as _t
+    _vision_t0 = _t.time()
     try:
         b64 = base64.b64encode(image_data).decode("ascii")
         prompt = _ocr_prompt(context)
@@ -662,6 +664,15 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
                 "(gemini/anthropic/openai/openrouter). See aria_service/intel/ocr.py docstring."
             )
             return None
+
+        # M10: observability — cloud vision is the expensive tier. Log at
+        # WARNING so operators see when OCR escalates off the local path.
+        # The Ollama tier is free so we stay at INFO for that one.
+        _log_level = logger.info if provider_name == "ollama" else logger.warning
+        _log_level(
+            "[ocr] cloud vision tier engaged — provider=%s model=%s bytes=%d",
+            provider_name, model or "(default)", len(image_data),
+        )
         # Treat OpenRouter like the OpenAI-compat branch
         if provider_name == "openrouter":
             provider_name = "openrouter"  # explicit — handled below
@@ -763,6 +774,25 @@ async def _ocr_via_llm(image_data: bytes, mime: str, context: str, llm) -> Optio
 
         text = (text or "").strip()
         if text and "NO_TEXT_FOUND" not in text:
+            # M10: record vision call into cost_tracker so /cost can surface
+            # the vision tier, and so user-level caps (future) can see it.
+            # Token counts are best-effort estimates — vision APIs don't
+            # consistently return usage blocks.
+            try:
+                from . import cost_tracker as _ct
+                _approx_input_tokens = max(500, (len(image_data) // 750) + 200)
+                _approx_output_tokens = max(50, len(text) // 4)
+                await _ct.record_call(
+                    model=f"{provider_name}:{model or 'vision'}",
+                    input_tokens=_approx_input_tokens,
+                    output_tokens=_approx_output_tokens,
+                    latency_ms=int((_t.time() - _vision_t0) * 1000),
+                    feature_name="ocr_vision",
+                    provider_name=provider_name,
+                    success=True,
+                )
+            except Exception as _ct_err:
+                logger.debug("vision cost record failed (non-fatal): %s", _ct_err)
             return {"text": text, "method": f"vision:{provider_name or 'unknown'}", "confidence": 0.85}
 
     except Exception as e:

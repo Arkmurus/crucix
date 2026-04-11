@@ -196,12 +196,22 @@ class RateLimitedProvider(LLMProvider):
         Background requests reserve 40% of the RPM budget for interactive.
         Normal requests reserve 20%.
         """
+        # M9: starvation fix. Previously BACKGROUND requests could be
+        # stuck for up to 2 minutes behind interactive traffic. Now we
+        # cap the BACKGROUND wait at 60s, and after 30s we halve the
+        # reserve (20% instead of 40%) — so an autonomous loop can still
+        # make forward progress during a sustained interactive burst
+        # rather than stalling the whole sweep engine.
         if priority == Priority.BACKGROUND:
-            reserve_pct = 0.40  # keep 40% for interactive
-            max_wait = 120.0    # wait up to 2 minutes
+            reserve_pct = 0.40
+            max_wait = 60.0
+            promote_after = 30.0
+            promoted_reserve_pct = 0.20
         else:
-            reserve_pct = 0.20  # keep 20% for interactive
+            reserve_pct = 0.20
             max_wait = 30.0
+            promote_after = None
+            promoted_reserve_pct = 0.20
 
         effective_limit = int(self._rpm * (1.0 - reserve_pct))
         waited = 0.0
@@ -211,6 +221,19 @@ class RateLimitedProvider(LLMProvider):
             used = self._requests_in_window(60.0)
             if used < effective_limit:
                 return  # slot available
+
+            # Promote a long-waiting background request by shrinking
+            # the reserve, so it stops starving on sustained bursts.
+            if promote_after is not None and waited >= promote_after:
+                new_limit = int(self._rpm * (1.0 - promoted_reserve_pct))
+                if new_limit > effective_limit:
+                    effective_limit = new_limit
+                    logger.info(
+                        "Background request promoted after %.0fs — reserve shrunk to %.0f%%, limit now %d",
+                        waited, promoted_reserve_pct * 100, effective_limit,
+                    )
+                    if used < effective_limit:
+                        return
 
             wait = min(interval, max_wait - waited)
             if waited == 0:

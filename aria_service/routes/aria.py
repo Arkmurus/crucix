@@ -2275,6 +2275,17 @@ async def chat_ep(req: ChatRequest, request: Request):
             "trivial": True,
         }
 
+    # H3: per-user rate + cost guardrail. Previously the rate limiter
+    # was global across every caller — one user could consume the whole
+    # Anthropic RPM budget. Now we enforce a sliding-window cap per user
+    # plus a daily USD cap, with an allow-list for ops.
+    from ..intel import user_quota
+    _quota_user = (req.session_id or "anon").split("_", 1)[0] if req.session_id else "anon"
+    _allowed, _reason = await user_quota.check(_quota_user)
+    if not _allowed:
+        raise HTTPException(status_code=429, detail=_reason)
+    await user_quota.register_request(_quota_user)
+
     llm = get_llm(request)
     intel = get_intel_data(request)
 
@@ -2571,6 +2582,16 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         raise HTTPException(status_code=400, detail="message required")
     session_id = req.session_id or str(uuid.uuid4())[:12]
     user_id = req.user_id if hasattr(req, "user_id") else ""
+
+    # H3: same per-user quota check as chat_ep. Enforced BEFORE the
+    # StreamingResponse is returned so the client gets a clean 429
+    # instead of an error mid-stream.
+    from ..intel import user_quota
+    _quota_user = (req.session_id or user_id or "anon").split("_", 1)[0] if (req.session_id or user_id) else "anon"
+    _allowed, _reason = await user_quota.check(_quota_user)
+    if not _allowed:
+        raise HTTPException(status_code=429, detail=_reason)
+    await user_quota.register_request(_quota_user)
 
     # Strip listener context (same as chat_ep)
     req.message = _strip_listener_context(req.message)
