@@ -75,6 +75,35 @@ def _read_enabled() -> bool:
     return val.strip().lower() not in ("0", "false", "no", "off")
 
 
+# M2 — authorised senders for KB writes. Any WhatsApp / chat user used to
+# be able to post a "correction" and have it persisted with PROBABLE
+# confidence, which opens a prompt-injection path into the permanent
+# knowledge base. Now enforced via an allow-list.
+#   ARIA_CORRECTION_TRUSTED_SENDERS="antonio,ari"  (comma, case-insensitive)
+#   ARIA_CORRECTION_AUTHZ_OFF=1                    (emergency escape hatch)
+def _trusted_senders() -> set[str]:
+    raw = os.getenv("ARIA_CORRECTION_TRUSTED_SENDERS", "") or ""
+    return {s.strip().lower() for s in raw.split(",") if s.strip()}
+
+
+def _sender_is_authorised(sender_name: str) -> tuple[bool, str]:
+    if (os.getenv("ARIA_CORRECTION_AUTHZ_OFF", "") or "").strip().lower() in ("1", "true", "yes", "on"):
+        return True, "authz_off"
+    trusted = _trusted_senders()
+    if not trusted:
+        # No allow-list configured — refuse writes by default so a fresh
+        # deploy can't be poisoned before ops sets the list. This is the
+        # opposite of the previous default, and it's intentional.
+        return False, "no_allow_list"
+    s = (sender_name or "").strip().lower()
+    if not s:
+        return False, "empty_sender"
+    # Exact match OR prefix match ('antonio' matches 'antonio_desktop').
+    if s in trusted or any(s.startswith(t + "_") or s.startswith(t + "-") for t in trusted):
+        return True, "match"
+    return False, "not_in_allow_list"
+
+
 # How many hours back to surface recent corrections in the prompt addendum.
 # 168h = 7 days. Long enough that a Monday correction is still active on
 # Friday but short enough that stale corrections don't pile up forever.
@@ -269,6 +298,14 @@ async def extract_and_persist(message: str, sender_name: str, llm: Any) -> dict:
         return {"detected": False, "extracted": 0, "stored": 0, "skipped": "write_disabled"}
     if not looks_like_correction(message):
         return {"detected": False, "extracted": 0, "stored": 0}
+    authorised, reason = _sender_is_authorised(sender_name)
+    if not authorised:
+        logger.warning(
+            "[correction_learner] REJECTED write from unauthorised sender '%s' (%s) — "
+            "set ARIA_CORRECTION_TRUSTED_SENDERS env var to allow.",
+            sender_name, reason,
+        )
+        return {"detected": True, "extracted": 0, "stored": 0, "skipped": f"unauthorised:{reason}"}
     facts = await _extract_facts_via_llm(message, llm)
     if not facts:
         return {"detected": True, "extracted": 0, "stored": 0}

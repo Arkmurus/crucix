@@ -412,7 +412,29 @@ async def get_rag_context(
     if not results:
         return ""
 
-    lines = ["\n\n[RAG RETRIEVED — proprietary intelligence indexed from your sources]"]
+    # M3: flag stale RAG chunks. Passages older than 90 days for
+    # fast-moving domains (sanctions, procurement, officeholders) are
+    # shown to the LLM with a ⚠ STALE marker so the model knows not to
+    # present them as current intelligence.
+    from datetime import datetime, timezone
+    _now = datetime.now(timezone.utc)
+    _STALE_DAYS = 90
+
+    def _staleness_marker(ingested_at: str) -> str:
+        if not ingested_at:
+            return ""
+        try:
+            dt = datetime.fromisoformat(ingested_at.replace("Z", "+00:00"))
+            age_days = (_now - dt).days
+            if age_days > _STALE_DAYS * 2:
+                return f" ⚠ STALE ({age_days}d old — verify before citing)"
+            if age_days > _STALE_DAYS:
+                return f" ⚠ aging ({age_days}d old — may be outdated)"
+        except Exception:
+            return ""
+        return ""
+
+    lines = ["\n\n[RAG RETRIEVED — proprietary intelligence indexed from your sources. Respect ⚠ STALE markers — do not present stale chunks as current fact.]"]
     total = 0
     for r in results:
         cite_parts = []
@@ -423,7 +445,8 @@ async def get_rag_context(
         if r.get("ingested_at"):
             cite_parts.append(r["ingested_at"][:10])
         cite = " | ".join(cite_parts) if cite_parts else "unknown source"
-        body = f"\n• [{r['score']:.2f}] {r['text'][:600]}\n  ↳ source: {cite}"
+        stale = _staleness_marker(r.get("ingested_at", ""))
+        body = f"\n• [{r['score']:.2f}]{stale} {r['text'][:600]}\n  ↳ source: {cite}"
         if total + len(body) > max_chars:
             break
         lines.append(body)

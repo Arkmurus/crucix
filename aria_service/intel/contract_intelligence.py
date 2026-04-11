@@ -70,6 +70,30 @@ If no issues found, state: "SELF-REVIEW: No corrections needed. Draft review is 
 Be ruthless. The user is relying on this review for a real commercial decision."""
 
 
+# H2: document chunk size for self-review. Past bug: a fixed [:12000]
+# slice silently truncated long contracts while the review claimed a
+# full audit. We now run the audit over overlapping windows and merge
+# their findings; anything beyond the hard cap below is still reported
+# so the user knows some clauses were not seen.
+_SELF_REVIEW_CHUNK_CHARS = 11000     # per pass
+_SELF_REVIEW_OVERLAP_CHARS = 800     # sliding-window overlap to keep
+                                     # clauses that straddle boundaries
+_SELF_REVIEW_MAX_CHUNKS = 6          # hard cap — ~60k char (~15k tokens)
+
+
+def _chunk_document(text: str) -> list[str]:
+    if not text:
+        return []
+    chunks: list[str] = []
+    i = 0
+    n = len(text)
+    step = _SELF_REVIEW_CHUNK_CHARS - _SELF_REVIEW_OVERLAP_CHARS
+    while i < n and len(chunks) < _SELF_REVIEW_MAX_CHUNKS:
+        chunks.append(text[i : i + _SELF_REVIEW_CHUNK_CHARS])
+        i += step
+    return chunks
+
+
 async def self_review_contract(
     document_text: str,
     draft_review: str,
@@ -77,34 +101,69 @@ async def self_review_contract(
 ) -> dict:
     """Run ARIA's contract review through a self-audit pass.
 
+    Long documents are audited over overlapping windows and the
+    findings are merged. If the document is larger than the hard cap
+    (about 60k chars / 15k tokens), a `truncated` flag is surfaced so
+    the caller knows some content was not seen.
+
     Returns the self-review findings + a corrected review if issues found.
     """
     if not is_enabled() or not llm or not llm.is_configured:
         return {"self_reviewed": False, "reason": "disabled or no LLM"}
 
-    prompt = (
-        f"ORIGINAL DOCUMENT:\n{document_text[:12000]}\n\n"
-        f"ARIA'S DRAFT REVIEW:\n{draft_review[:8000]}\n\n"
-        f"Audit this review against the document."
-    )
+    chunks = _chunk_document(document_text)
+    if not chunks:
+        return {"self_reviewed": False, "reason": "empty document"}
 
-    try:
-        result = await llm.complete(SELF_REVIEW_PROMPT, prompt, max_tokens=3000, timeout=60.0)
-        findings = result.text.strip()
+    truncated = len(document_text) > (_SELF_REVIEW_CHUNK_CHARS + (_SELF_REVIEW_MAX_CHUNKS - 1) * (_SELF_REVIEW_CHUNK_CHARS - _SELF_REVIEW_OVERLAP_CHARS))
+    draft_slice = draft_review[:8000]
 
-        has_corrections = any(kw in findings.upper() for kw in [
-            "REMOVE:", "ADD:", "FLAG:", "MEMORY CONTAMINATION", "MISSED",
-        ])
+    all_findings: list[str] = []
+    has_corrections = False
+    model = ""
 
-        return {
-            "self_reviewed": True,
-            "has_corrections": has_corrections,
-            "findings": findings,
-            "model": result.model,
-        }
-    except Exception as e:
-        logger.warning("Contract self-review failed: %s", e)
-        return {"self_reviewed": False, "reason": str(e)}
+    for idx, chunk in enumerate(chunks):
+        prompt = (
+            f"ORIGINAL DOCUMENT [window {idx+1}/{len(chunks)}, "
+            f"chars {idx * (_SELF_REVIEW_CHUNK_CHARS - _SELF_REVIEW_OVERLAP_CHARS)}–"
+            f"{idx * (_SELF_REVIEW_CHUNK_CHARS - _SELF_REVIEW_OVERLAP_CHARS) + len(chunk)}]:\n"
+            f"{chunk}\n\n"
+            f"ARIA'S DRAFT REVIEW:\n{draft_slice}\n\n"
+            f"Audit this review against the document WINDOW shown above. "
+            f"Only flag issues whose evidence lies in this window — later "
+            f"windows will cover the rest. Do not hallucinate clauses you cannot see."
+        )
+        try:
+            result = await llm.complete(SELF_REVIEW_PROMPT, prompt, max_tokens=2000, timeout=60.0)
+            text = (result.text or "").strip()
+            if text:
+                header = f"── Self-review window {idx+1}/{len(chunks)} ──\n"
+                all_findings.append(header + text)
+                if any(kw in text.upper() for kw in ("REMOVE:", "ADD:", "FLAG:", "MEMORY CONTAMINATION", "MISSED")):
+                    has_corrections = True
+            model = model or result.model
+        except Exception as e:
+            logger.warning("Contract self-review window %d/%d failed: %s", idx + 1, len(chunks), e)
+            all_findings.append(f"── Self-review window {idx+1}/{len(chunks)} — ERROR: {e} ──")
+
+    if truncated:
+        all_findings.append(
+            "⚠ Document exceeds self-review hard cap; only the first "
+            f"{_SELF_REVIEW_MAX_CHUNKS} windows were audited. Split the "
+            "document and re-submit remaining sections if needed."
+        )
+
+    if not all_findings:
+        return {"self_reviewed": False, "reason": "all windows failed"}
+
+    return {
+        "self_reviewed": True,
+        "has_corrections": has_corrections,
+        "findings": "\n\n".join(all_findings),
+        "model": model,
+        "windows": len(chunks),
+        "truncated": truncated,
+    }
 
 
 # ── 2. CLAUSE LIBRARY ──────────────────────────────────────────────────────
@@ -335,8 +394,18 @@ async def ingest_clause_library() -> dict:
 
     for clause_id, clause in CLAUSE_LIBRARY.items():
         try:
+            # M1: clauses are TEMPLATES, not verified legal opinion —
+            # retrieved chunks must carry that provenance so they aren't
+            # surfaced to the user as authoritative. Confidence tag is
+            # ASSESSED, not CONFIRMED, and the disclaimer is prepended to
+            # the content so any downstream retrieval includes it.
+            content_with_disclaimer = (
+                "[ASSESSED — template clause, not legal advice. "
+                "Verify with qualified counsel before use in an executed agreement.]\n\n"
+                + clause["content"]
+            )
             result = await rag_store.ingest_document(
-                clause["content"],
+                content_with_disclaimer,
                 source=f"clause_library:{clause_id}",
                 source_type="contract_clause_library",
                 title=clause["title"],
@@ -344,6 +413,9 @@ async def ingest_clause_library() -> dict:
                 extra_metadata={
                     "contract_type": clause.get("contract_type", "any"),
                     "tags": ",".join(clause.get("tags", [])),
+                    "confidence": "ASSESSED",
+                    "provenance": "template",
+                    "disclaimer": "template clause, verify with counsel",
                 },
             )
             chunks = result.get("chunks", 0) if isinstance(result, dict) else 0

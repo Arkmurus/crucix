@@ -166,6 +166,24 @@ def build_footer(
     has_verification = bool(verification)
     has_rag = rag_sources_count > 0
 
+    # M4: when no tool ran OR no citations were grounded, no claim in the
+    # reply is actually verified — so a [CONFIRMED] headline is misleading.
+    # Demote the tag to at most [ASSESSED] in that case. The body still
+    # shows the inline [CONFIRMED] tags the model produced, but the
+    # headline reflects that ARIA couldn't ground them in a fresh source.
+    if has_verification and tag in ("CONFIRMED", "PROBABLE"):
+        v = verification or {}
+        verdict = str(v.get("verdict") or "").lower()
+        cited = int(v.get("cited", 0) or 0)
+        unverified = int(v.get("unverified", 0) or 0)
+        grounded = cited - unverified
+        if verdict in ("no_tool", "no_citations") or grounded <= 0:
+            logger.debug(
+                "Demoting footer tag %s -> ASSESSED (verdict=%s grounded=%d)",
+                tag, verdict, grounded,
+            )
+            tag = "ASSESSED"
+
     # If we have nothing to say, don't draw the box.
     if not tag and not has_verification and not has_rag:
         return ""

@@ -285,7 +285,7 @@ def _handle_export_query(text: str) -> dict | None:
         lines.append("")
         lines.append(LICENCE_ROUTES["embargoed"]["any"])
         lines.append("")
-        lines.append("[CONFIRMED] Recommendation: DO NOT PROCEED. This may be a brokering offence under UK law.")
+        lines.append("[ASSESSED — static embargo table] Recommendation: DO NOT PROCEED. This may be a brokering offence under UK law. Verify current status against ECJU live embargo list before acting.")
         return {
             "confident": True,
             "confidence": 0.95,
@@ -356,7 +356,7 @@ def _handle_embargo_query(text: str) -> dict | None:
                 f"⛔ *{country}* is under arms embargo.\n\n"
                 f"Active regimes: {', '.join(info['regimes'])}\n"
                 f"Scope: {info['scope']}\n\n"
-                f"[CONFIRMED] No defence exports permitted. Brokering may be a criminal offence."
+                f"[ASSESSED — static embargo table] No defence exports permitted per ARIA's static regimes list. Brokering may be a criminal offence. Verify current embargo status against the ECJU live list before any action."
             ),
             "intent": "embargo_query",
         }
@@ -366,8 +366,8 @@ def _handle_embargo_query(text: str) -> dict | None:
             "confidence": 0.85,
             "response": (
                 f"🟠 *{country}* is NOT embargoed but is HIGH-RISK.\n\n"
-                f"[CONFIRMED] Enhanced due diligence required. End-use certificate, diversion risk assessment, "
-                f"and SITCL likely required. Likely subject to political review at FCDO."
+                f"[ASSESSED — static country-risk table] Enhanced due diligence indicated. End-use certificate, diversion risk assessment, "
+                f"and SITCL likely required. Likely subject to political review at FCDO. Verify risk tier against current FCDO / ECJU guidance."
             ),
             "intent": "embargo_query",
         }
@@ -377,7 +377,7 @@ def _handle_embargo_query(text: str) -> dict | None:
             "confidence": 0.85,
             "response": (
                 f"🟡 *{country}* is permitted with standard controls.\n\n"
-                f"[CONFIRMED] Not embargoed. Standard SIEL with end-use certificate required for ML items."
+                f"[ASSESSED — static country-risk table] Not embargoed per ARIA's static list. Standard SIEL with end-use certificate required for ML items. Verify against current ECJU list."
             ),
             "intent": "embargo_query",
         }
@@ -458,7 +458,7 @@ def _handle_classification_query(text: str) -> dict | None:
         for r in tc["embargo_risks"]:
             lines.append(f"  - {r}")
     lines.append("")
-    lines.append("[CONFIRMED] Classification from ARIA's static technical database. Verify against current control lists.")
+    lines.append("[ASSESSED — static technical database] Classification from ARIA's static ML/ECCN table. Verify against the current UK Strategic Export Control Lists before relying on this.")
     return {
         "confident": True,
         "confidence": 0.90,
@@ -500,7 +500,7 @@ def _handle_relationship_query(text: str) -> dict | None:
         "response": (
             f"📍 *{country}* — Arkmurus tier: *{arkmurus_tier.upper().replace('_', ' ')}*\n\n"
             f"{descriptions[arkmurus_tier]}\n\n"
-            f"[CONFIRMED] Tier from Arkmurus positioning matrix."
+            f"[ASSESSED — static positioning matrix] Tier derived from Arkmurus market-posture table. Verify against current BD state."
         ),
         "intent": "relationship_query",
         "tier": arkmurus_tier,

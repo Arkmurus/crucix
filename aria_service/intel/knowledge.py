@@ -344,12 +344,42 @@ def search_knowledge(query: str) -> str:
     return "\n".join(lines)
 
 
-async def auto_extract_facts(user_query: str, aria_response: str) -> None:
-    """Auto-mine [CONFIRMED] and [PROBABLE] tagged facts from ARIA responses."""
+async def auto_extract_facts(
+    user_query: str,
+    aria_response: str,
+    *,
+    tool_context: str | None = None,
+    verifier_verdict: str | None = None,
+) -> None:
+    """Auto-mine tagged facts from ARIA responses — BUT only when the
+    response is grounded in a tool call verified by source_verifier.
+
+    Past bug: ARIA's own [CONFIRMED] tags were mined and persisted as
+    permanent knowledge, creating a hallucination feedback loop where
+    a bad LLM guess became 'verified fact' after one session. We now
+    refuse to extract unless:
+
+      (a) tool_context is non-empty (the response cited a tool result), AND
+      (b) source_verifier returned a grounded verdict
+
+    Even then, [CONFIRMED] is demoted to [PROBABLE] at ingest — only
+    /teach and the correction_learner can mint CONFIRMED facts.
+    """
     if not _cache:
         return
+
+    # Hard gate: no tool context = no knowledge extraction.
+    if not tool_context or not tool_context.strip():
+        return
+
+    # Hard gate: source_verifier must have actually verified something.
+    # Acceptable verdicts: 'grounded', 'grounded_partial' (both indicate
+    # at least one citation was checked against a real source).
+    if verifier_verdict not in ("grounded", "grounded_partial"):
+        return
+
     patterns = [
-        (r"\[CONFIRMED\]\s*(.+?)(?:\n|$)", "CONFIRMED"),
+        (r"\[CONFIRMED\]\s*(.+?)(?:\n|$)", "PROBABLE"),  # DEMOTED
         (r"\[PROBABLE\]\s*(.+?)(?:\n|$)", "PROBABLE"),
     ]
     import asyncio
@@ -358,7 +388,7 @@ async def auto_extract_facts(user_query: str, aria_response: str) -> None:
             text = m.group(1).strip()[:300]
             if len(text) > 20:
                 topic = text[:60].rstrip(".")
-                asyncio.create_task(store_fact(topic, text, "aria_auto", conf))
+                asyncio.create_task(store_fact(topic, text, "aria_auto_verified", conf))
 
 
 async def consolidate_facts() -> dict:
