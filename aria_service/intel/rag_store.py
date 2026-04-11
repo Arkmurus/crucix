@@ -143,8 +143,38 @@ def _get_client():
 
 
 def _ensure() -> bool:
-    """Ensure the RAG store is initialised. Returns True if ready."""
+    """Ensure the RAG store is initialised. Returns True if ready.
+
+    Sync version — only safe to call from already-initialised code
+    paths. For async paths (ingest / search / context build), prefer
+    `await _ensure_async()` so the expensive first-call chromadb +
+    sentence-transformers init happens in a thread and does not pin
+    the event loop. Production incident: first request after startup
+    used to block uvicorn for ~5 min while the 200MB embedding model
+    downloaded + initialised on the loop thread.
+    """
     return _get_client() is not None
+
+
+async def _ensure_async() -> bool:
+    """Async-safe init. Runs the expensive first-call chromadb setup
+    in a worker thread. Subsequent calls are cheap — `_get_client`
+    short-circuits once `_client is not None`."""
+    global _client
+    if _client is not None:
+        return True
+    if _chromadb_failed:
+        return False
+    import asyncio as _aio
+    try:
+        async with _init_lock:
+            if _client is not None:
+                return True
+            await _aio.to_thread(_get_client)
+    except Exception as e:
+        logger.warning("RAG store async init failed: %s", e)
+        return False
+    return _client is not None
 
 
 # ── Chunking ───────────────────────────────────────────────────────────────
@@ -216,7 +246,7 @@ async def ingest_document(
         market: Country/region tag for filtering.
         extra_metadata: Anything else to attach to every chunk.
     """
-    if not _ensure():
+    if not await _ensure_async():
         return {"ingested": False, "error": "rag_store_unavailable"}
     if not text or len(text.strip()) < MIN_CHUNK_SIZE:
         return {"ingested": False, "reason": "text_too_short"}
@@ -298,7 +328,7 @@ async def ingest_fact(
     Called by knowledge.store_fact() so the RAG facts collection stays
     in sync with the canonical Redis knowledge base.
     """
-    if not _ensure():
+    if not await _ensure_async():
         return False
     if not content or len(content.strip()) < 10:
         return False
@@ -356,7 +386,7 @@ async def search(
 
     Optional filters narrow the search to a source_type or market.
     """
-    if not _ensure():
+    if not await _ensure_async():
         return []
     if not query or len(query.strip()) < 3:
         return []
@@ -433,7 +463,7 @@ async def get_rag_context(
     Returns the top retrieved passages with citations, capped at max_chars.
     Designed to slot into aria_engine's context layer pipeline.
     """
-    if not _ensure():
+    if not await _ensure_async():
         return ""
     results = await search(query, top_k=top_k)
     if not results:
@@ -485,15 +515,16 @@ async def get_rag_context(
 
 async def get_stats() -> dict:
     """Report on the RAG store state."""
-    if not _ensure():
+    if not await _ensure_async():
         return {
             "available": False,
             "reason": "chromadb not installed or init failed",
             "path": RAG_PATH,
         }
     try:
-        doc_count = _documents_collection.count() if _documents_collection else 0
-        fact_count = _facts_collection.count() if _facts_collection else 0
+        import asyncio as _aio
+        doc_count = await _aio.to_thread(_documents_collection.count) if _documents_collection else 0
+        fact_count = await _aio.to_thread(_facts_collection.count) if _facts_collection else 0
         return {
             "available": True,
             "path": RAG_PATH,
@@ -511,11 +542,14 @@ async def get_stats() -> dict:
 
 async def list_sources(limit: int = 50) -> dict:
     """Return a summary of unique sources in the RAG store grouped by type."""
-    if not _ensure():
+    if not await _ensure_async():
         return {"available": False}
     try:
+        import asyncio as _aio
         # chromadb doesn't have a great "distinct" — fetch a sample of metadatas
-        sample = _documents_collection.get(limit=2000, include=["metadatas"])
+        sample = await _aio.to_thread(
+            _documents_collection.get, limit=2000, include=["metadatas"],
+        )
         metadatas = sample.get("metadatas") or []
         by_source: dict[str, dict] = {}
         for m in metadatas:
@@ -556,7 +590,7 @@ async def backfill_from_existing() -> dict:
 
     Idempotent — chromadb upserts so re-running is safe.
     """
-    if not _ensure():
+    if not await _ensure_async():
         return {"ok": False, "error": "rag_store_unavailable"}
 
     from . import knowledge as kb
