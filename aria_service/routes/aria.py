@@ -3530,21 +3530,36 @@ async def read_document_ep(request: Request):
             except Exception as e:
                 _log.warning("DOCX extraction failed: %s", e)
 
-        # Excel extraction
-        elif "spreadsheet" in mime_lower or fname_lower.endswith((".xlsx", ".xls")):
-            try:
-                import io
-                from openpyxl import load_workbook
-                wb = load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
-                rows = []
-                for ws in wb.worksheets[:3]:
-                    rows.append(f"--- Sheet: {ws.title} ---")
-                    for row in ws.iter_rows(max_row=200, values_only=True):
-                        rows.append(",".join(str(c or "") for c in row))
-                wb.close()
-                extracted = "\n".join(rows)[:15000]
-            except Exception as e:
-                _log.warning("Excel extraction failed: %s", e)
+        # Excel extraction (.xlsx via openpyxl, .xls via xlrd fallback)
+        elif "spreadsheet" in mime_lower or fname_lower.endswith((".xlsx", ".xls", ".xlsm")):
+            import io
+            if fname_lower.endswith(".xls") and "spreadsheetml" not in mime_lower:
+                # Legacy BIFF — openpyxl cannot read it. Try xlrd.
+                try:
+                    import xlrd
+                    book = xlrd.open_workbook(file_contents=raw_bytes)
+                    rows = []
+                    for si in range(min(3, book.nsheets)):
+                        sh = book.sheet_by_index(si)
+                        rows.append(f"--- Sheet: {sh.name} ---")
+                        for ri in range(min(500, sh.nrows)):
+                            rows.append(",".join(str(sh.cell_value(ri, ci) or "") for ci in range(min(40, sh.ncols))))
+                    extracted = "\n".join(rows)[:15000]
+                except Exception as e:
+                    _log.warning("Legacy .xls extraction via xlrd failed: %s", e)
+            else:
+                try:
+                    from openpyxl import load_workbook
+                    wb = load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
+                    rows = []
+                    for ws in wb.worksheets[:3]:
+                        rows.append(f"--- Sheet: {ws.title} ---")
+                        for row in ws.iter_rows(max_row=500, max_col=40, values_only=True):
+                            rows.append(",".join(str(c or "") for c in row))
+                    wb.close()
+                    extracted = "\n".join(rows)[:15000]
+                except Exception as e:
+                    _log.warning("Excel extraction failed: %s — mime=%s name=%s", e, mime_lower, fname_lower)
 
         if not extracted or len(extracted) < 30:
             llm = get_llm(request)
