@@ -528,8 +528,13 @@ _RULE_PATTERNS: list[tuple[re.Pattern, str]] = [
     # Date (YYYY-MM-DD + common formats)
     (re.compile(r"\b(19[0-9]{2}|20[0-9]{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12][0-9]|3[01])\b"), "date"),
     (re.compile(r"\b([12][0-9]{3})\b"), "year"),
-    # UK / EU / US phone number (rough)
-    (re.compile(r"\+?\d{1,3}[\s\-]?\(?\d{2,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4}"), "phone"),
+    # UK / EU / US phone number — anchored to tel:/phone:/Tel./etc. labels
+    # to avoid false positives on JS asset IDs, tracking tokens, etc.
+    (re.compile(
+        r"(?:tel[:\.\s]|phone[:\.\s]|call\s+(?:us\s+)?(?:on\s+|at\s+)?|\+(?=\d{1,3}[\s\-]))"
+        r"(\+?\d{1,3}[\s\-]?\(?\d{2,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4})",
+        re.IGNORECASE,
+    ), "phone"),
     # Amount (£, $, €) with optional M / B suffix
     (re.compile(r"[£$€]\s?[0-9,]+(?:\.[0-9]+)?\s?(?:million|billion|M|B|thousand|k)?", re.IGNORECASE), "amount"),
     # "founded in YYYY" / "established YYYY"
