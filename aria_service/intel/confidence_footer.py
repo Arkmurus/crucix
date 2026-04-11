@@ -75,36 +75,57 @@ def is_enabled() -> bool:
 
 
 def _dominant_tag(response_text: str) -> str | None:
-    """Return the WEAKEST confidence tag present in the response.
+    """Return the frequency-weighted dominant confidence tag.
 
-    Pre-Phase-3 cleanup 2026-04-09: this used to return the strongest tag
-    (CONFIRMED beats PROBABLE beats ASSESSED…) on the theory that the headline
-    should reflect what ARIA most confidently asserted. That was wrong in
-    practice. It produced three known incidents (Modirum, Modirum-rerun,
-    ARK-SER-01 contract review) where the footer reported
-    "Confidence: 95% [CONFIRMED]" while the body had [UNCERTAIN] and
-    [ASSESSED] sections — misleading readers about the actual confidence
-    floor of the assessment.
+    Evolution of this function:
 
-    The correct rule: the footer reflects the WEAKEST tag in the body, so a
-    reply that mixes [CONFIRMED] facts with [UNCERTAIN] gaps is presented as
-    [UNCERTAIN] overall. The body still shows the per-section tags so the
-    reader sees both the high-confidence facts and the low-confidence gaps —
-    but the headline cannot oversell the assessment.
+    V1 (pre-Phase-3): returned the STRONGEST tag. Oversold confidence
+    when one CONFIRMED section was mixed with UNCERTAIN gaps. Caused
+    Modirum / ARK-SER-01 incidents where headline said 95% but body
+    had critical UNCERTAIN caveats.
+
+    V2 (2026-04-09): returned the WEAKEST tag. Corrected oversell but
+    over-corrected: one minor ASSESSED caveat in a 20-CONFIRMED
+    response dragged the headline to 60%. Caused the Hanwha Redback
+    research (2026-04-11) to report "Confidence: 60% [ASSESSED]"
+    despite 8 grounded citations and 3 CONFIRMED sections.
+
+    V3 (current): frequency-weighted average. Each tag instance
+    contributes its confidence value; the arithmetic mean is mapped
+    back to the nearest tag level. Also penalised by a floor: if any
+    SPECULATIVE/UNCERTAIN tag is present the result cannot exceed
+    PROBABLE — a serious gap must still be visible in the headline.
     """
     if not response_text:
         return None
-    # Normalize to upper-case because _TAG_RE is now IGNORECASE — the LLM
-    # occasionally writes [Probable] or [uncertain] instead of [PROBABLE].
-    found = {t.upper() for t in _TAG_RE.findall(response_text)}
-    if not found:
+    # Match all tags (not just unique — frequency matters).
+    all_tags = [t.upper() for t in _TAG_RE.findall(response_text)]
+    if not all_tags:
         return None
-    # Iterate weakest → strongest. First match wins, so the weakest tag
-    # present in the body becomes the headline.
-    for tag in ("SPECULATIVE", "UNCERTAIN", "ASSESSED", "PROBABLE", "CONFIRMED"):
-        if tag in found:
-            return tag
-    return None
+
+    # Weighted average of confidence values
+    total = sum(_TAG_TO_CONFIDENCE.get(t, 0.5) for t in all_tags)
+    avg = total / len(all_tags)
+
+    # Hard floor: if any SPECULATIVE / UNCERTAIN tag is present, the
+    # headline cannot exceed PROBABLE — a serious gap stays visible
+    # in the headline even if most tags are CONFIRMED.
+    present = set(all_tags)
+    if "SPECULATIVE" in present:
+        avg = min(avg, _TAG_TO_CONFIDENCE["UNCERTAIN"])
+    elif "UNCERTAIN" in present:
+        avg = min(avg, _TAG_TO_CONFIDENCE["ASSESSED"] + 0.05)  # barely above ASSESSED
+
+    # Map the weighted confidence back to the nearest tag level.
+    # Nearest-threshold by absolute distance.
+    best_tag = None
+    best_dist = 99.0
+    for tag, conf in _TAG_TO_CONFIDENCE.items():
+        d = abs(avg - conf)
+        if d < best_dist:
+            best_dist = d
+            best_tag = tag
+    return best_tag
 
 
 def _extract_assumptions(response_text: str, max_items: int = 4) -> list[str]:
@@ -183,6 +204,31 @@ def build_footer(
                 tag, verdict, grounded,
             )
             tag = "ASSESSED"
+
+    # GROUNDING BONUS: when verification passed with 100% grounded rate
+    # AND the body has ≥3 citations, promote one tier. Reward for
+    # actually citing every claim. Hanwha Redback (2026-04-11) had 8
+    # grounded / 0 unverified (100%) but the weakest-tag rule still
+    # reported 60% ASSESSED — the weighted-average fix above brings
+    # it to ~85%, and this bonus takes the 3-CONFIRMED + 1-ASSESSED
+    # case all the way to CONFIRMED where it belongs.
+    if has_verification and tag in ("ASSESSED", "PROBABLE"):
+        v = verification or {}
+        verdict = str(v.get("verdict") or "").lower()
+        rate = v.get("grounded_rate")
+        cited = int(v.get("cited", 0) or 0)
+        if (
+            verdict == "grounded"
+            and isinstance(rate, (int, float))
+            and float(rate) >= 0.99
+            and cited >= 3
+        ):
+            promoted = {"ASSESSED": "PROBABLE", "PROBABLE": "CONFIRMED"}[tag]
+            logger.debug(
+                "Grounding bonus: promoting %s -> %s (cited=%d rate=%.2f)",
+                tag, promoted, cited, rate,
+            )
+            tag = promoted
 
     # If we have nothing to say, don't draw the box.
     if not tag and not has_verification and not has_rag:
