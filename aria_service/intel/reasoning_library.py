@@ -373,9 +373,71 @@ _CORRECTION_ACK_RE = re.compile(
 
 _INVESTIGATION_REQUEST_RE = re.compile(
     r"\b(?:investigate|research|deep[\s-]?dive|profile|due\s+diligence|"
-    r"background\s+check|look\s+into|dig\s+into|find\s+out\s+about)\b",
+    r"background\s+check|look\s+into|dig\s+into|find\s+out\s+about|"
+    r"analyse|analyze|rank|shortlist|compare|assess|evaluate|review|"
+    r"screen|vet|audit)\b",
     re.IGNORECASE,
 )
+
+# Messages that depend on current-turn input (attached file, pasted text,
+# "this list", "above", etc.) must never be served from cache or cached.
+# The answer is intrinsically tied to the content that arrived THIS turn,
+# so replaying a prior answer is always wrong — even if the semantic
+# similarity is high. This was the proximate cause of the detonator
+# supplier xlsx loop (2026-04-11 21:14): two consecutive "analyse this
+# list" messages, neither of them a keyword-investigation, both replaying
+# the same "no document reached my context" fallback 3x in a row.
+_FRESH_INPUT_REF_RE = re.compile(
+    # "this list", "this document", "these companies", "the attached list",
+    # "the above", "this is a list", "these are suppliers"…
+    r"(?:\b(?:this|these|those|that|the)\s+(?:\w+\s+){0,3}?"
+    r"(?:list|document|file|spreadsheet|table|image|photo|picture|"
+    r"attachment|attachments|card|contract|message|email|text|data|"
+    r"excel|pdf|xlsx|csv|doc|docx|info|information|report|note|"
+    r"screenshot|shortlist|rfq|tender|quote|offer|response|reply|"
+    r"companies|suppliers|entities|names|candidates|items)\b)"
+    r"|(?:\battached\b)|(?:\bpasted\b)|(?:\babove\b)|(?:\benclosed\b)"
+    r"|(?:\[ATTACHED\s+DOCUMENT)"
+    r"|(?:\[Document:\s)"
+    r"|(?:\[Image[:\s])",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_fresh_input_request(q: str) -> bool:
+    """True if the question references current-turn input (attached file,
+    pasted text, 'this list', etc.). Such messages must always be
+    processed fresh — never served from cache and never cached."""
+    if not q:
+        return False
+    return bool(_FRESH_INPUT_REF_RE.search(q))
+
+
+# Response patterns that indicate the LLM could not process this turn's
+# input (parse failed, no attachment visible, asked user to re-share).
+# These are turn-specific failure states, not reusable reasoning patterns —
+# they must be blocked from entering the case library.
+_TURN_FAILURE_RE = re.compile(
+    r"(?:no\s+(?:supplier\s+list|document|attachment|file|image|photo|"
+    r"content|data|text)\s+has\s+(?:reached|arrived))"
+    r"|(?:no\s+\[ATTACHED\s+DOCUMENT\])"
+    r"|(?:cannot\s+(?:see|read|parse|access|analyse)\s+(?:the\s+)?"
+    r"(?:attached|attachment|file|document|image|list|spreadsheet))"
+    r"|(?:parse\s+failed)|(?:no\s+text\s+extracted)"
+    r"|(?:could\s+not\s+extract)|(?:failed\s+to\s+parse)"
+    r"|(?:please\s+(?:re-?share|re-?send|re-?attach|paste)\s+the)"
+    r"|(?:i\s+cannot\s+analyse\s+the)"
+    r"|(?:the\s+file\s+failed\s+to\s+parse)",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_turn_failure_response(r: str) -> bool:
+    """True if the response describes a turn-specific failure to read or
+    parse input that arrived this turn. These are never reusable."""
+    if not r:
+        return False
+    return bool(_TURN_FAILURE_RE.search(r[:3000]))
 
 
 def _looks_like_user_correction(q_lower: str) -> bool:
@@ -456,6 +518,14 @@ async def record_response(
     # creates the same staleness problem we're trying to fix. Skip.
     if _looks_like_investigation_request(q_lower):
         return {"recorded": False, "reason": "investigation request — always run fresh"}
+    # Fresh-input questions ("analyse this list", "review the attachment",
+    # "above") depend on current-turn content — caching is always wrong.
+    if _looks_like_fresh_input_request(question):
+        return {"recorded": False, "reason": "fresh-input request — answer tied to this turn's content"}
+    # Turn-specific failure responses ("no document reached my context",
+    # "parse failed", "please re-share") must never enter the library.
+    if _looks_like_turn_failure_response(response):
+        return {"recorded": False, "reason": "turn-specific failure response — not reusable"}
 
     confidence_tag, confidence_score = _detect_confidence_tag(response)
 
@@ -557,6 +627,8 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
         return {"match": False, "score": 0, "case": None, "method": "skipped_user_correction", "threshold": threshold}
     if _looks_like_investigation_request(q_lower):
         return {"match": False, "score": 0, "case": None, "method": "skipped_investigation", "threshold": threshold}
+    if _looks_like_fresh_input_request(question):
+        return {"match": False, "score": 0, "case": None, "method": "skipped_fresh_input", "threshold": threshold}
 
     meta = await _load_meta()
     meta["total_lookups"] = meta.get("total_lookups", 0) + 1
@@ -710,6 +782,10 @@ async def purge_polluted_cases(*, dry_run: bool = False) -> dict:
             reason = "question is a user correction"
         elif _looks_like_investigation_request(question.lower()):
             reason = "investigation request — should not be cached"
+        elif _looks_like_fresh_input_request(question):
+            reason = "fresh-input request — answer tied to prior turn's content"
+        elif _looks_like_turn_failure_response(response):
+            reason = "turn-specific failure response — not reusable"
 
         if reason:
             n_removed += 1

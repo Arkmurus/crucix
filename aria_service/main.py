@@ -198,9 +198,16 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(5)
         try:
             result = await reasoning_library.purge_unsafe_cases()
-            logger.info("[Reasoning Library] startup purge: %s", result)
+            logger.info("[Reasoning Library] startup purge (unsafe): %s", result)
         except Exception as e:
-            logger.warning("[Reasoning Library] startup purge failed (non-fatal): %s", e)
+            logger.warning("[Reasoning Library] startup purge (unsafe) failed: %s", e)
+        try:
+            # Second pass: remove fresh-input-tied and turn-failure responses.
+            # Catches the detonator_suppliers.xlsx replay cluster (2026-04-11).
+            polluted = await reasoning_library.purge_polluted_cases()
+            logger.info("[Reasoning Library] startup purge (polluted): %s", polluted)
+        except Exception as e:
+            logger.warning("[Reasoning Library] startup purge (polluted) failed: %s", e)
     reasoning_purge_task = asyncio.create_task(_purge_reasoning_library_bg())
 
     # Start autonomous research scheduler (every 30 minutes).
