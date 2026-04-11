@@ -126,6 +126,17 @@ async def _run_identity(
     hard_stop = False
 
     # ── 1a. Sanctions screen (always runs) ──
+    #
+    # Confidence tiering — not every fuzzy-match is a hard stop.
+    # OpenSanctions and similar aggregators return hits on any partial
+    # name match, and legitimate corporate names (BAE Systems, Thales,
+    # Rolls-Royce) routinely pull low-score matches from historical
+    # subsidiary records. The thresholds below match what commercial
+    # screening tools use:
+    #   score >= 0.90  → HARD STOP (very high confidence match)
+    #   score >= 0.75  → RED       (strong match, requires human review)
+    #   score >= 0.60  → AMBER     (plausible, investigate further)
+    #   < 0.60          → INFO      (noise, record but don't escalate)
     try:
         from . import sanctions
         if hasattr(sanctions, "screen_with_aliases"):
@@ -137,15 +148,57 @@ async def _run_identity(
             report.identity.data_gaps.append("sanctions module not exposing expected API")
         report.identity.sanctions_screen = screen
         report.identity.meta.subcalls += 1
-        if screen.get("hit") or screen.get("matches"):
+
+        matches = screen.get("matches") or []
+        best_score = 0.0
+        for m in matches:
+            if isinstance(m, dict):
+                s = float(m.get("score") or m.get("confidence") or 0.0)
+            else:
+                s = 0.0
+            if s > best_score:
+                best_score = s
+        # Some backends put the score at the top level, not per match
+        top_score = float(screen.get("score") or 0.0)
+        if top_score > best_score:
+            best_score = top_score
+
+        if matches and best_score >= 0.90:
             report.identity.findings.append(Finding(
                 severity="hard_stop",
-                title=f"Subject matches sanctions/PEP list",
-                detail=f"{len(screen.get('matches', []))} match(es), score {screen.get('score', 0.0):.2f}",
+                title=f"Subject matches sanctions/PEP list (high confidence)",
+                detail=f"{len(matches)} match(es), top score {best_score:.2f}",
                 source="sanctions.screen_with_aliases",
                 confidence="CONFIRMED",
             ))
             hard_stop = True
+        elif matches and best_score >= 0.75:
+            report.identity.findings.append(Finding(
+                severity="red",
+                title=f"Subject matches sanctions/PEP list (strong — human review required)",
+                detail=f"{len(matches)} match(es), top score {best_score:.2f}. "
+                       f"Verify manually before proceeding.",
+                source="sanctions.screen_with_aliases",
+                confidence="PROBABLE",
+            ))
+        elif matches and best_score >= 0.60:
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title=f"Plausible sanctions/PEP match",
+                detail=f"{len(matches)} low-confidence match(es), top score {best_score:.2f}. "
+                       f"Investigate but do not block.",
+                source="sanctions.screen_with_aliases",
+                confidence="ASSESSED",
+            ))
+        elif matches:
+            # Matches exist but all low-score — record as info, not escalation
+            report.identity.findings.append(Finding(
+                severity="info",
+                title=f"Low-confidence sanctions fuzzy match",
+                detail=f"{len(matches)} match(es), top score {best_score:.2f} — below action threshold",
+                source="sanctions.screen_with_aliases",
+                confidence="UNCERTAIN",
+            ))
     except Exception as e:
         logger.warning("Identity: sanctions screen failed: %s", e)
         report.identity.findings.append(Finding(
@@ -879,7 +932,9 @@ async def orchestrate_dd(
         # structured HARD_STOP report with the reasoning.
         if hard_stop:
             logger.info("[dd_orchestrator] hard stop triggered in identity layer — short-circuiting")
-            report.layers_skipped = ["network", "digital"]
+            for layer in ("network", "digital"):
+                if layer not in report.layers_skipped:
+                    report.layers_skipped.append(layer)
             report.network.meta.status = LayerStatus.SKIPPED.value
             report.digital.meta.status = LayerStatus.SKIPPED.value
         else:
@@ -893,7 +948,8 @@ async def orchestrate_dd(
                     report.network.meta.status = LayerStatus.ERROR.value
                     report.network.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S}s"
             else:
-                report.layers_skipped.append("network")
+                if "network" not in report.layers_skipped:
+                    report.layers_skipped.append("network")
                 report.network.meta.status = LayerStatus.SKIPPED.value
 
         # ── LAYER 4: COMPLIANCE ── (always — it's cheap and load-bearing)
@@ -915,7 +971,8 @@ async def orchestrate_dd(
                 report.digital.meta.status = LayerStatus.ERROR.value
                 report.digital.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S * 2}s"
         elif mode == "quick":
-            report.layers_skipped.append("digital")
+            if "digital" not in report.layers_skipped:
+                report.layers_skipped.append("digital")
             report.digital.meta.status = LayerStatus.SKIPPED.value
 
         # ── LAYER 3: VERIFICATION (runs over what the previous layers collected) ──
