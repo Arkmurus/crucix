@@ -147,7 +147,7 @@ async def _run_identity(
 
         from ._sanctions_classify import classify_matches
         matches = screen.get("matches") or []
-        classified = classify_matches(matches)
+        classified = classify_matches(matches, query_name=name)
         # The overall severity is the worst single match.
         if classified["worst_severity"] == "hard_stop":
             report.identity.findings.append(Finding(

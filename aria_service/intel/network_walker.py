@@ -216,7 +216,7 @@ async def walk_network(
             matches = screen.get("matches") or []
             if not matches:
                 continue
-            classified = classify_matches(matches)
+            classified = classify_matches(matches, query_name=officer.get("name", ""))
             severity = classified["worst_severity"]
             if severity in ("info", "none"):
                 continue  # noise; don't escalate
@@ -241,7 +241,7 @@ async def walk_network(
     stats["sanctions_screens"] += 1
     seed_matches = seed_screen.get("matches") or []
     if seed_matches:
-        seed_classified = classify_matches(seed_matches)
+        seed_classified = classify_matches(seed_matches, query_name=entity_name)
         severity = seed_classified["worst_severity"]
         if severity not in ("info", "none"):
             sanctions_network.append({
