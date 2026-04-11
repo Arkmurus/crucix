@@ -1,0 +1,417 @@
+"""ARIA Contract Intelligence — self-review loop, clause library, and correction learning.
+
+Three capabilities that elevate ARIA's contract review from competent to exceptional:
+
+1. SELF-REVIEW LOOP: After generating a contract review, run a second LLM
+   pass that audits the draft against the document. Catches the exact class
+   of error where ARIA recommends adding something already present or misses
+   blanks/placeholders.
+
+2. CLAUSE LIBRARY: Standard reference clauses for defence BD contract types.
+   Stored in RAG for semantic retrieval. ARIA compares "what this contract
+   says" against "what a well-drafted version should say."
+
+3. CORRECTION LEARNING: When the user corrects a review ("that clause IS in
+   the document"), store it as a permanent lesson. Next time ARIA reviews a
+   similar contract, she checks for that pattern first.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import time
+
+from . import redis_store as rs
+
+logger = logging.getLogger("aria.contract_intelligence")
+
+# ── Feature gate ────────────────────────────────────────────────────────────
+
+def is_enabled() -> bool:
+    val = os.getenv("ARIA_CONTRACT_INTELLIGENCE", "1") or "1"
+    return val.strip().lower() not in ("0", "false", "no", "off")
+
+
+# ── 1. SELF-REVIEW LOOP ────────────────────────────────────────────────────
+
+SELF_REVIEW_PROMPT = """You are ARIA's contract review auditor. You have been given:
+1. The ORIGINAL DOCUMENT text
+2. ARIA's DRAFT REVIEW of that document
+
+Your job is to audit ARIA's review for errors. Check each of these:
+
+A. FALSE POSITIVES — Did ARIA recommend adding a clause that ALREADY EXISTS
+   in the document? Search the document text for each recommendation ARIA made.
+   If the clause is present, flag it: "REMOVE: recommendation to add [X] — already
+   present at [quote from document]."
+
+B. MISSED BLANKS — Are there any blank fields, "[TBD]", "________", or
+   placeholder values in the document that ARIA did not flag? These are
+   execution blockers.
+
+C. MISSED CROSS-REFERENCE ERRORS — Did ARIA check every internal reference
+   (e.g. "as defined in Clause 5")? Are any cross-references pointing to the
+   wrong clause?
+
+D. MEMORY CONTAMINATION — Did ARIA cite facts about this deal that do NOT
+   appear in the attached document? If so, flag: "MEMORY CONTAMINATION:
+   ARIA stated [X] but this does not appear in the document."
+
+E. COMPLETENESS — Did ARIA run both Pass 1 (errors in text) and Pass 2
+   (what's missing)? If Pass 2 is absent or thin, flag it.
+
+Output format:
+SELF-REVIEW FINDINGS:
+- [REMOVE/ADD/FLAG]: [description] — [evidence from document]
+
+If no issues found, state: "SELF-REVIEW: No corrections needed. Draft review is accurate."
+
+Be ruthless. The user is relying on this review for a real commercial decision."""
+
+
+async def self_review_contract(
+    document_text: str,
+    draft_review: str,
+    llm,
+) -> dict:
+    """Run ARIA's contract review through a self-audit pass.
+
+    Returns the self-review findings + a corrected review if issues found.
+    """
+    if not is_enabled() or not llm or not llm.is_configured:
+        return {"self_reviewed": False, "reason": "disabled or no LLM"}
+
+    prompt = (
+        f"ORIGINAL DOCUMENT:\n{document_text[:12000]}\n\n"
+        f"ARIA'S DRAFT REVIEW:\n{draft_review[:8000]}\n\n"
+        f"Audit this review against the document."
+    )
+
+    try:
+        result = await llm.complete(SELF_REVIEW_PROMPT, prompt, max_tokens=3000, timeout=60.0)
+        findings = result.text.strip()
+
+        has_corrections = any(kw in findings.upper() for kw in [
+            "REMOVE:", "ADD:", "FLAG:", "MEMORY CONTAMINATION", "MISSED",
+        ])
+
+        return {
+            "self_reviewed": True,
+            "has_corrections": has_corrections,
+            "findings": findings,
+            "model": result.model,
+        }
+    except Exception as e:
+        logger.warning("Contract self-review failed: %s", e)
+        return {"self_reviewed": False, "reason": str(e)}
+
+
+# ── 2. CLAUSE LIBRARY ──────────────────────────────────────────────────────
+# Standard reference clauses for defence BD contract types.
+# Ingested into RAG so ARIA can compare against them during review.
+
+CLAUSE_LIBRARY = {
+    "brokering_commission": {
+        "title": "Standard Brokering Commission Clause",
+        "content": """COMMISSION AND PAYMENT
+
+The Principal shall pay the Broker a commission of [X]% of the Net Contract
+Value of each Qualifying Transaction introduced by the Broker and accepted
+by the Principal.
+
+"Net Contract Value" means the total value of the contract between the
+Principal and the End User, excluding taxes, duties, freight, insurance,
+and offset obligations.
+
+"Qualifying Transaction" means a transaction where the Broker has made a
+Material Contribution to the introduction, development, or conclusion of
+the contract, as evidenced by written records of the Broker's involvement.
+
+Commission shall become due and payable within [30/60/90] days of the
+Principal's receipt of payment from the End User, and shall be calculated
+on amounts actually received (not invoiced).
+
+Where the Principal receives payment in instalments, commission shall be
+paid pro rata on each instalment received.
+
+No commission shall be payable on: (a) warranty claims, (b) liquidated
+damages, (c) offset obligations performed directly by the Principal,
+(d) after-sales support and spares not introduced by the Broker.""",
+        "tags": ["commission", "brokering", "payment", "representation"],
+        "contract_type": "brokering_agreement",
+    },
+
+    "termination_clause": {
+        "title": "Standard Termination Clause (Defence Brokering)",
+        "content": """TERMINATION
+
+Either party may terminate this Agreement:
+(a) for convenience on [90/180] days' written notice;
+(b) immediately if the other party commits a material breach and fails to
+    remedy it within [30] days of written notice specifying the breach;
+(c) immediately if the other party becomes insolvent, enters administration,
+    or has a receiver appointed;
+(d) immediately if continued performance would expose either party to
+    sanctions, export control violations, or criminal liability.
+
+TERMINATION FEE: If the Principal terminates for convenience under (a)
+during the first [24] months, the Principal shall pay the Broker a
+termination fee of [amount/formula — MUST BE SPECIFIED, not left blank].
+
+SURVIVAL: The following provisions survive termination: confidentiality
+(Clause [X]), commission on pipeline transactions introduced before
+termination (Clause [X]), intellectual property (Clause [X]), governing
+law and dispute resolution (Clause [X]).
+
+PIPELINE PROTECTION: Commission remains payable on any Qualifying
+Transaction where the Broker made a Material Contribution before the
+termination date, provided the transaction completes within [24] months
+of termination.""",
+        "tags": ["termination", "survival", "pipeline", "termination fee"],
+        "contract_type": "brokering_agreement",
+    },
+
+    "export_control_compliance": {
+        "title": "Export Control and Compliance Clause (Defence)",
+        "content": """EXPORT CONTROL AND COMPLIANCE
+
+Each party represents and warrants that it shall comply with all applicable
+export control laws and regulations, including but not limited to:
+(a) UK Export Control Act 2002 and the Export Control Order 2008;
+(b) UK Trade in Goods (Control) Order 2003 (SITCL);
+(c) US International Traffic in Arms Regulations (ITAR) 22 CFR 120-130;
+(d) US Export Administration Regulations (EAR) 15 CFR 730-774;
+(e) EU Council Regulation (EC) No 428/2009 (Dual-Use Regulation);
+(f) Any applicable sanctions regime (OFAC, EU, UN Security Council, HMT).
+
+LICENCE RESPONSIBILITY: The party responsible for obtaining any required
+export licence, brokering licence, or end-user certificate shall be
+[Principal/Broker — MUST BE SPECIFIED]. The cost of licence applications
+shall be borne by [specified party].
+
+CONTROLLED GOODS: The parties acknowledge that the goods/services subject
+to this Agreement [are/may be] controlled under [specified control list
+entry, e.g. ML1, ML10, Category 6A] and require [specified licence type,
+e.g. SIEL, OIEL, OGEL].
+
+TERMINATION FOR COMPLIANCE: Either party may terminate this Agreement
+immediately if continued performance would require a licence that has been
+refused, revoked, or is unlikely to be granted based on the current
+regulatory environment.
+
+SANCTIONS SCREENING: Each party shall screen all end users, consignees,
+and intermediaries against applicable sanctions lists before each
+transaction. Evidence of screening shall be retained for [6] years.""",
+        "tags": ["export control", "SITCL", "ITAR", "compliance", "sanctions", "licence"],
+        "contract_type": "any",
+    },
+
+    "anti_bribery": {
+        "title": "Anti-Bribery and Anti-Corruption Clause",
+        "content": """ANTI-BRIBERY AND ANTI-CORRUPTION
+
+Each party represents, warrants, and undertakes that:
+(a) it has not and will not offer, promise, give, or authorise the giving
+    of any financial or other advantage to any person in order to obtain
+    or retain business or a business advantage in connection with this
+    Agreement;
+(b) it has and will maintain adequate procedures (as defined in Section 7
+    of the UK Bribery Act 2010) to prevent bribery by persons associated
+    with it;
+(c) it complies with the US Foreign Corrupt Practices Act 1977 (FCPA),
+    the UK Bribery Act 2010, and the OECD Convention on Combating Bribery
+    of Foreign Public Officials;
+(d) it will not use any commission, fee, or payment under this Agreement
+    to make any facilitation payment or pay any government official;
+(e) it will promptly notify the other party if it becomes aware of any
+    breach or suspected breach of this clause;
+(f) it will maintain accurate books and records sufficient to demonstrate
+    compliance with this clause for a period of [6] years.
+
+BREACH: Any breach of this clause shall constitute a material breach
+entitling the non-breaching party to terminate immediately. No termination
+fee or pipeline protection shall apply to termination for ABC breach.""",
+        "tags": ["anti-bribery", "FCPA", "Bribery Act", "corruption", "compliance"],
+        "contract_type": "any",
+    },
+
+    "liability_cap": {
+        "title": "Limitation of Liability Clause (Brokering)",
+        "content": """LIMITATION OF LIABILITY
+
+Subject to Clause [X] (Exclusions), the total aggregate liability of each
+party under or in connection with this Agreement, whether in contract, tort
+(including negligence), breach of statutory duty, or otherwise, shall not
+exceed [the greater of: (a) the total commission paid or payable under this
+Agreement in the [12] months preceding the claim; or (b) [specified amount]].
+
+EXCLUSIONS: Nothing in this Agreement limits liability for:
+(a) death or personal injury caused by negligence;
+(b) fraud or fraudulent misrepresentation;
+(c) breach of the anti-bribery clause (Clause [X]);
+(d) wilful default or gross negligence;
+(e) breach of confidentiality obligations resulting in loss of
+    classified or export-controlled information.
+
+CONSEQUENTIAL LOSS: Neither party shall be liable for any indirect,
+consequential, special, or punitive damages, loss of profit, loss of
+business, or loss of anticipated savings, whether or not such loss was
+foreseeable or the party had been advised of its possibility.""",
+        "tags": ["liability", "limitation", "cap", "exclusions", "consequential loss"],
+        "contract_type": "any",
+    },
+
+    "confidentiality": {
+        "title": "Confidentiality and Non-Disclosure Clause (Defence)",
+        "content": """CONFIDENTIALITY
+
+Each party undertakes to keep confidential all Confidential Information
+received from the other party and not to disclose it to any third party
+without the prior written consent of the disclosing party.
+
+"Confidential Information" means all information (whether written, oral,
+electronic, or visual) disclosed by one party to the other in connection
+with this Agreement, including but not limited to:
+(a) commercial terms, pricing, commission rates, and payment arrangements;
+(b) customer identities, contact details, and procurement requirements;
+(c) technical specifications, designs, and proprietary methodologies;
+(d) business strategies, market intelligence, and competitive analysis;
+(e) any information marked or identified as confidential.
+
+EXCEPTIONS: This obligation does not apply to information that:
+(a) is or becomes publicly available other than through breach;
+(b) was already known to the receiving party before disclosure;
+(c) is independently developed without reference to the Confidential
+    Information;
+(d) is required to be disclosed by law, regulation, or court order
+    (provided the disclosing party is notified in advance where permitted).
+
+DURATION: This obligation survives termination for [3/5] years.
+
+EXPORT-CONTROLLED INFORMATION: Where Confidential Information includes
+export-controlled data (ITAR, EAR, UK controlled), additional security
+obligations under the applicable export control regime shall apply.""",
+        "tags": ["confidentiality", "NDA", "non-disclosure", "classified", "survival"],
+        "contract_type": "any",
+    },
+
+    "governing_law_dispute": {
+        "title": "Governing Law and Dispute Resolution (International Defence)",
+        "content": """GOVERNING LAW AND DISPUTE RESOLUTION
+
+This Agreement shall be governed by and construed in accordance with the
+laws of [England and Wales / specified jurisdiction].
+
+DISPUTE RESOLUTION:
+(a) Any dispute arising out of or in connection with this Agreement shall
+    first be referred to the senior management of each party for resolution
+    within [30] days of written notice.
+(b) If not resolved under (a), the dispute shall be referred to and finally
+    resolved by arbitration under the [LCIA / ICC / SIAC] Rules.
+(c) The seat of arbitration shall be [London / specified neutral venue].
+(d) The language of the arbitration shall be English.
+(e) The arbitral tribunal shall consist of [one/three] arbitrator(s).
+(f) The award shall be final and binding.
+
+INTERIM RELIEF: Nothing in this clause prevents either party from seeking
+interim or injunctive relief from any court of competent jurisdiction.
+
+RECOMMENDED: For Arkmurus agreements, English law + LCIA London arbitration
+provides the most favourable combination of legal certainty, enforceability
+(New York Convention), and venue neutrality.""",
+        "tags": ["governing law", "dispute resolution", "arbitration", "LCIA", "ICC", "jurisdiction"],
+        "contract_type": "any",
+    },
+}
+
+
+async def ingest_clause_library() -> dict:
+    """Ingest the clause library into RAG store for semantic retrieval."""
+    from . import rag_store
+
+    results = {}
+    total_chunks = 0
+
+    for clause_id, clause in CLAUSE_LIBRARY.items():
+        try:
+            result = await rag_store.ingest_document(
+                clause["content"],
+                source=f"clause_library:{clause_id}",
+                source_type="contract_clause_library",
+                title=clause["title"],
+                url=f"internal://aria/clause_library/{clause_id}",
+                extra_metadata={
+                    "contract_type": clause.get("contract_type", "any"),
+                    "tags": ",".join(clause.get("tags", [])),
+                },
+            )
+            chunks = result.get("chunks", 0) if isinstance(result, dict) else 0
+            total_chunks += chunks
+            results[clause_id] = "OK"
+        except Exception as e:
+            results[clause_id] = f"ERROR: {e}"
+
+    logger.info("Clause library ingested: %d/%d clauses, %d chunks",
+                sum(1 for v in results.values() if v == "OK"),
+                len(CLAUSE_LIBRARY), total_chunks)
+    return {"clauses_ingested": sum(1 for v in results.values() if v == "OK"),
+            "total_chunks": total_chunks, "detail": results}
+
+
+# ── 3. CORRECTION LEARNING ─────────────────────────────────────────────────
+
+CORRECTIONS_KEY = "crucix:aria:contract_corrections"
+
+
+async def record_correction(
+    document_name: str,
+    error_type: str,
+    description: str,
+    lesson: str,
+) -> dict:
+    """Store a contract review correction as a permanent lesson.
+
+    error_type: FALSE_POSITIVE | MISSED_BLANK | MISSED_CLAUSE |
+                MEMORY_CONTAMINATION | WRONG_JURISDICTION | OTHER
+    """
+    correction = {
+        "document": document_name,
+        "error_type": error_type,
+        "description": description,
+        "lesson": lesson,
+        "recorded_at": time.time(),
+    }
+
+    corrections = await rs.get_json(CORRECTIONS_KEY) or []
+    corrections.append(correction)
+    if len(corrections) > 200:
+        corrections = corrections[-200:]
+    await rs.set_json(CORRECTIONS_KEY, corrections)
+
+    logger.info("[contract] Correction recorded: %s — %s", error_type, lesson[:100])
+    return {"recorded": True, "total_corrections": len(corrections)}
+
+
+async def get_corrections(limit: int = 20) -> list[dict]:
+    """Retrieve recent contract review corrections."""
+    corrections = await rs.get_json(CORRECTIONS_KEY) or []
+    return corrections[-limit:]
+
+
+async def get_correction_addendum() -> str:
+    """Build a prompt addendum from recent corrections.
+
+    Injected into the contract review prompt so ARIA avoids
+    repeating the same mistakes.
+    """
+    corrections = await rs.get_json(CORRECTIONS_KEY) or []
+    if not corrections:
+        return ""
+
+    recent = corrections[-10:]
+    lines = ["LESSONS FROM PRIOR CONTRACT REVIEW ERRORS (avoid repeating):"]
+    for c in recent:
+        lines.append(f"- {c.get('error_type', 'ERROR')}: {c.get('lesson', '')}")
+
+    return "\n".join(lines)

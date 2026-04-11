@@ -457,6 +457,14 @@ async def lifespan(app: FastAPI):
             logger.info("[Knowledge Seed] Law sources registered: %d", reg.get("registered", 0))
         except Exception as e:
             logger.warning("[Knowledge Seed] Law source registration failed (non-fatal): %s", e)
+        try:
+            from .intel import contract_intelligence
+            clause_result = await contract_intelligence.ingest_clause_library()
+            logger.info("[Knowledge Seed] Clause library: %d clauses, %d chunks",
+                        clause_result.get("clauses_ingested", 0),
+                        clause_result.get("total_chunks", 0))
+        except Exception as e:
+            logger.warning("[Knowledge Seed] Clause library ingestion failed (non-fatal): %s", e)
     knowledge_seed_task = asyncio.create_task(_seed_knowledge_bg())
 
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")

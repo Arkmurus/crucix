@@ -5493,6 +5493,57 @@ async def search_web_ep(req: SearchRequest):
     }
 
 
+# ── Contract Intelligence ─────────────────────────────────────────────────────
+
+class ContractSelfReviewRequest(BaseModel):
+    document_text: str
+    draft_review: str
+
+
+@router.post("/contract/self-review")
+async def contract_self_review_ep(req: ContractSelfReviewRequest, request: Request):
+    """Run a self-audit on ARIA's contract review draft against the document."""
+    from ..intel import contract_intelligence
+    llm = get_llm(request)
+    result = await contract_intelligence.self_review_contract(
+        req.document_text, req.draft_review, llm,
+    )
+    return result
+
+
+class ContractCorrectionRequest(BaseModel):
+    document_name: str = ""
+    error_type: str = "OTHER"
+    description: str = ""
+    lesson: str = ""
+
+
+@router.post("/contract/correction")
+async def contract_correction_ep(req: ContractCorrectionRequest):
+    """Record a contract review correction as a permanent lesson."""
+    from ..intel import contract_intelligence
+    result = await contract_intelligence.record_correction(
+        req.document_name, req.error_type, req.description, req.lesson,
+    )
+    return result
+
+
+@router.get("/contract/corrections")
+async def contract_corrections_ep():
+    """Get recent contract review corrections/lessons."""
+    from ..intel import contract_intelligence
+    corrections = await contract_intelligence.get_corrections()
+    return {"corrections": corrections}
+
+
+@router.post("/contract/clauses/ingest")
+async def contract_clauses_ingest_ep():
+    """Ingest the standard clause library into RAG store."""
+    from ..intel import contract_intelligence
+    result = await contract_intelligence.ingest_clause_library()
+    return result
+
+
 @router.get("/law/sections")
 async def law_sections_ep():
     """List available international law sections."""

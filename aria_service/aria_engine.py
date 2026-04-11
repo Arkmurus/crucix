@@ -1134,6 +1134,16 @@ async def _build_calibrated_system_prompt(message: str) -> str:
             if cr:
                 addendum_parts.append(cr)
                 logger.info("[contract_review_principles] addendum injected")
+            # Inject correction lessons so ARIA avoids repeating past mistakes
+            try:
+                from .intel import contract_intelligence as _ci
+                correction_addendum = await _ci.get_correction_addendum()
+                if correction_addendum:
+                    addendum_parts.append(correction_addendum)
+                    logger.info("[contract_intelligence] %d correction lessons injected",
+                                correction_addendum.count("- "))
+            except Exception as e2:
+                logger.debug("contract correction addendum failed: %s", e2)
     except Exception as e:
         logger.debug("contract_review_principles injection failed (non-fatal): %s", e)
 
