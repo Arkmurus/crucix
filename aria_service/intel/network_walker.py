@@ -185,26 +185,20 @@ async def walk_network(
         edges.append({"from": "seed", "to": officer_id, "kind": "has_officer"})
 
     # ── Step 2: Sanctions / PEP screen every officer ──
-    # Score thresholds mirror dd_orchestrator._run_identity tiering.
-    # 0.90+ → hard stop. 0.75+ → red. 0.60+ → amber. Below → info only.
-    def _classify(score: float) -> tuple[str, str]:
-        if score >= 0.90:
-            return "hard_stop", "CONFIRMED"
-        if score >= 0.75:
-            return "red", "PROBABLE"
-        if score >= 0.60:
-            return "amber", "ASSESSED"
-        return "info", "UNCERTAIN"
-
-    def _best_score(screen_result: dict) -> float:
-        matches = screen_result.get("matches") or []
-        best = float(screen_result.get("score") or 0.0)
-        for m in matches:
-            if isinstance(m, dict):
-                s = float(m.get("score") or m.get("confidence") or 0.0)
-                if s > best:
-                    best = s
-        return best
+    # Use the shared topic-based classifier from _sanctions_classify.
+    # Topic + score band decides severity:
+    #   sanction / asset.frozen / export.control   → hard_stop
+    #   crime / debarment / wanted / reg.action     → red
+    #   role.pep / role.pol / reg.warn / corp.disqual → amber
+    #   corp.state / corp.public / gov.* / mil      → info (noise)
+    # A score below 0.75 demotes to info regardless of topic.
+    from ._sanctions_classify import classify_matches
+    _sev_to_conf = {
+        "hard_stop": "CONFIRMED",
+        "red":       "PROBABLE",
+        "amber":     "ASSESSED",
+        "info":      "UNCERTAIN",
+    }
 
     if officers:
         screen_tasks = [_screen_name(officer.get("name", "")) for officer in officers if officer.get("name")]
@@ -213,45 +207,50 @@ async def walk_network(
             stats["sanctions_screens"] += 1
             if isinstance(screen, Exception):
                 continue
-            if screen.get("hit") and screen.get("matches"):
-                score = _best_score(screen)
-                severity, confidence = _classify(score)
-                if severity == "info":
-                    continue  # noise; don't escalate
-                pep_connections.append({
-                    "name": officer.get("name"),
-                    "role": officer.get("role") or "director",
-                    "source": "sanctions/PEP screen",
-                    "matches": screen.get("matches", []),
-                    "score": score,
-                })
-                findings.append({
-                    "severity": severity,
-                    "title": f"Director {officer.get('name')} sanctions/PEP match (score {score:.2f})",
-                    "detail": f"{len(screen.get('matches', []))} match(es) — {severity.upper()} threshold",
-                    "source": "sanctions.screen_with_aliases",
-                    "confidence": confidence,
-                })
+            matches = screen.get("matches") or []
+            if not matches:
+                continue
+            classified = classify_matches(matches)
+            severity = classified["worst_severity"]
+            if severity in ("info", "none"):
+                continue  # noise; don't escalate
+            pep_connections.append({
+                "name": officer.get("name"),
+                "role": officer.get("role") or "director",
+                "source": "sanctions/PEP screen",
+                "matches": matches,
+                "severity": severity,
+                "summary": classified["summary"],
+            })
+            findings.append({
+                "severity": severity,
+                "title": f"Director {officer.get('name')} — {severity.upper()} on sanctions/PEP screen",
+                "detail": classified["summary"][:300],
+                "source": "sanctions.screen_with_aliases",
+                "confidence": _sev_to_conf.get(severity, "ASSESSED"),
+            })
 
     # ── Step 3: Seed entity itself screened (if not already done upstream) ──
     seed_screen = await _screen_name(entity_name)
     stats["sanctions_screens"] += 1
-    if seed_screen.get("hit") and seed_screen.get("matches"):
-        seed_score = _best_score(seed_screen)
-        severity, confidence = _classify(seed_score)
-        if severity != "info":
+    seed_matches = seed_screen.get("matches") or []
+    if seed_matches:
+        seed_classified = classify_matches(seed_matches)
+        severity = seed_classified["worst_severity"]
+        if severity not in ("info", "none"):
             sanctions_network.append({
                 "entity": entity_name,
                 "role": "subject",
-                "matches": seed_screen.get("matches", []),
-                "score": seed_score,
+                "matches": seed_matches,
+                "severity": severity,
+                "summary": seed_classified["summary"],
             })
             findings.append({
                 "severity": severity,
-                "title": f"Subject entity {entity_name} sanctions match (score {seed_score:.2f})",
-                "detail": f"{len(seed_screen.get('matches', []))} match(es) — {severity.upper()} threshold",
+                "title": f"Subject entity {entity_name} — {severity.upper()} on sanctions screen",
+                "detail": seed_classified["summary"][:300],
                 "source": "sanctions.screen_with_aliases",
-                "confidence": confidence,
+                "confidence": _sev_to_conf.get(severity, "ASSESSED"),
             })
 
     # ── Step 4: One-hop expansion — officer → other appointments ──

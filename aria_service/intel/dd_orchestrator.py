@@ -145,8 +145,9 @@ async def _run_identity(
         report.identity.sanctions_screen = screen
         report.identity.meta.subcalls += 1
 
+        from ._sanctions_classify import classify_matches
         matches = screen.get("matches") or []
-        classified = _classify_sanctions_matches(matches)
+        classified = classify_matches(matches)
         # The overall severity is the worst single match.
         if classified["worst_severity"] == "hard_stop":
             report.identity.findings.append(Finding(
@@ -218,29 +219,27 @@ async def _run_identity(
         )
 
     # ── 1c. Ghost-score from available signals ──
-    # Feed whatever we've collected into the programmatic scorer. Missing
-    # fields become data gaps inside the scorer itself.
+    # Feed whatever we've collected into the programmatic scorer. The
+    # scorer treats MISSING keys as data gaps, so only include keys
+    # where we actually have a non-None value. (Including None values
+    # crashes the scorer because its `_need(key)` only checks key
+    # presence, not truthiness — int(None) then raises.)
     try:
         from . import due_diligence_playbooks as _dd
-        profile = {
+        profile: dict = {
             "name": report.identity.entity_name,
             "jurisdiction": report.identity.jurisdiction_iso2 or report.identity.jurisdiction,
             "registration_number": report.identity.registration_number,
-            # Age
-            "age_months": _age_months(report.identity.incorporation_date),
-            # Declared activity → mismatched / generic_holding / specific_aligned
-            "declared_activity": _map_activity(report.identity.declared_activity),
-            # Financials: we don't have them from CH basic profile yet
-            "financials": None,
-            "transaction_value_usd": target.get("transaction_value_usd") or 0,
-            "transaction_type_aligned": None,
-            "recent_identity_change": None,
-            "recent_director_changes_unexplained": None,
-            "chain_terminates_cleanly": None,
-            "director_appointments": None,
-            "shares_agent_with_flagged": None,
-            "shares_address_with_flagged": None,
         }
+        _age = _age_months(report.identity.incorporation_date)
+        if _age is not None:
+            profile["age_months"] = _age
+        _act = _map_activity(report.identity.declared_activity)
+        if _act is not None:
+            profile["declared_activity"] = _act
+        _tval = target.get("transaction_value_usd")
+        if _tval:
+            profile["transaction_value_usd"] = _tval
         ghost = _dd.score_ghost_indicators(profile)
         report.identity.ghost_score = ghost.as_dict()
         report.identity.meta.subcalls += 1
@@ -833,128 +832,9 @@ def _map_activity(declared: Optional[str]) -> Optional[str]:
     return "specific_aligned"
 
 
-# OpenSanctions topic → severity mapping for sanctions screens.
-# Source: https://www.opensanctions.org/reference/#topics
-#
-# Only topics on the LIST below escalate. Anything else is noise.
-# This is the key discipline: a legitimate defence prime like BAE
-# Systems will hit `corp.state` (state-connected corporation) at
-# score 1.00, but that is a transparency data point, not grounds
-# for refusal.
-_TOPIC_SEVERITY: dict[str, str] = {
-    # Hard stops — active sanction / asset freeze / prohibited
-    "sanction":         "hard_stop",
-    "sanction.linked":  "hard_stop",
-    "sanction.counter": "hard_stop",
-    "asset.frozen":     "hard_stop",
-    "export.control":   "hard_stop",
-    "export.risk":      "hard_stop",
-    "debarment":        "red",
-    # Crime-related — requires human review before proceeding
-    "crime":            "red",
-    "crime.fin":        "red",
-    "crime.fraud":      "red",
-    "crime.theft":      "red",
-    "crime.war":        "red",
-    "crime.terror":     "red",
-    "crime.traffick":   "red",
-    "crime.cyber":      "red",
-    "crime.env":        "red",
-    "crime.boss":       "red",
-    "crime.org":        "red",
-    "wanted":           "red",
-    # PEPs and political — enhanced DD but not a refusal
-    "role.pep":         "amber",
-    "role.pol":         "amber",
-    "role.rca":         "amber",
-    "role.judge":       "amber",
-    "role.civil":       "info",
-    "role.diplo":       "info",
-    # Corporate transparency — informational only
-    "corp.public":      "info",
-    "corp.state":       "info",
-    "corp.disqual":     "amber",  # Companies House disqualifications
-    "corp.offshore":    "info",
-    "role.acting":      "info",
-    "fin":              "info",
-    "fin.bank":         "info",
-    "fin.fund":         "info",
-    "fin.adivsor":      "info",
-    "reg.warn":         "amber",
-    "reg.action":       "red",
-    "gov":              "info",
-    "gov.national":     "info",
-    "gov.state":        "info",
-    "gov.muni":         "info",
-    "gov.soe":          "info",
-    "gov.igo":          "info",
-    "mil":              "info",
-    "poi":              "info",
-    # Residency / travel / transparency signals
-    "frozen":           "hard_stop",
-}
-
-_SEVERITY_RANK = {"info": 0, "amber": 1, "red": 2, "hard_stop": 3}
-
-
-def _classify_sanctions_matches(matches: list[dict]) -> dict:
-    """Classify a set of OpenSanctions matches into a single severity
-    band using the topic → severity map above. The overall severity is
-    the worst individual match. Returns a dict with `worst_severity`,
-    `summary` (short human text), and `per_match` breakdown for audit.
-    """
-    if not matches:
-        return {"worst_severity": "none", "summary": "no matches", "per_match": []}
-
-    per_match: list[dict] = []
-    worst = "info"
-    worst_rank = -1
-    # Only consider high-score matches for escalation — anything below
-    # 0.75 is fuzzy noise regardless of topic.
-    SCORE_FLOOR_FOR_ESCALATION = 0.75
-    for m in matches:
-        if not isinstance(m, dict):
-            continue
-        score = float(m.get("score") or 0.0)
-        topics = m.get("topics") or []
-        # Classify by highest-severity topic; default to info.
-        match_severity = "info"
-        for t in topics:
-            sev = _TOPIC_SEVERITY.get(t, "info")
-            if _SEVERITY_RANK[sev] > _SEVERITY_RANK[match_severity]:
-                match_severity = sev
-        # Any topic at amber or above needs a strong score to escalate.
-        # Below the floor, demote to info.
-        if _SEVERITY_RANK[match_severity] >= 1 and score < SCORE_FLOOR_FOR_ESCALATION:
-            match_severity = "info"
-        per_match.append({
-            "name":     m.get("name"),
-            "score":    score,
-            "topics":   topics,
-            "datasets": m.get("lists") or m.get("datasets") or [],
-            "severity": match_severity,
-        })
-        if _SEVERITY_RANK[match_severity] > worst_rank:
-            worst = match_severity
-            worst_rank = _SEVERITY_RANK[match_severity]
-
-    # Build a compact human-readable summary of the worst-class matches.
-    worst_matches = [pm for pm in per_match if pm["severity"] == worst]
-    parts: list[str] = []
-    for pm in worst_matches[:3]:
-        topics_str = ",".join(pm["topics"][:3]) or "untagged"
-        lists_str = ",".join(pm["datasets"][:2]) if pm["datasets"] else ""
-        parts.append(f"{pm['name']} (score {pm['score']:.2f}, topics: {topics_str}{', lists: ' + lists_str if lists_str else ''})")
-    summary = "; ".join(parts) + (f" [+{len(worst_matches)-3} more]" if len(worst_matches) > 3 else "")
-    if not summary:
-        summary = f"{len(per_match)} matches — all below action threshold"
-
-    return {
-        "worst_severity": worst,
-        "summary": summary,
-        "per_match": per_match,
-        "total_matches": len(per_match),
-    }
+# Sanctions-match classification now lives in _sanctions_classify.py
+# so both dd_orchestrator and network_walker share the same topic →
+# severity logic. The inline copy was removed to eliminate drift.
 
 
 # =============================================================================
