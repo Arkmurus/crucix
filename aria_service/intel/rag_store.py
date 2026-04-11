@@ -254,15 +254,31 @@ async def ingest_document(
         documents.append(chunk)
 
     try:
-        # chromadb upsert is idempotent — same ID → overwrite
-        _documents_collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+        # chromadb upsert is idempotent — same ID → overwrite.
+        # IMPORTANT: chromadb's embedding function runs sentence-transformers
+        # encode() synchronously and holds the GIL for 15-30s per batch.
+        # When called from an async context (background lifespan tasks,
+        # chat handlers, etc.) this pins the event loop and makes the whole
+        # uvicorn process unresponsive. Known incident: 5+ minute startup
+        # outages during international-law auto-seed because 12 law
+        # sections were encoded back-to-back on the loop thread. Run the
+        # upsert in a thread so the loop stays live.
+        import asyncio as _aio
+        await _aio.to_thread(
+            _documents_collection.upsert,
+            ids=ids, documents=documents, metadatas=metadatas,
+        )
         logger.info("RAG ingest: %d chunks from %s (%s)", len(chunks), source, source_type)
+        try:
+            total = await _aio.to_thread(_documents_collection.count)
+        except Exception:
+            total = -1
         return {
             "ingested": True,
             "chunks": len(chunks),
             "source": source,
             "source_type": source_type,
-            "total_documents": _documents_collection.count(),
+            "total_documents": total,
         }
     except Exception as e:
         logger.warning("RAG ingest failed for %s: %s", source, e)
@@ -288,7 +304,11 @@ async def ingest_fact(
         return False
     text = f"{topic}: {content}".strip()
     try:
-        _facts_collection.upsert(
+        import asyncio as _aio
+        # Same thread-offload reason as ingest_document — chromadb
+        # embedding is sync and holds the GIL.
+        await _aio.to_thread(
+            _facts_collection.upsert,
             ids=[fact_id],
             documents=[text],
             metadatas=[{
@@ -342,11 +362,14 @@ async def search(
         return []
 
     results: list[dict] = []
+    import asyncio as _aio
 
-    def _query_collection(coll, name: str):
-        if coll is None or coll.count() == 0:
+    def _sync_query_collection(coll, name: str):
+        if coll is None:
             return
         try:
+            if coll.count() == 0:
+                return
             where = {}
             if source_type:
                 where["source_type"] = source_type
@@ -386,10 +409,14 @@ async def search(
         except Exception as e:
             logger.debug("RAG query on %s failed: %s", name, e)
 
+    # Offload the whole query (embedding + vector search) to a thread so
+    # the event loop can continue serving other requests. chromadb's query
+    # path re-embeds the query via sentence-transformers, which is sync
+    # and GIL-bound.
     if include_documents:
-        _query_collection(_documents_collection, "documents")
+        await _aio.to_thread(_sync_query_collection, _documents_collection, "documents")
     if include_facts:
-        _query_collection(_facts_collection, "facts")
+        await _aio.to_thread(_sync_query_collection, _facts_collection, "facts")
 
     # Final ranking: recency-boosted similarity, descending
     results.sort(key=lambda r: -r["score"])

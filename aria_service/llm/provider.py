@@ -43,6 +43,24 @@ class ProviderError(Exception):
 
     @classmethod
     def from_http_status(cls, provider: str, status: int, body: str = "", cause: Exception | None = None) -> "ProviderError":
+        # Body-sniffing: some providers return billing failures as HTTP 400
+        # with the reason inside the JSON error.message. Example: Anthropic
+        # returns 400 {"type":"error","error":{"type":"invalid_request_error",
+        # "message":"Your credit balance is too low..."}}. Without this check
+        # the fallback chain puts it on soft cooldown and retries every 60s
+        # for a problem that requires a human to top up credit.
+        body_lc = (body or "").lower()
+        looks_billing = any(k in body_lc for k in (
+            "credit balance", "credit_balance", "insufficient balance",
+            "payment required", "billing", "insufficient funds",
+            "quota exceeded", "out of credits",
+        ))
+        if looks_billing:
+            return cls(
+                provider,
+                f"billing / credit exhausted (HTTP {status}): {body[:200]}",
+                status=status, kind="billing", retryable=False, cause=cause,
+            )
         if status == 401 or status == 403:
             return cls(provider, f"auth failed (HTTP {status})", status=status, kind="auth", retryable=False, cause=cause)
         if status == 402:
@@ -51,7 +69,11 @@ class ProviderError(Exception):
             return cls(provider, "rate limited", status=status, kind="rate_limit", retryable=True, cause=cause)
         if 500 <= status < 600:
             return cls(provider, f"upstream server error (HTTP {status})", status=status, kind="server", retryable=True, cause=cause)
-        return cls(provider, f"HTTP {status}", status=status, kind="other", retryable=True, cause=cause)
+        # Include a body snippet for 4xx so the cause is visible in logs
+        # instead of just "HTTP 400".
+        body_snippet = body[:200] if body else ""
+        msg = f"HTTP {status}" + (f": {body_snippet}" if body_snippet else "")
+        return cls(provider, msg, status=status, kind="other", retryable=True, cause=cause)
 
 
 @dataclass

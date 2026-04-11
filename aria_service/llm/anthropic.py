@@ -163,7 +163,11 @@ class AnthropicProvider(LLMProvider):
 
                         if resp.status_code >= 400:
                             await resp.aread()
-                            raise ProviderError.from_http_status(self.name, resp.status_code)
+                            try:
+                                _body = resp.text
+                            except Exception:
+                                _body = ""
+                            raise ProviderError.from_http_status(self.name, resp.status_code, _body[:300])
 
                         # Parse the SSE event stream
                         full_text = ""
