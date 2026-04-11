@@ -92,54 +92,63 @@ _init_lock = asyncio.Lock()
 
 
 def _get_client():
-    """Lazy-load the chromadb persistent client + collections."""
+    """Lazy-load the chromadb persistent client + collections.
+
+    All three globals (_client, _documents_collection, _facts_collection)
+    must succeed together or we roll back to None — otherwise callers can
+    see `_client is not None` but hit `_documents_collection.upsert`
+    against None, which is the production crash the audit fixed.
+    """
     global _client, _documents_collection, _facts_collection, _chromadb_failed
-    if _client is not None:
+    if _client is not None and _documents_collection is not None and _facts_collection is not None:
         return _client
     if _chromadb_failed:
         return None
+
+    # Local vars — commit to globals only if every step succeeds.
+    local_client = None
+    local_docs = None
+    local_facts = None
     try:
         import chromadb
         from chromadb.config import Settings
-        # Ensure path exists
         Path(RAG_PATH).mkdir(parents=True, exist_ok=True)
-        _client = chromadb.PersistentClient(
+        local_client = chromadb.PersistentClient(
             path=RAG_PATH,
             settings=Settings(anonymized_telemetry=False, allow_reset=False),
         )
-        # Use the existing sentence-transformers model (no extra download)
         from chromadb.utils import embedding_functions
         embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=EMBEDDING_MODEL_NAME,
         )
-        _documents_collection = _client.get_or_create_collection(
+        local_docs = local_client.get_or_create_collection(
             name=DOCUMENTS_COLLECTION,
             embedding_function=embed_fn,
             metadata={"hnsw:space": "cosine"},
         )
-        _facts_collection = _client.get_or_create_collection(
+        local_facts = local_client.get_or_create_collection(
             name=FACTS_COLLECTION,
             embedding_function=embed_fn,
             metadata={"hnsw:space": "cosine"},
         )
         logger.info(
             "RAG store ready at %s — documents: %d, facts: %d",
-            RAG_PATH,
-            _documents_collection.count(),
-            _facts_collection.count(),
+            RAG_PATH, local_docs.count(), local_facts.count(),
         )
-        return _client
     except ImportError:
         _chromadb_failed = True
-        logger.warning(
-            "chromadb not installed — RAG store unavailable. "
-            "Run: pip install chromadb"
-        )
+        logger.warning("chromadb not installed — RAG store unavailable. Run: pip install chromadb")
         return None
     except Exception as e:
         _chromadb_failed = True
-        logger.warning("RAG store init failed: %s", e)
+        logger.warning("RAG store init failed: %s", e, exc_info=True)
         return None
+
+    # Commit atomically.
+    _client = local_client
+    _documents_collection = local_docs
+    _facts_collection = local_facts
+    return _client
 
 
 def _ensure() -> bool:
@@ -159,22 +168,34 @@ def _ensure() -> bool:
 async def _ensure_async() -> bool:
     """Async-safe init. Runs the expensive first-call chromadb setup
     in a worker thread. Subsequent calls are cheap — `_get_client`
-    short-circuits once `_client is not None`."""
-    global _client
-    if _client is not None:
+    short-circuits once `_client is not None`.
+
+    Returns True only when BOTH _client AND the two collections are
+    non-None, because _get_client sets _client before it creates the
+    collections — a partial init (collection create fails) would
+    otherwise leave callers looking at None.upsert.
+    """
+    global _client, _documents_collection, _facts_collection
+    if _client is not None and _documents_collection is not None and _facts_collection is not None:
         return True
     if _chromadb_failed:
         return False
     import asyncio as _aio
     try:
         async with _init_lock:
-            if _client is not None:
+            if _client is not None and _documents_collection is not None and _facts_collection is not None:
                 return True
             await _aio.to_thread(_get_client)
     except Exception as e:
         logger.warning("RAG store async init failed: %s", e)
         return False
-    return _client is not None
+    ok = _client is not None and _documents_collection is not None and _facts_collection is not None
+    if not ok:
+        logger.warning(
+            "RAG store partial init: client=%s docs=%s facts=%s",
+            _client is not None, _documents_collection is not None, _facts_collection is not None,
+        )
+    return ok
 
 
 # ── Chunking ───────────────────────────────────────────────────────────────
