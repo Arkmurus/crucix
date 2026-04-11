@@ -268,12 +268,19 @@ class ARKDDReport:
             return f"━━━ {emoji} {name} [{meta.status.upper()}] ━━━"
 
         # 1. Identity
-        lines.append(_sec_header("🪪", "Identity", self.identity.meta))
-        lines.append(f"Entity: {self.identity.entity_name}  ·  Type: {self.identity.entity_type}")
+        _is_person = (self.identity.entity_type or "").lower() == "person"
+        lines.append(_sec_header("👤" if _is_person else "🪪", "Identity", self.identity.meta))
+        lines.append(f"{'Person' if _is_person else 'Entity'}: {self.identity.entity_name}  ·  Type: {self.identity.entity_type}")
         if self.identity.jurisdiction:
-            lines.append(f"Jurisdiction: {self.identity.jurisdiction}")
-        if self.identity.registration_number:
+            lines.append(f"{'Nationality' if _is_person else 'Jurisdiction'}: {self.identity.jurisdiction}")
+        if self.identity.declared_activity and _is_person:
+            lines.append(f"Role: {self.identity.declared_activity}")
+        if self.identity.registration_number and not _is_person:
             lines.append(f"Reg No: {self.identity.registration_number}  ·  Status: {self.identity.registration_status or '?'}")
+        if _is_person and self.identity.sanctions_screen:
+            _vars = self.identity.sanctions_screen.get("variants_screened") or []
+            if _vars:
+                lines.append(f"Variants screened: {len(_vars)} — {', '.join(_vars[:5])}{'…' if len(_vars) > 5 else ''}")
         if self.identity.sanctions_screen:
             # Derive verdict from the screen result: match count + the
             # severity of any sanctions-derived finding emitted earlier.
@@ -305,7 +312,7 @@ class ARKDDReport:
             else:
                 verdict = "CLEAN ✅"
             lines.append(f"Sanctions screen: {verdict}")
-        if self.identity.ghost_score:
+        if self.identity.ghost_score and not _is_person:
             g = self.identity.ghost_score
             lines.append(f"Ghost score: {g.get('total','?')}/{g.get('max_total','20')} — {g.get('classification','?')}")
         for f in self.identity.findings[:6 if concise else 20]:

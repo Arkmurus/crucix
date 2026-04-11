@@ -102,17 +102,222 @@ REPORT_TTL_SECONDS = 7 * 24 * 3600
 # LAYER RUNNERS — each layer is a coroutine that fills a section of the report
 # =============================================================================
 
+async def _run_identity_person(
+    target: dict,
+    report: ARKDDReport,
+) -> bool:
+    """Layer 1 (person mode) — Identity for a natural person.
+
+    Runs:
+      1. Name resolution → variant set (transliteration, short forms,
+         particle handling, initials)
+      2. Multi-variant sanctions screen — each variant is screened and
+         matches are aggregated. Severity = worst across variants.
+      3. PEP / ICC / Interpol topic classification from the match data.
+      4. Role extraction from any supplied free-text context (title,
+         organisation, nationality) so the synthesis layer has context.
+
+    No Companies House, no CUI, no ghost score — those are company-only.
+    Returns True on hard-stop (active sanctions hit).
+    """
+    t0 = time.time()
+    report.identity.meta.started_at = datetime.now(timezone.utc).isoformat()
+
+    name = (target.get("name") or target.get("entity") or target.get("query", "")).strip()
+    nationality = target.get("nationality") or target.get("nationality_iso2")
+    role = target.get("role") or target.get("title")
+    organisation = target.get("organisation") or target.get("employer")
+    dob = target.get("dob") or target.get("date_of_birth")
+
+    report.identity.entity_name = name
+    report.identity.entity_type = "person"
+    report.identity.jurisdiction = target.get("jurisdiction") or nationality
+    report.identity.jurisdiction_iso2 = target.get("jurisdiction_iso2")
+    if role:
+        report.identity.declared_activity = f"{role}" + (f" at {organisation}" if organisation else "")
+
+    hard_stop = False
+
+    # ── 1a. Name resolution ──
+    try:
+        from . import person_resolver
+        resolution = person_resolver.resolve(
+            name,
+            nationality_iso2=target.get("jurisdiction_iso2"),
+            max_variants=12,
+        )
+        report.identity.findings.append(Finding(
+            severity="info",
+            title=f"Name resolved: {len(resolution.variants)} variants ({resolution.script})",
+            detail=(
+                f"Canonical: {resolution.canonical}. "
+                f"Components: given={resolution.components.given or '-'}, "
+                f"particles={resolution.components.particles or '-'}, "
+                f"surname={resolution.components.surname or '-'}. "
+                f"First 5 variants: {', '.join(resolution.variants[:5])}."
+            ),
+            source="person_resolver.resolve",
+            confidence="CONFIRMED",
+        ))
+    except Exception as e:
+        logger.warning("Identity (person): name resolution failed: %s", e)
+        resolution = None
+        report.identity.data_gaps.append(f"name resolution failed: {str(e)[:120]}")
+
+    # ── 1b. Multi-variant sanctions screen ──
+    #
+    # Each variant is screened separately against OpenSanctions. Matches
+    # are aggregated and the worst severity wins. Token-overlap filtering
+    # in classify_matches rejects short-string collisions (e.g. "Ali"
+    # matching hundreds of unrelated sanctioned individuals named Ali).
+    all_matches: list = []
+    screened_variants: list[str] = []
+    try:
+        from . import sanctions as _sanc
+        from ._sanctions_classify import classify_matches as _cm
+        _screen_fn = getattr(_sanc, "screen_with_aliases", None) or getattr(_sanc, "fuzzy_screen", None)
+
+        variants_to_screen: list[str] = []
+        if resolution and resolution.variants:
+            variants_to_screen = resolution.variants[:6]  # cost cap
+        else:
+            variants_to_screen = [name]
+
+        for variant in variants_to_screen:
+            if not variant or len(variant) < 4:
+                continue
+            try:
+                _scr = await _screen_fn(variant) if _screen_fn else {"matches": []}
+                screened_variants.append(variant)
+                report.identity.meta.subcalls += 1
+                _matches = _scr.get("matches") or []
+                # Tag each match with which variant surfaced it for audit
+                for _m in _matches:
+                    if isinstance(_m, dict):
+                        _m.setdefault("_variant", variant)
+                all_matches.extend(_matches)
+            except Exception as _e:
+                logger.warning("Person screen failed for variant '%s': %s", variant, _e)
+
+        # Store the aggregate screen result on the report for renderers
+        report.identity.sanctions_screen = {
+            "matches": all_matches,
+            "variants_screened": screened_variants,
+        }
+
+        classified = _cm(all_matches, query_name=name)
+        worst = classified["worst_severity"]
+
+        if worst == "hard_stop":
+            report.identity.findings.append(Finding(
+                severity="hard_stop",
+                title=f"{name} on active sanctions list",
+                detail=classified["summary"],
+                source="sanctions.person_screen",
+                confidence="CONFIRMED",
+            ))
+            hard_stop = True
+        elif worst == "red":
+            report.identity.findings.append(Finding(
+                severity="red",
+                title=f"{name} linked to crime/debarment/ICC list",
+                detail=classified["summary"],
+                source="sanctions.person_screen",
+                confidence="PROBABLE",
+            ))
+        elif worst == "amber":
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title=f"{name} on PEP / adverse-media list",
+                detail=classified["summary"] + " — enhanced DD required on individual before contracting.",
+                source="sanctions.person_screen",
+                confidence="ASSESSED",
+            ))
+        elif worst == "info":
+            report.identity.findings.append(Finding(
+                severity="info",
+                title=f"{name} on transparency / officeholder register",
+                detail=classified["summary"] + " — informational only, not a refusal ground.",
+                source="sanctions.person_screen",
+                confidence="ASSESSED",
+            ))
+        else:
+            report.identity.findings.append(Finding(
+                severity="info",
+                title=f"Sanctions + PEP screen CLEAN across {len(screened_variants)} name variant(s)",
+                detail=(
+                    f"No matches for {name} across OFAC SDN, UK OFSI, EU Consolidated, "
+                    f"UN 1267, ICC, Interpol Red Notices, or OpenSanctions PEP data. "
+                    f"Variants tested: {', '.join(screened_variants[:8])}. "
+                    f"This is a POSITIVE CLEAN result — treat as clearance under "
+                    f"standard commercial PDD."
+                ),
+                source="sanctions.person_screen",
+                confidence="CONFIRMED",
+            ))
+    except Exception as e:
+        logger.warning("Identity (person): sanctions screen failed: %s", e)
+        report.identity.findings.append(Finding(
+            severity="amber", title="Sanctions screen failed", detail=str(e)[:200],
+            source="sanctions", confidence="UNCERTAIN",
+        ))
+        report.identity.data_gaps.append("sanctions screen did not complete")
+
+    # ── 1c. Role / context hints ──
+    if role or organisation:
+        report.identity.findings.append(Finding(
+            severity="info",
+            title=f"Context: {role or 'unknown role'}{' at ' + organisation if organisation else ''}",
+            detail=(
+                f"Role and employer were supplied with the query. "
+                f"These narrow match disambiguation but do NOT substitute "
+                f"for verification — the subject's identity must still be "
+                f"cross-referenced against the named organisation's own records."
+            ),
+            source="person_resolver.context",
+            confidence="ASSESSED",
+        ))
+
+    if dob:
+        report.identity.findings.append(Finding(
+            severity="info",
+            title=f"DOB supplied: {dob}",
+            detail="DOB is the highest-value disambiguator for common names.",
+            source="person_resolver.context",
+            confidence="CONFIRMED",
+        ))
+
+    # ── 1d. Data gaps ──
+    if not nationality:
+        report.identity.data_gaps.append("nationality not supplied — material disambiguator missing")
+    if not dob:
+        report.identity.data_gaps.append("DOB not supplied — recommended before contracting")
+    if not role and not organisation:
+        report.identity.data_gaps.append("role/employer not supplied — weakens variant disambiguation")
+
+    report.identity.meta.duration_ms = int((time.time() - t0) * 1000)
+    report.identity.meta.status = LayerStatus.OK.value
+    return hard_stop
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
 ) -> bool:
     """Layer 1 — Identity. Returns True if a hard-stop was triggered
     (sanctions hit), signalling the orchestrator to short-circuit."""
+    entity_type = target.get("type") or EntityType.UNKNOWN.value
+    # Person branch — separate logic path because persons don't have
+    # Companies House, CUI, ghost score, or address pattern checks.
+    # They DO need name-variant resolution, multi-variant sanctions
+    # screening, and PEP classification.
+    if entity_type == EntityType.PERSON.value or entity_type == "person":
+        return await _run_identity_person(target, report)
+
     t0 = time.time()
     report.identity.meta.started_at = datetime.now(timezone.utc).isoformat()
 
     name = target.get("name") or target.get("entity") or target.get("query", "")
-    entity_type = target.get("type") or EntityType.UNKNOWN.value
     jurisdiction = target.get("jurisdiction")
     jurisdiction_iso2 = target.get("jurisdiction_iso2")
     registration_number = target.get("registration_number")

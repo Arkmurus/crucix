@@ -1462,28 +1462,53 @@ _COUNTRY_RE_TOOL = re.compile(
 # because investigate already has an existing deep_researcher path.
 # "DD" / "due diligence" / "ark-dd" / "dd report" are the trigger keys.
 _DD_INTENT_RE = re.compile(
-    r"\b(?:"
-    r"(?:full\s+|comprehensive\s+|ark[\-_]?)?dd(?:\s+report)?\b|"
-    r"due\s+diligence|"
-    r"ark[\-_]?dd|"
-    r"run\s+a?\s*(?:full\s+)?(?:background|compliance|dd)\s+(?:check|report)|"
-    r"orchestrate\s+dd"
-    r")\b",
+    r"(?:"
+    r"\b(?:full\s+|comprehensive\s+|ark[\-_]?)?p?dd(?:\s+report)?\b|"
+    r"\bdue\s+diligence\b|"
+    r"\bark[\-_]?(?:p)?dd\b|"
+    r"\bperson\s+(?:dd|due\s+diligence)\b|"
+    r"\bbackground\s+(?:dd|check)\b|"
+    r"\bpep\s+(?:check|screen)\b|"
+    r"\brun\s+a?\s*(?:full\s+)?(?:background|compliance|dd|pdd)\s+(?:check|report)\b|"
+    r"\borchestrate\s+(?:p)?dd\b|"
+    r"\b(?:profile|dossier)\s+on\s+"
+    r")",
+    re.IGNORECASE,
+)
+
+# Person-DD trigger words that force type=person (alongside DD_INTENT_RE).
+# No trailing \b because some branches end with [A-Z] (a letter, which is
+# a word char under IGNORECASE — fails word-boundary check against the
+# next letter).
+_PDD_PERSON_INTENT_RE = re.compile(
+    r"(?:"
+    r"\bpdd\b|"
+    r"\bperson\s+(?:dd|due\s+diligence)\b|"
+    r"\bark[\-_]?pdd\b|"
+    r"\bpep\s+(?:check|screen)\b|"
+    r"\bbackground\s+(?:dd|check)\s+on\s+[A-Z]|"
+    r"\bscreen\s+(?:the\s+)?(?:person|individual|director|officer|ceo|owner)\b|"
+    r"\b(?:profile|dossier)\s+on\s+[A-Z]"
+    r")",
     re.IGNORECASE,
 )
 
 # Capture the entity name that follows the trigger phrase. Handles:
-#   "DD on <entity>"
-#   "DD report on <entity>"
+#   "DD on <entity>" / "PDD on <person>" / "background DD on <person>"
 #   "due diligence on <entity>"
-#   "investigate <entity> for DD"
+#   "PEP check on <person>"
+#   "profile on <person>" / "dossier on <person>"
 _DD_ENTITY_CAPTURE_RE = re.compile(
     r"(?:"
-    r"(?:full\s+|comprehensive\s+|ark[\-_]?)?dd\s+(?:report\s+)?(?:on|for|about)\s+|"
+    r"(?:full\s+|comprehensive\s+|ark[\-_]?)?p?dd\s+(?:report\s+)?(?:on|for|about)\s+|"
     r"due\s+diligence\s+(?:on|for|about)\s+|"
-    r"ark[\-_]?dd\s+(?:on|for|about)\s+|"
-    r"orchestrate\s+dd\s+(?:on|for|about)\s+|"
-    r"run\s+a?\s*(?:full\s+)?(?:background|compliance|dd)\s+(?:check|report)\s+(?:on|for|about)\s+"
+    r"ark[\-_]?(?:p)?dd\s+(?:on|for|about)\s+|"
+    r"orchestrate\s+(?:p)?dd\s+(?:on|for|about)\s+|"
+    r"person\s+(?:dd|due\s+diligence)\s+(?:on|for|about)\s+|"
+    r"pep\s+(?:check|screen)\s+(?:on|for|about)\s+|"
+    r"background\s+(?:dd|check)\s+on\s+|"
+    r"(?:profile|dossier)\s+on\s+|"
+    r"run\s+a?\s*(?:full\s+)?(?:background|compliance|dd|pdd)\s+(?:check|report)\s+(?:on|for|about)\s+"
     r")"
     r"(.+?)"
     r"(?:\s*(?:\?|\.|$|\n))",
@@ -1824,10 +1849,55 @@ def _detect_dd_intent(message: str) -> dict | None:
         _resolved_mode = "deep"
     elif re.search(r"\b(?:quick|fast|rapid|short)\s+(?:dd|due\s+diligence|background)\b", message, re.IGNORECASE):
         _resolved_mode = "quick"
+
+    # Person vs company — PDD keywords (PDD, person DD, PEP check, profile
+    # on X, dossier on X, background check on X) flip the type to "person"
+    # so the orchestrator takes the _run_identity_person branch. Also
+    # look for person-shaped hints in the raw message (nationality, DOB,
+    # role at an organisation) to narrow disambiguation.
+    _resolved_type = "company"
+    if _PDD_PERSON_INTENT_RE.search(message):
+        _resolved_type = "person"
+    # Context-based fallback: if the captured name has no company suffix
+    # and the message contains strong "person" signals, flip to person.
+    _company_suffix_re = re.compile(
+        r"\b(?:ltd|limited|llc|inc|incorporated|gmbh|srl|sa|s\.a\.|plc|"
+        r"ag|oyj|bv|sp\.?\s*z\s*o\.?o\.?|pte|co\.?|corp|corporation|"
+        r"company|holdings|group|international|sarl|spa|kg|ab)\b",
+        re.IGNORECASE,
+    )
+    if _resolved_type == "company" and not _company_suffix_re.search(name):
+        if re.search(r"\b(?:born|dob|date\s+of\s+birth|nationality|citizen|aged|year\s+old)\b", message, re.IGNORECASE):
+            _resolved_type = "person"
+
+    if _resolved_type == "person":
+        # Person-specific hint extraction
+        _dob_m = re.search(
+            r"\b(?:dob|date\s+of\s+birth|born(?:\s+on)?)\s*[:\-]?\s*"
+            r"(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}|\d{4}[/\-\.]\d{1,2}[/\-\.]\d{1,2}|"
+            r"\d{1,2}\s+\w+\s+\d{4})",
+            message, re.IGNORECASE,
+        )
+        if _dob_m:
+            extra["dob"] = _dob_m.group(1)
+        _nat_m = re.search(
+            r"\b(?:nationality|citizen\s+of|passport|national)\s*[:\-]?\s*([A-Z][a-zA-Z]+)",
+            message,
+        )
+        if _nat_m:
+            extra["nationality"] = _nat_m.group(1)
+        _role_m = re.search(
+            r"\b(?:role|title|position|works?\s+(?:as|at)|employed\s+(?:as|at))\s*[:\-]?\s*"
+            r"([A-Z][a-zA-Z\s]+?)(?=\s+(?:at|of|in|,|\.|$))",
+            message,
+        )
+        if _role_m:
+            extra["role"] = _role_m.group(1).strip()
+
     return {
         "tool": "dd_orchestrate",
         "name": name,
-        "type": "company",
+        "type": _resolved_type,
         "jurisdiction": jurisdiction,
         "jurisdiction_iso2": jurisdiction_iso2,
         "registered_address": registered_address,
@@ -2338,6 +2408,10 @@ async def _execute_tool(intent: dict, llm) -> str:
                 "mswia_concession": intent.get("mswia_concession"),
                 "directors": intent.get("directors") or [],
                 "website": intent.get("website"),
+                "nationality": intent.get("nationality"),
+                "dob": intent.get("dob"),
+                "role": intent.get("role"),
+                "organisation": intent.get("organisation"),
                 "claimed_founding_year": intent.get("claimed_founding_year"),
                 "caen_code": intent.get("caen_code"),
                 "declared_activity_code": intent.get("declared_activity_code"),
