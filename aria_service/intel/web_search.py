@@ -38,7 +38,7 @@ logger = logging.getLogger("aria.web_search")
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
-BRAVE_API_KEY = os.getenv("BRAVE_API_KEY", "").strip()
+BRAVE_API_KEY = (os.getenv("BRAVE_SEARCH_API_KEY") or os.getenv("BRAVE_API_KEY") or "").strip()
 SEARXNG_INSTANCES = [
     "https://searx.be",
     "https://search.mdosch.de",
