@@ -178,9 +178,9 @@ tasks:
     cost_cap_usd: 0.15
     tool_chain:
       - tool: deep_research
-        entity: "SAM.gov defence military Africa security procurement last 7 days 2026"
+        entity: "SAM.gov defence military security procurement global last 7 days 2026"
     delivery_channels: [mem0, intel_ledger]
-    escalate_if: ["FMS", "defence", "Africa", "NAICS 336"]
+    escalate_if: ["FMS", "defence", "NAICS 336"]
     mem0_tags: [us, sam-gov, procurement, daily, autonomous]
 
   - id: DAILY-PROC-UK
@@ -201,12 +201,12 @@ tasks:
   # ──────────────────────────────────────────────────────────────────
   # BLOCK D — Geopolitical (weekly)
   # ──────────────────────────────────────────────────────────────────
-  - id: WEEKLY-GEO-GULF
+  - id: DAILY-GEO-GULF
     name: Gulf security and procurement trends
-    description: Weekly Thursday 11:00 UTC Gulf region defence scan.
-    cron: "0 11 * * thu"
+    description: Daily 11:00 UTC Gulf region defence scan (Saudi, UAE, Qatar, Oman, Kuwait, Iraq, Jordan).
+    cron: "0 11 * * mon-fri"
     enabled: true
-    priority: MEDIUM
+    priority: HIGH
     timeout_seconds: 180
     cost_cap_usd: 0.20
     tool_chain:
@@ -226,9 +226,9 @@ tasks:
     cost_cap_usd: 0.20
     tool_chain:
       - tool: deep_research
-        entity: "Turkey defence industry export Baykar ASELSAN ROKETSAN SSB 2026 Africa Asia"
+        entity: "Turkey defence industry export Baykar ASELSAN ROKETSAN SSB global 2026"
     delivery_channels: [mem0]
-    escalate_if: ["TB2", "Baykar", "ASELSAN", "Africa", "export"]
+    escalate_if: ["TB2", "Baykar", "ASELSAN", "export"]
     mem0_tags: [turkey, defence-industry, weekly, autonomous]
 
   # ──────────────────────────────────────────────────────────────────
@@ -277,9 +277,9 @@ tasks:
     cost_cap_usd: 0.20
     tool_chain:
       - tool: deep_research
-        entity: "new military platform announcement defence deal contract 2026 Africa Asia"
+        entity: "new military platform announcement defence deal contract global 2026"
     delivery_channels: [mem0]
-    escalate_if: ["new platform", "contract", "Africa", "Baykar", "Elbit"]
+    escalate_if: ["new platform", "contract", "Baykar", "Elbit"]
     mem0_tags: [hardware, platforms, weekly, autonomous]
 
   - id: WEEKLY-HW-COMBAT
@@ -315,12 +315,12 @@ tasks:
     escalate_if: ["NATO", "PESCO", "European Defence Fund", "new programme"]
     mem0_tags: [nato, europe, defence, weekly, autonomous]
 
-  - id: WEEKLY-GEO-ASIA
+  - id: DAILY-GEO-ASIA
     name: Indo-Pacific defence and security
-    description: Weekly Tuesday 12:00 UTC — AUKUS, Quad, ASEAN defence, Korean peninsula, Taiwan Strait.
-    cron: "0 12 * * tue"
+    description: Daily 12:00 UTC — AUKUS, Quad, ASEAN defence, Korean peninsula, Taiwan Strait, Philippines, Indonesia, Vietnam, Bangladesh, India, South Korea, Japan.
+    cron: "0 12 * * mon-fri"
     enabled: true
-    priority: MEDIUM
+    priority: HIGH
     timeout_seconds: 180
     cost_cap_usd: 0.20
     tool_chain:
@@ -330,12 +330,12 @@ tasks:
     escalate_if: ["AUKUS", "Taiwan", "South Korea", "Japan defence"]
     mem0_tags: [asia-pacific, defence, weekly, autonomous]
 
-  - id: WEEKLY-GEO-LATAM
+  - id: DAILY-GEO-LATAM
     name: Latin America and Brazil defence
-    description: Weekly Thursday 13:00 UTC — Brazil defence industry, CPLP Americas, LatAm security.
-    cron: "0 13 * * thu"
+    description: Daily 13:00 UTC — Brazil defence industry, CPLP Americas, LatAm security, Peru, Colombia, Argentina, Chile, Mexico.
+    cron: "0 13 * * mon-fri"
     enabled: true
-    priority: MEDIUM
+    priority: HIGH
     timeout_seconds: 180
     cost_cap_usd: 0.20
     tool_chain:
@@ -375,19 +375,19 @@ tasks:
     escalate_if: ["ITAR", "DDTC", "FMS", "Congressional notification", "new rule"]
     mem0_tags: [us, itar, compliance, weekly, autonomous]
 
-  - id: WEEKLY-BD-TURKEY
+  - id: DAILY-BD-TURKEY
     name: Turkish defence industry global expansion
-    description: Weekly Friday 10:00 UTC — Baykar, ASELSAN, ROKETSAN, SSB export campaigns.
-    cron: "0 10 * * fri"
+    description: Daily 10:00 UTC — Baykar, ASELSAN, ROKETSAN, SSB export campaigns across all markets.
+    cron: "0 10 * * mon-fri"
     enabled: true
-    priority: MEDIUM
+    priority: HIGH
     timeout_seconds: 180
     cost_cap_usd: 0.20
     tool_chain:
       - tool: deep_research
-        entity: "Turkey Turkish defence industry export Baykar TB2 ASELSAN ROKETSAN SSB Africa Asia 2026"
+        entity: "Turkey Turkish defence industry export Baykar TB2 ASELSAN ROKETSAN SSB global 2026"
     delivery_channels: [mem0]
-    escalate_if: ["Baykar", "TB2", "Anka", "ASELSAN", "Africa", "new contract"]
+    escalate_if: ["Baykar", "TB2", "Anka", "ASELSAN", "new contract"]
     mem0_tags: [turkey, defence-export, bd, weekly, autonomous]
 
   - id: WEEKLY-BD-MA
@@ -430,9 +430,9 @@ tasks:
     cost_cap_usd: 0.15
     tool_chain:
       - tool: deep_research
-        entity: "sanctions update OFAC SDN EU UN new designation defence Africa 2026"
+        entity: "sanctions update OFAC SDN EU UN new designation defence global 2026"
     delivery_channels: [mem0, intel_ledger]
-    escalate_if: ["new designation", "sanctions", "OFAC", "Africa", "defence"]
+    escalate_if: ["new designation", "sanctions", "OFAC", "defence"]
     mem0_tags: [sanctions, daily, compliance, autonomous]
 
   # ──────────────────────────────────────────────────────────────────
