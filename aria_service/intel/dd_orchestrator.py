@@ -123,6 +123,39 @@ async def _run_identity(
     report.identity.jurisdiction_iso2 = jurisdiction_iso2
     report.identity.registration_number = registration_number
 
+    # If the caller supplied a registered address (via chat intent or
+    # direct API), use it as the initial identity signal. Registry
+    # lookup may overwrite it with authoritative data later.
+    supplied_address = target.get("registered_address")
+    if supplied_address and not report.identity.registered_address:
+        report.identity.registered_address = supplied_address
+        # Residential-apartment pattern detection. A registered office
+        # at a specific apartment number inside a named block is a
+        # ghost-indicator signal (indicator 2 — no verifiable physical
+        # premises). We add it as an amber finding so the LLM sees it
+        # without the orchestrator having to ship an expensive registry
+        # lookup first.
+        _addr_lower = supplied_address.lower()
+        _residential_patterns = (
+            "apt.", "apt ", " ap.", " ap ", " ap,", "apartment",
+            "flat ", "unit ", "sc. ", "bl. ", "et. ", "etaj ", "floor ",
+        )
+        if any(p in _addr_lower for p in _residential_patterns):
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title=f"Registered address is a residential apartment",
+                detail=(
+                    f"'{supplied_address}' — the address decodes to an apartment "
+                    f"inside a named block/staircase/floor, not a commercial office. "
+                    f"This matches ghost-indicator 2 (no verifiable physical premises). "
+                    f"Not a refusal ground on its own; requires verification against "
+                    f"the national registry and cross-check against the number of "
+                    f"other entities registered at the same address."
+                ),
+                source="dd_orchestrator.residential_address_pattern",
+                confidence="ASSESSED",
+            ))
+
     hard_stop = False
 
     # ── 1a. Sanctions screen (always runs) ──
@@ -394,8 +427,15 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
     report.compliance.meta.status = LayerStatus.OK.value
 
 
-async def _run_digital(target: dict, report: ARKDDReport, llm: Any) -> None:
-    """Layer 5 — Digital. web_search multilingual + RAG + neural + (opt.) deep_research."""
+async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_deep: bool = False) -> None:
+    """Layer 5 — Digital. web_search multilingual + RAG + neural + (opt.) deep_research.
+
+    When _mode_is_deep is True (orchestrator mode="deep"), deep_researcher
+    runs with depth="thorough" (8 search angles × 3 articles, ~30-60s
+    and ~$0.10). Otherwise depth="quick" (3 × 2 = 6 articles, ~15s and
+    ~$0.03). This keeps the default "standard" DD run under the
+    per-run cost cap even with the LLM-backed investigation firing.
+    """
     t0 = time.time()
     report.digital.meta.started_at = datetime.now(timezone.utc).isoformat()
     name = report.identity.entity_name or target.get("query", "")
@@ -461,17 +501,47 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any) -> None:
         logger.warning("Digital: knowledge search failed: %s", e)
 
     # ── 5e. Deep research (opt-in, LLM-backed) ──
+    # Real signature: investigate(llm, topic, depth="quick"|"thorough"|"exhaustive").
+    # depth is a STRING enum, not an int, and there is no max_pages or
+    # context kwarg. Previous code passed max_pages=10 depth=1 and
+    # crashed with "unexpected keyword argument 'max_pages'" on every
+    # DD run with DEEP_RESEARCH_ENABLED. Reported silently in
+    # digital.data_gaps so the Serban v3 chat output surfaced it.
+    #
+    # DD orchestrator uses "quick" by default (3 search angles × 2
+    # articles = 6 LLM calls — ~30s and ~$0.03 per run) so the
+    # digital layer stays within the per-run cost cap. Callers who
+    # want the full "thorough" or "exhaustive" depth can pass the
+    # mode="deep" flag at orchestration time; the orchestrator maps
+    # deep → "thorough" and all other modes → "quick".
     if DEEP_RESEARCH_ENABLED and llm is not None:
         try:
             from . import deep_researcher
-            dr = await deep_researcher.investigate(llm, name, max_pages=10, depth=1, context="ARK-DD investigation")
+            dr_depth = "thorough" if _mode_is_deep else "quick"
+            dr = await deep_researcher.investigate(llm, name, depth=dr_depth)
             if isinstance(dr, dict):
+                synth = dr.get("synthesis") or {}
                 report.digital.web_footprint = {
-                    "summary": (dr.get("summary") or "")[:1500],
-                    "pages_visited": dr.get("pages_visited", 0),
-                    "entities_discovered": dr.get("entities_discovered", []),
+                    "summary": (
+                        dr.get("summary")
+                        or synth.get("executive_summary")
+                        or ""
+                    )[:1500],
+                    "articles_read": dr.get("articles_read", 0),
+                    "facts_learned": dr.get("facts_learned", 0),
+                    "search_angles": dr.get("search_angles", []),
+                    "depth": dr_depth,
                 }
                 report.digital.meta.subcalls += 1
+                # If investigate surfaced its own findings, merge them in.
+                for f in (synth.get("key_findings") or [])[:5]:
+                    if isinstance(f, str):
+                        report.digital.findings.append(Finding(
+                            severity="info",
+                            title=f[:200],
+                            source="deep_researcher.investigate",
+                            confidence="ASSESSED",
+                        ))
         except Exception as e:
             logger.warning("Digital: deep_research failed: %s", e)
             report.digital.data_gaps.append(f"deep_research failed: {str(e)[:120]}")
@@ -1089,7 +1159,10 @@ async def orchestrate_dd(
             layer_name = "digital"
             report.layers_run.append(layer_name)
             try:
-                await asyncio.wait_for(_run_digital(target, report, llm), timeout=DEFAULT_LAYER_TIMEOUT_S * 2)
+                await asyncio.wait_for(
+                    _run_digital(target, report, llm, _mode_is_deep=(mode == "deep")),
+                    timeout=DEFAULT_LAYER_TIMEOUT_S * 2,
+                )
             except asyncio.TimeoutError:
                 report.digital.meta.status = LayerStatus.ERROR.value
                 report.digital.meta.error = f"timeout after {DEFAULT_LAYER_TIMEOUT_S * 2}s"

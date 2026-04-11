@@ -1573,13 +1573,34 @@ def _detect_dd_intent(message: str) -> dict | None:
         return None
     name = m.group(1).strip().strip(".,;:\"'")
     # Reject too-short or too-long captures — probably not an entity name
-    if len(name) < 3 or len(name) > 200:
+    if len(name) < 3 or len(name) > 500:
         return None
 
-    # Try to strip a trailing " in <country>" / " (country)" clause AND
-    # capture the country as the jurisdiction hint in one pass. This is
-    # the key pattern: "Serban Industries SRL in Romania" →
-    # name="Serban Industries SRL", jurisdiction="Romania", iso2="RO".
+    # ── Address-in-name extraction ──
+    # Users often paste the registered address in the same line as the
+    # entity name: "Serban Industries SRL, Str. Dridu 1, Bl. K3, Ap. 34,
+    # 013201, Bucharest, Romania". Split on the FIRST comma that
+    # precedes a street-type token (Str/Strada/Av/Avenida/Rue/Via/...)
+    # or a postal-code pattern. Everything before becomes the name;
+    # everything after becomes the optional registered_address hint.
+    registered_address: str | None = None
+    _address_split_re = re.compile(
+        r",\s*(?="
+        r"(?:str\.?|strada|avenue|av\.?|avenida|rue|road|rd\.?|place|pl\.?|"
+        r"bl\.?|block|way|lane|ln\.?|drive|dr\.?|highway|hwy\.?|bdul|"
+        r"boulevard|blvd\.?|via|calle|piazza|platz|strasse|allee|"
+        r"square|sq\.?|court|ct\.?|apt\.?|suite|ste\.?|floor|fl\.?|"
+        r"building|bldg\.?|unit|po\s+box|p\.o\.\s+box"
+        r")"
+        r"|\d{4,6}\b"  # Postal code pattern
+        r")",
+        re.IGNORECASE,
+    )
+    addr_split = _address_split_re.search(name)
+    if addr_split:
+        registered_address = name[addr_split.start():].lstrip(", ").strip()
+        name = name[:addr_split.start()].strip().strip(".,;:\"'")
+
     jurisdiction: str | None = None
     jurisdiction_iso2: str | None = None
     tail_re = re.compile(
@@ -1596,6 +1617,13 @@ def _detect_dd_intent(message: str) -> dict | None:
             "uk", "usa", "us", "uae", "drc", "car", "dprk", "prc", "ksa"
         ) else country_raw.title()
         name = name[:tm.start()].strip().strip(".,;:\"'")
+
+    # If the address block captured a country suffix, try that too.
+    if not jurisdiction_iso2 and registered_address:
+        addr_country, addr_iso2 = _infer_jurisdiction(registered_address)
+        if addr_iso2:
+            jurisdiction = addr_country
+            jurisdiction_iso2 = addr_iso2
 
     # Strip trailing clause fragments ("as a counterparty", "for the
     # Angola deal") AFTER jurisdiction extraction so the split order
@@ -1620,6 +1648,7 @@ def _detect_dd_intent(message: str) -> dict | None:
         "type": "company",
         "jurisdiction": jurisdiction,
         "jurisdiction_iso2": jurisdiction_iso2,
+        "registered_address": registered_address,
         "mode": "standard",
         "context": message,
     }
@@ -2120,6 +2149,7 @@ async def _execute_tool(intent: dict, llm) -> str:
                 "type": intent.get("type", "company"),
                 "jurisdiction": intent.get("jurisdiction"),
                 "jurisdiction_iso2": intent.get("jurisdiction_iso2"),
+                "registered_address": intent.get("registered_address"),
                 "product_description": intent.get("product_description"),
                 "transaction_value_usd": intent.get("transaction_value_usd"),
             }
