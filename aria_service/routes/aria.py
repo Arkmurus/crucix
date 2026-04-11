@@ -1407,6 +1407,102 @@ _COUNTRY_RE_TOOL = re.compile(
     re.IGNORECASE,
 )
 
+# DD orchestrator intent detection — fires the 7-layer dd_orchestrator
+# when the user explicitly asks for a due-diligence run on a named
+# entity. Accepted forms:
+#   "full DD on Baykar Technology"
+#   "run due diligence on ACME Corp"
+#   "investigate ACME Corp as a counterparty"
+#   "DD report on Rosoboronexport"
+#   "ark-dd on Lockheed Martin"
+#   "orchestrate DD on Baykar"
+# The intent is intentionally narrower than "investigate X" alone,
+# because investigate already has an existing deep_researcher path.
+# "DD" / "due diligence" / "ark-dd" / "dd report" are the trigger keys.
+_DD_INTENT_RE = re.compile(
+    r"\b(?:"
+    r"(?:full\s+|comprehensive\s+|ark[\-_]?)?dd(?:\s+report)?\b|"
+    r"due\s+diligence|"
+    r"ark[\-_]?dd|"
+    r"run\s+a?\s*(?:full\s+)?(?:background|compliance|dd)\s+(?:check|report)|"
+    r"orchestrate\s+dd"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Capture the entity name that follows the trigger phrase. Handles:
+#   "DD on <entity>"
+#   "DD report on <entity>"
+#   "due diligence on <entity>"
+#   "investigate <entity> for DD"
+_DD_ENTITY_CAPTURE_RE = re.compile(
+    r"(?:"
+    r"(?:full\s+|comprehensive\s+|ark[\-_]?)?dd\s+(?:report\s+)?(?:on|for|about)\s+|"
+    r"due\s+diligence\s+(?:on|for|about)\s+|"
+    r"ark[\-_]?dd\s+(?:on|for|about)\s+|"
+    r"orchestrate\s+dd\s+(?:on|for|about)\s+|"
+    r"run\s+a?\s*(?:full\s+)?(?:background|compliance|dd)\s+(?:check|report)\s+(?:on|for|about)\s+"
+    r")"
+    r"(.+?)"
+    r"(?:\s*(?:\?|\.|$|\n))",
+    re.IGNORECASE,
+)
+
+
+def _detect_dd_intent(message: str) -> dict | None:
+    """Detect DD orchestrator intent in a chat message.
+
+    Returns a dict with the extracted entity name + optional hints,
+    or None if no DD intent is present. The orchestrator invocation
+    then happens in chat_ep after the normal tool-detection pass.
+    """
+    if not message:
+        return None
+    if not _DD_INTENT_RE.search(message):
+        return None
+    m = _DD_ENTITY_CAPTURE_RE.search(message)
+    if not m:
+        return None
+    name = m.group(1).strip().strip(".,;:\"'")
+    # Reject too-short or too-long captures — probably not an entity name
+    if len(name) < 3 or len(name) > 200:
+        return None
+    # Strip trailing clause fragments ("as a counterparty", "for the Angola deal")
+    for tail in (" as ", " for ", " in the ", " under ", " with "):
+        idx = name.lower().find(tail)
+        if 0 < idx:
+            name = name[:idx].strip()
+            break
+    # Try to infer jurisdiction from the enclosing text
+    country_match = _COUNTRY_RE_TOOL.search(message)
+    jurisdiction = country_match.group(0).title() if country_match else None
+    # Very coarse ISO-2 for the jurisdictions we regex-match
+    _iso2_map = {
+        "angola": "AO", "mozambique": "MZ", "nigeria": "NG", "kenya": "KE",
+        "ghana": "GH", "south africa": "ZA", "egypt": "EG", "saudi arabia": "SA",
+        "uae": "AE", "russia": "RU", "ukraine": "UA", "turkey": "TR",
+        "china": "CN", "iraq": "IQ", "syria": "SY", "iran": "IR",
+        "pakistan": "PK", "india": "IN", "libya": "LY", "sudan": "SD",
+        "lebanon": "LB", "jordan": "JO", "colombia": "CO", "venezuela": "VE",
+        "myanmar": "MM", "yemen": "YE", "afghanistan": "AF", "somalia": "SO",
+        "mali": "ML", "niger": "NE", "chad": "TD", "cameroon": "CM",
+        "senegal": "SN", "drc": "CD", "ethiopia": "ET", "burkina faso": "BF",
+        "cape verde": "CV", "guinea-bissau": "GW", "haiti": "HT",
+    }
+    jurisdiction_iso2 = None
+    if jurisdiction:
+        jurisdiction_iso2 = _iso2_map.get(jurisdiction.lower())
+    return {
+        "tool": "dd_orchestrate",
+        "name": name,
+        "type": "company",
+        "jurisdiction": jurisdiction,
+        "jurisdiction_iso2": jurisdiction_iso2,
+        "mode": "standard",
+        "context": message,
+    }
+
+
 # Officeholder question detection — auto-triggers investigate so the LLM
 # has fresh web data to ground against. Without this, "who is the current
 # defence minister of Ghana" goes straight to the LLM with stale training
@@ -1533,6 +1629,16 @@ def _detect_tool_intent(message: str) -> dict | None:
     msg = _strip_attached_document(_strip_listener_context(message)).strip()
     if not msg:
         return None
+
+    # ── DD orchestrator intent — highest priority ──
+    # "DD on X" / "due diligence on X" / "ark-dd on X" / "full DD on X"
+    # short-circuits the rest of the intent detection because the
+    # orchestrator is the structured path — deep_research is the
+    # narrative fallback, not the preferred path when the user
+    # explicitly asks for a DD report.
+    dd_intent = _detect_dd_intent(msg)
+    if dd_intent:
+        return dd_intent
 
     # Find URLs / domains
     url_match = _URL_RE.search(msg)
@@ -1884,6 +1990,53 @@ async def _execute_tool(intent: dict, llm) -> str:
     """Run the detected tool and return a compact context string for the LLM."""
     tool = intent.get("tool")
     try:
+        # ── DD Orchestrator — full 7-layer due diligence on a named entity ──
+        if tool == "dd_orchestrate":
+            from ..intel import dd_orchestrator
+            target = {
+                "name": intent.get("name") or intent.get("entity", ""),
+                "type": intent.get("type", "company"),
+                "jurisdiction": intent.get("jurisdiction"),
+                "jurisdiction_iso2": intent.get("jurisdiction_iso2"),
+                "product_description": intent.get("product_description"),
+                "transaction_value_usd": intent.get("transaction_value_usd"),
+            }
+            mode = intent.get("mode", "standard")
+            try:
+                report = await dd_orchestrator.orchestrate_dd(
+                    target=target,
+                    llm=llm,
+                    mode=mode,
+                )
+            except Exception as e:
+                _log.warning("dd_orchestrate via chat intent failed: %s", e)
+                return (
+                    f"\n\n[TOOL: dd_orchestrate — FAILED]\n"
+                    f"Entity: {target['name']}\n"
+                    f"Error: {str(e)[:200]}\n"
+                    f"The orchestrator could not complete — fall back to narrative "
+                    f"reasoning based on knowledge and live intel only."
+                )
+            # Render as markdown and return as tool_context so the LLM
+            # writes its final answer grounded in the structured report.
+            md = report.render_markdown(concise=False)
+            return (
+                f"\n\n[TOOL: dd_orchestrate]\n"
+                f"Run ID: {report.run_id}\n"
+                f"Entity: {report.identity.entity_name}\n"
+                f"Risk: {report.risk_classification}\n"
+                f"Duration: {report.total_duration_ms}ms\n"
+                f"Layers run: {', '.join(report.layers_run)}\n"
+                f"\n"
+                f"IMPORTANT: A structured ARK-DD report has been generated. "
+                f"Use the markdown block below as authoritative grounding and "
+                f"cite findings inline with [from dd_orchestrate:{report.run_id}]. "
+                f"Do NOT invent additional findings — every material claim must "
+                f"come from the report.\n"
+                f"\n"
+                f"{md}"
+            )
+
         # ── Background research task — spawn instead of running inline ──
         if tool == "spawn_research_task":
             task_type = intent.get("task_type", "investigate")
