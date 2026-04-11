@@ -671,7 +671,21 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
     article ARIA reads, every page she crawls, every image she OCRs gets chunked
     and stored in chromadb. At query time we pull the most relevant passages
     and inject them straight into the LLM context.
+
+    DOCUMENT-GROUNDED MODE: when the user's message contains an
+    `[ATTACHED DOCUMENT` block (or a pasted [Document:/Image: marker),
+    we quarantine the cross-session recall layers (mem0, semantic, neural,
+    ledger, contacts, competitors, approach, gtm). They are still
+    generated but injected behind a clear `[RECALL CONTEXT — reference
+    only, NOT part of the attached document]` fence so the LLM cannot
+    conflate prior-session content with the current attachment.
+    Incident 2026-04-11 21:37: detonator_suppliers_v2.xlsx analysis
+    bled in fabricated 'RFQ#3 Nigeria 30ms delay government EUC'
+    references from mem0 and cited them as if they were in the document.
     """
+    document_grounded = bool(
+        message and ("[ATTACHED DOCUMENT" in message or "[Document:" in message or "[Image:" in message)
+    )
     # Phase 3 cherry-pick from aria_research_architecture.py 2026-04-09:
     # mem0 retrieval is now a SEPARATE first-class context layer instead of
     # being silently mixed into the generic knowledge block. This lets the
@@ -681,11 +695,21 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
     # knowledge but still after proprietary corpus intel.
     from .intel.mem0 import retrieve_for_query as _mem0_retrieve
 
-    layer_fns = [
-        ("rag",         lambda: _sync_rag_context(message)),  # FIRST — proprietary intel takes priority
-        ("knowledge",   lambda: search_knowledge(message)),   # SECOND — CONFIRMED facts + DD case library (HARD STOPS must never be dropped)
-        ("mem0",        lambda: _mem0_retrieve(message)),     # notebook recall from prior chats
+    # Layers that are SAFE to load into the primary context even when
+    # the user has attached a document — these are either proprietary
+    # facts (RAG + knowledge), current-day live data (live_intel), or
+    # the CONFIRMED knowledge base. None of them can be mistaken for
+    # the attached document's content.
+    primary_layers = [
+        ("rag",         lambda: _sync_rag_context(message)),
+        ("knowledge",   lambda: search_knowledge(message)),
         ("live_intel",  lambda: _build_intel_context(intel_data, message)),
+    ]
+    # Layers that carry cross-session recall / narrative memory. In
+    # document-grounded mode they are quarantined behind a fence line
+    # so the LLM does not blend them into attached-document claims.
+    recall_layers = [
+        ("mem0",        lambda: _mem0_retrieve(message)),
         ("ledger",      lambda: query_ledger(message)),
         ("contacts",    lambda: get_contact_context(message)),
         ("competitors", lambda: get_competitor_context(message)),
@@ -694,17 +718,56 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
         ("neural",      lambda: _sync_neural_context(message)),
         ("semantic",    lambda: get_semantic_context(message)),
     ]
+
     total = ""
-    for name, fn in layer_fns:
+    # 1) Always load the primary layers first
+    for name, fn in primary_layers:
         try:
             layer = fn()
             if not layer:
                 continue
             if len(total) + len(layer) > MAX_CONTEXT_CHARS:
-                continue  # skip this layer but try smaller ones below
+                continue
             total += layer
         except Exception as e:
             logger.warning("Context layer '%s' failed: %s", name, e)
+
+    # 2) Load recall layers. In document-grounded mode, fence them off.
+    if document_grounded:
+        fence_header = (
+            "\n\n[RECALL CONTEXT — reference only. The following blocks are "
+            "NOT part of the attached document. Do NOT cite any fact from "
+            "this section as [from ATTACHED DOCUMENT]. If you use a fact "
+            "from this section, you MUST tag it [RECALL — not in document] "
+            "and you MUST NOT state it as a document claim. If a recall "
+            "fact contradicts the attached document, the document wins.]\n"
+        )
+        fence_footer = "\n[END RECALL CONTEXT]\n"
+        recall_total = ""
+        for name, fn in recall_layers:
+            try:
+                layer = fn()
+                if not layer:
+                    continue
+                if len(total) + len(fence_header) + len(recall_total) + len(layer) + len(fence_footer) > MAX_CONTEXT_CHARS:
+                    continue
+                recall_total += layer
+            except Exception as e:
+                logger.warning("Context layer '%s' failed: %s", name, e)
+        if recall_total:
+            total += fence_header + recall_total + fence_footer
+    else:
+        for name, fn in recall_layers:
+            try:
+                layer = fn()
+                if not layer:
+                    continue
+                if len(total) + len(layer) > MAX_CONTEXT_CHARS:
+                    continue
+                total += layer
+            except Exception as e:
+                logger.warning("Context layer '%s' failed: %s", name, e)
+
     return total
 
 
@@ -1312,6 +1375,45 @@ async def _build_calibrated_system_prompt(message: str) -> str:
             logger.info("[metacognitive] identity + calibration addendum injected")
     except Exception as e:
         logger.debug("metacognitive identity injection failed (non-fatal): %s", e)
+
+    # Document-grounded mode directive — fires when the user's message
+    # contains an [ATTACHED DOCUMENT block. Tells the LLM in the
+    # strongest terms that it must not blend recall memory with
+    # document content. Past incident 2026-04-11 21:37: detonator
+    # supplier spreadsheet analysis bled in fabricated 'RFQ#3 Nigeria
+    # 30ms delay government EUC' references from mem0 and tagged
+    # them as [from ATTACHED DOCUMENT], which then travelled into a
+    # supplier ranking the user was about to act on.
+    if message and ("[ATTACHED DOCUMENT" in message or "[Document:" in message or "[Image:" in message):
+        addendum_parts.append(
+            "🔒 DOCUMENT-GROUNDED MODE — this turn contains an attached "
+            "document / image. The content inside the [ATTACHED DOCUMENT] / "
+            "[Document:] / [Image:] block is the ONLY authoritative source "
+            "for claims about the attachment.\n\n"
+            "HARD RULES for this turn:\n"
+            "1. You MUST NOT invent facts that are not in the attached block. "
+            "Every claim tagged [from ATTACHED DOCUMENT] must be literally "
+            "traceable to the attachment's text. If you are unsure whether "
+            "a fact is in the attachment, DO NOT tag it as [from ATTACHED "
+            "DOCUMENT] and instead say 'not stated in document'.\n"
+            "2. You MUST NOT blend recall memory (mem0, semantic, neural, "
+            "ledger, contacts, competitors, approach, gtm) into document "
+            "claims. Any fact from the [RECALL CONTEXT] block must be "
+            "tagged [RECALL — not in document] and kept in a separate "
+            "section. If a recall fact contradicts the document, the "
+            "document wins and you must flag the contradiction.\n"
+            "3. You MUST include a 'WHAT IS MISSING / BLANK' section that "
+            "lists every field in the document marked TBD, TBC, blank, "
+            "unknown, or placeholder. Do not silently skip over gaps.\n"
+            "4. Do NOT invent new numbering (e.g. 'RFQ#3') that is not in "
+            "the document. Use the exact labels, IDs, and categories the "
+            "document itself uses.\n"
+            "5. If the attachment is small (under 200 words) and ambiguous, "
+            "say so explicitly and ask for clarification rather than "
+            "padding the response with recall content.\n"
+            "6. Your BOTTOM LINE must be grounded in the attachment. "
+            "Recall material can support but cannot override the attachment."
+        )
 
     if not addendum_parts:
         return ARIA_SYSTEM_PROMPT
