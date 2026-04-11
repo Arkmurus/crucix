@@ -127,6 +127,16 @@ INTERNAL_REF_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Orchestrator-run citations produced by dd_orchestrator. Every DD
+# report the LLM cites from carries [from dd_orchestrate:{run_id}]
+# inline markers. These are mechanically-generated run IDs the LLM
+# cannot fabricate without actually having received the report, so
+# they count as grounded citations.
+DD_REPORT_REF_RE = re.compile(
+    r"\[from\s+dd_orchestrate\s*:\s*dd_[0-9a-f]+\]",
+    re.IGNORECASE,
+)
+
 
 def extract_urls(text: str) -> list[str]:
     """Pull URLs out of a string, dedupe, and normalise.
@@ -227,7 +237,11 @@ def count_tool_refs(text: str) -> int:
     """
     if not text:
         return 0
-    return len(TOOL_REF_RE.findall(text)) + len(INTERNAL_REF_RE.findall(text))
+    return (
+        len(TOOL_REF_RE.findall(text))
+        + len(INTERNAL_REF_RE.findall(text))
+        + len(DD_REPORT_REF_RE.findall(text))
+    )
 
 
 def verify_response(response_text: str, tool_context: str) -> dict:
