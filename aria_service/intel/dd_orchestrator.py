@@ -116,6 +116,15 @@ async def _run_identity(
     jurisdiction = target.get("jurisdiction")
     jurisdiction_iso2 = target.get("jurisdiction_iso2")
     registration_number = target.get("registration_number")
+    # Jurisdiction-specific registration IDs flow into registration_number
+    # when the caller didn't supply one explicitly. This keeps the
+    # downstream renderer, ghost scorer, and manual-registry hint
+    # working on any jurisdiction we recognise.
+    if not registration_number:
+        for _k in ("cui", "nip", "cnpj", "cvr", "kvk", "siret", "vat"):
+            if target.get(_k):
+                registration_number = str(target[_k])
+                break
 
     report.identity.entity_name = name
     report.identity.entity_type = entity_type

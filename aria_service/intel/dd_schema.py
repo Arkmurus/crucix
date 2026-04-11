@@ -275,7 +275,35 @@ class ARKDDReport:
         if self.identity.registration_number:
             lines.append(f"Reg No: {self.identity.registration_number}  ·  Status: {self.identity.registration_status or '?'}")
         if self.identity.sanctions_screen:
-            verdict = self.identity.sanctions_screen.get("verdict") or self.identity.sanctions_screen.get("hit", "?")
+            # Derive verdict from the screen result: match count + the
+            # severity of any sanctions-derived finding emitted earlier.
+            # The orchestrator always emits exactly one sanctions finding
+            # (CLEAN / info / amber / red / hard_stop); fall back to the
+            # match count for cases where the finding list is empty.
+            _matches = self.identity.sanctions_screen.get("matches") or []
+            _sanc_finding = next(
+                (f for f in self.identity.findings if "sanctions" in (f.source or "").lower() or "Sanctions screen" in (f.title or "")),
+                None,
+            )
+            if _sanc_finding:
+                if _sanc_finding.severity == "hard_stop":
+                    verdict = f"HIT — {_sanc_finding.title}"
+                elif _sanc_finding.severity == "red":
+                    verdict = f"HIT (crime/debarment) — {len(_matches)} match(es)"
+                elif _sanc_finding.severity == "amber":
+                    verdict = f"PEP / adverse-media — {len(_matches)} match(es)"
+                elif _sanc_finding.severity == "info" and "CLEAN" in (_sanc_finding.title or ""):
+                    verdict = "CLEAN ✅"
+                elif _sanc_finding.severity == "info":
+                    verdict = f"transparency register ({len(_matches)} match(es), informational)"
+                else:
+                    verdict = _sanc_finding.title
+            elif self.identity.sanctions_screen.get("error"):
+                verdict = f"ERROR — {self.identity.sanctions_screen.get('error')}"
+            elif _matches:
+                verdict = f"{len(_matches)} match(es) — see findings"
+            else:
+                verdict = "CLEAN ✅"
             lines.append(f"Sanctions screen: {verdict}")
         if self.identity.ghost_score:
             g = self.identity.ghost_score

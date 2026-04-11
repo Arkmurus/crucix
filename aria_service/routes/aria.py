@@ -1697,6 +1697,38 @@ def _detect_dd_intent(message: str) -> dict | None:
     if cui_match:
         extra["cui"] = cui_match.group(1)
 
+    # Polish NIP — "NIP PL813-336-51-76" / "NIP: 8133365176" / "PL8133365176".
+    # NIP is 10 digits; the dashed form has groups 3-3-2-2 or 3-2-2-3.
+    nip_match = re.search(
+        r"\bNIP[\s:]*(?:PL)?[\s-]?((?:\d[\s-]?){9}\d)\b",
+        message,
+        re.IGNORECASE,
+    )
+    if nip_match:
+        extra["nip"] = re.sub(r"[\s-]", "", nip_match.group(1))
+        # NIP strongly implies Polish jurisdiction
+        if not jurisdiction_iso2:
+            jurisdiction_iso2 = "PL"
+            jurisdiction = "Poland"
+
+    # Polish postal code (NN-NNN format, e.g. 36-001) — strong PL signal
+    if not jurisdiction_iso2 and re.search(r"\b\d{2}-\d{3}\b", message):
+        jurisdiction_iso2 = "PL"
+        jurisdiction = "Poland"
+
+    # Polish MSWiA concession — treat as a declared activity/licence hint
+    mswia_match = re.search(
+        r"\b(?:Koncesja\s+)?MSWiA\s+(?:nr\.?\s*)?([A-Z]-?\d+/\d{4})\b",
+        message,
+        re.IGNORECASE,
+    )
+    if mswia_match:
+        extra["mswia_concession"] = mswia_match.group(1)
+        extra.setdefault("declared_activity_code", f"MSWiA {mswia_match.group(1)}")
+        if not jurisdiction_iso2:
+            jurisdiction_iso2 = "PL"
+            jurisdiction = "Poland"
+
     # Website / domain — look for "s3rban.com" / "https://example.com"
     # Only capture if it looks like a standalone URL / domain token.
     url_match = re.search(r"\b(https?://[^\s,;)]+|(?:[a-z0-9-]+\.)+[a-z]{2,})\b", message, re.IGNORECASE)
@@ -2256,6 +2288,8 @@ async def _execute_tool(intent: dict, llm) -> str:
                 "jurisdiction_iso2": intent.get("jurisdiction_iso2"),
                 "registered_address": intent.get("registered_address"),
                 "cui": intent.get("cui"),
+                "nip": intent.get("nip"),
+                "mswia_concession": intent.get("mswia_concession"),
                 "website": intent.get("website"),
                 "claimed_founding_year": intent.get("claimed_founding_year"),
                 "caen_code": intent.get("caen_code"),
