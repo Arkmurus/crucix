@@ -1739,6 +1739,13 @@ def _detect_dd_intent(message: str) -> dict | None:
         extra["caen_code"] = caen_match.group(1)
         extra["declared_activity_code"] = f"CAEN {caen_match.group(1)}"
 
+    # Mode hint — "deep/comprehensive/full DD" → mode=deep unlocks
+    # deep_researcher depth=thorough + Phase 2 link_investigator tree walk.
+    _resolved_mode = "standard"
+    if re.search(r"\b(?:deep|comprehensive|thorough|exhaustive|full)\s+(?:dd|due\s+diligence|background|ark[\-_]?dd)\b", message, re.IGNORECASE):
+        _resolved_mode = "deep"
+    elif re.search(r"\b(?:quick|fast|rapid|short)\s+(?:dd|due\s+diligence|background)\b", message, re.IGNORECASE):
+        _resolved_mode = "quick"
     return {
         "tool": "dd_orchestrate",
         "name": name,
@@ -1746,7 +1753,7 @@ def _detect_dd_intent(message: str) -> dict | None:
         "jurisdiction": jurisdiction,
         "jurisdiction_iso2": jurisdiction_iso2,
         "registered_address": registered_address,
-        "mode": "standard",
+        "mode": _resolved_mode,
         "context": message,
         **extra,
     }
