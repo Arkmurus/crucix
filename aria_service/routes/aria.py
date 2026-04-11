@@ -695,6 +695,48 @@ async def research_cleanup_stale_ep(max_age_seconds: int = 900):
     return await research_tasks.cleanup_stale_tasks(max_age_seconds)
 
 
+# ── Link investigator: recursive URL tree walk + fact fusion ──
+class LinkInvestigateRequest(BaseModel):
+    seed_url: str
+    query_context: str = ""
+    max_depth: int = 2
+    max_links_per_page: int = 5
+    max_pages: int = 30
+    wall_budget_s: int = 90
+    cost_budget_usd: float = 0.0
+    use_llm: bool = False
+
+
+@router.post("/research/link-investigate")
+async def research_link_investigate_ep(req: LinkInvestigateRequest, request: Request):
+    """Walk the link tree from seed_url out to max_depth levels, extracting
+    and fusing facts at every node. Rule-based by default (zero cost);
+    set use_llm=true for semantic extraction (uses orchestrator's LLM)."""
+    from ..intel import link_investigator
+    llm = get_llm(request) if req.use_llm else None
+    tree = await link_investigator.investigate_link_tree(
+        seed_url=req.seed_url,
+        query_context=req.query_context,
+        max_depth=req.max_depth,
+        max_links_per_page=req.max_links_per_page,
+        max_pages=req.max_pages,
+        wall_budget_s=req.wall_budget_s,
+        cost_budget_usd=req.cost_budget_usd,
+        llm=llm,
+    )
+    return tree.as_dict()
+
+
+@router.get("/research/link-tree/{tree_id}")
+async def research_link_tree_get_ep(tree_id: str):
+    """Retrieve a persisted link tree by tree_id."""
+    from ..intel import link_investigator
+    tree = await link_investigator.get_tree(tree_id)
+    if not tree:
+        return {"status": "not_found", "tree_id": tree_id}
+    return tree
+
+
 # ── Feedback: WhatsApp reaction → ground-truth signal ────────────────────
 class FeedbackSnapshotRequest(BaseModel):
     chat_id: str

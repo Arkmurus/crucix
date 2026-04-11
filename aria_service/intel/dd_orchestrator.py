@@ -614,6 +614,56 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
             logger.warning("Digital: deep_research failed: %s", e)
             report.digital.data_gaps.append(f"deep_research failed: {str(e)[:120]}")
 
+    # ── 5f. Link-investigator (deep mode only) ──
+    # Recursive URL-tree walk seeded from the target's own website (if
+    # supplied) or the top-tier press-coverage hit. Rule-based extraction
+    # only by default — no LLM cost. Budgets enforced inside the module.
+    if _mode_is_deep:
+        seed_url = target.get("website") or target.get("domain")
+        if not seed_url and report.digital.press_coverage:
+            seed_url = next(
+                (e.url for e in report.digital.press_coverage if e.url),
+                None,
+            )
+        if seed_url:
+            if not seed_url.startswith(("http://", "https://")):
+                seed_url = "https://" + seed_url
+            try:
+                from . import link_investigator
+                tree = await link_investigator.investigate_link_tree(
+                    seed_url=seed_url,
+                    query_context=name,
+                    max_depth=2,
+                    max_pages=20,
+                    wall_budget_s=60,
+                    cost_budget_usd=0.0,  # rule-based only inside DD
+                    llm=None,
+                )
+                report.digital.web_footprint = dict(report.digital.web_footprint or {})
+                report.digital.web_footprint["link_tree"] = {
+                    "tree_id": tree.tree_id,
+                    "seed_url": tree.seed_url,
+                    "pages_fetched": tree.pages_fetched,
+                    "pages_failed": tree.pages_failed,
+                    "max_depth_reached": tree.max_depth_reached,
+                    "fused_fact_count": len(tree.fused_facts),
+                    "budget_exceeded": tree.budget_exceeded,
+                    "duration_ms": tree.duration_ms,
+                }
+                # Surface high-confidence triangulated facts as findings.
+                for ff in tree.fused_facts[:8]:
+                    if ff.source_count >= 2:
+                        report.digital.findings.append(Finding(
+                            severity="info",
+                            title=f"link-tree: {ff.kind}={ff.value[:120]} (×{ff.source_count} sources)",
+                            source=f"link_investigator.{tree.tree_id}",
+                            confidence="ASSESSED",
+                        ))
+                report.digital.meta.subcalls += 1
+            except Exception as e:
+                logger.warning("Digital: link_investigator failed: %s", e)
+                report.digital.data_gaps.append(f"link_investigator failed: {str(e)[:120]}")
+
     report.digital.meta.duration_ms = int((time.time() - t0) * 1000)
     report.digital.meta.status = LayerStatus.OK.value
 
