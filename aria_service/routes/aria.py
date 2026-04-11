@@ -1471,7 +1471,13 @@ _DD_INTENT_RE = re.compile(
     r"\bpep\s+(?:check|screen)\b|"
     r"\brun\s+a?\s*(?:full\s+)?(?:background|compliance|dd|pdd)\s+(?:check|report)\b|"
     r"\borchestrate\s+(?:p)?dd\b|"
-    r"\b(?:profile|dossier)\s+on\s+"
+    r"\b(?:profile|dossier)\s+on\s+|"
+    # Bare "person: NAME" or "person NAME" — structured-form trigger.
+    # 2026-04-11 Colin Risso incident: user typed 'person: Colin Risso /
+    # Nationality: UK / Role: ...' expecting the PDD path to fire, but
+    # none of the verb-form triggers matched. Also handles "individual"
+    # / "subject" / "officer" / "director" as structured-form heads.
+    r"\b(?:person|individual|subject|officer|director)\s*[:\-]\s*[A-Z]"
     r")",
     re.IGNORECASE,
 )
@@ -1488,7 +1494,9 @@ _PDD_PERSON_INTENT_RE = re.compile(
     r"\bpep\s+(?:check|screen)\b|"
     r"\bbackground\s+(?:dd|check)\s+on\s+[A-Z]|"
     r"\bscreen\s+(?:the\s+)?(?:person|individual|director|officer|ceo|owner)\b|"
-    r"\b(?:profile|dossier)\s+on\s+[A-Z]"
+    r"\b(?:profile|dossier)\s+on\s+[A-Z]|"
+    # Structured form: "person: NAME" / "individual: NAME" / etc.
+    r"\b(?:person|individual|subject|officer|director)\s*[:\-]\s*[A-Z]"
     r")",
     re.IGNORECASE,
 )
@@ -1508,10 +1516,24 @@ _DD_ENTITY_CAPTURE_RE = re.compile(
     r"pep\s+(?:check|screen)\s+(?:on|for|about)\s+|"
     r"background\s+(?:dd|check)\s+on\s+|"
     r"(?:profile|dossier)\s+on\s+|"
-    r"run\s+a?\s*(?:full\s+)?(?:background|compliance|dd|pdd)\s+(?:check|report)\s+(?:on|for|about)\s+"
+    r"run\s+a?\s*(?:full\s+)?(?:background|compliance|dd|pdd)\s+(?:check|report)\s+(?:on|for|about)\s+|"
+    # Structured form: capture name after "person: " / "individual: " /
+    # "subject: " / "officer: " / "director: ".
+    r"(?:^|[,.!?\n]\s*)(?:person|individual|subject|officer|director)\s*[:\-]\s*"
     r")"
     r"(.+?)"
-    r"(?:\s*(?:\?|\.|$|\n))",
+    r"(?:\s*(?:\?|\.|$|\n|/|,\s*nationality|,\s*dob|,\s*role|,\s*title|,\s*position))",
+    re.IGNORECASE,
+)
+
+# Structured-form field extractors used by _detect_dd_intent when the
+# message looks like 'person: NAME / Nationality: X / Role: Y'.
+_STRUCTURED_FIELD_RE = re.compile(
+    r"\b(?:nationality|nat|citizen(?:ship)?|dob|date\s+of\s+birth|born|"
+    r"role|title|position|organisation|organization|employer|company|"
+    r"firm|at)\s*[:\-]\s*([^/\n,?]+?)\s*(?=/|\n|$|,\s*(?:nationality|nat|"
+    r"citizen|dob|date\s+of\s+birth|born|role|title|position|"
+    r"organisation|employer|company|at)\b)",
     re.IGNORECASE,
 )
 
@@ -1871,7 +1893,10 @@ def _detect_dd_intent(message: str) -> dict | None:
             _resolved_type = "person"
 
     if _resolved_type == "person":
-        # Person-specific hint extraction
+        # Person-specific hint extraction — handles both prose form
+        # ("nationality British, DOB 12/04/1965") and the structured
+        # slash-separated form ("Nationality: UK / Role: Director at
+        # Limestone Limited").
         _dob_m = re.search(
             r"\b(?:dob|date\s+of\s+birth|born(?:\s+on)?)\s*[:\-]?\s*"
             r"(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}|\d{4}[/\-\.]\d{1,2}[/\-\.]\d{1,2}|"
@@ -1881,18 +1906,42 @@ def _detect_dd_intent(message: str) -> dict | None:
         if _dob_m:
             extra["dob"] = _dob_m.group(1)
         _nat_m = re.search(
-            r"\b(?:nationality|citizen\s+of|passport|national)\s*[:\-]?\s*([A-Z][a-zA-Z]+)",
-            message,
+            r"\b(?:nationality|citizen\s+of|passport|national|nat)\s*[:\-]\s*"
+            r"([A-Za-z]{2,30}(?:\s+[A-Za-z]+)?)",
+            message, re.IGNORECASE,
         )
         if _nat_m:
-            extra["nationality"] = _nat_m.group(1)
+            extra["nationality"] = _nat_m.group(1).strip()
+        # Role can be "Director at Limestone Limited" — capture the
+        # whole phrase up to a slash, comma, newline, or question mark.
         _role_m = re.search(
-            r"\b(?:role|title|position|works?\s+(?:as|at)|employed\s+(?:as|at))\s*[:\-]?\s*"
-            r"([A-Z][a-zA-Z\s]+?)(?=\s+(?:at|of|in|,|\.|$))",
-            message,
+            r"\b(?:role|title|position)\s*[:\-]\s*"
+            r"([^/\n?]+?)(?=\s*(?:[/,?\n]|$))",
+            message, re.IGNORECASE,
         )
+        if not _role_m:
+            _role_m = re.search(
+                r"\b(?:works?\s+(?:as|at)|employed\s+(?:as|at))\s+"
+                r"([A-Z][a-zA-Z\s]+?)(?=\s+(?:at|of|in|,|\.|$))",
+                message,
+            )
         if _role_m:
-            extra["role"] = _role_m.group(1).strip()
+            _role_raw = _role_m.group(1).strip()
+            # Split "Director at Limestone Limited" into role + org
+            _at_split = re.search(r"^(.+?)\s+at\s+(.+)$", _role_raw, re.IGNORECASE)
+            if _at_split:
+                extra["role"] = _at_split.group(1).strip()
+                extra["organisation"] = _at_split.group(2).strip()
+            else:
+                extra["role"] = _role_raw
+        if "organisation" not in extra:
+            _org_m = re.search(
+                r"\b(?:organisation|organization|employer|company|firm)\s*[:\-]\s*"
+                r"([^/\n?]+?)(?=\s*(?:[/,?\n]|$))",
+                message, re.IGNORECASE,
+            )
+            if _org_m:
+                extra["organisation"] = _org_m.group(1).strip()
 
     return {
         "tool": "dd_orchestrate",
