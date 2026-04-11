@@ -246,6 +246,62 @@ async def try_local_response(message: str) -> dict:
 
     msg = message.strip()
 
+    # YIELD when a tool has already run. chat_ep appends a
+    # [TOOL: <name>] / [I have already run the appropriate tool]
+    # block containing the tool output to the message before handing
+    # it to aria_chat. local_brain must NOT pattern-match against
+    # that combined text and return a parallel local answer — doing
+    # so discards the tool result entirely. This bug was observed on
+    # a Serban Industries SRL DD run where dd_orchestrator.ran
+    # successfully, built a full ARK-DD markdown report, and then
+    # local_brain's sanctions pattern matched the user's "sanctions
+    # check on the company" phrase and hijacked the response with a
+    # noise match on "the company". Local_brain's job is to resolve
+    # single-pattern queries the cloud LLM would otherwise waste
+    # tokens on — NEVER to override a tool that already ran.
+    if "[TOOL:" in msg or "[I have already run the appropriate tool" in msg:
+        return {"answered": False, "response": None, "intent": None}
+
+    # YIELD to the DD orchestrator when the message asks for a full
+    # due-diligence run. local_brain resolves single-tool local queries
+    # cheaply (sanctions screen, country risk, tech explain, etc.) and
+    # returns immediately on first pattern hit — but a message that
+    # ALSO contains a "DD on X" request should fall through to the
+    # main chat pipeline where _detect_tool_intent routes to
+    # dd_orchestrator. Without this guard, a compound message like
+    # "run a full DD on X; please also screen the company for
+    # sanctions" short-circuits into a standalone sanctions screen
+    # and the DD never fires. Observed on a real Serban Industries
+    # SRL run 2026-04-11 where the sanctions screen matched "the
+    # company" as the entity name and returned garbage.
+    _DD_YIELD_RE = re.compile(
+        r"\b(?:"
+        r"(?:full\s+|comprehensive\s+|ark[\-_]?)?dd\s+(?:report\s+)?(?:on|for|about)\s+|"
+        r"due\s+diligence\s+(?:on|for|about)\s+|"
+        r"ark[\-_]?dd\s+(?:on|for|about)\s+|"
+        r"orchestrate\s+dd\s+(?:on|for|about)\s+|"
+        r"run\s+a?\s*(?:full\s+)?(?:background|compliance|dd)\s+(?:check|report)\s+(?:on|for|about)\s+"
+        r")\S",
+        re.IGNORECASE,
+    )
+    if _DD_YIELD_RE.search(msg):
+        return {"answered": False, "response": None, "intent": None}
+
+    # Generic-pronoun / self-reference captures that should never be
+    # treated as an entity name. These show up when a user writes
+    # "screen the company" / "check it" / "run a check on them" —
+    # the sanctions pattern captures the pronoun and fires a
+    # meaningless screen. Reject at the argument-validation step.
+    _INVALID_ENTITY_CAPTURES = {
+        "it", "them", "they", "the company", "the entity", "the broker",
+        "the supplier", "the buyer", "the seller", "this company",
+        "this entity", "this broker", "this supplier", "this buyer",
+        "this seller", "that company", "that entity", "us", "we",
+        "the end user", "the end-user", "the counterparty",
+        "the intermediary", "the party", "the other party", "all of them",
+        "all of it", "everyone", "anyone", "the subject", "subject",
+    }
+
     for pattern, intent in _PATTERNS:
         m = pattern.search(msg)
         if not m:
@@ -253,6 +309,10 @@ async def try_local_response(message: str) -> dict:
         try:
             arg = (m.group(1) if m.groups() else "").strip().rstrip(".,?!;:")
             if not arg or len(arg) < 2:
+                continue
+            # Skip pronoun / self-reference captures on intent types
+            # where the entity name matters (sanctions/screen/contacts)
+            if intent in ("sanctions", "contacts") and arg.lower() in _INVALID_ENTITY_CAPTURES:
                 continue
 
             if intent == "sanctions":
