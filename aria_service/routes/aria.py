@@ -1266,6 +1266,27 @@ def _strip_listener_context(message: str) -> str:
     return stripped.strip()
 
 
+_ATTACHED_DOC_RE = __import__("re").compile(
+    r"\[ATTACHED DOCUMENT[^\]]*\](.*?)\[END ATTACHED DOCUMENT\]",
+    __import__("re").DOTALL,
+)
+
+
+def _extract_attached_document(message: str) -> str:
+    """Pull the raw document text out of a [ATTACHED DOCUMENT ... END ATTACHED
+    DOCUMENT] block the WhatsApp listener injected. Returns the inner text
+    stripped, or empty string if no block or a parse-failed block."""
+    if not message or "[ATTACHED DOCUMENT" not in message:
+        return ""
+    m = _ATTACHED_DOC_RE.search(message)
+    if not m:
+        return ""
+    inner = (m.group(1) or "").strip()
+    if "PARSE FAILED" in inner.upper() or len(inner) < 200:
+        return ""
+    return inner
+
+
 def _detect_tool_intent(message: str) -> dict | None:
     """Parse free-form text into a structured tool call. Returns None if no tool intent."""
     # Strip the WhatsApp listener context prefix BEFORE any pattern matching.
@@ -2324,6 +2345,44 @@ async def chat_ep(req: ChatRequest, request: Request):
         result["trace_id"] = trace_id
 
         response_text = (result or {}).get("response") or (result or {}).get("answer") or ""
+
+        # H1: contract self-review for chat / WhatsApp path.
+        # When the message contains an [ATTACHED DOCUMENT ...] block AND
+        # contract-review intent, run the same self_review_contract loop
+        # that the /api/contract/self-review endpoint uses. Previously
+        # this was API-only, so WhatsApp users got a regular chat reply
+        # with no second-pass audit. The self-review is capped to 60s and
+        # safely degrades to the original reply on any error.
+        try:
+            from ..intel import contract_review_principles as _cr
+            from ..intel import contract_intelligence as _ci
+            if (
+                response_text
+                and "[ATTACHED DOCUMENT" in (req.message or "")
+                and _cr.detect_review_intent(req.message)
+            ):
+                doc_text = _extract_attached_document(req.message)
+                if doc_text and len(doc_text) > 200:
+                    _log.info("[chat] contract self-review triggered (doc=%d chars)", len(doc_text))
+                    sr = await _ci.self_review_contract(doc_text, response_text, llm)
+                    if sr.get("self_reviewed") and sr.get("has_corrections"):
+                        findings = sr.get("findings", "")[:4000]
+                        response_text = (
+                            response_text
+                            + "\n\n──────────\n⚠ **Contract self-review audit**\n"
+                            + findings
+                        )
+                        result["response"] = response_text
+                        result["contract_self_review"] = {
+                            "has_corrections": True,
+                            "windows": sr.get("windows"),
+                            "truncated": sr.get("truncated", False),
+                        }
+                        _log.info("[chat] contract self-review appended corrections")
+                    elif sr.get("self_reviewed"):
+                        result["contract_self_review"] = {"has_corrections": False}
+        except Exception as _csr_err:
+            _log.debug("contract self-review (chat path) failed (non-fatal): %s", _csr_err)
 
         # ── Cited-source verification (deterministic hallucination check) ──
         try:

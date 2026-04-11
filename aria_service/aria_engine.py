@@ -1144,6 +1144,52 @@ async def _build_calibrated_system_prompt(message: str) -> str:
                                 correction_addendum.count("- "))
             except Exception as e2:
                 logger.debug("contract correction addendum failed: %s", e2)
+
+            # H4: explicitly pull the relevant international-law / export-control
+            # sections via RAG. Previously the 12 law sections were seeded into
+            # RAG but only surfaced if the user's question happened to match
+            # their phrasing — for contract reviews that rarely happened. Now
+            # we run targeted queries so the LLM always sees ATT / EUC / ITAR /
+            # UK Bribery Act / sanctions frameworks during contract review.
+            try:
+                from .intel import rag_store as _rs
+                law_queries = [
+                    "Arms Trade Treaty Article 7 risk assessment",
+                    "UK Bribery Act 2010 anti-bribery warranties contract",
+                    "End User Certificate EUC export licence obligation",
+                    "ITAR EAR US export control defence",
+                    "OFAC EU UK sanctions defence contract compliance",
+                ]
+                _msg_lc = (message or "").lower()
+                # Heuristic: add a country-specific query if a target market is
+                # named in the contract text, so e.g. a Turkish agreement pulls
+                # Turkey sanctions context.
+                for _cname in ("turkey", "angola", "saudi", "iran", "russia", "china",
+                               "uae", "nigeria", "mozambique", "pakistan", "israel"):
+                    if _cname in _msg_lc:
+                        law_queries.append(f"{_cname} arms export licence compliance 2026")
+                        break
+
+                _law_chunks: list[str] = []
+                for _lq in law_queries:
+                    try:
+                        _hit = await _rs.get_rag_context(_lq, max_chars=1200, top_k=2)
+                        if _hit and _hit.strip():
+                            _law_chunks.append(f"— query: {_lq}\n{_hit.strip()}")
+                    except Exception:
+                        continue
+
+                if _law_chunks:
+                    law_block = (
+                        "\n\n[INTERNATIONAL LAW CONTEXT — cite the frameworks below when "
+                        "making compliance determinations in this contract review. "
+                        "Respect any ⚠ STALE markers.]\n"
+                        + "\n\n".join(_law_chunks[:5])
+                    )
+                    addendum_parts.append(law_block)
+                    logger.info("[international_law] %d law chunks injected into contract review", len(_law_chunks))
+            except Exception as _law_e:
+                logger.debug("international_law injection failed: %s", _law_e)
     except Exception as e:
         logger.debug("contract_review_principles injection failed (non-fatal): %s", e)
 
@@ -1938,9 +1984,12 @@ async def aria_chat_stream(
         return _cb
 
     try:
-        await auto_extract_facts(message, response_text)
-    except Exception:
-        pass
+        # Intentional no-op until source_verifier verdict is plumbed here.
+        # auto_extract_facts now refuses to ingest without a grounded
+        # verifier verdict (see knowledge.py C4 fix).
+        await auto_extract_facts(message, response_text, tool_context=None, verifier_verdict=None)
+    except Exception as _aef_err:
+        logger.debug("auto_extract_facts (stream path) failed: %s", _aef_err)
 
     try:
         await neural_memory.learn_from_text(
