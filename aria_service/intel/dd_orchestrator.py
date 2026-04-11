@@ -127,16 +127,12 @@ async def _run_identity(
 
     # ── 1a. Sanctions screen (always runs) ──
     #
-    # Confidence tiering — not every fuzzy-match is a hard stop.
-    # OpenSanctions and similar aggregators return hits on any partial
-    # name match, and legitimate corporate names (BAE Systems, Thales,
-    # Rolls-Royce) routinely pull low-score matches from historical
-    # subsidiary records. The thresholds below match what commercial
-    # screening tools use:
-    #   score >= 0.90  → HARD STOP (very high confidence match)
-    #   score >= 0.75  → RED       (strong match, requires human review)
-    #   score >= 0.60  → AMBER     (plausible, investigate further)
-    #   < 0.60          → INFO      (noise, record but don't escalate)
+    # Classification is by BOTH score AND OpenSanctions topic labels.
+    # Not every match at score 1.00 is a hard stop — legitimate
+    # corporate entities (BAE Systems, Lockheed Martin, Rolls-Royce)
+    # routinely hit at 1.00 against transparency data like `corp.state`
+    # (state-owned / strategic industry lists), which is NOT a sanction.
+    # See _classify_sanctions_match() for the topic → severity mapping.
     try:
         from . import sanctions
         if hasattr(sanctions, "screen_with_aliases"):
@@ -150,54 +146,40 @@ async def _run_identity(
         report.identity.meta.subcalls += 1
 
         matches = screen.get("matches") or []
-        best_score = 0.0
-        for m in matches:
-            if isinstance(m, dict):
-                s = float(m.get("score") or m.get("confidence") or 0.0)
-            else:
-                s = 0.0
-            if s > best_score:
-                best_score = s
-        # Some backends put the score at the top level, not per match
-        top_score = float(screen.get("score") or 0.0)
-        if top_score > best_score:
-            best_score = top_score
-
-        if matches and best_score >= 0.90:
+        classified = _classify_sanctions_matches(matches)
+        # The overall severity is the worst single match.
+        if classified["worst_severity"] == "hard_stop":
             report.identity.findings.append(Finding(
                 severity="hard_stop",
-                title=f"Subject matches sanctions/PEP list (high confidence)",
-                detail=f"{len(matches)} match(es), top score {best_score:.2f}",
+                title=f"Subject on active sanctions list",
+                detail=classified["summary"],
                 source="sanctions.screen_with_aliases",
                 confidence="CONFIRMED",
             ))
             hard_stop = True
-        elif matches and best_score >= 0.75:
+        elif classified["worst_severity"] == "red":
             report.identity.findings.append(Finding(
                 severity="red",
-                title=f"Subject matches sanctions/PEP list (strong — human review required)",
-                detail=f"{len(matches)} match(es), top score {best_score:.2f}. "
-                       f"Verify manually before proceeding.",
+                title=f"Subject linked to crime/debarment/export-risk list",
+                detail=classified["summary"],
                 source="sanctions.screen_with_aliases",
                 confidence="PROBABLE",
             ))
-        elif matches and best_score >= 0.60:
+        elif classified["worst_severity"] == "amber":
             report.identity.findings.append(Finding(
                 severity="amber",
-                title=f"Plausible sanctions/PEP match",
-                detail=f"{len(matches)} low-confidence match(es), top score {best_score:.2f}. "
-                       f"Investigate but do not block.",
+                title=f"Subject on PEP or adverse-media list",
+                detail=classified["summary"] + " — enhanced DD required, not a refusal ground.",
                 source="sanctions.screen_with_aliases",
                 confidence="ASSESSED",
             ))
-        elif matches:
-            # Matches exist but all low-score — record as info, not escalation
+        elif classified["worst_severity"] == "info":
             report.identity.findings.append(Finding(
                 severity="info",
-                title=f"Low-confidence sanctions fuzzy match",
-                detail=f"{len(matches)} match(es), top score {best_score:.2f} — below action threshold",
+                title=f"Subject on transparency / state-ownership register",
+                detail=classified["summary"] + " — informational only, not a refusal ground.",
                 source="sanctions.screen_with_aliases",
-                confidence="UNCERTAIN",
+                confidence="ASSESSED",
             ))
     except Exception as e:
         logger.warning("Identity: sanctions screen failed: %s", e)
@@ -849,6 +831,130 @@ def _map_activity(declared: Optional[str]) -> Optional[str]:
     if any(k in d for k in ("general trading", "holding", "investment holding", "management services", "not elsewhere classified")):
         return "generic_holding"
     return "specific_aligned"
+
+
+# OpenSanctions topic → severity mapping for sanctions screens.
+# Source: https://www.opensanctions.org/reference/#topics
+#
+# Only topics on the LIST below escalate. Anything else is noise.
+# This is the key discipline: a legitimate defence prime like BAE
+# Systems will hit `corp.state` (state-connected corporation) at
+# score 1.00, but that is a transparency data point, not grounds
+# for refusal.
+_TOPIC_SEVERITY: dict[str, str] = {
+    # Hard stops — active sanction / asset freeze / prohibited
+    "sanction":         "hard_stop",
+    "sanction.linked":  "hard_stop",
+    "sanction.counter": "hard_stop",
+    "asset.frozen":     "hard_stop",
+    "export.control":   "hard_stop",
+    "export.risk":      "hard_stop",
+    "debarment":        "red",
+    # Crime-related — requires human review before proceeding
+    "crime":            "red",
+    "crime.fin":        "red",
+    "crime.fraud":      "red",
+    "crime.theft":      "red",
+    "crime.war":        "red",
+    "crime.terror":     "red",
+    "crime.traffick":   "red",
+    "crime.cyber":      "red",
+    "crime.env":        "red",
+    "crime.boss":       "red",
+    "crime.org":        "red",
+    "wanted":           "red",
+    # PEPs and political — enhanced DD but not a refusal
+    "role.pep":         "amber",
+    "role.pol":         "amber",
+    "role.rca":         "amber",
+    "role.judge":       "amber",
+    "role.civil":       "info",
+    "role.diplo":       "info",
+    # Corporate transparency — informational only
+    "corp.public":      "info",
+    "corp.state":       "info",
+    "corp.disqual":     "amber",  # Companies House disqualifications
+    "corp.offshore":    "info",
+    "role.acting":      "info",
+    "fin":              "info",
+    "fin.bank":         "info",
+    "fin.fund":         "info",
+    "fin.adivsor":      "info",
+    "reg.warn":         "amber",
+    "reg.action":       "red",
+    "gov":              "info",
+    "gov.national":     "info",
+    "gov.state":        "info",
+    "gov.muni":         "info",
+    "gov.soe":          "info",
+    "gov.igo":          "info",
+    "mil":              "info",
+    "poi":              "info",
+    # Residency / travel / transparency signals
+    "frozen":           "hard_stop",
+}
+
+_SEVERITY_RANK = {"info": 0, "amber": 1, "red": 2, "hard_stop": 3}
+
+
+def _classify_sanctions_matches(matches: list[dict]) -> dict:
+    """Classify a set of OpenSanctions matches into a single severity
+    band using the topic → severity map above. The overall severity is
+    the worst individual match. Returns a dict with `worst_severity`,
+    `summary` (short human text), and `per_match` breakdown for audit.
+    """
+    if not matches:
+        return {"worst_severity": "none", "summary": "no matches", "per_match": []}
+
+    per_match: list[dict] = []
+    worst = "info"
+    worst_rank = -1
+    # Only consider high-score matches for escalation — anything below
+    # 0.75 is fuzzy noise regardless of topic.
+    SCORE_FLOOR_FOR_ESCALATION = 0.75
+    for m in matches:
+        if not isinstance(m, dict):
+            continue
+        score = float(m.get("score") or 0.0)
+        topics = m.get("topics") or []
+        # Classify by highest-severity topic; default to info.
+        match_severity = "info"
+        for t in topics:
+            sev = _TOPIC_SEVERITY.get(t, "info")
+            if _SEVERITY_RANK[sev] > _SEVERITY_RANK[match_severity]:
+                match_severity = sev
+        # Any topic at amber or above needs a strong score to escalate.
+        # Below the floor, demote to info.
+        if _SEVERITY_RANK[match_severity] >= 1 and score < SCORE_FLOOR_FOR_ESCALATION:
+            match_severity = "info"
+        per_match.append({
+            "name":     m.get("name"),
+            "score":    score,
+            "topics":   topics,
+            "datasets": m.get("lists") or m.get("datasets") or [],
+            "severity": match_severity,
+        })
+        if _SEVERITY_RANK[match_severity] > worst_rank:
+            worst = match_severity
+            worst_rank = _SEVERITY_RANK[match_severity]
+
+    # Build a compact human-readable summary of the worst-class matches.
+    worst_matches = [pm for pm in per_match if pm["severity"] == worst]
+    parts: list[str] = []
+    for pm in worst_matches[:3]:
+        topics_str = ",".join(pm["topics"][:3]) or "untagged"
+        lists_str = ",".join(pm["datasets"][:2]) if pm["datasets"] else ""
+        parts.append(f"{pm['name']} (score {pm['score']:.2f}, topics: {topics_str}{', lists: ' + lists_str if lists_str else ''})")
+    summary = "; ".join(parts) + (f" [+{len(worst_matches)-3} more]" if len(worst_matches) > 3 else "")
+    if not summary:
+        summary = f"{len(per_match)} matches — all below action threshold"
+
+    return {
+        "worst_severity": worst,
+        "summary": summary,
+        "per_match": per_match,
+        "total_matches": len(per_match),
+    }
 
 
 # =============================================================================
