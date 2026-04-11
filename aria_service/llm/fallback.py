@@ -111,51 +111,50 @@ class FallbackProvider(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 60.0,
     ) -> LLMResult:
-        """Try each provider in order. The caller's `timeout` is the TOTAL
-        budget for the fallback call, NOT the per-provider budget — we
-        divide it across the eligible providers so the worst case stays
-        bounded. Without this, a 120s caller budget produced a 360s
-        worst-case (3 providers × 120s each) and blew through the
-        outer waListener 240s cap. Incident 2026-04-11 21:06: Hanwha
-        Redback research prompt timed out after Anthropic stalled."""
+        """Try each provider in order. The caller's `timeout` is the
+        budget for the PRIMARY provider. If the primary fails FAST (e.g.
+        rate-limit, 500 error, quick connect refusal), the secondary
+        provider gets whatever time is left in the caller's budget after
+        accounting for elapsed time. If the primary fails SLOW (burns
+        the whole budget on a timeout), we don't try the secondary at
+        all — the outer caller's wall clock is already exhausted.
+
+        Previous design (2026-04-11 first pass) split the timeout
+        evenly — each provider got (caller_timeout * 0.9) / N. With
+        N=2 and caller=75s that gave each provider ~34s, which is too
+        short for a real LLM synthesis call on a 4KB context, and both
+        providers then timed out mid-generation. Hanwha Redback
+        incident (2026-04-11 22:21) surfaced this.
+
+        New design: primary gets full budget, secondary gets remainder.
+        """
         last_error = None
         import time as _t
         t_start = _t.monotonic()
 
-        # Build the eligible provider shortlist first so we know how to
-        # divide the timeout. Providers in cool-down are skipped here,
-        # not inside the loop, so the divisor is accurate.
-        eligible = []
         for provider in self.providers:
             stats = self._stats.get(provider.name, {})
             if self._should_skip(stats):
                 logger.debug("Skipping %s (cooling down, %d recent failures)",
                              provider.name, stats.get("failures", 0))
                 continue
-            eligible.append(provider)
 
-        if not eligible:
-            raise ProviderError(
-                "fallback", "no eligible providers (all in cool-down)",
-                kind="other", retryable=True,
-            )
-
-        # Per-provider share of the budget. Leave a 10% headroom so the
-        # last provider isn't cut off right as it's about to return.
-        share = max(20.0, (timeout * 0.9) / max(1, len(eligible)))
-
-        for i, provider in enumerate(eligible):
-            stats = self._stats.get(provider.name, {})
             elapsed = _t.monotonic() - t_start
-            remaining_total = max(0.0, timeout - elapsed)
-            # Each provider gets min(share, remaining). Bail out if no budget left.
-            per_call = min(share, remaining_total)
-            if per_call < 15.0:
+            remaining = max(0.0, timeout - elapsed)
+            # Skip this provider if the outer budget is effectively spent.
+            # 15s is the floor for any useful LLM call.
+            if remaining < 15.0:
                 logger.warning(
                     "Fallback budget exhausted (%.1fs remaining); skipping %s",
-                    remaining_total, provider.name,
+                    remaining, provider.name,
                 )
                 break
+            # Each provider gets min(caller_timeout, remaining). The
+            # primary sees the full caller_timeout; the secondary sees
+            # whatever is left after the primary either succeeded fast
+            # or failed fast.
+            per_call = min(timeout, remaining)
+
             try:
                 stats["calls"] = stats.get("calls", 0) + 1
                 result = await provider.complete(

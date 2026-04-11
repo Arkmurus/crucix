@@ -1684,14 +1684,16 @@ async def aria_chat(
     # past errors. This is the closed loop: confidence calibration → behaviour.
     system_prompt = await _build_calibrated_system_prompt(message)
 
-    # Timeout tuning: when the message already carries a tool_context block
-    # (deep_research, dd_orchestrate, extract_url, …) the LLM's job is
-    # narrative synthesis over pre-fetched data, NOT reasoning from
-    # scratch — it completes much faster AND the outer waListener / server
-    # timeout has already burned ~60s on the tool call. Use 75s here so
-    # the fallback chain has room to try a second provider if the primary
-    # stalls. Non-tool chat keeps the full 120s budget.
-    _llm_timeout = 75.0 if "[TOOL:" in message or "[I have already run" in message else 120.0
+    # Timeout tuning: tool-context chats (deep_research, dd_orchestrate,
+    # extract_url) require narrative synthesis over 4-10KB of pre-fetched
+    # data — that's 30-90s of real LLM work, so we can't give it much
+    # less than the base 120s without killing it mid-generation. 100s
+    # gives the primary provider room and still leaves 20-40s in the
+    # caller's outer budget for the secondary fallback on a FAST primary
+    # failure (rate-limit, 500 error). 2026-04-11 Hanwha incident:
+    # the first attempt at 75s was too tight and both Anthropic and
+    # DeepSeek timed out mid-generation.
+    _llm_timeout = 100.0 if "[TOOL:" in message or "[I have already run" in message else 120.0
 
     try:
         result = await llm.complete(system_prompt, user_prompt, max_tokens=4000, timeout=_llm_timeout)
