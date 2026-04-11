@@ -1145,30 +1145,85 @@ async def _build_calibrated_system_prompt(message: str) -> str:
             except Exception as e2:
                 logger.debug("contract correction addendum failed: %s", e2)
 
-            # H4: explicitly pull the relevant international-law / export-control
-            # sections via RAG. Previously the 12 law sections were seeded into
-            # RAG but only surfaced if the user's question happened to match
-            # their phrasing — for contract reviews that rarely happened. Now
-            # we run targeted queries so the LLM always sees ATT / EUC / ITAR /
-            # UK Bribery Act / sanctions frameworks during contract review.
+            # H4: explicitly pull the relevant international-law / export-
+            # control / regional-compliance / DD-playbook sections via RAG.
+            # ARIA is a GLOBAL defence broking advisor — every contract
+            # review gets the full universal layer pulled in, plus any
+            # regional blocs implicated by country mentions in the text.
             try:
                 from .intel import rag_store as _rs
                 law_queries = [
+                    # Universal treaty layer (international_law.py)
                     "Arms Trade Treaty Article 7 risk assessment",
                     "UK Bribery Act 2010 anti-bribery warranties contract",
                     "End User Certificate EUC export licence obligation",
-                    "ITAR EAR US export control defence",
-                    "OFAC EU UK sanctions defence contract compliance",
+                    "FATF AML CFT suspicious activity defence",
+                    # Global export control framework (global_export_control.py)
+                    "UK SIEL SITCL OGEL trade control brokering",
+                    "US ITAR USML DDTC DSP-5 TAA defence article",
+                    "EU Common Military List dual-use regulation 2021/821",
+                    "Wassenaar Arrangement munitions list dual-use",
+                    "OFAC SDN CAATSA 231 sanctions defence contract",
+                    # Due diligence playbooks (due_diligence_playbooks.py)
+                    "beneficial ownership UBO extraction 25 percent chain",
+                    "ghost company shell scoring indicators red flags",
+                    # Risk indices (risk_indices.py)
+                    "country risk FATF greylist Basel AML CPI governance",
                 ]
                 _msg_lc = (message or "").lower()
-                # Heuristic: add a country-specific query if a target market is
-                # named in the contract text, so e.g. a Turkish agreement pulls
-                # Turkey sanctions context.
-                for _cname in ("turkey", "angola", "saudi", "iran", "russia", "china",
-                               "uae", "nigeria", "mozambique", "pakistan", "israel"):
-                    if _cname in _msg_lc:
-                        law_queries.append(f"{_cname} arms export licence compliance 2026")
-                        break
+                # Regional-bloc queries: pull the relevant regional framework
+                # based on country mentions. This covers ALL major blocs
+                # (not just one region), matching ARIA's global positioning.
+                _region_map = [
+                    (("nigeria", "ghana", "senegal", "guinea", "mali", "burkina",
+                      "niger", "benin", "togo", "liberia", "sierra leone", "cote",
+                      "ivoire", "gambia", "cabo verde", "cape verde"),
+                     "ECOWAS SALW Convention broker registration end-user certificate"),
+                    (("angola", "mozambique", "south africa", "namibia", "botswana",
+                      "zambia", "zimbabwe", "tanzania", "malawi", "madagascar"),
+                     "SADC Firearms Protocol regional register transfer"),
+                    (("kenya", "rwanda", "uganda", "burundi", "somalia",
+                      "south sudan", "ethiopia"),
+                     "EAC East African Community Nairobi Protocol SALW"),
+                    (("morocco", "algeria", "tunisia", "libya", "egypt"),
+                     "AU North Africa arms control Sahel security"),
+                    (("saudi", "uae", "emirates", "qatar", "kuwait", "bahrain",
+                      "oman"),
+                     "GCC United Arab List customs union peninsula shield"),
+                    (("indonesia", "malaysia", "vietnam", "philippines",
+                      "thailand", "singapore", "myanmar", "brunei", "cambodia",
+                      "laos"),
+                     "ASEAN TAC ARF ADMM-Plus arms transparency"),
+                    (("japan", "korea", "australia", "new zealand", "taiwan",
+                      "india"),
+                     "QUAD AUKUS pillar-2 FPDA US-alliance interoperability"),
+                    (("brazil", "argentina", "chile", "peru", "colombia",
+                      "mexico", "uruguay", "paraguay"),
+                     "OAS MERCOSUR CIFTA inter-american arms transparency"),
+                    (("russia", "belarus", "armenia", "kazakhstan",
+                      "kyrgyzstan", "tajikistan", "uzbekistan", "turkmenistan",
+                      "georgia", "azerbaijan", "moldova", "ukraine"),
+                     "CIS CSTO SCO EAEU Russia sanctions evasion re-export"),
+                    (("nato", "eu", "germany", "france", "italy", "spain",
+                      "poland", "romania", "czech", "netherlands", "belgium",
+                      "portugal", "greece", "finland", "sweden", "norway",
+                      "denmark", "austria", "slovakia", "hungary", "bulgaria",
+                      "croatia", "slovenia", "estonia", "latvia", "lithuania",
+                      "ireland", "luxembourg"),
+                     "NATO STANAG EU EDF PESCO CFSP 2008/944"),
+                    (("turkey", "turkiye"),
+                     "Turkey SSB Baykar ASELSAN ROKETSAN export authorisation"),
+                    (("israel",),
+                     "Israel DECA IMOD marketing licence export control"),
+                    (("china",),
+                     "China Export Control Law 2020 SASTIND NORINCO counter-sanctions"),
+                    (("iran", "north korea", "dprk"),
+                     "UN sanctions arms embargo FATF blacklist prohibited"),
+                ]
+                for _keywords, _query in _region_map:
+                    if any(k in _msg_lc for k in _keywords):
+                        law_queries.append(_query)
+                        break  # one regional query is enough
 
                 _law_chunks: list[str] = []
                 for _lq in law_queries:

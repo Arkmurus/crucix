@@ -437,9 +437,21 @@ async def lifespan(app: FastAPI):
         logger.warning("Autonomous engine bootstrap failed (non-fatal): %s", e)
 
     # ── Knowledge seeding (background) ─────────────────────────────────
-    # Seed the international law library and register corpus manager URLs
-    # on startup. Runs after RAG store is warm (25s delay). Idempotent —
-    # rag_store.ingest_document() deduplicates by source URL.
+    # Seed the full knowledge corpus on startup. Runs after RAG store is
+    # warm (25s delay). Idempotent — rag_store.ingest_document()
+    # deduplicates by source URL. Five modules get ingested in order:
+    #   1. international_law            (LOAC/IHL, ATT, sanctions, AML, …)
+    #   2. global_export_control        (UK/US/EU/Wassenaar/MTCR/NSG/AG/CWC
+    #                                    + national regimes TR/IL/KR/JP/BR/
+    #                                    IN/RU/CN/AE)
+    #   3. regional_compliance          (NATO, EU, AU/ECOWAS/SADC/EAC, GCC,
+    #                                    ASEAN/Quad/AUKUS, OAS/MERCOSUR,
+    #                                    CIS/CSTO/SCO, OSCE, UNROCA)
+    #   4. due_diligence_playbooks      (UBO extraction + ghost scoring)
+    #   5. risk_indices                 (CPI, Basel AML, FATF, WGI, EITI,
+    #                                    GPI, GTI, OECD CRC)
+    #   6. international_law sources    (crawl registration for refresh)
+    #   7. contract_intelligence.ingest_clause_library (clause library)
     async def _seed_knowledge_bg():
         await asyncio.sleep(25)  # Wait for RAG + sentence-transformers
         try:
@@ -451,6 +463,42 @@ async def lifespan(app: FastAPI):
                         result.get("total_chunks", 0))
         except Exception as e:
             logger.warning("[Knowledge Seed] Law ingestion failed (non-fatal): %s", e)
+        try:
+            from .intel import global_export_control
+            result = await global_export_control.ingest_all_sections()
+            logger.info("[Knowledge Seed] Global export control: %d/%d sections, %d chunks",
+                        result.get("sections_ingested", 0),
+                        result.get("total_sections", 0),
+                        result.get("total_chunks", 0))
+        except Exception as e:
+            logger.warning("[Knowledge Seed] Global export control ingestion failed (non-fatal): %s", e)
+        try:
+            from .intel import regional_compliance
+            result = await regional_compliance.ingest_all_sections()
+            logger.info("[Knowledge Seed] Regional compliance: %d/%d sections, %d chunks",
+                        result.get("sections_ingested", 0),
+                        result.get("total_sections", 0),
+                        result.get("total_chunks", 0))
+        except Exception as e:
+            logger.warning("[Knowledge Seed] Regional compliance ingestion failed (non-fatal): %s", e)
+        try:
+            from .intel import due_diligence_playbooks
+            result = await due_diligence_playbooks.ingest_all_sections()
+            logger.info("[Knowledge Seed] DD playbooks: %d/%d sections, %d chunks",
+                        result.get("sections_ingested", 0),
+                        result.get("total_sections", 0),
+                        result.get("total_chunks", 0))
+        except Exception as e:
+            logger.warning("[Knowledge Seed] DD playbooks ingestion failed (non-fatal): %s", e)
+        try:
+            from .intel import risk_indices
+            result = await risk_indices.ingest_all_sections()
+            logger.info("[Knowledge Seed] Risk indices: %d/%d sections, %d chunks",
+                        result.get("sections_ingested", 0),
+                        result.get("total_sections", 0),
+                        result.get("total_chunks", 0))
+        except Exception as e:
+            logger.warning("[Knowledge Seed] Risk indices ingestion failed (non-fatal): %s", e)
         try:
             from .intel import international_law
             reg = await international_law.register_law_sources()
