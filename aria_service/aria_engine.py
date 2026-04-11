@@ -1756,8 +1756,8 @@ async def aria_chat_stream(
             session["messages"] = history[-MAX_TURNS * 2:]
             session["updatedAt"] = time.time()
             await _save_session(session_id, session)
-        except Exception:
-            pass
+        except Exception as _sess_err:
+            logger.debug("session save failed (trivial path, non-fatal): %s", _sess_err)
         yield _emit("chunk", text=_trivial)
         yield _emit("done", session_id=session_id, trivial=True)
         return
@@ -1804,8 +1804,8 @@ async def aria_chat_stream(
                 session["messages"] = history[-MAX_TURNS * 2:]
                 session["updatedAt"] = time.time()
                 await _save_session(session_id, session)
-            except Exception:
-                pass
+            except Exception as _sess_err:
+                logger.debug("session save failed (local path, non-fatal): %s", _sess_err)
             yield _emit("chunk", text=local_attempt["response"])
             yield _emit("done", session_id=session_id, source="local", independent=True)
             return
@@ -1827,14 +1827,16 @@ async def aria_chat_stream(
     try:
         neural_ctx = await neural_memory.get_neural_context(message)
         _neural_ctx_var.set(neural_ctx)
-    except Exception:
+    except Exception as _nm_err:
+        logger.debug("neural_memory ctx failed (non-fatal): %s", _nm_err)
         _neural_ctx_var.set("")
 
     try:
         from .intel import rag_store
         rag_ctx = await rag_store.get_rag_context(message, max_chars=6000)
         _rag_ctx_var.set(rag_ctx)
-    except Exception:
+    except Exception as _rag_err:
+        logger.debug("rag_store ctx failed (non-fatal): %s", _rag_err)
         _rag_ctx_var.set("")
 
     import asyncio as _aio

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import httpx
 import logging
-from .provider import LLMProvider, LLMResult
+from .provider import LLMProvider, LLMResult, ProviderError
 
 logger = logging.getLogger("aria.llm.openai")
 
@@ -60,14 +60,27 @@ class OpenAICompatProvider(LLMProvider):
             ],
         }
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(
+                    f"{self._base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                if resp.status_code >= 400:
+                    body = ""
+                    try:
+                        body = resp.text[:300]
+                    except Exception:
+                        pass
+                    raise ProviderError.from_http_status(self.name, resp.status_code, body)
+                data = resp.json()
+        except ProviderError:
+            raise
+        except httpx.TimeoutException as e:
+            raise ProviderError(self.name, "timeout", kind="timeout", retryable=True, cause=e)
+        except httpx.HTTPError as e:
+            raise ProviderError(self.name, f"network error: {e}", kind="other", retryable=True, cause=e)
 
         choice = data.get("choices", [{}])[0]
         usage = data.get("usage", {})

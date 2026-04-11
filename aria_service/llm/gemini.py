@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import httpx
 import logging
-from .provider import LLMProvider, LLMResult
+from .provider import LLMProvider, LLMResult, ProviderError
 
 logger = logging.getLogger("aria.llm.gemini")
 
@@ -39,10 +39,18 @@ class GeminiProvider(LLMProvider):
             "generationConfig": {"maxOutputTokens": max_tokens},
         }
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(url, json=payload)
+                if resp.status_code >= 400:
+                    raise ProviderError.from_http_status(self.name, resp.status_code, resp.text[:300])
+                data = resp.json()
+        except ProviderError:
+            raise
+        except httpx.TimeoutException as e:
+            raise ProviderError(self.name, "timeout", kind="timeout", retryable=True, cause=e)
+        except httpx.HTTPError as e:
+            raise ProviderError(self.name, f"network error: {e}", kind="other", retryable=True, cause=e)
 
         text = ""
         candidates = data.get("candidates", [])

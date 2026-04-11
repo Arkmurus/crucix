@@ -12,7 +12,7 @@ import logging
 import time
 from typing import Optional
 
-from .provider import LLMProvider, LLMResult
+from .provider import LLMProvider, LLMResult, ProviderError
 from .factory import create_llm_provider
 
 logger = logging.getLogger("aria.llm.fallback")
@@ -26,7 +26,10 @@ class FallbackProvider(LLMProvider):
         self.providers = [p for p in providers if p and p.is_configured]
         self._stats: dict[str, dict] = {}
         for p in self.providers:
-            self._stats[p.name] = {"calls": 0, "failures": 0, "last_failure": 0}
+            self._stats[p.name] = {
+                "calls": 0, "failures": 0, "last_failure": 0,
+                "cooldown_until": 0, "last_kind": "",
+            }
 
         if self.providers:
             logger.info(
@@ -40,26 +43,65 @@ class FallbackProvider(LLMProvider):
     def is_configured(self) -> bool:
         return len(self.providers) > 0
 
+    # Cooldown policy:
+    #   - auth / billing failures: HARD cooldown 30 min — these don't fix themselves
+    #   - rate_limit:              short 60s cooldown — transient
+    #   - server / timeout / other: 60s cooldown after 2 consecutive failures
+    # Any success resets the provider entirely. This prevents the old trap
+    # where 3 transient failures within 5 min locked the whole chain into
+    # "All LLM providers failed".
+    _HARD_COOLDOWN_SECONDS = 1800
+    _SOFT_COOLDOWN_SECONDS = 60
+
+    def _cooldown_until(self, stats: dict) -> float:
+        return stats.get("cooldown_until", 0)
+
     def _should_skip(self, stats: dict) -> bool:
-        """Check if a provider is in cooldown."""
-        return (
-            stats.get("last_failure", 0) > time.time() - 300
-            and stats.get("failures", 0) > 3
-        )
+        return self._cooldown_until(stats) > time.time()
 
     def _record_success(self, provider, stats: dict):
-        if stats.get("failures", 0) > 0:
-            logger.info("Provider %s recovered after %d failures",
-                        provider.name, stats["failures"])
+        if stats.get("failures", 0) > 0 or stats.get("cooldown_until", 0) > 0:
+            logger.info("Provider %s recovered — resetting failure stats", provider.name)
         stats["failures"] = 0
+        stats["cooldown_until"] = 0
+        stats["last_kind"] = ""
 
     def _record_failure(self, provider, stats: dict, error: Exception):
         stats["failures"] = stats.get("failures", 0) + 1
         stats["last_failure"] = time.time()
-        logger.warning(
-            "Provider %s failed (attempt %d): %s — trying next",
-            provider.name, stats["failures"], str(error)[:200],
-        )
+
+        # Classify by ProviderError kind when possible
+        kind = getattr(error, "kind", None) or "other"
+        retryable = getattr(error, "retryable", True)
+        stats["last_kind"] = kind
+
+        now = time.time()
+        if kind in ("auth", "billing") or not retryable:
+            stats["cooldown_until"] = now + self._HARD_COOLDOWN_SECONDS
+            logger.error(
+                "Provider %s HARD cooldown (%s) for %ds: %s",
+                provider.name, kind, self._HARD_COOLDOWN_SECONDS, str(error)[:200],
+            )
+        elif kind == "rate_limit":
+            stats["cooldown_until"] = now + self._SOFT_COOLDOWN_SECONDS
+            logger.warning(
+                "Provider %s rate-limited, soft cooldown %ds",
+                provider.name, self._SOFT_COOLDOWN_SECONDS,
+            )
+        else:
+            # Only cool down after 2 consecutive failures for soft errors.
+            if stats["failures"] >= 2:
+                stats["cooldown_until"] = now + self._SOFT_COOLDOWN_SECONDS
+                logger.warning(
+                    "Provider %s soft cooldown %ds after %d failures: %s",
+                    provider.name, self._SOFT_COOLDOWN_SECONDS,
+                    stats["failures"], str(error)[:200],
+                )
+            else:
+                logger.warning(
+                    "Provider %s failed (%d): %s — trying next",
+                    provider.name, stats["failures"], str(error)[:200],
+                )
 
     async def complete(
         self,
@@ -92,7 +134,16 @@ class FallbackProvider(LLMProvider):
                 self._record_failure(provider, stats, e)
                 last_error = e
 
-        raise last_error or RuntimeError("All LLM providers failed")
+        # Wrap the final error as a ProviderError so downstream handlers
+        # (streaming generator, route handlers, degraded-mode catchers)
+        # can render a user-safe message instead of a vendor URL.
+        if isinstance(last_error, ProviderError):
+            raise last_error
+        raise ProviderError(
+            "fallback",
+            "all LLM providers failed — try again in a minute",
+            kind="other", retryable=True, cause=last_error,
+        )
 
     async def stream(
         self,
@@ -126,7 +177,13 @@ class FallbackProvider(LLMProvider):
                 self._record_failure(provider, stats, e)
                 last_error = e
 
-        raise last_error or RuntimeError("All LLM providers failed (stream)")
+        if isinstance(last_error, ProviderError):
+            raise last_error
+        raise ProviderError(
+            "fallback",
+            "all LLM providers failed (stream) — try again in a minute",
+            kind="other", retryable=True, cause=last_error,
+        )
 
     def get_stats(self) -> dict:
         """Get reliability stats for all providers."""
@@ -137,9 +194,9 @@ class FallbackProvider(LLMProvider):
                 "reliability": round(
                     1 - (s.get("failures", 0) / max(s.get("calls", 1), 1)), 3
                 ),
-                "status": "cooling_down"
-                    if s.get("last_failure", 0) > time.time() - 300 and s.get("failures", 0) > 3
-                    else "active",
+                "status": "cooling_down" if s.get("cooldown_until", 0) > time.time() else "active",
+                "cooldown_until": s.get("cooldown_until", 0),
+                "last_kind": s.get("last_kind", ""),
             }
             for name, s in self._stats.items()
         }
@@ -183,12 +240,28 @@ def create_fallback_chain(
                     if cfg_name == name:
                         fallback_configs[i] = (name, key, model)
 
+    _dropped = []
     for name, key, model in fallback_configs:
-        if not key or name == primary_provider:
+        if name == primary_provider:
+            continue
+        if not key:
+            _dropped.append((name, "missing API key"))
             continue
         fb = create_llm_provider(name, key, model)
         if fb and fb.is_configured:
             providers.append(fb)
+        else:
+            _dropped.append((name, "provider returned not-configured"))
+
+    # Loudly announce the final state — ops needs to see both what's
+    # active and what got silently dropped, because a missing
+    # ANTHROPIC_API_KEY used to hide itself until DeepSeek hit a 402.
+    if providers:
+        logger.info("LLM fallback chain active: %s", " → ".join(p.name for p in providers))
+    else:
+        logger.error("LLM fallback chain EMPTY — no provider configured!")
+    for name, reason in _dropped:
+        logger.warning("LLM fallback '%s' skipped — %s. Set its env var to enable resilience.", name, reason)
 
     if len(providers) <= 1:
         # No fallbacks available, return primary directly

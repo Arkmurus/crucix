@@ -13,7 +13,7 @@ import logging
 from collections.abc import AsyncGenerator, Callable
 from typing import Optional
 
-from .provider import LLMProvider, LLMResult
+from .provider import LLMProvider, LLMResult, ProviderError
 
 logger = logging.getLogger("aria.llm.anthropic")
 
@@ -90,7 +90,8 @@ class AnthropicProvider(LLMProvider):
                         last_error = await self._handle_rate_limit(resp, attempt)
                         continue
 
-                    resp.raise_for_status()
+                    if resp.status_code >= 400:
+                        raise ProviderError.from_http_status(self.name, resp.status_code, resp.text[:300])
                     data = resp.json()
 
                     text = ""
@@ -106,8 +107,10 @@ class AnthropicProvider(LLMProvider):
                         model=data.get("model", self._model),
                     )
 
-            except httpx.HTTPStatusError:
+            except ProviderError:
                 raise
+            except httpx.TimeoutException as e:
+                raise ProviderError(self.name, "timeout", kind="timeout", retryable=True, cause=e)
             except Exception as e:
                 last_error = e
                 if attempt < _MAX_RETRIES - 1:
@@ -158,7 +161,9 @@ class AnthropicProvider(LLMProvider):
                             last_error = await self._handle_rate_limit(resp, attempt)
                             continue
 
-                        resp.raise_for_status()
+                        if resp.status_code >= 400:
+                            await resp.aread()
+                            raise ProviderError.from_http_status(self.name, resp.status_code)
 
                         # Parse the SSE event stream
                         full_text = ""
@@ -214,8 +219,10 @@ class AnthropicProvider(LLMProvider):
                             ))
                         return  # success — exit retry loop
 
-            except httpx.HTTPStatusError:
+            except ProviderError:
                 raise
+            except httpx.TimeoutException as e:
+                raise ProviderError(self.name, "stream timeout", kind="timeout", retryable=True, cause=e)
             except Exception as e:
                 last_error = e
                 if attempt < _MAX_RETRIES - 1:

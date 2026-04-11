@@ -1891,10 +1891,10 @@ async def _execute_tool(intent: dict, llm) -> str:
             )
             # Defensive: handle either task throwing
             if isinstance(r, Exception):
-                logger.warning("extract_url_deep failed: %s", r)
+                _log.warning("extract_url_deep failed: %s", r)
                 r = {"extraction_ok": False, "error": str(r)[:200], "url": intent["url"]}
             if isinstance(search_r, Exception):
-                logger.warning("web_search parallel call failed: %s", search_r)
+                _log.warning("web_search parallel call failed: %s", search_r)
                 search_r = {"ok": False, "results": [], "error": str(search_r)[:200], "provider": "none"}
             if not r.get("extraction_ok"):
                 return (
@@ -2061,7 +2061,7 @@ async def _execute_tool(intent: dict, llm) -> str:
                     if ch_block:
                         base += ch_block
             except Exception as e:
-                logger.debug("Auto Companies House lookup failed (non-fatal): %s", e)
+                _log.debug("Auto Companies House lookup failed (non-fatal): %s", e)
 
             # ── AUTO-CHAIN: sanctions screen after every investigation ──
             # Ensures ARIA never says "sanctions — not performed". The
@@ -2086,7 +2086,7 @@ async def _execute_tool(intent: dict, llm) -> str:
                         f"Top score: {screen_r.get('top_score', 0)}"
                     )
             except Exception as e:
-                logger.debug("Auto sanctions screen failed (non-fatal): %s", e)
+                _log.debug("Auto sanctions screen failed (non-fatal): %s", e)
                 base += "\n\n[TOOL: auto_sanctions_screen — FAILED (non-fatal)]"
 
             return base
@@ -2119,7 +2119,7 @@ async def _execute_tool(intent: dict, llm) -> str:
                     if ch_r and ch_r.get("found"):
                         base += _ch.format_for_prompt(ch_r)
             except Exception as e:
-                logger.debug("Auto CH lookup on profile failed: %s", e)
+                _log.debug("Auto CH lookup on profile failed: %s", e)
 
             # Auto-chain sanctions screen on profile builds
             try:
@@ -2571,17 +2571,49 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         if tool_used:
             yield f'data: {json.dumps({"type":"status","message":f"Tool: {tool_used} completed. Generating response..."})}\n\n'
 
-        async for event in aria_chat_stream(message_for_llm, session_id, llm, intel):
-            yield f'data: {json.dumps(event)}\n\n'
+        # Import here to avoid top-level cycle and get the structured error type.
+        from ..llm.provider import ProviderError
 
-            # Inject tool_used into the done event
-            if event.get("type") == "done" and tool_used:
-                # Already yielded — we'll inject via a separate metadata event
+        try:
+            async for event in aria_chat_stream(message_for_llm, session_id, llm, intel):
+                yield f'data: {json.dumps(event)}\n\n'
+
+                # Inject tool_used into the done event
+                if event.get("type") == "done" and tool_used:
+                    # Already yielded — we'll inject via a separate metadata event
+                    pass
+
+            # If tool was used, send a supplementary metadata event
+            if tool_used:
+                yield f'data: {json.dumps({"type":"meta","tool_used":tool_used})}\n\n'
+
+        except ProviderError as pe:
+            # Structured upstream failure — render a short, user-safe message.
+            # Never leak the vendor URL or raw HTTP body to the client.
+            kind = getattr(pe, "kind", "other")
+            if kind == "billing":
+                msg = "⚠️ Primary model is out of credit and the fallback is unavailable. Ops has been notified."
+            elif kind == "auth":
+                msg = "⚠️ Model provider authentication failed. Ops has been notified."
+            elif kind == "rate_limit":
+                msg = "⚠️ Rate limited across providers — please retry in ~30s."
+            elif kind == "timeout":
+                msg = "⚠️ Upstream model timed out. Please retry; if it persists, switch to a shorter question."
+            else:
+                msg = "⚠️ Temporary model failure. Please retry in a minute."
+            _log.exception("ProviderError in SSE stream (kind=%s): %s", kind, pe)
+            try:
+                yield f'data: {json.dumps({"type":"error","kind":kind,"message":msg})}\n\n'
+                yield f'data: {json.dumps({"type":"done"})}\n\n'
+            except Exception:
                 pass
-
-        # If tool was used, send a supplementary metadata event
-        if tool_used:
-            yield f'data: {json.dumps({"type":"meta","tool_used":tool_used})}\n\n'
+        except Exception as e:
+            _log.exception("Unhandled SSE stream error: %s", e)
+            try:
+                yield f'data: {json.dumps({"type":"error","kind":"internal","message":"⚠️ Internal error while streaming. Please retry."})}\n\n'
+                yield f'data: {json.dumps({"type":"done"})}\n\n'
+            except Exception:
+                pass
 
     return StreamingResponse(
         _event_generator(),

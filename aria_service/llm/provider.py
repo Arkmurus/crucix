@@ -14,6 +14,46 @@ from typing import Optional
 logger = logging.getLogger("aria.llm")
 
 
+class ProviderError(Exception):
+    """Structured LLM-provider error. Carries provider name, HTTP status
+    if applicable, a short kind (billing / rate_limit / auth / server /
+    timeout / other), and the original cause. Used so the fallback chain
+    and route handlers can reason about failures without inspecting raw
+    httpx/anthropic exceptions, and so user-facing code never leaks an
+    API vendor URL.
+    """
+
+    def __init__(
+        self,
+        provider: str,
+        message: str,
+        *,
+        status: int | None = None,
+        kind: str = "other",
+        retryable: bool = True,
+        cause: Exception | None = None,
+    ):
+        super().__init__(f"[{provider}] {message}")
+        self.provider = provider
+        self.message = message
+        self.status = status
+        self.kind = kind
+        self.retryable = retryable
+        self.__cause__ = cause
+
+    @classmethod
+    def from_http_status(cls, provider: str, status: int, body: str = "", cause: Exception | None = None) -> "ProviderError":
+        if status == 401 or status == 403:
+            return cls(provider, f"auth failed (HTTP {status})", status=status, kind="auth", retryable=False, cause=cause)
+        if status == 402:
+            return cls(provider, f"billing / payment required (HTTP {status})", status=status, kind="billing", retryable=False, cause=cause)
+        if status == 429:
+            return cls(provider, "rate limited", status=status, kind="rate_limit", retryable=True, cause=cause)
+        if 500 <= status < 600:
+            return cls(provider, f"upstream server error (HTTP {status})", status=status, kind="server", retryable=True, cause=cause)
+        return cls(provider, f"HTTP {status}", status=status, kind="other", retryable=True, cause=cause)
+
+
 @dataclass
 class LLMResult:
     text: str = ""
