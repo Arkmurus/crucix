@@ -159,10 +159,16 @@ async def walk_network(
         officers = await _directors_uk(registration_number)
         stats["data_sources_used"].append("companies_house")
     else:
+        # Use the dd_orchestrator hint map when available so the manual
+        # lookup instruction mentions the actual national registry.
+        try:
+            from .dd_orchestrator import _national_registry_hint
+            hint = _national_registry_hint(jurisdiction_iso2, None)
+        except Exception:
+            hint = "run a manual search of the target country's national corporate registry"
         data_gaps.append(
-            f"Directors unavailable — no Companies House coverage for "
-            f"{jurisdiction_iso2 or 'unknown'} jurisdiction. Add OpenCorporates / "
-            f"Sayari integration to retrieve directors for this entity."
+            f"Directors unavailable — ARIA has Companies House coverage for GB only. "
+            f"Manual action for {jurisdiction_iso2 or 'this jurisdiction'}: {hint}"
         )
     if not officers and jurisdiction_iso2 == "GB":
         data_gaps.append(f"Companies House returned no officers for {registration_number}")

@@ -1449,6 +1449,114 @@ _DD_ENTITY_CAPTURE_RE = re.compile(
 )
 
 
+# Full country → ISO-2 map for DD intent jurisdiction inference.
+# Covers every market ARIA treats as a first-class target + every
+# EU member state + every major non-EU defence jurisdiction. Keys
+# are lower-case with common synonyms (UK/United Kingdom, USA/US/
+# United States, UAE/Emirates, etc.) so the regex match can map
+# cleanly to ISO-2 regardless of the form the user typed.
+_DD_COUNTRY_TO_ISO2: dict[str, str] = {
+    # EU + EEA
+    "austria": "AT", "belgium": "BE", "bulgaria": "BG", "croatia": "HR",
+    "cyprus": "CY", "czech republic": "CZ", "czechia": "CZ",
+    "denmark": "DK", "estonia": "EE", "finland": "FI", "france": "FR",
+    "germany": "DE", "greece": "GR", "hungary": "HU", "ireland": "IE",
+    "italy": "IT", "latvia": "LV", "lithuania": "LT", "luxembourg": "LU",
+    "malta": "MT", "netherlands": "NL", "poland": "PL", "portugal": "PT",
+    "romania": "RO", "slovakia": "SK", "slovenia": "SI", "spain": "ES",
+    "sweden": "SE", "iceland": "IS", "norway": "NO", "switzerland": "CH",
+    "liechtenstein": "LI",
+    # UK + crown dependencies
+    "united kingdom": "GB", "uk": "GB", "great britain": "GB",
+    "britain": "GB", "england": "GB", "scotland": "GB", "wales": "GB",
+    "northern ireland": "GB",
+    # Americas
+    "united states": "US", "usa": "US", "us": "US", "america": "US",
+    "canada": "CA", "mexico": "MX", "brazil": "BR", "brasil": "BR",
+    "argentina": "AR", "chile": "CL", "peru": "PE", "colombia": "CO",
+    "venezuela": "VE", "ecuador": "EC", "bolivia": "BO", "paraguay": "PY",
+    "uruguay": "UY", "guyana": "GY", "suriname": "SR", "panama": "PA",
+    "costa rica": "CR", "nicaragua": "NI", "honduras": "HN",
+    "el salvador": "SV", "guatemala": "GT", "belize": "BZ",
+    "dominican republic": "DO", "cuba": "CU", "haiti": "HT",
+    "jamaica": "JM", "trinidad and tobago": "TT",
+    # Africa (all)
+    "algeria": "DZ", "angola": "AO", "benin": "BJ", "botswana": "BW",
+    "burkina faso": "BF", "burundi": "BI", "cabo verde": "CV",
+    "cape verde": "CV", "cameroon": "CM", "central african republic": "CF",
+    "car": "CF", "chad": "TD", "comoros": "KM", "congo": "CG",
+    "democratic republic of the congo": "CD", "drc": "CD",
+    "cote d'ivoire": "CI", "ivory coast": "CI", "djibouti": "DJ",
+    "egypt": "EG", "equatorial guinea": "GQ", "eritrea": "ER",
+    "eswatini": "SZ", "swaziland": "SZ", "ethiopia": "ET", "gabon": "GA",
+    "gambia": "GM", "ghana": "GH", "guinea": "GN", "guinea-bissau": "GW",
+    "kenya": "KE", "lesotho": "LS", "liberia": "LR", "libya": "LY",
+    "madagascar": "MG", "malawi": "MW", "mali": "ML", "mauritania": "MR",
+    "mauritius": "MU", "morocco": "MA", "mozambique": "MZ",
+    "moçambique": "MZ", "namibia": "NA", "niger": "NE", "nigeria": "NG",
+    "rwanda": "RW", "sao tome and principe": "ST",
+    "são tomé and príncipe": "ST", "senegal": "SN", "seychelles": "SC",
+    "sierra leone": "SL", "somalia": "SO", "south africa": "ZA",
+    "south sudan": "SS", "sudan": "SD", "tanzania": "TZ", "togo": "TG",
+    "tunisia": "TN", "uganda": "UG", "zambia": "ZM", "zimbabwe": "ZW",
+    # Middle East
+    "bahrain": "BH", "iran": "IR", "iraq": "IQ", "israel": "IL",
+    "jordan": "JO", "kuwait": "KW", "lebanon": "LB", "oman": "OM",
+    "palestine": "PS", "qatar": "QA", "saudi arabia": "SA",
+    "ksa": "SA", "syria": "SY", "turkey": "TR", "türkiye": "TR",
+    "turkiye": "TR", "united arab emirates": "AE", "uae": "AE",
+    "emirates": "AE", "yemen": "YE",
+    # Asia / Indo-Pacific
+    "afghanistan": "AF", "bangladesh": "BD", "bhutan": "BT",
+    "cambodia": "KH", "china": "CN", "prc": "CN", "india": "IN",
+    "indonesia": "ID", "japan": "JP", "kazakhstan": "KZ",
+    "kyrgyzstan": "KG", "laos": "LA", "malaysia": "MY", "maldives": "MV",
+    "mongolia": "MN", "myanmar": "MM", "burma": "MM", "nepal": "NP",
+    "north korea": "KP", "dprk": "KP", "pakistan": "PK",
+    "philippines": "PH", "singapore": "SG", "south korea": "KR",
+    "korea": "KR", "sri lanka": "LK", "taiwan": "TW", "tajikistan": "TJ",
+    "thailand": "TH", "timor leste": "TL", "turkmenistan": "TM",
+    "uzbekistan": "UZ", "vietnam": "VN",
+    # Post-Soviet / CIS
+    "armenia": "AM", "azerbaijan": "AZ", "belarus": "BY",
+    "georgia": "GE", "moldova": "MD", "russia": "RU",
+    "russian federation": "RU", "ukraine": "UA",
+    # Oceania
+    "australia": "AU", "new zealand": "NZ", "papua new guinea": "PG",
+    "fiji": "FJ",
+}
+
+# Regex built from the country map keys — used to detect jurisdiction
+# mentions in any DD-intent message. Longer keys first so multi-word
+# matches ("new zealand") win over "zealand" alone.
+_DD_COUNTRY_RE = re.compile(
+    r"\b(" + "|".join(
+        re.escape(k) for k in sorted(_DD_COUNTRY_TO_ISO2.keys(), key=lambda s: -len(s))
+    ) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _infer_jurisdiction(text: str) -> tuple[str | None, str | None]:
+    """Return (jurisdiction_display_name, iso2) inferred from free text.
+
+    First country match wins. Display name is title-cased unless the
+    original form is already a canonical acronym (UK/USA/UAE)."""
+    if not text:
+        return None, None
+    m = _DD_COUNTRY_RE.search(text)
+    if not m:
+        return None, None
+    raw = m.group(1).strip()
+    iso2 = _DD_COUNTRY_TO_ISO2.get(raw.lower())
+    # Preserve canonical acronyms; title-case the rest.
+    if raw.lower() in ("uk", "usa", "us", "uae", "drc", "car", "dprk", "prc", "ksa"):
+        display = raw.upper()
+    else:
+        display = raw.title()
+    return display, iso2
+
+
 def _detect_dd_intent(message: str) -> dict | None:
     """Detect DD orchestrator intent in a chat message.
 
@@ -1467,31 +1575,45 @@ def _detect_dd_intent(message: str) -> dict | None:
     # Reject too-short or too-long captures — probably not an entity name
     if len(name) < 3 or len(name) > 200:
         return None
-    # Strip trailing clause fragments ("as a counterparty", "for the Angola deal")
-    for tail in (" as ", " for ", " in the ", " under ", " with "):
+
+    # Try to strip a trailing " in <country>" / " (country)" clause AND
+    # capture the country as the jurisdiction hint in one pass. This is
+    # the key pattern: "Serban Industries SRL in Romania" →
+    # name="Serban Industries SRL", jurisdiction="Romania", iso2="RO".
+    jurisdiction: str | None = None
+    jurisdiction_iso2: str | None = None
+    tail_re = re.compile(
+        r"\s+in\s+(" + "|".join(
+            re.escape(k) for k in sorted(_DD_COUNTRY_TO_ISO2.keys(), key=lambda s: -len(s))
+        ) + r")\s*$",
+        re.IGNORECASE,
+    )
+    tm = tail_re.search(name)
+    if tm:
+        country_raw = tm.group(1).strip()
+        jurisdiction_iso2 = _DD_COUNTRY_TO_ISO2.get(country_raw.lower())
+        jurisdiction = country_raw.upper() if country_raw.lower() in (
+            "uk", "usa", "us", "uae", "drc", "car", "dprk", "prc", "ksa"
+        ) else country_raw.title()
+        name = name[:tm.start()].strip().strip(".,;:\"'")
+
+    # Strip trailing clause fragments ("as a counterparty", "for the
+    # Angola deal") AFTER jurisdiction extraction so the split order
+    # doesn't steal a country that was part of a clause.
+    for tail in (" as ", " for ", " under ", " with ", " before ", " on the "):
         idx = name.lower().find(tail)
         if 0 < idx:
             name = name[:idx].strip()
             break
-    # Try to infer jurisdiction from the enclosing text
-    country_match = _COUNTRY_RE_TOOL.search(message)
-    jurisdiction = country_match.group(0).title() if country_match else None
-    # Very coarse ISO-2 for the jurisdictions we regex-match
-    _iso2_map = {
-        "angola": "AO", "mozambique": "MZ", "nigeria": "NG", "kenya": "KE",
-        "ghana": "GH", "south africa": "ZA", "egypt": "EG", "saudi arabia": "SA",
-        "uae": "AE", "russia": "RU", "ukraine": "UA", "turkey": "TR",
-        "china": "CN", "iraq": "IQ", "syria": "SY", "iran": "IR",
-        "pakistan": "PK", "india": "IN", "libya": "LY", "sudan": "SD",
-        "lebanon": "LB", "jordan": "JO", "colombia": "CO", "venezuela": "VE",
-        "myanmar": "MM", "yemen": "YE", "afghanistan": "AF", "somalia": "SO",
-        "mali": "ML", "niger": "NE", "chad": "TD", "cameroon": "CM",
-        "senegal": "SN", "drc": "CD", "ethiopia": "ET", "burkina faso": "BF",
-        "cape verde": "CV", "guinea-bissau": "GW", "haiti": "HT",
-    }
-    jurisdiction_iso2 = None
-    if jurisdiction:
-        jurisdiction_iso2 = _iso2_map.get(jurisdiction.lower())
+
+    # If no jurisdiction from trailing-clause parse, fall back to any
+    # country mention anywhere in the message.
+    if not jurisdiction_iso2:
+        inferred_display, inferred_iso2 = _infer_jurisdiction(message)
+        if inferred_iso2:
+            jurisdiction = inferred_display
+            jurisdiction_iso2 = inferred_iso2
+
     return {
         "tool": "dd_orchestrate",
         "name": name,

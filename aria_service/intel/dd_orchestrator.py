@@ -182,6 +182,24 @@ async def _run_identity(
                 source="sanctions.screen_with_aliases",
                 confidence="ASSESSED",
             ))
+        else:
+            # Clean screen — zero matches across the full alias/variant set.
+            # Emit an explicit INFO-tier finding so consumers can see the
+            # screen actually RAN and came back clean. Previously an empty
+            # matches list produced no finding at all, which the LLM
+            # (correctly) read as "sanctions screen not completed".
+            report.identity.findings.append(Finding(
+                severity="info",
+                title=f"Sanctions screen CLEAN",
+                detail=(
+                    f"{name} — no matches across OFAC SDN, UK OFSI, EU Consolidated, "
+                    f"UN 1267, or OpenSanctions datasets. Fuzzy variants / aliases "
+                    f"screened. This is a POSITIVE CLEAN result — treat as clearance "
+                    f"under standard commercial DD."
+                ),
+                source="sanctions.screen_with_aliases",
+                confidence="CONFIRMED",
+            ))
     except Exception as e:
         logger.warning("Identity: sanctions screen failed: %s", e)
         report.identity.findings.append(Finding(
@@ -213,9 +231,13 @@ async def _run_identity(
             logger.warning("Identity: companies_house lookup failed: %s", e)
             report.identity.data_gaps.append(f"companies_house lookup failed: {str(e)[:120]}")
     else:
+        # Jurisdiction-specific guidance so the LLM (and the human reader)
+        # knows exactly which national registry to check manually.
+        jur_hint = _national_registry_hint(jurisdiction_iso2, jurisdiction)
         report.identity.data_gaps.append(
-            f"Registry lookup unavailable for {jurisdiction_iso2 or 'unknown jurisdiction'} — "
-            f"wire OpenCorporates / Sayari / national registry for full identity coverage"
+            f"Registry lookup unavailable for {jurisdiction or jurisdiction_iso2 or 'unspecified jurisdiction'}"
+            f" — ARIA has Companies House coverage for GB only. "
+            f"Manual action: {jur_hint}"
         )
 
     # ── 1c. Ghost-score from available signals ──
@@ -830,6 +852,121 @@ def _map_activity(declared: Optional[str]) -> Optional[str]:
     if any(k in d for k in ("general trading", "holding", "investment holding", "management services", "not elsewhere classified")):
         return "generic_holding"
     return "specific_aligned"
+
+
+# National corporate registries ARIA can recommend for manual lookup
+# when the orchestrator doesn't have automated coverage. Keyed by
+# ISO-2. Every entry names the authoritative free public registry
+# so the user knows WHERE to look rather than just that ARIA
+# couldn't do it. This closes the "unknown jurisdiction" gap that
+# surfaced on the Serban Industries SRL / Romania run.
+_NATIONAL_REGISTRY_HINTS: dict[str, str] = {
+    # Europe
+    "GB": "already covered automatically via Companies House",
+    "RO": "check ONRC (Oficiul Național al Registrului Comerțului) at https://portal.onrc.ro — free public Romanian registry",
+    "DE": "check Handelsregister at https://www.handelsregister.de — free German commercial register (fee per extract)",
+    "FR": "check INFOGREFFE / Pappers at https://www.pappers.fr — free French commercial registry aggregator",
+    "IT": "check Registro Imprese at https://www.registroimprese.it — Italian commercial register (fee per extract)",
+    "ES": "check Registro Mercantil Central at https://www.rmc.es — Spanish commercial register (fee per extract)",
+    "NL": "check KvK (Kamer van Koophandel) at https://www.kvk.nl — Dutch chamber of commerce",
+    "BE": "check Crossroads Bank for Enterprises at https://kbopub.economie.fgov.be — Belgian company register, free",
+    "AT": "check FirmenABC or Firmenbuch at https://www.firmenbuchabfrage.at — Austrian commercial register",
+    "CH": "check Zefix at https://www.zefix.ch — Swiss central business names index, free",
+    "IE": "check CRO (Companies Registration Office) at https://www.cro.ie — Irish registry",
+    "PT": "check Portal da Empresa at https://bde.portaldocidadao.pt — Portuguese public business database",
+    "PL": "check KRS (Krajowy Rejestr Sądowy) at https://ekrs.ms.gov.pl — Polish national court register, free",
+    "CZ": "check Czech Business Register at https://or.justice.cz — free",
+    "SK": "check Slovak Business Register at https://www.orsr.sk — free",
+    "HU": "check E-cégjegyzék at https://e-cegjegyzek.hu — Hungarian commercial register",
+    "BG": "check Bulgarian Trade Register at https://portal.registryagency.bg — free",
+    "HR": "check Sudski registar at https://sudreg.pravosudje.hr — Croatian court register",
+    "SI": "check AJPES at https://www.ajpes.si — Slovenian Agency for Public Legal Records",
+    "GR": "check GEMI (General Commercial Registry) at https://www.businessregistry.gr",
+    "SE": "check Bolagsverket at https://www.bolagsverket.se — Swedish Companies Registration Office",
+    "DK": "check CVR (Det Centrale Virksomhedsregister) at https://datacvr.virk.dk — Danish CVR, free",
+    "FI": "check YTJ (Business Information System) at https://tietopalvelu.ytj.fi — Finnish business info, free",
+    "NO": "check Brønnøysundregistrene at https://w2.brreg.no — Norwegian business registry, free",
+    "LU": "check LBR (Luxembourg Business Registers) at https://www.lbr.lu — paid per extract",
+    "EE": "check Estonian Business Registry (e-Business Register) at https://ariregister.rik.ee — free",
+    "LT": "check Lithuanian Centre of Registers at https://www.registrucentras.lt",
+    "LV": "check Latvian UR (Uzņēmumu reģistrs) at https://www.ur.gov.lv",
+    "CY": "check Cyprus Department of Registrar of Companies at https://www.companies.gov.cy",
+    "MT": "check Malta Business Registry at https://mbr.mt",
+    # Americas
+    "US": "check the relevant US state Secretary of State (Delaware https://icis.corp.delaware.gov is the most common for holding companies); SEC EDGAR at https://www.sec.gov/edgar for public filers",
+    "CA": "check the relevant province (Federal Corporations Canada at https://ised-isde.canada.ca) or provincial registry",
+    "BR": "check Receita Federal CNPJ lookup at https://solucoes.receita.fazenda.gov.br/Servicos/cnpjreva — free Brazilian corporate tax ID registry",
+    "MX": "check the national Mexican corporate registry at https://psm.economia.gob.mx (public commercial filings)",
+    "AR": "check AFIP CUIT lookup or Inspección General de Justicia (IGJ) at https://www.argentina.gob.ar/justicia/igj",
+    "CL": "check the Chilean Registro de Comercio / CMF registry",
+    "CO": "check RUES (Registro Único Empresarial y Social) at https://www.rues.org.co — Colombian national business registry",
+    # Middle East
+    "AE": "check Dubai DED Trade Licence Info at https://eservices.dubaided.gov.ae and the Abu Dhabi DED equivalent; DIFC Public Register at https://www.difc.ae/public-register; ADGM Public Register at https://www.adgm.com/public-registers",
+    "SA": "check Saudi Ministry of Commerce Commercial Registration search at https://mc.gov.sa",
+    "QA": "check Qatar Ministry of Commerce and Industry registry",
+    "KW": "check Kuwait Public Authority for Industry commercial registry",
+    "BH": "check Bahrain Ministry of Industry and Commerce — Sijilat at https://www.sijilat.bh",
+    "OM": "check Oman Ministry of Commerce, Industry and Investment Promotion registry",
+    "IL": "check Israeli Registrar of Companies at https://ica.justice.gov.il",
+    "TR": "check Mersis (Ticaret Sicili Kayıtları) at https://www.mersis.gtb.gov.tr — Turkish central trade registry",
+    # Asia
+    "CN": "check National Enterprise Credit Information Publicity System at https://www.gsxt.gov.cn — Chinese AIC registry",
+    "IN": "check MCA21 (Ministry of Corporate Affairs) at https://www.mca.gov.in — Indian corporate registry",
+    "JP": "check the National Tax Agency corporate number system at https://www.houjin-bangou.nta.go.jp",
+    "KR": "check DART (Data Analysis, Retrieval and Transfer System) at https://dart.fss.or.kr — Korean financial disclosures",
+    "SG": "check BizFile+ at https://www.bizfile.gov.sg — ACRA Singapore, full public register",
+    "MY": "check SSM (Suruhanjaya Syarikat Malaysia) at https://www.ssm-einfo.my",
+    "ID": "check AHU Online at https://ahu.go.id — Indonesian Ministry of Law and Human Rights registry",
+    "TH": "check DBD (Department of Business Development) at https://datawarehouse.dbd.go.th",
+    "VN": "check Vietnamese National Business Registration Portal at https://dangkykinhdoanh.gov.vn",
+    "PH": "check SEC Philippines at https://www.sec.gov.ph",
+    "PK": "check SECP at https://www.secp.gov.pk",
+    "BD": "check RJSC (Registrar of Joint Stock Companies and Firms) at http://www.roc.gov.bd",
+    # Africa
+    "NG": "check CAC (Corporate Affairs Commission) at https://pre.cac.gov.ng",
+    "ZA": "check CIPC at https://www.cipc.co.za — South African Companies and Intellectual Property Commission",
+    "KE": "check eCitizen Business Registration Service at https://brs.ecitizen.go.ke",
+    "GH": "check Ghana Registrar-General's Department at https://www.rgd.gov.gh",
+    "AO": "check SIAC (Single Enterprise Counter) / Ministério da Justiça Angola — manual registry lookup, no public online portal",
+    "MZ": "check Mozambique Ministry of Justice corporate registry — manual only, no public online portal",
+    "EG": "check Egyptian GAFI (General Authority for Investment) at https://www.gafi.gov.eg",
+    "MA": "check OMPIC at https://www.directinfo.ma — Moroccan Office of Industrial and Commercial Property",
+    # Post-Soviet / CIS
+    "RU": "check EGRUL (ЕГРЮЛ) at https://egrul.nalog.ru — Russian Federal Tax Service corporate registry (CAUTION: sanctions-regime jurisdiction, avoid automated connectivity)",
+    "UA": "check YouControl at https://youcontrol.com.ua or Ministry of Justice USR at https://usr.minjust.gov.ua",
+    "KZ": "check Kazakhstan Ministry of Justice legal entities registry",
+    "BY": "check Unified State Register of Belarus — manual lookup required",
+    "AM": "check Armenia State Register of Legal Persons",
+    "GE": "check LEPL National Agency of Public Registry at https://napr.gov.ge — Georgian NAPR",
+    "AZ": "check Azerbaijani Tax Ministry legal entity registry",
+    "UZ": "check Uzbek Ministry of Justice legal entity registry",
+    # Oceania
+    "AU": "check ASIC (Australian Securities and Investments Commission) at https://asic.gov.au",
+    "NZ": "check NZ Companies Register at https://companies-register.companiesoffice.govt.nz",
+}
+
+
+def _national_registry_hint(iso2: Optional[str], jurisdiction: Optional[str]) -> str:
+    """Return a specific, actionable manual-lookup instruction for the
+    national corporate registry of a given jurisdiction. Used in
+    data_gap messages so the LLM (and the human reader) know exactly
+    where to look manually when ARIA's automated coverage doesn't
+    reach the target country.
+    """
+    if iso2 and iso2 in _NATIONAL_REGISTRY_HINTS:
+        return _NATIONAL_REGISTRY_HINTS[iso2]
+    # Best-effort fallback by jurisdiction name
+    if jurisdiction:
+        return (
+            f"run a manual search of the {jurisdiction} national corporate "
+            f"registry (consult FATF country profile for the authoritative "
+            f"source) and attach the result to the DD record."
+        )
+    return (
+        "run a manual search of the target country's national corporate registry "
+        "(FATF country profiles list the authoritative source) and attach the "
+        "result to the DD record."
+    )
 
 
 # Sanctions-match classification now lives in _sanctions_classify.py
