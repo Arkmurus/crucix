@@ -683,9 +683,9 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
 
     layer_fns = [
         ("rag",         lambda: _sync_rag_context(message)),  # FIRST — proprietary intel takes priority
-        ("mem0",        lambda: _mem0_retrieve(message)),     # NEW — notebook recall from prior chats
+        ("knowledge",   lambda: search_knowledge(message)),   # SECOND — CONFIRMED facts + DD case library (HARD STOPS must never be dropped)
+        ("mem0",        lambda: _mem0_retrieve(message)),     # notebook recall from prior chats
         ("live_intel",  lambda: _build_intel_context(intel_data, message)),
-        ("knowledge",   lambda: search_knowledge(message)),
         ("ledger",      lambda: query_ledger(message)),
         ("contacts",    lambda: get_contact_context(message)),
         ("competitors", lambda: get_competitor_context(message)),

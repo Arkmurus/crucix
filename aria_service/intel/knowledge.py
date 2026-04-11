@@ -334,13 +334,29 @@ def search_knowledge(query: str) -> str:
             scored.append((score, f))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-    top = scored[:15]
-    if not top:
+    if not scored:
         return ""
 
+    # Two-tier rendering so rich case-library findings (Serban et al.)
+    # aren't silently truncated to their opening header. Any fact whose
+    # source begins with `dd_case_library:` is rendered in full up to
+    # 4000 chars — the whole narrative including HARD STOPS, compliance
+    # exposure, and the recommended Arkmurus action. Other facts stay
+    # at a 400-char snippet so the context budget is still bounded.
+    # Top N is lowered to 10 to compensate for longer case rows.
+    top = scored[:10]
     lines = ["\n[ARIA KNOWLEDGE BASE — verified facts]"]
     for _, f in top:
-        lines.append(f"- [{f['confidence']}] {f['topic']}: {f['content'][:200]}")
+        src = (f.get("source") or "").lower()
+        content = f.get("content") or ""
+        if src.startswith("dd_case_library:"):
+            snippet = content[:4000]
+            lines.append(
+                f"- [{f['confidence']}] {f['topic']} "
+                f"[CASE LIBRARY — authoritative prior finding, apply directly]:\n{snippet}"
+            )
+        else:
+            lines.append(f"- [{f['confidence']}] {f['topic']}: {content[:400]}")
     return "\n".join(lines)
 
 
