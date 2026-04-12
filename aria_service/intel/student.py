@@ -271,11 +271,12 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
         try:
             from . import capability_gaps
             for topic in remediation_needed:
-                asyncio.ensure_future(capability_gaps.record_gap(
+                _t = asyncio.create_task(capability_gaps.record_gap(
                     gap_type="knowledge_gap",
                     detail=f"Mastery for '{topic}' dropped below hard floor ({mastery[topic]['score']:.0%} < {HARD_FLOORS.get(topic, 0.5):.0%}). Remediation: re-inject domain knowledge.",
                     source="student.update_mastery",
                 ))
+                _t.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
         except Exception:
             pass
 

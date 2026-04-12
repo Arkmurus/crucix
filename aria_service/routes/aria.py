@@ -3750,11 +3750,12 @@ async def read_document_ep(request: Request):
             try:
                 from ..intel import capability_gaps
                 import asyncio
-                asyncio.ensure_future(capability_gaps.record_gap(
+                _t = asyncio.create_task(capability_gaps.record_gap(
                     gap_type="file_parse",
                     detail=f"Could not extract text from {fname_lower} (mime={mime_lower}, {len(raw_bytes)} bytes)",
                     source="routes.aria.read_document_ep",
                 ))
+                _t.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
             except Exception:
                 pass
             raise HTTPException(status_code=400, detail="Could not extract text from binary document")
@@ -4507,7 +4508,7 @@ async def admin_brain_ep(session_id: str, query: str = ""):
     # 1. Session history (best-effort — there is no top-level history
     #    module; session state lives in Redis under crucix:aria:sessions)
     try:
-        sess_data = await rs.get_json(f"crucix:aria:sessions:{session_id}")
+        sess_data = await rs.get_json(f"crucix:aria:session:{session_id}")
         if sess_data and isinstance(sess_data, dict):
             history = sess_data.get("history", [])
             out["session"] = {

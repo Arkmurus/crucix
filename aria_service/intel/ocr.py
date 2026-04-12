@@ -406,11 +406,12 @@ def _trigger_auto_install() -> bool:
                 "--quiet", "--no-input",
                 "easyocr", "Pillow", "pytesseract",
             ]
-            result = subprocess.run(cmd_user, capture_output=True, timeout=900)
+            # NOTE: runs in a daemon thread (not the event loop) — blocking is acceptable
+            result = subprocess.run(cmd_user, capture_output=True, timeout=120)
             if result.returncode != 0:
                 # Maybe --user isn't allowed in this environment, try global
                 logger.info("OCR auto-install: --user failed, trying global install")
-                result = subprocess.run(cmd_global, capture_output=True, timeout=900)
+                result = subprocess.run(cmd_global, capture_output=True, timeout=120)
 
             if result.returncode == 0:
                 logger.info(

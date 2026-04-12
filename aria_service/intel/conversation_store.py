@@ -2,9 +2,9 @@
 Conversation Store — per-user conversation history for the ARIA chat UI.
 
 Redis schema:
-  aria:conversations:{userId}       — sorted set (score=timestamp, member=session_id)
-  aria:conv:meta:{sessionId}        — hash: title, createdAt, updatedAt, messageCount, userId
-  aria:session:{sessionId}          — existing session storage (messages array)
+  crucix:aria:conversations:{userId}  — sorted set (score=timestamp, member=session_id)
+  crucix:aria:conv:meta:{sessionId}   — hash: title, createdAt, updatedAt, messageCount, userId
+  crucix:aria:session:{sessionId}     — existing session storage (messages array)
 """
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ from . import redis_store as rs
 
 logger = logging.getLogger("aria.conversation_store")
 
-_CONV_KEY = "aria:conversations:{user_id}"
-_META_KEY = "aria:conv:meta:{session_id}"
-_SESSION_KEY = "aria:session:{session_id}"
+_CONV_KEY = "crucix:aria:conversations:{user_id}"
+_META_KEY = "crucix:aria:conv:meta:{session_id}"
+_SESSION_KEY = "crucix:aria:session:{session_id}"
 
 
 async def create_conversation(

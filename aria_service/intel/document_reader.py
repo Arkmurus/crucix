@@ -28,6 +28,7 @@ import io
 import logging
 import math
 import os
+import asyncio
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -176,7 +177,7 @@ async def read_document(
     # Strategy 1: pdfplumber text extraction
     if PDFPLUMBER_AVAILABLE:
         strategies_attempted.append("TEXT_EXTRACTION")
-        result = _strategy_text_extraction(filepath)
+        result = await asyncio.to_thread(_strategy_text_extraction, filepath)
         if result.confidence >= 0.60:
             result.strategies_attempted = strategies_attempted
             return result
@@ -185,7 +186,7 @@ async def read_document(
     if TESSERACT_AVAILABLE:
         strategies_attempted.append("OCR_TESSERACT")
         lang = _resolve_ocr_language(language_hint)
-        result = _strategy_ocr_tesseract(filepath, lang)
+        result = await asyncio.to_thread(_strategy_ocr_tesseract, filepath, lang)
         if result.confidence >= 0.50:
             result.strategies_attempted = strategies_attempted
             return result
@@ -279,27 +280,28 @@ def _strategy_ocr_tesseract(filepath: str, lang: str = "eng+por") -> ExtractionR
     """Render PDF pages as images and apply Tesseract OCR."""
     try:
         doc = fitz.open(filepath)
-        total_pages = len(doc)
-        page_texts = []
-        all_confidences = []
+        try:
+            total_pages = len(doc)
+            page_texts = []
+            all_confidences = []
 
-        for page in doc:
-            mat = fitz.Matrix(_OCR_DPI / 72, _OCR_DPI / 72)
-            pixmap = page.get_pixmap(matrix=mat)
-            img = Image.open(io.BytesIO(pixmap.tobytes("png")))
+            for page in doc:
+                mat = fitz.Matrix(_OCR_DPI / 72, _OCR_DPI / 72)
+                pixmap = page.get_pixmap(matrix=mat)
+                img = Image.open(io.BytesIO(pixmap.tobytes("png")))
 
-            ocr_data = pytesseract.image_to_data(
-                img, lang=lang, output_type=pytesseract.Output.DICT,
-            )
-            words = []
-            for i, word in enumerate(ocr_data["text"]):
-                conf = int(ocr_data["conf"][i])
-                if conf > 20 and word.strip():
-                    words.append(word)
-                    all_confidences.append(conf)
-            page_texts.append(" ".join(words))
-
-        doc.close()
+                ocr_data = pytesseract.image_to_data(
+                    img, lang=lang, output_type=pytesseract.Output.DICT,
+                )
+                words = []
+                for i, word in enumerate(ocr_data["text"]):
+                    conf = int(ocr_data["conf"][i])
+                    if conf > 20 and word.strip():
+                        words.append(word)
+                        all_confidences.append(conf)
+                page_texts.append(" ".join(words))
+        finally:
+            doc.close()
         full_text = "\n\n".join(t for t in page_texts if t.strip())
 
         if not full_text.strip():
@@ -340,22 +342,23 @@ async def _strategy_vision_pdf(
     """
     try:
         doc = fitz.open(filepath)
-        total_pages = len(doc)
-        pages_to_process = min(total_pages, _VISION_MAX_PAGES)
+        try:
+            total_pages = len(doc)
+            pages_to_process = min(total_pages, _VISION_MAX_PAGES)
 
-        # Build a text prompt describing the pages (since our LLM abstraction
-        # is text-only, we describe what we need and let the system prompt
-        # guide extraction)
-        page_summaries = []
-        for i in range(pages_to_process):
-            page = doc[i]
-            text = page.get_text()
-            if text.strip():
-                page_summaries.append(f"[Page {i+1}]: {text[:2000]}")
-            else:
-                page_summaries.append(f"[Page {i+1}]: (image-only, no text layer)")
-
-        doc.close()
+            # Build a text prompt describing the pages (since our LLM abstraction
+            # is text-only, we describe what we need and let the system prompt
+            # guide extraction)
+            page_summaries = []
+            for i in range(pages_to_process):
+                page = doc[i]
+                text = page.get_text()
+                if text.strip():
+                    page_summaries.append(f"[Page {i+1}]: {text[:2000]}")
+                else:
+                    page_summaries.append(f"[Page {i+1}]: (image-only, no text layer)")
+        finally:
+            doc.close()
 
         if not page_summaries:
             return ExtractionResult(
@@ -615,28 +618,29 @@ async def _vision_single_chunk(
     """
     try:
         doc = fitz.open(filepath)
-        page_summaries: list[str] = []
+        try:
+            page_summaries: list[str] = []
 
-        for page_num in range(start_page, end_page):
-            page = doc[page_num]
-            # Try text layer first (much cheaper than vision)
-            text = page.get_text()
-            if text.strip():
-                page_summaries.append(f"[PAGE {page_num + 1}]:\n{text[:3000]}")
-            else:
-                # Render to image, encode as base64 for description
-                mat = fitz.Matrix(150 / 72, 150 / 72)
-                pixmap = page.get_pixmap(matrix=mat)
-                img_bytes = pixmap.tobytes("jpeg")
-                if len(img_bytes) > 4_500_000:
-                    mat = fitz.Matrix(100 / 72, 100 / 72)
+            for page_num in range(start_page, end_page):
+                page = doc[page_num]
+                # Try text layer first (much cheaper than vision)
+                text = page.get_text()
+                if text.strip():
+                    page_summaries.append(f"[PAGE {page_num + 1}]:\n{text[:3000]}")
+                else:
+                    # Render to image, encode as base64 for description
+                    mat = fitz.Matrix(150 / 72, 150 / 72)
                     pixmap = page.get_pixmap(matrix=mat)
                     img_bytes = pixmap.tobytes("jpeg")
-                page_summaries.append(
-                    f"[PAGE {page_num + 1}]: (image-only, {len(img_bytes)} bytes, no text layer)"
-                )
-
-        doc.close()
+                    if len(img_bytes) > 4_500_000:
+                        mat = fitz.Matrix(100 / 72, 100 / 72)
+                        pixmap = page.get_pixmap(matrix=mat)
+                        img_bytes = pixmap.tobytes("jpeg")
+                    page_summaries.append(
+                        f"[PAGE {page_num + 1}]: (image-only, {len(img_bytes)} bytes, no text layer)"
+                    )
+        finally:
+            doc.close()
 
         if not page_summaries:
             return ExtractionResult(
@@ -867,8 +871,10 @@ def _extract_pdf_metadata(filepath: str) -> dict:
     if PYMUPDF_AVAILABLE:
         try:
             doc = fitz.open(filepath)
-            meta = doc.metadata
-            doc.close()
+            try:
+                meta = doc.metadata
+            finally:
+                doc.close()
             return meta or {}
         except Exception:
             pass

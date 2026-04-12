@@ -163,7 +163,7 @@ async def stage_improvement(
     if file_path.endswith(".py"):
         valid = _validate_python(new_content)
     elif file_path.endswith(".mjs") or file_path.endswith(".js"):
-        valid = _validate_javascript(new_content)
+        valid = await _validate_javascript(new_content)
     else:
         valid = {"ok": True}
 
@@ -293,7 +293,7 @@ async def deploy_improvement(improvement_id: str) -> dict:
 
     # Git commit
     try:
-        _git_commit(file_path, target["change_type"], target["description"])
+        await _git_commit(file_path, target["change_type"], target["description"])
     except Exception as e:
         logger.warning("Git commit failed (change still applied): %s", e)
 
@@ -462,15 +462,16 @@ def _validate_python(code: str) -> dict:
         return {"ok": False, "error": f"Line {e.lineno}: {e.msg}"}
 
 
-def _validate_javascript(code: str) -> dict:
+async def _validate_javascript(code: str) -> dict:
     """Validate JavaScript syntax using Node --check."""
+    import asyncio
     import tempfile
     tmp = None
     try:
         tmp = tempfile.NamedTemporaryFile(suffix=".mjs", mode="w", delete=False, encoding="utf-8")
         tmp.write(code)
         tmp.close()
-        result = subprocess.run(
+        result = await asyncio.to_thread(subprocess.run,
             ["node", "--check", tmp.name],
             capture_output=True, text=True, timeout=10,
         )
@@ -484,12 +485,13 @@ def _validate_javascript(code: str) -> dict:
             os.unlink(tmp.name)
 
 
-def _git_commit(file_path: str, change_type: str, description: str) -> None:
+async def _git_commit(file_path: str, change_type: str, description: str) -> None:
     """Git commit the change."""
+    import asyncio
     try:
-        subprocess.run(["git", "add", file_path], cwd=str(_root), capture_output=True, timeout=10)
+        await asyncio.to_thread(subprocess.run, ["git", "add", file_path], cwd=str(_root), capture_output=True, timeout=10)
         msg = f"self-improve({change_type}): {description[:80]}"
-        subprocess.run(
+        await asyncio.to_thread(subprocess.run,
             ["git", "commit", "-m", msg],
             cwd=str(_root), capture_output=True, timeout=10,
         )

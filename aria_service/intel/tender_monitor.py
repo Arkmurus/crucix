@@ -278,7 +278,7 @@ def _parse_value_range(value_str: str) -> bool:
     try:
         val = float(nums[0])
         # Heuristic: if "M" or "million" in string, value is in millions
-        if re.search(r"\bm\b|million", value_str, re.IGNORECASE):
+        if re.search(r"\d\s*m\b|million", value_str, re.IGNORECASE):
             val *= 1_000_000
         elif re.search(r"\bb\b|billion", value_str, re.IGNORECASE):
             val *= 1_000_000_000

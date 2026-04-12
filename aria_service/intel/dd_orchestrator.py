@@ -621,11 +621,12 @@ async def _run_identity(
                 try:
                     from . import capability_gaps
                     import asyncio
-                    asyncio.ensure_future(capability_gaps.record_gap(
+                    _t = asyncio.create_task(capability_gaps.record_gap(
                         gap_type="registry_lookup",
                         detail=f"No automated registry adapter for {jurisdiction_iso2 or jurisdiction or 'unknown'}",
                         source="dd_orchestrator._run_identity",
                     ))
+                    _t.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
                 except Exception:
                     pass
         except Exception as e:
