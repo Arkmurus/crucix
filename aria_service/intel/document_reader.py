@@ -26,6 +26,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import math
 import os
 import tempfile
 from dataclasses import dataclass, field
@@ -66,6 +67,11 @@ _OCR_DPI = int(os.getenv("ARIA_OCR_DPI", "300"))
 _OCR_LANGUAGES = os.getenv("ARIA_OCR_LANGUAGES", "eng+por")
 _VISION_MAX_PAGES = int(os.getenv("ARIA_VISION_MAX_PAGES", "10"))
 _REQUEST_TIMEOUT = int(os.getenv("ARIA_DOC_TIMEOUT", "30"))
+
+# ── Chunked vision config ─────────────────────────────────────────────────
+VISION_LARGE_DOC_THRESHOLD = int(os.getenv("ARIA_VISION_LARGE_DOC_THRESHOLD", "50"))
+VISION_MAX_TOTAL_PAGES = int(os.getenv("ARIA_VISION_MAX_TOTAL_PAGES", "300"))
+VISION_CHUNK_SIZE = 10  # pages per chunk
 
 
 # ── Feature flag ────────────────────────────────────────────────────────────
