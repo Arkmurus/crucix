@@ -3708,6 +3708,16 @@ async def read_document_ep(request: Request):
                 _log.debug("V3 document_reader fallback failed (non-fatal): %s", e)
 
         if not extracted or len(extracted) < 30:
+            try:
+                from ..intel import capability_gaps
+                import asyncio
+                asyncio.ensure_future(capability_gaps.record_gap(
+                    gap_type="file_parse",
+                    detail=f"Could not extract text from {fname_lower} (mime={mime_lower}, {len(raw_bytes)} bytes)",
+                    source="routes.aria.read_document_ep",
+                ))
+            except Exception:
+                pass
             raise HTTPException(status_code=400, detail="Could not extract text from binary document")
         content = extracted
 
@@ -6551,3 +6561,58 @@ async def law_sections_ep():
         "total": len(sections),
         "total_chars": sum(s["content_length"] for s in sections),
     }
+
+
+# ── Capability Gap Tracker ────────────────────────────────────────────────────
+
+class CapabilityGapRequest(BaseModel):
+    gap_type: str
+    detail: str
+    message_context: str = ""
+    source: str = ""
+
+
+@router.post("/capability-gaps")
+async def record_capability_gap_ep(req: CapabilityGapRequest):
+    """Record a capability gap that ARIA encountered."""
+    from ..intel import capability_gaps
+    result = await capability_gaps.record_gap(
+        req.gap_type, req.detail, req.message_context, req.source,
+    )
+    return result
+
+
+@router.get("/capability-gaps/summary")
+async def capability_gap_summary_ep():
+    """Get a summary of all capability gaps by type."""
+    from ..intel import capability_gaps
+    return await capability_gaps.get_gap_summary()
+
+
+@router.get("/capability-gaps")
+async def list_capability_gaps_ep(resolved: bool = False, limit: int = 50):
+    """List capability gaps filtered by resolved status."""
+    from ..intel import capability_gaps
+    gaps = await capability_gaps.get_gaps(resolved=resolved, limit=limit)
+    return {"gaps": gaps, "count": len(gaps)}
+
+
+# ── Weekly Learning Report ────────────────────────────────────────────────────
+
+@router.post("/weekly-report")
+async def generate_weekly_report_ep(request: Request):
+    """Generate the weekly learning report now."""
+    from ..intel import weekly_report
+    llm = get_llm(request)
+    report = await weekly_report.generate_weekly_report(llm=llm)
+    return report
+
+
+@router.get("/weekly-report")
+async def get_weekly_report_ep():
+    """Get the most recent weekly learning report."""
+    from ..intel import weekly_report
+    report = await weekly_report.get_last_report()
+    if report is None:
+        return {"report": None, "message": "No weekly report generated yet."}
+    return report

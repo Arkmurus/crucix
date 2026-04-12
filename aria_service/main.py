@@ -401,6 +401,35 @@ async def lifespan(app: FastAPI):
     proactive_task = asyncio.create_task(_proactive_loop())
     logger.info("Proactive watch started: daily briefing + mastery prep (hourly)")
 
+    # ── WEEKLY LEARNING REPORT ──────────────────────────────────────────
+    # Every Monday at ~07:00 UTC, generate a learning report aggregating
+    # new facts, mastery changes, capability gaps, standards ingested,
+    # reasoning library health, and correction learning activity. The
+    # report is persisted in Redis and can be delivered via WhatsApp.
+    async def _weekly_report_loop():
+        await asyncio.sleep(300)  # 5 min after startup
+        while True:
+            try:
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc)
+                if now.weekday() == 0 and 6 <= now.hour <= 8:
+                    from .intel import weekly_report
+                    result = await weekly_report.generate_weekly_report(
+                        llm=getattr(app.state, "llm_provider", None),
+                    )
+                    logger.info(
+                        "[Weekly Report] Generated: %d new facts, %d gaps, mastery %.0f%%",
+                        result.get("new_facts_count", 0),
+                        result.get("unresolved_gaps", 0),
+                        (result.get("overall_mastery", 0) or 0) * 100,
+                    )
+            except Exception as e:
+                logger.warning("[Weekly Report] Loop iteration failed: %s", e)
+            await asyncio.sleep(3600)  # Check every hour (only fires on Monday 06-08 UTC)
+
+    weekly_report_task = asyncio.create_task(_weekly_report_loop())
+    logger.info("Weekly report loop started (fires Monday 06-08 UTC)")
+
     # ── METACOGNITIVE ENGINE STATUS ───────────────────────────────────────
     # Phase 3 metacognitive stack: self-assessment, gap detection, Brier
     # scoring, consciousness mapping, self-improvement code generation.
@@ -500,6 +529,7 @@ async def lifespan(app: FastAPI):
             ("due_diligence_playbooks", "DD playbooks",          "ingest_all_sections"),
             ("risk_indices",            "Risk indices",          "ingest_all_sections"),
             ("dd_case_library",         "DD case library",       "ingest_all_cases"),
+            ("nato_standards",          "NATO standards",        "ingest_to_knowledge"),
         ]
         for modname, label, fn in modules:
             try:

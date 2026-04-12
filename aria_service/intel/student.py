@@ -536,3 +536,42 @@ async def get_student_stats() -> dict:
         "divergences_recorded": len(divergences),
         "divergences_needing_study": sum(1 for d in divergences if d.get("needs_study")),
     }
+
+
+async def mastery_to_prompt_addendum(message: str) -> str:
+    """Generate a system-prompt addendum that surfaces weak topics relevant
+    to the current query. Closes the feedback loop: student tracks mastery
+    → prompt tells ARIA she's weak → ARIA is more careful / cites more
+    sources on that topic.
+
+    Called by _build_calibrated_system_prompt in aria_engine.py.
+    Returns empty string if no relevant weakness is detected.
+    """
+    if not message or len(message.strip()) < 10:
+        return ""
+    topics = detect_topics(message)
+    if not topics or topics == ["general"]:
+        return ""
+
+    mastery = await _load_mastery()
+    weak_relevant: list[tuple[str, float]] = []
+    for t in topics:
+        m = mastery.get(t, {})
+        score = m.get("score", INITIAL_MASTERY)
+        samples = m.get("samples", 0)
+        if score < WEAK_THRESHOLD and samples >= 2:
+            weak_relevant.append((t, score))
+
+    if not weak_relevant:
+        return ""
+
+    lines = [
+        "⚠ MASTERY ALERT — The student module has detected that you "
+        "have LOW mastery on the following topic(s) relevant to this "
+        "question. Take extra care: cite more sources, flag uncertainty "
+        "explicitly, and prefer [ASSESSED] over [CONFIRMED] unless you "
+        "have strong grounding."
+    ]
+    for topic, score in sorted(weak_relevant, key=lambda x: x[1]):
+        lines.append(f"  • {topic}: mastery {score:.0%} (below {WEAK_THRESHOLD:.0%} threshold)")
+    return "\n".join(lines)

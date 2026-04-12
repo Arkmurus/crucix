@@ -1376,6 +1376,29 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("metacognitive identity injection failed (non-fatal): %s", e)
 
+    # Student mastery feedback loop — surfaces weak topics so ARIA is
+    # more careful on areas she's historically poor at. Closes the gap:
+    # student tracks mastery → prompt tells ARIA → ARIA cites more sources.
+    try:
+        from .intel.student import mastery_to_prompt_addendum
+        mastery_addendum = await mastery_to_prompt_addendum(message)
+        if mastery_addendum:
+            addendum_parts.append(mastery_addendum)
+            logger.info("[student] mastery alert injected into prompt")
+    except Exception as e:
+        logger.debug("mastery prompt injection failed (non-fatal): %s", e)
+
+    # NATO standards context — surfaces relevant STANAGs, AQAPs, AECTPs
+    # when the query touches military procurement or standardisation.
+    try:
+        from .intel import nato_standards
+        nato_ctx = nato_standards.get_nato_context(message)
+        if nato_ctx:
+            addendum_parts.append(nato_ctx)
+            logger.info("[nato_standards] context injected (%d chars)", len(nato_ctx))
+    except Exception as e:
+        logger.debug("nato_standards injection failed (non-fatal): %s", e)
+
     # Document-grounded mode directive — fires when the user's message
     # contains an [ATTACHED DOCUMENT block. Tells the LLM in the
     # strongest terms that it must not blend recall memory with

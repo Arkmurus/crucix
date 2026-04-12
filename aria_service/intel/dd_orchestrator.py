@@ -592,6 +592,17 @@ async def _run_identity(
             f" — ARIA has Companies House coverage for GB only. "
             f"Manual action: {jur_hint}"
         )
+        # Track as a capability gap so the weekly learning report surfaces it.
+        try:
+            from . import capability_gaps
+            import asyncio
+            asyncio.ensure_future(capability_gaps.record_gap(
+                gap_type="registry_lookup",
+                detail=f"No automated registry adapter for {jurisdiction_iso2 or jurisdiction or 'unknown'}",
+                source="dd_orchestrator._run_identity",
+            ))
+        except Exception:
+            pass  # non-blocking
 
     # ── 1c. Ghost-score from available signals ──
     # Feed whatever we've collected into the programmatic scorer. The

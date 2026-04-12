@@ -1,0 +1,291 @@
+"""
+Weekly Learning Report — aggregates what ARIA learned over the past 7 days.
+
+Pulls data from:
+  - knowledge.py       (new facts by source type)
+  - student.py         (mastery score deltas)
+  - capability_gaps.py (unresolved + newly resolved gaps)
+  - rag_store.py       (documents/standards ingested)
+  - reasoning_library  (case health)
+  - correction_learner (corrections received)
+
+Can optionally produce a 200-word executive summary via LLM.
+
+Phase 3 of the ARIA learning infrastructure.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from datetime import datetime, timezone, timedelta
+from typing import Any, Optional
+
+from . import redis_store as rs
+
+logger = logging.getLogger("aria.intel.weekly_report")
+
+REPORT_KEY = "crucix:aria:weekly_report:latest"
+SNAPSHOT_KEY = "crucix:aria:student:mastery_snapshots"
+SEVEN_DAYS = 7 * 86400
+
+
+async def generate_weekly_report(llm: Any = None) -> dict:
+    """Produce the weekly intelligence learning report.
+
+    Aggregates data from all learning subsystems over the past 7 days.
+    If an LLM provider is supplied, generates a 200-word executive summary.
+
+    Returns:
+        Dict with all report sections + optional summary text.
+    """
+    now = time.time()
+    cutoff = now - SEVEN_DAYS
+    cutoff_iso = datetime.now(timezone.utc) - timedelta(days=7)
+
+    report: dict[str, Any] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "period_start": cutoff_iso.isoformat(),
+        "period_end": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # ── 1. New facts learned ─────────────────────────────────────────────
+    report["new_facts"] = await _count_new_facts(cutoff_iso)
+
+    # ── 2. Mastery changes ───────────────────────────────────────────────
+    report["mastery_changes"] = await _compute_mastery_deltas()
+
+    # ── 3. Capability gaps ───────────────────────────────────────────────
+    report["capability_gaps"] = await _gather_capability_gaps()
+
+    # ── 4. Standards / documents ingested ────────────────────────────────
+    report["rag_ingestion"] = await _count_rag_entries()
+
+    # ── 5. Reasoning library health ──────────────────────────────────────
+    report["reasoning_library"] = await _reasoning_library_health()
+
+    # ── 6. Correction learning ───────────────────────────────────────────
+    report["corrections"] = await _count_corrections(cutoff_iso)
+
+    # ── 7. LLM executive summary ────────────────────────────────────────
+    summary_text = None
+    if llm is not None:
+        summary_text = await _generate_summary(llm, report)
+    report["executive_summary"] = summary_text
+
+    # Save as the latest report + take a mastery snapshot for next week
+    await rs.set_json(REPORT_KEY, report)
+    await schedule_weekly_snapshot()
+
+    logger.info("Weekly learning report generated — %d new facts, %d gaps",
+                report["new_facts"].get("total", 0),
+                report["capability_gaps"].get("unresolved", 0))
+    return report
+
+
+async def get_last_report() -> Optional[dict]:
+    """Retrieve the most recent weekly report from Redis."""
+    return await rs.get_json(REPORT_KEY)
+
+
+async def schedule_weekly_snapshot() -> None:
+    """Save current mastery scores as the weekly baseline for the next
+    report's delta calculation."""
+    try:
+        from . import student
+        mastery = await student._load_mastery()
+        snapshot = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "scores": {
+                topic: data.get("score", 0.5)
+                for topic, data in mastery.items()
+            },
+        }
+        await rs.set_json(SNAPSHOT_KEY, snapshot)
+        logger.info("Mastery snapshot saved — %d topics", len(snapshot["scores"]))
+    except Exception as e:
+        logger.warning("Failed to save mastery snapshot: %s", e)
+
+
+# ── Internal data gatherers ───────────────────────────────────────────────────
+
+async def _count_new_facts(cutoff: datetime) -> dict:
+    """Count facts created in the last 7 days, grouped by source type."""
+    try:
+        from . import knowledge as kb
+        data = await kb._load()
+        facts = data.get("facts", [])
+
+        cutoff_str = cutoff.isoformat()
+        by_source: dict[str, int] = {}
+        total = 0
+
+        for fact in facts:
+            ts = fact.get("ts_created") or fact.get("timestamp") or ""
+            if ts >= cutoff_str:
+                total += 1
+                # Normalise source to a bucket
+                src = fact.get("source", "unknown") or "unknown"
+                if src.startswith("user_correction"):
+                    bucket = "user_correction"
+                elif src.startswith("auto_extract"):
+                    bucket = "auto_extract"
+                elif "dd_case" in src or "case_library" in src:
+                    bucket = "dd_case_library"
+                elif "autonomous" in src or "research" in src:
+                    bucket = "autonomous_research"
+                else:
+                    bucket = src
+                by_source[bucket] = by_source.get(bucket, 0) + 1
+
+        return {"total": total, "by_source": by_source}
+    except Exception as e:
+        logger.warning("Failed to count new facts: %s", e)
+        return {"total": 0, "by_source": {}, "error": str(e)}
+
+
+async def _compute_mastery_deltas() -> dict:
+    """Compare current mastery to the last weekly snapshot."""
+    try:
+        from . import student
+
+        current_mastery = await student._load_mastery()
+        current_scores = {
+            t: d.get("score", 0.5) for t, d in current_mastery.items()
+        }
+
+        snapshot = await rs.get_json(SNAPSHOT_KEY)
+        if not snapshot or "scores" not in snapshot:
+            return {
+                "snapshot_available": False,
+                "current_scores": current_scores,
+                "note": "No previous snapshot — first report, deltas unavailable.",
+            }
+
+        prev_scores = snapshot["scores"]
+        deltas: dict[str, float] = {}
+        for topic, score in current_scores.items():
+            prev = prev_scores.get(topic, 0.5)
+            deltas[topic] = round(score - prev, 4)
+
+        sorted_deltas = sorted(deltas.items(), key=lambda x: x[1])
+        biggest_decline = sorted_deltas[:3] if sorted_deltas else []
+        biggest_improvement = sorted_deltas[-3:][::-1] if sorted_deltas else []
+
+        return {
+            "snapshot_available": True,
+            "snapshot_timestamp": snapshot.get("timestamp"),
+            "deltas": deltas,
+            "biggest_improvement": biggest_improvement,
+            "biggest_decline": biggest_decline,
+            "current_scores": current_scores,
+        }
+    except Exception as e:
+        logger.warning("Failed to compute mastery deltas: %s", e)
+        return {"snapshot_available": False, "error": str(e)}
+
+
+async def _gather_capability_gaps() -> dict:
+    """Pull gap data from the capability_gaps module."""
+    try:
+        from . import capability_gaps
+        summary = await capability_gaps.get_gap_summary()
+        return summary
+    except Exception as e:
+        logger.warning("Failed to gather capability gaps: %s", e)
+        return {"error": str(e)}
+
+
+async def _count_rag_entries() -> dict:
+    """Count RAG store entries (proxy for standards/documents ingested)."""
+    try:
+        from . import rag_store
+        stats = await rag_store.get_stats()
+        return {
+            "available": stats.get("available", False),
+            "documents_indexed": stats.get("documents_indexed", 0),
+            "facts_indexed": stats.get("facts_indexed", 0),
+            "total_chunks": stats.get("total_chunks", 0),
+        }
+    except Exception as e:
+        logger.warning("Failed to count RAG entries: %s", e)
+        return {"available": False, "error": str(e)}
+
+
+async def _reasoning_library_health() -> dict:
+    """Pull reasoning library stats."""
+    try:
+        from . import reasoning_library
+        stats = await reasoning_library.get_stats()
+        return {
+            "total_cases": stats.get("total_cases", 0),
+            "total_hits": stats.get("total_hits", 0),
+            "total_lookups": stats.get("total_lookups", 0),
+            "hit_rate": stats.get("hit_rate", 0.0),
+            "total_writes": stats.get("total_writes", 0),
+            "age_days": stats.get("age_days", 0),
+        }
+    except Exception as e:
+        logger.warning("Failed to get reasoning library health: %s", e)
+        return {"error": str(e)}
+
+
+async def _count_corrections(cutoff: datetime) -> dict:
+    """Count corrections received in the last 7 days."""
+    try:
+        from . import knowledge as kb
+        data = await kb._load()
+        facts = data.get("facts", [])
+
+        cutoff_str = cutoff.isoformat()
+        corrections = 0
+        facts_from_corrections = 0
+
+        for fact in facts:
+            src = fact.get("source", "") or ""
+            ts = fact.get("ts_created") or fact.get("timestamp") or ""
+            if ts >= cutoff_str and src.startswith("user_correction"):
+                corrections += 1
+                facts_from_corrections += 1
+
+        return {
+            "corrections_received": corrections,
+            "facts_extracted": facts_from_corrections,
+        }
+    except Exception as e:
+        logger.warning("Failed to count corrections: %s", e)
+        return {"corrections_received": 0, "facts_extracted": 0, "error": str(e)}
+
+
+async def _generate_summary(llm: Any, report: dict) -> Optional[str]:
+    """Use the LLM to produce a 200-word executive summary."""
+    try:
+        import json as _json
+
+        # Build a compact data block for the LLM
+        data_block = _json.dumps({
+            "period": f"{report.get('period_start', '?')} to {report.get('period_end', '?')}",
+            "new_facts": report.get("new_facts", {}),
+            "mastery": report.get("mastery_changes", {}),
+            "gaps_unresolved": report.get("capability_gaps", {}).get("unresolved", 0),
+            "gaps_by_type": report.get("capability_gaps", {}).get("by_type", {}),
+            "rag": report.get("rag_ingestion", {}),
+            "reasoning_library": report.get("reasoning_library", {}),
+            "corrections": report.get("corrections", {}),
+        }, indent=2, default=str)
+
+        prompt = (
+            "You are ARIA, a defence procurement intelligence agent. "
+            "Write a 200-word executive summary of your weekly learning report. "
+            "Be concise, factual, and highlight the most important changes. "
+            "Cover: new knowledge acquired, mastery score trends, capability gaps, "
+            "and reasoning library health. Use bullet points.\n\n"
+            f"DATA:\n{data_block}"
+        )
+
+        response = await llm(prompt)
+        if isinstance(response, dict):
+            return response.get("text") or response.get("content") or str(response)
+        return str(response) if response else None
+    except Exception as e:
+        logger.warning("LLM summary generation failed: %s", e)
+        return None
