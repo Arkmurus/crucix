@@ -41,6 +41,12 @@ async def _save() -> None:
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
+async def get_all_facts() -> list[dict]:
+    """Return all facts in the knowledge base (for security audit scanning)."""
+    cache = await _load()
+    return cache.get("facts", [])
+
+
 async def init() -> None:
     await _load()
     facts = (_cache or {}).get("facts", [])
