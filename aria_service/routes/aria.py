@@ -1159,6 +1159,13 @@ async def student_mastery_ep():
     return await student.get_mastery_report()
 
 
+@router.post("/student/mastery/reset")
+async def student_mastery_reset_ep():
+    """Reset mastery scores to accuracy-based baseline. Use after fixing
+    bugs that corrupted the EWMA scores."""
+    return await student.reset_mastery_scores()
+
+
 @router.get("/student/curriculum")
 async def student_curriculum_ep():
     """What ARIA should study next, prioritised by weakness + staleness."""

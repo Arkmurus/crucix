@@ -281,6 +281,27 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
             pass
 
 
+async def reset_mastery_scores() -> dict:
+    """Reset all mastery scores to a fair baseline. Use after fixing a
+    bug that corrupted the scores (e.g., the weight=0.7 divergence
+    penalty that dropped all topics from 81% to 14%)."""
+    global _mastery_cache
+    mastery = await _load_mastery()
+    for topic in mastery:
+        # Reset to accuracy-based estimate: correct/samples
+        samples = mastery[topic].get("samples", 0)
+        correct = mastery[topic].get("correct", 0)
+        if samples > 10:
+            accuracy = correct / samples
+            mastery[topic]["score"] = max(INITIAL_MASTERY, accuracy * 0.9)
+        else:
+            mastery[topic]["score"] = INITIAL_MASTERY
+        mastery[topic].pop("below_floor", None)
+        mastery[topic].pop("floor", None)
+    await _save_mastery()
+    return {t: round(mastery[t]["score"], 3) for t in mastery}
+
+
 async def get_mastery_report() -> dict:
     mastery = await _load_mastery()
     total_samples = sum(m.get("samples", 0) for m in mastery.values())
@@ -591,11 +612,29 @@ async def record_divergence(
     log = log[-500:]
     await rs.set_json(DIVERGENCE_KEY, log, ex=180 * 86400)
 
-    # Update mastery — local was wrong-ish if similarity is low
-    if similarity < 0.5:
-        await update_mastery(topics, correct=False, weight=0.7)
+    # Update mastery from divergence comparison. IMPORTANT: the local
+    # reasoning stack produces short, factual answers while the cloud
+    # LLM produces long narrative responses. Jaccard similarity between
+    # these is ALWAYS low even when both are correct — a 50-word local
+    # answer vs a 2000-word cloud answer will never exceed 0.3 Jaccard.
+    #
+    # Previous weights (correct=False, weight=0.7 on <0.5 similarity)
+    # were catastrophically punitive — mastery dropped from 81% to 14%
+    # across ALL topics because EVERY comparison triggered the penalty.
+    #
+    # Fix: only penalise when local DIDN'T ANSWER AT ALL (no response
+    # from reasoning router), and use much lower weights. The positive
+    # signal from successful cloud responses (weight=0.15 in aria_engine)
+    # should be the primary mastery driver, not the divergence comparison.
+    if local_response is None or len((local_response or "").strip()) < 20:
+        # Local couldn't answer — genuine knowledge gap
+        await update_mastery(topics, correct=False, weight=0.1)
+    elif similarity < 0.3:
+        # Very low similarity — possible gap, but soft penalty
+        await update_mastery(topics, correct=False, weight=0.05)
     else:
-        await update_mastery(topics, correct=True, weight=0.4)
+        # Reasonable similarity or local answered — positive signal
+        await update_mastery(topics, correct=True, weight=0.1)
 
 
 async def compare_local_silently(question: str, cloud_response: str) -> dict:
