@@ -83,6 +83,14 @@ RESEARCH_FEEDS = [
     {"name": "EurActiv Defence", "url": "https://www.euractiv.com/sections/defence-and-security/feed/", "category": "europe_defence"},
     {"name": "Breaking Defense", "url": "https://breakingdefense.com/feed/", "category": "defence_procurement"},
 
+    # ── Regional: Latin America (Spanish) ────────────────────────────────
+    {"name": "Infodefensa LatAm", "url": "https://www.infodefensa.com/latam/rss.xml", "category": "latam_defence"},
+    {"name": "Infodefensa España", "url": "https://www.infodefensa.com/espana/rss.xml", "category": "spain_defence"},
+    {"name": "Defensa.com", "url": "https://www.defensa.com/rss", "category": "latam_defence"},
+    {"name": "Zona Militar", "url": "https://www.zona-militar.com/feed/", "category": "latam_defence"},
+    {"name": "Dialogo Americas", "url": "https://dialogo-americas.com/feed/", "category": "latam_security"},
+    {"name": "BN Americas Defence", "url": "https://www.bnamericas.com/en/rss/infrastructure", "category": "latam_procurement"},
+
     # ── Export Controls & Compliance ──────────────────────────────────────
     {"name": "BIS Federal Register", "url": "https://www.bis.doc.gov/index.php/component/rssfeed/feed/2-federal-register-notices?format=feed", "category": "export_controls"},
 ]
@@ -128,7 +136,11 @@ RESEARCH_INTERESTS = [
     "Poland Romania Ukraine NATO eastern flank",
     "India Pakistan Bangladesh Sri Lanka defence",
     "Egypt Morocco Algeria Tunisia Libya defence",
-    "Brazil Colombia Mexico Peru Chile defence",
+    "Brazil Colombia Mexico Peru Chile Argentina Ecuador defence",
+    # Spanish-language LatAm procurement keywords
+    "licitación defensa ministerio fuerzas armadas adquisición",
+    "contrato militar modernización presupuesto defensa",
+    "FAMAE INDUMIL SIMDE SEMAN FAdeA industria defensa",
     "Australia Japan South Korea Taiwan defence",
 
     # Compliance & regulation

@@ -485,6 +485,17 @@ _TERM_TRANSLATIONS: dict[str, dict[str, list[str]]] = {
     "russia":       {"pt": ["rússia"], "fr": ["russie"], "es": ["rusia"], "ar": ["روسيا"], "ru": ["россия"], "tr": ["rusya"], "zh": ["俄罗斯"]},
     "china":        {"pt": ["china"], "fr": ["chine"], "es": ["china"], "ar": ["الصين"], "ru": ["китай"], "tr": ["çin"], "zh": ["中国"]},
     "france":       {"pt": ["frança"], "fr": ["france"], "es": ["francia"], "ar": ["فرنسا"], "ru": ["франция"], "tr": ["fransa"], "zh": ["法国"]},
+
+    # LatAm-specific terms
+    "armoured vehicle": {"pt": ["viatura blindada"], "fr": ["véhicule blindé"], "es": ["vehículo blindado"], "tr": ["zırhlı araç"], "zh": ["装甲车"]},
+    "infantry fighting vehicle": {"pt": ["viatura de combate de infantaria"], "fr": ["véhicule de combat d'infanterie"], "es": ["vehículo de combate de infantería"], "tr": ["piyade savaş aracı"]},
+    "modernisation": {"pt": ["modernização"], "fr": ["modernisation"], "es": ["modernización"], "tr": ["modernizasyon"]},
+    "budget":       {"pt": ["orçamento"], "fr": ["budget"], "es": ["presupuesto"], "ar": ["ميزانية"], "ru": ["бюджет"], "tr": ["bütçe"], "zh": ["预算"]},
+    "detonator":    {"pt": ["detonador"], "fr": ["détonateur"], "es": ["detonador"], "ar": ["صاعق"], "tr": ["fünye"]},
+    "explosive":    {"pt": ["explosivo"], "fr": ["explosif"], "es": ["explosivo"], "ar": ["متفجر"], "tr": ["patlayıcı"]},
+    "border":       {"pt": ["fronteira"], "fr": ["frontière"], "es": ["frontera"], "ar": ["حدود"], "tr": ["sınır"]},
+    "patrol":       {"pt": ["patrulha"], "fr": ["patrouille"], "es": ["patrulla"], "ar": ["دورية"], "tr": ["devriye"]},
+    "security":     {"pt": ["segurança"], "fr": ["sécurité"], "es": ["seguridad"], "ar": ["أمن"], "ru": ["безопасность"], "tr": ["güvenlik"], "zh": ["安全"]},
 }
 
 
@@ -574,7 +585,14 @@ async def search_multilingual(
         # Spanish (LatAm)
         if any(kw in q_lower for kw in ["argentina", "chile", "peru", "colombia",
                                          "mexico", "ecuador", "venezuela", "spain",
-                                         "bolivia", "uruguay", "paraguay"]):
+                                         "bolivia", "uruguay", "paraguay",
+                                         "latin america", "latam", "spanish",
+                                         "famae", "indumil", "fadea", "fabricaciones militares",
+                                         "fuerzas armadas", "ministerio de defensa",
+                                         "licitación", "contrato militar",
+                                         "guatemala", "honduras", "el salvador",
+                                         "costa rica", "panama", "dominican",
+                                         "cuba", "nicaragua"]):
             languages.append("es")
         # Chinese
         if any(kw in q_lower for kw in ["china", "chinese", "norinco", "chengdu",
