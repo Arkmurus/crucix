@@ -182,6 +182,26 @@ async def read_document(
             result.strategies_attempted = strategies_attempted
             return result
 
+    # Strategy 1b: PDF table extraction via pdfplumber
+    # 2026-04-12: extracts structured tables as CSV alongside text. Critical
+    # for pricing matrices, spec sheets, compliance matrices, supplier lists.
+    # Only runs if Strategy 1 text extraction found tables (low text confidence
+    # often means the PDF is table-heavy).
+    if PDFPLUMBER_AVAILABLE and result and result.confidence < 0.80:
+        strategies_attempted.append("TABLE_EXTRACTION")
+        table_result = await asyncio.to_thread(_strategy_table_extraction, filepath)
+        if table_result.confidence > 0 and table_result.text:
+            # Merge tables into the text result
+            if result and result.text:
+                result.text += "\n\n" + table_result.text
+                result.confidence = max(result.confidence, table_result.confidence)
+                result.method += "+TABLE_EXTRACTION"
+            else:
+                result = table_result
+            result.strategies_attempted = strategies_attempted
+            if result.confidence >= 0.60:
+                return result
+
     # Strategy 2: OCR via PyMuPDF + Tesseract
     if TESSERACT_AVAILABLE:
         strategies_attempted.append("OCR_TESSERACT")
@@ -271,6 +291,64 @@ def _strategy_text_extraction(filepath: str) -> ExtractionResult:
         return ExtractionResult(
             method="TEXT_EXTRACTION", confidence=0.0,
             gap_description=f"pdfplumber error: {e}",
+        )
+
+
+# ── Strategy 1b: PDF Table Extraction ─────────────────────────────────────
+# 2026-04-12: uses pdfplumber's built-in extract_tables() to pull structured
+# data from pricing matrices, spec sheets, compliance matrices, supplier lists.
+# No new dependencies — pdfplumber is already required for Strategy 1.
+
+def _strategy_table_extraction(filepath: str) -> ExtractionResult:
+    """Extract tables from PDF using pdfplumber.extract_tables().
+
+    Returns tables as CSV-formatted text blocks, one per table found.
+    """
+    if not PDFPLUMBER_AVAILABLE:
+        return ExtractionResult(method="TABLE_EXTRACTION", confidence=0.0,
+                                gap_description="pdfplumber not available")
+    try:
+        tables_text = []
+        total_pages = 0
+        with pdfplumber.open(filepath) as pdf:
+            total_pages = len(pdf.pages)
+            for page_num, page in enumerate(pdf.pages[:50], 1):  # cap at 50 pages
+                tables = page.extract_tables()
+                if not tables:
+                    continue
+                for t_idx, table in enumerate(tables):
+                    if not table:
+                        continue
+                    # Convert table rows to CSV-like format
+                    rows = []
+                    for row in table:
+                        cells = [str(cell or "").strip().replace("\n", " ") for cell in row]
+                        rows.append(" | ".join(cells))
+                    if rows:
+                        tables_text.append(
+                            f"[TABLE p{page_num}.{t_idx + 1}]\n" + "\n".join(rows)
+                        )
+
+        if not tables_text:
+            return ExtractionResult(
+                method="TABLE_EXTRACTION", confidence=0.0,
+                total_pages=total_pages,
+                gap_description="No tables detected in PDF",
+            )
+
+        full_text = "\n\n".join(tables_text)
+        confidence = min(0.90, 0.5 + len(tables_text) * 0.1)
+
+        return ExtractionResult(
+            text=full_text, method="TABLE_EXTRACTION",
+            confidence=confidence, pages_extracted=total_pages,
+            total_pages=total_pages,
+        )
+    except Exception as e:
+        logger.debug("Table extraction failed: %s", e)
+        return ExtractionResult(
+            method="TABLE_EXTRACTION", confidence=0.0,
+            gap_description=f"Table extraction error: {e}",
         )
 
 

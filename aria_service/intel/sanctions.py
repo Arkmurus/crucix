@@ -249,6 +249,17 @@ def _normalise_match(raw: dict, queried_name: str) -> dict:
     score = float(raw.get("score", 0)) if raw.get("score") else max(sim, 0.7 if phon_match else 0)
 
     datasets = raw.get("datasets") or []
+
+    # Extract family/associate relationships from OpenSanctions properties.
+    # 2026-04-12: these surface inherited risk — if subject's spouse/sibling
+    # is sanctioned, the subject inherits elevated risk.
+    relationships = []
+    for rel_type in ("familyOf", "associateOf", "relatedTo", "spouseOf",
+                     "childOf", "parentOf", "siblingOf"):
+        rel_targets = props.get(rel_type) or []
+        for target in rel_targets[:5]:
+            relationships.append({"kind": rel_type, "target": target})
+
     return {
         "name": candidate_name,
         "schema": raw.get("schema"),
@@ -260,6 +271,7 @@ def _normalise_match(raw: dict, queried_name: str) -> dict:
         "topics": props.get("topics") or [],
         "countries": props.get("country") or [],
         "aliases": (props.get("alias") or [])[:5],
+        "relationships": relationships,
         "first_seen": raw.get("first_seen"),
         "last_change": raw.get("last_change"),
         "url": f"https://www.opensanctions.org/entities/{raw.get('id', '')}/" if raw.get("id") else None,

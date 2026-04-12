@@ -791,6 +791,198 @@ async def _crawl_afdb(client: httpx.AsyncClient, max_results: int = 20) -> list[
     return tenders
 
 
+# ── Portal 6: SEACE Peru ───────────────────────────────────────────────────
+# 2026-04-12: Peru's public procurement portal. Web scrape — no public API.
+
+async def _crawl_seace_peru(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
+    """Crawl SEACE (Sistema Electrónico de Contrataciones del Estado) — Peru."""
+    tenders: list[TenderAlert] = []
+    try:
+        # SEACE search page — filter for defence/security keywords
+        url = "https://prodapp2.seace.gob.pe/seacebus-uiwd-pub/buscadorPublico/buscadorPublico.xhtml"
+        resp = await client.get(url, timeout=_HTTP_TIMEOUT, follow_redirects=True)
+        if resp.status_code != 200:
+            logger.warning("[SEACE Peru] Returned %d", resp.status_code)
+            return tenders
+
+        html = resp.text
+        # Parse procurement notices from HTML
+        notice_re = re.compile(
+            r'(?:titulo|descripcion|objeto)["\s:>]+([^<"]{20,200})',
+            re.IGNORECASE,
+        )
+        link_re = re.compile(
+            r'href=["\']([^"\']*(?:ficha|detalle|proceso)[^"\']*)["\']',
+            re.IGNORECASE,
+        )
+
+        defence_kw = [
+            "seguridad", "defensa", "militar", "policia", "armamento",
+            "municion", "patrullaje", "blindado", "surveillance", "defence",
+            "security", "military", "police", "border",
+        ]
+
+        titles = notice_re.findall(html)
+        links = link_re.findall(html)
+        seen: set[str] = set()
+
+        for i, title in enumerate(titles):
+            title = title.strip()
+            if not title or title in seen:
+                continue
+            if not any(kw in title.lower() for kw in defence_kw):
+                continue
+            seen.add(title)
+
+            link = links[i] if i < len(links) else ""
+            if link and not link.startswith("http"):
+                link = f"https://prodapp2.seace.gob.pe{link}"
+
+            tenders.append(TenderAlert(
+                id="", portal="SEACE_PERU", title=title,
+                description=title[:_MAX_DESCRIPTION_LEN],
+                buyer="Government of Peru",
+                country="Peru", country_iso2="PE",
+                value_estimate="undisclosed", cpv_codes=[],
+                deadline="",
+                publication_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                url=link or "https://www.seace.gob.pe",
+            ))
+            if len(tenders) >= max_results:
+                break
+
+    except httpx.TimeoutException:
+        logger.warning("[SEACE Peru] Request timed out")
+    except Exception as e:
+        logger.warning("[SEACE Peru] Crawl failed: %s", e)
+
+    logger.info("[SEACE Peru] Crawled %d tenders", len(tenders))
+    return tenders
+
+
+# ── Portal 7: e-licitatie Romania ──────────────────────────────────────────
+# 2026-04-12: Romania's public procurement portal. Web scrape.
+
+async def _crawl_elicitatie_romania(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
+    """Crawl e-licitatie.ro — Romania's central procurement platform."""
+    tenders: list[TenderAlert] = []
+    try:
+        url = "https://www.e-licitatie.ro/pub/notices/ca-notices/search-ca"
+        params = {"page": "0", "pageSize": str(min(max_results, 50))}
+        resp = await client.get(url, params=params, timeout=_HTTP_TIMEOUT, follow_redirects=True)
+        if resp.status_code != 200:
+            logger.warning("[e-licitatie RO] Returned %d", resp.status_code)
+            return tenders
+
+        # Try JSON first (API may return JSON), fall back to HTML scrape
+        try:
+            data = resp.json()
+            items = data.get("items") or data.get("results") or []
+            for item in items[:max_results]:
+                title = str(item.get("noticeTitle") or item.get("title") or "")
+                if not title:
+                    continue
+                cpv = item.get("cpvCode") or ""
+                tenders.append(TenderAlert(
+                    id="", portal="ELICITATIE_RO",
+                    title=title,
+                    description=str(item.get("description") or title)[:_MAX_DESCRIPTION_LEN],
+                    buyer=str(item.get("contractingAuthorityName") or ""),
+                    country="Romania", country_iso2="RO",
+                    value_estimate=str(item.get("estimatedValue") or "undisclosed"),
+                    cpv_codes=[cpv] if cpv else [],
+                    deadline=str(item.get("tenderReceiptDeadline") or ""),
+                    publication_date=str(item.get("publicationDate") or ""),
+                    url=f"https://www.e-licitatie.ro/pub/notices/ca-notices/{item.get('caNoticeId', '')}"
+                        if item.get("caNoticeId") else "https://www.e-licitatie.ro",
+                ))
+        except (ValueError, KeyError):
+            # HTML fallback — parse notice titles from page
+            html = resp.text
+            notice_re = re.compile(r'<td[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)</td>', re.I)
+            for title in notice_re.findall(html)[:max_results]:
+                title = title.strip()
+                if title and len(title) > 10:
+                    tenders.append(TenderAlert(
+                        id="", portal="ELICITATIE_RO", title=title,
+                        description=title[:_MAX_DESCRIPTION_LEN],
+                        buyer="", country="Romania", country_iso2="RO",
+                        value_estimate="undisclosed", cpv_codes=[],
+                        deadline="", publication_date="",
+                        url="https://www.e-licitatie.ro",
+                    ))
+
+    except httpx.TimeoutException:
+        logger.warning("[e-licitatie RO] Request timed out")
+    except Exception as e:
+        logger.warning("[e-licitatie RO] Crawl failed: %s", e)
+
+    logger.info("[e-licitatie RO] Crawled %d tenders", len(tenders))
+    return tenders
+
+
+# ── Portal 8: MERX Canada ─────────────────────────────────────────────────
+# 2026-04-12: Canada's central procurement portal (federal + provincial).
+
+async def _crawl_merx_canada(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
+    """Crawl MERX / CanadaBuys — Canada's procurement portal."""
+    tenders: list[TenderAlert] = []
+    try:
+        # CanadaBuys (the new MERX replacement) has a search API
+        url = "https://canadabuys.canada.ca/en/tender-opportunities"
+        resp = await client.get(url, timeout=_HTTP_TIMEOUT, follow_redirects=True)
+        if resp.status_code != 200:
+            logger.warning("[MERX Canada] Returned %d", resp.status_code)
+            return tenders
+
+        html = resp.text
+
+        # Parse tender titles from HTML
+        title_re = re.compile(
+            r'<a[^>]*href=["\']([^"\']*tender[^"\']*)["\'][^>]*>\s*([^<]{10,200})\s*</a>',
+            re.IGNORECASE,
+        )
+        defence_kw = [
+            "defence", "defense", "military", "security", "naval",
+            "arctic", "norad", "armoured", "ammunition", "surveillance",
+            "patrol", "coast guard", "armed forces", "dnd",
+        ]
+
+        seen: set[str] = set()
+        for link, title in title_re.findall(html):
+            title = title.strip()
+            if not title or title in seen:
+                continue
+            if not any(kw in title.lower() for kw in defence_kw):
+                continue
+            seen.add(title)
+
+            tender_url = link
+            if not tender_url.startswith("http"):
+                tender_url = f"https://canadabuys.canada.ca{link}"
+
+            tenders.append(TenderAlert(
+                id="", portal="MERX_CANADA", title=title,
+                description=title[:_MAX_DESCRIPTION_LEN],
+                buyer="Government of Canada",
+                country="Canada", country_iso2="CA",
+                value_estimate="undisclosed", cpv_codes=[],
+                deadline="",
+                publication_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                url=tender_url,
+            ))
+            if len(tenders) >= max_results:
+                break
+
+    except httpx.TimeoutException:
+        logger.warning("[MERX Canada] Request timed out")
+    except Exception as e:
+        logger.warning("[MERX Canada] Crawl failed: %s", e)
+
+    logger.info("[MERX Canada] Crawled %d tenders", len(tenders))
+    return tenders
+
+
 # ── Deduplication ────────────────────────────────────────────────────────────
 
 def _dedup_tenders(tenders: list[TenderAlert]) -> list[TenderAlert]:
@@ -821,13 +1013,16 @@ async def crawl_all_portals(max_results_per_portal: int = 20) -> list[TenderAler
         headers={"User-Agent": "ARIA-TenderMonitor/1.0 (Arkmurus Intelligence)"},
         follow_redirects=True,
     ) as client:
-        # Launch all crawlers in parallel
+        # Launch all crawlers in parallel (8 portals)
         tasks = {
             "TED": asyncio.create_task(_crawl_ted(client, max_results_per_portal)),
             "SAM_GOV": asyncio.create_task(_crawl_sam_gov(client, max_results_per_portal)),
             "CONTRACTS_FINDER": asyncio.create_task(_crawl_contracts_finder(client, max_results_per_portal)),
             "UNGM": asyncio.create_task(_crawl_ungm(client, max_results_per_portal)),
             "AFDB": asyncio.create_task(_crawl_afdb(client, max_results_per_portal)),
+            "SEACE_PERU": asyncio.create_task(_crawl_seace_peru(client, max_results_per_portal)),
+            "ELICITATIE_RO": asyncio.create_task(_crawl_elicitatie_romania(client, max_results_per_portal)),
+            "MERX_CANADA": asyncio.create_task(_crawl_merx_canada(client, max_results_per_portal)),
         }
 
         all_tenders: list[TenderAlert] = []

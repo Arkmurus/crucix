@@ -255,6 +255,31 @@ async def _run_identity_person(
                 source="sanctions.person_screen",
                 confidence="CONFIRMED",
             ))
+        # ── Family/associate edge detection ─────────────────────────────
+        # 2026-04-12: if any sanctions match has family/associate relationships,
+        # the subject inherits elevated risk (e.g., spouse of sanctioned person).
+        for pm in classified.get("per_match") or []:
+            match_obj = next((m for m in all_matches if isinstance(m, dict) and m.get("name") == pm.get("name")), None)
+            if not match_obj:
+                continue
+            rels = match_obj.get("relationships") or []
+            for rel in rels[:3]:
+                kind = rel.get("kind", "relatedTo")
+                target = rel.get("target", "unknown")
+                # Family of a sanctioned entity inherits red risk
+                inherited_sev = "red" if pm["severity"] in ("hard_stop", "red") else "amber"
+                report.identity.findings.append(Finding(
+                    severity=inherited_sev,
+                    title=f"{name} — {kind} link to {target}",
+                    detail=(
+                        f"OpenSanctions reports {pm['name']} has a '{kind}' "
+                        f"relationship with '{target}'. If the related party is "
+                        f"sanctioned, {name} inherits elevated risk via association."
+                    ),
+                    source="sanctions.family_edges",
+                    confidence="ASSESSED",
+                ))
+
     except Exception as e:
         logger.warning("Identity (person): sanctions screen failed: %s", e)
         report.identity.findings.append(Finding(
@@ -580,6 +605,43 @@ async def _run_identity(
                     report.identity.declared_activity = ", ".join(profile.get("sic_codes") or [])[:200] or profile.get("sic_description")
                     report.identity.directors = ch_result.get("officers") or []
                     report.identity.shareholders = ch_result.get("psc") or []
+
+                    # ── PSC-reverse: screen each beneficial owner against sanctions ──
+                    # 2026-04-12: "Which people control this company, and are any of
+                    # them sanctioned?" Surfaces hidden risk from beneficial owners.
+                    psc_list = ch_result.get("psc") or []
+                    if psc_list:
+                        from . import sanctions as _san
+                        from ._sanctions_classify import classify_matches as _cm_psc, SEVERITY_RANK
+                        for psc_member in psc_list[:10]:  # cap at 10 to control cost
+                            psc_name = psc_member.get("name") or ""
+                            if not psc_name or len(psc_name) < 3:
+                                continue
+                            if psc_member.get("ceased_on"):
+                                continue  # skip former PSCs
+                            try:
+                                psc_matches = await _san.screen_entity(psc_name)
+                                report.identity.meta.subcalls += 1
+                                if psc_matches:
+                                    psc_classified = _cm_psc(psc_matches, query_name=psc_name)
+                                    psc_worst = psc_classified["worst_severity"]
+                                    if SEVERITY_RANK.get(psc_worst, 0) >= SEVERITY_RANK.get("amber", 1):
+                                        natures = ", ".join(psc_member.get("natures_of_control") or [])[:120]
+                                        report.identity.findings.append(Finding(
+                                            severity=psc_worst,
+                                            title=f"PSC (beneficial owner) {psc_name} flagged: {psc_worst}",
+                                            detail=(
+                                                f"Person of Significant Control '{psc_name}' "
+                                                f"(control: {natures or 'not specified'}) "
+                                                f"matched: {psc_classified['summary'][:300]}"
+                                            ),
+                                            source="sanctions.psc_reverse",
+                                            confidence="PROBABLE",
+                                        ))
+                                        if psc_worst == "hard_stop":
+                                            hard_stop = True
+                            except Exception as _psc_e:
+                                logger.debug("PSC screen failed for %s: %s", psc_name, _psc_e)
         except Exception as e:
             logger.warning("Identity: companies_house lookup failed: %s", e)
             report.identity.data_gaps.append(f"companies_house lookup failed: {str(e)[:120]}")

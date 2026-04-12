@@ -29,6 +29,13 @@ _TOPIC_SEVERITY: dict[str, str] = {
     "frozen":           "hard_stop",
     "export.control":   "hard_stop",
     "export.risk":      "hard_stop",
+    # ── HARD STOP ── ICC warrants / Interpol Red Notices (explicit routing)
+    # 2026-04-12: was implicit via "wanted" topic. Now explicit so the DD
+    # report can show "ICC warrant" vs generic "wanted" in the finding text.
+    "icc":              "hard_stop",
+    "icc.wanted":       "hard_stop",
+    "interpol":         "red",
+    "interpol.red":     "hard_stop",
     # ── RED ── crime / debarment / regulatory action — human review required
     "debarment":        "red",
     "crime":            "red",
@@ -184,6 +191,17 @@ def classify_match(match: dict, query_name: str = "") -> str:
         sev = _TOPIC_SEVERITY.get(t, "info")
         if SEVERITY_RANK[sev] > SEVERITY_RANK[severity]:
             severity = sev
+    # Dataset-level ICC/Interpol detection — some matches have the dataset
+    # name ("icc", "interpol_red_notices") but no explicit topic tag.
+    # 2026-04-12: explicit routing so DD reports show "ICC warrant" clearly.
+    datasets = match.get("lists") or match.get("datasets") or []
+    ds_lower = " ".join(str(d).lower() for d in datasets)
+    if "icc" in ds_lower and SEVERITY_RANK["hard_stop"] > SEVERITY_RANK[severity]:
+        severity = "hard_stop"
+    elif "interpol" in ds_lower and "red" in ds_lower and SEVERITY_RANK["hard_stop"] > SEVERITY_RANK[severity]:
+        severity = "hard_stop"
+    elif "interpol" in ds_lower and SEVERITY_RANK["red"] > SEVERITY_RANK[severity]:
+        severity = "red"
     # Score floor — if escalation-worthy but fuzzy, demote to info
     if SEVERITY_RANK[severity] >= 1 and score < SCORE_FLOOR_FOR_ESCALATION:
         severity = "info"
