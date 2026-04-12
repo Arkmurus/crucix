@@ -46,6 +46,20 @@
       font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
       background: rgba(124,58,237,0.15); color: #a78bfa; letter-spacing: 0.3px;
     }
+    .streaming-badge {
+      background: rgba(37,99,235,0.2); color: #60a5fa;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity:0.6; } 50% { opacity:1; } }
+    .upload-btn {
+      background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer;
+      font-size: 16px; padding: 4px 8px; border-radius: 6px; transition: all .15s;
+    }
+    .upload-btn:hover { color: #a78bfa; background: rgba(124,58,237,0.1); }
+    .chat-scroll.drag-over {
+      outline: 2px dashed rgba(124,58,237,0.5); outline-offset: -8px;
+      background: rgba(124,58,237,0.03);
+    }
     .msg-aria-body {
       font-size: 14px; line-height: 1.8; color: rgba(255,255,255,0.82);
       padding-left: 30px; white-space: pre-wrap; word-break: break-word;
@@ -205,7 +219,8 @@
       <div class="input-bar">
         <button class="think-btn" id="think-btn" title="Deep analysis mode"><i class="bi bi-cpu"></i> Think</button>
         <button class="new-btn" id="new-btn" title="New conversation"><i class="bi bi-plus-lg"></i> New</button>
-        <span class="input-hint">Enter to send</span>
+        <button class="upload-btn" id="upload-btn" title="Upload document"><i class="bi bi-paperclip"></i></button>
+        <span class="input-hint">Enter to send · Drop files here</span>
         <button class="send-btn" id="send-btn" disabled><i class="bi bi-arrow-up"></i></button>
       </div>
     </div>
@@ -241,6 +256,11 @@ document.getElementById('think-btn').addEventListener('click', function() {
   thinkMode = !thinkMode;
   this.classList.toggle('on', thinkMode);
   wrap.classList.toggle('think-on', thinkMode);
+});
+
+// ── Upload button ──
+document.getElementById('upload-btn').addEventListener('click', function() {
+  if (typeof fileInput !== 'undefined') fileInput.click();
 });
 
 // ── New session ──
@@ -356,54 +376,193 @@ function showThinking() {
 
 function removeThinking() { var t = document.getElementById('thk'); if (t) t.remove(); }
 
-// ── Send message ──
+// ── Send message (SSE streaming) ──
 async function send(text) {
   if (!text || sending) return;
   sending = true;
   ta.value = ''; ta.style.height = 'auto'; resize();
 
   addUser(text);
-  showThinking();
+
+  // Think mode still uses the blocking endpoint (structured output)
+  if (thinkMode) {
+    showThinking();
+    try {
+      var result = await API.post('/api/aria/think', { question: text, context: {}, fast: false, session_id: SID });
+      removeThinking();
+      if (!result.ok || !result.data) {
+        addAria(md((result.data && result.data.error) || 'Something went wrong.'));
+      } else {
+        var d = result.data;
+        var reply = '';
+        if (d.conclusion && d.conclusion.statement) {
+          if (d.orientation) reply += '## Orientation\n' + d.orientation + '\n\n';
+          reply += '## Conclusion\n' + d.conclusion.statement;
+          if (d.conclusion.confidence) reply += '\n\n**Confidence:** ' + d.conclusion.confidence + '% (' + (d.conclusion.epistemic_status || 'ASSESSED') + ')';
+          if (d.reasoning) reply += '\n\n## Reasoning\n' + d.reasoning;
+          if (d.conclusion.action && d.conclusion.action.what) reply += '\n\n## Recommended Action\n' + d.conclusion.action.what;
+          if (d.metacognition && d.metacognition.biggest_gap) reply += '\n\n**Knowledge gap:** ' + d.metacognition.biggest_gap;
+        } else {
+          reply = d.full_text || d.response || 'No analysis returned.';
+        }
+        addAria(md(reply), 'DEEP ANALYSIS');
+      }
+    } catch (err) { removeThinking(); addAria(md('Connection error.')); console.error(err); }
+    finally { sending = false; resize(); ta.focus(); }
+    return;
+  }
+
+  // ── SSE streaming path ──
+  // Create the ARIA message block with an empty body that we'll fill progressively
+  var ariaDiv = document.createElement('div');
+  ariaDiv.className = 'msg msg-aria';
+  ariaDiv.innerHTML =
+    '<div class="msg-aria-header">' +
+      '<div class="msg-aria-avatar">A</div>' +
+      '<span class="msg-aria-name">ARIA</span>' +
+      '<span class="msg-aria-badge streaming-badge" id="stream-badge">streaming</span>' +
+    '</div>' +
+    '<div class="msg-aria-body" id="stream-body"></div>';
+  document.getElementById('welcome').style.display = 'none';
+  feed.appendChild(ariaDiv);
+  var streamBody = document.getElementById('stream-body');
+  var streamBadge = document.getElementById('stream-badge');
+  bottom();
+
+  var fullText = '';
+  var toolUsed = '';
 
   try {
-    var endpoint = thinkMode ? '/api/aria/think' : '/api/aria/chat';
-    var payload = thinkMode
-      ? { question: text, context: {}, fast: false, session_id: SID }
-      : { message: text, session_id: SID };
+    var token = localStorage.getItem('crucix_token') || '';
+    var resp = await fetch('/api/aria/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ message: text, session_id: SID, auto_tools: true }),
+    });
 
-    var result = await API.post(endpoint, payload);
-    removeThinking();
-
-    if (!result.ok || !result.data) {
-      addAria(md((result.data && result.data.error) || 'Something went wrong. Please try again.'));
-    } else if (thinkMode) {
-      var d = result.data;
-      var reply = '';
-      if (d.conclusion && d.conclusion.statement) {
-        if (d.orientation) reply += '## Orientation\n' + d.orientation + '\n\n';
-        reply += '## Conclusion\n' + d.conclusion.statement;
-        if (d.conclusion.confidence) reply += '\n\n**Confidence:** ' + d.conclusion.confidence + '% (' + (d.conclusion.epistemic_status || 'ASSESSED') + ')';
-        if (d.reasoning) reply += '\n\n## Reasoning\n' + d.reasoning;
-        if (d.conclusion.action && d.conclusion.action.what) reply += '\n\n## Recommended Action\n' + d.conclusion.action.what;
-        if (d.metacognition && d.metacognition.biggest_gap) reply += '\n\n**Knowledge gap:** ' + d.metacognition.biggest_gap;
-      } else {
-        reply = d.full_text || d.response || 'No analysis returned.';
-      }
-      addAria(md(reply), 'DEEP ANALYSIS');
-    } else {
-      var chatReply = result.data.response || result.data.reply || result.data.answer || result.data.content || '';
-      addAria(md(chatReply || 'No response received.'));
+    if (!resp.ok) {
+      streamBody.innerHTML = md('Error: ' + resp.status + ' — ' + (await resp.text().catch(function(){return '';})).slice(0,200));
+      streamBadge.remove();
+      sending = false; resize(); ta.focus();
+      return;
     }
+
+    var reader = resp.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+
+      var events = buffer.split('\n\n');
+      buffer = events.pop() || '';
+
+      for (var i = 0; i < events.length; i++) {
+        var raw = events[i];
+        if (!raw.startsWith('data: ')) continue;
+        try {
+          var evt = JSON.parse(raw.slice(6));
+          if (evt.type === 'chunk' && evt.text) {
+            fullText += evt.text;
+            streamBody.innerHTML = md(fullText);
+            bottom();
+          } else if (evt.type === 'status' && evt.message) {
+            streamBadge.textContent = evt.message;
+            streamBadge.style.opacity = '1';
+          } else if (evt.type === 'done') {
+            SID = evt.session_id || SID;
+          } else if (evt.type === 'meta') {
+            toolUsed = evt.tool_used || '';
+          } else if (evt.type === 'error') {
+            if (!fullText) fullText = '⚠️ ' + (evt.message || 'Stream error');
+            streamBody.innerHTML = md(fullText);
+          }
+        } catch(e) { /* skip malformed SSE */ }
+      }
+    }
+
+    // Finalize
+    streamBadge.remove();
+    if (!fullText) streamBody.innerHTML = md('No response received.');
+
+    // Add copy + tool badge
+    var actions = document.createElement('div');
+    actions.className = 'msg-actions';
+    actions.innerHTML = '<button class="msg-action-btn" onclick="copyMsg(this)" title="Copy"><i class="bi bi-clipboard"></i> Copy</button>';
+    ariaDiv.appendChild(actions);
+    if (toolUsed) {
+      var tb = document.createElement('span');
+      tb.className = 'msg-aria-badge';
+      tb.textContent = toolUsed;
+      ariaDiv.querySelector('.msg-aria-header').appendChild(tb);
+    }
+
   } catch (err) {
-    removeThinking();
-    addAria(md('Connection error — please try again.'));
-    console.error('[ARIA]', err);
+    streamBody.innerHTML = md('Connection error — please try again.');
+    streamBadge.remove();
+    console.error('[ARIA stream]', err);
   } finally {
+    // Clean up IDs so next message doesn't collide
+    if (streamBody) streamBody.removeAttribute('id');
+    if (streamBadge) streamBadge.removeAttribute('id');
     sending = false;
     resize();
     ta.focus();
   }
 }
+
+// ── File upload handler ──
+var fileInput = document.createElement('input');
+fileInput.type = 'file';
+fileInput.accept = '.pdf,.docx,.xlsx,.xls,.csv,.txt,.json,.xml,.png,.jpg,.jpeg';
+fileInput.style.display = 'none';
+document.body.appendChild(fileInput);
+
+fileInput.addEventListener('change', async function() {
+  if (!fileInput.files.length) return;
+  var file = fileInput.files[0];
+  fileInput.value = '';
+
+  var formData = new FormData();
+  formData.append('file', file);
+  formData.append('context', ta.value.trim() || 'Review this document');
+  var token = localStorage.getItem('crucix_token') || '';
+
+  addUser('📎 ' + file.name + (ta.value.trim() ? '\n' + ta.value.trim() : ''));
+  showThinking();
+
+  try {
+    var resp = await fetch('/api/aria/extract-document', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token },
+      body: formData,
+    });
+    removeThinking();
+    if (resp.ok) {
+      var data = await resp.json();
+      addAria(md(data.summary || data.analysis || data.text || 'Document processed.'), file.name);
+    } else {
+      addAria(md('Failed to process ' + file.name + ': ' + resp.status));
+    }
+  } catch(err) {
+    removeThinking();
+    addAria(md('Upload failed: ' + err.message));
+  }
+});
+
+// Drag-and-drop
+var chatScroll = document.getElementById('chat-scroll');
+chatScroll.addEventListener('dragover', function(e) { e.preventDefault(); e.stopPropagation(); chatScroll.classList.add('drag-over'); });
+chatScroll.addEventListener('dragleave', function(e) { e.preventDefault(); chatScroll.classList.remove('drag-over'); });
+chatScroll.addEventListener('drop', function(e) {
+  e.preventDefault(); chatScroll.classList.remove('drag-over');
+  if (e.dataTransfer.files.length) {
+    fileInput.files = e.dataTransfer.files;
+    fileInput.dispatchEvent(new Event('change'));
+  }
+});
 </script>
 </body>
 </html>
