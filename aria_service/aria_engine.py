@@ -1412,7 +1412,22 @@ async def _build_calibrated_system_prompt(message: str) -> str:
             "say so explicitly and ask for clarification rather than "
             "padding the response with recall content.\n"
             "6. Your BOTTOM LINE must be grounded in the attachment. "
-            "Recall material can support but cannot override the attachment."
+            "Recall material can support but cannot override the attachment.\n"
+            "7. You MUST NOT build your analytical framework (scoring, "
+            "ranking, fit assessment, comparison) on recalled specifications "
+            "that are NOT stated in the attached document. If the user's "
+            "requirement specification (e.g. delay timing, end-user, grade, "
+            "quantity, destination) is only available from recall and NOT in "
+            "the attachment, you MUST: (a) state 'requirement spec not in "
+            "this document — recalled from prior session, UNVERIFIED', "
+            "(b) present the document analysis AS-IS without scoring against "
+            "the recalled spec, (c) ask the user to confirm the requirement "
+            "before any fit ranking. A fit assessment built on an unverified "
+            "recalled requirement is MISLEADING — the user may act on it.\n"
+            "8. Flag corrupted / truncated / garbled fields in the document "
+            "(OCR artifacts like 'Resistencia a la tens' or 'ro externo') as "
+            "'FIELD CORRUPTED — value not readable' rather than skipping them "
+            "silently. These may hide critical specification values."
         )
 
     if not addendum_parts:
