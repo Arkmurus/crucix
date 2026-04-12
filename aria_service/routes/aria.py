@@ -5851,6 +5851,109 @@ async def nsn_structure_ep():
     return {"explanation": nsn_knowledge.explain_nsn_structure()}
 
 
+# ── Compliance Workflow ────────────────────────────────────────────────────
+
+@router.get("/compliance/cases")
+async def compliance_list_ep(state: str = "", risk_level: str = "", limit: int = 50):
+    """List compliance cases with optional state/risk filters."""
+    from ..intel import compliance_workflow
+    cases = await compliance_workflow.list_cases(state=state, risk_level=risk_level, limit=limit)
+    return {"cases": cases, "count": len(cases)}
+
+
+@router.get("/compliance/stats")
+async def compliance_stats_ep():
+    """Return compliance workflow statistics."""
+    from ..intel import compliance_workflow
+    return await compliance_workflow.get_stats()
+
+
+@router.get("/compliance/case/{case_id}")
+async def compliance_case_ep(case_id: str):
+    """Get a single compliance case with full audit trail."""
+    from ..intel import compliance_workflow
+    case = await compliance_workflow.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
+    return case
+
+
+@router.post("/compliance/case/{case_id}/approve")
+async def compliance_approve_ep(case_id: str, request: Request):
+    """Approve a compliance case. Body: {by, reason}"""
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    from ..intel import compliance_workflow
+    return await compliance_workflow.update_state(
+        case_id, "approved",
+        by=body.get("by", "manual"),
+        reason=body.get("reason", "Manually approved"),
+    )
+
+
+@router.post("/compliance/case/{case_id}/reject")
+async def compliance_reject_ep(case_id: str, request: Request):
+    """Reject a compliance case. Body: {by, reason}"""
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    from ..intel import compliance_workflow
+    return await compliance_workflow.update_state(
+        case_id, "rejected",
+        by=body.get("by", "manual"),
+        reason=body.get("reason", "Manually rejected"),
+    )
+
+
+@router.get("/compliance/overdue")
+async def compliance_overdue_ep():
+    """List cases with overdue re-screening."""
+    from ..intel import compliance_workflow
+    overdue = await compliance_workflow.get_overdue_rescreens()
+    return {"overdue": overdue, "count": len(overdue)}
+
+
+@router.post("/compliance/expire-overdue")
+async def compliance_expire_ep():
+    """Mark all overdue cases as EXPIRED. Returns count expired."""
+    from ..intel import compliance_workflow
+    count = await compliance_workflow.mark_expired()
+    return {"expired": count}
+
+
+# ── Entity Graph ──────────────────────────────────────────────────────────
+
+@router.get("/entity-graph/{run_id}")
+async def entity_graph_ep(run_id: str):
+    """Load a previously saved entity relationship graph from a DD run."""
+    from ..intel import entity_graph
+    graph = await entity_graph.ERGraph.load(run_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail=f"No entity graph for run_id {run_id}")
+    return {
+        "run_id": run_id,
+        "nodes": len(graph.nodes),
+        "edges": len(graph.edges),
+        "summary": graph.get_network_summary(),
+        "graph": {
+            "nodes": [{
+                "id": n.entity_id, "type": n.entity_type, "label": n.label,
+                "jurisdiction": n.jurisdiction, "risk_level": n.risk_level,
+                "risk_reason": n.risk_reason,
+            } for n in graph.nodes.values()],
+            "edges": [{
+                "from": e.from_id, "to": e.to_id, "type": e.relationship_type,
+                "source": e.source,
+            } for e in graph.edges],
+        },
+    }
+
+
 # ── Fuzzy sanctions screening (OpenSanctions + Levenshtein + Metaphone) ─────
 
 class FuzzyScreenRequest(BaseModel):

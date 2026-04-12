@@ -645,6 +645,28 @@ async def _run_identity(
         except Exception as e:
             logger.warning("Identity: companies_house lookup failed: %s", e)
             report.identity.data_gaps.append(f"companies_house lookup failed: {str(e)[:120]}")
+
+        # ── 1c. Financial DD — shell company detection (UK) ──────────
+        # 2026-04-13: pulls Companies House filing history, detects dormant,
+        # micro-entity, overdue, formation agent addresses.
+        if registration_number:
+            try:
+                from . import financial_dd
+                fin_profile = await financial_dd.get_financial_profile(registration_number)
+                report.identity.meta.subcalls += 1
+                if not fin_profile.get("error"):
+                    for f in financial_dd.financial_findings(fin_profile):
+                        report.identity.findings.append(Finding(**f))
+                    report.identity.attributes = report.identity.attributes if hasattr(report.identity, 'attributes') and report.identity.attributes else {}
+                    if isinstance(report.identity.attributes, dict):
+                        report.identity.attributes["financial"] = {
+                            "accounts_type": fin_profile.get("accounts_type"),
+                            "shell_risk_score": fin_profile.get("shell_risk_score"),
+                            "shell_indicators": fin_profile.get("shell_indicators", []),
+                            "financial_summary": fin_profile.get("financial_summary"),
+                        }
+            except Exception as _fin_err:
+                logger.debug("Financial DD failed (non-fatal): %s", _fin_err)
     else:
         # Try multi-jurisdiction registry adapter
         try:
@@ -793,6 +815,52 @@ async def _run_network(target: dict, report: ARKDDReport) -> None:
         report.network.data_gaps = result.get("data_gaps", [])
         report.network.meta.subcalls = result.get("stats", {}).get("sanctions_screens", 0) + result.get("stats", {}).get("entities_walked", 0)
         report.network.meta.status = LayerStatus.OK.value
+
+        # ── Multi-hop entity graph (2026-04-13) ──────────────────────
+        # Build a traversable graph from the walk result and run multi-hop
+        # risk search. This finds indirect sanctions exposure through shared
+        # directors, PSCs, and family/associate relationships.
+        try:
+            from . import entity_graph
+            graph = entity_graph.build_from_walk_result(
+                seed_name=report.identity.entity_name,
+                seed_type=report.identity.entity_type,
+                seed_jurisdiction=report.identity.jurisdiction_iso2,
+                seed_reg_number=report.identity.registration_number,
+                walk_result=result,
+                sanctions_results=report.identity.sanctions_screen.get("matches") if hasattr(report.identity, "sanctions_screen") and report.identity.sanctions_screen else None,
+            )
+            # Multi-hop search: find all paths to flagged entities (up to 3 hops)
+            hop_results = graph.multi_hop_search(
+                start_id=list(graph.nodes.keys())[0] if graph.nodes else "",
+                max_depth=3,
+            )
+            # Store graph summary in report
+            report.network.director_graph["multi_hop"] = hop_results.get("risk_summary", {})
+            report.network.director_graph["graph_stats"] = hop_results.get("graph_stats", {})
+
+            # Generate findings from multi-hop paths
+            for path in hop_results.get("paths", [])[:5]:
+                if path.get("terminal_risk") in ("red", "hard_stop"):
+                    hops = path.get("length", 0)
+                    terminal = path.get("nodes", [{}])[-1] if path.get("nodes") else {}
+                    report.network.findings.append(Finding(
+                        severity=path["terminal_risk"],
+                        title=f"Indirect sanctions exposure ({hops}-hop): {terminal.get('label', 'unknown')}",
+                        detail=f"Path: {' → '.join(n.get('label', '?') for n in path.get('nodes', []))}. Reason: {path.get('terminal_reason', '')[:200]}",
+                        source="entity_graph.multi_hop",
+                        confidence="PROBABLE",
+                    ))
+
+            # Persist graph for re-screening
+            await graph.save(report.run_id)
+            logger.info("Entity graph built: %d nodes, %d edges, %d flagged paths",
+                        hop_results.get("graph_stats", {}).get("total_nodes", 0),
+                        hop_results.get("graph_stats", {}).get("total_edges", 0),
+                        hop_results.get("risk_summary", {}).get("flagged_nodes", 0))
+        except Exception as eg_err:
+            logger.warning("Entity graph construction failed (non-fatal): %s", eg_err)
+
     except Exception as e:
         logger.warning("Network layer failed: %s", e)
         report.network.meta.status = LayerStatus.ERROR.value
@@ -1376,6 +1444,23 @@ def _assemble_bluf(report: ARKDDReport) -> None:
         for g in getattr(section, "data_gaps", []) or []:
             if g not in report.data_gaps_summary:
                 report.data_gaps_summary.append(g)
+
+    # ── Auto-create compliance case from DD result (2026-04-13) ──────
+    # Every entity screened gets tracked in the compliance workflow for
+    # lifecycle management (re-screening, approval, audit trail).
+    try:
+        from . import compliance_workflow
+        await compliance_workflow.auto_create_from_dd(
+            entity_name=report.identity.entity_name,
+            entity_type=report.identity.entity_type,
+            jurisdiction=report.identity.jurisdiction_iso2 or "",
+            registration_number=report.identity.registration_number or "",
+            risk_level=report.risk_classification.lower().replace("-", "_").replace("amber_light", "amber").replace("amber_dark", "red"),
+            risk_summary=report.bottom_line[:300],
+            dd_run_id=report.run_id,
+        )
+    except Exception as _cw_err:
+        logger.debug("Compliance workflow auto-create failed (non-fatal): %s", _cw_err)
 
 
 # =============================================================================
