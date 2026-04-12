@@ -2098,7 +2098,7 @@ async def aria_chat_stream(
         logger.warning("Reasoning router failed (continuing to cloud stream): %s", e)
 
     # ── Build context (same as aria_chat) ─────────────────────────────
-    yield _emit("status", message="Building intelligence context...")
+    yield _emit("status", message="Building intelligence context (9 layers)...")
 
     session = await _get_session(session_id)
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
@@ -2161,7 +2161,8 @@ async def aria_chat_stream(
     system_prompt = await _build_calibrated_system_prompt(message)
 
     # ── Stream the LLM response ───────────────────────────────────────
-    yield _emit("status", message="Generating response...")
+    _has_tool = "[TOOL:" in message or "[I have already run" in message
+    yield _emit("status", message=f"{'Synthesizing from research data' if _has_tool else 'Generating response'}...")
 
     full_text = ""
     stream_result = None
