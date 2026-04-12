@@ -81,8 +81,10 @@ export async function fetchOpenSanctions() {
     if (process.env.OPENSANCTIONS_API_KEY) {
       headers['Authorization'] = `ApiKey ${process.env.OPENSANCTIONS_API_KEY}`;
     }
-    // Try the new /search endpoint first, fall back to /collections
-    let res = await fetch(`${BASE_URL}/search/default?q=*&${params}`, {
+    // Try the new /search endpoint. Use 'sanctions' as the query term
+    // (not wildcard '*' which returns 400). This returns recently-changed
+    // sanctioned entities — the sweep's purpose is to detect new listings.
+    let res = await fetch(`${BASE_URL}/search/default?q=sanctions&${params}`, {
       headers,
       signal: AbortSignal.timeout(15000),
     });
