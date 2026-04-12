@@ -245,11 +245,17 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
         if correct:
             m["correct"] = m.get("correct", 0) + 1
             lr = MASTERY_LR_POSITIVE * weight
-            m["score"] = min(MASTERY_CEILING, m["score"] + lr * (1 - m["score"]))
+            delta = lr * (1 - m["score"])
+            # Cap: single update cannot move score by more than 15pp
+            delta = min(delta, 0.15)
+            m["score"] = min(MASTERY_CEILING, m["score"] + delta)
         else:
             m["wrong"] = m.get("wrong", 0) + 1
             lr = MASTERY_LR_NEGATIVE * weight
-            m["score"] = max(MASTERY_FLOOR, m["score"] - lr * m["score"])
+            delta = lr * m["score"]
+            # Cap: single update cannot move score by more than 15pp
+            delta = min(delta, 0.15)
+            m["score"] = max(MASTERY_FLOOR, m["score"] - delta)
         # Hard floor check — flag for remediation if breached
         floor = HARD_FLOORS.get(topic, 0.50)
         if m["score"] < floor:
