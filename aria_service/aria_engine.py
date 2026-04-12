@@ -1439,6 +1439,18 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("nato_standards injection failed (non-fatal): %s", e)
 
+    # NSN (NATO Stock Number) context — decodes NSNs, explains cataloguing
+    # system, surfaces FSC/NCC/NIIN/NCAGE knowledge when query mentions NSN.
+    # 2026-04-12: integrated from nsnSchema-2.1 (NATO NMCRL).
+    try:
+        from .intel import nsn_knowledge
+        nsn_ctx = nsn_knowledge.get_nsn_context(message)
+        if nsn_ctx:
+            addendum_parts.append(nsn_ctx)
+            logger.info("[nsn_knowledge] context injected (%d chars)", len(nsn_ctx))
+    except Exception as e:
+        logger.debug("nsn_knowledge injection failed (non-fatal): %s", e)
+
     # Procurement intelligence context — surfaces relevant procurement
     # lifecycle, portal guidance, FMS process, offset mechanics.
     try:

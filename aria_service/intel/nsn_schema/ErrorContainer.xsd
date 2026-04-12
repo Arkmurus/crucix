@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="ERRORS"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Action="http://eportal.nspa.nato.int/Action"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           targetNamespace="http://eportal.nspa.nato.int/Container">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Action" schemaLocation="ActionTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+
+  <xs:complexType name="ERRORS">
+    <xs:sequence>
+      <xs:element name="RequestMessage" minOccurs="1" maxOccurs="1">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:choice>
+              <xs:element name="RequestContainer" minOccurs="1" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:choice>
+                      <xs:element name="ContainerError" type="Action:ERROR" minOccurs="1" maxOccurs="unbounded" />
+                      <xs:sequence>
+                        <xs:element name="RequestAction" minOccurs="1" maxOccurs="unbounded">
+                          <xs:complexType>
+                            <xs:sequence>
+                              <xs:element name="Error" type="Action:ERROR" minOccurs="1" maxOccurs="unbounded"/>
+                            </xs:sequence>
+                            <xs:attribute type="Types:ACTION_SERIAL_NUMBER" name="REQUEST_ACTION_SERIAL_NUMBER_8728" use="required"/>
+                          </xs:complexType>
+                          <xs:unique name="ESN_InboundAction">
+                            <xs:selector xpath="*" />
+                            <xs:field xpath="@ERROR_SERIAL_NUMBER_8726" />
+                          </xs:unique>
+                        </xs:element>
+                      </xs:sequence>
+                    </xs:choice>
+                  </xs:sequence>
+                  <xs:attribute type="Types:CONTAINER_SERIAL_NUMBER" name="REQUEST_CONTAINER_SERIAL_NUMBER_8723"/>
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="MessageError" type="Action:ERROR" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:choice>
+          </xs:sequence>
+          <xs:attribute  type="Types:MESSAGE_ID" name="REQUEST_MESSAGE_ID_8720"  use="required"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+    <xs:attribute type="Types:CONTAINER_SERIAL_NUMBER" name="CONTAINER_SERIAL_NUMBER_8724" use="required" />
+  </xs:complexType>
+</xs:schema>

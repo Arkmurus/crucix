@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="INTERROGATE_REQUEST_STATUS"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           xmlns:Collections="http://eportal.nspa.nato.int/Collections"
+           targetNamespace="http://eportal.nspa.nato.int/Action">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Collections" schemaLocation="CollectionTypes.xsd"/>
+
+  <xs:complexType name="INTERROGATE_REQUEST_STATUS">
+    <xs:sequence>
+      <xs:element name="PRIORITY_CODE_2867" type="Types:PRIORITY_CODE" minOccurs="1" maxOccurs="1"/>
+      <xs:choice minOccurs="1" maxOccurs="2">
+        <xs:element name="REQUEST_MESSAGE_ID_8720" type="Types:MESSAGE_ID" minOccurs="0" maxOccurs="1"/>
+        <xs:element name="REQUEST_ACTION" type="Collections:InterrogateActionData"  minOccurs="0" maxOccurs="1"/>
+        <xs:element name="COLLABORATION_ID_8721" type="Types:COLLABORATION_ID" minOccurs="0" maxOccurs="1"/>
+      </xs:choice>      
+    </xs:sequence>        
+    <xs:attribute name="ACTION_SERIAL_NUMBER_8725" type="Types:ACTION_SERIAL_NUMBER" use="required"/>    
+  </xs:complexType>
+
+</xs:schema>

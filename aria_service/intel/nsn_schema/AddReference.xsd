@@ -1,0 +1,31 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="ADD_REFERENCE"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           xmlns:Collections="http://eportal.nspa.nato.int/Collections"
+           targetNamespace="http://eportal.nspa.nato.int/Action">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Collections" schemaLocation="CollectionTypes.xsd"/>
+
+  <xs:complexType name="ADD_REFERENCE">
+    <xs:sequence>      
+      <xs:element name="NCAGE_CODE_4140" type="Types:NCAGE_CODE" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="REFERENCE_NUMBER_8733" type="Types:REFERENCE_NUMBER" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="REFERENCE_NUMBER_CATEGORY_CODE_2910" type="Types:REFERENCE_NUMBER_CATEGORY_CODE" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="REFERENCE_NUMBER_VARIATION_CODE_4780" type="Types:REFERENCE_NUMBER_VARIATION_CODE" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="REFERENCE_NUMBER_STATUS_CODE_2923" type="Types:REFERENCE_NUMBER_STATUS_CODE" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="REFERENCE_NUMBER_FORMAT_CODE_2920" type="Types:REFERENCE_NUMBER_FORMAT_CODE" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="REFERENCE_NUMBER_JUSTIFICATION_CODE_2750" type="Types:REFERENCE_NUMBER_JUSTIFICATION_CODE" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="DAC_2640" type="Types:DAC" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="IMAGE_NAME_8708" type="Types:IMAGE_NAME" minOccurs="0" maxOccurs="1"/>
+      <!--Specific Data-->
+      <xs:element name="PRIORITY_CODE_2867" type="Types:PRIORITY_CODE" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="COMMENT_8703" type="Types:COMMENT" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="ATTACHMENTS" type="Collections:ATTACHMENTS" minOccurs="0" maxOccurs="1"/>
+    </xs:sequence>
+    <xs:attribute name="ACTION_SERIAL_NUMBER_8725" type="Types:ACTION_SERIAL_NUMBER" use="required"/>
+    <xs:attribute name="COLLABORATION_ID_8721" type="Types:COLLABORATION_ID"/>
+  </xs:complexType>
+
+</xs:schema>

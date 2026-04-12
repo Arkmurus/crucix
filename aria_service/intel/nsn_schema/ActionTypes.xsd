@@ -1,0 +1,52 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema targetNamespace="http://eportal.nspa.nato.int/Action"
+    xmlns="http://tempuri.org/XMLSchema.xsd"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+  <!-- INBOUND -->
+
+  <!-- - Collaboration container --> 
+  <xs:include schemaLocation="CollaborationCreate.xsd" />
+  <xs:include schemaLocation="CollaborationAddComment.xsd" />
+  <xs:include schemaLocation="CollaborationExtendTimeframe.xsd" />
+  <xs:include schemaLocation="CollaborationSendResponse.xsd" />
+
+  <!-- - Create container -->
+  <xs:include schemaLocation="AssignNIINAndRegisterUser.xsd" />
+
+  <!-- - Interrogate container -->
+  <xs:include schemaLocation="InterrogateNSNData.xsd" />
+  <xs:include schemaLocation="InterrogateRequestStatus.xsd" />
+
+  <!-- - Maintain container -->
+  <!--   - User actions -->
+  <xs:include schemaLocation="AddUser.xsd" />
+  <xs:include schemaLocation="DeleteUser.xsd" />
+
+  <!--   - Reference actions -->
+  <xs:include schemaLocation="AddReference.xsd" />
+  <xs:include schemaLocation="ChangeReferenceRelatedCode.xsd" />
+  <xs:include schemaLocation="DeleteReference.xsd" />
+
+  <!--   - Characteristic actions -->
+  <xs:include schemaLocation="AddCharacteristicData.xsd" />
+  <xs:include schemaLocation="ChangeCharacteristicData.xsd" />
+  <xs:include schemaLocation="DeleteCharacteristicData.xsd" />
+
+  <!--   - NSN actions -->
+  <xs:include schemaLocation="ChangeNSC_INC.xsd" />
+  <xs:include schemaLocation="AddImageToNMCRL.xsd" />
+  <xs:include schemaLocation="DeleteImageFromNMCRL.xsd" />
+  <xs:include schemaLocation="AddIUIDIndicatorToNMCRL.xsd" />
+  <xs:include schemaLocation="DeleteIUIDIndicatorFromNMCRL.xsd" />
+
+
+  <!-- Reinstate container -->
+  <xs:include schemaLocation="ReinstateNIINAndRegisterUser.xsd" />
+
+  <!-- OUTBOUND -->
+  <!-- - Error container -->
+  <xs:include schemaLocation="Error.xsd" />
+  <!-- - Notification container -->
+  <xs:include schemaLocation="Notification.xsd" />
+</xs:schema>

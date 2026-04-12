@@ -1,0 +1,950 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema elementFormDefault="qualified"
+           xmlns="http://eportal.nspa.nato.int/Types"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://eportal.nspa.nato.int/Types">
+
+  <!--DRN8722-->
+  <xs:simpleType name="MESSAGE_SERIAL_NUMBER">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="1" />
+      <xs:maxInclusive value="999999999" />
+    </xs:restriction>
+  </xs:simpleType>
+
+
+	<!--DRNXXXX-->
+	<xs:complexType name="EXTENSION_DAYS">
+		<xs:simpleContent>
+			<xs:extension base="EXTENSION_DAYS_Model">
+			</xs:extension>
+		</xs:simpleContent>
+	</xs:complexType>
+	<xs:simpleType name="EXTENSION_DAYS_Model">
+		<xs:restriction base="xs:integer">
+			<xs:minInclusive value="1" />
+			<xs:maxInclusive value="120" />
+		</xs:restriction>
+	</xs:simpleType>
+
+  <!--DRN_8711-->
+  <xs:simpleType name="TRANSACTION_DATE_TIME">
+    <xs:restriction base="xs:dateTime"/>
+  </xs:simpleType>
+
+  <!--DRN_8709-->
+  <xs:simpleType name="SOURCE">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="3" />
+      <xs:maxLength value="3" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+
+  <!--DRN_8710-->
+  <xs:simpleType name="DESTINATION">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="3" />
+      <xs:maxLength value="3" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+
+  <!--DRN_8720-->
+  <xs:simpleType name="MESSAGE_ID">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="18" />
+      <xs:maxLength value="26" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8723 8724-->
+  <xs:simpleType name="CONTAINER_SERIAL_NUMBER">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="1" />
+      <xs:maxInclusive value="999999999" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8736-->
+  <xs:simpleType name="CONTAINER_ID">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="20" />
+      <xs:maxLength value="36" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8725-->
+  <xs:simpleType name="ACTION_SERIAL_NUMBER">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="1" />
+      <xs:maxInclusive value="999999999" />
+    </xs:restriction>
+  </xs:simpleType>
+
+
+  <!--DRN_8721-->
+  <xs:simpleType name="COLLABORATION_ID">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="15" />
+      <xs:maxLength value="23" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+
+  <!--DRN_8708-->
+  <xs:complexType name="IMAGE_NAME">
+    <xs:simpleContent>
+      <xs:extension base="IMAGE_NAME_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="IMAGE_NAME_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="50" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8703-->
+  <xs:complexType name="COMMENT">
+    <xs:simpleContent>
+      <xs:extension base="COMMENT_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="COMMENT_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="999" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN2867-->
+  <xs:complexType name="PRIORITY_CODE">
+    <xs:simpleContent>
+      <xs:extension base="PRIORITY_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="PRIORITY_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+
+  <!--DRN6998-->
+  <xs:complexType name="NSN_CANCELLATION_PROPOSAL_CODE">
+    <xs:simpleContent>
+      <xs:extension base="NSN_CANCELLATION_PROPOSAL_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="NSN_CANCELLATION_PROPOSAL_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+
+  <!--DRN4000-->
+  <xs:complexType name="NIIN">
+    <xs:simpleContent>
+      <xs:extension base="NIIN_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="NIIN_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="9" />
+      <xs:maxLength value="9" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN2670-->
+  <xs:complexType name="NIIN_STATUS_CODE">
+    <xs:simpleContent>
+      <xs:extension base="NIIN_STATUS_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="NIIN_STATUS_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN8757-->
+  <xs:simpleType name="DATE_ASSIGNED">
+    <xs:restriction base="xs:dateTime"/>
+  </xs:simpleType>
+
+  <!--DRN_8712-->
+  <xs:simpleType name="DATE_LAST_UPDATE">
+    <xs:restriction base="xs:dateTime"/>
+  </xs:simpleType>
+
+  <!--DRN4080-->
+  <xs:complexType name="ITEM_NAME_CODE">
+    <xs:simpleContent>
+      <xs:extension base="ITEM_NAME_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="ITEM_NAME_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="5" />
+      <xs:maxLength value="5" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN5020-->
+  <xs:complexType name="NON_APPROVED_ITEM_NAME">
+    <xs:simpleContent>
+      <xs:extension base="NON_APPROVED_ITEM_NAME_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="NON_APPROVED_ITEM_NAME_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="19" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN4820-->
+  <xs:complexType name="TII_CODE">
+    <xs:simpleContent>
+      <xs:extension base="TII_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="TII_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN4765-->
+  <xs:complexType name="RPDMR_CODE">
+    <xs:simpleContent>
+      <xs:extension base="RPDMR_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="RPDMR_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+
+
+  <!--DRN8875-->
+  <xs:complexType name="REPLACEMENT_NSN">
+    <xs:simpleContent>
+      <xs:extension base="REPLACEMENT_NSN_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="REPLACEMENT_NSN_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="13" />
+      <xs:maxLength value="13" />
+      <xs:whiteSpace value="preserve"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+
+  <!--DRN8789-->
+  <xs:complexType name="REPLACED_NSN">
+    <xs:simpleContent>
+      <xs:extension base="REPLACED_NSN_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="REPLACED_NSN_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="13" />
+      <xs:maxLength value="13" />
+      <xs:whiteSpace value="preserve"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_3408-->
+  <xs:complexType name="USER_CTR">
+    <xs:simpleContent>
+      <xs:extension base="USER_CTR_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="USER_CTR_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="3" />
+      <xs:maxLength value="3" />
+      <xs:whiteSpace value="preserve"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN3990-->
+  <xs:complexType name="NSC">
+    <xs:simpleContent>
+      <xs:extension base="NSC_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="NSC_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="4" />
+      <xs:maxLength value="4" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN9569-->
+  <xs:complexType name="CPV_CODE">
+    <xs:simpleContent>
+      <xs:extension base="CPV_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="CPV_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="10" />
+      <xs:maxLength value="10" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN9571-->
+  <xs:complexType name="HARMONIZED_SYSTEM_CODE">
+    <xs:simpleContent>
+      <xs:extension base="HARMONIZED_SYSTEM_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="HARMONIZED_SYSTEM_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="6" />
+      <xs:maxLength value="6" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN0435-->
+  <xs:complexType name="SCHEDULE_B">
+    <xs:simpleContent>
+      <xs:extension base="SCHEDULE_B_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="SCHEDULE_B_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="10" />
+      <xs:maxLength value="10" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN2640-->
+  <xs:complexType name="DAC">
+    <xs:simpleContent>
+      <xs:extension base="DAC_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="DAC_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+  
+  <!--DRN8733-->
+  <xs:complexType name="REFERENCE_NUMBER">
+    <xs:simpleContent>
+      <xs:extension base="REFERENCE_NUMBER_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="REFERENCE_NUMBER_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="60" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN4140-->
+  <xs:complexType name="NCAGE_CODE">
+    <xs:simpleContent>
+      <xs:extension base="NCAGE_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="NCAGE_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="5" />
+      <xs:maxLength value="5" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN2910-->
+  <xs:complexType name="REFERENCE_NUMBER_CATEGORY_CODE">
+    <xs:simpleContent>
+      <xs:extension base="REFERENCE_NUMBER_CATEGORY_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="REFERENCE_NUMBER_CATEGORY_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN4780-->
+  <xs:complexType name="REFERENCE_NUMBER_VARIATION_CODE">
+    <xs:simpleContent>
+      <xs:extension base="REFERENCE_NUMBER_VARIATION_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="REFERENCE_NUMBER_VARIATION_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN2923-->
+  <xs:complexType name="REFERENCE_NUMBER_STATUS_CODE">
+    <xs:simpleContent>
+      <xs:extension base="REFERENCE_NUMBER_STATUS_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="REFERENCE_NUMBER_STATUS_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN2920-->
+  <xs:complexType name="REFERENCE_NUMBER_FORMAT_CODE">
+    <xs:simpleContent>
+      <xs:extension base="REFERENCE_NUMBER_FORMAT_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="REFERENCE_NUMBER_FORMAT_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN2750-->
+  <xs:complexType name="REFERENCE_NUMBER_JUSTIFICATION_CODE">
+    <xs:simpleContent>
+      <xs:extension base="REFERENCE_NUMBER_JUSTIFICATION_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="REFERENCE_NUMBER_JUSTIFICATION_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="0" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN8750-->
+  <xs:complexType name="REFERENCE_NUMBER_ACTION_ACTIVITY_CODE">
+    <xs:simpleContent>
+      <xs:extension base="REFERENCE_NUMBER_ACTION_ACTIVITY_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="REFERENCE_NUMBER_ACTION_ACTIVITY_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="3" />
+      <xs:maxLength value="3" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN3445-->
+  <xs:complexType name="MRC">
+    <xs:simpleContent>
+      <xs:extension base="MRC_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="MRC_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="4" />
+      <xs:maxLength value="4" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN4735-->
+  <xs:complexType name="MODE_CODE">
+    <xs:simpleContent>
+      <xs:extension base="MODE_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="MODE_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN3465 CODED_REPLY_3465-->
+  <xs:complexType name="CODED_REPLY">
+    <xs:simpleContent>
+      <xs:extension base="CODED_REPLY_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="CODED_REPLY_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="6" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN8990-->
+  <xs:complexType name="SECONDARY_CODE">
+    <xs:simpleContent>
+      <xs:extension base="SECONDARY_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="SECONDARY_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="3" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN9485-->
+  <xs:complexType name="SECONDARY_INDICATOR_CODE">
+    <xs:simpleContent>
+      <xs:extension base="SECONDARY_INDICATOR_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="SECONDARY_INDICATOR_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN4128-->
+  <xs:complexType name="CLEAR_REPLY">
+    <xs:simpleContent>
+      <xs:extension base="CLEAR_REPLY_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="CLEAR_REPLY_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="999" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN8751 and DRN8753-->
+  <xs:complexType name="NATIVE_CLEAR_REPLY">
+    <xs:simpleContent>
+      <xs:extension base="NATIVE_CLEAR_REPLY_Model">
+        <xs:attribute name="LANGUAGE_8753" type="xs:language" use="required" />
+      </xs:extension>
+    </xs:simpleContent>    
+  </xs:complexType>
+  <xs:simpleType name="NATIVE_CLEAR_REPLY_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="999" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  
+  <!--DRN0167-->
+  <xs:complexType name="DEMILITARIZATION_CODE">
+    <xs:simpleContent>
+      <xs:extension base="DEMILITARIZATION_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="DEMILITARIZATION_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN0138-->
+  <xs:complexType name="DEMIL_INTEGRITY_CODE">
+    <xs:simpleContent>
+      <xs:extension base="DEMIL_INTEGRITY_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="DEMIL_INTEGRITY_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>   
+
+  <!--DRN0106-->
+  <xs:complexType name="QUANTITY_PER_ASSEMBLY">
+    <xs:simpleContent>
+      <xs:extension base="QUANTITY_PER_ASSEMBLY_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="QUANTITY_PER_ASSEMBLY_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="3" />
+      <xs:maxLength value="3" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>       
+
+  <!--DRN_8704-->
+  <xs:complexType name="EQUIPMENT_NAME">
+    <xs:simpleContent>
+      <xs:extension base="EQUIPMENT_NAME_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="EQUIPMENT_NAME_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="255" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8706-->
+  <xs:complexType name="TYPE_MODEL">
+    <xs:simpleContent>
+      <xs:extension base="TYPE_MODEL_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="TYPE_MODEL_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="255" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8702-->
+  <xs:simpleType name="CODIFICATION_CONTRACT_CLAUSE">
+    <xs:restriction base="xs:boolean"/>
+  </xs:simpleType>
+
+  <!--DRN_8718-->
+  <xs:complexType name="MAIN_CONTRACTOR_NCAGE">
+    <xs:simpleContent>
+      <xs:extension base="MAIN_CONTRACTOR_NCAGE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="MAIN_CONTRACTOR_NCAGE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="5" />
+      <xs:maxLength value="5" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8719-->
+  <xs:complexType name="CONTRACT_NUMBER">
+    <xs:simpleContent>
+      <xs:extension base="CONTRACT_NUMBER_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="CONTRACT_NUMBER_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="75" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8705-->
+  <xs:complexType name="ORDER_NUMBER">
+    <xs:simpleContent>
+      <xs:extension base="ORDER_NUMBER_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="ORDER_NUMBER_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="75" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8021-->
+  <xs:simpleType name="WEB_URL">
+    <xs:restriction base="xs:anyURI">
+      <xs:minLength value="1" />
+      <xs:maxLength value="50" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN1057-->
+  <xs:complexType name="NATO_CODIFICATION_PROJECT_CODE">
+    <xs:simpleContent>
+      <xs:extension base="NATO_CODIFICATION_PROJECT_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="NATO_CODIFICATION_PROJECT_CODE_Model">
+    <xs:restriction base ="xs:string">
+      <xs:pattern value="[A-Z]{1}[A-Z0-9]{2}"></xs:pattern>
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DR8734-->
+  <xs:complexType name="NATIONAL_CODIFICATION_PROJECT_CODE">
+    <xs:simpleContent>
+      <xs:extension base="NATIONAL_CODIFICATION_PROJECT_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="NATIONAL_CODIFICATION_PROJECT_CODE_Model">
+    <xs:restriction base ="xs:string">
+      <xs:pattern value="[A-Z]{3}[A-Z0-9]{4}"></xs:pattern>
+      <xs:whiteSpace value="preserve" />
+
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN8735-->
+  <xs:complexType name="NATIONAL_CODIFICATION_PROJECT_NAME">
+    <xs:simpleContent>
+      <xs:extension base="NATIONAL_CODIFICATION_PROJECT_NAME_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="NATIONAL_CODIFICATION_PROJECT_NAME_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="255" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN8707-->
+  <xs:complexType name="AttachmentName">
+    <xs:simpleContent>
+      <xs:extension base="AttachmentName_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="AttachmentName_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="50" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8713-->
+  <xs:simpleType name="RETURN_CODE">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="9" />
+      <xs:maxLength value="9" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8714-->
+  <xs:complexType name="DATA_ELEMENT">
+    <xs:simpleContent>
+      <xs:extension base="DATA_ELEMENT_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="DATA_ELEMENT_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="70" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8715 and DRN_8716-->
+  <xs:complexType name="DATA_ELEMENT_VALUE">
+    <xs:simpleContent>
+      <xs:extension base="DATA_ELEMENT_VALUE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="DATA_ELEMENT_VALUE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="500" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN_8701-->
+  <xs:simpleType name="OPERATOR">
+    <xs:restriction base="xs:token">
+      <xs:enumeration value="AND"/>
+      <xs:enumeration value="OR"/>
+    </xs:restriction>
+  </xs:simpleType> 
+
+  <!--DRN0107-->
+  <xs:complexType name="UNIT_OF_MEASURE_OF_RELATED_NSN">
+    <xs:simpleContent>
+      <xs:extension base="UNIT_OF_MEASURE_OF_RELATED_NSN_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="UNIT_OF_MEASURE_OF_RELATED_NSN_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="2" />
+      <xs:maxLength value="2" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>   
+
+  <!--DRN0801-->
+  <xs:complexType name="AUTOMATIC_DATA_PROCESSING_EQUIPMENT_IDENTIFICATION_CODE">
+    <xs:simpleContent>
+      <xs:extension base="AUTOMATIC_DATA_PROCESSING_EQUIPMENT_IDENTIFICATION_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="AUTOMATIC_DATA_PROCESSING_EQUIPMENT_IDENTIFICATION_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN0802-->
+  <xs:complexType name="PRECIOUS_METALS_INDICATOR_CODE">
+    <xs:simpleContent>
+      <xs:extension base="PRECIOUS_METALS_INDICATOR_CODE_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="PRECIOUS_METALS_INDICATOR_CODE_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>  
+
+  <!--DRN2862-->
+  <xs:simpleType name="PHRASE_CODE">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="1" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>  
+
+  <!--DRN2893-->
+  <xs:complexType name="TECHNICAL_DOCUMENT_NUMBER">
+    <xs:simpleContent>
+      <xs:extension base="TECHNICAL_DOCUMENT_NUMBER_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="TECHNICAL_DOCUMENT_NUMBER_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1" />
+      <xs:maxLength value="20" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!--DRN2895-->
+  <xs:complexType name="RELATED_NATIONAL_STOCK_NUMBER">
+    <xs:simpleContent>
+      <xs:extension base="RELATED_NATIONAL_STOCK_NUMBER_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="RELATED_NATIONAL_STOCK_NUMBER_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="13" />
+      <xs:maxLength value="13" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>  
+
+  <!--DRN8575-->
+  <xs:complexType name="QUANTITATIVE_EXPRESSION">
+    <xs:simpleContent>
+      <xs:extension base="QUANTITATIVE_EXPRESSION_Model">
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:simpleType name="QUANTITATIVE_EXPRESSION_Model">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="13" />
+      <xs:maxLength value="13" />
+      <xs:whiteSpace value="preserve" />
+    </xs:restriction>
+  </xs:simpleType>                            
+
+</xs:schema>

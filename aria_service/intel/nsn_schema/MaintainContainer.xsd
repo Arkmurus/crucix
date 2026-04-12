@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="MAINTAIN"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Action="http://eportal.nspa.nato.int/Action"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           targetNamespace="http://eportal.nspa.nato.int/Container">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Action" schemaLocation="ActionTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+
+  <xs:complexType name="MAINTAIN">
+    <xs:sequence minOccurs="1" maxOccurs="1">
+      <xs:element name="NIIN_4000" type="Types:NIIN" minOccurs="1" maxOccurs="1"/>
+      <xs:choice>
+        <xs:element name="AddUser" type="Action:ADD_USER"  minOccurs="0" maxOccurs ="1"/>
+        <xs:element name="DeleteUser" type="Action:DELETE_USER" minOccurs="0" maxOccurs="1"/>
+      </xs:choice>
+      <xs:element name="AddReference" type="Action:ADD_REFERENCE" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="AddCharacteristic" type="Action:ADD_CHARACTERISTIC_DATA" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="AddImageToNMCRL" type="Action:ADD_IMAGE_TO_NMCRL" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="AddIUIDIndicatorToNMCRL" type="Action:ADD_IUID_INDICATOR_TO_NMCRL" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="ChangeNSC_INC" type="Action:CHANGE_NSC_INC" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="ChangeReferenceRelatedCode" type="Action:CHANGE_REFERENCE_RELATED_CODE" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="ChangeCharacteristic" type="Action:CHANGE_CHARACTERISTIC_DATA" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="DeleteReference" type="Action:DELETE_REFERENCE" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="DeleteCharacteristic" type="Action:DELETE_CHARACTERISTIC_DATA" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="DeleteImageFromNMCRL" type="Action:DELETE_IMAGE_FROM_NMCRL" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="DeleteIUIDIndicatorFromNMCRL" type="Action:DELETE_IUID_INDICATOR_FROM_NMCRL" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="CONTAINER_SERIAL_NUMBER_8724" type="Types:CONTAINER_SERIAL_NUMBER" use="required"/>
+  </xs:complexType>
+
+</xs:schema>

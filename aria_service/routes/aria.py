@@ -5820,6 +5820,37 @@ Be bold, specific, and commercially realistic. Reference Arkmurus's relationship
         return {"ideas": f"⚠️ Generation failed: {e}", "error": True}
 
 
+# ── NSN (NATO Stock Number) Decoder ────────────────────────────────────────
+
+@router.get("/nsn/decode/{nsn}")
+async def nsn_decode_ep(nsn: str):
+    """Decode a NATO Stock Number into its components.
+
+    Examples:
+      /api/aria/nsn/decode/5820-01-234-5678
+      /api/aria/nsn/decode/5820012345678
+    """
+    from ..intel import nsn_knowledge
+    return nsn_knowledge.decode_nsn(nsn)
+
+
+@router.get("/nsn/fsc/{code}")
+async def nsn_fsc_ep(code: str):
+    """Look up an FSC (Federal Supply Classification) group or class."""
+    from ..intel import nsn_knowledge
+    desc = nsn_knowledge.lookup_fsc(code)
+    if desc:
+        return {"code": code, "description": desc}
+    return {"code": code, "error": "Unknown FSC code"}
+
+
+@router.get("/nsn/structure")
+async def nsn_structure_ep():
+    """Return the NSN structure explanation."""
+    from ..intel import nsn_knowledge
+    return {"explanation": nsn_knowledge.explain_nsn_structure()}
+
+
 # ── Fuzzy sanctions screening (OpenSanctions + Levenshtein + Metaphone) ─────
 
 class FuzzyScreenRequest(BaseModel):

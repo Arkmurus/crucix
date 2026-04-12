@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="REINSTATE"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Action="http://eportal.nspa.nato.int/Action"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           targetNamespace="http://eportal.nspa.nato.int/Container">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Action" schemaLocation="ActionTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+
+  <xs:complexType name="REINSTATE">
+    <xs:sequence>
+      <xs:element name="NIIN_4000" type="Types:NIIN" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="ReinstateNIINAndRegisterUser" type="Action:REINSTATE_NIIN" minOccurs="1" maxOccurs="1"/>
+    </xs:sequence>
+    <xs:attribute name="CONTAINER_SERIAL_NUMBER_8724" type="Types:CONTAINER_SERIAL_NUMBER" use="required"/>
+  </xs:complexType>
+
+</xs:schema>

@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="REQUESTED_STATUS"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           xmlns:Collections="http://eportal.nspa.nato.int/Collections"
+           targetNamespace="http://eportal.nspa.nato.int/Container">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Collections" schemaLocation="CollectionTypes.xsd"/>
+
+  <xs:complexType name="STATUS">
+    <xs:sequence>
+      <xs:element name="REQUEST_MESSAGE_ID_8720" type="Types:MESSAGE_ID" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="REQUEST_CONTAINER_SERIAL_NUMBER_8723" type="Types:CONTAINER_SERIAL_NUMBER" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="REQUEST_ACTION_SERIAL_NUMBER_8728" type="Types:ACTION_SERIAL_NUMBER" minOccurs="0" maxOccurs="1"/>
+      
+      <!--Collaboration Participants Data-->
+      <xs:element name="COLLABORATION_PARTICIPANTs" type="Collections:USER_CTRs" minOccurs="0" maxOccurs="1"/>
+
+      <xs:element name="COMMENT_8703" type="Types:COMMENT" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="ATTACHMENTS" type="Collections:ATTACHMENTS" minOccurs="0" maxOccurs="1"/>
+    </xs:sequence>
+    <xs:attribute name="CONTAINER_SERIAL_NUMBER_8724" type="Types:CONTAINER_SERIAL_NUMBER" use="required"/>
+    <xs:attribute name="RETURN_CODE_8713" type="Types:RETURN_CODE" use="required"/>
+    <xs:attribute name="COLLABORATION_ID_8721" type="Types:COLLABORATION_ID" use="optional"/>
+  </xs:complexType>
+
+</xs:schema>

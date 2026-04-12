@@ -1,0 +1,46 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="CHANGE_CHARACTERISTIC_DATA"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"           
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           xmlns:Collections="http://eportal.nspa.nato.int/Collections"
+           targetNamespace="http://eportal.nspa.nato.int/Action">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Collections" schemaLocation="CollectionTypes.xsd"/>
+
+  <xs:complexType name="CHANGE_CHARACTERISTIC_DATA">
+    <xs:sequence>
+      <!--Characteristics Datas-->
+      <xs:element name="MRC_3445" type="Types:MRC" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="MODE_CODE_4735" type="Types:MODE_CODE" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="ISAC" minOccurs="0" maxOccurs="1">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="SECONDARY_CODE_8990" type="Types:SECONDARY_CODE" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="SECONDARY_INDICATOR_CODE_9485" type="Types:SECONDARY_INDICATOR_CODE" minOccurs="1" maxOccurs="1"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:choice minOccurs="1" maxOccurs="1">
+        <!-- MC G only-->
+        <xs:element name="COMPOSITE_CLEAR_REPLY" type="Collections:COMPOSITE_CLEAR_REPLY" minOccurs="1" maxOccurs="1"/>
+        <!-- MC A, B, F, E -->
+        <xs:element name="CLEAR_REPLY_4128" type="Types:CLEAR_REPLY" minOccurs="1" maxOccurs="1"/>
+        <!-- single MC D, L -->
+        <xs:element name="CODED_REPLY_3465" type="Types:CODED_REPLY" minOccurs="1" maxOccurs="1"/>
+        <!-- single MC H, J and Multiple Reply for MC  A, B, E, F, G, D, L-->
+        <xs:element name="COMPOSITE_REPLY" type="Collections:COMPOSITE_REPLY" minOccurs="1" maxOccurs="1"/>
+        <!--AND/OR-->
+        <xs:element name="AND_OR_REPLY" type="Collections:AND_OR_REPLY" minOccurs="1" maxOccurs="1"/>
+      </xs:choice>
+      
+      <!--Specific Data-->
+      <xs:element name="PRIORITY_CODE_2867" type="Types:PRIORITY_CODE" minOccurs="1" maxOccurs="1"/>      
+      <xs:element name="COMMENT_8703" type="Types:COMMENT" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="ATTACHMENTS" type="Collections:ATTACHMENTS" minOccurs="1" maxOccurs="1"/>
+    </xs:sequence>
+    <xs:attribute name="ACTION_SERIAL_NUMBER_8725" type="Types:ACTION_SERIAL_NUMBER" use="required"/>
+    <xs:attribute name="COLLABORATION_ID_8721" type="Types:COLLABORATION_ID"/>
+  </xs:complexType>
+
+</xs:schema>

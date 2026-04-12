@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="CREATE"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Action="http://eportal.nspa.nato.int/Action"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           targetNamespace="http://eportal.nspa.nato.int/Container">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Action" schemaLocation="ActionTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+
+  <xs:complexType name="CREATE">
+    <xs:sequence>
+      <xs:element name="AssignNIINAndRegisterUser" type="Action:ASSIGN_NIIN_AND_REGISTER_USER" minOccurs="1" maxOccurs="1"/>
+    </xs:sequence>
+    <xs:attribute name="CONTAINER_SERIAL_NUMBER_8724" type="Types:CONTAINER_SERIAL_NUMBER" use="required"/>
+  </xs:complexType>
+
+</xs:schema>

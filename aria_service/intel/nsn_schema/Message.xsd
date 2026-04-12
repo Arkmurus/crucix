@@ -1,0 +1,84 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="MESSAGE"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Container="http://eportal.nspa.nato.int/Container"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           targetNamespace="http://eportal.nspa.nato.int/Message">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Container" schemaLocation="ContainerTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+
+  <xs:element name="MESSAGE">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="HEADER">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="MESSAGE_SERIAL_NUMBER_8722" type="Types:MESSAGE_SERIAL_NUMBER"  minOccurs="1" maxOccurs="1"/>
+              <xs:element name="MESSAGE_DATE_TIME_8711" type="Types:TRANSACTION_DATE_TIME" minOccurs="1" maxOccurs="1"/>
+              <xs:element name="SOURCE_CODE_8709" type="Types:SOURCE" minOccurs="1" maxOccurs="1" />
+              <xs:element name="DESTINATION_CODE_8710" type="Types:DESTINATION" minOccurs="1" maxOccurs="1"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="BODY">
+          <xs:complexType>
+            <xs:choice minOccurs="1" maxOccurs="unbounded">
+
+              <xs:element name="CreateContainer" type="Container:CREATE" minOccurs="1" maxOccurs="unbounded" >
+                <xs:unique name="ASN_Create" >
+                  <xs:selector xpath="*" />
+                  <xs:field xpath="@ACTION_SERIAL_NUMBER_8725" />
+                </xs:unique>
+              </xs:element>
+
+              <xs:element name="MaintainContainer" type="Container:MAINTAIN" minOccurs="1" maxOccurs="unbounded" >
+                <xs:unique name="ASN_Maintain" >
+                  <xs:selector xpath="*" />
+                  <xs:field xpath="@ACTION_SERIAL_NUMBER_8725" />
+                </xs:unique>
+              </xs:element>
+
+              <xs:element name="CollaborateContainer" type="Container:COLLABORATE" minOccurs="1" maxOccurs="unbounded" >
+                <xs:unique name="ASN_Collaboration" >
+                  <xs:selector xpath="*" />
+                  <xs:field xpath="@ACTION_SERIAL_NUMBER_8725" />
+                </xs:unique>
+              </xs:element>
+
+              <xs:element name="InterrogateContainer" type="Container:INTERROGATE" minOccurs="1" maxOccurs="unbounded" >
+                <xs:unique name="ASN_Interrogate" >
+                  <xs:selector xpath="*" />
+                  <xs:field xpath="@ACTION_SERIAL_NUMBER_8725" />
+                </xs:unique>
+              </xs:element>
+
+              <xs:element name="ReinstateContainer" type="Container:REINSTATE" minOccurs="1" maxOccurs="unbounded" >
+                <xs:unique name="ASN_Reinstate" >
+                  <xs:selector xpath="*" />
+                  <xs:field xpath="@ACTION_SERIAL_NUMBER_8725" />
+                </xs:unique>
+              </xs:element>
+
+              <xs:element name="Nsn" type="Container:NSN" minOccurs="1" maxOccurs="unbounded" />
+              <xs:element name="Errors" type="Container:ERRORS" minOccurs="1" maxOccurs="unbounded" />
+              <xs:element name="Status" type="Container:STATUS" minOccurs="1" maxOccurs="unbounded" />
+
+              <xs:element name="Notifications" type="Container:NOTIFICATIONS" minOccurs="1" maxOccurs="unbounded" >
+                <xs:unique name="ASN_Notification" >
+                  <xs:selector xpath="*" />
+                  <xs:field xpath="@NOTIFICATION_SERIAL_NUMBER_8727" />
+                </xs:unique>
+              </xs:element>
+
+            </xs:choice>
+          </xs:complexType>
+          <xs:unique name="CSN" >
+            <xs:selector xpath="*" />
+            <xs:field xpath="@CONTAINER_SERIAL_NUMBER_8724" />
+          </xs:unique>          
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

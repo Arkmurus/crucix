@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema targetNamespace="http://eportal.nspa.nato.int/Container"
+    xmlns="http://tempuri.org/XMLSchema.xsd"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:include schemaLocation="MaintainContainer.xsd"/>  
+  <xs:include schemaLocation="CollaborateContainer.xsd"/>
+  <xs:include schemaLocation="InterrogateContainer.xsd"/>
+  <xs:include schemaLocation="ReinstateContainer.xsd"/>
+  <xs:include schemaLocation="CreateContainer.xsd"/>
+  <xs:include schemaLocation="NsnContainer.xsd"/>
+  <xs:include schemaLocation="ErrorContainer.xsd"/>
+  <xs:include schemaLocation="NotificationContainer.xsd"/>
+  <xs:include schemaLocation="StatusContainer.xsd"/>
+</xs:schema>

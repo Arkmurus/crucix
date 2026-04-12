@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="ASSIGN_NIIN_AND_REGISTER_USER"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           xmlns:Collections="http://eportal.nspa.nato.int/Collections"
+           targetNamespace="http://eportal.nspa.nato.int/Action">
+
+	<xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+	<xs:import namespace="http://eportal.nspa.nato.int/Collections" schemaLocation="CollectionTypes.xsd"/>
+
+	<xs:complexType name="ASSIGN_NIIN_AND_REGISTER_USER">
+		<xs:sequence>
+			<!--Identification data-->
+			<xs:element name="ITEM_NAME_CODE_4080" type="Types:ITEM_NAME_CODE" minOccurs="1" maxOccurs="1"/>
+			<xs:element name="NON_APPROVED_ITEM_NAME_5020" type="Types:NON_APPROVED_ITEM_NAME" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="TII_CODE_4820" type="Types:TII_CODE" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="RPDMR_CODE_4765" type="Types:RPDMR_CODE" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="CODIFICATION_CONTRACT_CLAUSE_8702" type="Types:CODIFICATION_CONTRACT_CLAUSE" minOccurs="1" maxOccurs="1"/>
+			<xs:element name="NATO_CODIFICATION_PROJECT_CODE_1057" type="Types:NATO_CODIFICATION_PROJECT_CODE" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="NATIONAL_CODIFICATION_PROJECT_CODE_8734" type="Types:NATIONAL_CODIFICATION_PROJECT_CODE" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="NATIONAL_CODIFICATION_PROJECT_NAME_8735" type="Types:NATIONAL_CODIFICATION_PROJECT_NAME" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="DEMILITARIZATION_CODE_0167" type="Types:DEMILITARIZATION_CODE" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="DEMIL_INTEGRITY_CODE_0138" type="Types:DEMIL_INTEGRITY_CODE" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="PRECIOUS_METALS_INDICATOR_CODE_0802" type="Types:PRECIOUS_METALS_INDICATOR_CODE" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="AUTOMATIC_DATA_PROCESSING_EQUIPMENT_IDENTIFICATION_CODE_0801" type="Types:AUTOMATIC_DATA_PROCESSING_EQUIPMENT_IDENTIFICATION_CODE" minOccurs="0" maxOccurs="1"/>
+
+			<!--Classification data-->
+			<xs:element name="NSC_3990" type="Types:NSC" minOccurs="1" maxOccurs="1"/>
+			<xs:element name="CPV_CODE_9569" type="Types:CPV_CODE" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="HARMONIZED_SYSTEM_CODE_9571" type="Types:HARMONIZED_SYSTEM_CODE" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="SCHEDULE_B_0435" type="Types:SCHEDULE_B" minOccurs="0" maxOccurs="1"/>
+
+			<!--Reference Datas-->
+			<xs:element name="ReferenceDatas" minOccurs="1" maxOccurs="1">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="ReferenceData" minOccurs="1" maxOccurs="unbounded">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="NCAGE_CODE_4140" type="Types:NCAGE_CODE" minOccurs="1" maxOccurs="1"/>
+									<xs:element name="REFERENCE_NUMBER_8733" type="Types:REFERENCE_NUMBER" minOccurs="1" maxOccurs="1"/>
+									<xs:element name="REFERENCE_NUMBER_CATEGORY_CODE_2910" type="Types:REFERENCE_NUMBER_CATEGORY_CODE" minOccurs="1" maxOccurs="1"/>
+									<xs:element name="REFERENCE_NUMBER_VARIATION_CODE_4780" type="Types:REFERENCE_NUMBER_VARIATION_CODE" minOccurs="1" maxOccurs="1"/>
+									<xs:element name="REFERENCE_NUMBER_STATUS_CODE_2923" type="Types:REFERENCE_NUMBER_STATUS_CODE" minOccurs="1" maxOccurs="1"/>
+									<xs:element name="REFERENCE_NUMBER_FORMAT_CODE_2920" type="Types:REFERENCE_NUMBER_FORMAT_CODE" minOccurs="1" maxOccurs="1"/>
+									<xs:element name="REFERENCE_NUMBER_JUSTIFICATION_CODE_2750" type="Types:REFERENCE_NUMBER_JUSTIFICATION_CODE" minOccurs="0" maxOccurs="1"/>
+									<xs:element name="REFERENCE_NUMBER_ACTION_ACTIVITY_CODE_8750" type="Types:REFERENCE_NUMBER_ACTION_ACTIVITY_CODE" minOccurs="0" maxOccurs="1"/>
+									<xs:element name="DAC_2640" type="Types:DAC" minOccurs="0" maxOccurs="1"/>
+								</xs:sequence>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+
+			<!--Characteristics Datas-->
+			<xs:element name="CharacteristicDatas" type="Collections:CharacteristicDatas" minOccurs="0" maxOccurs="1"/>
+
+			<!--Supporting Data-->
+			<xs:element name="EQUIPMENT_NAME_8704" type="Types:EQUIPMENT_NAME" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="TYPE_MODEL_8706" type="Types:TYPE_MODEL" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="MAIN_CONTRACTOR_NCAGE_8718" type="Types:MAIN_CONTRACTOR_NCAGE" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="CONTRACT_NUMBER_8719" type="Types:CONTRACT_NUMBER" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="ORDER_NUMBER_8705" type="Types:ORDER_NUMBER" minOccurs="0" maxOccurs="1"/>
+			<xs:element name="WEB_URLs" type="Collections:WEB_URLs" minOccurs="0" maxOccurs="1"/>
+
+			<!--Specific Data-->
+			<xs:element name="PRIORITY_CODE_2867" type="Types:PRIORITY_CODE" minOccurs="1" maxOccurs="1"/>
+			<xs:element name="COMMENT_8703" type="Types:COMMENT" minOccurs="0"/>
+			<xs:element name="ATTACHMENTS" type="Collections:ATTACHMENTS" minOccurs="0" maxOccurs="1"/>
+
+			<xs:element name="IMAGE_NAME_8708" type="Types:IMAGE_NAME" minOccurs="0" maxOccurs="1"/>
+
+		</xs:sequence>
+		<xs:attribute name="ACTION_SERIAL_NUMBER_8725" type="Types:ACTION_SERIAL_NUMBER" use="required" />
+	</xs:complexType>
+
+</xs:schema>

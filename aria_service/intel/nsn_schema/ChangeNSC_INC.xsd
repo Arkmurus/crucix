@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="CHANGE_ITEM_NAME"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           xmlns:Collections="http://eportal.nspa.nato.int/Collections"
+           targetNamespace="http://eportal.nspa.nato.int/Action">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Collections" schemaLocation="CollectionTypes.xsd"/>
+
+  <xs:complexType name="CHANGE_NSC_INC">
+    <xs:sequence>
+      <xs:element name="ITEM_NAME_CODE_4080" type="Types:ITEM_NAME_CODE" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="NSC_3990" type="Types:NSC" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="NON_APPROVED_ITEM_NAME_5020" type="Types:NON_APPROVED_ITEM_NAME" minOccurs="0" maxOccurs="1"/>
+      
+      <!--Specific Data-->
+      <xs:element name="PRIORITY_CODE_2867" type="Types:PRIORITY_CODE" minOccurs="1" maxOccurs="1"/>      
+      <xs:element name="COMMENT_8703" type="Types:COMMENT" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="ATTACHMENTS" type="Collections:ATTACHMENTS" minOccurs="1" maxOccurs="1"/>
+
+    </xs:sequence>
+    <xs:attribute name="ACTION_SERIAL_NUMBER_8725" type="Types:ACTION_SERIAL_NUMBER" use="required"/>
+    <xs:attribute name="COLLABORATION_ID_8721" type="Types:COLLABORATION_ID"/>
+  </xs:complexType>
+
+</xs:schema>

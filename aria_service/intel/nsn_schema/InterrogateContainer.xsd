@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="INTERROGATE"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Action="http://eportal.nspa.nato.int/Action"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           targetNamespace="http://eportal.nspa.nato.int/Container">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Action" schemaLocation="ActionTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+
+  <xs:complexType name="INTERROGATE">
+    <xs:choice minOccurs="1" maxOccurs="1">
+      <xs:element name="InterrogateNSNData" type="Action:INTERROGATE_NSN_DATA"/>
+      <xs:element name="InterrogateRequestStatus" type="Action:INTERROGATE_REQUEST_STATUS"/>
+    </xs:choice>
+    <xs:attribute name="CONTAINER_SERIAL_NUMBER_8724" type="Types:CONTAINER_SERIAL_NUMBER" use="required"/>
+  </xs:complexType>
+
+</xs:schema>

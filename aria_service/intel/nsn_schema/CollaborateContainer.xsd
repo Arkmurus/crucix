@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="Collaboration"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Action="http://eportal.nspa.nato.int/Action"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           targetNamespace="http://eportal.nspa.nato.int/Container">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Action" schemaLocation="ActionTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+	
+	<xs:complexType name="COLLABORATE">
+		<xs:sequence>
+			<xs:choice minOccurs="1" maxOccurs="1">
+				<xs:element name="CreateCollaboration" type="Action:CREATE_COLLABORATION"/>
+				<xs:element name="AddComment" type="Action:ADD_COMMENT"/>
+				<xs:element name="ExtendTimeframe" type="Action:EXTEND_TIMEFRAME"/>
+				<xs:element name="SendResponse" type="Action:SEND_RESPONSE"/>
+			</xs:choice>
+		</xs:sequence>
+		<xs:attribute name="CONTAINER_SERIAL_NUMBER_8724" type="Types:CONTAINER_SERIAL_NUMBER" use="required"/>
+		<xs:attribute name="OUTBOUND_CONTAINER_ID_8736" type="Types:CONTAINER_ID" use="required"/>
+	</xs:complexType>
+
+</xs:schema>

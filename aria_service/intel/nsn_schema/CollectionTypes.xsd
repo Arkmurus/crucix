@@ -1,0 +1,149 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           xmlns="http://eportal.nspa.nato.int/Collections"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://eportal.nspa.nato.int/Collections">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+
+  <!--REPLACEMENT_NSN collection-->
+  <xs:complexType name="REPLACEMENT_NSNs">
+    <xs:sequence>
+      <xs:element name="REPLACEMENT_NSN_8875" type="Types:REPLACEMENT_NSN_Model" minOccurs="1" maxOccurs="2"  />
+    </xs:sequence>
+  </xs:complexType>
+
+  <!--USER_CTR collection-->
+  <xs:complexType name="USER_CTRs">
+    <xs:sequence>
+      <xs:element name="USER_CTR_3408" type="Types:USER_CTR_Model" minOccurs="1" maxOccurs="unbounded"  />
+    </xs:sequence>
+  </xs:complexType>
+
+
+  <!--Web  Reference collection-->
+  <xs:complexType name="WEB_URLs">
+    <xs:sequence>
+      <xs:element name="WEB_URL_8021" type="Types:WEB_URL" minOccurs="1" maxOccurs="5" />
+    </xs:sequence>
+  </xs:complexType>
+
+  <!--Attachments collection-->
+  <xs:complexType name="ATTACHMENTS">
+    <xs:sequence>
+      <xs:element name="ATTACHMENT_NAME_8707" type="Types:AttachmentName" minOccurs="1" maxOccurs="5" />
+    </xs:sequence>
+  </xs:complexType>
+
+  <!--Requested_Actions collection-->
+  <xs:complexType name="REQUEST_ACTION_SERIAL_NUMBERs">
+    <xs:sequence>
+      <xs:element name="REQUEST_ACTION_SERIAL_NUMBER_8728" type="Types:ACTION_SERIAL_NUMBER" minOccurs="1" maxOccurs="unbounded" />
+    </xs:sequence>
+    <xs:attribute name="REQUEST_MESSAGE_ID_8720" type="Types:MESSAGE_ID" use="required"/>
+    <xs:attribute name="REQUEST_CONTAINER_SERIAL_NUMBER_8723" type="Types:CONTAINER_SERIAL_NUMBER" use="required"/>
+  </xs:complexType>
+
+  <!--InterrogateActionData-->
+  <xs:complexType name="InterrogateActionData">
+    <xs:sequence>
+      <xs:element name="REQUEST_ACTION_SERIAL_NUMBER_8728" type="Types:ACTION_SERIAL_NUMBER" minOccurs="1" maxOccurs="1"/>
+    </xs:sequence>
+    <xs:attribute name="REQUEST_CONTAINER_SERIAL_NUMBER_8723" type="Types:CONTAINER_SERIAL_NUMBER" use="required"/>
+  </xs:complexType>
+
+  <!--Characteristics Data Collection allowing reply having AND and OR in a same reply -->
+  <xs:complexType name="CharacteristicDatas">
+    <xs:sequence>
+      <xs:element name="CharacteristicData" type="CharacteristicData" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CharacteristicData">
+    <xs:sequence>
+      <xs:element name="MRC_3445" type="Types:MRC" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="MODE_CODE_4735" type="Types:MODE_CODE" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="ISAC" minOccurs="0" maxOccurs="1">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="SECONDARY_CODE_8990" type="Types:SECONDARY_CODE" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="SECONDARY_INDICATOR_CODE_9485" type="Types:SECONDARY_INDICATOR_CODE" minOccurs="1" maxOccurs="1"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:choice minOccurs="1" maxOccurs="1">
+        <!-- MC G only-->
+        <xs:element name="COMPOSITE_CLEAR_REPLY" type="COMPOSITE_CLEAR_REPLY" minOccurs="1" maxOccurs="1"/>
+        <!-- MC A, B, F, E -->
+        <xs:element name="CLEAR_REPLY_4128" type="Types:CLEAR_REPLY" minOccurs="1" maxOccurs="1"/>
+        <!-- single MC D, L -->
+        <xs:element name="CODED_REPLY_3465" type="Types:CODED_REPLY" minOccurs="1" maxOccurs="1"/>
+        <!-- single MC H, J and Multiple Reply for MC  A, B, E, F, G, D, L-->
+        <xs:element name="COMPOSITE_REPLY" type="COMPOSITE_REPLY" minOccurs="1" maxOccurs="1"/>
+        <!--AND/OR-->
+        <xs:element name="AND_OR_REPLY" type="AND_OR_REPLY" minOccurs="1" maxOccurs="1"/>
+      </xs:choice>
+
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="AND_OR_REPLY">
+    <xs:sequence>
+      <xs:group ref="AND_OR_REPLY_Item"/>
+      <xs:sequence minOccurs="1" maxOccurs="unbounded">
+        <xs:element name="OPERATOR_8701" type="Types:OPERATOR"/>
+        <xs:group ref="AND_OR_REPLY_Item"/>
+      </xs:sequence>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="COMPOSITE_REPLY">
+    <!-- Mode Codes H, J only and Multiple Reply for MC  A, B, E, F, D, L-->
+    <xs:sequence>
+      <xs:element name="CODED_REPLY_3465" type="Types:CODED_REPLY" minOccurs="1" maxOccurs="unbounded" />
+      <xs:element name="CLEAR_REPLY_4128" type="Types:CLEAR_REPLY" minOccurs="0" maxOccurs="1"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!--to be used with MODE CODE G only-->
+  <xs:complexType name="COMPOSITE_CLEAR_REPLY">
+    <xs:sequence>
+      <xs:element name="CLEAR_REPLY_4128" type="Types:CLEAR_REPLY_Model" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="NATIVE_CLEAR_REPLY_8751" type="Types:NATIVE_CLEAR_REPLY" minOccurs="0" maxOccurs="1"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:group name="AND_OR_REPLY_Item">
+    <xs:choice>
+      <xs:element name="CODED_REPLY_3465" type="Types:CODED_REPLY"/>
+      <xs:element name="CLEAR_REPLY_4128" type="Types:CLEAR_REPLY" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="COMPOSITE_CLEAR_REPLY" type="COMPOSITE_CLEAR_REPLY"/>
+      <!--to be used with MODE CODE G only-->
+      <xs:element name="COMPOSITE_REPLY" type="COMPOSITE_REPLY" minOccurs="1" maxOccurs="1"/>
+    </xs:choice>
+  </xs:group>
+
+  <!--NSNs to Cancel Collection-->
+  <xs:complexType name="PROPOSED_CANCELLED_NIINs">
+    <xs:sequence>
+      <xs:element name="PROPOSED_CANCELLED_NIIN" type="PROPOSED_CANCELLED_NIIN" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PROPOSED_CANCELLED_NIIN">
+    <xs:sequence>
+      <xs:element name="PROPOSED_CANCELLED_NIIN_8717" type="Types:REPLACED_NSN" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="PROPOSED_NIIN_STATUS_CODE_2670" type="Types:NIIN_STATUS_CODE" minOccurs="1" maxOccurs="1"/>
+    </xs:sequence>
+  </xs:complexType>
+
+
+  <!--Collaboration participant (ISO3 Country Code) Collection-->
+  <xs:complexType name="COLLABORATION_PARTICIPANTs">
+    <xs:sequence>
+      <xs:element name="COLLABORATION_PARTICIPANT" type="Types:USER_CTR_Model" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>    
+  
+</xs:schema>

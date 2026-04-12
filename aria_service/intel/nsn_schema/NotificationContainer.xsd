@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="NOTIFICATIONS"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:Action="http://eportal.nspa.nato.int/Action"
+           xmlns:Types="http://eportal.nspa.nato.int/Types"
+           targetNamespace="http://eportal.nspa.nato.int/Container">
+
+  <xs:import namespace="http://eportal.nspa.nato.int/Action" schemaLocation="ActionTypes.xsd"/>
+  <xs:import namespace="http://eportal.nspa.nato.int/Types" schemaLocation="DataTypes.xsd"/>
+
+  <xs:complexType name="NOTIFICATIONS">
+    <xs:sequence>
+      <xs:element name="REQUEST_MESSAGE_ID_8720" type="Types:MESSAGE_ID" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="REQUEST_CONTAINER_SERIAL_NUMBER_8723" type="Types:CONTAINER_SERIAL_NUMBER" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="REQUEST_ACTION_SERIAL_NUMBER_8728" type="Types:ACTION_SERIAL_NUMBER" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="Notification" type="Action:NOTIFICATION" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="CONTAINER_SERIAL_NUMBER_8724" type="Types:CONTAINER_SERIAL_NUMBER" use="required"/>
+  </xs:complexType>
+
+</xs:schema>
