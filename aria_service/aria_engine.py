@@ -719,20 +719,43 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
         ("semantic",    lambda: get_semantic_context(message)),
     ]
 
-    total = ""
-    # 1) Always load the primary layers first
-    for name, fn in primary_layers:
+    # ── PARALLEL FETCH: run all layer functions concurrently ──────────
+    # 2026-04-12: was serial (each layer waited for the previous one).
+    # Now uses ThreadPoolExecutor so all layers fetch their data at the
+    # same time. Assembly still respects priority order (primary first).
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    all_layers = primary_layers + recall_layers
+
+    def _safe_call(name_fn):
+        name, fn = name_fn
         try:
-            layer = fn()
-            if not layer:
-                continue
-            if len(total) + len(layer) > MAX_CONTEXT_CHARS:
-                continue
-            total += layer
+            return (name, fn() or "")
         except Exception as e:
             logger.warning("Context layer '%s' failed: %s", name, e)
+            return (name, "")
 
-    # 2) Load recall layers. In document-grounded mode, fence them off.
+    # Fetch all layers in parallel (up to 6 threads — IO-bound, not CPU-bound)
+    results = {}
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = {pool.submit(_safe_call, lyr): lyr[0] for lyr in all_layers}
+        for future in as_completed(futures):
+            name, text = future.result()
+            results[name] = text
+
+    # ── ASSEMBLE in priority order (primary first, recall second) ──
+    total = ""
+
+    # 1) Primary layers — always safe, added in defined order
+    for name, _ in primary_layers:
+        layer = results.get(name, "")
+        if not layer:
+            continue
+        if len(total) + len(layer) > MAX_CONTEXT_CHARS:
+            continue
+        total += layer
+
+    # 2) Recall layers — fenced in document-grounded mode
     if document_grounded:
         fence_header = (
             "\n\n[RECALL CONTEXT — reference only. The following blocks are "
@@ -744,29 +767,23 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
         )
         fence_footer = "\n[END RECALL CONTEXT]\n"
         recall_total = ""
-        for name, fn in recall_layers:
-            try:
-                layer = fn()
-                if not layer:
-                    continue
-                if len(total) + len(fence_header) + len(recall_total) + len(layer) + len(fence_footer) > MAX_CONTEXT_CHARS:
-                    continue
-                recall_total += layer
-            except Exception as e:
-                logger.warning("Context layer '%s' failed: %s", name, e)
+        for name, _ in recall_layers:
+            layer = results.get(name, "")
+            if not layer:
+                continue
+            if len(total) + len(fence_header) + len(recall_total) + len(layer) + len(fence_footer) > MAX_CONTEXT_CHARS:
+                continue
+            recall_total += layer
         if recall_total:
             total += fence_header + recall_total + fence_footer
     else:
-        for name, fn in recall_layers:
-            try:
-                layer = fn()
-                if not layer:
-                    continue
-                if len(total) + len(layer) > MAX_CONTEXT_CHARS:
-                    continue
-                total += layer
-            except Exception as e:
-                logger.warning("Context layer '%s' failed: %s", name, e)
+        for name, _ in recall_layers:
+            layer = results.get(name, "")
+            if not layer:
+                continue
+            if len(total) + len(layer) > MAX_CONTEXT_CHARS:
+                continue
+            total += layer
 
     return total
 
@@ -1717,22 +1734,29 @@ async def aria_chat(
         if _uid and _uid != "anon":
             session["userId"] = _uid
 
-    # Pre-fetch neural memory (async) and set per-request context
-    try:
-        neural_ctx = await neural_memory.get_neural_context(message)
-        _neural_ctx_var.set(neural_ctx)
-    except Exception as e:
-        logger.warning("Neural recall failed: %s", e)
-        _neural_ctx_var.set("")
+    # Pre-fetch neural memory + RAG context IN PARALLEL.
+    # 2026-04-12: was serial (neural then RAG, ~400-700ms total). Now
+    # concurrent via asyncio.gather (~300ms max of the two).
+    import asyncio as _aio
 
-    # Pre-fetch RAG context (async) — proprietary intel from chromadb
-    try:
-        from .intel import rag_store
-        rag_ctx = await rag_store.get_rag_context(message, max_chars=6000)
-        _rag_ctx_var.set(rag_ctx)
-    except Exception as e:
-        logger.warning("RAG retrieval failed: %s", e)
-        _rag_ctx_var.set("")
+    async def _prefetch_neural():
+        try:
+            return await neural_memory.get_neural_context(message)
+        except Exception as e:
+            logger.warning("Neural recall failed: %s", e)
+            return ""
+
+    async def _prefetch_rag():
+        try:
+            from .intel import rag_store
+            return await rag_store.get_rag_context(message, max_chars=6000)
+        except Exception as e:
+            logger.warning("RAG retrieval failed: %s", e)
+            return ""
+
+    neural_ctx, rag_ctx = await _aio.gather(_prefetch_neural(), _prefetch_rag())
+    _neural_ctx_var.set(neural_ctx)
+    _rag_ctx_var.set(rag_ctx)
 
     # Build 8-layer context (7 intel + neural memory).
     # BUG-FIX 2026-04-08: this used to run sync on the event loop. The
@@ -1741,7 +1765,6 @@ async def aria_chat(
     # liveness probes timed out and chat replies arrived 60s+ late. Moving
     # the whole context build into a worker thread frees the event loop to
     # service other requests while the encode runs.
-    import asyncio as _aio
     context = await _aio.to_thread(_build_7_layer_context, message, intel_data)
 
     # Detect language and add hint
@@ -2146,22 +2169,28 @@ async def aria_chat_stream(
         if _uid and _uid != "anon":
             session["userId"] = _uid
 
-    try:
-        neural_ctx = await neural_memory.get_neural_context(message)
-        _neural_ctx_var.set(neural_ctx)
-    except Exception as _nm_err:
-        logger.debug("neural_memory ctx failed (non-fatal): %s", _nm_err)
-        _neural_ctx_var.set("")
-
-    try:
-        from .intel import rag_store
-        rag_ctx = await rag_store.get_rag_context(message, max_chars=6000)
-        _rag_ctx_var.set(rag_ctx)
-    except Exception as _rag_err:
-        logger.debug("rag_store ctx failed (non-fatal): %s", _rag_err)
-        _rag_ctx_var.set("")
-
+    # Parallel pre-fetch (same pattern as aria_chat — 2026-04-12)
     import asyncio as _aio
+
+    async def _prefetch_neural_s():
+        try:
+            return await neural_memory.get_neural_context(message)
+        except Exception as e:
+            logger.debug("neural_memory ctx failed (non-fatal): %s", e)
+            return ""
+
+    async def _prefetch_rag_s():
+        try:
+            from .intel import rag_store
+            return await rag_store.get_rag_context(message, max_chars=6000)
+        except Exception as e:
+            logger.debug("rag_store ctx failed (non-fatal): %s", e)
+            return ""
+
+    neural_ctx, rag_ctx = await _aio.gather(_prefetch_neural_s(), _prefetch_rag_s())
+    _neural_ctx_var.set(neural_ctx)
+    _rag_ctx_var.set(rag_ctx)
+
     context = await _aio.to_thread(_build_7_layer_context, message, intel_data)
 
     lang_hint = _detect_language_hint(message)
