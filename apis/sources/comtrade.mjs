@@ -62,12 +62,16 @@ export async function getTradeData(opts = {}) {
     params.set('subscription-key', process.env.COMTRADE_API_KEY);
   }
 
-  // Try v2 data endpoint first, fall back to v1 preview
-  const endpoints = [
-    `${BASE}/get/C/A/HS?${params}`,
-    `${BASE}/preview/C/A/HS?${params}`,
-    `https://comtradeapi.un.org/public/v1/preview/C/A/HS?${params}`,
-  ];
+  // 2026-04-13: fixed endpoint paths. v1 public only has /preview.
+  // v2 (with key) uses /data/v1/get. v1 /get was 404'ing on every call.
+  const endpoints = process.env.COMTRADE_API_KEY
+    ? [
+        `https://comtradeapi.un.org/data/v1/get/C/A/HS?${params}`,
+        `https://comtradeapi.un.org/public/v1/preview/C/A/HS?${params}`,
+      ]
+    : [
+        `https://comtradeapi.un.org/public/v1/preview/C/A/HS?${params}`,
+      ];
 
   for (const url of endpoints) {
     try {
