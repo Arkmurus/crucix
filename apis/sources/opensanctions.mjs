@@ -70,9 +70,11 @@ export async function fetchOpenSanctions() {
     // New endpoint: /search/default?q=... for entity search, or
     // /collections/default/entities for listing. Using /search/default
     // with a broad query to get recent sanctions changes.
+    // schema param removed — /search/default rejects comma-separated
+    // schemas with "Invalid schema" 400. The endpoint returns all
+    // entity types by default which is what we want for the sweep.
     const params = new URLSearchParams({
       limit:   '50',
-      schema:  'LegalEntity,Person,Organization',
     });
     const headers = {
       'Accept':     'application/json',
