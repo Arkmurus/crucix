@@ -67,6 +67,37 @@ const FEEDS = [
     region: 'Latin-America',
     weight: 2,
   },
+  // ── LATIN AMERICA EXPANSION (2026-04-12) ────────────────────────────
+  {
+    name: 'Brazil Defence',
+    url:  'https://news.google.com/rss/search?q=Brazil+defesa+militar+FAB+Marinha+Exercito+LAAD+procurement&hl=pt&gl=BR&ceid=BR:pt',
+    region: 'Latin-America',
+    weight: 3,
+  },
+  {
+    name: 'Colombia Defence',
+    url:  'https://news.google.com/rss/search?q=Colombia+defensa+militar+fuerzas+armadas+adquisicion+ExpoDefensa&hl=es&gl=CO&ceid=CO:es',
+    region: 'Latin-America',
+    weight: 3,
+  },
+  {
+    name: 'Chile Peru Defence',
+    url:  'https://news.google.com/rss/search?q=Chile+OR+Peru+defensa+militar+FIDAE+SITDEF+procurement&hl=es&gl=CL&ceid=CL:es',
+    region: 'Latin-America',
+    weight: 2,
+  },
+  {
+    name: 'LatAm Naval',
+    url:  'https://news.google.com/rss/search?q=Latin+America+naval+patrol+vessel+frigate+coast+guard+maritime&hl=en&gl=US&ceid=US:en',
+    region: 'Latin-America',
+    weight: 2,
+  },
+  {
+    name: 'LatAm Aviation Defence',
+    url:  'https://news.google.com/rss/search?q=%22Latin+America%22+OR+Brazil+OR+Colombia+fighter+helicopter+aircraft+military+aviation&hl=en&gl=US&ceid=US:en',
+    region: 'Latin-America',
+    weight: 2,
+  },
   // ── GLOBAL TRADE ──────────────────────────────────────────────────────
   {
     name: 'Global Arms Trade',

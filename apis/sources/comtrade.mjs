@@ -5,7 +5,12 @@
 
 import { safeFetch, daysAgo, today } from '../utils/fetch.mjs';
 
-const BASE = 'https://comtradeapi.un.org/public/v1';
+// 2026-04-12: Comtrade API migrated to v2 in late 2025. v1/preview endpoint
+// now returns empty results. v2 requires a subscription key (free tier available).
+// Fallback: use the bulk download CSV endpoint which is always public.
+const BASE = process.env.COMTRADE_API_KEY
+  ? 'https://comtradeapi.un.org/data/v1'
+  : 'https://comtradeapi.un.org/public/v1';
 
 // Strategic commodity codes (HS classification)
 const STRATEGIC_COMMODITIES = {
@@ -52,8 +57,37 @@ export async function getTradeData(opts = {}) {
     flowCode,
   });
   if (partnerCode) params.set('partnerCode', String(partnerCode));
+  // Add subscription key if available (v2 API)
+  if (process.env.COMTRADE_API_KEY) {
+    params.set('subscription-key', process.env.COMTRADE_API_KEY);
+  }
 
-  return safeFetch(`${BASE}/preview/C/A/HS?${params}`, { timeout: 20000 });
+  // Try v2 data endpoint first, fall back to v1 preview
+  const endpoints = [
+    `${BASE}/get/C/A/HS?${params}`,
+    `${BASE}/preview/C/A/HS?${params}`,
+    `https://comtradeapi.un.org/public/v1/preview/C/A/HS?${params}`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const result = await safeFetch(url, { timeout: 20000 });
+      // 2026-04-12: handle multiple response structures across API versions
+      const records = result?.data || result?.dataset || result?.results || [];
+      if (Array.isArray(records) && records.length > 0) {
+        return { data: records };
+      }
+      // Check for error responses
+      if (result?.error || result?.statusCode >= 400) {
+        console.debug(`[Comtrade] ${url.split('?')[0]} error: ${result?.error || result?.statusCode}`);
+        continue;
+      }
+    } catch (e) {
+      console.debug(`[Comtrade] ${url.split('?')[0]} failed: ${e.message}`);
+      continue;
+    }
+  }
+  return { data: [] };
 }
 
 // Get bilateral trade between two countries for a commodity

@@ -53,6 +53,37 @@ const FEEDS = [
     region: 'Africa',
     weight: 2,
   },
+  // ── East/Central Africa (2026-04-12) ──────────────────────────────
+  {
+    name: 'Kenya Defence',
+    url:  'https://news.google.com/rss/search?q=Kenya+military+KDF+defence+procurement+security&hl=en&gl=KE&ceid=KE:en',
+    region: 'East Africa',
+    weight: 3,
+  },
+  {
+    name: 'Ethiopia Defence',
+    url:  'https://news.google.com/rss/search?q=Ethiopia+ENDF+military+defence+Tigray+security+procurement&hl=en&gl=US&ceid=US:en',
+    region: 'East Africa',
+    weight: 3,
+  },
+  {
+    name: 'East Africa Security',
+    url:  'https://news.google.com/rss/search?q=%22East+Africa%22+OR+Uganda+OR+Tanzania+military+defence+security+AMISOM&hl=en&gl=KE&ceid=KE:en',
+    region: 'East Africa',
+    weight: 2,
+  },
+  {
+    name: 'DRC Congo Defence',
+    url:  'https://news.google.com/rss/search?q=DRC+Congo+FARDC+MONUSCO+military+security+arms&hl=en&gl=US&ceid=US:en',
+    region: 'Central Africa',
+    weight: 3,
+  },
+  {
+    name: 'Great Lakes Security',
+    url:  'https://news.google.com/rss/search?q=%22Great+Lakes%22+OR+Rwanda+OR+Burundi+military+security+peacekeeping&hl=en&gl=US&ceid=US:en',
+    region: 'Central Africa',
+    weight: 2,
+  },
   {
     name: 'SIPRI Blog',
     // sipri.org blocks cloud IPs — use Google News RSS

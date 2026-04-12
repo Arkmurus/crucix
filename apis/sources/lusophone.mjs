@@ -124,6 +124,42 @@ const SOURCES = [
     region: 'Angola',
     weight: 'high',
   },
+  // ── Lusophone Africa expansion (2026-04-12) ──────────────────────
+  {
+    name:   'Mozambique Defence',
+    url:    'https://news.google.com/rss/search?q=Mo%C3%A7ambique+FADM+militar+defesa+seguran%C3%A7a+Cabo+Delgado&hl=pt&gl=MZ&ceid=MZ:pt',
+    type:   'rss',
+    region: 'Mozambique',
+    weight: 'critical',
+  },
+  {
+    name:   'Angola Military',
+    url:    'https://news.google.com/rss/search?q=Angola+FAA+militar+defesa+seguran%C3%A7a+for%C3%A7as+armadas&hl=pt&gl=AO&ceid=AO:pt',
+    type:   'rss',
+    region: 'Angola',
+    weight: 'critical',
+  },
+  {
+    name:   'Guinea-Bissau Security',
+    url:    'https://news.google.com/rss/search?q=Guin%C3%A9-Bissau+militar+seguran%C3%A7a+for%C3%A7as+armadas+ECOWAS&hl=pt&gl=BR&ceid=BR:pt',
+    type:   'rss',
+    region: 'Guinea-Bissau',
+    weight: 'critical',
+  },
+  {
+    name:   'Lusa Africa',
+    url:    'https://news.google.com/rss/search?q=Lusa+%C3%81frica+defesa+militar+CPLP+portugu%C3%AAs&hl=pt&gl=PT&ceid=PT:pt',
+    type:   'rss',
+    region: 'Lusophone Africa',
+    weight: 'high',
+  },
+  {
+    name:   'CPLP Defence Cooperation',
+    url:    'https://news.google.com/rss/search?q=CPLP+coopera%C3%A7%C3%A3o+defesa+militar+exerc%C3%ADcio+seguran%C3%A7a&hl=pt&gl=PT&ceid=PT:pt',
+    type:   'rss',
+    region: 'CPLP',
+    weight: 'high',
+  },
 ];
 
 const ARKMURUS_KEYWORDS = [
