@@ -350,7 +350,13 @@ async def _lookup_romania(name: str, reg_number: str | None) -> dict | None:
             data = resp.json()
             found = data.get("found", data.get("cod", data))
             if isinstance(found, list) and found:
-                record = found[0]
+                # Match response by CUI (int-to-int) to avoid type mismatch
+                cui_int = int(cui)
+                record = next(
+                    (item for item in found
+                     if int(item.get("date_generale", item).get("cui", 0)) == cui_int),
+                    found[0],
+                )
             elif isinstance(data, dict) and "date_generale" in data:
                 record = data
             elif isinstance(data, list) and data:

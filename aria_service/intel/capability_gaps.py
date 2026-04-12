@@ -72,7 +72,14 @@ async def record_gap(
     return entry
 
 
-_RESOLVE_LOCK = asyncio.Lock()
+_RESOLVE_LOCK = None
+
+
+def _get_resolve_lock():
+    global _RESOLVE_LOCK
+    if _RESOLVE_LOCK is None:
+        _RESOLVE_LOCK = asyncio.Lock()
+    return _RESOLVE_LOCK
 
 
 async def resolve_gap(gap_id: str, resolution: str) -> dict:
@@ -83,7 +90,7 @@ async def resolve_gap(gap_id: str, resolution: str) -> dict:
     Returns:
         The updated gap entry, or ``{"error": ...}`` if not found.
     """
-    async with _RESOLVE_LOCK:
+    async with _get_resolve_lock():
         return await _resolve_gap_inner(gap_id, resolution)
 
 

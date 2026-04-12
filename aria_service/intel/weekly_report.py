@@ -164,7 +164,9 @@ async def _compute_mastery_deltas() -> dict:
                 "note": "No previous snapshot — first report, deltas unavailable.",
             }
 
-        prev_scores = snapshot["scores"]
+        prev_scores = snapshot.get("scores", {})
+        if not isinstance(prev_scores, dict):
+            prev_scores = {}
         deltas: dict[str, float] = {}
         for topic, score in current_scores.items():
             prev = prev_scores.get(topic, 0.5)

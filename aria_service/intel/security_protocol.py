@@ -426,7 +426,7 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern, str, str]] = [
      "data_exfiltration", "critical"),
     (re.compile(r"(?:show|reveal|print|display|output)\s+(?:me\s+)?(?:your|the)\s+system\s*prompt", re.I),
      "data_exfiltration", "critical"),
-    (re.compile(r"list\s+(?:all\s+)?(?:users|sessions|clients|customers)", re.I),
+    (re.compile(r"list\s+(?:all\s+)?(?:system\s+|aria.s?\s+|internal\s+)?(?:users|sessions|api\s*keys|credentials|admin)", re.I),
      "data_exfiltration", "high"),
     (re.compile(r"show\s+(?:me\s+)?(?:other\s+)?(?:users?'?s?\s+)?(?:sessions?|data|reports?|queries)", re.I),
      "data_exfiltration", "high"),

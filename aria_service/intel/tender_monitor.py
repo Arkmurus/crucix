@@ -349,9 +349,17 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
             return tenders
 
         data = resp.json()
-        notices = data.get("notices") or data.get("results") or []
-        if isinstance(data, list):
-            notices = data
+        if not isinstance(data, dict):
+            if isinstance(data, list):
+                notices = data
+            else:
+                logger.warning("[TED] API returned non-dict: %s", type(data))
+                return tenders
+        else:
+            notices = data.get("results") or data.get("notices") or []
+        if not isinstance(notices, list):
+            logger.warning("[TED] API notices not a list: %s", type(notices))
+            return tenders
 
         for notice in notices[:max_results]:
             try:
