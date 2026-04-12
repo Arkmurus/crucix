@@ -80,24 +80,103 @@ MASTERY_FLOOR = 0.05
 MASTERY_CEILING = 0.98
 WEAK_THRESHOLD = 0.55         # below this = "weak topic, needs study"
 
+# Hard floors per domain — if mastery drops below this, automatic
+# remediation triggers (knowledge injection from domain modules).
+# Floors are higher for core competencies (procurement, compliance,
+# osint) and lower for supplementary areas (finance, relationships).
+# Adapted from mastery_system.py DomainQuizEngine.
+HARD_FLOORS: dict[str, float] = {
+    "procurement":     0.65,
+    "compliance":      0.70,
+    "osint":           0.65,
+    "technical":       0.65,
+    "market_intel":    0.65,
+    "competitor_intel": 0.65,
+    "geopolitics":     0.60,
+    "finance":         0.60,
+    "relationships":   0.55,
+    "legal":           0.70,
+    "general":         0.50,
+}
+
 TOPICS = [
     "compliance", "procurement", "market_intel", "technical",
     "geopolitics", "osint", "finance", "relationships",
-    "competitor_intel", "legal",
+    "competitor_intel", "legal", "general",
 ]
 
-# Topic detection patterns — used to tag every interaction with a topic
+# Topic detection patterns — used to tag every interaction with a topic.
+# Enriched from mastery_prompt_builder.py's domain keyword taxonomy.
 _TOPIC_PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("compliance", re.compile(r"\b(?:sanction|embargo|ofac|ofsi|itar|ear|sitcl|siel|ogel|export\s+control|licen[cs]e|debarment|euc|end.user)\b", re.I)),
-    ("procurement", re.compile(r"\b(?:tender|rfp|rfq|contract|bid|procurement|acquisition|fms|solicitation|award)\b", re.I)),
-    ("market_intel", re.compile(r"\b(?:angola|mozambique|nigeria|kenya|saudi|uae|brazil|indonesia|cplp|lusophone|market|country)\b", re.I)),
-    ("technical", re.compile(r"\b(?:k9|himars|bayraktar|patriot|f-35|leopard|abrams|caliber|calibre|eccn|ml\d|weapon|system|specs?)\b", re.I)),
-    ("geopolitics", re.compile(r"\b(?:nato|alliance|coup|regime|stability|conflict|geopolitical|sadc|ecowas|au\s+mission)\b", re.I)),
-    ("osint", re.compile(r"\b(?:investigate|profile|due\s+diligence|background\s+check|crawl|research|osint|trace|map\s+the)\b", re.I)),
-    ("finance", re.compile(r"\b(?:budget|spending|gdp|deal\s+(?:value|worth)|million|billion|finance|funding|loan|credit|offset|payment)\b", re.I)),
-    ("relationships", re.compile(r"\b(?:contact|minister|general|colonel|admiral|director|liaison|tenure|meeting|relationship|humint)\b", re.I)),
-    ("competitor_intel", re.compile(r"\b(?:competitor|rival|paramount|elbit|baykar|norinco|rheinmetall|bae|leonardo|raytheon|lockheed|boeing)\b", re.I)),
-    ("legal", re.compile(r"\b(?:law|legal|regulation|statute|act\s+\d{4}|wassenaar|mtcr|nsg|treaty|convention)\b", re.I)),
+    ("compliance", re.compile(
+        r"\b(?:sanction|embargo|ofac|ofsi|itar|ear|sitcl|siel|ogel|export\s+control|"
+        r"licen[cs]e|debarment|euc|end.user|ata|ats|wassenaar|mtcr|nsg|hcoc|"
+        r"dual.use|proliferation|diversion|att\s+article|arms\s+trade\s+treaty|"
+        r"poca|bribery\s+act|mlr|money\s+laundering|sar|suspicious|kyc|aml|"
+        r"ancex|ecju|bis\s+entity|denied\s+person|specially\s+designated)\b", re.I)),
+    ("procurement", re.compile(
+        r"\b(?:tender|rfp|rfq|rfi|contract|bid|procurement|acquisition|fms|"
+        r"solicitation|award|lifecycle|capability\s+definition|"
+        r"source\s+selection|best\s+value|lpta|tradeoff|evaluation\s+criteria|"
+        r"ted\.europa|sam\.gov|contracts\s+finder|ungm|offset|industrial\s+"
+        r"participation|counter.?trade|cpv\s+code|nato\s+stock|nsn|"
+        r"fms\s+case|lor\s+letter|loa\s+letter|dsca|congressional\s+notification|"
+        r"budget\s+execution|through.life\s+support|sustainment)\b", re.I)),
+    ("market_intel", re.compile(
+        r"\b(?:angola|mozambique|nigeria|kenya|saudi|uae|brazil|indonesia|"
+        r"cplp|lusophone|market|country|sipri|iiss|jane.s|defence\s+spending|"
+        r"military\s+budget|gdp\s+percent|demand\s+signal|"
+        r"ghana|ethiopia|tanzania|uganda|rwanda|drc|senegal|"
+        r"c[oô]te\s+d.ivoire|cameroon|mali|niger|burkina|chad|"
+        r"india|pakistan|turkey|egypt|morocco|algeria|tunisia|"
+        r"philippines|vietnam|thailand|malaysia|south\s+africa)\b", re.I)),
+    ("technical", re.compile(
+        r"\b(?:k9|himars|bayraktar|patriot|f-35|f-16|leopard|abrams|caliber|"
+        r"calibre|eccn|ml\d{1,2}|weapon|system|specs?|stanag|aqap|aectp|"
+        r"ifv|apc|mrap|howitzer|mortar|torpedo|missile|radar|sonar|"
+        r"c4isr|ew\b|electronic\s+warfare|uav|uas|drone|munition|"
+        r"detonator|explosive|propellant|warhead|fuse|primer|"
+        r"ballistic|armou?red?\s+vehicle|redback|lynx|boxer|"
+        r"nato\s+standard|def\s+stan|mil.std)\b", re.I)),
+    ("geopolitics", re.compile(
+        r"\b(?:nato|alliance|coup|regime|stability|conflict|geopolitical|"
+        r"sadc|ecowas|au\s+mission|un\s+mission|peacekeeping|"
+        r"insurgency|terrorism|separatist|civil\s+war|border\s+dispute|"
+        r"arms\s+race|nuclear|non.proliferation|ceasefire|"
+        r"diplomatic|bilateral|multilateral|mou|treaty|pact)\b", re.I)),
+    ("osint", re.compile(
+        r"\b(?:investigate|profile|due\s+diligence|background\s+check|crawl|"
+        r"research|osint|trace|map\s+the|screen|vet|audit|"
+        r"pdd|person\s+dd|pep\s+check|adverse\s+media|"
+        r"ghost\s+detect|ubo|beneficial\s+owner|"
+        r"open\s+source|intelligence\s+cycle|collection|"
+        r"source\s+grading|reliability|credibility)\b", re.I)),
+    ("finance", re.compile(
+        r"\b(?:budget|spending|gdp|deal\s+(?:value|worth)|million|billion|"
+        r"finance|funding|loan|credit|offset|payment|escrow|"
+        r"letter\s+of\s+credit|bank\s+guarantee|performance\s+bond|"
+        r"advance\s+payment|retention|commission|broker\s+fee|"
+        r"forex|exchange\s+rate|inflation|fiscal)\b", re.I)),
+    ("relationships", re.compile(
+        r"\b(?:contact|minister|general|colonel|admiral|director|liaison|"
+        r"tenure|meeting|relationship|humint|stakeholder|"
+        r"decision.maker|influencer|gatekeeper|champion|"
+        r"networking|introduction|referral|warm\s+lead|cold\s+call|"
+        r"embassy|attach[eé]|trade\s+commissioner)\b", re.I)),
+    ("competitor_intel", re.compile(
+        r"\b(?:competitor|rival|paramount|elbit|baykar|norinco|rheinmetall|"
+        r"bae|leonardo|raytheon|lockheed|boeing|thales|airbus|saab|"
+        r"hanwha|hyundai\s+rotem|knds|nexter|krauss.maffei|"
+        r"denel|armscor|otokar|aselsan|stm|tai|"
+        r"csgc|poly\s+technologies|cetc|avic|cssc|"
+        r"market\s+share|competitive\s+(?:advantage|position|landscape)|"
+        r"win\s+rate|incumbent|displacer|price\s+war)\b", re.I)),
+    ("legal", re.compile(
+        r"\b(?:law|legal|regulation|statute|act\s+\d{4}|wassenaar|mtcr|nsg|"
+        r"treaty|convention|jurisdiction|court|arbitration|dispute|"
+        r"contract\s+law|force\s+majeure|indemnity|warranty|"
+        r"intellectual\s+property|licensing\s+agreement|"
+        r"end.user\s+certificate|export\s+licence|import\s+permit)\b", re.I)),
 ]
 
 
@@ -145,11 +224,17 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
 
     correct=True: ARIA's local answer matched the truth (or the teacher).
     correct=False: she got it wrong or diverged from the teacher.
+
+    If a topic drops below its HARD_FLOOR, a remediation flag is set and
+    the next weekly report + mastery prompt addendum will highlight it.
+    The actual knowledge injection (e.g. re-ingest procurement_knowledge
+    module) runs in the weekly loop, not inline here.
     """
     if not topics:
         return
     mastery = await _load_mastery()
     now = time.time()
+    remediation_needed: list[str] = []
     for topic in topics:
         if topic not in mastery:
             mastery[topic] = {"score": INITIAL_MASTERY, "samples": 0,
@@ -165,7 +250,34 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
             m["wrong"] = m.get("wrong", 0) + 1
             lr = MASTERY_LR_NEGATIVE * weight
             m["score"] = max(MASTERY_FLOOR, m["score"] - lr * m["score"])
+        # Hard floor check — flag for remediation if breached
+        floor = HARD_FLOORS.get(topic, 0.50)
+        if m["score"] < floor:
+            m["below_floor"] = True
+            m["floor"] = floor
+            remediation_needed.append(topic)
+        else:
+            m.pop("below_floor", None)
+            m.pop("floor", None)
     await _save_mastery()
+
+    # Log remediation needs so the weekly report and proactive loop
+    # can act on them. Non-blocking fire-and-forget.
+    if remediation_needed:
+        logger.warning(
+            "MASTERY HARD FLOOR BREACH: %s — remediation flagged",
+            ", ".join(f"{t} ({mastery[t]['score']:.0%} < {HARD_FLOORS.get(t, 0.5):.0%})" for t in remediation_needed),
+        )
+        try:
+            from . import capability_gaps
+            for topic in remediation_needed:
+                asyncio.ensure_future(capability_gaps.record_gap(
+                    gap_type="knowledge_gap",
+                    detail=f"Mastery for '{topic}' dropped below hard floor ({mastery[topic]['score']:.0%} < {HARD_FLOORS.get(topic, 0.5):.0%}). Remediation: re-inject domain knowledge.",
+                    source="student.update_mastery",
+                ))
+        except Exception:
+            pass
 
 
 async def get_mastery_report() -> dict:

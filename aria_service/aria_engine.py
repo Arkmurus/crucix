@@ -1399,6 +1399,28 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("nato_standards injection failed (non-fatal): %s", e)
 
+    # Procurement intelligence context — surfaces relevant procurement
+    # lifecycle, portal guidance, FMS process, offset mechanics.
+    try:
+        from .intel import procurement_knowledge
+        proc_ctx = procurement_knowledge.get_procurement_context(message)
+        if proc_ctx:
+            addendum_parts.append(proc_ctx)
+            logger.info("[procurement_knowledge] context injected (%d chars)", len(proc_ctx))
+    except Exception as e:
+        logger.debug("procurement_knowledge injection failed (non-fatal): %s", e)
+
+    # Market + competitor intelligence context — surfaces SIPRI/IISS data
+    # guidance, competitor strategic profiles, demand signal methodology.
+    try:
+        from .intel import market_competitor_knowledge
+        mkt_ctx = market_competitor_knowledge.get_market_context(message)
+        if mkt_ctx:
+            addendum_parts.append(mkt_ctx)
+            logger.info("[market_competitor_knowledge] context injected (%d chars)", len(mkt_ctx))
+    except Exception as e:
+        logger.debug("market_competitor_knowledge injection failed (non-fatal): %s", e)
+
     # Document-grounded mode directive — fires when the user's message
     # contains an [ATTACHED DOCUMENT block. Tells the LLM in the
     # strongest terms that it must not blend recall memory with
