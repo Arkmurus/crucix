@@ -1298,7 +1298,7 @@ async def diagnose_failure(
         log_entries = await rs.get_json(IMPROVEMENT_LOG_KEY) or []
         log_entries.append(diagnosis)
         log_entries = log_entries[-500:]  # cap log size
-        await rs.set_json(IMPROVEMENT_LOG_KEY, log_entries)
+        await rs.set_json(IMPROVEMENT_LOG_KEY, log_entries, ex=90 * 86400)
     except Exception as e:
         logger.warning("Failed to log diagnosis: %s", e)
 

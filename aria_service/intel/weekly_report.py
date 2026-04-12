@@ -92,12 +92,12 @@ async def schedule_weekly_snapshot() -> None:
     report's delta calculation."""
     try:
         from . import student
-        mastery = await student._load_mastery()
+        report = await student.get_mastery_report()
         snapshot = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "scores": {
-                topic: data.get("score", 0.5)
-                for topic, data in mastery.items()
+                topic: info.get("score", 0.5)
+                for topic, info in report.get("topics", {}).items()
             },
         }
         await rs.set_json(SNAPSHOT_KEY, snapshot)
@@ -112,30 +112,33 @@ async def _count_new_facts(cutoff: datetime) -> dict:
     """Count facts created in the last 7 days, grouped by source type."""
     try:
         from . import knowledge as kb
-        data = await kb._load()
-        facts = data.get("facts", [])
+        facts = await kb.get_all_facts()
 
-        cutoff_str = cutoff.isoformat()
         by_source: dict[str, int] = {}
         total = 0
 
         for fact in facts:
             ts = fact.get("ts_created") or fact.get("timestamp") or ""
-            if ts >= cutoff_str:
-                total += 1
-                # Normalise source to a bucket
-                src = fact.get("source", "unknown") or "unknown"
-                if src.startswith("user_correction"):
-                    bucket = "user_correction"
-                elif src.startswith("auto_extract"):
-                    bucket = "auto_extract"
-                elif "dd_case" in src or "case_library" in src:
-                    bucket = "dd_case_library"
-                elif "autonomous" in src or "research" in src:
-                    bucket = "autonomous_research"
-                else:
-                    bucket = src
-                by_source[bucket] = by_source.get(bucket, 0) + 1
+            try:
+                fact_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if fact_dt < cutoff:
+                    continue
+            except (ValueError, TypeError):
+                continue  # skip unparseable timestamps
+            total += 1
+            # Normalise source to a bucket
+            src = fact.get("source", "unknown") or "unknown"
+            if src.startswith("user_correction"):
+                bucket = "user_correction"
+            elif src.startswith("auto_extract"):
+                bucket = "auto_extract"
+            elif "dd_case" in src or "case_library" in src:
+                bucket = "dd_case_library"
+            elif "autonomous" in src or "research" in src:
+                bucket = "autonomous_research"
+            else:
+                bucket = src
+            by_source[bucket] = by_source.get(bucket, 0) + 1
 
         return {"total": total, "by_source": by_source}
     except Exception as e:
@@ -148,9 +151,9 @@ async def _compute_mastery_deltas() -> dict:
     try:
         from . import student
 
-        current_mastery = await student._load_mastery()
+        current_report = await student.get_mastery_report()
         current_scores = {
-            t: d.get("score", 0.5) for t, d in current_mastery.items()
+            t: info.get("score", 0.5) for t, info in current_report.get("topics", {}).items()
         }
 
         snapshot = await rs.get_json(SNAPSHOT_KEY)
@@ -233,17 +236,21 @@ async def _count_corrections(cutoff: datetime) -> dict:
     """Count corrections received in the last 7 days."""
     try:
         from . import knowledge as kb
-        data = await kb._load()
-        facts = data.get("facts", [])
+        facts = await kb.get_all_facts()
 
-        cutoff_str = cutoff.isoformat()
         corrections = 0
         facts_from_corrections = 0
 
         for fact in facts:
             src = fact.get("source", "") or ""
             ts = fact.get("ts_created") or fact.get("timestamp") or ""
-            if ts >= cutoff_str and src.startswith("user_correction"):
+            try:
+                fact_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if fact_dt < cutoff:
+                    continue
+            except (ValueError, TypeError):
+                continue
+            if src.startswith("user_correction"):
                 corrections += 1
                 facts_from_corrections += 1
 

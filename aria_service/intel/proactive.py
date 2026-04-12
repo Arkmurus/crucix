@@ -184,8 +184,8 @@ async def detect_knowledge_gaps(question: str) -> None:
             # research yet, push an alert telling ARIA to study it
             if (entry["count"] >= 3
                     and now - entry.get("research_triggered", 0) > 86400):
-                mastery = await student._load_mastery()
-                topic_score = (mastery.get(topic) or {}).get("score", 0.5)
+                mastery_report = await student.get_mastery_report()
+                topic_score = mastery_report.get("topics", {}).get(topic, {}).get("score", 0.5)
                 if topic_score < 0.65:
                     await push_alert({
                         "type": "knowledge_gap",

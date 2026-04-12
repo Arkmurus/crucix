@@ -898,7 +898,7 @@ async def log_conflict(conflict: dict) -> None:
         # Keep last 100 conflicts
         if len(conflicts) > 100:
             conflicts = conflicts[-100:]
-        await rs.set_json(CONFLICT_KEY, conflicts)
+        await rs.set_json(CONFLICT_KEY, conflicts, ex=90 * 86400)
         logger.warning(
             "[conflict] %s: existing=%s new=%s — flagged for review",
             conflict.get("entity"),
@@ -922,7 +922,7 @@ async def resolve_conflict(entity: str) -> bool:
         before = len(conflicts)
         conflicts = [c for c in conflicts if c.get("entity", "").lower() != entity.lower()]
         if len(conflicts) < before:
-            await rs.set_json(CONFLICT_KEY, conflicts)
+            await rs.set_json(CONFLICT_KEY, conflicts, ex=90 * 86400)
             return True
         return False
     except Exception:

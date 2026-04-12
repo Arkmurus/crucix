@@ -216,7 +216,7 @@ async def _load_mastery() -> dict:
 
 async def _save_mastery() -> None:
     if _mastery_cache is not None:
-        await rs.set_json(MASTERY_KEY, _mastery_cache)
+        await rs.set_json(MASTERY_KEY, _mastery_cache, ex=180 * 86400)
 
 
 async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) -> None:
@@ -429,7 +429,7 @@ async def self_quiz(num_questions: int = 5) -> dict:
         "score": round(passed / max(len(results), 1), 3),
     })
     history = history[-200:]  # keep last 200
-    await rs.set_json(QUIZ_HISTORY_KEY, history)
+    await rs.set_json(QUIZ_HISTORY_KEY, history, ex=180 * 86400)
 
     return {
         "quizzed": len(results),
@@ -550,7 +550,7 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         "topics_focused": weak_topics,
     })
     log = log[-100:]
-    await rs.set_json(READING_LOG_KEY, log)
+    await rs.set_json(READING_LOG_KEY, log, ex=180 * 86400)
 
     logger.info("[student] reading session complete: %d articles studied", len(studied))
     return {
@@ -589,7 +589,7 @@ async def record_divergence(
         "needs_study": similarity < 0.5,
     })
     log = log[-500:]
-    await rs.set_json(DIVERGENCE_KEY, log)
+    await rs.set_json(DIVERGENCE_KEY, log, ex=180 * 86400)
 
     # Update mastery — local was wrong-ish if similarity is low
     if similarity < 0.5:

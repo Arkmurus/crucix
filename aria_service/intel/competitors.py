@@ -81,7 +81,7 @@ async def _load() -> dict:
 
 async def _save() -> None:
     if _cache:
-        await rs.set_json(KEY, _cache)
+        await rs.set_json(KEY, _cache, ex=90 * 86400)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────

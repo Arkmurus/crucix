@@ -93,7 +93,7 @@ async def _load_stats() -> dict:
 
 async def _save_stats() -> None:
     if _stats_cache is not None:
-        await rs.set_json(ROUTER_STATS_KEY, _stats_cache)
+        await rs.set_json(ROUTER_STATS_KEY, _stats_cache, ex=30 * 86400)
 
 async def _record_routing(source: str) -> None:
     stats = await _load_stats()

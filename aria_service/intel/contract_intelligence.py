@@ -459,7 +459,7 @@ async def record_correction(
     corrections.append(correction)
     if len(corrections) > 200:
         corrections = corrections[-200:]
-    await rs.set_json(CORRECTIONS_KEY, corrections)
+    await rs.set_json(CORRECTIONS_KEY, corrections, ex=180 * 86400)
 
     logger.info("[contract] Correction recorded: %s — %s", error_type, lesson[:100])
     return {"recorded": True, "total_corrections": len(corrections)}

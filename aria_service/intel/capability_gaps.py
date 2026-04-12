@@ -10,6 +10,7 @@ Phase 3 of the ARIA learning infrastructure.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -71,6 +72,9 @@ async def record_gap(
     return entry
 
 
+_RESOLVE_LOCK = asyncio.Lock()
+
+
 async def resolve_gap(gap_id: str, resolution: str) -> dict:
     """Mark a gap as resolved with the fix description.
 
@@ -79,6 +83,11 @@ async def resolve_gap(gap_id: str, resolution: str) -> dict:
     Returns:
         The updated gap entry, or ``{"error": ...}`` if not found.
     """
+    async with _RESOLVE_LOCK:
+        return await _resolve_gap_inner(gap_id, resolution)
+
+
+async def _resolve_gap_inner(gap_id: str, resolution: str) -> dict:
     raw_entries = await rs.lrange(KEY, 0, MAX_GAPS - 1)
     entries = [json.loads(r) for r in raw_entries]
 

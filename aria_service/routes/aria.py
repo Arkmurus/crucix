@@ -1522,9 +1522,19 @@ _PDD_PERSON_INTENT_RE = re.compile(
 #   "due diligence on <entity>"
 #   "PEP check on <person>"
 #   "profile on <person>" / "dossier on <person>"
+# 2026-04-12 New Akord Security incident: user typed "deep DD NEW AKORD
+# SECURITY SRL, under the laws of Romania..." — no preposition between
+# "DD" and the entity name. The capture regex required "on/for/about"
+# which is natural English but not how users actually type DD requests.
+# Added a branch where the preposition is optional: "DD <ENTITY_NAME>"
+# directly, captured up to comma/period/newline/question mark.
 _DD_ENTITY_CAPTURE_RE = re.compile(
     r"(?:"
-    r"(?:full\s+|comprehensive\s+|ark[\-_]?)?p?dd\s+(?:report\s+)?(?:on|for|about)\s+|"
+    r"(?:full\s+|comprehensive\s+|deep\s+|ark[\-_]?)?p?dd\s+(?:report\s+)?(?:on|for|about)\s+|"
+    # Preposition-less: "DD <entity>" / "deep DD <entity>" — entity
+    # must start with a capital letter to disambiguate from DD followed
+    # by a lowercase instruction word.
+    r"(?:full\s+|comprehensive\s+|deep\s+|ark[\-_]?)?p?dd\s+(?=[A-Z])|"
     r"due\s+diligence\s+(?:on|for|about)\s+|"
     r"ark[\-_]?(?:p)?dd\s+(?:on|for|about)\s+|"
     r"orchestrate\s+(?:p)?dd\s+(?:on|for|about)\s+|"
