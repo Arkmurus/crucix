@@ -3912,6 +3912,49 @@ async def purge_signals_ep(request: Request):
     return await _il.purge_signals_by_keyword(keywords, dry_run=dry_run)
 
 
+@router.post("/admin/purge-gaps")
+async def purge_gaps_ep(request: Request):
+    """Purge stale capability gaps from the proactive gap tracker.
+
+    Removes gaps older than max_age_days (default 7). Gaps accumulate
+    when users ask about topics ARIA can't answer — stale ones from
+    resolved areas hide ARIA's actual capabilities.
+
+    Body (optional):
+        {"max_age_days": 3, "dry_run": true}
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    max_age = int(body.get("max_age_days", 7))
+    dry_run = bool(body.get("dry_run", False))
+
+    from ..intel import redis_store as rs
+    import time
+    GAP_KEY = "crucix:aria:proactive:gap_tracker"
+    gaps = await rs.get_json(GAP_KEY) or {}
+    now = time.time()
+    cutoff = now - (max_age * 86400)
+
+    stale = {k: v for k, v in gaps.items() if v.get("last_seen", 0) < cutoff}
+    fresh = {k: v for k, v in gaps.items() if v.get("last_seen", 0) >= cutoff}
+
+    if not dry_run and stale:
+        await rs.set_json(GAP_KEY, fresh, ex=14 * 86400)
+
+    return {
+        "total": len(gaps),
+        "stale": len(stale),
+        "removed": len(stale) if not dry_run else 0,
+        "remaining": len(fresh),
+        "dry_run": dry_run,
+        "max_age_days": max_age,
+        "stale_topics": list(stale.keys())[:20],
+    }
+
+
 @router.post("/session/forget")
 async def session_forget_ep(request: Request):
     """Wipe the conversation history for one session_id.

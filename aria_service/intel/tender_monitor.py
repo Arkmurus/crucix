@@ -264,6 +264,13 @@ def _score_relevance(tender: TenderAlert) -> float:
     tender.relevance_score = min(score, 1.0)
     tender.relevance_reasons = reasons
     tender.matched_products = matched
+    # 2026-04-12: debug logging for tender filtering — helps diagnose 0-result issues
+    if score < 0.2:
+        logger.debug(
+            "[Tender Scoring] REJECTED (score %.2f): [%s] %s | country=%s cpv=%s",
+            score, tender.portal, tender.title[:80], tender.country_iso2,
+            ",".join(tender.cpv_codes[:3]) or "none",
+        )
     return tender.relevance_score
 
 
@@ -1009,8 +1016,9 @@ async def crawl_all_portals(max_results_per_portal: int = 20) -> list[TenderAler
     """
     portal_health: dict[str, dict] = {}
 
+    from .ua_rotation import random_headers
     async with httpx.AsyncClient(
-        headers={"User-Agent": "ARIA-TenderMonitor/1.0 (Arkmurus Intelligence)"},
+        headers=random_headers(),
         follow_redirects=True,
     ) as client:
         # Launch all crawlers in parallel (8 portals)

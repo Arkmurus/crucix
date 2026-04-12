@@ -34,6 +34,8 @@ from typing import Any, Optional
 
 import httpx
 
+from .ua_rotation import random_ua
+
 logger = logging.getLogger("aria.web_search")
 
 # ── Configuration ───────────────────────────────────────────────────────────
@@ -180,7 +182,7 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
                         "language": language, "pageno": 1,
                         "categories": "general",
                     },
-                    headers={"User-Agent": "ARIA Intelligence Agent/3.0"},
+                    headers={"User-Agent": random_ua()},
                 )
                 if resp.status_code != 200:
                     continue
@@ -214,7 +216,7 @@ async def _search_google_news(query: str, max_results: int = 10, language: str =
 
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
                 return []
             # Parse RSS XML
@@ -252,7 +254,7 @@ async def _search_bing_news(query: str, max_results: int = 10) -> list[SearchRes
     url = f"https://www.bing.com/news/search?q={encoded}&format=rss"
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
                 return []
             text = resp.text

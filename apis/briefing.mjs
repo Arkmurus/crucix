@@ -75,6 +75,9 @@ import { briefing as polymarket } from './sources/polymarket.mjs';
 import { briefing as lusophone } from "./sources/lusophone.mjs";
 import { briefing as exportControlIntel } from "./sources/export_control_intel.mjs";
 
+// === Tier 8e: Global Defence (Asia, MENA, LatAm, Africa) ===
+import { briefing as globalDefence } from "./sources/global_defence.mjs";
+
 // === Tier 8d: Counterparty Risk ===
 import { briefing as counterpartyRisk } from "./sources/counterparty_risk.mjs";
 
@@ -208,6 +211,7 @@ export async function fullBriefing() {
     runSource('PortCongestion', portCongestion),
     runSource('Lusophone', lusophone),
     runSource('ExportControlIntel', exportControlIntel),
+    runSource('GlobalDefence', globalDefence),
 
     // Auto-managed sources deployed by self-update engine
     ...AUTO_SOURCES.map(({ name, fn }) => runSource(name, fn)),

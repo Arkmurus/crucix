@@ -30,7 +30,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -58,6 +58,9 @@ async def lookup_entity(
         "RO": _lookup_romania,
         "TR": _lookup_turkey,
         "BR": _lookup_brazil,
+        "NG": _lookup_nigeria,
+        "AE": _lookup_uae,
+        "IN": _lookup_india,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -654,6 +657,173 @@ def _extract_cnpj(text: str) -> str | None:
     # Try raw 14 digits
     m = re.search(r'\b(\d{14})\b', text)
     return m.group(1) if m else None
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Nigeria — CAC (Corporate Affairs Commission)                      ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+# 2026-04-12: web scrape of public CAC portal. No official API.
+
+async def _lookup_nigeria(name: str, reg_number: str | None) -> dict | None:
+    """Search Nigeria Corporate Affairs Commission for a company."""
+    from .ua_rotation import random_ua
+    try:
+        query = reg_number or name
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://search.cac.gov.ng/home/company_search",
+                params={"search": query},
+                headers={"User-Agent": random_ua()},
+            )
+            if resp.status_code != 200:
+                logger.warning("[NG CAC] Status %d for '%s'", resp.status_code, query)
+                return None
+
+            html = resp.text
+            # Extract company details from HTML
+            name_match = re.search(r"Company Name[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            rc_match = re.search(r"RC\s*(?:Number)?[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            status_match = re.search(r"Status[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            date_match = re.search(r"(?:Date of (?:Registration|Incorporation))[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            address_match = re.search(r"(?:Registered )?Address[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+
+            company_name = _html_unescape(name_match.group(1).strip()) if name_match else name
+            company_number = _html_unescape(rc_match.group(1).strip()) if rc_match else reg_number or ""
+            company_status = _html_unescape(status_match.group(1).strip()) if status_match else "unknown"
+            date_of_creation = _html_unescape(date_match.group(1).strip()) if date_match else ""
+            address = _html_unescape(address_match.group(1).strip()) if address_match else ""
+
+            if not name_match and not rc_match:
+                return None  # No match found
+
+            return _build_result(
+                company_name=company_name,
+                company_number=company_number,
+                company_status=company_status,
+                date_of_creation=date_of_creation,
+                registered_office_address=address,
+                jurisdiction="NG",
+                sic_codes=[],
+                officers=[],
+                psc=[],
+                source_url=f"https://search.cac.gov.ng/home/company_search?search={query}",
+                adapter="nigeria_cac",
+            )
+    except Exception as exc:
+        logger.warning("Nigeria CAC lookup failed: %s", exc)
+        return None
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ��  UAE — Ministry of Economy / DED (Economic Department)             ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+# 2026-04-12: uses the public UAE business search portal.
+
+async def _lookup_uae(name: str, reg_number: str | None) -> dict | None:
+    """Search UAE business registry for a company."""
+    from .ua_rotation import random_ua
+    try:
+        query = reg_number or name
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            # Try DED Dubai public search
+            resp = await client.get(
+                "https://www.dubaided.gov.ae/en/Pages/BusinessSearch.aspx",
+                params={"q": query},
+                headers={"User-Agent": random_ua()},
+            )
+            if resp.status_code != 200:
+                # Fallback to Abu Dhabi ADDED
+                resp = await client.get(
+                    "https://www.tamm.abudhabi/en/aspects-of-life/businessandprofessional",
+                    params={"search": query},
+                    headers={"User-Agent": random_ua()},
+                )
+
+            if resp.status_code != 200:
+                logger.warning("[UAE DED] Status %d for '%s'", resp.status_code, query)
+                return None
+
+            html = resp.text
+            name_match = re.search(r"(?:Trade Name|Company)[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            lic_match = re.search(r"(?:License|Licence)\s*(?:Number|No)[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            status_match = re.search(r"Status[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            activity_match = re.search(r"(?:Activity|Business Type)[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+
+            company_name = _html_unescape(name_match.group(1).strip()) if name_match else name
+            company_number = _html_unescape(lic_match.group(1).strip()) if lic_match else reg_number or ""
+
+            if not name_match and not lic_match:
+                return None
+
+            return _build_result(
+                company_name=company_name,
+                company_number=company_number,
+                company_status=_html_unescape(status_match.group(1).strip()) if status_match else "unknown",
+                date_of_creation="",
+                registered_office_address="UAE",
+                jurisdiction="AE",
+                sic_codes=[_html_unescape(activity_match.group(1).strip())] if activity_match else [],
+                officers=[],
+                psc=[],
+                source_url=f"https://www.dubaided.gov.ae/en/Pages/BusinessSearch.aspx?q={query}",
+                adapter="uae_ded",
+            )
+    except Exception as exc:
+        logger.warning("UAE DED lookup failed: %s", exc)
+        return None
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  India — MCA (Ministry of Corporate Affairs)                       ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+# 2026-04-12: uses MCA public company search API.
+
+async def _lookup_india(name: str, reg_number: str | None) -> dict | None:
+    """Search India MCA company registry."""
+    from .ua_rotation import random_ua
+    try:
+        # MCA V3 API (public, no auth required)
+        query = reg_number or name
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://www.mca.gov.in/mcafoportal/showCompanyMaster.do",
+                params={"companyName": name} if not reg_number else {"companyID": reg_number},
+                headers={"User-Agent": random_ua()},
+            )
+            if resp.status_code != 200:
+                logger.warning("[IN MCA] Status %d for '%s'", resp.status_code, query)
+                return None
+
+            html = resp.text
+            name_match = re.search(r"Company Name[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            cin_match = re.search(r"CIN[:\s]*</?\w+[^>]*>\s*([A-Z0-9]+)", html, re.I)
+            status_match = re.search(r"(?:Company Status|Status)[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            date_match = re.search(r"Date of Incorporation[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            address_match = re.search(r"Registered (?:Office )?Address[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            activity_match = re.search(r"(?:Principal Business|Industry|Class)[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+
+            company_name = _html_unescape(name_match.group(1).strip()) if name_match else name
+            company_number = _html_unescape(cin_match.group(1).strip()) if cin_match else reg_number or ""
+
+            if not name_match and not cin_match:
+                return None
+
+            return _build_result(
+                company_name=company_name,
+                company_number=company_number,
+                company_status=_html_unescape(status_match.group(1).strip()) if status_match else "unknown",
+                date_of_creation=_html_unescape(date_match.group(1).strip()) if date_match else "",
+                registered_office_address=_html_unescape(address_match.group(1).strip()) if address_match else "",
+                jurisdiction="IN",
+                sic_codes=[_html_unescape(activity_match.group(1).strip())] if activity_match else [],
+                officers=[],
+                psc=[],
+                source_url=f"https://www.mca.gov.in/mcafoportal/showCompanyMaster.do",
+                adapter="india_mca",
+            )
+    except Exception as exc:
+        logger.warning("India MCA lookup failed: %s", exc)
+        return None
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗

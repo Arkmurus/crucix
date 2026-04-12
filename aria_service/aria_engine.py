@@ -630,24 +630,47 @@ _FR_WORDS = {"comment", "quel", "défense", "gouvernement", "ministère", "égal
              "bonjour", "merci", "aussi", "besoin", "militaire", "armée"}
 _ES_WORDS = {"cómo", "cuál", "defensa", "gobierno", "ministerio", "también",
              "hola", "gracias", "necesito", "ejército", "fuerzas", "armadas"}
+# 2026-04-12: added Chinese, Russian, Turkish detection for global coverage
+_TR_WORDS = {"savunma", "askeri", "ihale", "sözleşme", "silah", "ordu",
+             "merhaba", "teşekkür", "türkiye", "bakanlık", "güvenlik", "kuvvet"}
+_RU_WORDS = {"оборона", "военный", "тендер", "вооружение", "закупки", "контракт",
+             "оружие", "россия", "министерство", "армия", "безопасность", "спасибо"}
 
 
 def _detect_language_hint(message: str) -> str:
-    """Return a language hint string to prepend to the user prompt, or empty."""
+    """Return a language hint string to prepend to the user prompt, or empty.
+
+    2026-04-12: added Chinese (CJK script), Russian (Cyrillic), Turkish (keywords).
+    ARIA now responds in 8 languages: EN, PT, FR, ES, AR, ZH, RU, TR.
+    """
     lower = message.lower()
     words = set(re.findall(r"\w+", lower))
 
-    # Arabic script detection (Unicode range)
+    # Script-based detection (no keyword matching needed)
+    # Arabic script
     if re.search(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]+", message):
         return "[User is writing in Arabic — respond in Arabic]\n"
+    # Chinese (CJK Unified Ideographs)
+    if re.search(r"[\u4E00-\u9FFF\u3400-\u4DBF]+", message):
+        return "[User is writing in Chinese — respond in Chinese (Simplified)]\n"
+    # Russian / Cyrillic
+    if re.search(r"[\u0400-\u04FF]+", message):
+        ru_hits = len(words & _RU_WORDS)
+        # Confirm it's Russian (not Ukrainian/Serbian) via keyword match
+        if ru_hits >= 1 or len(re.findall(r"[\u0400-\u04FF]", message)) > 10:
+            return "[User is writing in Russian — respond in Russian]\n"
 
+    # Keyword-based detection
     pt_hits = len(words & _PT_WORDS)
     fr_hits = len(words & _FR_WORDS)
     es_hits = len(words & _ES_WORDS)
+    tr_hits = len(words & _TR_WORDS)
 
-    best = max(pt_hits, fr_hits, es_hits)
+    best = max(pt_hits, fr_hits, es_hits, tr_hits)
     if best < 2:
         return ""
+    if tr_hits == best:
+        return "[User is writing in Turkish — respond in Turkish]\n"
     if pt_hits == best:
         return "[User is writing in Portuguese — respond in Portuguese]\n"
     if fr_hits == best:

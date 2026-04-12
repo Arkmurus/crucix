@@ -28,6 +28,7 @@ import httpx
 
 from ..llm.provider import LLMProvider, LLMResult
 from . import redis_store as rs
+from .ua_rotation import random_ua
 from .knowledge import store_fact, search_knowledge
 from . import knowledge as _kb_mod
 from . import intel_ledger as _ledger_mod
@@ -222,7 +223,7 @@ async def _fetch_rss(url: str, timeout: float = 15.0) -> list[dict]:
     articles = []
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"User-Agent": "ARIA-Research/2.0"})
+            resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
                 return []
             text = resp.text
@@ -298,7 +299,7 @@ async def _try_archive_fallbacks(url: str, timeout: float = 12.0) -> str:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(
                 f"https://archive.is/newest/{url}",
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0) ARIA-Research"},
+                headers={"User-Agent": random_ua()},
             )
             if resp.status_code == 200 and len(resp.text) > 2000:
                 return resp.text
@@ -527,7 +528,7 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                "User-Agent": random_ua(),
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-GB,en;q=0.9",
             })
@@ -1070,11 +1071,7 @@ async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) ->
                 "https://html.duckduckgo.com/html/",
                 data={"q": query, "kl": "us-en"},
                 headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/126.0.0.0 Safari/537.36"
-                    ),
+                    "User-Agent": random_ua(),
                     "Accept": "text/html,application/xhtml+xml",
                     "Accept-Language": "en-GB,en;q=0.9",
                 },
@@ -1566,11 +1563,7 @@ async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) 
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
                 resp = await client.get(sanitised, headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/126.0.0.0 Safari/537.36"
-                    ),
+                    "User-Agent": random_ua(),
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 })
                 if resp.status_code == 200:
@@ -1667,11 +1660,7 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(url, headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/126.0.0.0 Safari/537.36"
-                ),
+                "User-Agent": random_ua(),
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-GB,en;q=0.9",
             })
