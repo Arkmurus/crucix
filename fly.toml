@@ -34,10 +34,9 @@ primary_region = 'lhr'
   initial_size = '5gb'
 
 [[vm]]
-  size = 'shared-cpu-1x'
-  # Bumped from 1024mb to 2048mb on 2026-04-09 after the Tier B ingest
-  # OOM-killed the machine mid-embed (chromadb + sentence-transformers
-  # together exceed 1 GB during heavy bulk-ingest workloads). 2 GB gives
-  # comfortable headroom for the bulk ingest CLIs without affecting cost
-  # significantly (shared-cpu-1x stays the same, only memory changes).
-  memory = '2048mb'
+  size = 'shared-cpu-2x'
+  # Bumped to 2 CPU + 4GB on 2026-04-12: 5-language OCR (en/pt/es/fr/ro)
+  # + sentence-transformers + chromadb + LLM context building needs more
+  # than 2GB. EasyOCR model loading alone consumes ~800MB, plus the RAG
+  # store + knowledge base + 11 knowledge modules at startup.
+  memory = '4096mb'
