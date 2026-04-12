@@ -333,19 +333,33 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
     """
     tenders: list[TenderAlert] = []
     try:
-        # TED API v3 search endpoint
+        # TED API v3.0 requires POST with JSON body, not GET with query params.
         url = "https://ted.europa.eu/api/v3.0/notices/search"
-        # Build query: defence CPV codes, recent publications
-        params = {
-            "q": "cpv:35*",
+        # Build the POST body — q uses Lucene-style query syntax;
+        # cpv:35* is too narrow, broaden to include maintenance/transport CPVs.
+        pub_from = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y%m%d")
+        pub_to = datetime.now(timezone.utc).strftime("%Y%m%d")
+        body = {
+            "query": "(cpv:35* OR cpv:506* OR cpv:604*)",
+            "fields": [
+                "title", "description", "buyerName", "organisationName",
+                "country", "countryCode", "cpvCodes", "cpv",
+                "estimatedValue", "valueEur", "deadline",
+                "submissionDeadline", "publicationDate", "PD",
+                "noticeId", "docId",
+            ],
             "pageSize": min(max_results, 50),
-            "pageNum": 1,
-            "sortField": "PD",  # Publication date
+            "page": 1,
+            "sortField": "PD",
             "sortOrder": "desc",
         }
-        resp = await client.get(url, params=params, timeout=_HTTP_TIMEOUT)
+        logger.debug("[TED] POST body: %s", json.dumps(body)[:300])
+        resp = await client.post(
+            url, json=body, timeout=_HTTP_TIMEOUT,
+            headers={"Content-Type": "application/json"},
+        )
         if resp.status_code != 200:
-            logger.warning("[TED] API returned %d: %s", resp.status_code, resp.text[:200])
+            logger.warning("[TED] API returned %d: %s", resp.status_code, resp.text[:300])
             return tenders
 
         data = resp.json()
@@ -356,10 +370,11 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
                 logger.warning("[TED] API returned non-dict: %s", type(data))
                 return tenders
         else:
-            notices = data.get("results") or data.get("notices") or []
+            notices = data.get("results") or data.get("notices") or data.get("hits") or []
         if not isinstance(notices, list):
             logger.warning("[TED] API notices not a list: %s", type(notices))
             return tenders
+        logger.info("[TED] API returned %d raw notices", len(notices))
 
         for notice in notices[:max_results]:
             try:
@@ -515,19 +530,25 @@ async def _crawl_contracts_finder(client: httpx.AsyncClient, max_results: int = 
     """
     tenders: list[TenderAlert] = []
     try:
+        # Contracts Finder OCDS API — publishedFrom must be dd/MM/yyyy,
+        # stages must be "tender", and keyword helps find defence results.
         url = "https://www.contractsfinder.service.gov.uk/Published/Notices/OCDS/Search"
+        pub_from = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%d/%m/%Y")
         params = {
             "stages": "tender",
             "size": min(max_results, 50),
-            "publishedFrom": (datetime.now(timezone.utc) - timedelta(days=7)).isoformat(),
+            "publishedFrom": pub_from,
+            "keyword": "defence OR military OR security OR ammunition OR armoured",
         }
+        logger.debug("[Contracts Finder] params: %s", params)
         resp = await client.get(url, params=params, timeout=_HTTP_TIMEOUT)
         if resp.status_code != 200:
-            logger.warning("[Contracts Finder] API returned %d: %s", resp.status_code, resp.text[:200])
+            logger.warning("[Contracts Finder] API returned %d: %s", resp.status_code, resp.text[:300])
             return tenders
 
         data = resp.json()
         releases = data.get("releases") or data.get("results") or []
+        logger.info("[Contracts Finder] API returned %d raw releases", len(releases))
 
         for release in releases[:max_results]:
             try:
@@ -535,12 +556,15 @@ async def _crawl_contracts_finder(client: httpx.AsyncClient, max_results: int = 
                 title = str(tender_data.get("title", release.get("title", "")))
                 description = str(tender_data.get("description", ""))[:_MAX_DESCRIPTION_LEN]
 
-                # Check if defence/security related
+                # Defence keyword filter — relaxed because the API-level
+                # keyword param already pre-filters.  We still keep a
+                # lightweight check so non-defence stragglers are skipped.
                 text_lower = f"{title} {description}".lower()
                 defence_kws = [
                     "defence", "defense", "military", "security", "armed forces",
                     "mod ", "ministry of defence", "police", "border", "surveillance",
-                    "ammunition", "armoured", "armored", "weapon",
+                    "ammunition", "armoured", "armored", "weapon", "navy", "army",
+                    "vehicle", "patrol", "radar", "communication",
                 ]
                 if not any(kw in text_lower for kw in defence_kws):
                     continue
@@ -644,6 +668,7 @@ async def _crawl_ungm(client: httpx.AsyncClient, max_results: int = 20) -> list[
         matches = notice_pattern.findall(html)
         deadlines_found = deadline_pattern.findall(html)
         orgs_found = org_pattern.findall(html)
+        logger.info("[UNGM] Page fetched (%d chars), regex found %d notice links", len(html), len(matches))
 
         for i, (notice_id, title) in enumerate(matches[:max_results * 2]):
             title = title.strip()
@@ -720,6 +745,7 @@ async def _crawl_afdb(client: httpx.AsyncClient, max_results: int = 20) -> list[
 
         all_matches = notice_pattern.findall(html) + project_pattern.findall(html)
         countries_found = country_pattern.findall(html)
+        logger.info("[AfDB] Page fetched (%d chars), regex found %d links", len(html), len(all_matches))
 
         seen_titles: set[str] = set()
         for i, (link, title) in enumerate(all_matches):

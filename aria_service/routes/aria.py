@@ -6646,6 +6646,20 @@ async def capability_gap_summary_ep():
     return await capability_gaps.get_gap_summary()
 
 
+@router.post("/capability-gaps/purge")
+async def capability_gaps_purge_ep(request: Request):
+    """Bulk-resolve all capability gaps of a given type.
+
+    Body: {"type": "knowledge_gap"}
+    """
+    body = await request.json()
+    gap_type = body.get("type", "")
+    if not gap_type:
+        raise HTTPException(status_code=400, detail="Body must include non-empty 'type'")
+    from ..intel import capability_gaps
+    return await capability_gaps.purge_resolved_type(gap_type)
+
+
 @router.get("/capability-gaps")
 async def list_capability_gaps_ep(resolved: bool = False, limit: int = 50):
     """List capability gaps filtered by resolved status."""

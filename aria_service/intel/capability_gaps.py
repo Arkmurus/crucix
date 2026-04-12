@@ -111,6 +111,32 @@ async def _resolve_gap_inner(gap_id: str, resolution: str) -> dict:
     return {"error": f"Gap {gap_id} not found"}
 
 
+async def purge_resolved_type(gap_type: str) -> dict:
+    """Bulk-resolve all gaps of a given type. Used after fixing the
+    root cause (e.g., mastery scores reset after broken EWMA).
+
+    Returns dict with ``purged`` count and ``gap_type``.
+    """
+    async with _get_resolve_lock():
+        raw_entries = await rs.lrange(KEY, 0, MAX_GAPS - 1)
+        entries = [json.loads(r) for r in raw_entries]
+
+        count = 0
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for entry in entries:
+            if entry.get("type") == gap_type and not entry.get("resolved", False):
+                entry["resolved"] = True
+                entry["resolution"] = "bulk_purged_after_fix"
+                entry["resolved_at"] = now_iso
+                count += 1
+
+        if count:
+            await _rewrite_list(entries)
+
+        logger.info("Bulk-purged %d gaps of type '%s'", count, gap_type)
+        return {"purged": count, "gap_type": gap_type}
+
+
 async def get_gaps(resolved: bool = False, limit: int = 50) -> list[dict]:
     """Retrieve gaps, filtered by resolved status.
 

@@ -242,12 +242,21 @@ async function fetchSource(src) {
     return [];
   }
 
+  // Rotate User-Agents to avoid blocks — sites reject known bot UAs
+  const _UAS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+    'Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0',
+  ];
+  const _ua = _UAS[Math.floor(Math.random() * _UAS.length)];
+
   // Try direct fetch first
   try {
     const res = await fetch(src.url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+        'User-Agent': _ua,
         'Accept':     'application/rss+xml, application/xml, text/xml, */*',
+        'Accept-Language': 'pt-PT,pt;q=0.9,en;q=0.5',
       },
       signal: AbortSignal.timeout(10000),
     });
@@ -286,6 +295,19 @@ async function fetchSource(src) {
         const items = parseRSS(data.contents);
         if (items.length > 0) return items;
       }
+    }
+  } catch {}
+
+  // Fourth proxy: corsproxy.io
+  try {
+    const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(src.url)}`, {
+      headers: { 'User-Agent': _ua },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (res.ok) {
+      const xml = await res.text();
+      const items = parseRSS(xml);
+      if (items.length > 0) return items;
     }
   } catch {}
 
