@@ -1410,6 +1410,20 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("procurement_knowledge injection failed (non-fatal): %s", e)
 
+    # Regional navigation intelligence — surfaces BD operational guidance
+    # (procurement culture, communication style, relationship timelines,
+    # entry strategies, cultural dos/don'ts) when the query mentions a
+    # country or region. 2026-04-12: 9 regions, ~85K chars total, served
+    # as targeted ~2500 char excerpts matched to query.
+    try:
+        from .intel import regional_navigation
+        reg_ctx = regional_navigation.get_regional_context(message)
+        if reg_ctx:
+            addendum_parts.append(reg_ctx)
+            logger.info("[regional_navigation] context injected (%d chars)", len(reg_ctx))
+    except Exception as e:
+        logger.debug("regional_navigation injection failed (non-fatal): %s", e)
+
     # Market + competitor intelligence context — surfaces SIPRI/IISS data
     # guidance, competitor strategic profiles, demand signal methodology.
     try:

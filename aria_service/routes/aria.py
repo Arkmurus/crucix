@@ -481,6 +481,25 @@ async def store_fact_ep(req: FactRequest):
     return {"ok": True, "message": "Fact stored", "action": result.get("action", "unknown")}
 
 
+# 5b. POST /api/aria/knowledge/inject-regional — bulk inject regional navigation
+@router.post("/knowledge/inject-regional")
+async def inject_regional_ep():
+    """Seed ARIA's knowledge base and RAG store with regional navigation intelligence.
+
+    Idempotent: facts are upserted by topic, so re-running is safe.
+    Takes ~10-30s depending on Redis/ChromaDB latency.
+    """
+    from ..intel import regional_navigation
+    kb_result = await regional_navigation.inject_to_knowledge_base()
+    rag_result = await regional_navigation.inject_to_rag_store()
+    return {
+        "ok": True,
+        "knowledge_base": kb_result,
+        "rag_store": rag_result,
+        "sections": len(regional_navigation.ALL_REGIONAL_SECTIONS),
+    }
+
+
 # 6. GET /api/aria/ledger
 @router.get("/ledger")
 async def ledger_ep():
