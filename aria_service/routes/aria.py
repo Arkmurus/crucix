@@ -3119,14 +3119,37 @@ async def chat_ep(req: ChatRequest, request: Request):
     # message. Idempotent on messages without the prefix.
     req.message = _strip_listener_context(req.message)
     if not req.message.strip():
-        # If stripping leaves nothing, the listener sent a context-only
-        # blob with no actual question — return a clarification rather
-        # than firing tools on garbage.
         return {
             "response": "I see context from the conversation but no specific question for me. What would you like me to look at?",
             "session_id": session_id,
             "trivial": True,
         }
+
+    # ── Prompt injection detection (defence-in-depth) ────────────────
+    # Runs BEFORE any tool execution or LLM call. If the input is HIGH
+    # or CRITICAL risk, log it and optionally block. Currently logs-only
+    # on HIGH, blocks on CRITICAL (system override / role manipulation).
+    try:
+        from ..intel import security_protocol
+        _injection = security_protocol.detect_prompt_injection(req.message)
+        if _injection.get("blocked"):
+            _log.warning(
+                "[SECURITY] BLOCKED prompt injection (risk=%s): %s",
+                _injection.get("risk_level"), "; ".join(_injection.get("reasons", [])[:3]),
+            )
+            return {
+                "response": "Your message was flagged by ARIA's security protocol. Please rephrase your question.",
+                "session_id": session_id,
+                "blocked": True,
+                "risk_level": _injection.get("risk_level"),
+            }
+        elif _injection.get("risk_level") in ("high", "medium"):
+            _log.info(
+                "[SECURITY] Suspicious input (risk=%s): %s — allowing but monitoring",
+                _injection.get("risk_level"), "; ".join(_injection.get("reasons", [])[:3]),
+            )
+    except Exception as _sec_err:
+        _log.debug("security_protocol.detect_prompt_injection failed (non-fatal): %s", _sec_err)
 
     # ── Trivial-question short-circuit (highest priority, runs before
     # tool detection / tracing / verification / cost-tracking).
@@ -6632,6 +6655,29 @@ async def get_weekly_report_ep():
     if report is None:
         return {"report": None, "message": "No weekly report generated yet."}
     return report
+
+
+# ── Security ────────────────────────────────────────────────────────────────
+
+@router.post("/security/audit")
+async def security_audit_ep():
+    """Run ARIA's security self-audit — scans knowledge base and reasoning
+    library for leaked API keys, internal paths, system prompt fragments,
+    and cross-session data leakage."""
+    from ..intel import security_protocol
+    return await security_protocol.run_security_audit()
+
+
+@router.post("/security/scan-input")
+async def security_scan_input_ep(req: Request):
+    """Scan arbitrary text for prompt injection, command injection, data
+    exfiltration attempts. Returns risk level + reasons."""
+    body = await req.json()
+    text = body.get("text", "")
+    if not text:
+        return {"is_suspicious": False, "risk_level": "none", "reasons": []}
+    from ..intel import security_protocol
+    return security_protocol.detect_prompt_injection(text)
 
 
 # ── Tender Monitor ───────────────────────────────────────────────────────────

@@ -846,6 +846,27 @@ async def autonomous_improvement_cycle(llm) -> dict:
     except Exception as e:
         logger.warning("[Self-Improve] Code study failed: %s", e)
 
+    # ── Step 6: Security self-audit ─────────────────────────────────────
+    # Scan knowledge base + reasoning library for leaked secrets, PII,
+    # internal paths, and system prompt fragments. Runs every cycle
+    # (2h) so any poisoned content is caught quickly.
+    try:
+        from . import security_protocol
+        audit = await security_protocol.run_security_audit()
+        results["security_audit"] = {
+            "issues_found": audit.get("issues_found", 0),
+            "critical": len(audit.get("critical", [])),
+            "warnings": len(audit.get("warning", [])),
+        }
+        if audit.get("critical"):
+            logger.warning(
+                "[Self-Improve] SECURITY AUDIT: %d CRITICAL issues: %s",
+                len(audit["critical"]),
+                "; ".join(str(c)[:100] for c in audit["critical"][:3]),
+            )
+    except Exception as e:
+        logger.warning("[Self-Improve] Security audit failed: %s", e)
+
     results["cycle_end"] = time.time()
     results["duration_s"] = round(results["cycle_end"] - results["cycle_start"], 1)
 

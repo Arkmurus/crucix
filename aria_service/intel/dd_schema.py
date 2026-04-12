@@ -394,7 +394,8 @@ class ARKDDReport:
 
         # 6. Synthesis
         lines.append(_sec_header("🧠", "Synthesis", self.synthesis.meta))
-        lines.append(f"Ghost score (authoritative): {self.synthesis.ghost_score_total}/20 — {self.synthesis.ghost_classification}")
+        if self.synthesis.ghost_classification and not _is_person:
+            lines.append(f"Ghost score (authoritative): {self.synthesis.ghost_score_total}/20 — {self.synthesis.ghost_classification}")
         lines.append(f"Risk classification: {self.synthesis.risk_classification}")
         if self.synthesis.sar_trigger:
             lines.append(f"⚠ SAR trigger: {self.synthesis.sar_rationale or 'threshold met'}")

@@ -1432,6 +1432,18 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("osint_knowledge injection failed (non-fatal): %s", e)
 
+    # Security protocol context — surfaces data classification, threat
+    # model guidance, and ethical boundaries when query touches sensitive
+    # areas (sanctions, DD, admin, documents, API keys).
+    try:
+        from .intel import security_protocol
+        sec_ctx = security_protocol.get_security_context(message)
+        if sec_ctx:
+            addendum_parts.append(sec_ctx)
+            logger.info("[security_protocol] context injected (%d chars)", len(sec_ctx))
+    except Exception as e:
+        logger.debug("security_protocol injection failed (non-fatal): %s", e)
+
     # Document-grounded mode directive — fires when the user's message
     # contains an [ATTACHED DOCUMENT block. Tells the LLM in the
     # strongest terms that it must not blend recall memory with
@@ -2000,6 +2012,17 @@ async def aria_chat(
         gap_task.add_done_callback(_bg_done("proactive.detect_knowledge_gaps"))
     except Exception as e:
         logger.warning("Student/proactive hooks failed at scheduling stage: %s", e)
+
+    # Output sanitization — redact any leaked API keys, internal URLs,
+    # Redis keys, file paths, or stack traces before the response reaches
+    # the user. Defence in depth: the LLM shouldn't produce these, but if
+    # it does (e.g. from a tool_context block that leaked internals), this
+    # catches it at the last gate.
+    try:
+        from .intel import security_protocol
+        response_text = security_protocol.sanitize_output(response_text)
+    except Exception:
+        pass  # non-blocking — sanitization is a safety net, not a gate
 
     return {
         "response": response_text,

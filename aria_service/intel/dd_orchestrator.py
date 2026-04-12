@@ -1078,9 +1078,18 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
     report.synthesis.meta.started_at = datetime.now(timezone.utc).isoformat()
 
     # ── 6a. Ghost score roll-up (authoritative) ──
+    # Person DD doesn't have a ghost score — ghost detection is a
+    # company-only signal (founding date, registered address pattern,
+    # website age, etc.). Skip for persons so the synthesis layer
+    # doesn't emit "Ghost score: 0/20 — GREEN" which is misleading.
+    _is_person = (report.identity.entity_type or "").lower() == "person"
     ghost = report.identity.ghost_score or {}
-    report.synthesis.ghost_score_total = int(ghost.get("total") or 0)
-    report.synthesis.ghost_classification = str(ghost.get("classification") or "GREEN")
+    if _is_person:
+        report.synthesis.ghost_score_total = 0
+        report.synthesis.ghost_classification = ""
+    else:
+        report.synthesis.ghost_score_total = int(ghost.get("total") or 0)
+        report.synthesis.ghost_classification = str(ghost.get("classification") or "GREEN")
 
     # ── 6b. Risk classification — worst-case aggregation ──
     # Tiers in ascending severity
@@ -1094,7 +1103,7 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
         "HARD_STOP":   4,
     }
     candidates: list[str] = []
-    if report.synthesis.ghost_classification:
+    if report.synthesis.ghost_classification and not _is_person:
         candidates.append(report.synthesis.ghost_classification)
     if report.compliance.country_risk.get("headline_risk"):
         candidates.append(report.compliance.country_risk["headline_risk"])
