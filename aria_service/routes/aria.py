@@ -2589,7 +2589,7 @@ async def _execute_tool(intent: dict, llm) -> str:
             entity = (intent.get("entity") or intent.get("query") or "").strip()
             primary_url = (intent.get("url") or "").strip()
             r = await deep_research(
-                entity, primary_url=primary_url, max_queries=5, max_extracts=5,
+                entity, primary_url=primary_url, max_queries=4, max_extracts=3,
             )
             if not r.get("ok"):
                 return (

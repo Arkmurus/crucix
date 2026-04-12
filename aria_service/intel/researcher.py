@@ -1230,7 +1230,7 @@ async def deep_research(
     max_queries: int = 5,
     max_extracts: int = 4,
     timeout: float = 12.0,
-    overall_budget: float = 60.0,
+    overall_budget: float = 45.0,
 ) -> dict:
     """Orchestrated multi-query, multi-extract research on an entity.
 
