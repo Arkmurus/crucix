@@ -440,24 +440,24 @@ async def search_entity(
 
 _TERM_TRANSLATIONS: dict[str, dict[str, list[str]]] = {
     # Core procurement vocabulary
-    "tender":       {"pt": ["concurso", "licitação"], "fr": ["appel d'offres"], "es": ["licitación"], "ar": ["مناقصة"], "ru": ["тендер"], "tr": ["ihale"], "zh": ["招标"]},
-    "tenders":      {"pt": ["concursos", "licitações"], "fr": ["appels d'offres"], "es": ["licitaciones"], "ar": ["مناقصات"], "ru": ["тендеры"], "tr": ["ihaleler"], "zh": ["招标"]},
-    "procurement":  {"pt": ["aquisição", "compra pública"], "fr": ["marché public", "acquisition"], "es": ["adquisición", "contratación pública"], "ar": ["مشتريات", "شراء"], "ru": ["закупки"], "tr": ["tedarik", "satın alma"], "zh": ["采购"]},
+    "tender":       {"pt": ["concurso", "licitação"], "fr": ["appel d'offres"], "es": ["licitación"], "ar": ["مناقصة"], "ru": ["тендер"], "tr": ["ihale"], "zh": ["招标"], "ro": ["licitație"]},
+    "tenders":      {"pt": ["concursos", "licitações"], "fr": ["appels d'offres"], "es": ["licitaciones"], "ar": ["مناقصات"], "ru": ["тендеры"], "tr": ["ihaleler"], "zh": ["招标"], "ro": ["licitații"]},
+    "procurement":  {"pt": ["aquisição", "compra pública"], "fr": ["marché public", "acquisition"], "es": ["adquisición", "contratación pública"], "ar": ["مشتريات", "شراء"], "ru": ["закупки"], "tr": ["tedarik", "satın alma"], "zh": ["采购"], "ro": ["achiziție publică"]},
     "contract":     {"pt": ["contrato"], "fr": ["contrat", "marché"], "es": ["contrato"], "ar": ["عقد"], "ru": ["контракт"], "tr": ["sözleşme"], "zh": ["合同"]},
     "contract award":{"pt": ["adjudicação"], "fr": ["attribution de marché"], "es": ["adjudicación"], "ar": ["ترسية"], "ru": ["присуждение контракта"], "tr": ["ihale tahsisi"], "zh": ["合同授予"]},
     "bid":          {"pt": ["proposta"], "fr": ["offre"], "es": ["oferta"], "ar": ["عرض"], "ru": ["заявка"], "tr": ["teklif"], "zh": ["投标"]},
 
     # Defence vocabulary
-    "defence":      {"pt": ["defesa"], "fr": ["défense"], "es": ["defensa"], "ar": ["دفاع"], "ru": ["оборона"], "tr": ["savunma"], "zh": ["国防"]},
-    "defense":      {"pt": ["defesa"], "fr": ["défense"], "es": ["defensa"], "ar": ["دفاع"], "ru": ["оборона"], "tr": ["savunma"], "zh": ["国防"]},
-    "military":     {"pt": ["militar"], "fr": ["militaire"], "es": ["militar"], "ar": ["عسكري"], "ru": ["военный"], "tr": ["askeri"], "zh": ["军事"]},
+    "defence":      {"pt": ["defesa"], "fr": ["défense"], "es": ["defensa"], "ar": ["دفاع"], "ru": ["оборона"], "tr": ["savunma"], "zh": ["国防"], "ro": ["apărare"]},
+    "defense":      {"pt": ["defesa"], "fr": ["défense"], "es": ["defensa"], "ar": ["دفاع"], "ru": ["оборона"], "tr": ["savunma"], "zh": ["国防"], "ro": ["apărare"]},
+    "military":     {"pt": ["militar"], "fr": ["militaire"], "es": ["militar"], "ar": ["عسكري"], "ru": ["военный"], "tr": ["askeri"], "zh": ["军事"], "ro": ["militar"]},
     "army":         {"pt": ["exército"], "fr": ["armée"], "es": ["ejército"], "ar": ["جيش"], "ru": ["армия"], "tr": ["ordu"], "zh": ["陆军"]},
     "navy":         {"pt": ["marinha"], "fr": ["marine"], "es": ["marina"], "ar": ["بحرية"], "ru": ["военно-морской флот"], "tr": ["donanma"], "zh": ["海军"]},
     "air force":    {"pt": ["força aérea"], "fr": ["armée de l'air"], "es": ["fuerza aérea"], "ar": ["القوات الجوية"], "ru": ["военно-воздушные силы"], "tr": ["hava kuvvetleri"], "zh": ["空军"]},
-    "armed forces": {"pt": ["forças armadas"], "fr": ["forces armées"], "es": ["fuerzas armadas"], "ar": ["القوات المسلحة"], "ru": ["вооружённые силы"], "tr": ["silahlı kuvvetler"], "zh": ["武装部队"]},
+    "armed forces": {"pt": ["forças armadas"], "fr": ["forces armées"], "es": ["fuerzas armadas"], "ar": ["القوات المسلحة"], "ru": ["вооружённые силы"], "tr": ["silahlı kuvvetler"], "zh": ["武装部队"], "ro": ["forțele armate"]},
     "weapon":       {"pt": ["arma"], "fr": ["arme"], "es": ["arma"], "ar": ["سلاح"], "ru": ["оружие"], "tr": ["silah"], "zh": ["武器"]},
     "weapons":      {"pt": ["armas", "armamento"], "fr": ["armes", "armement"], "es": ["armas", "armamento"], "ar": ["أسلحة"], "ru": ["оружие", "вооружение"], "tr": ["silahlar"], "zh": ["武器"]},
-    "ammunition":   {"pt": ["munição"], "fr": ["munitions"], "es": ["munición"], "ar": ["ذخيرة"], "ru": ["боеприпасы"], "tr": ["mühimmat"], "zh": ["弹药"]},
+    "ammunition":   {"pt": ["munição"], "fr": ["munitions"], "es": ["munición"], "ar": ["ذخيرة"], "ru": ["боеприпасы"], "tr": ["mühimmat"], "zh": ["弹药"], "ro": ["muniție"]},
     "missile":      {"pt": ["míssil"], "fr": ["missile"], "es": ["misil"], "ar": ["صاروخ"], "ru": ["ракета"], "tr": ["füze"], "zh": ["导弹"]},
     "drone":        {"pt": ["drone"], "fr": ["drone"], "es": ["dron"], "ar": ["طائرة بدون طيار"], "ru": ["беспилотник"], "tr": ["insansız hava aracı"], "zh": ["无人机"]},
     "uav":          {"pt": ["VANT"], "fr": ["drone"], "es": ["VANT"], "ar": ["طائرة بدون طيار"], "ru": ["БПЛА"], "tr": ["İHA"], "zh": ["无人机"]},
@@ -466,7 +466,7 @@ _TERM_TRANSLATIONS: dict[str, dict[str, list[str]]] = {
 
     # Compliance/regulatory
     "sanction":     {"pt": ["sanção"], "fr": ["sanction"], "es": ["sanción"], "ar": ["عقوبة"], "ru": ["санкция"], "tr": ["yaptırım"], "zh": ["制裁"]},
-    "sanctions":    {"pt": ["sanções"], "fr": ["sanctions"], "es": ["sanciones"], "ar": ["عقوبات"], "ru": ["санкции"], "tr": ["yaptırımlar"], "zh": ["制裁"]},
+    "sanctions":    {"pt": ["sanções"], "fr": ["sanctions"], "es": ["sanciones"], "ar": ["عقوبات"], "ru": ["санкции"], "tr": ["yaptırımlar"], "zh": ["制裁"], "ro": ["sancțiuni"]},
     "embargo":      {"pt": ["embargo"], "fr": ["embargo"], "es": ["embargo"], "ar": ["حظر"], "ru": ["эмбарго"], "tr": ["ambargo"], "zh": ["禁运"]},
     "export":       {"pt": ["exportação"], "fr": ["exportation"], "es": ["exportación"], "ar": ["تصدير"], "ru": ["экспорт"], "tr": ["ihracat"], "zh": ["出口"]},
     "import":       {"pt": ["importação"], "fr": ["importation"], "es": ["importación"], "ar": ["استيراد"], "ru": ["импорт"], "tr": ["ithalat"], "zh": ["进口"]},
@@ -477,7 +477,7 @@ _TERM_TRANSLATIONS: dict[str, dict[str, list[str]]] = {
     "compliance":   {"pt": ["conformidade"], "fr": ["conformité"], "es": ["cumplimiento"], "ar": ["امتثال"], "ru": ["соблюдение"], "tr": ["uyum"], "zh": ["合规"]},
 
     # Government entities
-    "ministry of defence":{"pt": ["ministério da defesa"], "fr": ["ministère de la défense"], "es": ["ministerio de defensa"], "ar": ["وزارة الدفاع"], "ru": ["министерство обороны"], "tr": ["savunma bakanlığı"], "zh": ["国防部"]},
+    "ministry of defence":{"pt": ["ministério da defesa"], "fr": ["ministère de la défense"], "es": ["ministerio de defensa"], "ar": ["وزارة الدفاع"], "ru": ["министерство обороны"], "tr": ["savunma bakanlığı"], "zh": ["国防部"], "ro": ["ministerul apărării naționale"]},
     "government":   {"pt": ["governo"], "fr": ["gouvernement"], "es": ["gobierno"], "ar": ["حكومة"], "ru": ["правительство"], "tr": ["hükümet"], "zh": ["政府"]},
 
     # Country names (only where they differ materially)
@@ -594,6 +594,12 @@ async def search_multilingual(
                                          "costa rica", "panama", "dominican",
                                          "cuba", "nicaragua"]):
             languages.append("es")
+        # Romanian
+        if any(kw in q_lower for kw in ["romania", "romanian", "bucharest", "bucuresti",
+                                         "onrc", "ancex", "romarm", "romaero",
+                                         "aerostar", "pro optica", "srl",
+                                         "ministerul apărării", "licitatie"]):
+            languages.append("ro")
         # Chinese
         if any(kw in q_lower for kw in ["china", "chinese", "norinco", "chengdu",
                                          "poly technologies", "sastind", "catic"]):

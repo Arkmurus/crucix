@@ -1059,7 +1059,7 @@ async def _ocr_via_tesseract(image_data: bytes) -> Optional[dict]:
         for psm in (3, 6, 4, 11):
             try:
                 cfg = f"--oem 1 --psm {psm}"
-                text = pytesseract.image_to_string(img_gray, lang="eng+por+fra+spa", config=cfg)
+                text = pytesseract.image_to_string(img_gray, lang="eng+por+fra+spa+ron", config=cfg)
                 text = (text or "").strip()
                 if text and len(text) > 5:
                     candidates.append(text)
