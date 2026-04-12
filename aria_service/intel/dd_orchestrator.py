@@ -903,7 +903,12 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
     if DEEP_RESEARCH_ENABLED and llm is not None:
         try:
             from . import deep_researcher
-            dr_depth = "thorough" if _mode_is_deep else "quick"
+            # Always "quick" inside DD — deep mode's value-add is the
+            # link_investigator tree walk (rule-based, zero LLM cost).
+            # "thorough" was firing 24 LLM calls that exhausted provider
+            # rate limits before chat synthesis could run (New Akord
+            # Security 2026-04-12 — 3 consecutive timeouts).
+            dr_depth = "quick"
             dr = await deep_researcher.investigate(llm, name, depth=dr_depth)
             if isinstance(dr, dict):
                 synth = dr.get("synthesis") or {}
