@@ -483,15 +483,32 @@ async def store_fact_ep(req: FactRequest):
 
 # 5b. POST /api/aria/knowledge/inject-regional — bulk inject regional navigation
 @router.post("/knowledge/inject-regional")
-async def inject_regional_ep():
+async def inject_regional_ep(force: bool = False):
     """Seed ARIA's knowledge base and RAG store with regional navigation intelligence.
 
-    Idempotent: facts are upserted by topic, so re-running is safe.
+    Dedup: skips if already injected within 24h (pass force=true to override).
     Takes ~10-30s depending on Redis/ChromaDB latency.
     """
     from ..intel import regional_navigation
+    from ..intel import redis_store as rs
+
+    DEDUP_KEY = "crucix:regional_nav:last_injected"
+    if not force:
+        import time
+        last = await rs.get_json(DEDUP_KEY)
+        if last and time.time() - last < 86400:
+            return {
+                "ok": True,
+                "skipped": True,
+                "reason": f"Already injected {int((time.time() - last) / 3600)}h ago. Pass force=true to re-inject.",
+            }
+
     kb_result = await regional_navigation.inject_to_knowledge_base()
     rag_result = await regional_navigation.inject_to_rag_store()
+
+    import time
+    await rs.set_json(DEDUP_KEY, time.time(), ex=7 * 86400)
+
     return {
         "ok": True,
         "knowledge_base": kb_result,

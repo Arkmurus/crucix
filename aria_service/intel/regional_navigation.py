@@ -28,6 +28,7 @@
 import json
 import hashlib
 import logging
+import re
 from datetime import datetime, timezone
 
 logger = logging.getLogger("ARIA.RegionalNavigation")
@@ -1253,7 +1254,7 @@ def inject_to_chromadb(chroma_collection) -> dict:
     Now splits at section boundaries (━━━ lines) so each chunk is a coherent
     topic block.
     """
-    import re
+
     total = 0
     for name, data in ALL_REGIONAL_SECTIONS.items():
         content = data["content"]
@@ -1315,7 +1316,7 @@ async def inject_to_knowledge_base() -> dict:
         tags = data["tags"]
         # Extract key lines that look like actionable facts
         # (lines with budgets, entry strategies, key programmes, exhibitions)
-        import re
+    
         lines = content.split("\n")
         for line in lines:
             line = line.strip()
@@ -1374,6 +1375,9 @@ async def inject_to_rag_store() -> dict:
         from . import rag_store
     except ImportError:
         return {"status": "SKIPPED", "reason": "rag_store not available"}
+
+    if not hasattr(rag_store, "ingest_document"):
+        return {"status": "SKIPPED", "reason": "rag_store.ingest_document not available"}
 
     total_chunks = 0
     for name, data in ALL_REGIONAL_SECTIONS.items():
@@ -1564,7 +1568,7 @@ def get_regional_context(query: str) -> str:
         matched_regions = {s[1]["id"] for s in scored[:2]}
 
     # ── Build output — extract relevant subsections, cap at ~2500 chars ──
-    import re
+
     parts: list[str] = []
     total_chars = 0
     MAX_CHARS = 2500

@@ -31,12 +31,14 @@ from __future__ import annotations
 
 import logging
 import os
+import time as _t
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 
 from . import redis_store as rs
+from . import proactive
 
 logger = logging.getLogger("aria.conflict")
 
@@ -271,12 +273,10 @@ async def get_recent_events(country: str, days: int = 30, limit: int = 50) -> di
     # investigation automatically. Dedup: 1 alert per country per 6h.
     if esc_label == "CRITICAL":
         try:
-            import time as _t
             iso = _iso3(country)
             dedup = await rs.get_json(_ESCALATION_ALERT_KEY) or {}
             last_alert = dedup.get(iso, 0)
             if _t.time() - last_alert > _ESCALATION_ALERT_COOLDOWN:
-                from . import proactive
                 top_locs = ", ".join(l["location"] for l in top_locations[:3]) if top_locations else "N/A"
                 top_events_summary = ""
                 for e in recent_events[:3]:
