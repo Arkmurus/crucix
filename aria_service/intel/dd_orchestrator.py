@@ -975,10 +975,10 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 }
                 # Surface high-confidence triangulated facts as findings.
                 for ff in tree.fused_facts[:8]:
-                    if ff.source_count >= 2:
+                    if ff.triangulation >= 2:
                         report.digital.findings.append(Finding(
                             severity="info",
-                            title=f"link-tree: {ff.kind}={ff.value[:120]} (×{ff.source_count} sources)",
+                            title=f"link-tree: {ff.kind}={ff.value[:120]} (×{ff.triangulation} sources)",
                             source=f"link_investigator.{tree.tree_id}",
                             confidence="ASSESSED",
                         ))
