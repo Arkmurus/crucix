@@ -346,6 +346,22 @@ async def dd_watchlist_delete_ep(name: str):
     return await dd_orchestrator.remove_from_watchlist(name)
 
 
+@router.post("/dd/watchlist/rescreen")
+async def dd_watchlist_rescreen_ep(request: Request):
+    """Trigger manual watchlist re-screen (sanctions + PEP only, no LLM)."""
+    from ..intel import dd_orchestrator
+    result = await dd_orchestrator.rescreen_watchlist()
+    return result
+
+
+@router.get("/dd/watchlist/alerts")
+async def dd_watchlist_alerts_ep(since_hours: int = 24):
+    """Retrieve recent watchlist re-screen alerts."""
+    from ..intel import dd_orchestrator
+    alerts = await dd_orchestrator.get_watchlist_alerts(since_hours=since_hours)
+    return {"alerts": alerts, "count": len(alerts), "since_hours": since_hours}
+
+
 def _rebuild_report_from_dict(d: dict, dd_schema):
     """Rehydrate an ARKDDReport from its stored dict so render_markdown
     works. Only the fields used by render_markdown need to be re-typed."""
@@ -6616,3 +6632,35 @@ async def get_weekly_report_ep():
     if report is None:
         return {"report": None, "message": "No weekly report generated yet."}
     return report
+
+
+# ── Tender Monitor ───────────────────────────────────────────────────────────
+
+@router.get("/tenders")
+async def get_tenders_ep(since_hours: int = 24, min_relevance: float = 0.3):
+    """Get recent tender alerts, optionally filtered by relevance score."""
+    from ..intel import tender_monitor
+    tenders = await tender_monitor.get_new_tenders(since_hours=since_hours)
+    if min_relevance > 0:
+        tenders = [t for t in tenders if t.relevance_score >= min_relevance]
+    return {
+        "tenders": [t.to_dict() for t in tenders],
+        "count": len(tenders),
+        "since_hours": since_hours,
+        "min_relevance": min_relevance,
+    }
+
+
+@router.post("/tenders/crawl")
+async def trigger_tender_crawl_ep():
+    """Trigger a manual tender monitoring crawl cycle."""
+    from ..intel import tender_monitor
+    result = await tender_monitor.run_monitoring_cycle()
+    return result
+
+
+@router.get("/tenders/stats")
+async def tender_stats_ep():
+    """Get tender monitoring portal health and statistics."""
+    from ..intel import tender_monitor
+    return await tender_monitor.get_stats()

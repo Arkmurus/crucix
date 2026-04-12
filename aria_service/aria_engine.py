@@ -1421,6 +1421,17 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("market_competitor_knowledge injection failed (non-fatal): %s", e)
 
+    # OSINT methodology context — surfaces intelligence cycle, source
+    # grading, collection disciplines, analytical techniques.
+    try:
+        from .intel import osint_knowledge
+        osint_ctx = osint_knowledge.get_osint_context(message)
+        if osint_ctx:
+            addendum_parts.append(osint_ctx)
+            logger.info("[osint_knowledge] context injected (%d chars)", len(osint_ctx))
+    except Exception as e:
+        logger.debug("osint_knowledge injection failed (non-fatal): %s", e)
+
     # Document-grounded mode directive — fires when the user's message
     # contains an [ATTACHED DOCUMENT block. Tells the LLM in the
     # strongest terms that it must not blend recall memory with

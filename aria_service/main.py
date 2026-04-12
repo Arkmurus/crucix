@@ -430,6 +430,77 @@ async def lifespan(app: FastAPI):
     weekly_report_task = asyncio.create_task(_weekly_report_loop())
     logger.info("Weekly report loop started (fires Monday 06-08 UTC)")
 
+    # ── WATCHLIST AUTO-RE-SCREEN ──────────────────────────────────────────
+    # Daily background loop: re-screens every entity on the DD watchlist
+    # against sanctions + PEP lists (no LLM, no deep research). Detects
+    # status changes and pushes alerts to Redis for API retrieval.
+    watchlist_rescreen_task = None
+
+    async def _watchlist_rescreen_loop():
+        await asyncio.sleep(600)  # 10 min after startup
+        while True:
+            try:
+                from .intel import dd_orchestrator
+                result = await dd_orchestrator.rescreen_watchlist(
+                    llm=getattr(app.state, "llm_provider", None),
+                )
+                logger.info(
+                    "[Watchlist] Re-screen: %d entities, %d changes, %d errors, %dms",
+                    result.get("entities_screened", 0),
+                    len(result.get("changes_detected", [])),
+                    len(result.get("errors", [])),
+                    result.get("duration_ms", 0),
+                )
+                # If changes detected, fire-and-forget WhatsApp notification
+                if result.get("changes_detected"):
+                    try:
+                        from .intel import whatsapp
+                        summary_lines = []
+                        for ch in result["changes_detected"][:10]:
+                            summary_lines.append(
+                                f"  - {ch['entity']}: {ch['old_status']} -> {ch['new_status']} ({ch['change_type']})"
+                            )
+                        msg = (
+                            f"[ARIA Watchlist Alert] {len(result['changes_detected'])} change(s) detected:\n"
+                            + "\n".join(summary_lines)
+                        )
+                        asyncio.create_task(whatsapp.send_message(msg))
+                    except Exception:
+                        pass  # WhatsApp not configured — no-op
+            except Exception as e:
+                logger.warning("[Watchlist] Re-screen failed: %s", e)
+            await asyncio.sleep(86400)  # Every 24 hours
+
+    watchlist_rescreen_task = asyncio.create_task(_watchlist_rescreen_loop())
+    logger.info("Watchlist re-screen loop started (daily, 10 min after startup)")
+
+    # ── TENDER MONITOR ────────────────────────────────────────────────────
+    # Every 6 hours, crawl public defence procurement portals (TED, SAM.gov,
+    # Contracts Finder, UNGM, AfDB) for relevant tenders. Equivalent to
+    # Janes/IHS Markit tender monitoring. No LLM required — pure HTTP
+    # crawl + keyword/CPV scoring.
+    tender_monitor_task = None
+
+    async def _tender_monitor_loop():
+        await asyncio.sleep(900)  # 15 min after startup
+        while True:
+            try:
+                from .intel import tender_monitor
+                result = await tender_monitor.run_monitoring_cycle()
+                if result.get("new_tenders", 0) > 0:
+                    logger.info(
+                        "[Tender Monitor] %d new tenders detected across %d portals",
+                        result["new_tenders"], result["portals_crawled"],
+                    )
+                else:
+                    logger.info("[Tender Monitor] Cycle complete — no new tenders")
+            except Exception as e:
+                logger.warning("[Tender Monitor] Cycle failed: %s", e)
+            await asyncio.sleep(21600)  # Every 6 hours
+
+    tender_monitor_task = asyncio.create_task(_tender_monitor_loop())
+    logger.info("Tender monitor started (every 6h)")
+
     # ── METACOGNITIVE ENGINE STATUS ───────────────────────────────────────
     # Phase 3 metacognitive stack: self-assessment, gap detection, Brier
     # scoring, consciousness mapping, self-improvement code generation.
@@ -532,6 +603,7 @@ async def lifespan(app: FastAPI):
             ("nato_standards",          "NATO standards",        "ingest_to_knowledge"),
             ("procurement_knowledge",   "Procurement intel",     "ingest_to_knowledge"),
             ("market_competitor_knowledge", "Market & competitor",  "ingest_to_knowledge"),
+            ("osint_knowledge",          "OSINT methodology",    "ingest_to_knowledge"),
         ]
         for modname, label, fn in modules:
             try:
@@ -620,6 +692,8 @@ async def lifespan(app: FastAPI):
         ocr_prewarm_task.cancel()
     if rag_backfill_task:
         rag_backfill_task.cancel()
+    if tender_monitor_task:
+        tender_monitor_task.cancel()
     logger.info("ARIA Service shutting down")
 
 

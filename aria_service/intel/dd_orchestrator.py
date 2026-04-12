@@ -584,25 +584,57 @@ async def _run_identity(
             logger.warning("Identity: companies_house lookup failed: %s", e)
             report.identity.data_gaps.append(f"companies_house lookup failed: {str(e)[:120]}")
     else:
-        # Jurisdiction-specific guidance so the LLM (and the human reader)
-        # knows exactly which national registry to check manually.
-        jur_hint = _national_registry_hint(jurisdiction_iso2, jurisdiction)
-        report.identity.data_gaps.append(
-            f"Registry lookup unavailable for {jurisdiction or jurisdiction_iso2 or 'unspecified jurisdiction'}"
-            f" — ARIA has Companies House coverage for GB only. "
-            f"Manual action: {jur_hint}"
-        )
-        # Track as a capability gap so the weekly learning report surfaces it.
+        # Try multi-jurisdiction registry adapter
         try:
-            from . import capability_gaps
-            import asyncio
-            asyncio.ensure_future(capability_gaps.record_gap(
-                gap_type="registry_lookup",
-                detail=f"No automated registry adapter for {jurisdiction_iso2 or jurisdiction or 'unknown'}",
-                source="dd_orchestrator._run_identity",
-            ))
-        except Exception:
-            pass  # non-blocking
+            from . import registry_adapters
+            reg_result = await registry_adapters.lookup_entity(
+                name=name,
+                jurisdiction_iso2=jurisdiction_iso2,
+                registration_number=registration_number,
+            )
+            if reg_result:
+                profile = reg_result.get("profile", {})
+                report.identity.registration_number = profile.get("company_number") or registration_number
+                report.identity.registration_status = profile.get("company_status")
+                report.identity.incorporation_date = profile.get("date_of_creation")
+                report.identity.registered_address = profile.get("registered_office_address")
+                report.identity.declared_activity = ", ".join(profile.get("sic_codes") or [])[:200]
+                report.identity.directors = reg_result.get("officers") or []
+                report.identity.shareholders = reg_result.get("psc") or []
+                report.identity.meta.subcalls += 1
+                report.identity.findings.append(Finding(
+                    severity="info",
+                    title=f"Registry lookup: {reg_result.get('adapter', jurisdiction_iso2)} ({profile.get('company_status', 'unknown')})",
+                    detail=f"Source: {reg_result.get('source_url', 'registry adapter')}",
+                    source=f"registry_adapters.{reg_result.get('adapter', 'unknown')}",
+                    confidence="CONFIRMED",
+                ))
+            else:
+                # Adapter returned None — jurisdiction not supported or lookup failed
+                jur_hint = _national_registry_hint(jurisdiction_iso2, jurisdiction)
+                report.identity.data_gaps.append(
+                    f"Registry lookup unavailable for {jurisdiction or jurisdiction_iso2 or 'unspecified jurisdiction'}"
+                    f" — ARIA has Companies House coverage for GB only. "
+                    f"Manual action: {jur_hint}"
+                )
+                # Track as capability gap
+                try:
+                    from . import capability_gaps
+                    import asyncio
+                    asyncio.ensure_future(capability_gaps.record_gap(
+                        gap_type="registry_lookup",
+                        detail=f"No automated registry adapter for {jurisdiction_iso2 or jurisdiction or 'unknown'}",
+                        source="dd_orchestrator._run_identity",
+                    ))
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning("Registry adapter failed: %s", e)
+            jur_hint = _national_registry_hint(jurisdiction_iso2, jurisdiction)
+            report.identity.data_gaps.append(
+                f"Registry lookup failed for {jurisdiction or jurisdiction_iso2}: {str(e)[:100]}. "
+                f"Manual action: {jur_hint}"
+            )
 
     # ── 1c. Ghost-score from available signals ──
     # Feed whatever we've collected into the programmatic scorer. The
@@ -1695,3 +1727,184 @@ async def list_reports(limit: int = 50) -> list[dict]:
     from . import redis_store as rs
     index = await rs.get_json(REPORT_INDEX_KEY) or []
     return index[:limit]
+
+
+# =============================================================================
+# WATCHLIST AUTO-RE-SCREEN
+# =============================================================================
+
+WATCHLIST_ALERTS_KEY = "crucix:aria:dd:watchlist:alerts"
+_RESCREEN_MAX_ENTITIES = 50
+_RESCREEN_ALERT_TTL_SECONDS = 30 * 24 * 3600  # 30 days
+
+
+def _derive_status(classified: dict) -> str:
+    """Map classify_matches worst_severity to a simple tri-state."""
+    sev = classified.get("worst_severity", "clean")
+    if sev in ("hard_stop", "red"):
+        return "HIT"
+    if sev in ("amber",):
+        return "PEP"
+    return "CLEAN"
+
+
+def _derive_status_from_findings(findings: list[dict]) -> str:
+    """Derive status from a report's identity findings list."""
+    for f in findings:
+        sev = f.get("severity", "")
+        src = f.get("source", "")
+        if "sanctions" not in src and "person_screen" not in src:
+            continue
+        if sev in ("hard_stop", "red"):
+            return "HIT"
+        if sev == "amber":
+            return "PEP"
+    return "CLEAN"
+
+
+def _derive_score_from_matches(matches: list[dict]) -> float:
+    """Best match score from a sanctions screen result."""
+    if not matches:
+        return 0.0
+    return max((m.get("score", 0) for m in matches if isinstance(m, dict)), default=0.0)
+
+
+async def rescreen_watchlist(llm=None) -> dict:
+    """Re-screen every watchlist entity (sanctions + PEP only, no LLM).
+
+    Returns summary dict with entities_screened, changes_detected, errors,
+    and duration_ms. Alerts are persisted in Redis for later retrieval.
+    """
+    import json as _json
+    t0 = time.monotonic()
+    from . import redis_store as rs
+
+    watchlist = await rs.get_json(WATCHLIST_KEY) or []
+    if not watchlist:
+        return {"entities_screened": 0, "changes_detected": [], "errors": [],
+                "duration_ms": 0}
+
+    # Enforce cost cap: max 50 entities per cycle
+    entities = watchlist[:_RESCREEN_MAX_ENTITIES]
+
+    changes: list[dict] = []
+    errors: list[dict] = []
+
+    # Import sanctions module and classifier once
+    try:
+        from . import sanctions
+        from ._sanctions_classify import classify_matches
+    except Exception as e:
+        return {"entities_screened": 0, "changes_detected": [], "errors": [
+            {"entity": "*", "error": f"sanctions module import failed: {e}"}],
+            "duration_ms": int((time.monotonic() - t0) * 1000)}
+
+    for entry in entities:
+        name = (entry.get("name") or entry.get("entity") or "").strip()
+        if not name:
+            continue
+        try:
+            # --- Run quick sanctions screen (no LLM, no deep research) ---
+            if hasattr(sanctions, "screen_with_aliases"):
+                screen = await sanctions.screen_with_aliases(name)
+            elif hasattr(sanctions, "fuzzy_screen"):
+                screen = await sanctions.fuzzy_screen(name)
+            else:
+                errors.append({"entity": name, "error": "no sanctions entrypoint"})
+                continue
+
+            matches = screen.get("matches") or []
+            classified = classify_matches(matches, query_name=name)
+            new_status = _derive_status(classified)
+            new_score = _derive_score_from_matches(matches)
+
+            # --- Load previous status from the most recent DD report ---
+            old_status = "CLEAN"
+            old_score = 0.0
+            old_run_id = None
+
+            index = await rs.get_json(REPORT_INDEX_KEY) or []
+            for idx_entry in index:
+                if (idx_entry.get("entity_name") or "").strip().lower() == name.lower():
+                    old_run_id = idx_entry.get("run_id")
+                    break
+
+            if old_run_id:
+                prev_report = await rs.get_json(REPORT_REDIS_KEY.format(run_id=old_run_id))
+                if prev_report:
+                    identity = prev_report.get("identity") or {}
+                    prev_findings = identity.get("findings") or []
+                    old_status = _derive_status_from_findings(prev_findings)
+                    prev_screen = identity.get("sanctions_screen") or {}
+                    old_score = _derive_score_from_matches(prev_screen.get("matches") or [])
+
+            # --- Compare ---
+            change_type = None
+            detail = ""
+
+            if old_status == "CLEAN" and new_status == "HIT":
+                change_type = "new_hit"
+                detail = f"Previously clean, now sanctioned. Top match: {classified.get('summary', '')[:200]}"
+            elif old_status == "HIT" and new_status == "CLEAN":
+                change_type = "removed"
+                detail = "Previously sanctioned, now clean across all lists."
+            elif old_status != "PEP" and new_status == "PEP":
+                change_type = "new_pep"
+                detail = f"New PEP/adverse-media match. {classified.get('summary', '')[:200]}"
+            elif abs(new_score - old_score) > 0.1:
+                change_type = "score_change"
+                detail = f"Best match score changed from {old_score:.2f} to {new_score:.2f}."
+
+            if change_type:
+                alert = {
+                    "entity": name,
+                    "run_id": old_run_id or "none",
+                    "change_type": change_type,
+                    "old_status": old_status,
+                    "new_status": new_status,
+                    "detail": detail,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                changes.append(alert)
+
+                # Persist alert in Redis
+                await rs.lpush(WATCHLIST_ALERTS_KEY, _json.dumps(alert, default=str))
+                await rs.ltrim(WATCHLIST_ALERTS_KEY, 0, 499)  # cap at 500
+                await rs.expire(WATCHLIST_ALERTS_KEY, _RESCREEN_ALERT_TTL_SECONDS)
+
+        except Exception as e:
+            errors.append({"entity": name, "error": str(e)})
+
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    return {
+        "entities_screened": len(entities),
+        "changes_detected": changes,
+        "errors": errors,
+        "duration_ms": duration_ms,
+    }
+
+
+async def get_watchlist_alerts(since_hours: int = 24) -> list[dict]:
+    """Retrieve recent watchlist re-screen alerts from Redis."""
+    import json as _json
+    from . import redis_store as rs
+
+    raw_list = await rs.lrange(WATCHLIST_ALERTS_KEY, 0, 499)
+    if not raw_list:
+        return []
+
+    cutoff = datetime.now(timezone.utc).timestamp() - (since_hours * 3600)
+    alerts: list[dict] = []
+    for raw in raw_list:
+        try:
+            alert = _json.loads(raw) if isinstance(raw, str) else raw
+            ts_str = alert.get("timestamp", "")
+            if ts_str:
+                from datetime import datetime as _dt
+                ts = _dt.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+                if ts < cutoff:
+                    continue
+            alerts.append(alert)
+        except Exception:
+            continue
+    return alerts
