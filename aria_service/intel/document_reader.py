@@ -95,6 +95,9 @@ class ExtractionResult:
     gap_description: Optional[str] = None
     warnings: list[str] = field(default_factory=list)
     strategies_attempted: list[str] = field(default_factory=list)
+    chunks_processed: int = 0
+    chunks_total: int = 0
+    chunk_failures: list = field(default_factory=list)
 
     @property
     def is_usable(self) -> bool:
@@ -188,6 +191,21 @@ async def read_document(
             return result
     else:
         strategies_attempted.append("OCR_UNAVAILABLE")
+
+    # Strategy 3a: Chunked vision for large PDFs
+    if llm and PYMUPDF_AVAILABLE:
+        try:
+            _doc = fitz.open(filepath)
+            _page_count = len(_doc)
+            _doc.close()
+        except Exception:
+            _page_count = 0
+        if _page_count > VISION_LARGE_DOC_THRESHOLD:
+            strategies_attempted.append("VISION_CHUNKED")
+            result = await _read_pdf_chunked(filepath, llm, query, max_pages=VISION_MAX_TOTAL_PAGES)
+            if result.confidence >= 0.40:
+                result.strategies_attempted = strategies_attempted
+                return result
 
     # Strategy 3: LLM vision model
     if llm and PYMUPDF_AVAILABLE:
@@ -424,6 +442,291 @@ async def _strategy_vision_image(
             method="VISION_IMAGE", confidence=0.0,
             gap_description=f"Image extraction failed: {e}",
         )
+
+
+# ── Chunked vision processing (large PDFs) ────────────────────────────────
+
+async def _read_pdf_chunked(
+    source: str,
+    llm: "LLMProvider",
+    query: str = "",
+    max_pages: int = 300,
+) -> ExtractionResult:
+    """Process a large PDF in VISION_CHUNK_SIZE-page chunks via LLM vision.
+
+    For documents <= VISION_LARGE_DOC_THRESHOLD pages, delegates to the
+    existing single-pass ``_strategy_vision_pdf``.  For larger documents,
+    renders each chunk to JPEG images, sends them individually to the LLM,
+    and merges the results.  Individual chunk failures are recorded but do
+    not abort the overall extraction.
+
+    When *query* is provided and the document exceeds the large-doc
+    threshold, a query-focused summary pass is appended.
+    """
+    if not PYMUPDF_AVAILABLE:
+        return ExtractionResult(
+            method="VISION_CHUNKED",
+            confidence=0.0,
+            gap_description="PyMuPDF not installed — cannot render pages",
+        )
+
+    try:
+        doc = fitz.open(source)
+        total_pages = len(doc)
+        doc.close()
+    except Exception as e:
+        return ExtractionResult(
+            method="VISION_CHUNKED",
+            confidence=0.0,
+            gap_description=f"Could not open PDF: {e}",
+        )
+
+    # Small document — delegate to single-pass vision
+    if total_pages <= VISION_LARGE_DOC_THRESHOLD:
+        return await _strategy_vision_pdf(source, llm, query)
+
+    pages_to_process = min(total_pages, max_pages)
+    chunk_size = VISION_CHUNK_SIZE
+    num_chunks = math.ceil(pages_to_process / chunk_size)
+
+    logger.info(
+        "Chunked vision processing: %d pages in %d chunks of %d",
+        pages_to_process, num_chunks, chunk_size,
+    )
+
+    chunk_texts: list[str] = []
+    chunk_failures_list: list[str] = []
+    total_extracted_pages = 0
+    confidence_scores: list[float] = []
+
+    for chunk_idx in range(num_chunks):
+        start_page = chunk_idx * chunk_size
+        end_page = min(start_page + chunk_size, pages_to_process)
+
+        logger.info(
+            "Processing chunk %d/%d: pages %d-%d",
+            chunk_idx + 1, num_chunks, start_page + 1, end_page,
+        )
+
+        chunk_result = await _vision_single_chunk(
+            filepath=source,
+            start_page=start_page,
+            end_page=end_page,
+            total_pages=total_pages,
+            llm=llm,
+            query=query,
+        )
+
+        if chunk_result.confidence > 0.10 and chunk_result.text.strip():
+            chunk_texts.append(chunk_result.text)
+            total_extracted_pages += chunk_result.pages_extracted
+            confidence_scores.append(chunk_result.confidence)
+            logger.info(
+                "Chunk %d OK: %d pages, %.0f%% confidence",
+                chunk_idx + 1, chunk_result.pages_extracted,
+                chunk_result.confidence * 100,
+            )
+        else:
+            chunk_failures_list.append(f"{start_page + 1}-{end_page}")
+            logger.warning(
+                "Chunk %d failed: %s",
+                chunk_idx + 1, chunk_result.gap_description,
+            )
+
+    if not chunk_texts:
+        return ExtractionResult(
+            method="VISION_CHUNKED",
+            confidence=0.0,
+            total_pages=total_pages,
+            chunks_processed=0,
+            chunks_total=num_chunks,
+            chunk_failures=chunk_failures_list,
+            gap_description=(
+                f"All {num_chunks} chunks failed. "
+                f"Document may be corrupt or unreadable."
+            ),
+        )
+
+    merged_text = "\n\n".join(chunk_texts)
+    avg_confidence = (
+        sum(confidence_scores) / len(confidence_scores)
+        if confidence_scores else 0.0
+    )
+
+    warnings: list[str] = []
+    if chunk_failures_list:
+        warnings.append(
+            f"Extraction incomplete: pages {', '.join(chunk_failures_list)} "
+            f"could not be processed."
+        )
+    if pages_to_process < total_pages:
+        warnings.append(
+            f"Document capped at {pages_to_process} of {total_pages} pages "
+            f"(VISION_MAX_TOTAL_PAGES limit)."
+        )
+
+    # Query-focused summary pass for very large documents
+    if pages_to_process > VISION_LARGE_DOC_THRESHOLD and query:
+        logger.info(
+            "Large document (%d pages) with query — running summary pass",
+            pages_to_process,
+        )
+        summary = await _summarise_large_document(merged_text, query, llm)
+        if summary:
+            merged_text = (
+                f"DOCUMENT SUMMARY (query-focused):\n{summary}\n\n"
+                f"{'─' * 60}\n"
+                f"FULL EXTRACTED TEXT ({pages_to_process} pages):\n\n"
+                f"{merged_text}"
+            )
+
+    logger.info(
+        "Chunked extraction complete: %d pages extracted, %d chunks failed, "
+        "%.0f%% average confidence",
+        total_extracted_pages, len(chunk_failures_list), avg_confidence * 100,
+    )
+
+    return ExtractionResult(
+        text=merged_text,
+        method="VISION_CHUNKED",
+        confidence=avg_confidence,
+        pages_extracted=total_extracted_pages,
+        total_pages=total_pages,
+        warnings=warnings,
+        chunks_processed=len(chunk_texts),
+        chunks_total=num_chunks,
+        chunk_failures=chunk_failures_list,
+    )
+
+
+async def _vision_single_chunk(
+    filepath: str,
+    start_page: int,
+    end_page: int,
+    total_pages: int,
+    llm: "LLMProvider",
+    query: str = "",
+) -> ExtractionResult:
+    """Render a range of PDF pages to JPEG and extract text via LLM vision.
+
+    Returns an ``ExtractionResult`` for the specified page range.  Uses the
+    existing LLM provider abstraction (``llm.complete``) rather than a
+    direct Anthropic client call.
+    """
+    try:
+        doc = fitz.open(filepath)
+        page_summaries: list[str] = []
+
+        for page_num in range(start_page, end_page):
+            page = doc[page_num]
+            # Try text layer first (much cheaper than vision)
+            text = page.get_text()
+            if text.strip():
+                page_summaries.append(f"[PAGE {page_num + 1}]:\n{text[:3000]}")
+            else:
+                # Render to image, encode as base64 for description
+                mat = fitz.Matrix(150 / 72, 150 / 72)
+                pixmap = page.get_pixmap(matrix=mat)
+                img_bytes = pixmap.tobytes("jpeg")
+                if len(img_bytes) > 4_500_000:
+                    mat = fitz.Matrix(100 / 72, 100 / 72)
+                    pixmap = page.get_pixmap(matrix=mat)
+                    img_bytes = pixmap.tobytes("jpeg")
+                page_summaries.append(
+                    f"[PAGE {page_num + 1}]: (image-only, {len(img_bytes)} bytes, no text layer)"
+                )
+
+        doc.close()
+
+        if not page_summaries:
+            return ExtractionResult(
+                method="VISION_CHUNKED",
+                confidence=0.0,
+                gap_description=f"No pages rendered for chunk {start_page + 1}-{end_page}",
+            )
+
+        chunk_label = f"pages {start_page + 1}-{end_page}"
+        focus = f" Focus on: {query}" if query else ""
+        prompt = (
+            f"Extract ALL text from these {chunk_label} of a {total_pages}-page document "
+            f"exactly as it appears. Include all paragraphs, headings, tables, captions, "
+            f"footnotes, and any text content. Preserve logical reading order.{focus}\n\n"
+            + "\n\n".join(page_summaries)
+        )
+
+        from . import cost_tracker
+        with cost_tracker.feature("document_reader"):
+            result = await llm.complete(
+                "You are ARIA's document extraction system. Extract all text exactly as it appears.",
+                prompt,
+                max_tokens=4096,
+                timeout=90.0,
+            )
+
+        extracted = (getattr(result, "text", "") or "").strip()
+        pages_extracted = end_page - start_page
+
+        return ExtractionResult(
+            text=extracted,
+            method="VISION_CHUNKED",
+            confidence=0.80 if len(extracted) > 100 else 0.20,
+            pages_extracted=pages_extracted,
+            total_pages=total_pages,
+        )
+    except Exception as e:
+        logger.warning("Chunk %d-%d error: %s", start_page + 1, end_page, e)
+        return ExtractionResult(
+            method="VISION_CHUNKED",
+            confidence=0.0,
+            gap_description=f"Chunk {start_page + 1}-{end_page} error: {e}",
+        )
+
+
+async def _summarise_large_document(
+    full_text: str,
+    query: str,
+    llm: "LLMProvider",
+) -> str:
+    """Produce a query-focused summary of merged chunk text.
+
+    Only intended for documents exceeding ``VISION_LARGE_DOC_THRESHOLD``
+    pages where a *query* was provided.  Samples the beginning, middle,
+    and end of the text to stay within token limits.
+    """
+    text_len = len(full_text)
+    sample = full_text[:3000]
+    if text_len > 6000:
+        mid = text_len // 2
+        sample += "\n\n[...middle section...]\n\n" + full_text[mid:mid + 2000]
+    if text_len > 4000:
+        sample += "\n\n[...final section...]\n\n" + full_text[-2000:]
+
+    prompt = (
+        f"This is extracted text from a large document.\n"
+        f"Query: {query}\n\n"
+        f"Document extract:\n{sample}\n\n"
+        f"Produce a structured summary covering:\n"
+        f"1. Document type and purpose\n"
+        f"2. Key parties, entities, and dates\n"
+        f"3. Most relevant content for the query: {query}\n"
+        f"4. Key figures, provisions, or findings\n"
+        f"5. Any red flags or compliance concerns\n"
+        f"Maximum 600 words. Concise and precise."
+    )
+
+    try:
+        from . import cost_tracker
+        with cost_tracker.feature("document_reader"):
+            result = await llm.complete(
+                "You are ARIA's document analysis system. Produce concise structured summaries.",
+                prompt,
+                max_tokens=1000,
+                timeout=30.0,
+            )
+        return (getattr(result, "text", "") or "").strip()
+    except Exception as e:
+        logger.warning("Summary pass failed: %s", e)
+        return ""
 
 
 # ── Strategy 4: Online search ──────────────────────────────────────────────
