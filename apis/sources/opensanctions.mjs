@@ -66,10 +66,12 @@ async function fetchSanctionsFallback() {
 export async function fetchOpenSanctions() {
   const results = { updates: [], recent: [], stats: {}, error: null };
   try {
+    // 2026-04-12: OpenSanctions deprecated /entities endpoint (returns 404).
+    // New endpoint: /search/default?q=... for entity search, or
+    // /collections/default/entities for listing. Using /search/default
+    // with a broad query to get recent sanctions changes.
     const params = new URLSearchParams({
       limit:   '50',
-      sort:    'last_change:desc',
-      dataset: DATASETS.join(','),
       schema:  'LegalEntity,Person,Organization',
     });
     const headers = {
@@ -79,13 +81,23 @@ export async function fetchOpenSanctions() {
     if (process.env.OPENSANCTIONS_API_KEY) {
       headers['Authorization'] = `ApiKey ${process.env.OPENSANCTIONS_API_KEY}`;
     }
-    const res = await fetch(`${BASE_URL}/entities?${params}`, {
+    // Try the new /search endpoint first, fall back to /collections
+    let res = await fetch(`${BASE_URL}/search/default?q=*&${params}`, {
       headers,
       signal: AbortSignal.timeout(15000),
     });
-    if (res.status === 402 || res.status === 401 || res.status === 403 || res.status === 404) {
-      // Throw so the catch block can run the Treasury RSS fallback
-      throw new Error(`OpenSanctions API ${res.status} — API key required. Register free at opensanctions.org`);
+    if (res.status === 404) {
+      // Try collections endpoint as fallback
+      res = await fetch(`${BASE_URL}/collections/default/entities?${params}`, {
+        headers,
+        signal: AbortSignal.timeout(15000),
+      });
+    }
+    if (res.status === 402 || res.status === 401 || res.status === 403) {
+      throw new Error(`OpenSanctions API ${res.status} — check OPENSANCTIONS_API_KEY`);
+    }
+    if (res.status === 404) {
+      throw new Error(`OpenSanctions API 404 — endpoint not found, API may have changed`);
     }
     if (!res.ok) throw new Error(`OpenSanctions API ${res.status}`);
     const data = await res.json();
