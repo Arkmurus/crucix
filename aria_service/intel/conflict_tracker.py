@@ -44,6 +44,12 @@ ACLED_BASE = "https://api.acleddata.com/acled/read"
 GDELT_DOC = "https://api.gdeltproject.org/api/v2/doc/doc"
 CACHE_TTL = 6 * 3600  # 6 hours
 
+# ── Auto-investigation dedup for CRITICAL escalations ──────────────────────
+# Key: country ISO → timestamp of last auto-investigation trigger.
+# Prevents re-triggering the same country within 6 hours.
+_ESCALATION_ALERT_COOLDOWN = 6 * 3600  # seconds
+_ESCALATION_ALERT_KEY = "crucix:conflict:escalation_alerts"
+
 # Country name → ISO3 (ACLED uses ISO3 codes)
 ISO3_MAP = {
     # Lusophone Africa — ARIA's incumbent zone
@@ -223,7 +229,14 @@ async def get_recent_events(country: str, days: int = 30, limit: int = 50) -> di
     top_locations = sorted(by_location.items(), key=lambda x: -x[1])[:5]
     recent_events = sorted(events, key=lambda x: x.get("event_date", ""), reverse=True)[:limit]
 
-    return {
+    esc_label = (
+        "CRITICAL" if escalation >= 75 else
+        "HIGH" if escalation >= 50 else
+        "MODERATE" if escalation >= 25 else
+        "LOW"
+    )
+
+    result = {
         "country": country,
         "iso": _iso3(country),
         "days": days,
@@ -232,12 +245,7 @@ async def get_recent_events(country: str, days: int = 30, limit: int = 50) -> di
         "by_type": dict(sorted(by_type.items(), key=lambda x: -x[1])),
         "top_locations": [{"location": l, "count": c} for l, c in top_locations],
         "escalation_score": escalation,
-        "escalation_label": (
-            "CRITICAL" if escalation >= 75 else
-            "HIGH" if escalation >= 50 else
-            "MODERATE" if escalation >= 25 else
-            "LOW"
-        ),
+        "escalation_label": esc_label,
         "momentum": round(momentum, 2),
         "recent_events": [
             {
@@ -256,6 +264,54 @@ async def get_recent_events(country: str, days: int = 30, limit: int = 50) -> di
         ],
         "provider": events[0].get("_provider", "acled") if events else "none",
     }
+
+    # ── AUTO-INVESTIGATE: push proactive alert on CRITICAL escalation ──────
+    # 2026-04-12: when escalation hits CRITICAL, push an alert with
+    # auto_investigate=true so the WhatsApp listener fires a background
+    # investigation automatically. Dedup: 1 alert per country per 6h.
+    if esc_label == "CRITICAL":
+        try:
+            import time as _t
+            iso = _iso3(country)
+            dedup = await rs.get_json(_ESCALATION_ALERT_KEY) or {}
+            last_alert = dedup.get(iso, 0)
+            if _t.time() - last_alert > _ESCALATION_ALERT_COOLDOWN:
+                from . import proactive
+                top_locs = ", ".join(l["location"] for l in top_locations[:3]) if top_locations else "N/A"
+                top_events_summary = ""
+                for e in recent_events[:3]:
+                    top_events_summary += f"\n• [{e.get('event_date','?')}] {e.get('event_type','?')} — {(e.get('notes') or '')[:120]}"
+
+                await proactive.push_alert({
+                    "type": "escalation_critical",
+                    "title": f"CRITICAL ESCALATION — {country}",
+                    "severity": "critical",
+                    "body": (
+                        f"Escalation: {escalation}/100 | Events (30d): {len(events)} | "
+                        f"Fatalities: {fatalities} | Momentum: {round(momentum, 2)}x\n"
+                        f"Hotspots: {top_locs}\n"
+                        f"Recent:{top_events_summary}\n\n"
+                        f"_Auto-investigation queued. Stand by for deep-dive._"
+                    ),
+                    "metadata": {
+                        "country": country,
+                        "iso": iso,
+                        "escalation_score": escalation,
+                        "total_events": len(events),
+                        "fatalities": fatalities,
+                        "momentum": round(momentum, 2),
+                        "auto_investigate": True,
+                    },
+                })
+                dedup[iso] = _t.time()
+                await rs.set_json(_ESCALATION_ALERT_KEY, dedup, ex=7 * 86400)
+                logger.info("CRITICAL escalation alert pushed for %s (score %d) — auto-investigate queued", country, escalation)
+            else:
+                logger.debug("CRITICAL escalation for %s suppressed (last alert %.0fm ago)", country, (_t.time() - last_alert) / 60)
+        except Exception as e:
+            logger.warning("Failed to push escalation alert for %s: %s", country, e)
+
+    return result
 
 
 async def correlate_with_procurement(country: str, days: int = 60) -> dict:
