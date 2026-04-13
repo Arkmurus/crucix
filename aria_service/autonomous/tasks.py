@@ -352,6 +352,14 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..metacognitive import engine as metacog
         return await metacog.run_monthly_sprint(llm) if hasattr(metacog, "run_monthly_sprint") else {"skipped": "not implemented"}
 
+    elif tool_kind == "dd_watchlist_sweep":
+        from ..intel import dd_orchestrator
+        return await dd_orchestrator.rescreen_watchlist(llm=llm)
+
+    elif tool_kind == "knowledge_freshness_audit":
+        from ..intel import weekly_report
+        return await weekly_report._audit_knowledge_freshness()
+
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}
 
