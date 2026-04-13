@@ -73,6 +73,25 @@ async def lookup_entity(
             logger.info("Registry adapter [%s]: found %s", iso2, result.get("profile", {}).get("company_name", "?"))
         else:
             logger.info("Registry adapter [%s]: no result for '%s'", iso2, name)
+
+        # ── Brain hook: feed registry lookup to learning ──
+        try:
+            from . import brain_hook
+            _profile = result.get("profile", {}) if result else {}
+            _company = _profile.get("company_name", name)
+            _status = _profile.get("status", "unknown")
+            await brain_hook.absorb(
+                module="registry_adapter",
+                summary=f"Registry lookup [{iso2}] '{_company}': status={_status}, officers={len(result.get('officers', []))} " if result else f"Registry lookup [{iso2}] '{name}': no result",
+                entity_name=_company,
+                success=result is not None,
+                confidence="CONFIRMED" if result else "ASSESSED",
+                gap_type="registry_lookup" if not result else None,
+                gap_detail=f"No registry result for {name} in {iso2}" if not result else None,
+            )
+        except Exception as _bh:
+            logger.debug("registry_adapter brain_hook failed: %s", _bh)
+
         return result
     except Exception as exc:
         logger.warning("Registry adapter [%s] failed: %s", iso2, exc)

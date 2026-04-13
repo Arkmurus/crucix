@@ -4557,6 +4557,38 @@ async def self_code_knowledge_ep():
     return await self_improve.get_code_knowledge()
 
 
+# ── Brain Hook API ──────────────────────────────────────────────────────────
+
+# 43b. POST /api/aria/brain/absorb — Feed learning from any module (incl. Node.js seenode)
+@router.post("/brain/absorb")
+async def brain_absorb_ep(request: Request):
+    """Central learning endpoint. Accepts output from any intel module and
+    fans out to mastery, knowledge, neural memory, and capability gaps.
+
+    Body: { module, summary, detail?, entity_name?, success?, gap_type?,
+            gap_detail?, extra_topics?, source_id?, confidence? }
+    """
+    from ..intel import brain_hook
+    body = await request.json()
+    module = body.get("module", "")
+    summary = body.get("summary", "")
+    if not module or not summary:
+        raise HTTPException(status_code=400, detail="module and summary required")
+    result = await brain_hook.absorb(
+        module=module,
+        summary=summary,
+        detail=body.get("detail", ""),
+        entity_name=body.get("entity_name", ""),
+        success=body.get("success", True),
+        gap_type=body.get("gap_type"),
+        gap_detail=body.get("gap_detail"),
+        extra_topics=body.get("extra_topics"),
+        source_id=body.get("source_id", ""),
+        confidence=body.get("confidence", "PROBABLE"),
+    )
+    return result
+
+
 # ── Semantic Search ──────────────────────────────────────────────────────────
 
 # 44. POST /api/aria/semantic/search — Search knowledge by meaning

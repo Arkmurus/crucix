@@ -49,6 +49,12 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "sanctions":            ["compliance", "legal"],
     "conflict_tracker":     ["geopolitics", "relationships"],
     "international_law":    ["legal", "compliance"],
+    # Node.js seenode modules (via POST /api/aria/brain/absorb)
+    "registry_adapter":     ["compliance", "legal"],
+    "opportunity_detector": ["market_intel", "competitor_intel"],
+    "signal_generator":     ["finance", "compliance", "market_intel"],
+    "osint_sweep":          ["osint", "market_intel"],
+    "seenode":              ["general"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)
@@ -71,6 +77,12 @@ _MODULE_WEIGHT: dict[str, float] = {
     "sanctions":            0.15,
     "conflict_tracker":     0.1,
     "international_law":    0.15,
+    # Node.js seenode modules
+    "registry_adapter":     0.15,
+    "opportunity_detector": 0.15,
+    "signal_generator":     0.15,
+    "osint_sweep":          0.1,
+    "seenode":              0.1,
 }
 
 
