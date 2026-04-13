@@ -202,6 +202,9 @@ async def absorb(
         logger.info("brain_hook(%s): absorbed [mastery=%s knowledge=%s neural=%s]",
                      module, result["mastery_ok"], result["knowledge_ok"], result["neural_ok"])
 
+    # ── 5. Record signal for stats/health tracking ──
+    await _record_signal(module, success=not result["errors"])
+
     return result
 
 
@@ -211,3 +214,118 @@ async def absorb_silent(**kwargs) -> None:
         await absorb(**kwargs)
     except Exception as e:
         logger.debug("brain_hook.absorb_silent failed entirely: %s", e)
+
+
+# =============================================================================
+# SIGNAL TRACKING + HEALTH MONITORING
+# =============================================================================
+
+_STATS_KEY = "crucix:aria:brain_hook:stats"
+_ALERT_STALE_HOURS = 24  # alert if module hasn't sent a signal in 24h
+
+
+async def _record_signal(module: str, success: bool) -> None:
+    """Record a signal in Redis for per-module tracking."""
+    try:
+        from . import redis_store as rs
+        stats = await rs.get_json(_STATS_KEY) or {}
+        now = time.time()
+
+        if module not in stats:
+            stats[module] = {
+                "total": 0, "success": 0, "fail": 0,
+                "last_signal_at": 0, "first_signal_at": now,
+            }
+        m = stats[module]
+        m["total"] += 1
+        if success:
+            m["success"] += 1
+        else:
+            m["fail"] += 1
+        m["last_signal_at"] = now
+
+        # Global counters
+        stats.setdefault("_global", {"total": 0, "started_at": now})
+        stats["_global"]["total"] += 1
+
+        await rs.set_json(_STATS_KEY, stats, ex=30 * 86400)
+    except Exception:
+        pass  # stats recording must never break absorb
+
+
+async def get_stats() -> dict:
+    """Return brain hook stats — per-module signal counts + health."""
+    try:
+        from . import redis_store as rs
+        stats = await rs.get_json(_STATS_KEY) or {}
+    except Exception:
+        stats = {}
+
+    now = time.time()
+    modules = {}
+    stale = []
+    healthy = []
+
+    for key, val in stats.items():
+        if key.startswith("_"):
+            continue
+        if not isinstance(val, dict):
+            continue
+        last = val.get("last_signal_at", 0)
+        hours_ago = (now - last) / 3600 if last else None
+        status = "active"
+        if hours_ago is None:
+            status = "never"
+        elif hours_ago > _ALERT_STALE_HOURS:
+            status = "stale"
+            stale.append(key)
+        else:
+            healthy.append(key)
+
+        modules[key] = {
+            "total": val.get("total", 0),
+            "success": val.get("success", 0),
+            "fail": val.get("fail", 0),
+            "success_rate": round(val["success"] / val["total"], 2) if val.get("total") else 0,
+            "last_signal_ago_h": round(hours_ago, 1) if hours_ago is not None else None,
+            "status": status,
+        }
+
+    # Identify modules that are registered but have never sent a signal
+    all_known = set(_MODULE_TOPICS.keys())
+    never_seen = all_known - set(modules.keys())
+
+    g = stats.get("_global", {})
+    return {
+        "total_signals": g.get("total", 0),
+        "tracking_since": g.get("started_at"),
+        "modules": modules,
+        "healthy_count": len(healthy),
+        "stale_count": len(stale),
+        "stale_modules": stale,
+        "never_seen": sorted(never_seen),
+        "health": "degraded" if stale else ("cold" if not healthy else "healthy"),
+    }
+
+
+async def get_stale_alerts() -> list[dict]:
+    """Return alert dicts for modules that haven't sent a signal in 24h."""
+    stats = await get_stats()
+    alerts = []
+    for mod in stats.get("stale_modules", []):
+        m = stats["modules"].get(mod, {})
+        alerts.append({
+            "module": mod,
+            "severity": "warning",
+            "title": f"Brain signal stale: {mod}",
+            "detail": f"{mod} last sent a signal {m.get('last_signal_ago_h', '?')}h ago (threshold: {_ALERT_STALE_HOURS}h)",
+            "last_signal_ago_h": m.get("last_signal_ago_h"),
+        })
+    for mod in stats.get("never_seen", []):
+        alerts.append({
+            "module": mod,
+            "severity": "info",
+            "title": f"Brain signal never seen: {mod}",
+            "detail": f"{mod} is registered but has never sent a signal to brain_hook",
+        })
+    return alerts

@@ -1852,6 +1852,22 @@ app.post('/api/aria/correct', requireAuth, async (req, res) => {
   }});
 });
 
+// ── ARIA brain health (proxy to Python aria_service) ───────────────────────
+app.get('/api/aria/brain/stats', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/brain/stats', { fallback: async () => {
+    res.status(503).json({ error: 'Brain stats unavailable', health: 'offline', modules: {} });
+  }}));
+
+app.get('/api/aria/brain/alerts', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/brain/alerts', { fallback: async () => {
+    res.status(503).json({ alerts: [{ severity: 'critical', title: 'ARIA backend offline' }] });
+  }}));
+
+app.get('/api/aria/student/stats', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/student/stats', { fallback: async () => {
+    res.status(503).json({ error: 'Mastery stats unavailable', mastery: {} });
+  }}));
+
 // ── ARIA compliance sub-endpoints (proxy to Python aria_service) ────────────
 app.post('/api/aria/compliance/screen', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/compliance/screen', { method: 'POST', fallback: async () => {

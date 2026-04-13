@@ -4589,6 +4589,22 @@ async def brain_absorb_ep(request: Request):
     return result
 
 
+# 43c. GET /api/aria/brain/stats — Brain hook signal stats + per-module health
+@router.get("/brain/stats")
+async def brain_stats_ep():
+    """Per-module signal counts, success rates, and stale-module alerts."""
+    from ..intel import brain_hook
+    return await brain_hook.get_stats()
+
+
+# 43d. GET /api/aria/brain/alerts — Stale/missing module alerts
+@router.get("/brain/alerts")
+async def brain_alerts_ep():
+    """Modules that haven't sent a signal in 24h or have never signalled."""
+    from ..intel import brain_hook
+    return {"alerts": await brain_hook.get_stale_alerts()}
+
+
 # ── Semantic Search ──────────────────────────────────────────────────────────
 
 # 44. POST /api/aria/semantic/search — Search knowledge by meaning
