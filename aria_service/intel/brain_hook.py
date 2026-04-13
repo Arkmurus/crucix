@@ -187,8 +187,8 @@ async def absorb(
             from . import capability_gaps
             await capability_gaps.record_gap(
                 gap_type=gap_type,
-                description=gap_detail or f"{module} reported gap: {gap_type}",
-                module=module,
+                detail=gap_detail or f"{module} reported gap: {gap_type}",
+                source=f"brain_hook:{module}",
             )
             result["gap_ok"] = True
         except Exception as e:
@@ -203,7 +203,9 @@ async def absorb(
                      module, result["mastery_ok"], result["knowledge_ok"], result["neural_ok"])
 
     # ── 5. Record signal for stats/health tracking ──
-    await _record_signal(module, success=not result["errors"])
+    # Success = at least mastery OR knowledge stored. Gap errors are non-fatal.
+    _core_ok = result["mastery_ok"] or result["knowledge_ok"]
+    await _record_signal(module, success=_core_ok)
 
     return result
 
