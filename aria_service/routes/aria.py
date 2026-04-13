@@ -1890,6 +1890,55 @@ def _detect_dd_intent(message: str) -> dict | None:
         extra["caen_code"] = caen_match.group(1)
         extra["declared_activity_code"] = f"CAEN {caen_match.group(1)}"
 
+    # Slovak/Czech IČO — "IČ: 52 834 638" / "IČO: 52834638" / "ICO 52834638"
+    ico_match = re.search(r"\bI[ČC](?:O)?[\s:]*(\d[\d\s]{4,9}\d)\b", message, re.IGNORECASE)
+    if ico_match:
+        extra["registration_number"] = ico_match.group(1).replace(" ", "")
+        if not jurisdiction_iso2:
+            # IČO format → likely Slovak or Czech
+            if re.search(r"\bslovak|slovensko|bratislava|trenčín|čachtice\b", message, re.IGNORECASE):
+                jurisdiction_iso2 = "SK"
+                jurisdiction = "Slovak Republic"
+            elif re.search(r"\bczech|česko|praha|brno\b", message, re.IGNORECASE):
+                jurisdiction_iso2 = "CZ"
+                jurisdiction = "Czech Republic"
+            else:
+                jurisdiction_iso2 = "SK"  # default for IČO
+                jurisdiction = "Slovak Republic"
+
+    # Generic registration/company number — "File number: 10774/R" / "Reg: 12345678"
+    if "registration_number" not in extra:
+        reg_match = re.search(
+            r"\b(?:registration\s+(?:no|number|#)|file\s+number|company\s+(?:no|number)|reg\.?\s*(?:no|#)?)\s*[:\s]*([A-Z0-9/\-]{3,20})\b",
+            message, re.IGNORECASE,
+        )
+        if reg_match:
+            extra["registration_number"] = reg_match.group(1).strip()
+
+    # Phone number — "+421 911 704 552" or similar international format
+    phone_match = re.search(r"(\+\d{1,4}[\s\-]?\d{2,4}[\s\-]?\d{3,4}[\s\-]?\d{2,4})", message)
+    if phone_match:
+        extra["phone"] = phone_match.group(1).replace(" ", "").replace("-", "")
+
+    # Email addresses — extract all emails from the message
+    email_matches = re.findall(r"\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})\b", message)
+    if email_matches:
+        extra["email"] = email_matches[0]  # primary email
+        if len(email_matches) > 1:
+            extra["contact_email"] = email_matches[1]  # secondary
+
+    # Address extraction — "Malinovského 1274/111, Čachtice 916 21"
+    # If registered_address wasn't captured by the comma-split above,
+    # try to find a street address pattern in the message
+    if not registered_address:
+        addr_pattern = re.search(
+            r"(?:address[:\s]*|sídlo[:\s]*|sede[:\s]*)"
+            r"([A-ZÁ-Ž][^,\n]{5,80}(?:,\s*[^,\n]{3,40}){1,3})",
+            message, re.IGNORECASE,
+        )
+        if addr_pattern:
+            registered_address = addr_pattern.group(1).strip()
+
     # Named officeholders — "represented by its Director X", "Director X",
     # "CEO X", "CFO X", "Managing Director X". Captured names flow through
     # to the orchestrator's identity layer so each individual is
@@ -2535,6 +2584,13 @@ async def _execute_tool(intent: dict, llm) -> str:
                 "declared_activity_code": intent.get("declared_activity_code"),
                 "product_description": intent.get("product_description"),
                 "transaction_value_usd": intent.get("transaction_value_usd"),
+                # 2026-04-13: pass phone, email, registration_number from intent
+                # so jurisdiction inference + ORSR adapter + person screening work
+                "registration_number": intent.get("registration_number"),
+                "phone": intent.get("phone"),
+                "email": intent.get("email"),
+                "contact_email": intent.get("contact_email"),
+                "address": intent.get("registered_address") or intent.get("address"),
             }
             mode = intent.get("mode", "standard")
             try:
