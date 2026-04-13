@@ -112,6 +112,7 @@ async def walk_network(
     registration_number: str | None = None,
     max_officers: int = 20,
     max_hops: int = 1,
+    pre_resolved_officers: list[dict] | None = None,
 ) -> dict:
     """Walk the network around a seed entity one hop out.
 
@@ -155,12 +156,14 @@ async def walk_network(
 
     # ── Step 1: Get directors ──
     officers: list[dict] = []
-    if jurisdiction_iso2 == "GB" and registration_number:
+    if pre_resolved_officers:
+        # Directors already found by the identity layer (registry adapter)
+        officers = list(pre_resolved_officers)
+        stats["data_sources_used"].append("identity_layer")
+    elif jurisdiction_iso2 == "GB" and registration_number:
         officers = await _directors_uk(registration_number)
         stats["data_sources_used"].append("companies_house")
     else:
-        # Use the dd_orchestrator hint map when available so the manual
-        # lookup instruction mentions the actual national registry.
         try:
             from .dd_orchestrator import _national_registry_hint
             hint = _national_registry_hint(jurisdiction_iso2, None)

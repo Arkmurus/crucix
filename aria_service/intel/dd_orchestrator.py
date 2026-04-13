@@ -930,6 +930,7 @@ async def _run_network(target: dict, report: ARKDDReport) -> None:
             entity_type=report.identity.entity_type,
             jurisdiction_iso2=report.identity.jurisdiction_iso2,
             registration_number=report.identity.registration_number,
+            pre_resolved_officers=report.identity.directors or [],
         )
         report.network.director_graph = result.get("director_graph", {})
         report.network.cross_linked_entities = result.get("cross_linked_entities", [])
