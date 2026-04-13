@@ -30,7 +30,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -63,6 +63,7 @@ async def lookup_entity(
         "IN": _lookup_india,
         "SK": _lookup_slovakia,
         "CZ": _lookup_czech,
+        "HU": _lookup_hungary,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -1085,11 +1086,215 @@ def _parse_orsr_detail(html: str, ico: str, source_url: str) -> dict | None:
 # ╚══════════════════════════════════════════════════════════════════════╝
 
 async def _lookup_czech(name: str, reg_number: str | None) -> dict | None:
-    """Czech OR — uses justice.cz API. Stub for now — returns None."""
-    # Czech registry at or.justice.cz uses a different protocol.
-    # Placeholder for future implementation.
-    logger.info("Czech registry adapter: not yet implemented (IČO: %s)", reg_number)
-    return None
+    """Czech commercial registry (or.justice.cz) — two-step HTML scraping.
+    Step 1: Search by IČO → get subjektId
+    Step 2: Fetch extract page → parse company data
+    """
+    ico = (reg_number or "").replace(" ", "").strip()
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            # Step 1: Search by IČO or name
+            if ico:
+                search_url = f"https://or.justice.cz/ias/ui/rejstrik-$firma?ico={ico}&jenPlatne=PLATNE"
+            else:
+                search_url = f"https://or.justice.cz/ias/ui/rejstrik-$firma?nazev={name}&jenPlatne=PLATNE"
+
+            resp = await client.get(search_url)
+            if resp.status_code != 200:
+                return None
+
+            html = resp.text
+
+            # Extract subjektId from the extract link
+            subj_match = re.search(r'subjektId=(\d+)', html)
+            if not subj_match:
+                logger.info("Czech OR: no result for IČO %s / name %s", ico, name)
+                return None
+
+            subj_id = subj_match.group(1)
+
+            # Step 2: Fetch valid extract
+            extract_url = f"https://or.justice.cz/ias/ui/rejstrik-firma.vysledky?subjektId={subj_id}&typ=PLATNY"
+            resp2 = await client.get(extract_url)
+            if resp2.status_code != 200:
+                return None
+
+            h = resp2.text
+
+            # Parse company name — after "Obchodní firma:"
+            company_name = ""
+            cn_match = re.search(r'Obchodn[ií]\s*firma:\s*</span>\s*([^<]+)', h, re.IGNORECASE)
+            if cn_match:
+                company_name = _html_unescape(cn_match.group(1).strip())
+
+            # Address — after "Sídlo:"
+            address = ""
+            addr_match = re.search(r'S[ií]dlo:\s*</span>\s*([^<]+)', h, re.IGNORECASE)
+            if addr_match:
+                address = _html_unescape(addr_match.group(1).strip())
+
+            # IČO from page
+            ico_match = re.search(r'I[Čč]O?:\s*</span>\s*(\d[\d\s]+)', h)
+            if ico_match:
+                ico = ico_match.group(1).replace(" ", "").strip()
+
+            # Incorporation date — "Datum vzniku"
+            inc_date = ""
+            date_match = re.search(r'Datum\s+vzniku[^:]*:\s*</div>\s*<div[^>]*>\s*(\d{1,2}\.\s*\w+\s+\d{4})', h, re.IGNORECASE | re.DOTALL)
+            if date_match:
+                inc_date = date_match.group(1).strip()
+
+            # Directors — look for names after "Statutární orgán" section
+            officers = []
+            stat_section = re.search(r'Statutárn[ií]\s*orgán(.*?)(?:Dozorč[ií]\s*rada|Základn[ií]\s*kapitál|Akcion[áa]ř|Předmět)', h, re.IGNORECASE | re.DOTALL)
+            if stat_section:
+                # Czech names appear as plain text lines with dates
+                name_pattern = re.findall(
+                    r'(?:člen|předseda|místopředseda|jednatel)\s*[:\s]*\s*</span>\s*([^<]{3,80})',
+                    stat_section.group(1), re.IGNORECASE,
+                )
+                for pname in name_pattern:
+                    clean = _html_unescape(pname.strip())
+                    if clean and len(clean) > 3 and clean not in [o["name"] for o in officers]:
+                        officers.append({"name": clean, "role": "director", "appointed_on": ""})
+
+            # If no officers found via role labels, try broader pattern
+            if not officers and stat_section:
+                # Look for name-like patterns (Firstname Lastname with Czech diacritics)
+                names = re.findall(r'\b([A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]+\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]{2,})', stat_section.group(1))
+                for pname in names[:8]:
+                    if pname not in [o["name"] for o in officers]:
+                        officers.append({"name": pname, "role": "director", "appointed_on": ""})
+
+            # Business activities — "Předmět podnikání"
+            activities = []
+            act_section = re.search(r'Předmět\s+podnikání:\s*</span>(.*?)(?:Statutárn|Základn|Akcion|<div class="vr-hlavicka"><hr)', h, re.IGNORECASE | re.DOTALL)
+            if act_section:
+                acts = re.findall(r'>([^<]{5,200})<', act_section.group(1))
+                activities = [_html_unescape(a.strip()) for a in acts if len(a.strip()) > 5][:15]
+
+            logger.info("Czech OR parsed: name='%s' addr='%s' directors=%d activities=%d",
+                        company_name, address[:60], len(officers), len(activities))
+
+            return _build_result(
+                company_name=company_name or f"IČO {ico}",
+                company_number=ico,
+                company_status="active",
+                date_of_creation=inc_date,
+                registered_office_address=address,
+                jurisdiction="CZ",
+                sic_codes=activities[:5],
+                officers=officers,
+                psc=[],
+                source_url=extract_url,
+                adapter="czech_or_justice",
+            )
+    except Exception as exc:
+        logger.warning("Czech OR lookup failed: %s", exc)
+        return None
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Hungary (e-cégjegyzék.hu)  (HU)                                   ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+async def _lookup_hungary(name: str, reg_number: str | None) -> dict | None:
+    """Hungarian company registry (e-cegjegyzek.hu) — HTML scraping.
+    Cégjegyzékszám format: NN-NN-NNNNNN (e.g. 01-10-046896)
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            if reg_number:
+                # Direct lookup by cégjegyzékszám
+                clean_reg = reg_number.strip()
+                url = f"https://www.e-cegjegyzek.hu/?cegadatfriss662-data=show&cegadatfrissites662-cegjegyzekszam={clean_reg}"
+            else:
+                # Search by name
+                url = f"https://www.e-cegjegyzek.hu/?cegadatfriss662-data=show&cegadatfrissites662-cegnev={name}"
+
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return None
+
+            h = resp.text
+
+            # Company name — "Cégnév" or first prominent name
+            company_name = ""
+            cn_match = re.search(r'C[ée]gn[ée]v[:\s]*</?\w[^>]*>\s*([^<]{3,120})', h, re.IGNORECASE)
+            if cn_match:
+                company_name = _html_unescape(cn_match.group(1).strip())
+            if not company_name:
+                cn_match2 = re.search(r'<b>\s*([^<]{3,120}(?:Kft\.|Zrt\.|Nyrt\.|Bt\.|Kkt\.))', h, re.IGNORECASE)
+                if cn_match2:
+                    company_name = _html_unescape(cn_match2.group(1).strip())
+
+            # Address — "Székhely"
+            address = ""
+            addr_match = re.search(r'Sz[ée]khely[:\s]*</?\w[^>]*>\s*([^<]{5,200})', h, re.IGNORECASE)
+            if addr_match:
+                address = _html_unescape(addr_match.group(1).strip())
+
+            # Registration number from page
+            reg_match = re.search(r'C[ée]gjegyz[ée]ksz[aá]m[:\s]*</?\w[^>]*>\s*(\d{2}-\d{2}-\d{6})', h, re.IGNORECASE)
+            if reg_match:
+                reg_number = reg_match.group(1)
+
+            # Incorporation date — "Bejegyzés dátuma"
+            inc_date = ""
+            date_match = re.search(r'Bejegyz[ée]s\s+d[aá]tuma[:\s]*</?\w[^>]*>\s*(\d{4}\.\d{2}\.\d{2})', h, re.IGNORECASE)
+            if date_match:
+                inc_date = date_match.group(1)
+
+            # Legal form — "Cégforma"
+            legal_form = ""
+            form_match = re.search(r'C[ée]gforma[:\s]*</?\w[^>]*>\s*([^<]{3,80})', h, re.IGNORECASE)
+            if form_match:
+                legal_form = _html_unescape(form_match.group(1).strip())
+
+            # Status — look for "Működő" (active) or "Megszűnt" (dissolved)
+            status = "active"
+            if re.search(r'Megsz[űü]nt|V[ée]gelsz[aá]mol[aá]s|Felsz[aá]mol[aá]s', h, re.IGNORECASE):
+                status = "dissolved"
+
+            # Directors — "Vezető tisztségviselő" or "ügyvezető"
+            officers = []
+            dir_section = re.search(r'(?:Vezet[őo]\s+tiszts[ée]gvisel[őo]|[Üü]gyvezet[őo]|Igazgat[oó]s[aá]g)(.*?)(?:Fel[üu]gyel[őo]|C[ée]gjegyz[ée]k|T[öo]rzst[őo]ke|Jegyzett\s+t[őo]ke)', h, re.IGNORECASE | re.DOTALL)
+            if dir_section:
+                # Hungarian names: Lastname Firstname format
+                names = re.findall(r'\b([A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]+\s+[A-ZÁÉÍÓÖŐÚÜŰ][a-záéíóöőúüű]{2,})', dir_section.group(1))
+                for pname in names[:8]:
+                    if pname not in [o["name"] for o in officers]:
+                        officers.append({"name": pname, "role": "director", "appointed_on": ""})
+
+            # Business activities — "Tevékenység" or "Főtevékenység"
+            activities = []
+            act_match = re.search(r'(?:F[őo])?[Tt]ev[ée]kenys[ée]g(.*?)(?:Vezet[őo]|[Üü]gyvezet|C[ée]gjegyz|Jegyzett)', h, re.IGNORECASE | re.DOTALL)
+            if act_match:
+                acts = re.findall(r'>([^<]{5,200})<', act_match.group(1))
+                activities = [_html_unescape(a.strip()) for a in acts if len(a.strip()) > 5 and not a.strip().startswith('<')][:15]
+
+            logger.info("Hungary e-cégjegyzék parsed: name='%s' addr='%s' directors=%d activities=%d status=%s",
+                        company_name, address[:60], len(officers), len(activities), status)
+
+            if not company_name and not address:
+                return None  # page didn't contain company data
+
+            return _build_result(
+                company_name=company_name or f"Reg {reg_number}",
+                company_number=reg_number or "",
+                company_status=status,
+                date_of_creation=inc_date,
+                registered_office_address=address,
+                jurisdiction="HU",
+                sic_codes=activities[:5],
+                officers=officers,
+                psc=[],
+                source_url=url,
+                adapter="hungary_e_cegjegyzek",
+            )
+    except Exception as exc:
+        logger.warning("Hungary registry lookup failed: %s", exc)
+        return None
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
