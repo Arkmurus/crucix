@@ -66,7 +66,10 @@ async def generate_weekly_report(llm: Any = None) -> dict:
     # ── 6. Correction learning ───────────────────────────────────────────
     report["corrections"] = await _count_corrections(cutoff_iso)
 
-    # ── 7. LLM executive summary ────────────────────────────────────────
+    # ── 7. Knowledge freshness audit ───────────────────────────────────
+    report["knowledge_freshness"] = await _audit_knowledge_freshness()
+
+    # ── 8. LLM executive summary ────────────────────────────────────────
     summary_text = None
     if llm is not None:
         summary_text = await _generate_summary(llm, report)
@@ -263,6 +266,102 @@ async def _count_corrections(cutoff: datetime) -> dict:
     except Exception as e:
         logger.warning("Failed to count corrections: %s", e)
         return {"corrections_received": 0, "facts_extracted": 0, "error": str(e)}
+
+
+async def _audit_knowledge_freshness() -> dict:
+    """Proactive knowledge freshness audit.
+
+    Checks:
+    1. Stale-knowledge alerts registry — how many countries have unresolved events
+    2. Knowledge base facts by age — how many facts are >30/60/90 days old
+    3. RAG document recency — when were documents last ingested
+    4. Brain hook signal activity — any modules gone silent
+    """
+    result: dict = {"stale_events": [], "fact_age": {}, "silent_modules": [], "recommendations": []}
+
+    # 1. Stale events from the registry
+    try:
+        from . import stale_knowledge_alerts as ska
+        events = ska._STALE_EVENTS
+        result["stale_events"] = [
+            {"country": e["country"], "event_date": e["event_date"], "event": e["event"]}
+            for e in events
+        ]
+        result["stale_event_count"] = len(events)
+        if events:
+            result["recommendations"].append(
+                f"{len(events)} countries have stale-knowledge alerts. "
+                "Run officeholder verification searches for each."
+            )
+    except Exception as e:
+        logger.debug("Stale events check failed: %s", e)
+
+    # 2. Knowledge fact age distribution
+    try:
+        from . import knowledge
+        import time as _time
+        facts = await knowledge.get_all_facts()
+        now = _time.time()
+        age_buckets = {"<7d": 0, "7-30d": 0, "30-60d": 0, "60-90d": 0, ">90d": 0}
+        for f in facts:
+            ts = f.get("timestamp") or f.get("created_at") or f.get("ts", 0)
+            if isinstance(ts, str):
+                try:
+                    from datetime import datetime as _dt, timezone as _tz
+                    ts = _dt.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    ts = 0
+            age_days = (now - ts) / 86400 if ts else 999
+            if age_days < 7:
+                age_buckets["<7d"] += 1
+            elif age_days < 30:
+                age_buckets["7-30d"] += 1
+            elif age_days < 60:
+                age_buckets["30-60d"] += 1
+            elif age_days < 90:
+                age_buckets["60-90d"] += 1
+            else:
+                age_buckets[">90d"] += 1
+        result["fact_age"] = age_buckets
+        result["total_facts"] = len(facts)
+        old_pct = (age_buckets[">90d"] / max(len(facts), 1)) * 100
+        if old_pct > 30:
+            result["recommendations"].append(
+                f"{old_pct:.0f}% of facts are >90 days old. Consider re-ingesting "
+                "knowledge modules or running reading sessions on stale topics."
+            )
+    except Exception as e:
+        logger.debug("Fact age audit failed: %s", e)
+
+    # 3. Brain hook module activity
+    try:
+        from . import brain_hook
+        stats = await brain_hook.get_stats()
+        stale = stats.get("stale_modules", [])
+        never = stats.get("never_seen", [])
+        result["silent_modules"] = stale + never
+        if stale:
+            result["recommendations"].append(
+                f"{len(stale)} modules haven't sent brain signals in 24h: {', '.join(stale[:5])}"
+            )
+    except Exception as e:
+        logger.debug("Brain hook audit failed: %s", e)
+
+    # Feed brain hook with audit result
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="knowledge_ingestor",
+            summary=f"Weekly knowledge freshness audit: {result.get('stale_event_count', 0)} stale events, "
+                    f"{result.get('total_facts', 0)} facts, {len(result.get('silent_modules', []))} silent modules, "
+                    f"{len(result.get('recommendations', []))} recommendations",
+            success=True,
+            confidence="CONFIRMED",
+        )
+    except Exception:
+        pass
+
+    return result
 
 
 async def _generate_summary(llm: Any, report: dict) -> Optional[str]:

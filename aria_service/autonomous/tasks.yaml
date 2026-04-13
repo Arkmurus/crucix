@@ -603,3 +603,32 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: ["RED", "HARD_STOP", "SAR"]
     mem0_tags: [dd, orchestrator, watchlist, weekly, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # KNOWLEDGE FRESHNESS AUDIT — proactive stale-data detection
+  # ═══════════════════════════════════════════════════════════════════
+  # Runs weekly Monday 05:30 UTC (before the weekly report at 06:00).
+  # Searches for current officeholders in all target markets where
+  # stale-knowledge alerts exist, plus any country where ARIA has
+  # stored officeholder facts >90 days old. Updates the knowledge
+  # base with fresh data and flags anything it couldn't verify.
+  - id: WEEKLY-KNOWLEDGE-AUDIT
+    name: Knowledge freshness audit
+    description: |
+      Weekly Monday 05:30 UTC — proactive knowledge freshness check.
+      For each country in the stale-knowledge alert registry, run a
+      web search for current defence minister and senior military
+      appointments. Update knowledge base with verified results.
+      Flag any country where officeholder data could not be verified.
+      Feed results to brain_hook as knowledge_ingestor signals.
+    cron: "30 5 * * mon"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 300
+    cost_cap_usd: 0.50
+    tool_chain:
+      - tool: knowledge_freshness_audit
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if: ["stale_officeholder", "verification_failed"]
+    mem0_tags: [knowledge, audit, freshness, officeholder, autonomous]
