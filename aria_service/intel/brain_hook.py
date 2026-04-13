@@ -54,6 +54,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "opportunity_detector": ["market_intel", "competitor_intel"],
     "signal_generator":     ["finance", "compliance", "market_intel"],
     "osint_sweep":          ["osint", "market_intel"],
+    "knowledge_ingestor":   ["general", "compliance", "legal"],
+    "source_reliability":   ["osint"],
     "seenode":              ["general"],
 }
 
@@ -82,6 +84,8 @@ _MODULE_WEIGHT: dict[str, float] = {
     "opportunity_detector": 0.15,
     "signal_generator":     0.15,
     "osint_sweep":          0.1,
+    "knowledge_ingestor":   0.2,   # /teach URL ingestion — high value
+    "source_reliability":   0.05,  # automated source health — low weight
     "seenode":              0.1,
 }
 
