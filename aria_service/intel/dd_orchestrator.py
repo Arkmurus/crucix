@@ -1831,9 +1831,9 @@ async def orchestrate_dd(
         if report.compliance.sanctions_matches:
             _dd_detail_parts.append(f"Sanctions: {len(report.compliance.sanctions_matches)} matches")
         if report.network.findings:
-            _dd_detail_parts.append(f"Network: {'; '.join(f.get('summary', '')[:100] for f in report.network.findings[:5])}")
+            _dd_detail_parts.append(f"Network: {'; '.join(getattr(f, 'title', '')[:100] for f in report.network.findings[:5])}")
         if report.digital.findings:
-            _dd_detail_parts.append(f"Digital: {'; '.join(f.get('summary', '')[:100] for f in report.digital.findings[:5])}")
+            _dd_detail_parts.append(f"Digital: {'; '.join(getattr(f, 'title', '')[:100] for f in report.digital.findings[:5])}")
         if report.data_gaps_summary:
             _dd_detail_parts.append(f"Data gaps: {', '.join(report.data_gaps_summary[:5])}")
         await brain_hook.absorb(
@@ -1848,7 +1848,7 @@ async def orchestrate_dd(
             gap_detail=f"DD data gaps for {report.identity.entity_name}: {', '.join(report.data_gaps_summary[:5])}" if report.data_gaps_summary else None,
         )
     except Exception as e:
-        logger.debug("dd_orchestrator: brain_hook failed (non-fatal): %s", e)
+        logger.warning("dd_orchestrator: brain_hook failed (non-fatal): %s", e)
 
     logger.info(
         "[dd_orchestrator] run %s complete — entity=%s risk=%s cost=$%.4f duration=%dms layers=%s",
