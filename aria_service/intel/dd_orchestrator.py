@@ -1449,7 +1449,8 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
                 source="dd_orchestrator.confidence_gate",
                 confidence="ASSESSED",
             ))
-            logger.info("Confidence gate: GREEN → AMBER for %s (%s)", name, "; ".join(_gate_reasons))
+            _entity_name = report.identity.entity_name or target.get("name", "?")
+            logger.info("Confidence gate: GREEN → AMBER for %s (%s)", _entity_name, "; ".join(_gate_reasons))
 
     # ── 6c. SAR trigger — UK POCA / FATF typology ──
     # Triggers:
