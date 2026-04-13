@@ -98,6 +98,39 @@ async def init() -> None:
     logger.info(f"Intel ledger loaded: {len((_cache or {}).get('signals', []))} signals")
 
 
+async def add_signal(payload: dict) -> str:
+    """Add a single signal to the ledger.
+
+    Accepts a dict with at least 'summary' or 'title'. Used by the
+    autonomous delivery pipeline to push brain_lead signals from
+    completed tasks into the rolling 30-day ledger.
+    """
+    db = await _load()
+    text = payload.get("summary") or payload.get("title") or ""
+    if not text:
+        return "skipped:empty"
+    source = payload.get("source", "autonomous")
+    if _is_propaganda_source(source):
+        return "skipped:propaganda"
+    ent = _extract_entities(text)
+    now = datetime.now(timezone.utc).isoformat()
+    db["signals"].insert(0, {
+        "text": text[:500],
+        "source": source,
+        "type": payload.get("type", "brain_lead"),
+        "url": payload.get("url", ""),
+        "countries": ent["countries"],
+        "products": ent["products"],
+        "oems": ent["oems"],
+        "severity": payload.get("severity", "medium"),
+        "ts": payload.get("timestamp") or now,
+        "tags": payload.get("tags", []),
+    })
+    _prune()
+    await _save()
+    return "ok"
+
+
 async def purge_signals_by_keyword(keywords: list[str], dry_run: bool = False) -> dict:
     """Remove signals from the ledger whose text contains ANY of the given
     keywords (case-insensitive). Designed for surgical cleanup of polluted

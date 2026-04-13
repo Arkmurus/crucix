@@ -434,7 +434,8 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
             user_msg = f"Aria, investigate: {topic}"
         elif tool_kind in ("law_refresh", "corpus_weekly_crawl",
                            "metacognitive_daily_check", "metacognitive_weekly_review",
-                           "metacognitive_monthly_sprint"):
+                           "metacognitive_monthly_sprint",
+                           "dd_watchlist_sweep", "knowledge_freshness_audit"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             try:
@@ -446,7 +447,12 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                 record["duration_ms"] = int((time.time() - t0) * 1000)
                 if not dry_run:
                     from .delivery import deliver
-                    record["delivery"] = await deliver(task, str(direct_result), dry_run=False)
+                    record["delivery"] = await deliver(
+                        task=task,
+                        response_text=str(direct_result),
+                        triggered_flags=[],
+                        session_id=f"autonomous:{task.id}:{time.strftime('%Y-%m-%d')}",
+                    )
                 else:
                     record["delivery"] = "dry_run_skipped"
                 await record_run(record)
