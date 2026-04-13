@@ -1459,6 +1459,16 @@ async def ingest_all_sections() -> dict:
         "Global export control ingestion: %d/%d sections, %d total chunks",
         success, len(ALL_SECTIONS), total_chunks,
     )
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="global_export_control",
+            summary=f"Export control knowledge ingested: {success}/{len(ALL_SECTIONS)} sections, {total_chunks} chunks (Wassenaar, MTCR, NSG, ITAR, EAR, EU dual-use)",
+            success=success == len(ALL_SECTIONS),
+            confidence="CONFIRMED",
+        )
+    except Exception:
+        pass
     return {
         "sections_ingested": success,
         "total_sections": len(ALL_SECTIONS),

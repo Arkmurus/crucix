@@ -1915,6 +1915,18 @@ async def read_document(
     duration = int((time.time() - t_start) * 1000)
     logger.info(f"Document read: {filename} → {total_facts} facts, {total_hyp} hypotheses ({duration}ms)")
 
+    # Signal brain that a document was read and learned from
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="knowledge_ingestor",
+            summary=f"Document read: {filename} ({len(content)} chars, {len(chunks)} chunks) → {total_facts} facts, {total_hyp} hypotheses",
+            success=total_facts > 0,
+            confidence="CONFIRMED" if total_facts > 0 else "ASSESSED",
+        )
+    except Exception:
+        pass
+
     result = {
         "filename": filename,
         "source": source,

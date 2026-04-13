@@ -2403,6 +2403,16 @@ async def ingest_all_sections() -> dict:
     success = sum(1 for v in results.values() if v.get("status") == "OK")
     logger.info("International law ingestion: %d/%d sections, %d total chunks",
                 success, len(ALL_SECTIONS), total_chunks)
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="international_law",
+            summary=f"International law ingested: {success}/{len(ALL_SECTIONS)} sections, {total_chunks} chunks (LOAC, IHL, arms control, sanctions law, ICC)",
+            success=success == len(ALL_SECTIONS),
+            confidence="CONFIRMED",
+        )
+    except Exception:
+        pass
     return {
         "sections_ingested": success,
         "total_sections": len(ALL_SECTIONS),

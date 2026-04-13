@@ -128,6 +128,19 @@ async def add_signal(payload: dict) -> str:
     })
     _prune()
     await _save()
+
+    # Signal brain about the new intel
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="conflict_tracker" if payload.get("type") == "osint" else "deep_researcher",
+            summary=f"Ledger signal: {text[:200]}",
+            success=True,
+            confidence="ASSESSED",
+        )
+    except Exception:
+        pass
+
     return "ok"
 
 

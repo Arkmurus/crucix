@@ -526,6 +526,16 @@ async def ingest_all_sections() -> dict:
         )
         chunks = result.get("chunks", 0) if isinstance(result, dict) else 0
         logger.info("Risk indices narrative ingested (%d chunks)", chunks)
+        try:
+            from . import brain_hook
+            await brain_hook.absorb(
+                module="risk_indices",
+                summary=f"Risk indices ingested: 1/1 sections, {chunks} chunks (CPI, Basel-AML, FATF, WGI, EITI, GPI, GTI)",
+                success=True,
+                confidence="CONFIRMED",
+            )
+        except Exception:
+            pass
         return {"sections_ingested": 1, "total_sections": 1, "total_chunks": chunks}
     except Exception as e:
         logger.error("Risk indices ingestion failed: %s", e)
