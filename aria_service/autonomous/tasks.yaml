@@ -710,3 +710,29 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: ["opportunity", "new_market", "rising_budget"]
     mem0_tags: [new_market, discovery, expansion, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # SOURCE DISCOVERY — ARIA finds new data sources to ingest
+  # ═══════════════════════════════════════════════════════════════════
+  # Weekly Wednesday 09:00 UTC — analyzes coverage gaps, recommends
+  # new intelligence sources, generates knowledge requests for the team.
+  # Delivered to WhatsApp so the team sees what ARIA needs.
+  - id: WEEKLY-SOURCE-DISCOVERY
+    name: Intelligence source discovery
+    description: |
+      Weekly Wednesday 09:00 UTC — ARIA analyzes her own coverage gaps,
+      identifies new data sources (think tanks, procurement portals,
+      OSINT databases, regional media), and generates specific knowledge
+      requests for team members based on their expertise. Makes ARIA
+      proactively hungry for better data.
+    cron: "0 9 * * wed"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 120
+    cost_cap_usd: 0.05
+    tool_chain:
+      - tool: source_discovery
+    delivery_channels: [whatsapp, mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["thin_coverage", "critical_gap"]
+    mem0_tags: [source_discovery, self_improvement, knowledge_gap, autonomous]

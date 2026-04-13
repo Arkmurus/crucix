@@ -364,6 +364,7 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..intel import deal_pipeline
         from ..intel import contact_intelligence
         from ..intel import signal_correlator
+        from ..intel import team_engagement
         summary = await deal_pipeline.generate_pipeline_summary()
         # Also check dormancy as part of briefing
         dormant = await deal_pipeline.check_dormant_leads()
@@ -377,7 +378,22 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         contact_brief = await contact_intelligence.generate_contact_briefing()
         if contact_brief:
             summary += f"\n{contact_brief}"
+        # Add team engagement section
+        engagement_brief = await team_engagement.generate_engagement_briefing()
+        if engagement_brief:
+            summary += f"\n{engagement_brief}"
         return {"briefing": summary, "dormant_leads": len(dormant)}
+
+    elif tool_kind == "source_discovery":
+        from ..intel import team_engagement
+        recs = await team_engagement.generate_source_recommendations()
+        requests = await team_engagement.generate_knowledge_requests()
+        return {
+            "source_recommendations": len(recs),
+            "knowledge_requests": len(requests),
+            "recommendations": recs,
+            "requests": requests,
+        }
 
     elif tool_kind == "pipeline_dormancy_check":
         from ..intel import deal_pipeline
@@ -466,7 +482,8 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "metacognitive_daily_check", "metacognitive_weekly_review",
                            "metacognitive_monthly_sprint",
                            "dd_watchlist_sweep", "knowledge_freshness_audit",
-                           "daily_team_briefing", "pipeline_dormancy_check"):
+                           "daily_team_briefing", "pipeline_dormancy_check",
+                           "source_discovery"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             try:

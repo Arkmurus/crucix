@@ -7305,3 +7305,43 @@ async def contacts_interaction_ep(req: Request):
     if not result:
         return {"ok": False, "error": "Contact not found"}
     return {"ok": True, "contact": result}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TEAM ENGAGEMENT — interaction tracking + proactive outreach
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/team/stats")
+async def team_stats_ep():
+    from ..intel import team_engagement
+    return await team_engagement.get_stats()
+
+
+@router.get("/team/quiet")
+async def team_quiet_ep(days: int = 7):
+    from ..intel import team_engagement
+    return {"quiet_members": await team_engagement.get_quiet_members(days)}
+
+
+@router.get("/team/knowledge-requests")
+async def team_knowledge_requests_ep():
+    from ..intel import team_engagement
+    return {"requests": await team_engagement.generate_knowledge_requests()}
+
+
+@router.get("/team/source-recommendations")
+async def team_source_recs_ep():
+    from ..intel import team_engagement
+    return {"recommendations": await team_engagement.generate_source_recommendations()}
+
+
+@router.post("/team/interaction")
+async def team_interaction_ep(req: Request):
+    """Record a team member's interaction (called by WA listener)."""
+    from ..intel import team_engagement
+    body = await req.json()
+    await team_engagement.record_interaction(
+        sender_name=body.get("sender_name", ""),
+        message_type=body.get("message_type", "chat"),
+    )
+    return {"ok": True}
