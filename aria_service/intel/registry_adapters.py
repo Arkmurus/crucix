@@ -1059,6 +1059,12 @@ def _parse_orsr_detail(html: str, ico: str, source_url: str) -> dict | None:
         if any(kw in act.lower() for kw in _defence_keywords):
             sic.insert(0, f"DEFENCE: {act}")
 
+    logger.info(
+        "ORSR parsed: name='%s' addr='%s' inc=%s directors=%d activities=%d status=%s",
+        company_name, address[:60], inc_date, len(officers), len(activities),
+        "active" if not re.search(r'vymazan|zru.en|v likvidácii', html, re.IGNORECASE) else "dissolved",
+    )
+
     return _build_result(
         company_name=company_name or f"IČO {ico}",
         company_number=ico,

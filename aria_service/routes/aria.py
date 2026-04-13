@@ -1591,7 +1591,7 @@ _DD_ENTITY_CAPTURE_RE = re.compile(
     r"(?:^|[,.!?\n]\s*)(?:person|individual|subject|officer|director)\s*[:\-]\s*"
     r")"
     r"(.+?)"
-    r"(?:\s*(?:\?|\.|$|\n|/|,\s*nationality|,\s*dob|,\s*role|,\s*title|,\s*position))",
+    r"(?:\s*(?:\?|\.\s|$|\n|/|,\s*(?:nationality|dob|role|title|position|address|registered|file\s+number|I[ČC])))",
     re.IGNORECASE,
 )
 
