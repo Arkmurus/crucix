@@ -1356,7 +1356,7 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
 # BOTTOM-LINE + RECOMMENDATION (programmatic, pre-LLM)
 # =============================================================================
 
-def _assemble_bluf(report: ARKDDReport) -> None:
+async def _assemble_bluf(report: ARKDDReport) -> None:
     """Populate report.bottom_line / recommendation / next_actions / confidence.
 
     Deterministic — no LLM call, just pattern matching over the sections
@@ -1804,7 +1804,7 @@ async def orchestrate_dd(
                 pass
 
     # ── BLUF + assembly ──
-    _assemble_bluf(report)
+    await _assemble_bluf(report)
     report.total_duration_ms = int((time.time() - t_run_start) * 1000)
     report.layer_costs_usd = {
         "identity":     report.identity.meta.cost_usd,
