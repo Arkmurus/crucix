@@ -875,7 +875,8 @@ async def _lookup_slovakia(name: str, reg_number: str | None) -> dict | None:
                 logger.warning("ORSR search returned %d", resp.status_code)
                 return None
 
-            html = resp.text
+            # ORSR uses windows-1250 encoding (Slovak), not UTF-8
+            html = resp.content.decode("windows-1250", errors="replace")
 
             # Extract detail page ID from vypis.asp link
             id_match = re.search(r'vypis\.asp\?ID=(\d+)', html)
@@ -892,7 +893,8 @@ async def _lookup_slovakia(name: str, reg_number: str | None) -> dict | None:
                 logger.warning("ORSR detail returned %d", resp2.status_code)
                 return None
 
-            return _parse_orsr_detail(resp2.text, ico, detail_url)
+            html2 = resp2.content.decode("windows-1250", errors="replace")
+            return _parse_orsr_detail(html2, ico, detail_url)
     except Exception as exc:
         logger.warning("ORSR lookup failed: %s", exc)
         return None
@@ -907,7 +909,8 @@ async def _lookup_slovakia_by_name(name: str) -> dict | None:
             if resp.status_code != 200:
                 return None
 
-            id_match = re.search(r'vypis\.asp\?ID=(\d+)', resp.text)
+            html = resp.content.decode("windows-1250", errors="replace")
+            id_match = re.search(r'vypis\.asp\?ID=(\d+)', html)
             if not id_match:
                 return None
 
@@ -917,11 +920,11 @@ async def _lookup_slovakia_by_name(name: str) -> dict | None:
             if resp2.status_code != 200:
                 return None
 
-            # Extract IČO from detail page
-            ico_match = re.search(r'I.O[:\s]*(\d[\d\s]{5,9}\d)', resp2.text)
+            html2 = resp2.content.decode("windows-1250", errors="replace")
+            ico_match = re.search(r'I.O[:\s]*(\d[\d\s]{5,9}\d)', html2)
             ico = ico_match.group(1).replace(" ", "") if ico_match else ""
 
-            return _parse_orsr_detail(resp2.text, ico, detail_url)
+            return _parse_orsr_detail(html2, ico, detail_url)
     except Exception as exc:
         logger.warning("ORSR name search failed: %s", exc)
         return None
