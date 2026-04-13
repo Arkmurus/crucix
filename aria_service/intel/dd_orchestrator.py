@@ -1828,8 +1828,9 @@ async def orchestrate_dd(
             f"risk={report.risk_classification}. {report.bottom_line[:300]}"
         )
         _dd_detail_parts = [_dd_summary]
-        if report.compliance.sanctions_matches:
-            _dd_detail_parts.append(f"Sanctions: {len(report.compliance.sanctions_matches)} matches")
+        _sanctions = report.identity.sanctions_screen or {}
+        if _sanctions.get("matches"):
+            _dd_detail_parts.append(f"Sanctions: {len(_sanctions['matches'])} matches")
         if report.network.findings:
             _dd_detail_parts.append(f"Network: {'; '.join(getattr(f, 'title', '')[:100] for f in report.network.findings[:5])}")
         if report.digital.findings:
