@@ -606,6 +606,7 @@ async def lifespan(app: FastAPI):
             ("osint_knowledge",          "OSINT methodology",    "ingest_to_knowledge"),
             ("security_protocol",        "Security protocol",    "ingest_to_knowledge"),
             ("sipri_knowledge",          "SIPRI + equipment",    "ingest_all_sections"),
+            ("global_defence_knowledge", "Global defence intel", "ingest_all_sections"),
         ]
         for modname, label, fn in modules:
             try:
