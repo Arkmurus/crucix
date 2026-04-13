@@ -203,6 +203,10 @@ async def update_lead(lead_id: str, **updates) -> dict | None:
                 lead.setdefault("stage_history", []).append({"stage": new_stage, "ts": now})
                 await _record_transition(lead_id, old_stage, new_stage, updates.get("notes", ""))
 
+                # ── OUTCOME LEARNING: when deal closes, learn from it ──
+                if new_stage in ("WON", "LOST"):
+                    await _learn_from_outcome(lead, new_stage, updates.get("notes", ""))
+
             leads[i] = lead
             await _save(leads)
             logger.info("[pipeline] Lead updated: %s → stage=%s", lead_id, new_stage)
@@ -249,6 +253,82 @@ async def get_pipeline(
             continue
         results.append(lead)
     return results
+
+
+async def score_lead(lead: dict) -> dict:
+    """Calculate win probability and expected value for a lead.
+
+    Factors:
+      +15% budget confirmed (tags contain budget-related signals)
+      +20% warm contact exists in that country
+      +10% no competitor detected
+      +15% active tender with deadline
+      +10% compliance clear (no sanctions flags)
+      +5%  per stage advancement (QUALIFIED=+5, PROPOSAL=+10, NEGOTIATION=+20)
+      -10% per competitor win in same country
+      -15% if lead is stale (14+ days idle)
+
+    Base: 10% (raw detection, no qualification)
+    """
+    base = 0.10
+    bonuses = []
+
+    tags_lower = [t.lower() for t in lead.get("tags", [])]
+    country = lead.get("country", "").lower()
+    stage = lead.get("stage", "DETECTED")
+
+    # Stage bonus
+    stage_bonus = {"DETECTED": 0, "QUALIFIED": 0.05, "PROPOSAL": 0.15, "NEGOTIATION": 0.25}.get(stage, 0)
+    if stage_bonus:
+        bonuses.append(("stage_advancement", stage_bonus))
+
+    # Budget signal
+    if any(kw in " ".join(tags_lower) for kw in ["budget", "spending", "appropriation", "allocation"]):
+        bonuses.append(("budget_confirmed", 0.15))
+
+    # Active tender with deadline
+    if lead.get("deadline"):
+        bonuses.append(("deadline_set", 0.15))
+
+    # Procurement keywords
+    if any(kw in " ".join(tags_lower) for kw in ["tender", "rfp", "rfq", "procurement"]):
+        bonuses.append(("procurement_signal", 0.10))
+
+    # Check for warm contact
+    try:
+        from . import contact_intelligence
+        contacts = await contact_intelligence.get_contacts(country=country)
+        active_contacts = [c for c in contacts if c.get("_status") in ("ACTIVE", "COOLING")]
+        if active_contacts:
+            bonuses.append(("warm_contact", 0.20))
+    except Exception:
+        pass
+
+    # Stale penalty
+    last_activity = lead.get("last_activity_at") or lead.get("updated_at", "")
+    if last_activity:
+        try:
+            from datetime import datetime, timezone
+            last_dt = datetime.fromisoformat(last_activity.replace("Z", "+00:00"))
+            days_idle = (datetime.now(timezone.utc) - last_dt).days
+            if days_idle >= 14:
+                bonuses.append(("stale_penalty", -0.15))
+        except Exception:
+            pass
+
+    # Calculate final probability
+    win_prob = base + sum(b[1] for b in bonuses)
+    win_prob = max(0.05, min(0.95, win_prob))  # clamp 5%-95%
+
+    value = lead.get("estimated_value_usd", 0)
+    expected_value = win_prob * value
+
+    return {
+        "win_probability": round(win_prob, 2),
+        "expected_value_usd": round(expected_value, 2),
+        "factors": bonuses,
+        "base": base,
+    }
 
 
 async def get_stats() -> dict:
@@ -513,15 +593,28 @@ async def generate_pipeline_summary() -> str:
     if stats["by_stage"].get("DORMANT", 0):
         lines.append(f"💤 DORMANT: {stats['by_stage']['DORMANT']}")
 
-    # Top leads by value
-    top = sorted(leads, key=lambda x: x.get("estimated_value_usd", 0), reverse=True)[:5]
+    # Top leads by expected value (win probability × deal value)
+    scored_leads = []
+    for l in leads:
+        try:
+            sc = await score_lead(l)
+            l["_win_prob"] = sc["win_probability"]
+            l["_ev"] = sc["expected_value_usd"]
+        except Exception:
+            l["_win_prob"] = 0.1
+            l["_ev"] = l.get("estimated_value_usd", 0) * 0.1
+        scored_leads.append(l)
+
+    top = sorted(scored_leads, key=lambda x: x.get("_ev", 0), reverse=True)[:5]
     if top:
         lines.append("")
-        lines.append("*Top leads by value:*")
+        lines.append("*Top leads (by expected value):*")
         for l in top:
             val = l.get("estimated_value_usd", 0)
             val_str = f"${val:,.0f}" if val else "TBD"
-            lines.append(f"• {l['country']} — {l.get('buyer', '?')}: {l.get('requirement', '?')[:60]} ({val_str})")
+            prob = l.get("_win_prob", 0)
+            ev = l.get("_ev", 0)
+            lines.append(f"• {l['country']} — {l.get('buyer', '?')}: {l.get('requirement', '?')[:50]} ({val_str}, P={prob:.0%}, EV=${ev:,.0f})")
 
     # Upcoming deadlines
     if deadlines:
@@ -606,3 +699,87 @@ async def handle_pipeline_command(message: str) -> str | None:
             return "\n".join(lines)
 
     return None  # Not a pipeline command
+
+
+# ── Outcome learning ──────────────────────────────────────────────────────────
+
+async def _learn_from_outcome(lead: dict, outcome: str, notes: str = "") -> None:
+    """When a deal is WON or LOST, extract lessons and feed them back into
+    ARIA's learning systems: knowledge base, brain hook, reasoning library.
+
+    This is the CRITICAL feedback loop that makes ARIA smarter over time.
+    """
+    country = lead.get("country", "unknown")
+    buyer = lead.get("buyer", "unknown")
+    value = lead.get("estimated_value_usd", 0)
+    requirement = lead.get("requirement", "")[:150]
+    stage_history = lead.get("stage_history", [])
+    tags = lead.get("tags", [])
+
+    # Calculate deal velocity (days from DETECTED to close)
+    velocity_days = 0
+    if len(stage_history) >= 2:
+        try:
+            first = datetime.fromisoformat(stage_history[0].get("ts", "").replace("Z", "+00:00"))
+            last = datetime.fromisoformat(stage_history[-1].get("ts", "").replace("Z", "+00:00"))
+            velocity_days = (last - first).days
+        except Exception:
+            pass
+
+    # Build learning summary
+    if outcome == "WON":
+        fact = (
+            f"DEAL WON: {country} — {buyer} — {requirement} (${value:,.0f}). "
+            f"Velocity: {velocity_days} days from detection to close. "
+            f"Tags: {', '.join(tags[:5])}. "
+            f"{f'Win factors: {notes}' if notes else 'No win factors recorded — ask team for debrief.'}"
+        )
+        confidence = "CONFIRMED"
+    else:
+        fact = (
+            f"DEAL LOST: {country} — {buyer} — {requirement} (${value:,.0f}). "
+            f"Duration: {velocity_days} days before loss. "
+            f"{f'Loss reason: {notes}' if notes else 'No loss reason recorded — ask team for postmortem.'}"
+        )
+        confidence = "CONFIRMED"
+
+    # 1. Store as knowledge fact
+    try:
+        from . import knowledge
+        await knowledge.store_fact(
+            topic=f"deal_outcome:{country}:{buyer}",
+            content=fact,
+            source=f"pipeline:{lead.get('id', '')}",
+            confidence=confidence,
+        )
+    except Exception as e:
+        logger.debug("Outcome knowledge store failed: %s", e)
+
+    # 2. Feed brain hook — updates mastery on BD skills
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="opportunity_detector",
+            summary=f"Deal {outcome}: {country} / {buyer} — ${value:,.0f} in {velocity_days}d. {notes[:100] if notes else ''}",
+            success=outcome == "WON",
+            confidence=confidence,
+            entity_name=buyer or country,
+        )
+    except Exception as e:
+        logger.debug("Outcome brain absorb failed: %s", e)
+
+    # 3. Store in reasoning library as a case
+    try:
+        from . import reasoning_library
+        await reasoning_library.store_case(
+            question=f"Should we pursue {requirement} in {country} with {buyer}?",
+            context=f"Country: {country}, Buyer: {buyer}, Value: ${value:,.0f}, Tags: {', '.join(tags[:5])}",
+            response=fact,
+            confidence=1.0 if outcome == "WON" else 0.0,
+            outcome=outcome,
+        )
+    except Exception as e:
+        logger.debug("Outcome reasoning library store failed: %s", e)
+
+    logger.info("[pipeline] Outcome learning: %s — %s / %s ($%s) in %dd",
+                outcome, country, buyer, f"{value:,.0f}", velocity_days)

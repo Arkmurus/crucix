@@ -63,7 +63,146 @@ _STALE_EVENTS: list[dict] = [
             "January 2025 is OBSOLETE."
         ),
     },
-    # Add more entries here as field-test surfaces them.
+    {
+        "country": "nigeria",
+        "event_date": "2023-05",
+        "event": "Presidential inauguration — Bola Tinubu (APC) replaced Muhammadu Buhari",
+        "stale_topics": [
+            "defence minister", "minister of defence", "chief of defence staff",
+            "chief of army staff", "chief of naval staff", "chief of air staff",
+            "national security adviser", "cabinet", "all ministerial appointments",
+        ],
+        "summary": (
+            "Bola Tinubu inaugurated May 2023, replacing Buhari. Full cabinet and military "
+            "leadership replaced. Multiple CDS/service chief rotations since. Any pre-May 2023 "
+            "officeholder data is OBSOLETE. Tinubu also reshuffled cabinet in Oct 2024."
+        ),
+    },
+    {
+        "country": "turkey",
+        "event_date": "2023-06",
+        "event": "Cabinet reshuffle — Erdogan's third-term cabinet formed after May 2023 election",
+        "stale_topics": [
+            "defence minister", "minister of national defence",
+            "foreign minister", "finance minister", "cabinet",
+            "head of defence industries", "SSB president",
+        ],
+        "summary": (
+            "Erdogan formed new cabinet June 2023 after re-election. Yasar Guler became Minister "
+            "of National Defence. Haluk Gorgun became SSB president. Any pre-June 2023 Turkish "
+            "defence leadership data needs verification."
+        ),
+    },
+    {
+        "country": "brazil",
+        "event_date": "2023-01",
+        "event": "Lula inauguration — full cabinet change from Bolsonaro era",
+        "stale_topics": [
+            "defence minister", "minister of defence", "commander of the army",
+            "commander of the navy", "commander of the air force",
+            "cabinet", "all ministerial appointments",
+        ],
+        "summary": (
+            "Lula da Silva took office January 2023, replacing Bolsonaro. José Múcio became "
+            "Minister of Defence. Complete military command rotation. Any Bolsonaro-era officeholder "
+            "data is OBSOLETE."
+        ),
+    },
+    {
+        "country": "angola",
+        "event_date": "2022-09",
+        "event": "João Lourenço re-elected — cabinet continuity with rotations",
+        "stale_topics": [
+            "defence minister", "minister of national defence",
+            "chief of general staff", "FAA commander",
+        ],
+        "summary": (
+            "Lourenço re-elected August 2022. Some cabinet continuity but defence portfolio "
+            "has seen rotations. Verify current Minister of National Defence and FAA leadership "
+            "before any briefing — do NOT assume continuity from 2022."
+        ),
+    },
+    {
+        "country": "mozambique",
+        "event_date": "2024-10",
+        "event": "Daniel Chapo elected president — first post-Frelimo-founder transition",
+        "stale_topics": [
+            "president", "defence minister", "minister of national defence",
+            "FADM commander", "cabinet", "all ministerial appointments",
+        ],
+        "summary": (
+            "Daniel Chapo (Frelimo) won October 2024 election amid protests. New cabinet expected. "
+            "Any Nyusi-era officeholder data needs verification. FADM leadership may change."
+        ),
+    },
+    {
+        "country": "kenya",
+        "event_date": "2022-09",
+        "event": "William Ruto inaugurated — cabinet change from Kenyatta era",
+        "stale_topics": [
+            "defence minister", "cabinet secretary for defence",
+            "chief of defence forces", "cabinet",
+        ],
+        "summary": (
+            "William Ruto took office September 2022, replacing Uhuru Kenyatta. Aden Duale became "
+            "Cabinet Secretary for Defence. Multiple reshuffles since. Verify current appointments."
+        ),
+    },
+    {
+        "country": "saudi arabia",
+        "event_date": "2024-03",
+        "event": "Defence ministry restructuring under MBS modernisation",
+        "stale_topics": [
+            "deputy defence minister", "chief of general staff",
+            "GAMI leadership", "defence procurement authority",
+        ],
+        "summary": (
+            "Saudi Arabia has been restructuring defence procurement under Vision 2030. GAMI "
+            "(General Authority for Military Industries) leadership changes. Verify current "
+            "procurement authority chain before any engagement."
+        ),
+    },
+    {
+        "country": "ukraine",
+        "event_date": "2024-09",
+        "event": "Defence Minister Umerov appointed (replaced Reznikov Sept 2023) + ongoing wartime reshuffles",
+        "stale_topics": [
+            "defence minister", "commander-in-chief",
+            "chief of general staff", "military leadership",
+        ],
+        "summary": (
+            "Rustem Umerov replaced Reznikov as Defence Minister September 2023. Syrskyi replaced "
+            "Zaluzhnyi as Commander-in-Chief February 2024. Wartime reshuffles ongoing — ALL "
+            "Ukrainian military leadership data must be verified before use."
+        ),
+    },
+    {
+        "country": "senegal",
+        "event_date": "2024-03",
+        "event": "Bassirou Diomaye Faye elected president — opposition victory",
+        "stale_topics": [
+            "president", "prime minister", "defence minister", "cabinet",
+            "all ministerial appointments",
+        ],
+        "summary": (
+            "Bassirou Diomaye Faye won March 2024 election, defeating Macky Sall's coalition. "
+            "Complete cabinet change. Any Sall-era officeholder data is OBSOLETE."
+        ),
+    },
+    {
+        "country": "indonesia",
+        "event_date": "2024-10",
+        "event": "Prabowo Subianto inaugurated as president",
+        "stale_topics": [
+            "president", "defence minister", "minister of defence",
+            "TNI commander", "cabinet", "all ministerial appointments",
+        ],
+        "summary": (
+            "Prabowo Subianto (former Defence Minister) became President October 2024. "
+            "Full cabinet change including new Defence Minister. Any Jokowi-era officeholder "
+            "data needs verification."
+        ),
+    },
 ]
 
 

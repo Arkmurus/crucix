@@ -701,6 +701,48 @@ def _sync_rag_context(message: str) -> str:
     return _rag_ctx_var.get("")
 
 
+def _sync_correlation_context(message: str) -> str:
+    """Return cross-signal correlation insights + coverage confidence for the current query."""
+    try:
+        import asyncio
+        from .intel import signal_correlator
+
+        async def _get_both():
+            parts = []
+            # Correlation insights
+            corr = await signal_correlator.get_correlation_context(message)
+            if corr:
+                parts.append(corr)
+            # Coverage confidence for mentioned countries
+            import re
+            _COUNTRY_NAMES = [
+                "angola", "mozambique", "ghana", "nigeria", "kenya", "senegal",
+                "turkey", "brazil", "indonesia", "india", "pakistan", "vietnam",
+                "saudi arabia", "uae", "qatar", "south korea", "ukraine",
+                "guinea-bissau", "cape verde", "morocco", "egypt",
+            ]
+            msg_lower = message.lower()
+            for country in _COUNTRY_NAMES:
+                if country in msg_lower:
+                    cov = await signal_correlator.assess_coverage_confidence(country)
+                    if cov.get("warning"):
+                        parts.append(cov["warning"])
+                    elif cov.get("verdict") == "DEEP":
+                        parts.append(f"✅ DEEP COVERAGE on {country.title()} — {cov['score']:.0%} confidence in data quality.")
+                    break  # Only check first country mentioned
+            return "\n".join(parts)
+
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                result = pool.submit(asyncio.run, _get_both()).result(timeout=8)
+            return result
+        return asyncio.run(_get_both())
+    except Exception:
+        return ""
+
+
 def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
     """Build all 9 intelligence layers (7 base + neural memory + RAG), budget-capped.
 
@@ -741,6 +783,7 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
         ("rag",         lambda: _sync_rag_context(message)),
         ("knowledge",   lambda: search_knowledge(message)),
         ("live_intel",  lambda: _build_intel_context(intel_data, message)),
+        ("correlation", lambda: _sync_correlation_context(message)),
     ]
     # Layers that carry cross-session recall / narrative memory. In
     # document-grounded mode they are quarantined behind a fence line

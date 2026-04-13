@@ -363,11 +363,16 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
     elif tool_kind == "daily_team_briefing":
         from ..intel import deal_pipeline
         from ..intel import contact_intelligence
+        from ..intel import signal_correlator
         summary = await deal_pipeline.generate_pipeline_summary()
         # Also check dormancy as part of briefing
         dormant = await deal_pipeline.check_dormant_leads()
         if dormant:
             summary += f"\n\n💤 *{len(dormant)} lead(s) auto-marked DORMANT today*"
+        # Add correlated intelligence
+        correlation_brief = await signal_correlator.generate_correlation_briefing()
+        if correlation_brief:
+            summary += f"\n{correlation_brief}"
         # Add contact intelligence section
         contact_brief = await contact_intelligence.generate_contact_briefing()
         if contact_brief:
