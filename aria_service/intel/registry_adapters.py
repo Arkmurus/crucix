@@ -30,7 +30,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -61,6 +61,8 @@ async def lookup_entity(
         "NG": _lookup_nigeria,
         "AE": _lookup_uae,
         "IN": _lookup_india,
+        "SK": _lookup_slovakia,
+        "CZ": _lookup_czech,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -843,6 +845,271 @@ async def _lookup_india(name: str, reg_number: str | None) -> dict | None:
     except Exception as exc:
         logger.warning("India MCA lookup failed: %s", exc)
         return None
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Slovakia ORSR (Obchodný register SR)  (SK)                        ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+_SK_BASE = "https://www.orsr.sk"
+
+
+async def _lookup_slovakia(name: str, reg_number: str | None) -> dict | None:
+    """Slovak Commercial Registry (ORSR) — two-step HTML scraping.
+    Step 1: Search by IČO → get detail page ID
+    Step 2: Fetch detail page → parse company data
+    """
+    ico = (reg_number or "").replace(" ", "").strip()
+    if not ico and name:
+        # Try searching by name if no IČO
+        return await _lookup_slovakia_by_name(name)
+    if not ico:
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            # Step 1: Search by IČO
+            search_url = f"{_SK_BASE}/hladaj_ico.asp?ICO={ico}&SID=0&T=f0&R=on"
+            resp = await client.get(search_url)
+            if resp.status_code != 200:
+                logger.warning("ORSR search returned %d", resp.status_code)
+                return None
+
+            html = resp.text
+
+            # Extract detail page ID from vypis.asp link
+            id_match = re.search(r'vypis\.asp\?ID=(\d+)', html)
+            if not id_match:
+                logger.info("ORSR: no result for IČO %s", ico)
+                return None
+
+            detail_id = id_match.group(1)
+
+            # Step 2: Fetch detail page
+            detail_url = f"{_SK_BASE}/vypis.asp?ID={detail_id}&SID=6&P=0"
+            resp2 = await client.get(detail_url)
+            if resp2.status_code != 200:
+                logger.warning("ORSR detail returned %d", resp2.status_code)
+                return None
+
+            return _parse_orsr_detail(resp2.text, ico, detail_url)
+    except Exception as exc:
+        logger.warning("ORSR lookup failed: %s", exc)
+        return None
+
+
+async def _lookup_slovakia_by_name(name: str) -> dict | None:
+    """Fallback: search ORSR by company name."""
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            search_url = f"{_SK_BASE}/hladaj_subjekt.asp?ESSION=0&MESSION={name}&SID=0&T=f0&R=on"
+            resp = await client.get(search_url)
+            if resp.status_code != 200:
+                return None
+
+            id_match = re.search(r'vypis\.asp\?ID=(\d+)', resp.text)
+            if not id_match:
+                return None
+
+            detail_id = id_match.group(1)
+            detail_url = f"{_SK_BASE}/vypis.asp?ID={detail_id}&SID=6&P=0"
+            resp2 = await client.get(detail_url)
+            if resp2.status_code != 200:
+                return None
+
+            # Extract IČO from detail page
+            ico_match = re.search(r'I.O[:\s]*(\d[\d\s]{5,9}\d)', resp2.text)
+            ico = ico_match.group(1).replace(" ", "") if ico_match else ""
+
+            return _parse_orsr_detail(resp2.text, ico, detail_url)
+    except Exception as exc:
+        logger.warning("ORSR name search failed: %s", exc)
+        return None
+
+
+def _parse_orsr_detail(html: str, ico: str, source_url: str) -> dict | None:
+    """Parse ORSR detail page (vypis.asp) into normalised result."""
+    if not html or len(html) < 200:
+        return None
+
+    h = _html_unescape(html)
+
+    # Company name — appears after "Obchodné meno" or in the first bold link
+    company_name = ""
+    name_match = re.search(
+        r'Obchodn[eé]\s*meno[:\s]*</?\w[^>]*>\s*([^<]{2,120})',
+        h, re.IGNORECASE,
+    )
+    if name_match:
+        company_name = name_match.group(1).strip()
+    if not company_name:
+        # Fallback: first link text on the page that looks like a company name
+        name_match2 = re.search(r'<b>\s*([^<]{3,80}(?:s\.r\.o\.|a\.s\.|a\. s\.))', h, re.IGNORECASE)
+        if name_match2:
+            company_name = name_match2.group(1).strip()
+
+    # Registered address — after "Sídlo"
+    address = ""
+    addr_match = re.search(
+        r'S[ií]dlo[:\s]*</?\w[^>]*>\s*([^<]{5,200})',
+        h, re.IGNORECASE,
+    )
+    if addr_match:
+        address = addr_match.group(1).strip()
+    if not address:
+        addr_match2 = re.search(r'S[ií]dlo[:\s]*([^<]{5,200})', h, re.IGNORECASE)
+        if addr_match2:
+            address = addr_match2.group(1).strip()
+
+    # Incorporation date — "Deň zápisu" or "(od: DD.MM.YYYY)"
+    inc_date = ""
+    date_match = re.search(
+        r'De[ňn]\s*z[aá]pisu[:\s]*(\d{1,2}\.\d{1,2}\.\d{4})',
+        h, re.IGNORECASE,
+    )
+    if date_match:
+        inc_date = date_match.group(1)
+
+    # Legal form — "Právna forma"
+    legal_form = ""
+    form_match = re.search(
+        r'Pr[aá]vna\s*forma[:\s]*</?\w[^>]*>\s*([^<]{3,80})',
+        h, re.IGNORECASE,
+    )
+    if form_match:
+        legal_form = form_match.group(1).strip()
+
+    # Business activities — "Predmet podnikania"
+    activities = []
+    act_section = re.search(
+        r'Predmet\s*podnikania(.*?)(?:Štatut[aá]rn|Základn[eé]\s*imanie|Akcion[aá]r|Spolo[cč]n[ií]ci)',
+        h, re.IGNORECASE | re.DOTALL,
+    )
+    if act_section:
+        acts = re.findall(r'(?:^|\n|>)\s*-?\s*([A-ZÁ-Ža-záčďéěíňóřšťúůýž][^<\n]{5,200})', act_section.group(1))
+        activities = [a.strip().rstrip(",;") for a in acts if len(a.strip()) > 5][:15]
+
+    # Directors — look for names in "Štatutárny orgán" section
+    officers = []
+    stat_section = re.search(
+        r'[SŠ]tatut[aá]rn[ýy]\s*org[aá]n(.*?)(?:Dozorn[aá]\s*rada|Z[aá]kladn[eé]\s*imanie|Akcion[aá]r|Spolo[cč]n[ií]ci|Predmet)',
+        h, re.IGNORECASE | re.DOTALL,
+    )
+    if stat_section:
+        # Extract person names from links: hladaj_osoba.asp?...>Name<
+        person_links = re.findall(
+            r'hladaj_osoba\.asp[^>]*>\s*([^<]{3,80})\s*<',
+            stat_section.group(1),
+        )
+        for pname in person_links:
+            clean = pname.strip()
+            if clean and len(clean) > 3:
+                officers.append({
+                    "name": clean,
+                    "role": "director",
+                    "appointed_on": "",
+                })
+
+    # If no links, try plain text pattern for names
+    if not officers and stat_section:
+        # Look for lines with name patterns (Title. Firstname Lastname)
+        name_patterns = re.findall(
+            r'(?:Ing\.|Mgr\.|JUDr\.|MUDr\.|PhDr\.|RNDr\.|Bc\.|\b[A-ZÁČĎÉÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]+)\s+[A-ZÁČĎÉÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]{2,}',
+            stat_section.group(1),
+        )
+        for pname in name_patterns[:5]:
+            clean = pname.strip()
+            if clean and len(clean) > 3 and clean not in [o["name"] for o in officers]:
+                officers.append({
+                    "name": clean,
+                    "role": "director",
+                    "appointed_on": "",
+                })
+
+    # Supervisory board — "Dozorná rada"
+    doz_section = re.search(
+        r'Dozorn[aá]\s*rada(.*?)(?:Z[aá]kladn[eé]\s*imanie|Akcion[aá]r|Spolo[cč]n[ií]ci|Predmet|$)',
+        h, re.IGNORECASE | re.DOTALL,
+    )
+    if doz_section:
+        sup_links = re.findall(
+            r'hladaj_osoba\.asp[^>]*>\s*([^<]{3,80})\s*<',
+            doz_section.group(1),
+        )
+        for pname in sup_links:
+            clean = pname.strip()
+            if clean and len(clean) > 3 and clean not in [o["name"] for o in officers]:
+                officers.append({
+                    "name": clean,
+                    "role": "supervisory_board",
+                    "appointed_on": "",
+                })
+
+    # Share capital — "Základné imanie"
+    capital = ""
+    cap_match = re.search(
+        r'Z[aá]kladn[eé]\s*imanie[:\s]*</?\w[^>]*>\s*([\d\s]+\s*EUR)',
+        h, re.IGNORECASE,
+    )
+    if cap_match:
+        capital = cap_match.group(1).strip()
+
+    # Shareholders / PSC — "Akcionári" or "Spoločníci"
+    psc = []
+    share_section = re.search(
+        r'(?:Akcion[aá]r|Spolo[cč]n[ií]ci)(.*?)(?:Z[aá]kladn[eé]\s*imanie|$)',
+        h, re.IGNORECASE | re.DOTALL,
+    )
+    if share_section:
+        share_links = re.findall(
+            r'hladaj_osoba\.asp[^>]*>\s*([^<]{3,80})\s*<',
+            share_section.group(1),
+        )
+        for pname in share_links:
+            clean = pname.strip()
+            if clean and len(clean) > 3:
+                psc.append({
+                    "name": clean,
+                    "kind": "individual-person-with-significant-control",
+                    "nationality": "SK",
+                })
+
+    # SIC codes: use activities as SIC stand-in
+    sic = activities[:5]
+    # Flag defence-related activities
+    _defence_keywords = [
+        "zbran", "muníci", "obran", "vojensk", "výbušn", "streliv",
+        "weapon", "ammunit", "defence", "defense", "military", "explosive",
+    ]
+    for act in activities:
+        if any(kw in act.lower() for kw in _defence_keywords):
+            sic.insert(0, f"DEFENCE: {act}")
+
+    return _build_result(
+        company_name=company_name or f"IČO {ico}",
+        company_number=ico,
+        company_status="active" if not re.search(r'(?:vymazan|zrušen|v likvidácii)', h, re.IGNORECASE) else "dissolved",
+        date_of_creation=inc_date,
+        registered_office_address=address,
+        jurisdiction="SK",
+        sic_codes=sic,
+        officers=officers,
+        psc=psc,
+        source_url=source_url,
+        adapter="slovakia_orsr",
+    )
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Czech Republic (Justice.cz)  (CZ)                                ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+async def _lookup_czech(name: str, reg_number: str | None) -> dict | None:
+    """Czech OR — uses justice.cz API. Stub for now — returns None."""
+    # Czech registry at or.justice.cz uses a different protocol.
+    # Placeholder for future implementation.
+    logger.info("Czech registry adapter: not yet implemented (IČO: %s)", reg_number)
+    return None
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗

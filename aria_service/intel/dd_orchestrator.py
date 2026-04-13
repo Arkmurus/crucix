@@ -74,6 +74,84 @@ logger = logging.getLogger("ARIA.DDOrchestrator")
 # CONFIG
 # =============================================================================
 
+# ── Jurisdiction inference from phone, address, registration number ──────────
+
+_PHONE_PREFIX_TO_ISO2 = {
+    "+421": "SK", "+420": "CZ", "+48": "PL", "+40": "RO", "+36": "HU",
+    "+43": "AT", "+49": "DE", "+44": "GB", "+33": "FR", "+34": "ES",
+    "+39": "IT", "+90": "TR", "+55": "BR", "+234": "NG", "+971": "AE",
+    "+91": "IN", "+350": "GI", "+351": "PT", "+966": "SA", "+962": "JO",
+    "+20": "EG", "+254": "KE", "+27": "ZA", "+244": "AO", "+258": "MZ",
+}
+
+_ADDRESS_KEYWORDS_TO_ISO2 = {
+    "slovak republic": "SK", "slovensko": "SK", "slovakia": "SK",
+    "czech republic": "CZ", "česko": "CZ", "czechia": "CZ",
+    "poland": "PL", "polska": "PL", "romania": "RO", "românia": "RO",
+    "hungary": "HU", "türkiye": "TR", "turkey": "TR", "brazil": "BR",
+    "brasil": "BR", "nigeria": "NG", "united arab emirates": "AE",
+    "gibraltar": "GI", "united kingdom": "GB", "england": "GB",
+    "india": "IN", "angola": "AO", "mozambique": "MZ",
+    "south africa": "ZA", "kenya": "KE", "ghana": "GH",
+    "saudi arabia": "SA", "jordan": "JO", "egypt": "EG",
+    "france": "FR", "germany": "DE", "deutschland": "DE",
+    "spain": "ES", "españa": "ES", "italy": "IT", "italia": "IT",
+    "portugal": "PT", "austria": "AT", "österreich": "AT",
+}
+
+_ISO2_TO_COUNTRY = {v: k.title() for k, v in _ADDRESS_KEYWORDS_TO_ISO2.items()}
+_ISO2_TO_COUNTRY.update({
+    "SK": "Slovak Republic", "CZ": "Czech Republic", "GB": "United Kingdom",
+    "AE": "United Arab Emirates", "ZA": "South Africa", "SA": "Saudi Arabia",
+})
+
+
+def _infer_jurisdiction(target: dict, name: str, reg_number: str | None) -> str | None:
+    """Infer jurisdiction ISO2 from phone, address, email domain, or reg number format."""
+    # 1. Phone prefix (most reliable)
+    phone = target.get("phone") or target.get("tel") or ""
+    for prefix, iso2 in sorted(_PHONE_PREFIX_TO_ISO2.items(), key=lambda x: -len(x[0])):
+        if phone.startswith(prefix):
+            return iso2
+
+    # 2. Address keywords
+    address = " ".join(filter(None, [
+        target.get("address", ""),
+        target.get("jurisdiction", ""),
+        name,
+    ])).lower()
+    for keyword, iso2 in _ADDRESS_KEYWORDS_TO_ISO2.items():
+        if keyword in address:
+            return iso2
+
+    # 3. Email domain → country TLD
+    email = target.get("email") or ""
+    tld_match = re.search(r'\.([a-z]{2})$', email.lower())
+    if tld_match:
+        tld = tld_match.group(1)
+        _tld_map = {"sk": "SK", "cz": "CZ", "pl": "PL", "ro": "RO", "hu": "HU",
+                     "tr": "TR", "br": "BR", "uk": "GB", "de": "DE", "fr": "FR",
+                     "es": "ES", "it": "IT", "pt": "PT", "at": "AT", "ae": "AE",
+                     "ng": "NG", "in": "IN", "za": "ZA", "ke": "KE"}
+        if tld in _tld_map:
+            return _tld_map[tld]
+
+    # 4. Registration number format
+    if reg_number:
+        clean = reg_number.replace(" ", "")
+        # Slovak IČO: 6-8 pure digits
+        if clean.isdigit() and 6 <= len(clean) <= 8:
+            # Could be SK or CZ — default SK if address hints
+            if any(kw in address for kw in ("sk", "slovak", "bratislava", "košice", "čachtice")):
+                return "SK"
+            if any(kw in address for kw in ("cz", "czech", "praha", "brno")):
+                return "CZ"
+            # Default to SK for ambiguous 6-8 digit IDs (most common in our deal flow)
+            return "SK"
+
+    return None
+
+
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, "") or default)
@@ -356,6 +434,23 @@ async def _run_identity(
                 registration_number = str(target[_k])
                 break
 
+    # ── Auto-detect jurisdiction from clues when not provided ──
+    if not jurisdiction_iso2:
+        jurisdiction_iso2 = _infer_jurisdiction(target, name, registration_number)
+        if jurisdiction_iso2:
+            jurisdiction = jurisdiction or _ISO2_TO_COUNTRY.get(jurisdiction_iso2, "")
+            logger.info("Jurisdiction inferred: %s → %s", jurisdiction_iso2, jurisdiction)
+
+    # ── Also try IČO / ico key as registration number for SK/CZ ──
+    if not registration_number:
+        for _k in ("ico", "ičo", "IČO", "ICO"):
+            if target.get(_k):
+                registration_number = str(target[_k]).replace(" ", "")
+                if not jurisdiction_iso2:
+                    jurisdiction_iso2 = "SK"
+                    jurisdiction = "Slovak Republic"
+                break
+
     report.identity.entity_name = name
     report.identity.entity_type = entity_type
     report.identity.jurisdiction = jurisdiction
@@ -493,10 +588,20 @@ async def _run_identity(
                 confidence="ASSESSED",
             ))
         elif classified["worst_severity"] == "info":
+            # Build detailed breakdown of each info-level match (datasets + topics)
+            _info_matches = classified.get("per_match") or []
+            _info_detail_parts = [classified["summary"]]
+            for _im in _info_matches[:5]:
+                if _im.get("severity") == "info" and not _im.get("noise_filtered"):
+                    _ds = ", ".join(_im.get("datasets", [])[:3]) or "unspecified"
+                    _tp = ", ".join(_im.get("topics", [])[:3]) or "untagged"
+                    _info_detail_parts.append(
+                        f"  → {_im.get('name', '?')} (score {_im.get('score', 0):.2f}, datasets: {_ds}, topics: {_tp})"
+                    )
             report.identity.findings.append(Finding(
                 severity="info",
-                title=f"Subject on transparency / state-ownership register",
-                detail=classified["summary"] + " — informational only, not a refusal ground.",
+                title=f"Transparency/state-ownership matches ({len([m for m in _info_matches if m.get('severity') == 'info'])})",
+                detail="\n".join(_info_detail_parts) + "\n— informational only, not a refusal ground.",
                 source="sanctions.screen_with_aliases",
                 confidence="ASSESSED",
             ))
@@ -526,13 +631,32 @@ async def _run_identity(
         ))
         report.identity.data_gaps.append("sanctions screen did not complete")
 
-    # ── 1a2. Named-officeholder sanctions screen ──
+    # ── 1a2. Extract contact names from email / phone / explicit fields ──
+    # When the user provides emails like branislav.takac@btg.sk or
+    # explicit contact_name / contact fields, extract person names and
+    # add them to the director screening list.
+    _directors_in = list(target.get("directors") or [])
+    _contact_names_extracted = set()
+    for _email_field in ("email", "contact_email"):
+        _em = target.get(_email_field) or ""
+        if "@" in _em:
+            _local = _em.split("@")[0]
+            # firstname.lastname or firstname_lastname patterns
+            _parts = re.split(r'[._\-]', _local)
+            if len(_parts) >= 2:
+                _extracted = " ".join(p.capitalize() for p in _parts if len(p) > 1)
+                if len(_extracted) > 4 and _extracted not in _contact_names_extracted:
+                    _contact_names_extracted.add(_extracted)
+                    _directors_in.append({"name": _extracted, "role": "Contact (from email)"})
+    for _cn_field in ("contact_name", "contact", "representative"):
+        _cn = (target.get(_cn_field) or "").strip()
+        if _cn and len(_cn) > 3 and _cn not in _contact_names_extracted:
+            _contact_names_extracted.add(_cn)
+            _directors_in.append({"name": _cn, "role": "Contact"})
+
+    # ── Named-officeholder sanctions screen ──
     # When the caller supplies directors / beneficial owners / named
-    # representatives (chat intent extracts "represented by its
-    # Director X"), each individual is sanctions-screened separately.
-    # This closes the "director screening gap" that previously had to
-    # be chased manually after every DD run.
-    _directors_in = target.get("directors") or []
+    # representatives, each individual is sanctions-screened separately.
     if _directors_in:
         try:
             from . import sanctions as _sanc
@@ -1267,6 +1391,54 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
     }
     report.synthesis.risk_classification = canonical_map.get(worst, RiskClassification.GREEN.value)
     report.risk_classification = report.synthesis.risk_classification
+
+    # ── 6b2. Confidence gate — never GREEN when verification is insufficient ──
+    # If risk landed on GREEN but key identity signals are missing, bump
+    # to AMBER-LIGHT with MANUAL REVIEW flag. This prevents a clean bill
+    # when ARIA couldn't actually verify the entity.
+    if report.risk_classification == RiskClassification.GREEN.value and not _is_person:
+        _needs_manual = False
+        _gate_reasons: list[str] = []
+
+        # Registry not verified?
+        _has_registry = bool(
+            report.identity.registration_status
+            or report.identity.incorporation_date
+            or report.identity.directors
+        )
+        if not _has_registry:
+            _needs_manual = True
+            _gate_reasons.append("registry not verified (no adapter or lookup failed)")
+
+        # Too many data gaps?
+        _total_gaps = len(report.data_gaps_summary) if hasattr(report, "data_gaps_summary") else 0
+        if not hasattr(report, "data_gaps_summary"):
+            _total_gaps = sum(
+                len(getattr(s, "data_gaps", []) or [])
+                for s in (report.identity, report.network, report.verification, report.compliance, report.digital)
+            )
+        if _total_gaps >= 3:
+            _needs_manual = True
+            _gate_reasons.append(f"{_total_gaps} unresolved data gaps")
+
+        # Ghost score has unresolved indicators?
+        _ghost = report.identity.ghost_score or {}
+        _unresolved = sum(1 for v in _ghost.get("indicators", {}).values() if v == "?")
+        if _unresolved >= 4:
+            _needs_manual = True
+            _gate_reasons.append(f"ghost score has {_unresolved} unresolved indicators")
+
+        if _needs_manual:
+            report.risk_classification = RiskClassification.AMBER_LIGHT.value
+            report.synthesis.risk_classification = RiskClassification.AMBER_LIGHT.value
+            report.identity.findings.append(Finding(
+                severity="amber",
+                title="Confidence gate: GREEN overridden to AMBER — manual review required",
+                detail=f"Reasons: {'; '.join(_gate_reasons)}. ARIA cannot issue a GREEN clearance without sufficient verification.",
+                source="dd_orchestrator.confidence_gate",
+                confidence="ASSESSED",
+            ))
+            logger.info("Confidence gate: GREEN → AMBER for %s (%s)", name, "; ".join(_gate_reasons))
 
     # ── 6c. SAR trigger — UK POCA / FATF typology ──
     # Triggers:
