@@ -931,157 +931,128 @@ async def _lookup_slovakia_by_name(name: str) -> dict | None:
 
 
 def _parse_orsr_detail(html: str, ico: str, source_url: str) -> dict | None:
-    """Parse ORSR detail page (vypis.asp) into normalised result."""
+    """Parse ORSR detail page (vypis.asp) into normalised result.
+
+    ORSR HTML uses a consistent pattern:
+      <span class="tl">Label:&nbsp;</span> ... <span class='ra'> value </span>
+    Person names are in: <a class=lnm href=hladaj_osoba.asp?...> <span class='ra'> Firstname </span> <span class='ra'> Lastname </span></a>
+    """
     if not html or len(html) < 200:
         return None
 
-    h = _html_unescape(html)
+    def _extract_ra_values(text: str) -> str:
+        """Extract all <span class='ra'> values from an HTML fragment and join."""
+        vals = re.findall(r"class='ra'>\s*([^<]+?)\s*</span>", text)
+        return " ".join(v.strip() for v in vals if v.strip())
 
-    # Company name — appears after "Obchodné meno" or in the first bold link
-    company_name = ""
-    name_match = re.search(
-        r'Obchodn[eé]\s*meno[:\s]*</?\w[^>]*>\s*([^<]{2,120})',
-        h, re.IGNORECASE,
-    )
-    if name_match:
-        company_name = name_match.group(1).strip()
-    if not company_name:
-        # Fallback: first link text on the page that looks like a company name
-        name_match2 = re.search(r'<b>\s*([^<]{3,80}(?:s\.r\.o\.|a\.s\.|a\. s\.))', h, re.IGNORECASE)
-        if name_match2:
-            company_name = name_match2.group(1).strip()
+    def _extract_section(label_pattern: str, end_pattern: str) -> str:
+        """Extract HTML between a label pattern and the next section."""
+        m = re.search(
+            label_pattern + r'(.*?)' + end_pattern,
+            html, re.IGNORECASE | re.DOTALL,
+        )
+        return m.group(1) if m else ""
 
-    # Registered address — after "Sídlo"
-    address = ""
-    addr_match = re.search(
-        r'S[ií]dlo[:\s]*</?\w[^>]*>\s*([^<]{5,200})',
-        h, re.IGNORECASE,
-    )
-    if addr_match:
-        address = addr_match.group(1).strip()
-    if not address:
-        addr_match2 = re.search(r'S[ií]dlo[:\s]*([^<]{5,200})', h, re.IGNORECASE)
-        if addr_match2:
-            address = addr_match2.group(1).strip()
+    # ── Company name ──
+    name_section = _extract_section(r'class="tl">Obchodn', r'class="tl">S.dlo')
+    company_name = _extract_ra_values(name_section).split("(od:")[0].strip() if name_section else ""
 
-    # Incorporation date — "Deň zápisu" or "(od: DD.MM.YYYY)"
+    # ── Registered address ──
+    addr_section = _extract_section(r'class="tl">S.dlo', r'class="tl">I.O')
+    raw_addr = _extract_ra_values(addr_section).split("(od:")[0].strip() if addr_section else ""
+    address = re.sub(r'\s+', ' ', raw_addr).strip()
+
+    # ── IČO ──
+    ico_section = _extract_section(r'class="tl">I.O', r'class="tl">')
+    found_ico = _extract_ra_values(ico_section).split("(od:")[0].strip() if ico_section else ""
+    if found_ico:
+        ico = found_ico.replace(" ", "")
+
+    # ── Incorporation date ──
     inc_date = ""
-    date_match = re.search(
-        r'De[ňn]\s*z[aá]pisu[:\s]*(\d{1,2}\.\d{1,2}\.\d{4})',
-        h, re.IGNORECASE,
-    )
+    date_match = re.search(r'De.\s*z.pisu.*?class=.ra.>\s*(\d{1,2}\.\d{1,2}\.\d{4})', html, re.IGNORECASE | re.DOTALL)
     if date_match:
         inc_date = date_match.group(1)
+    if not inc_date:
+        # Fallback: first (od: DD.MM.YYYY) on the page is usually incorporation
+        first_od = re.search(r'\(od:\s*(\d{1,2}\.\d{1,2}\.\d{4})\)', html)
+        if first_od:
+            inc_date = first_od.group(1)
 
-    # Legal form — "Právna forma"
-    legal_form = ""
-    form_match = re.search(
-        r'Pr[aá]vna\s*forma[:\s]*</?\w[^>]*>\s*([^<]{3,80})',
-        h, re.IGNORECASE,
-    )
-    if form_match:
-        legal_form = form_match.group(1).strip()
-
-    # Business activities — "Predmet podnikania"
+    # ── Business activities ──
     activities = []
-    act_section = re.search(
-        r'Predmet\s*podnikania(.*?)(?:Štatut[aá]rn|Základn[eé]\s*imanie|Akcion[aá]r|Spolo[cč]n[ií]ci)',
-        h, re.IGNORECASE | re.DOTALL,
-    )
+    act_section = _extract_section(r'class="tl">Predmet', r'class="tl">(?:Mana|.*?tatut|Dozorn|Z.kladn)')
     if act_section:
-        acts = re.findall(r'(?:^|\n|>)\s*-?\s*([A-ZÁ-Ža-záčďéěíňóřšťúůýž][^<\n]{5,200})', act_section.group(1))
-        activities = [a.strip().rstrip(",;") for a in acts if len(a.strip()) > 5][:15]
+        # Extract each activity from ra spans, split by <br> boundaries
+        act_raw = _extract_ra_values(act_section)
+        # Activities are separated by "(od:" date markers
+        act_parts = re.split(r'\(od:\s*\d{1,2}\.\d{1,2}\.\d{4}\)', act_raw)
+        for part in act_parts:
+            clean = part.strip().rstrip(",;. ")
+            if len(clean) > 5:
+                activities.append(clean)
 
-    # Directors — look for names in "Štatutárny orgán" section
+    # ── Directors (Štatutárny orgán) ──
     officers = []
-    stat_section = re.search(
-        r'[SŠ]tatut[aá]rn[ýy]\s*org[aá]n(.*?)(?:Dozorn[aá]\s*rada|Z[aá]kladn[eé]\s*imanie|Akcion[aá]r|Spolo[cč]n[ií]ci|Predmet)',
-        h, re.IGNORECASE | re.DOTALL,
+    # Extract ALL person links on the page — pattern: hladaj_osoba.asp?PR=Surname&MENO=Firstname
+    all_persons = re.findall(
+        r'hladaj_osoba\.asp\?PR=([^&]+)&MENO=([^&]+)',
+        html,
     )
-    if stat_section:
-        # Extract person names from links: hladaj_osoba.asp?...>Name<
-        person_links = re.findall(
-            r'hladaj_osoba\.asp[^>]*>\s*([^<]{3,80})\s*<',
-            stat_section.group(1),
-        )
-        for pname in person_links:
-            clean = pname.strip()
-            if clean and len(clean) > 3:
-                officers.append({
-                    "name": clean,
-                    "role": "director",
-                    "appointed_on": "",
-                })
+    # Determine which section each person is in
+    stat_start = re.search(r'tatut.rn', html, re.IGNORECASE)
+    doz_start = re.search(r'[Dd]ozorn', html)
+    cap_start = re.search(r'Z.kladn.\s*iman', html, re.IGNORECASE)
 
-    # If no links, try plain text pattern for names
-    if not officers and stat_section:
-        # Look for lines with name patterns (Title. Firstname Lastname)
-        name_patterns = re.findall(
-            r'(?:Ing\.|Mgr\.|JUDr\.|MUDr\.|PhDr\.|RNDr\.|Bc\.|\b[A-ZÁČĎÉÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]+)\s+[A-ZÁČĎÉÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]{2,}',
-            stat_section.group(1),
-        )
-        for pname in name_patterns[:5]:
-            clean = pname.strip()
-            if clean and len(clean) > 3 and clean not in [o["name"] for o in officers]:
-                officers.append({
-                    "name": clean,
-                    "role": "director",
-                    "appointed_on": "",
-                })
+    stat_pos = stat_start.start() if stat_start else 0
+    doz_pos = doz_start.start() if doz_start else len(html)
+    cap_pos = cap_start.start() if cap_start else len(html)
 
-    # Supervisory board — "Dozorná rada"
-    doz_section = re.search(
-        r'Dozorn[aá]\s*rada(.*?)(?:Z[aá]kladn[eé]\s*imanie|Akcion[aá]r|Spolo[cč]n[ií]ci|Predmet|$)',
-        h, re.IGNORECASE | re.DOTALL,
-    )
-    if doz_section:
-        sup_links = re.findall(
-            r'hladaj_osoba\.asp[^>]*>\s*([^<]{3,80})\s*<',
-            doz_section.group(1),
-        )
-        for pname in sup_links:
-            clean = pname.strip()
-            if clean and len(clean) > 3 and clean not in [o["name"] for o in officers]:
-                officers.append({
-                    "name": clean,
-                    "role": "supervisory_board",
-                    "appointed_on": "",
-                })
+    for match in re.finditer(r'hladaj_osoba\.asp\?PR=([^&]+)&MENO=([^&"]+)', html):
+        surname = _html_unescape(match.group(1).replace("+", " ").strip())
+        firstname = _html_unescape(match.group(2).replace("+", " ").strip())
+        # Clean up URL-encoded characters
+        import urllib.parse
+        surname = urllib.parse.unquote(surname)
+        firstname = urllib.parse.unquote(firstname)
 
-    # Share capital — "Základné imanie"
+        # Remove role suffixes from surname (e.g. "Podoba - predseda dozornej rady")
+        surname_clean = re.sub(r'\s*-\s*.*$', '', surname).strip()
+        full_name = f"{firstname} {surname_clean}".strip()
+        if not full_name or len(full_name) < 3:
+            continue
+
+        pos = match.start()
+        if pos < doz_pos and pos >= stat_pos:
+            role = "director"
+        elif pos >= doz_pos and pos < cap_pos:
+            role = "supervisory_board"
+        else:
+            role = "officer"
+
+        # Extract appointment date from nearby "Vznik funkcie:" text
+        appt = ""
+        appt_match = re.search(r'Vznik funkcie:\s*(\d{1,2}\.\d{1,2}\.\d{4})', html[pos:pos+500])
+        if appt_match:
+            appt = appt_match.group(1)
+
+        if full_name not in [o["name"] for o in officers]:
+            officers.append({
+                "name": full_name,
+                "role": role,
+                "appointed_on": appt,
+            })
+
+    # ── Share capital ──
     capital = ""
-    cap_match = re.search(
-        r'Z[aá]kladn[eé]\s*imanie[:\s]*</?\w[^>]*>\s*([\d\s]+\s*EUR)',
-        h, re.IGNORECASE,
-    )
-    if cap_match:
-        capital = cap_match.group(1).strip()
+    cap_section = _extract_section(r'class="tl">Z.kladn.\s*iman', r'class="tl">')
+    if cap_section:
+        capital = _extract_ra_values(cap_section).split("(od:")[0].strip()
 
-    # Shareholders / PSC — "Akcionári" or "Spoločníci"
-    psc = []
-    share_section = re.search(
-        r'(?:Akcion[aá]r|Spolo[cč]n[ií]ci)(.*?)(?:Z[aá]kladn[eé]\s*imanie|$)',
-        h, re.IGNORECASE | re.DOTALL,
-    )
-    if share_section:
-        share_links = re.findall(
-            r'hladaj_osoba\.asp[^>]*>\s*([^<]{3,80})\s*<',
-            share_section.group(1),
-        )
-        for pname in share_links:
-            clean = pname.strip()
-            if clean and len(clean) > 3:
-                psc.append({
-                    "name": clean,
-                    "kind": "individual-person-with-significant-control",
-                    "nationality": "SK",
-                })
-
-    # SIC codes: use activities as SIC stand-in
+    # ── SIC codes from activities ──
     sic = activities[:5]
-    # Flag defence-related activities
     _defence_keywords = [
-        "zbran", "muníci", "obran", "vojensk", "výbušn", "streliv",
+        "zbran", "munic", "obran", "vojensk", "výbušn", "streliv",
         "weapon", "ammunit", "defence", "defense", "military", "explosive",
     ]
     for act in activities:
@@ -1091,13 +1062,13 @@ def _parse_orsr_detail(html: str, ico: str, source_url: str) -> dict | None:
     return _build_result(
         company_name=company_name or f"IČO {ico}",
         company_number=ico,
-        company_status="active" if not re.search(r'(?:vymazan|zrušen|v likvidácii)', h, re.IGNORECASE) else "dissolved",
+        company_status="active" if not re.search(r'vymazan|zru.en|v likvidácii', html, re.IGNORECASE) else "dissolved",
         date_of_creation=inc_date,
         registered_office_address=address,
         jurisdiction="SK",
         sic_codes=sic,
         officers=officers,
-        psc=psc,
+        psc=[],  # Slovak a.s. (joint-stock) doesn't list shareholders in public ORSR
         source_url=source_url,
         adapter="slovakia_orsr",
     )

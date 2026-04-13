@@ -1401,15 +1401,21 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
         _needs_manual = False
         _gate_reasons: list[str] = []
 
-        # Registry not verified?
-        _has_registry = bool(
-            report.identity.registration_status
-            or report.identity.incorporation_date
-            or report.identity.directors
-        )
-        if not _has_registry:
+        # Registry not verified? Require actual substance — status alone is not enough.
+        _has_registry_status = bool(report.identity.registration_status)
+        _has_directors = bool(report.identity.directors)
+        _has_inc_date = bool(report.identity.incorporation_date)
+        _has_substance = _has_directors or (_has_registry_status and _has_inc_date)
+        if not _has_substance:
             _needs_manual = True
-            _gate_reasons.append("registry not verified (no adapter or lookup failed)")
+            _missing = []
+            if not _has_registry_status:
+                _missing.append("registration status")
+            if not _has_directors:
+                _missing.append("directors/officers")
+            if not _has_inc_date:
+                _missing.append("incorporation date")
+            _gate_reasons.append(f"registry verification incomplete (missing: {', '.join(_missing)})")
 
         # Too many data gaps?
         _total_gaps = len(report.data_gaps_summary) if hasattr(report, "data_gaps_summary") else 0
