@@ -469,9 +469,91 @@ async def search(
     if include_facts:
         await _aio.to_thread(_sync_query_collection, _facts_collection, "facts")
 
-    # Final ranking: recency-boosted similarity, descending
-    results.sort(key=lambda r: -r["score"])
+    # ── Hybrid re-ranking: BM25-like lexical boost ──
+    # Pure semantic search confuses entities with similar embeddings
+    # (e.g. "BTG a.s." ↔ "BTG Pactual"). This adds a term-overlap boost
+    # so results containing the exact query tokens rank higher.
+    # No external dependency — simple inline TF scoring.
+    results = _hybrid_rerank(results, query)
     return results[:top_k]
+
+
+# ── Inline BM25-like re-ranker ──────────────────────────────────────────────
+
+_RERANK_STOPWORDS = {
+    "the", "and", "or", "in", "of", "a", "an", "to", "for", "is", "are",
+    "was", "were", "has", "have", "had", "with", "by", "from", "at", "on",
+    "as", "it", "its", "be", "this", "that", "not", "but", "no", "so",
+}
+
+# Corporate suffixes to ignore in matching
+_RERANK_SUFFIXES = {
+    "ltd", "limited", "plc", "inc", "corp", "llc", "gmbh", "srl", "sa",
+    "bv", "nv", "ag", "ab", "oy", "oyj", "sp", "sro", "doo", "as",
+}
+
+
+def _tokenize_for_rerank(text: str) -> list[str]:
+    """Tokenize text for BM25-like matching. Preserves entity-significant tokens."""
+    if not text:
+        return []
+    # Lowercase, split on non-alphanumeric (preserve dots in "a.s.", "s.r.o.")
+    tokens = re.findall(r'[a-z0-9]+(?:\.[a-z]+)*', text.lower())
+    return [t for t in tokens if len(t) >= 2 and t not in _RERANK_STOPWORDS]
+
+
+def _hybrid_rerank(results: list[dict], query: str) -> list[dict]:
+    """Re-rank semantic results with BM25-like term overlap boost.
+
+    Exact entity name matches get a significant score boost.
+    This prevents "BTG a.s." from being outranked by "BTG Pactual"
+    when the user searched for the Slovak entity specifically.
+    """
+    if not results or not query:
+        return results
+
+    query_tokens = _tokenize_for_rerank(query)
+    if not query_tokens:
+        return results
+
+    # Compute meaningful tokens (excluding corporate suffixes)
+    query_meaningful = [t for t in query_tokens if t not in _RERANK_SUFFIXES]
+    query_lower = query.lower()
+
+    for r in results:
+        text = (r.get("text") or "").lower()
+        title = (r.get("title") or "").lower()
+        doc_text = f"{title} {text}"
+
+        # 1. Exact substring match — strongest signal
+        if query_lower in doc_text:
+            r["score"] *= 1.5
+            r["_rerank"] = "exact_substring"
+            continue
+
+        # 2. Token overlap ratio
+        doc_tokens = set(_tokenize_for_rerank(doc_text))
+        if not doc_tokens:
+            continue
+
+        # Count how many meaningful query tokens appear in the document
+        overlap = sum(1 for t in query_meaningful if t in doc_tokens)
+        overlap_ratio = overlap / len(query_meaningful) if query_meaningful else 0
+
+        if overlap_ratio >= 0.8:
+            r["score"] *= 1.35
+            r["_rerank"] = "high_overlap"
+        elif overlap_ratio >= 0.5:
+            r["score"] *= 1.15
+            r["_rerank"] = "medium_overlap"
+        elif overlap_ratio == 0 and query_meaningful:
+            # Zero token overlap with meaningful query = likely wrong entity
+            r["score"] *= 0.6
+            r["_rerank"] = "no_overlap_penalty"
+
+    # Re-sort by boosted score
+    results.sort(key=lambda r: -r["score"])
+    return results
 
 
 async def get_rag_context(
