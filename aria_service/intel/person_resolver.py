@@ -431,10 +431,29 @@ def resolve(name: str, *, nationality_iso2: str | None = None, max_variants: int
         "person_resolver: '%s' → %d variants (script=%s, components=%s)",
         raw, len(variants), script, components.full_normalised,
     )
-    return NameResolution(
+    _resolution = NameResolution(
         query=raw,
         canonical=canonical,
         components=components,
         variants=variants,
         script=script,
     )
+
+    # ── Brain hook: feed person resolution to learning (fire-and-forget) ──
+    try:
+        import asyncio
+        from . import brain_hook
+        loop = asyncio.get_running_loop()
+        loop.create_task(brain_hook.absorb(
+            module="person_resolver",
+            summary=f"Person resolved: '{raw}' → canonical='{canonical}', {len(variants)} variants, script={script}",
+            entity_name=canonical or raw,
+            success=bool(canonical),
+            confidence="ASSESSED",
+        ))
+    except RuntimeError:
+        pass  # no event loop — skip (CLI / test context)
+    except Exception as _bh:
+        logger.debug("person_resolver brain_hook failed: %s", _bh)
+
+    return _resolution

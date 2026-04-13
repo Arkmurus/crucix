@@ -145,6 +145,20 @@ async def scan_for_moves(current_data: dict) -> int:
     if len(db["moves"]) > MAX_MOVES:
         db["moves"] = db["moves"][:MAX_MOVES]
     await _save()
+
+    # ── Brain hook: feed competitor moves to learning ──
+    if added > 0:
+        try:
+            from . import brain_hook
+            await brain_hook.absorb(
+                module="competitors",
+                summary=f"Competitor scan: {added} new moves detected across {len(db.get('moves', []))} total tracked",
+                success=True,
+                confidence="ASSESSED",
+            )
+        except Exception as _bh:
+            logger.debug("competitors brain_hook failed: %s", _bh)
+
     return added
 
 

@@ -219,6 +219,23 @@ async def get_financial_profile(
         logger.warning("Financial DD failed for %s: %s", company_number, e)
         result["error"] = str(e)
 
+    # ── Brain hook: feed financial analysis to learning ──
+    try:
+        from . import brain_hook
+        _shell_score = result.get("shell_risk_score", 0.0)
+        await brain_hook.absorb(
+            module="financial_dd",
+            summary=f"Financial DD on {company_number}: shell_risk={_shell_score:.0%}, {len(result.get('shell_indicators', []))} indicators. {result.get('financial_summary', '')}",
+            detail="; ".join(result.get("shell_indicators", []))[:2000],
+            entity_name=company_number,
+            success="error" not in result,
+            confidence="PROBABLE",
+            gap_type="api_missing" if "error" in result else None,
+            gap_detail=result.get("error"),
+        )
+    except Exception as _bh:
+        logger.debug("financial_dd brain_hook failed: %s", _bh)
+
     return result
 
 

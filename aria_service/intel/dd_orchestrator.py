@@ -1819,17 +1819,36 @@ async def orchestrate_dd(
     # ── Persist + deliver ──
     await _persist_report(report)
 
+    # ── Brain hook: feed all learning tiers ──
     try:
-        from . import knowledge
-        summary = f"ARK-DD report {report.run_id} on {report.identity.entity_name}: {report.risk_classification}. {report.bottom_line[:200]}"
-        await knowledge.store_fact(
-            topic=f"ark_dd:{report.identity.entity_name}",
-            content=summary,
-            source=f"dd_orchestrator:{report.run_id}",
+        from . import brain_hook
+        _dd_summary = (
+            f"DD report on {report.identity.entity_name} "
+            f"({report.identity.entity_type}, {report.identity.jurisdiction_iso2 or 'unknown jurisdiction'}): "
+            f"risk={report.risk_classification}. {report.bottom_line[:300]}"
+        )
+        _dd_detail_parts = [_dd_summary]
+        if report.compliance.sanctions_matches:
+            _dd_detail_parts.append(f"Sanctions: {len(report.compliance.sanctions_matches)} matches")
+        if report.network.findings:
+            _dd_detail_parts.append(f"Network: {'; '.join(f.get('summary', '')[:100] for f in report.network.findings[:5])}")
+        if report.digital.findings:
+            _dd_detail_parts.append(f"Digital: {'; '.join(f.get('summary', '')[:100] for f in report.digital.findings[:5])}")
+        if report.data_gaps_summary:
+            _dd_detail_parts.append(f"Data gaps: {', '.join(report.data_gaps_summary[:5])}")
+        await brain_hook.absorb(
+            module="dd_orchestrator",
+            summary=_dd_summary,
+            detail=" | ".join(_dd_detail_parts),
+            entity_name=report.identity.entity_name or "",
+            success=report.risk_classification != "ERROR",
+            source_id=report.run_id,
             confidence="PROBABLE",
+            gap_type="knowledge_gap" if report.data_gaps_summary else None,
+            gap_detail=f"DD data gaps for {report.identity.entity_name}: {', '.join(report.data_gaps_summary[:5])}" if report.data_gaps_summary else None,
         )
     except Exception as e:
-        logger.debug("dd_orchestrator: knowledge store failed (non-fatal): %s", e)
+        logger.debug("dd_orchestrator: brain_hook failed (non-fatal): %s", e)
 
     logger.info(
         "[dd_orchestrator] run %s complete — entity=%s risk=%s cost=$%.4f duration=%dms layers=%s",

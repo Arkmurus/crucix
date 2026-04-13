@@ -1179,6 +1179,25 @@ async def run_monitoring_cycle() -> dict:
     except Exception:
         pass
 
+    # ── Brain hook: feed tender insights to learning ──
+    try:
+        from . import brain_hook
+        _tender_detail = "; ".join(
+            f"{m['title'][:80]} ({m['portal']}, {m['country']}, relevance={m['relevance']:.2f})"
+            for m in top_matches[:5]
+        ) if top_matches else "no high-relevance tenders"
+        await brain_hook.absorb(
+            module="tender_monitor",
+            summary=f"Tender scan: {len(all_tenders)} found, {len(new_tenders)} new, {len(top_matches)} high-relevance",
+            detail=_tender_detail,
+            success=len(all_tenders) > 0,
+            confidence="ASSESSED",
+            gap_type="api_missing" if len(all_tenders) == 0 else None,
+            gap_detail="Tender monitor returned 0 results across all portals" if len(all_tenders) == 0 else None,
+        )
+    except Exception as _bh:
+        logger.debug("tender_monitor brain_hook failed: %s", _bh)
+
     return stats
 
 

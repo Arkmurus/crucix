@@ -173,6 +173,21 @@ async def update_state(
 
     await _save_cases(cases)
     logger.info("Case %s: %s → %s (by %s)", case_id, old_state, new_state, by)
+
+    # ── Brain hook: feed learning on every state transition ──
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="compliance_workflow",
+            summary=f"Compliance case {case_id} for {case.get('entity_name', '?')}: {old_state} → {new_state}. Risk: {case.get('risk_level', 'unknown')}. {(risk_summary or reason or '')[:200]}",
+            entity_name=case.get("entity_name", ""),
+            success=new_state != "expired",
+            source_id=case_id,
+            confidence="CONFIRMED" if new_state in ("approved", "rejected") else "ASSESSED",
+        )
+    except Exception as _bh:
+        logger.debug("compliance_workflow brain_hook failed (non-fatal): %s", _bh)
+
     return case
 
 

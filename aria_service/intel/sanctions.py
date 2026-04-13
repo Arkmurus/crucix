@@ -356,6 +356,21 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
             "OpenSanctions is updated daily but may lag designations by 24-48 hours."
         ),
     }
+
+    # ── Brain hook: feed sanctions screening result ──
+    if all_matches:
+        try:
+            from . import brain_hook
+            await brain_hook.absorb(
+                module="sanctions",
+                summary=f"Sanctions screen '{name}': {len(all_matches)} matches, top_score={top_score:.2f}, blocked={result['blocked']}",
+                entity_name=name,
+                success=True,
+                confidence="PROBABLE",
+            )
+        except Exception as _bh:
+            logger.debug("sanctions brain_hook failed: %s", _bh)
+
     return result
 
 

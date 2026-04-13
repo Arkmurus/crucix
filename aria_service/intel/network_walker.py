@@ -323,7 +323,7 @@ async def walk_network(
     stats["pep_hits"] = len(pep_connections)
     stats["flagged_in_network"] = len(sanctions_network) + len(pep_connections)
 
-    return {
+    result = {
         "director_graph": {"nodes": nodes, "edges": edges},
         "cross_linked_entities": cross_linked,
         "address_cluster": {},   # populated once address-cluster API added
@@ -333,3 +333,22 @@ async def walk_network(
         "data_gaps": data_gaps,
         "stats": stats,
     }
+
+    # ── Brain hook: feed network analysis to learning ──
+    try:
+        from . import brain_hook
+        _nw_detail = "; ".join(f.get("title", "")[:100] for f in findings[:8])
+        await brain_hook.absorb(
+            module="network_walker",
+            summary=f"Network walk: {len(nodes)} directors, {len(cross_linked)} cross-linked, {len(pep_connections)} PEP, {len(sanctions_network)} sanctions, {len(findings)} findings",
+            detail=_nw_detail or "no notable findings",
+            entity_name=target.get("name", ""),
+            success=True,
+            confidence="PROBABLE",
+            gap_type="knowledge_gap" if data_gaps else None,
+            gap_detail=f"Network walker data gaps: {', '.join(data_gaps[:5])}" if data_gaps else None,
+        )
+    except Exception as _bh:
+        logger.debug("network_walker brain_hook failed: %s", _bh)
+
+    return result

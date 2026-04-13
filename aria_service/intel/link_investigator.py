@@ -1027,6 +1027,25 @@ async def investigate_link_tree(
         result.total_cost_usd,
         result.duration_ms,
     )
+
+    # ── Brain hook: feed extracted facts + key findings ──
+    try:
+        from . import brain_hook
+        _facts_summary = "; ".join(
+            f"{f.category}: {f.value[:80]}" for f in (result.fused_facts or [])[:10]
+        ) if result.fused_facts else "no facts extracted"
+        await brain_hook.absorb(
+            module="link_investigator",
+            summary=f"Link investigation {result.tree_id}: {seed_url} — {result.pages_fetched} pages, {len(result.fused_facts or [])} facts, depth {result.max_depth_reached}",
+            detail=_facts_summary,
+            entity_name=seed_url,
+            success=result.pages_fetched > 0,
+            source_id=result.tree_id,
+            confidence="ASSESSED",
+        )
+    except Exception as _bh:
+        logger.debug("link_investigator brain_hook failed: %s", _bh)
+
     return result
 
 

@@ -332,7 +332,7 @@ async def crawl_website(
         "completed_at": time.time(),
     })
 
-    return {
+    _crawl_result = {
         "website": domain,
         "start_url": start_url,
         "pages_crawled": pages_read,
@@ -343,6 +343,23 @@ async def crawl_website(
         "pages": pages_metadata,
         "duration_ms": duration,
     }
+
+    # ── Brain hook: feed crawl findings to learning ──
+    try:
+        from . import brain_hook
+        _dr_facts = "; ".join(str(f)[:100] for f in all_facts[:10]) if all_facts else "no facts"
+        await brain_hook.absorb(
+            module="deep_researcher",
+            summary=f"Deep research on {domain}: {pages_read} pages, {total_facts} facts, {total_hyp} hypotheses",
+            detail=_dr_facts,
+            entity_name=domain,
+            success=pages_read > 0,
+            confidence="ASSESSED",
+        )
+    except Exception as _bh:
+        logger.debug("deep_researcher brain_hook failed: %s", _bh)
+
+    return _crawl_result
 
 
 async def get_crawl_progress(domain: str) -> dict:
@@ -548,6 +565,20 @@ Return JSON:
     duration = int((time.time() - t_start) * 1000)
     logger.info(f"Investigation complete: '{topic}' — {articles_read} articles, {total_facts} facts ({duration}ms)")
 
+    # ── Brain hook: feed investigation findings to learning ──
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="deep_researcher",
+            summary=f"Deep investigation '{topic}': {articles_read} articles, {total_facts} facts, {total_hyp} hypotheses",
+            detail=str(synthesis)[:3000] if synthesis else "",
+            entity_name=topic,
+            success=articles_read > 0,
+            confidence="ASSESSED",
+        )
+    except Exception as _bh:
+        logger.debug("deep_researcher investigate brain_hook failed: %s", _bh)
+
     return {
         "topic": topic,
         "depth": depth,
@@ -646,6 +677,22 @@ Return JSON:
         return {"error": str(e)}
 
     duration = int((time.time() - t_start) * 1000)
+
+    # ── Brain hook: feed scenario analysis to learning ──
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="deep_researcher",
+            summary=f"Scenario analysis: most_likely={parsed.get('most_likely', '?')}, most_dangerous={parsed.get('most_dangerous', '?')}",
+            detail=str(parsed)[:3000],
+            entity_name=situation[:80],
+            success=True,
+            extra_topics=["geopolitics"],
+            confidence="ASSESSED",
+        )
+    except Exception as _bh:
+        logger.debug("deep_researcher scenarios brain_hook failed: %s", _bh)
+
     return {
         "situation": situation,
         "scenarios": parsed.get("scenarios", []),
@@ -758,6 +805,21 @@ Return JSON:
             logger.warning(f"Profile synthesis failed: {e}")
 
     duration = int((time.time() - t_start) * 1000)
+
+    # ── Brain hook: feed entity profile to learning ──
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="deep_researcher",
+            summary=f"Profile built for '{entity}': {total_facts} facts, {len(searches)} sources",
+            detail=str(profile)[:3000] if profile else "",
+            entity_name=entity,
+            success=total_facts > 0,
+            confidence="ASSESSED",
+        )
+    except Exception as _bh:
+        logger.debug("deep_researcher profile brain_hook failed: %s", _bh)
+
     return {
         "entity": entity,
         "facts_gathered": total_facts,
@@ -866,6 +928,23 @@ Return JSON:
             logger.warning(f"Person investigation synthesis failed: {e}")
 
     duration = int((time.time() - t_start) * 1000)
+
+    # ── Brain hook: feed person investigation to learning ──
+    try:
+        from . import brain_hook
+        _risk = report.get("risk_assessment", "unknown") if report else "unknown"
+        await brain_hook.absorb(
+            module="deep_researcher",
+            summary=f"Person investigation '{name}': {total_facts} facts, risk={_risk}",
+            detail=str(report)[:3000] if report else "",
+            entity_name=name,
+            success=total_facts > 0,
+            extra_topics=["relationships"],
+            confidence="ASSESSED",
+        )
+    except Exception as _bh:
+        logger.debug("deep_researcher person brain_hook failed: %s", _bh)
+
     return {
         "name": name,
         "facts_gathered": total_facts,
@@ -981,6 +1060,23 @@ Return JSON:
             logger.warning(f"Company investigation synthesis failed: {e}")
 
     duration = int((time.time() - t_start) * 1000)
+
+    # ── Brain hook: feed company investigation to learning ──
+    try:
+        from . import brain_hook
+        _risk = report.get("risk_assessment", "unknown") if report else "unknown"
+        await brain_hook.absorb(
+            module="deep_researcher",
+            summary=f"Company investigation '{company}' ({country}): {total_facts} facts, risk={_risk}",
+            detail=str(report)[:3000] if report else "",
+            entity_name=company,
+            success=total_facts > 0,
+            extra_topics=["compliance", "finance"],
+            confidence="ASSESSED",
+        )
+    except Exception as _bh:
+        logger.debug("deep_researcher company brain_hook failed: %s", _bh)
+
     return {
         "company": company,
         "country": country,
@@ -1111,6 +1207,22 @@ Return JSON:
             logger.warning(f"Network mapping synthesis failed: {e}")
 
     duration = int((time.time() - t_start) * 1000)
+
+    # ── Brain hook: feed network mapping to learning ──
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="deep_researcher",
+            summary=f"Network mapping {entity_names[:3]}: {total_facts} facts, {len(entity_names)} entities analysed",
+            detail=str(network_map)[:3000] if network_map else "",
+            entity_name=", ".join(entity_names[:3]),
+            success=total_facts > 0,
+            extra_topics=["relationships"],
+            confidence="ASSESSED",
+        )
+    except Exception as _bh:
+        logger.debug("deep_researcher network brain_hook failed: %s", _bh)
+
     return {
         "entities": entity_names,
         "facts_gathered": total_facts,

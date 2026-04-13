@@ -156,6 +156,19 @@ async def self_review_contract(
     if not all_findings:
         return {"self_reviewed": False, "reason": "all windows failed"}
 
+    # ── Brain hook: feed self-review findings to learning ──
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="contract_intelligence",
+            summary=f"Contract self-review: {len(chunks)} windows, corrections={'YES' if has_corrections else 'NO'}, truncated={truncated}",
+            detail="\n\n".join(all_findings)[:3000],
+            success=not has_corrections,
+            confidence="ASSESSED",
+        )
+    except Exception as _bh:
+        logger.debug("contract self-review brain_hook failed: %s", _bh)
+
     return {
         "self_reviewed": True,
         "has_corrections": has_corrections,
@@ -462,6 +475,21 @@ async def record_correction(
     await rs.set_json(CORRECTIONS_KEY, corrections, ex=180 * 86400)
 
     logger.info("[contract] Correction recorded: %s — %s", error_type, lesson[:100])
+
+    # ── Brain hook: correction = negative mastery signal + lesson stored ──
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="contract_intelligence",
+            summary=f"Contract correction ({error_type}) on {document_name}: {lesson[:200]}",
+            detail=f"{error_type}: {description}. Lesson: {lesson}",
+            entity_name=document_name,
+            success=False,
+            confidence="CONFIRMED",
+        )
+    except Exception as _bh:
+        logger.debug("contract correction brain_hook failed: %s", _bh)
+
     return {"recorded": True, "total_corrections": len(corrections)}
 
 

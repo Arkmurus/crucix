@@ -311,6 +311,19 @@ async def get_recent_events(country: str, days: int = 30, limit: int = 50) -> di
         except Exception as e:
             logger.warning("Failed to push escalation alert for %s: %s", country, e)
 
+    # ── Brain hook: feed conflict intel to learning ──
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="conflict_tracker",
+            summary=f"Conflict tracker {country}: escalation={escalation}/100 ({esc_label}), {len(events)} events, {fatalities} fatalities, momentum={round(momentum, 2)}x",
+            entity_name=country,
+            success=True,
+            confidence="ASSESSED",
+        )
+    except Exception as _bh:
+        logger.debug("conflict_tracker brain_hook failed: %s", _bh)
+
     return result
 
 
