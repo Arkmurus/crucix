@@ -360,6 +360,31 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..intel import weekly_report
         return await weekly_report._audit_knowledge_freshness()
 
+    elif tool_kind == "daily_team_briefing":
+        from ..intel import deal_pipeline
+        from ..intel import contact_intelligence
+        summary = await deal_pipeline.generate_pipeline_summary()
+        # Also check dormancy as part of briefing
+        dormant = await deal_pipeline.check_dormant_leads()
+        if dormant:
+            summary += f"\n\n💤 *{len(dormant)} lead(s) auto-marked DORMANT today*"
+        # Add contact intelligence section
+        contact_brief = await contact_intelligence.generate_contact_briefing()
+        if contact_brief:
+            summary += f"\n{contact_brief}"
+        return {"briefing": summary, "dormant_leads": len(dormant)}
+
+    elif tool_kind == "pipeline_dormancy_check":
+        from ..intel import deal_pipeline
+        dormant = await deal_pipeline.check_dormant_leads()
+        stale = await deal_pipeline.get_stale_leads()
+        deadlines = await deal_pipeline.get_upcoming_deadlines(days_ahead=7)
+        return {
+            "dormant_marked": len(dormant),
+            "stale_leads": len(stale),
+            "deadlines_7d": len(deadlines),
+        }
+
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}
 
@@ -435,7 +460,8 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
         elif tool_kind in ("law_refresh", "corpus_weekly_crawl",
                            "metacognitive_daily_check", "metacognitive_weekly_review",
                            "metacognitive_monthly_sprint",
-                           "dd_watchlist_sweep", "knowledge_freshness_audit"):
+                           "dd_watchlist_sweep", "knowledge_freshness_audit",
+                           "daily_team_briefing", "pipeline_dormancy_check"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             try:

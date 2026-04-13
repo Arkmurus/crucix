@@ -2201,6 +2201,32 @@ def _detect_tool_intent(message: str) -> dict | None:
     if not msg:
         return None
 
+    # ── Pre-meeting briefing intent ──
+    # "brief me for my meeting with Angola" / "prepare briefing for FADM"
+    # "meeting prep for Ghana defence minister" / "pre-meeting brief Angola"
+    _BRIEFING_RE = re.compile(
+        r"\b(?:brief(?:ing)?(?:\s+me)?|meeting\s+prep|pre-?meeting|prepare\s+(?:a\s+)?brief)"
+        r".*?\b(?:for|with|on|about)\s+(.{3,80})",
+        re.IGNORECASE,
+    )
+    briefing_match = _BRIEFING_RE.search(msg)
+    if briefing_match:
+        entity = briefing_match.group(1).strip(" .,;:!?\"'")[:100]
+        return {
+            "tool": "pre_meeting_briefing",
+            "entity": entity,
+            "context": msg,
+            "_reason": "pre_meeting_briefing",
+        }
+
+    # ── Pipeline command intent ──
+    if msg.strip().lower().startswith("/pipeline") or msg.strip().lower() == "show pipeline":
+        return {
+            "tool": "pipeline_summary",
+            "context": msg,
+            "_reason": "pipeline_command",
+        }
+
     # ── DD orchestrator intent — highest priority ──
     # "DD on X" / "due diligence on X" / "ark-dd on X" / "full DD on X"
     # short-circuits the rest of the intent detection because the
@@ -2670,6 +2696,70 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"check status anytime with /task {spawn['id']}.'\n"
                 f"Do NOT try to give the answer yourself — it does not exist yet."
             )
+
+        if tool == "pipeline_summary":
+            from ..intel import deal_pipeline as _dp
+            summary = await _dp.generate_pipeline_summary()
+            return f"\n\n[TOOL: pipeline_summary]\n{summary}\n\nPresent this pipeline summary to the user exactly as formatted."
+
+        if tool == "pre_meeting_briefing":
+            entity = (intent.get("entity") or "").strip()
+            # Run a fresh investigate on the entity to get current data
+            from ..intel import deal_pipeline as _dp
+            from ..intel import knowledge as _kb
+            from ..intel import rag_store as _rag
+
+            briefing_parts = [
+                f"[TOOL: pre_meeting_briefing — {entity}]",
+                f"GENERATING VERIFIED BRIEFING FOR: {entity}",
+                "",
+            ]
+
+            # 1. Pipeline leads for this entity/country
+            pipeline_leads = await _dp.get_pipeline(country=entity)
+            if pipeline_leads:
+                briefing_parts.append(f"PIPELINE LEADS ({len(pipeline_leads)}):")
+                for l in pipeline_leads[:5]:
+                    briefing_parts.append(f"  - [{l['stage']}] {l.get('buyer', '?')}: {l.get('requirement', '?')[:80]} (${l.get('estimated_value_usd', 0):,.0f})")
+                briefing_parts.append("")
+
+            # 2. Knowledge base facts
+            kb_facts = _kb.search_knowledge(entity)
+            if kb_facts:
+                briefing_parts.append(f"VERIFIED KNOWLEDGE ({len(kb_facts)} facts):")
+                for f in kb_facts[:10]:
+                    briefing_parts.append(f"  - [{f.get('confidence', 'ASSESSED')}] {f.get('text', '')[:150]}")
+                briefing_parts.append("")
+
+            # 3. RAG context
+            rag_ctx = await _rag.get_rag_context(entity, max_chars=4000)
+            if rag_ctx:
+                briefing_parts.append(f"RAG INTELLIGENCE:")
+                briefing_parts.append(rag_ctx[:2000])
+                briefing_parts.append("")
+
+            # 4. Also run a quick web search for fresh data
+            try:
+                r = await deep_research(entity, max_queries=2, max_extracts=2)
+                if r.get("ok"):
+                    extracts = r.get("extracted_pages") or []
+                    if extracts:
+                        briefing_parts.append("FRESH WEB DATA:")
+                        for ex in extracts[:3]:
+                            briefing_parts.append(f"  Source: {ex.get('url', '?')}")
+                            briefing_parts.append(f"  {ex.get('content', '')[:500]}")
+                            briefing_parts.append("")
+            except Exception:
+                pass
+
+            briefing_parts.append(
+                "INSTRUCTION: Synthesise the above into a concise 1-page pre-meeting "
+                "briefing. Mark each key fact as [CONFIRMED], [ASSESSED], or [STALE]. "
+                "Flag any data gaps. Include: key contacts, recent deals, procurement "
+                "cycle, budget, active tenders, competitive landscape, recommended "
+                "talking points. DO NOT fabricate any facts."
+            )
+            return "\n".join(briefing_parts)
 
         if tool == "deep_research":
             # THE THOROUGH RESEARCH PATH (Phase 2, 2026-04-09 evening).
@@ -7059,3 +7149,159 @@ async def tender_stats_ep():
     """Get tender monitoring portal health and statistics."""
     from ..intel import tender_monitor
     return await tender_monitor.get_stats()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEAL PIPELINE — CRM-lite lead tracker
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/pipeline")
+async def pipeline_list_ep(
+    stage: str = "",
+    country: str = "",
+    include_closed: bool = False,
+):
+    """List pipeline leads with optional filters."""
+    from ..intel import deal_pipeline
+    leads = await deal_pipeline.get_pipeline(
+        stage=stage or None,
+        country=country or None,
+        include_closed=include_closed,
+    )
+    stats = await deal_pipeline.get_stats()
+    return {"leads": leads, "stats": stats}
+
+
+@router.get("/pipeline/stats")
+async def pipeline_stats_ep():
+    from ..intel import deal_pipeline
+    return await deal_pipeline.get_stats()
+
+
+@router.get("/pipeline/summary")
+async def pipeline_summary_ep():
+    """Formatted pipeline summary (same as WhatsApp /pipeline)."""
+    from ..intel import deal_pipeline
+    return {"summary": await deal_pipeline.generate_pipeline_summary()}
+
+
+@router.get("/pipeline/stale")
+async def pipeline_stale_ep(days: int = 14):
+    from ..intel import deal_pipeline
+    return {"stale_leads": await deal_pipeline.get_stale_leads(days)}
+
+
+@router.get("/pipeline/deadlines")
+async def pipeline_deadlines_ep(days: int = 30):
+    from ..intel import deal_pipeline
+    return {"upcoming_deadlines": await deal_pipeline.get_upcoming_deadlines(days)}
+
+
+@router.get("/pipeline/{lead_id}")
+async def pipeline_get_ep(lead_id: str):
+    from ..intel import deal_pipeline
+    lead = await deal_pipeline.get_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
+    return lead
+
+
+@router.post("/pipeline")
+async def pipeline_create_ep(req: Request):
+    """Create a new lead manually."""
+    from ..intel import deal_pipeline
+    body = await req.json()
+    lead = await deal_pipeline.create_lead(
+        country=body.get("country", ""),
+        buyer=body.get("buyer", ""),
+        requirement=body.get("requirement", ""),
+        estimated_value_usd=float(body.get("estimated_value_usd", 0)),
+        stage=body.get("stage", "DETECTED"),
+        next_action=body.get("next_action", ""),
+        owner=body.get("owner", ""),
+        deadline=body.get("deadline", ""),
+        source=body.get("source", "manual"),
+        tags=body.get("tags", []),
+        notes=body.get("notes", []),
+    )
+    from dataclasses import asdict
+    return {"ok": True, "lead": asdict(lead)}
+
+
+@router.patch("/pipeline/{lead_id}")
+async def pipeline_update_ep(lead_id: str, req: Request):
+    """Update a lead (stage, notes, next_action, etc)."""
+    from ..intel import deal_pipeline
+    body = await req.json()
+    lead = await deal_pipeline.update_lead(lead_id, **body)
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
+    return {"ok": True, "lead": lead}
+
+
+@router.delete("/pipeline/{lead_id}")
+async def pipeline_delete_ep(lead_id: str):
+    from ..intel import deal_pipeline
+    deleted = await deal_pipeline.delete_lead(lead_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
+    return {"ok": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONTACT INTELLIGENCE — relationship tracker
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/contacts")
+async def contacts_list_ep(status: str = "", country: str = ""):
+    from ..intel import contact_intelligence
+    contacts = await contact_intelligence.get_contacts(
+        status=status or None, country=country or None,
+    )
+    stats = await contact_intelligence.get_stats()
+    return {"contacts": contacts, "stats": stats}
+
+
+@router.get("/contacts/nudges")
+async def contacts_nudges_ep():
+    from ..intel import contact_intelligence
+    return {"nudges": await contact_intelligence.get_reengagement_nudges()}
+
+
+@router.get("/contacts/stats")
+async def contacts_stats_ep():
+    from ..intel import contact_intelligence
+    return await contact_intelligence.get_stats()
+
+
+@router.post("/contacts")
+async def contacts_add_ep(req: Request):
+    from ..intel import contact_intelligence
+    body = await req.json()
+    contact = await contact_intelligence.add_contact(
+        name=body.get("name", ""),
+        org=body.get("org", ""),
+        role=body.get("role", ""),
+        country=body.get("country", ""),
+        email=body.get("email", ""),
+        phone=body.get("phone", ""),
+        source=body.get("source", "manual"),
+        importance=body.get("importance", "NORMAL"),
+        tags=body.get("tags", []),
+    )
+    from dataclasses import asdict
+    return {"ok": True, "contact": asdict(contact)}
+
+
+@router.post("/contacts/interaction")
+async def contacts_interaction_ep(req: Request):
+    from ..intel import contact_intelligence
+    body = await req.json()
+    result = await contact_intelligence.record_interaction(
+        name=body.get("name", ""),
+        org=body.get("org", ""),
+        channel=body.get("channel", "manual"),
+    )
+    if not result:
+        return {"ok": False, "error": "Contact not found"}
+    return {"ok": True, "contact": result}

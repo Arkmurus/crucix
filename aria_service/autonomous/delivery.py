@@ -194,4 +194,22 @@ async def deliver(
         except Exception as e:
             out[ch] = f"error:{type(e).__name__}:{str(e)[:200]}"
 
+    # ── Auto-create pipeline leads from task outputs ──────────────────────
+    # Every autonomous task result is scanned for procurement signals.
+    # If found, a lead is auto-created in the deal pipeline.
+    try:
+        from ..intel import deal_pipeline
+        lead = await deal_pipeline.auto_create_from_signal(
+            task_id=task.id,
+            task_name=task.name,
+            response_text=response_text or "",
+            triggered_flags=triggered_flags,
+        )
+        if lead:
+            out["pipeline"] = f"ok:lead_created:{lead.id}"
+        else:
+            out["pipeline"] = "skipped:no_procurement_signal"
+    except Exception as e:
+        out["pipeline"] = f"error:{type(e).__name__}:{str(e)[:100]}"
+
     return out

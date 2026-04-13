@@ -632,3 +632,81 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: ["stale_officeholder", "verification_failed"]
     mem0_tags: [knowledge, audit, freshness, officeholder, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # DAILY TEAM BRIEFING — morning action items for the BD team
+  # ═══════════════════════════════════════════════════════════════════
+  # Fires weekday mornings at 05:45 UTC (before the procurement scans).
+  # Generates a pipeline summary + stale leads + deadline alerts +
+  # overnight intel highlights. Delivered to WhatsApp group so the
+  # team knows what to prioritise each morning.
+  - id: DAILY-TEAM-BRIEFING
+    name: Morning team briefing
+    description: |
+      Daily 05:45 UTC weekday briefing for the BD team.
+      Combines: pipeline status (new/stale/dormant leads, deadlines),
+      overnight autonomous task highlights, action items for today.
+      Delivered to WhatsApp group and intel ledger.
+    cron: "45 5 * * mon-fri"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 120
+    cost_cap_usd: 0.10
+    tool_chain:
+      - tool: daily_team_briefing
+    delivery_channels: [whatsapp, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if: ["deadline", "dormant", "stale"]
+    mem0_tags: [briefing, pipeline, daily, team, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PIPELINE DORMANCY CHECK — auto-mark stale leads
+  # ═══════════════════════════════════════════════════════════════════
+  - id: DAILY-PIPELINE-CHECK
+    name: Pipeline dormancy check
+    description: |
+      Daily 22:00 UTC — check for leads with no activity in 21+ days
+      and auto-mark them DORMANT. Also checks for upcoming deadlines
+      and generates follow-up reminders.
+    cron: "0 22 * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 60
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: pipeline_dormancy_check
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["dormant", "deadline_imminent"]
+    mem0_tags: [pipeline, dormancy, check, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # WEEKLY NEW MARKET SCAN — discover untapped opportunities
+  # ═══════════════════════════════════════════════════════════════════
+  - id: WEEKLY-NEW-MARKET-SCAN
+    name: New market discovery scan
+    description: |
+      Weekly Thursday 10:00 UTC — search for countries with rising
+      defence budgets, new procurement programmes, or emerging security
+      needs where Arkmurus has no existing relationships. Specifically
+      look for: rising defence spend (>10% YoY), first-time buyer
+      programmes, CPLP/NATO-aspirant opportunities, technology-match
+      potential. Auto-create pipeline leads for the most promising.
+    cron: "0 10 * * thu"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 300
+    cost_cap_usd: 0.50
+    tool_chain:
+      - tool: investigate
+        topic: >
+          Search for NEW defence procurement opportunities in countries where
+          Arkmurus does not yet operate. Focus on: countries with rising defence
+          budgets (>10% increase), first-time equipment buyers, CPLP member states
+          with security needs, NATO aspirant nations modernising their forces.
+          Exclude countries already in our pipeline (Angola, Mozambique, Ghana,
+          Nigeria, Kenya, Turkey). Find the next 3-5 markets we should enter.
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if: ["opportunity", "new_market", "rising_budget"]
+    mem0_tags: [new_market, discovery, expansion, autonomous]
