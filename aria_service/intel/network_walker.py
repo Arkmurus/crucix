@@ -239,6 +239,54 @@ async def walk_network(
                 "confidence": _sev_to_conf.get(severity, "ASSESSED"),
             })
 
+    # ── Step 2b: Family/associate detection ──────────────────────────────
+    # Detect surname clusters among directors (family companies) and
+    # screen any PEP-flagged director's relatives via surname variants.
+    if len(officers) >= 2:
+        # Build surname map
+        _surnames: dict[str, list[str]] = {}  # surname → [full names]
+        for o in officers:
+            oname = (o.get("name") or "").strip()
+            if not oname:
+                continue
+            parts = oname.split()
+            if len(parts) >= 2:
+                surname = parts[-1]
+                _surnames.setdefault(surname.lower(), []).append(oname)
+
+        # Flag surname clusters (3+ people with same surname = family company)
+        for surname, names in _surnames.items():
+            if len(names) >= 2:
+                findings.append({
+                    "severity": "info",
+                    "title": f"Family cluster detected: {len(names)} officers share surname '{names[0].split()[-1]}'",
+                    "detail": f"Officers: {', '.join(names)}. Family-controlled companies are common but require UBO verification to confirm beneficial ownership chain.",
+                    "source": "network_walker.family_detection",
+                    "confidence": "ASSESSED",
+                })
+
+        # For PEP-flagged directors, screen close family variants
+        for pep in pep_connections:
+            pep_name = pep.get("name", "")
+            pep_parts = pep_name.split()
+            if len(pep_parts) < 2:
+                continue
+            pep_surname = pep_parts[-1]
+            # Check if other directors share this PEP's surname
+            related_officers = [
+                o.get("name") for o in officers
+                if o.get("name", "").split()[-1:] == [pep_surname]
+                and o.get("name") != pep_name
+            ]
+            for rel_name in related_officers[:3]:
+                findings.append({
+                    "severity": "amber",
+                    "title": f"PEP family link: {rel_name} shares surname with PEP-flagged {pep_name}",
+                    "detail": f"{rel_name} is a director/officer and shares the surname '{pep_surname}' with {pep_name} who was flagged as {pep.get('severity', '?')}. Verify whether they are related.",
+                    "source": "network_walker.family_association",
+                    "confidence": "ASSESSED",
+                })
+
     # ── Step 3: Seed entity itself screened (if not already done upstream) ──
     seed_screen = await _screen_name(entity_name)
     stats["sanctions_screens"] += 1
