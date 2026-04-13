@@ -1424,7 +1424,11 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
 
         # Ghost score has unresolved indicators?
         _ghost = report.identity.ghost_score or {}
-        _unresolved = sum(1 for v in _ghost.get("indicators", {}).values() if v == "?")
+        _indicators = _ghost.get("indicators", [])
+        if isinstance(_indicators, list):
+            _unresolved = sum(1 for ind in _indicators if isinstance(ind, dict) and ind.get("value") == "?")
+        else:
+            _unresolved = sum(1 for v in _indicators.values() if v == "?") if isinstance(_indicators, dict) else 0
         if _unresolved >= 4:
             _needs_manual = True
             _gate_reasons.append(f"ghost score has {_unresolved} unresolved indicators")
