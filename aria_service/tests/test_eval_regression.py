@@ -401,6 +401,24 @@ async def main() -> int:
                     print(f"         {detail}")
 
     print(f"\nResult: {passed}/{total} passed, {failed} failed")
+
+    # ── Self-metrics: feed each assertion to ARIA's self-awareness loop ──
+    # Domain is the prefix before ":" in the test name (e.g. "dual_use_classifier"),
+    # so the rollup groups regressions by subsystem. Best-effort — never fail
+    # the suite over a metrics write.
+    try:
+        from aria_service.intel import self_metrics
+        for name, ok, _detail in _results:
+            domain = name.split(":", 1)[0].strip().lower() if ":" in name else "eval_suite"
+            await self_metrics.emit(
+                "accuracy", domain, "eval_assertion",
+                1.0 if ok else 0.0,
+                context={"assertion": name[:120]},
+                source_module="test_eval_regression",
+            )
+    except Exception as _sm:
+        print(f"  (self_metrics emit skipped: {_sm})")
+
     return 0 if failed == 0 else 1
 
 

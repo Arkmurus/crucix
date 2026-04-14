@@ -1680,6 +1680,37 @@ async def _persist_report(report: ARKDDReport) -> None:
     except Exception as e:
         logger.warning("dd_orchestrator: Redis persist failed: %s", e)
 
+    # ── Self-metrics: declared calibration (final confidence tag as a score)
+    # + coverage (subsystems that produced findings). Real calibration arrives
+    # later when corrections are logged against this run_id.
+    try:
+        from . import self_metrics
+        _conf_score = {
+            "CONFIRMED": 1.0, "PROBABLE": 0.75, "ASSESSED": 0.5, "UNCERTAIN": 0.25,
+        }.get((report.confidence_tag or "ASSESSED").upper(), 0.5)
+        _domain = (report.identity.jurisdiction or "unknown").upper() or "unknown"
+        await self_metrics.emit(
+            "calibration", _domain, "dd_declared_confidence",
+            _conf_score,
+            context={"run_id": report.run_id, "tag": report.confidence_tag,
+                     "risk": report.risk_classification},
+            source_module="dd_orchestrator",
+        )
+        # Coverage: fraction of the 6 DD subsystems that produced at least one
+        # finding (identity, network, compliance, digital, verification, synthesis).
+        _subs = [report.identity, report.network, report.compliance,
+                 report.digital, report.verification]
+        _produced = sum(1 for s in _subs
+                        if s and (getattr(s, "findings", None) or getattr(s, "entity_name", None)))
+        await self_metrics.emit(
+            "coverage", _domain, "dd_subsystem_yield",
+            _produced / max(1, len(_subs)),
+            context={"run_id": report.run_id, "subsystems_produced": _produced},
+            source_module="dd_orchestrator",
+        )
+    except Exception as _sm:
+        logger.debug("dd_orchestrator self_metrics failed: %s", _sm)
+
 
 # =============================================================================
 # HELPERS

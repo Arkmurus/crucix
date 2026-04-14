@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 
 import httpx
@@ -73,7 +74,9 @@ async def lookup_entity(
 
     try:
         logger.info("Registry adapter [%s]: looking up '%s' (reg=%s)", iso2, name, registration_number)
+        _t0 = time.monotonic()
         result = await adapter_fn(name, registration_number)
+        _elapsed = time.monotonic() - _t0
         if result:
             logger.info("Registry adapter [%s]: found %s", iso2, result.get("profile", {}).get("company_name", "?"))
         else:
@@ -96,6 +99,23 @@ async def lookup_entity(
             )
         except Exception as _bh:
             logger.debug("registry_adapter brain_hook failed: %s", _bh)
+
+        # ── Self-metrics: coverage (hit/miss) + timeliness (lookup latency) ──
+        try:
+            from . import self_metrics
+            await self_metrics.emit(
+                "coverage", iso2, "registry_lookup",
+                1.0 if result else 0.0,
+                context={"name": name[:80], "had_reg_number": bool(registration_number)},
+                source_module="registry_adapters",
+            )
+            await self_metrics.emit(
+                "timeliness", iso2, "registry_lookup_seconds",
+                _elapsed,
+                source_module="registry_adapters",
+            )
+        except Exception as _sm:
+            logger.debug("registry_adapter self_metrics failed: %s", _sm)
 
         return result
     except Exception as exc:
