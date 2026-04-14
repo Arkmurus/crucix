@@ -2200,6 +2200,27 @@ async def _fan_out_alert_to_deals(alert: dict) -> list[dict]:
             "[watchlist fan-out] %s (%s) impacts %d open deal(s)",
             entity, change_type, len(impacted),
         )
+        # ── Brain hook: ARIA needs to know that a worsening sanctions event
+        # has just rippled into the active pipeline. Without this she'd see
+        # the rescreen alert and the deal tag separately and never connect
+        # them. Rule Zero: she sees everything.
+        try:
+            from . import brain_hook
+            deal_summary = ", ".join(f"{d['id']} ({d.get('buyer','')[:30]})" for d in impacted[:5])
+            await brain_hook.absorb(
+                module="dd_orchestrator",
+                summary=(
+                    f"Sanctions worsening on '{entity}' ({change_type}) impacted "
+                    f"{len(impacted)} open deal(s): {deal_summary}"
+                ),
+                entity_name=entity,
+                success=False,  # worsening sanctions = adverse event for the pipeline
+                confidence="CONFIRMED",
+                gap_type="counterparty_risk_materialised",
+                gap_detail=f"Deals now flagged FOR_RESCREEN: {[d['id'] for d in impacted]}",
+            )
+        except Exception as e:
+            logger.debug("fan-out brain_hook absorb failed (non-fatal): %s", e)
     return impacted
 
 
@@ -2326,6 +2347,37 @@ async def rescreen_watchlist(llm=None) -> dict:
             errors.append({"entity": name, "error": str(e)})
 
     duration_ms = int((time.monotonic() - t0) * 1000)
+
+    # ── Brain hook: feed every cycle into learning so ARIA tracks the rate
+    # of change across her watchlist over time. She should know how often
+    # her counterparties churn on/off sanctions lists, not just react to
+    # individual alerts. Rule Zero: she sees the whole pattern.
+    try:
+        from . import brain_hook
+        change_breakdown = {}
+        for c in changes:
+            ct = c.get("change_type", "unknown")
+            change_breakdown[ct] = change_breakdown.get(ct, 0) + 1
+        worsening_count = sum(
+            1 for c in changes
+            if c.get("change_type") in ("new_hit", "new_pep")
+            or (c.get("change_type") == "score_change" and c.get("new_score", 0) > c.get("old_score", 0))
+        )
+        await brain_hook.absorb(
+            module="dd_orchestrator",
+            summary=(
+                f"Watchlist re-screen: {len(entities)} entities scanned, "
+                f"{len(changes)} changes detected ({worsening_count} worsening), "
+                f"{len(errors)} errors. Breakdown: {change_breakdown or 'no changes'}"
+            ),
+            success=(len(errors) == 0),
+            confidence="CONFIRMED",
+            gap_type="rescreen_errors" if errors else None,
+            gap_detail=f"Errors on entities: {[e.get('entity') for e in errors[:5]]}" if errors else None,
+        )
+    except Exception as e:
+        logger.debug("rescreen brain_hook absorb failed (non-fatal): %s", e)
+
     return {
         "entities_screened": len(entities),
         "changes_detected": changes,
