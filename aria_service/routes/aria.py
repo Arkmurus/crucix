@@ -7816,3 +7816,57 @@ async def self_metrics_verify_ep(start: int = 0, count: int = 500):
     being rewritten."""
     from ..intel import self_metrics
     return await self_metrics.verify_chain(start=start, count=min(max(1, count), 2000))
+
+
+@router.get("/self/peers")
+async def self_peers_ep():
+    """Latest peer-landscape scan (ARIA's AI/compliance peers — NOT to be
+    confused with /competitors, which is defence-industry OEMs). Returns
+    per-peer gap vectors + aggregate gaps sorted by how many peers have
+    each feature ARIA lacks."""
+    from ..intel import aria_peers
+    last = await aria_peers.latest()
+    if last:
+        return last
+    # No scan yet — derive fresh so the first call always returns something.
+    return await aria_peers.scan()
+
+
+@router.post("/self/peers/scan")
+async def self_peers_scan_ep():
+    """Force a fresh peer scan. Diffs seed + observations against the
+    capability manifest, persists, emits regression signals, feeds brain."""
+    from ..intel import aria_peers
+    return await aria_peers.scan()
+
+
+@router.post("/self/peers/observation")
+async def self_peers_observation_ep(req: Request):
+    """Record a new observation about a peer (e.g. research finds they
+    added a new sanctions source or jurisdiction). Observations are
+    additive, never overwrite, always carry a source URL.
+
+    Body: {peer, axis, items, source_url, note?, category?}
+    axis must be one of: jurisdictions, sanctions_sources, modules, autonomous.
+    """
+    from ..intel import aria_peers
+    body = await req.json()
+    try:
+        entry = await aria_peers.record_observation(
+            peer=body.get("peer", ""),
+            axis=body.get("axis", ""),
+            items=body.get("items", []) or [],
+            source_url=body.get("source_url", ""),
+            note=body.get("note", ""),
+            category=body.get("category", ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return entry
+
+
+@router.get("/self/peers/history")
+async def self_peers_history_ep(limit: int = 10):
+    """Recent peer-scan snapshots, newest first."""
+    from ..intel import aria_peers
+    return {"snapshots": await aria_peers.history(limit=min(max(1, limit), 52))}
