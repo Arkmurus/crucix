@@ -7750,3 +7750,69 @@ async def team_interaction_ep(req: Request):
         message_type=body.get("message_type", "chat"),
     )
     return {"ok": True}
+
+
+# ── Self-awareness: capability manifest + metrics ──────────────────────────
+
+@router.get("/self/manifest")
+async def self_manifest_ep():
+    """Latest auto-derived capability manifest (modules, jurisdictions,
+    autonomous tasks, corpus tiers, sanctions sources). Returns the last
+    persisted snapshot, or a fresh derive() if no snapshot exists yet."""
+    from ..intel import capability_manifest as cm
+    last = await cm.latest()
+    return last or cm.derive()
+
+
+@router.post("/self/manifest/snapshot")
+async def self_manifest_snapshot_ep():
+    """Force a fresh snapshot: derive from code, persist, diff vs prior,
+    emit regression signals for anything that disappeared. Normally the
+    nightly self_assess task calls this — this endpoint is for manual
+    re-derivation after a deploy."""
+    from ..intel import capability_manifest as cm
+    return await cm.snapshot()
+
+
+@router.get("/self/manifest/history")
+async def self_manifest_history_ep(limit: int = 10):
+    """Recent manifest snapshots, newest first. Use for drift inspection."""
+    from ..intel import capability_manifest as cm
+    return {"snapshots": await cm.history(limit=min(max(1, limit), 52))}
+
+
+@router.get("/self/metrics/stats")
+async def self_metrics_stats_ep():
+    """Totals + head hash + per-axis counts for the self-metrics chain."""
+    from ..intel import self_metrics
+    return await self_metrics.stats()
+
+
+@router.get("/self/metrics/rollup")
+async def self_metrics_rollup_ep(window_days: int = 7, axis: str | None = None, domain: str | None = None):
+    """7-day (or custom window) rollup of self-metrics, grouped by
+    (axis × domain), with trend vs prior window."""
+    from ..intel import self_metrics
+    if window_days < 1 or window_days > 90:
+        raise HTTPException(status_code=400, detail="window_days must be 1..90")
+    return await self_metrics.rollup(window_days=window_days, axis=axis, domain=domain)
+
+
+@router.get("/self/metrics/strengths-weaknesses")
+async def self_strengths_weaknesses_ep(window_days: int = 7, top_n: int = 5):
+    """What ARIA is good at and where she's regressing — feeds the
+    State-of-ARIA section of the morning briefing (slice 2)."""
+    from ..intel import self_metrics
+    return await self_metrics.strengths_and_weaknesses(
+        window_days=max(1, min(window_days, 90)),
+        top_n=max(1, min(top_n, 20)),
+    )
+
+
+@router.get("/self/metrics/verify")
+async def self_metrics_verify_ep(start: int = 0, count: int = 500):
+    """Verify the self-metrics hash-chain integrity. Tampering with any
+    entry breaks the chain forward — she'll detect her own blind spots
+    being rewritten."""
+    from ..intel import self_metrics
+    return await self_metrics.verify_chain(start=start, count=min(max(1, count), 2000))
