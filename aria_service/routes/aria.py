@@ -54,6 +54,7 @@ from ..intel import sanctions as aria_sanctions
 from ..intel import conflict_tracker
 from ..intel import tech_classifier
 from ..intel import dual_use_classifier
+from ..intel import euc_library
 from ..intel import local_brain
 from ..intel import reasoning_router
 from ..intel import reasoning_library
@@ -6245,6 +6246,61 @@ async def dual_use_check_ep(req: DualUseRequest):
         end_user=req.end_user,
         end_use=req.end_use,
     )
+
+
+# ── EUC library: templates + clause gap detection ───────────────────────────
+
+class EUCCheckRequest(BaseModel):
+    text: str
+    profile: str = "UK_GENERAL"
+    deal_id: Optional[str] = None  # if set, tag the linked deal with EUC status
+
+
+@router.get("/compliance/euc/profiles")
+async def euc_profiles_ep():
+    """List available EUC profiles (US DSP-83, UK, EU dual-use, GCC, Wassenaar)."""
+    return {"profiles": euc_library.list_profiles()}
+
+
+@router.get("/compliance/euc/template/{profile}")
+async def euc_template_ep(profile: str):
+    """Return a drafting template for a given EUC profile."""
+    tpl = euc_library.get_template(profile)
+    if tpl is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown profile '{profile}'. Available: {[p['id'] for p in euc_library.list_profiles()]}",
+        )
+    return {"profile": profile, "template": tpl}
+
+
+@router.post("/compliance/euc/check")
+async def euc_check_ep(req: EUCCheckRequest):
+    """Validate a submitted EUC text against a profile's required clauses.
+
+    Returns clauses present / missing, an overall VALID|GAPS|REJECT status,
+    and concrete next actions. Optionally tags the linked deal with the result.
+    """
+    try:
+        result = euc_library.gap_check(req.text, req.profile)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if req.deal_id:
+        try:
+            from ..intel import deal_pipeline
+            tag = f"euc_{result['status'].lower()}"
+            note = (
+                f"EUC ({req.profile}) checked: {result['status']} — "
+                f"{result['critical_missing_count']} critical missing, "
+                f"{result['important_missing_count']} important missing."
+            )
+            await deal_pipeline.update_lead(req.deal_id, tags=[tag, "EUC_CHECKED"], notes=note)
+            result["deal_link"] = {"deal_id": req.deal_id, "tag_applied": tag}
+        except Exception as e:
+            result["deal_link_error"] = str(e)
+
+    return result
 
 
 # ── Knowledge contradictions (metacognitive self-correction) ────────────────
