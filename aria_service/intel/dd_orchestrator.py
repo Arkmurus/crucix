@@ -2221,6 +2221,30 @@ async def _fan_out_alert_to_deals(alert: dict) -> list[dict]:
             )
         except Exception as e:
             logger.debug("fan-out brain_hook absorb failed (non-fatal): %s", e)
+
+        # ── Audit log: a watchlist worsening that touches a deal is a
+        # compliance-grade event. Record per deal so each deal's compliance
+        # file picks it up cleanly. ──
+        try:
+            from . import audit_log
+            for d in impacted:
+                await audit_log.record(
+                    action="watchlist_alert",
+                    actor="dd_orchestrator._fan_out_alert_to_deals",
+                    entity_name=entity,
+                    deal_id=d["id"],
+                    inputs={"change_type": change_type, "alert_ts": alert.get("timestamp")},
+                    outputs={
+                        "deal_tagged": True,
+                        "deal_buyer": d.get("buyer"),
+                        "deal_stage": d.get("stage"),
+                    },
+                    decision=f"DEAL_FLAGGED_FOR_RESCREEN ({change_type})",
+                    confidence="CONFIRMED",
+                    notes=f"Sanctions worsening on '{entity}' triggered rescreen flag on deal {d['id']}",
+                )
+        except Exception as e:
+            logger.debug("fan-out audit record failed (non-fatal): %s", e)
     return impacted
 
 

@@ -55,6 +55,8 @@ from ..intel import conflict_tracker
 from ..intel import tech_classifier
 from ..intel import dual_use_classifier
 from ..intel import euc_library
+from ..intel import audit_log as audit_log_mod
+from ..intel import compliance_file as compliance_file_mod
 from ..intel import local_brain
 from ..intel import reasoning_router
 from ..intel import reasoning_library
@@ -6481,6 +6483,117 @@ async def export_assessment_ep(req: ExportAssessmentRequest):
     except Exception:
         pass
 
+    # Audit: composed export assessment is a load-bearing compliance moment;
+    # link explicitly to the deal so compliance_file picks it up.
+    try:
+        from ..intel import audit_log
+        audit_entry = await audit_log.record(
+            action="export_assessment",
+            actor="export_assessment_ep",
+            entity_name=req.end_user or req.item[:80],
+            deal_id=req.deal_id or "",
+            inputs={
+                "item": req.item[:200],
+                "origin": req.origin,
+                "destination": req.destination,
+                "end_user": req.end_user,
+                "end_use": req.end_use,
+            },
+            outputs={
+                "licence_decision": decision,
+                "embargo_status": embargo_status,
+                "euc_profile": profile_id,
+                "controlling_authority": dual_use["jurisdiction"]["controlling_authority"],
+            },
+            decision=f"{decision} (EUC: {profile_id})",
+            confidence="ASSESSED",
+            notes=summary,
+        )
+        result["audit_entry_hash"] = audit_entry.get("entry_hash")
+    except Exception as e:
+        result["audit_error"] = str(e)[:200]
+
+    return result
+
+
+# ── Audit log + compliance file + decision provenance ───────────────────────
+# Tier-1 compliance substrate: hash-chained audit log, regulator-grade deal
+# compliance file, decision provenance tree. Without these ARIA is a research
+# assistant; with them she is a system of record.
+
+@router.get("/audit/recent")
+async def audit_recent_ep(limit: int = 50, offset: int = 0):
+    """Return the most-recent N audit entries (newest first)."""
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be 1..500")
+    entries = await audit_log_mod.get_chain(start=offset, count=limit)
+    return {"entries": entries, "count": len(entries), "offset": offset}
+
+
+@router.get("/audit/entry/{entry_hash}")
+async def audit_entry_ep(entry_hash: str):
+    """Return a single audit entry by its hash."""
+    entry = await audit_log_mod.get_entry(entry_hash)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"audit entry not found: {entry_hash}")
+    return entry
+
+
+@router.get("/audit/deal/{deal_id}")
+async def audit_deal_ep(deal_id: str, limit: int = 200):
+    """All audit entries linked to a deal, newest first."""
+    entries = await audit_log_mod.get_by_deal(deal_id, limit=limit)
+    return {"deal_id": deal_id, "entries": entries, "count": len(entries)}
+
+
+@router.get("/audit/entity/{entity_name}")
+async def audit_entity_ep(entity_name: str, limit: int = 200):
+    """All audit entries about an entity (case-insensitive)."""
+    entries = await audit_log_mod.get_by_entity(entity_name, limit=limit)
+    return {"entity_name": entity_name, "entries": entries, "count": len(entries)}
+
+
+@router.get("/audit/verify")
+async def audit_verify_ep(start: int = 0, count: int = 100):
+    """Walk the audit chain and verify hash-chain integrity. Returns broken
+    entries if any are detected."""
+    if count > 500:
+        raise HTTPException(status_code=400, detail="count must be <= 500")
+    return await audit_log_mod.verify_chain(start=start, count=count)
+
+
+@router.get("/audit/stats")
+async def audit_stats_ep():
+    """Audit log totals + head hash + last entry summary."""
+    return await audit_log_mod.stats()
+
+
+@router.get("/compliance/file/{deal_id}")
+async def compliance_file_ep(deal_id: str, verify_chain: bool = True):
+    """Compose the full regulator-grade compliance dossier for a deal.
+
+    Pulls deal + every audit entry linked to the deal or the buyer + watchlist
+    alerts + linked compliance cases. Returns a structured document with a
+    composition_hash so the exported copy can be verified back against state.
+    """
+    dossier = await compliance_file_mod.compose(
+        deal_id=deal_id,
+        include_chain_verification=verify_chain,
+        record_in_audit=True,
+    )
+    if not dossier.get("ok", True) and "error" in dossier:
+        raise HTTPException(status_code=404, detail=dossier["error"])
+    return dossier
+
+
+@router.get("/compliance/provenance/{entry_hash}")
+async def compliance_provenance_ep(entry_hash: str):
+    """Decision provenance: given an audit entry, surface the prior chain
+    of compliance work on the same deal/entity that fed into this decision.
+    The output is what a compliance officer needs to defend the decision."""
+    result = await compliance_file_mod.get_provenance(entry_hash)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("error", "not found"))
     return result
 
 

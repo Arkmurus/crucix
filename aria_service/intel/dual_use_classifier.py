@@ -314,4 +314,35 @@ async def assess(
     except Exception as e:
         logger.debug("brain_hook absorb failed (non-fatal): %s", e)
 
+    # ── Audit log: this is a compliance-grade decision; record it with
+    # full inputs/outputs so it can be traced back later by a regulator. ──
+    try:
+        from . import audit_log
+        audit_entry = await audit_log.record(
+            action="dual_use_assessment",
+            actor="dual_use_classifier.assess",
+            entity_name=item_description[:80],
+            inputs={
+                "item": item_description[:200],
+                "origin": origin,
+                "destination": destination,
+                "end_user": end_user,
+                "end_use": end_use,
+            },
+            outputs={
+                "wassenaar_ml": classification.get("wassenaar_ml", []),
+                "usml": classification.get("usml", []),
+                "ear_ccl": classification.get("ear_ccl", []),
+                "controlling_authority": origin_profile["authority"],
+                "embargo_status": embargo["status"],
+            },
+            decision=f"{decision['licence_required']}: {decision['licence_type'][:80]}",
+            confidence="ASSESSED" if classification.get("confidence", 0) >= 0.5 else "LOW",
+            sources=[origin_profile.get("portal", "")],
+            notes=decision["reasoning"][:300],
+        )
+        result["audit_entry_hash"] = audit_entry.get("entry_hash")
+    except Exception as e:
+        logger.debug("audit log write failed (non-fatal): %s", e)
+
     return result

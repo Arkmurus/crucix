@@ -403,12 +403,13 @@ def gap_check(euc_text: str, profile_id: str = "UK_GENERAL") -> dict:
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
-    # ── Brain hook: fire-and-forget if an event loop is running.
-    # gap_check is sync (called from sync route handler logic in some paths),
-    # so we schedule the absorb only when a loop is actually available.
+    # ── Brain hook + audit log: fire-and-forget if an event loop is running.
+    # gap_check is sync; the absorb + audit calls are scheduled only when a
+    # loop is actually available (production routes always have one; some
+    # sync test contexts won't).
     try:
         import asyncio
-        from . import brain_hook
+        from . import brain_hook, audit_log
         loop = asyncio.get_running_loop()
         loop.create_task(brain_hook.absorb(
             module="euc_library",
@@ -422,9 +423,24 @@ def gap_check(euc_text: str, profile_id: str = "UK_GENERAL") -> dict:
             gap_type="euc_critical_clauses_missing" if status == "REJECT" else None,
             gap_detail=f"Missing critical clauses: {', '.join(c['id'] for c in critical_missing)}" if critical_missing else None,
         ))
+        loop.create_task(audit_log.record(
+            action="euc_check",
+            actor="euc_library.gap_check",
+            entity_name=profile_id,
+            inputs={"profile": profile_id, "text_length": len(euc_text)},
+            outputs={
+                "status": status,
+                "clauses_present": [c["id"] for c in present],
+                "clauses_missing": [c["id"] for c in missing],
+                "critical_missing_count": len(critical_missing),
+            },
+            decision=status,
+            confidence="ASSESSED",
+            notes=f"Profile: {profile['label']}; regime: {profile['regime']}",
+        ))
     except RuntimeError:
         pass  # no running loop (sync test context) — skip silently
     except Exception as e:
-        logger.debug("brain_hook absorb failed (non-fatal): %s", e)
+        logger.debug("brain_hook/audit absorb failed (non-fatal): %s", e)
 
     return result

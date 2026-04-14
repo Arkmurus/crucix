@@ -165,6 +165,64 @@ async def phase1_pure() -> None:
     check("tech_classifier: known weapon → ML code",
           lambda: bool(classification.get("wassenaar_ml") or classification.get("usml")))
 
+    # ── Audit log + compliance file (Tier 1) ────────────────────────────
+    from aria_service.intel import audit_log, compliance_file
+
+    # Brain-hook registration
+    check("brain: audit_log registered",
+          lambda: "audit_log" in bh._MODULE_TOPICS and "audit_log" in bh._MODULE_WEIGHT)
+    check("brain: compliance_file registered",
+          lambda: "compliance_file" in bh._MODULE_TOPICS and "compliance_file" in bh._MODULE_WEIGHT)
+
+    # Action allowlist enforced
+    async def _try_bogus():
+        try:
+            await audit_log.record(action="bogus_action", actor="test")
+            return False
+        except ValueError:
+            return True
+    await acheck("audit: unknown action rejected", _try_bogus)
+
+    # End-to-end chain test using a unique deal_id so we don't interfere
+    # with real data on shared Redis. Note: this writes to whatever Redis
+    # is configured — fine because audit log is append-only by design.
+    test_deal = f"LEAD-EVAL-{int(asyncio.get_event_loop().time() * 1000) % 100000}"
+    e1 = await audit_log.record(
+        action="sanctions_screen", actor="eval_test",
+        entity_name="Eval Test Co", deal_id=test_deal,
+        decision="CLEAN", confidence="ASSESSED",
+    )
+    e2 = await audit_log.record(
+        action="dual_use_assessment", actor="eval_test",
+        entity_name="Eval Test Co", deal_id=test_deal,
+        decision="YES: SIEL", confidence="ASSESSED",
+    )
+    check("audit: e1 has entry_hash + prev=GENESIS-or-prior",
+          lambda: bool(e1.get("entry_hash")) and len(e1["entry_hash"]) == 64)
+    check("audit: e2 prev_hash matches e1 entry_hash",
+          lambda: e2.get("prev_hash") == e1.get("entry_hash"))
+
+    # Chain verification
+    verify = await audit_log.verify_chain(0, 50)
+    check("audit: chain verifies clean",
+          lambda: verify.get("verified") is True)
+
+    # Index queries
+    by_deal = await audit_log.get_by_deal(test_deal)
+    check("audit: by_deal finds the 2 test entries",
+          lambda: len(by_deal) == 2)
+
+    by_entity = await audit_log.get_by_entity("Eval Test Co")
+    check("audit: by_entity finds entries (>= 2)",
+          lambda: len(by_entity) >= 2)
+
+    # Provenance
+    prov = await compliance_file.get_provenance(e2["entry_hash"])
+    check("provenance: returns ok with decision payload",
+          lambda: prov.get("ok") and prov["decision"]["entry_hash"] == e2["entry_hash"])
+    check("provenance: e2 has supporting prior (e1)",
+          lambda: prov.get("supporting_count", 0) >= 1)
+
 
 def _expect_raises(fn) -> bool:
     """Helper: returns True if the callable raises an exception."""
