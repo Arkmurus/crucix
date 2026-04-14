@@ -610,6 +610,25 @@ async def correct_ep(req: CorrectionRequest):
     except Exception as e:
         _log.debug("Confidence→calibration wiring failed (non-fatal): %s", e)
 
+    # Signal 5: MISTAKE_LEDGER — permanent record so the predictor can
+    # lookup_similar() on future tasks and prevent the same mistake again.
+    # This is the "no repeated mistakes" mechanism from the autonomy doctrine.
+    try:
+        from ..intel import mistake_ledger as _ml
+        await _ml.record(
+            category="correction",
+            task_type="chat",
+            domain="general",
+            what=f"Original: {(req.originalResponse or '')[:500]} | Query: {(req.originalQuery or '')[:200]}",
+            why=req.correction or "user correction",
+            fix=req.correctAnswer or req.correction or "",
+            what_class="user_correction",
+            severity="MEDIUM",
+            source_ref=(req.originalQuery or "")[:80],
+        )
+    except Exception as e:
+        _log.debug("mistake_ledger record from /correct failed (non-fatal): %s", e)
+
     return {"ok": True, "message": "Correction recorded — ARIA will learn from this"}
 
 
@@ -7870,3 +7889,73 @@ async def self_peers_history_ep(limit: int = 10):
     """Recent peer-scan snapshots, newest first."""
     from ..intel import aria_peers
     return {"snapshots": await aria_peers.history(limit=min(max(1, limit), 52))}
+
+
+# ── Predictor + Mistake Ledger ────────────────────────────────────────────
+
+@router.get("/self/predict")
+async def self_predict_ep(task_type: str, domain: str,
+                          entity_type: str | None = None):
+    """Pre-task forecast: likely failure axes, past mistakes on similar
+    work, concrete remediations. The DD orchestrator calls this
+    automatically; this endpoint is for ad-hoc diagnostic queries."""
+    from ..intel import predictor
+    return await predictor.forecast(
+        task_type=task_type, domain=domain, entity_type=entity_type,
+    )
+
+
+@router.get("/self/mistakes/recent")
+async def self_mistakes_recent_ep(limit: int = 50, category: str | None = None):
+    """Recent mistakes, newest first. Optional category filter."""
+    from ..intel import mistake_ledger
+    return {"mistakes": await mistake_ledger.recent(
+        limit=min(max(1, limit), 500), category=category,
+    )}
+
+
+@router.get("/self/mistakes/similar")
+async def self_mistakes_similar_ep(task_type: str, domain: str,
+                                   what_class: str = "", limit: int = 5):
+    """Look up past mistakes matching (task_type, domain[, what_class]).
+    Called by the predictor; exposed here for diagnostic queries."""
+    from ..intel import mistake_ledger
+    return {"matches": await mistake_ledger.lookup_similar(
+        task_type=task_type, domain=domain,
+        what_class=what_class, limit=min(max(1, limit), 50),
+    )}
+
+
+@router.post("/self/mistakes/prevented")
+async def self_mistakes_prevented_ep(req: Request):
+    """Mark a mistake as prevented on a subsequent run. Body:
+    {mistake_id, prevented_by, context?}. Emits self_metrics utility=1.0 —
+    this counter is the closed-loop proof that autonomy + learning works."""
+    from ..intel import mistake_ledger
+    body = await req.json()
+    if not body.get("mistake_id") or not body.get("prevented_by"):
+        raise HTTPException(status_code=400,
+                            detail="mistake_id and prevented_by are required")
+    return await mistake_ledger.mark_prevented(
+        mistake_id=body["mistake_id"],
+        prevented_by=body["prevented_by"],
+        context=body.get("context", ""),
+    )
+
+
+@router.get("/self/mistakes/stats")
+async def self_mistakes_stats_ep():
+    """Totals by category + prevented_total. prevented_total is the
+    single most important metric in the self-awareness stack — it's
+    how we measure that the loop closes."""
+    from ..intel import mistake_ledger
+    return await mistake_ledger.stats()
+
+
+@router.get("/self/mistakes/verify")
+async def self_mistakes_verify_ep(start: int = 0, count: int = 500):
+    """Verify the mistake-ledger hash-chain integrity."""
+    from ..intel import mistake_ledger
+    return await mistake_ledger.verify_chain(
+        start=start, count=min(max(1, count), 2000),
+    )

@@ -419,6 +419,28 @@ async def main() -> int:
     except Exception as _sm:
         print(f"  (self_metrics emit skipped: {_sm})")
 
+    # ── Mistake ledger: record every failure so the predictor can surface
+    # it on the next run of the same subsystem. "No repeated mistakes".
+    try:
+        from aria_service.intel import mistake_ledger
+        for name, ok, detail in _results:
+            if ok:
+                continue
+            domain = name.split(":", 1)[0].strip().lower() if ":" in name else "eval_suite"
+            await mistake_ledger.record(
+                category="eval_miss",
+                task_type="eval",
+                domain=domain,
+                what=f"Assertion failed: {name}",
+                why=(detail or "no detail")[:500],
+                fix="Investigate and patch the module responsible for this assertion.",
+                what_class=name.split(":", 1)[-1].strip().lower()[:60] if ":" in name else "assertion",
+                severity="MEDIUM",
+                source_ref=name[:80],
+            )
+    except Exception as _ml:
+        print(f"  (mistake_ledger record skipped: {_ml})")
+
     return 0 if failed == 0 else 1
 
 

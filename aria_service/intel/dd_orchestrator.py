@@ -1931,6 +1931,47 @@ async def orchestrate_dd(
     except Exception:
         pass
 
+    # ── Predictor: forecast likely-failure axes BEFORE any layer runs.
+    # A predicted gap is a closed gap. Surface past mistakes to the brain
+    # so the run is informed by prior corrections. Never blocks — if the
+    # predictor degrades, we proceed without it.
+    try:
+        from . import predictor
+        _forecast = await predictor.forecast(
+            task_type="dd",
+            domain=(target.get("jurisdiction_iso2") or "unknown"),
+            entity_type=target.get("type"),
+            context={"mode": mode, "run_id": report.run_id},
+        )
+        report.pre_task_forecast = _forecast  # ignored by schema, carried on instance
+        if _forecast["likely_failures"]:
+            logger.warning(
+                "[dd_orchestrator] predictor forecast for %s/%s: confidence=%.2f, "
+                "likely_failures=%d, past_mistakes=%d",
+                target.get("name", "?")[:40],
+                target.get("jurisdiction_iso2", "?"),
+                _forecast["overall_confidence"],
+                len(_forecast["likely_failures"]),
+                len(_forecast["past_mistakes"]),
+            )
+            try:
+                from . import brain_hook
+                top = "; ".join(
+                    f"{f['axis']}: {f['reason'][:100]}" for f in _forecast["likely_failures"][:3]
+                )
+                await brain_hook.absorb(
+                    module="predictor",
+                    summary=f"DD pre-run forecast {target.get('name', '?')[:40]}: "
+                            f"conf={_forecast['overall_confidence']:.2f} — {top}",
+                    entity_name=target.get("name", ""),
+                    success=True,
+                    confidence="ASSESSED",
+                )
+            except Exception:
+                pass
+    except Exception as _pe:
+        logger.debug("predictor forecast failed (non-fatal): %s", _pe)
+
     try:
         # ── LAYER 1: IDENTITY ──
         layer_name = "identity"
