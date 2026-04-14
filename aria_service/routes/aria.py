@@ -6568,6 +6568,28 @@ async def audit_stats_ep():
     return await audit_log_mod.stats()
 
 
+@router.get("/audit/key-fingerprint")
+async def audit_key_fingerprint_ep():
+    """Public fingerprint of the active HMAC signing key — first 16 hex
+    chars of SHA-256(key). Safe to expose; does not reveal the key.
+    Verifiers use this to confirm an entry was signed by the expected key.
+
+    Also reports whether the system is running with the dev fallback key
+    (which it should NOT be in production)."""
+    import os
+    return {
+        "active_key_fingerprint": audit_log_mod.signing_key_fingerprint(),
+        "signature_algorithm": audit_log_mod._SIGNATURE_ALG,
+        "dev_mode": not bool(os.environ.get("ARIA_AUDIT_SIGNING_KEY", "").strip()),
+        "production_warning": (
+            "ARIA_AUDIT_SIGNING_KEY env var NOT set — entries are signed with the "
+            "deterministic dev fallback. NOT compliance-grade. Set the env var on "
+            "the deploy target to a 32-byte random value (`secrets.token_hex(32)`)."
+            if not os.environ.get("ARIA_AUDIT_SIGNING_KEY", "").strip() else None
+        ),
+    }
+
+
 @router.get("/compliance/file/{deal_id}")
 async def compliance_file_ep(deal_id: str, verify_chain: bool = True):
     """Compose the full regulator-grade compliance dossier for a deal.

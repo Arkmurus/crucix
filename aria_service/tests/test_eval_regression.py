@@ -223,6 +223,31 @@ async def phase1_pure() -> None:
     check("provenance: e2 has supporting prior (e1)",
           lambda: prov.get("supporting_count", 0) >= 1)
 
+    # ── Audit signing (HMAC) ───────────────────────────────────────────
+    check("sign: e1 carries signature field (64 hex chars)",
+          lambda: len(e1.get("signature", "")) == 64)
+    check("sign: e1 carries signing_key_fingerprint",
+          lambda: bool(e1.get("signing_key_fingerprint")))
+    check("sign: e1 signature alg is HMAC-SHA256-v1",
+          lambda: e1.get("signature_alg") == "HMAC-SHA256-v1")
+    check("sign: verify_signature(e1) returns ok=True",
+          lambda: audit_log.verify_signature(e1).get("ok") is True)
+    # Tamper detection: changing any body field breaks the signature
+    tampered = {**e1, "decision": "FORGED"}
+    check("sign: tampered entry verify_signature returns ok=False",
+          lambda: audit_log.verify_signature(tampered).get("ok") is False)
+    # Legacy entry (signature stripped) returns ok=None, not False
+    legacy = {k: v for k, v in e1.items()
+              if k not in ("signature", "signature_alg", "signing_key_fingerprint", "signed_in_dev_mode")}
+    check("sign: legacy entry without signature returns ok=None",
+          lambda: audit_log.verify_signature(legacy).get("ok") is None)
+    # verify_chain surfaces signed_count
+    chain_check = await audit_log.verify_chain(0, 50)
+    check("sign: verify_chain reports signed_count >= 2",
+          lambda c=chain_check: c.get("signed_count", 0) >= 2)
+    check("sign: verify_chain exposes active_key_fingerprint",
+          lambda c=chain_check: bool(c.get("active_key_fingerprint")))
+
 
 def _expect_raises(fn) -> bool:
     """Helper: returns True if the callable raises an exception."""

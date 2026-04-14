@@ -1,4 +1,4 @@
-"""ARIA Audit Log — hash-chained, append-only compliance record.
+"""ARIA Audit Log — hash-chained, HMAC-signed, append-only compliance record.
 
 Every compliance-relevant decision ARIA makes — sanctions screens, dual-use
 assessments, EUC validations, watchlist changes, deal stage transitions,
@@ -10,6 +10,14 @@ Design properties
   - Hash-chained: each entry contains prev_hash (SHA-256 of the prior entry's
     serialised form) + entry_hash (SHA-256 of this entry's serialised form
     including prev_hash). Tampering with any entry breaks the chain forward.
+  - HMAC-signed: each entry's body is signed with HMAC-SHA256 using a key
+    held only in the runtime env (ARIA_AUDIT_SIGNING_KEY). The signature
+    sits inside the body before entry_hash is computed, so tampering with
+    body OR signature breaks entry_hash too — defence in depth. The first
+    16 chars of SHA-256(key) are stored as `signing_key_fingerprint` so a
+    verifier can confirm which key was used without the key being exposed.
+    Upgrade path to asymmetric signing (Ed25519) preserved via the
+    `signature_alg` field.
   - Indexed: secondary indexes by deal_id and by entity_hash for fast queries
     without scanning the whole log.
   - Brain-fed: every recorded entry also calls brain_hook.absorb so ARIA
@@ -18,6 +26,19 @@ Design properties
   - Compliance-grade only: routine LLM thoughts and RAG queries do NOT log
     here. The threshold is "would a regulator ask about this?". Everything
     else stays in brain_hook / mastery / debug logs.
+
+Operational notes
+─────────────────
+  - In production, set ARIA_AUDIT_SIGNING_KEY to a high-entropy random string
+    (≥ 32 bytes recommended). Generate with: `python -c "import secrets;
+    print(secrets.token_hex(32))"`.
+  - If the env var is unset (dev mode), entries are still recorded with a
+    deterministic dev key + a loud `signed_in_dev_mode=True` flag and a
+    warning log on every write. Production deploys must set the real key.
+  - Key rotation: deploy with the new key. Old entries verify against the
+    old fingerprint; new ones use the new fingerprint. Verifier needs both
+    keys mapped by fingerprint. Today only one key is supported — multi-key
+    rotation is a follow-up if and when needed.
 
 What to record
 ──────────────
@@ -42,13 +63,23 @@ Public API
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 logger = logging.getLogger("aria.audit_log")
+
+# ── Signing config ──────────────────────────────────────────────────────────
+# In production, set ARIA_AUDIT_SIGNING_KEY to a high-entropy random string.
+# In dev (env var unset), we use a deterministic dev key so the system still
+# functions, but each write carries signed_in_dev_mode=True for transparency.
+_DEV_FALLBACK_KEY = "aria-audit-DEV-FALLBACK-DO-NOT-USE-IN-PRODUCTION"
+_SIGNATURE_ALG = "HMAC-SHA256-v1"
+_DEV_MODE_WARNED = False  # log the dev-mode warning once per process
 
 # ── Redis keys ──────────────────────────────────────────────────────────────
 _KEY_LOG = "crucix:audit:log"                     # main append-only chain
@@ -87,6 +118,80 @@ def _entity_hash(entity_name: str) -> str:
 def _serialise_for_hash(entry: dict) -> bytes:
     """Canonical JSON serialisation for hashing — sorted keys, no whitespace."""
     return json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+
+
+def _get_signing_key() -> tuple[bytes, bool]:
+    """Return (key_bytes, is_dev_mode). Logs the dev-mode warning once per
+    process if no env key is set."""
+    global _DEV_MODE_WARNED
+    env_key = os.environ.get("ARIA_AUDIT_SIGNING_KEY", "").strip()
+    if env_key:
+        return env_key.encode("utf-8"), False
+    if not _DEV_MODE_WARNED:
+        logger.warning(
+            "AUDIT SIGNING: ARIA_AUDIT_SIGNING_KEY not set — using dev fallback. "
+            "Production deploys MUST set this env var to a 32-byte random value. "
+            "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+        _DEV_MODE_WARNED = True
+    return _DEV_FALLBACK_KEY.encode("utf-8"), True
+
+
+def signing_key_fingerprint() -> str:
+    """16-char fingerprint of the active signing key (first 16 hex chars of
+    SHA-256(key)). Safe to expose — does not reveal the key. Verifiers use
+    this to confirm which key was used to sign an entry."""
+    key, _ = _get_signing_key()
+    return hashlib.sha256(key).hexdigest()[:16]
+
+
+def _compute_signature(body: dict) -> str:
+    """HMAC-SHA256 over the canonical body. Hex-encoded."""
+    key, _ = _get_signing_key()
+    return hmac.new(key, _serialise_for_hash(body), hashlib.sha256).hexdigest()
+
+
+def verify_signature(entry: dict) -> dict:
+    """Recompute the HMAC over the entry body (excluding the entry_hash field
+    and the signature field itself) and compare to the stored signature.
+
+    Returns {ok, reason, expected, stored, key_fingerprint_match}.
+    Legacy entries (no signature field) return ok=None (not fail) so they
+    don't poison chain verification of pre-signing data.
+    """
+    if "signature" not in entry:
+        return {"ok": None, "reason": "legacy entry, no signature", "alg": None}
+    stored_sig = entry.get("signature", "")
+    stored_alg = entry.get("signature_alg", "")
+    stored_fp = entry.get("signing_key_fingerprint", "")
+    if stored_alg != _SIGNATURE_ALG:
+        return {
+            "ok": False,
+            "reason": f"signature alg mismatch: stored={stored_alg} expected={_SIGNATURE_ALG}",
+            "alg": stored_alg,
+        }
+    # Reconstruct the body that was signed (everything EXCEPT signature itself
+    # and entry_hash, which is computed AFTER signing).
+    body_to_verify = {
+        k: v for k, v in entry.items()
+        if k not in ("signature", "entry_hash")
+    }
+    expected = hmac.new(
+        _get_signing_key()[0],
+        _serialise_for_hash(body_to_verify),
+        hashlib.sha256,
+    ).hexdigest()
+    sig_ok = hmac.compare_digest(expected, stored_sig)
+    fp_ok = stored_fp == signing_key_fingerprint()
+    return {
+        "ok": sig_ok and fp_ok,
+        "reason": "" if (sig_ok and fp_ok) else (
+            "signature mismatch — entry has been tampered with or was signed by a different key"
+        ),
+        "key_fingerprint_match": fp_ok,
+        "stored_fingerprint": stored_fp,
+        "current_fingerprint": signing_key_fingerprint(),
+    }
 
 
 async def _read_head_hash() -> str:
@@ -133,9 +238,11 @@ async def record(
     prev_hash = await _read_head_hash()
     timestamp = datetime.now(timezone.utc).isoformat()
     monotonic_seq = int(time.time() * 1000)  # sortable seq for tie-breaking
+    _, is_dev = _get_signing_key()
 
-    # The body is everything that goes into the hash. The hash itself is
-    # added after computation so it doesn't recurse.
+    # The body is everything signed AND hashed. The signature is added
+    # before the hash so tampering with the signature also breaks the hash
+    # (defence in depth). entry_hash is computed last and appended.
     body = {
         "ts": timestamp,
         "seq": monotonic_seq,
@@ -151,7 +258,11 @@ async def record(
         "sources": sources or [],
         "notes": notes,
         "prev_hash": prev_hash,
+        "signature_alg": _SIGNATURE_ALG,
+        "signing_key_fingerprint": signing_key_fingerprint(),
+        "signed_in_dev_mode": is_dev,
     }
+    body["signature"] = _compute_signature(body)
     entry_hash = hashlib.sha256(_serialise_for_hash(body)).hexdigest()
     entry = {**body, "entry_hash": entry_hash}
 
@@ -257,45 +368,73 @@ async def get_by_entity(entity_name: str, limit: int = 200) -> list[dict]:
 
 
 async def verify_chain(start: int = 0, count: int = 100) -> dict:
-    """Walk the chain and verify that each entry's prev_hash matches the
-    actual hash of the prior entry, AND that each entry_hash matches the
-    SHA-256 of its own body. Returns a structured integrity report."""
+    """Walk the chain and verify three properties per entry:
+      1. entry_hash matches recomputed SHA-256 of body
+      2. prev_hash matches the prior entry's entry_hash (chain continuity)
+      3. signature (HMAC) is valid AND matches the active signing-key fingerprint
+
+    Legacy entries (pre-signing — no signature field) are counted separately
+    so they don't poison verification of older data captured before signing
+    was deployed.
+
+    Returns a structured integrity report.
+    """
     entries = await get_chain(start, count)
     # We walk chronologically (oldest → newest), so reverse the newest-first list.
     entries_chrono = list(reversed(entries))
     if not entries_chrono:
-        return {"verified": True, "checked": 0, "broken_at": None, "detail": "empty log"}
+        return {
+            "verified": True, "checked": 0, "broken_at": None,
+            "signed_count": 0, "legacy_unsigned_count": 0,
+            "active_key_fingerprint": signing_key_fingerprint(),
+            "detail": "empty log",
+        }
 
     broken: list[dict] = []
+    signed_count = 0
+    legacy_unsigned_count = 0
     expected_prev = entries_chrono[0].get("prev_hash") or _GENESIS_HASH
     for i, e in enumerate(entries_chrono):
-        # Recompute the hash from the body
+        # 1. Recompute entry_hash from the body
         body = {k: v for k, v in e.items() if k != "entry_hash"}
         recomputed = hashlib.sha256(_serialise_for_hash(body)).hexdigest()
         actual = e.get("entry_hash", "")
         if recomputed != actual:
             broken.append({
-                "index": i,
-                "ts": e.get("ts"),
-                "action": e.get("action"),
-                "stored_hash": actual,
-                "recomputed_hash": recomputed,
+                "index": i, "ts": e.get("ts"), "action": e.get("action"),
+                "stored_hash": actual, "recomputed_hash": recomputed,
                 "reason": "entry_hash does not match recomputed body hash",
             })
+        # 2. Chain continuity
         if e.get("prev_hash") != expected_prev:
             broken.append({
-                "index": i,
-                "ts": e.get("ts"),
-                "action": e.get("action"),
-                "stored_prev": e.get("prev_hash"),
-                "expected_prev": expected_prev,
+                "index": i, "ts": e.get("ts"), "action": e.get("action"),
+                "stored_prev": e.get("prev_hash"), "expected_prev": expected_prev,
                 "reason": "prev_hash does not match prior entry's entry_hash",
             })
+        # 3. Signature
+        sig_check = verify_signature(e)
+        if sig_check["ok"] is False:
+            broken.append({
+                "index": i, "ts": e.get("ts"), "action": e.get("action"),
+                "stored_signature": e.get("signature", "")[:24] + "...",
+                "reason": sig_check["reason"],
+                "stored_fingerprint": sig_check.get("stored_fingerprint"),
+                "current_fingerprint": sig_check.get("current_fingerprint"),
+            })
+        elif sig_check["ok"] is True:
+            signed_count += 1
+        else:
+            legacy_unsigned_count += 1
+
         expected_prev = actual
 
     return {
         "verified": not broken,
         "checked": len(entries_chrono),
+        "signed_count": signed_count,
+        "legacy_unsigned_count": legacy_unsigned_count,
+        "active_key_fingerprint": signing_key_fingerprint(),
         "broken_count": len(broken),
         "broken": broken[:20],  # cap report size
     }
