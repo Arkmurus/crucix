@@ -382,6 +382,14 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         engagement_brief = await team_engagement.generate_engagement_briefing()
         if engagement_brief:
             summary += f"\n{engagement_brief}"
+        # State-of-ARIA: what ARIA sees about herself today
+        try:
+            from ..intel import self_assess
+            self_brief = await self_assess.generate_state_of_aria_briefing()
+            if self_brief:
+                summary += f"\n{self_brief}"
+        except Exception as _e:
+            logger.debug("self_assess briefing failed (non-fatal): %s", _e)
         return {"briefing": summary, "dormant_leads": len(dormant)}
 
     elif tool_kind == "source_discovery":

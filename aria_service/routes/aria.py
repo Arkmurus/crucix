@@ -7959,3 +7959,34 @@ async def self_mistakes_verify_ep(start: int = 0, count: int = 500):
     return await mistake_ledger.verify_chain(
         start=start, count=min(max(1, count), 2000),
     )
+
+
+# ── State of ARIA — daily self-assessment ────────────────────────────────
+
+@router.get("/self/assess")
+async def self_assess_ep():
+    """Latest State-of-ARIA report. Structured JSON combining metrics
+    strengths/weaknesses, capability drift, peer gap highlight, open
+    HIGH/CRITICAL unprevented mistakes, and an overall self-confidence
+    score. Automatically appended to the DAILY-TEAM-BRIEFING output."""
+    from ..intel import self_assess
+    last = await self_assess.latest()
+    return last or await self_assess.assess()
+
+
+@router.post("/self/assess/run")
+async def self_assess_run_ep():
+    """Force a fresh self-assessment run (snapshots manifest, pulls
+    metrics rollup, reads peer scan + mistake stats, feeds brain).
+    Normally the daily briefing triggers this — this endpoint is for
+    manual re-runs."""
+    from ..intel import self_assess
+    return await self_assess.assess()
+
+
+@router.get("/self/assess/briefing")
+async def self_assess_briefing_ep():
+    """The markdown block as appended to the morning team briefing.
+    Returns `briefing: ""` when there's no meaningful data yet."""
+    from ..intel import self_assess
+    return {"briefing": await self_assess.generate_state_of_aria_briefing()}
