@@ -30,7 +30,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -64,6 +64,7 @@ async def lookup_entity(
         "SK": _lookup_slovakia,
         "CZ": _lookup_czech,
         "HU": _lookup_hungary,
+        "DE": _lookup_germany,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -1294,6 +1295,191 @@ async def _lookup_hungary(name: str, reg_number: str | None) -> dict | None:
             )
     except Exception as exc:
         logger.warning("Hungary registry lookup failed: %s", exc)
+        return None
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Germany Handelsregister  (DE)                                     ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+#
+# Source: OffeneRegister.de — open-data mirror of the German Handelsregister
+# (no auth required). Coverage is good for major HR-registered companies but
+# patchier for smaller GbRs and recently-formed entities. The official
+# Handelsregister.de portal requires login + per-document fees, so for free
+# DD it is the practical choice.
+
+_DE_API_BASE = "https://api.offeneregister.de/api/v0"
+
+# Maps OffeneRegister legal-form codes / status strings to a normalised
+# tri-state matching what the orchestrator expects from other adapters.
+_DE_STATUS_MAP = {
+    "currently registered": "active",
+    "active": "active",
+    "registered": "active",
+    "dissolved": "dissolved",
+    "deleted": "dissolved",
+    "in liquidation": "in_liquidation",
+    "liquidation": "in_liquidation",
+    "insolvency": "insolvency",
+    "insolvent": "insolvency",
+}
+
+
+def _de_parse_hr_number(text: str) -> tuple[str, str] | None:
+    """Pull (register_type, number) out of an HR string like 'HRB 12345'
+    or 'HRA-99'. Returns None if no recognisable HR pattern."""
+    if not text:
+        return None
+    m = re.search(r"\b(HR[ABG]|GnR|PR|VR)\s*[\-\.]?\s*(\d{1,7})\b", text, re.IGNORECASE)
+    if m:
+        return m.group(1).upper(), m.group(2)
+    return None
+
+
+async def _lookup_germany(name: str, reg_number: str | None) -> dict | None:
+    """Germany Handelsregister via OffeneRegister.de (open-data API).
+
+    Strategy:
+      1. If reg_number is an HR number, search by HR number directly.
+      2. Otherwise search by name and take the best hit.
+      3. Best-effort officer enrichment via /companies/{id}/officers.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT,
+            follow_redirects=True,
+            headers={"Accept": "application/json", "User-Agent": "ARIA-DD/1.0"},
+        ) as client:
+            company: dict | None = None
+
+            # ── Try HR-number-first lookup ──
+            hr = _de_parse_hr_number(reg_number or "") or _de_parse_hr_number(name or "")
+            if hr:
+                hr_type, hr_num = hr
+                url = f"{_DE_API_BASE}/companies/by_id"
+                resp = await client.get(url, params={
+                    "register_type": hr_type,
+                    "register_number": hr_num,
+                })
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    if isinstance(payload, list) and payload:
+                        company = payload[0]
+                    elif isinstance(payload, dict) and payload.get("name"):
+                        company = payload
+
+            # ── Fallback: name search ──
+            if not company and name:
+                url = f"{_DE_API_BASE}/companies/by_name"
+                resp = await client.get(url, params={"name": name.strip(), "limit": 5})
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    hits = payload if isinstance(payload, list) else payload.get("results", [])
+                    if hits:
+                        # Best hit = exact case-insensitive match if present, else first.
+                        target_lower = name.strip().lower()
+                        company = next(
+                            (h for h in hits if (h.get("name") or "").lower() == target_lower),
+                            hits[0],
+                        )
+
+            if not company or not isinstance(company, dict):
+                return None
+
+            # ── Normalise core fields ──
+            company_name = company.get("name") or name or ""
+            register_type = (company.get("register_type") or company.get("registerType") or "").upper()
+            register_number = str(company.get("register_number") or company.get("registerNumber") or "")
+            register_court = company.get("register_court") or company.get("registerCourt") or ""
+
+            if register_type and register_number:
+                company_number = f"{register_type} {register_number}".strip()
+                if register_court:
+                    company_number = f"{company_number} ({register_court})"
+            else:
+                company_number = company.get("id") or reg_number or ""
+
+            # ── Status ──
+            raw_status = (company.get("current_status") or company.get("status") or "").strip().lower()
+            company_status = _DE_STATUS_MAP.get(raw_status, raw_status or "unknown")
+
+            # ── Address ──
+            addr = company.get("registered_office") or company.get("address") or {}
+            if isinstance(addr, dict):
+                addr_parts = [
+                    addr.get("street", ""),
+                    addr.get("house_number", ""),
+                    addr.get("postal_code", ""),
+                    addr.get("city", ""),
+                    addr.get("country", "Germany"),
+                ]
+                address = ", ".join(p for p in addr_parts if p)
+            else:
+                address = str(addr) if addr else ""
+
+            # ── Activity codes (German WZ codes — economic activity classification) ──
+            wz = company.get("wz_codes") or company.get("activity_codes") or []
+            if isinstance(wz, str):
+                wz = [wz]
+            sic_codes = [str(c) for c in wz if c]
+
+            # ── Date of creation ──
+            date_of_creation = (
+                company.get("registration_date")
+                or company.get("registered_at")
+                or company.get("incorporation_date")
+                or ""
+            )
+
+            # ── Best-effort officer enrichment ──
+            officers: list[dict] = []
+            company_id = company.get("id") or company.get("company_id")
+            if company_id:
+                try:
+                    of_url = f"{_DE_API_BASE}/companies/{company_id}/officers"
+                    of_resp = await client.get(of_url)
+                    if of_resp.status_code == 200:
+                        of_payload = of_resp.json()
+                        of_list = of_payload if isinstance(of_payload, list) else of_payload.get("officers", [])
+                        for o in of_list[:25]:  # cap at 25
+                            if not isinstance(o, dict):
+                                continue
+                            full = (
+                                o.get("name")
+                                or " ".join(filter(None, [o.get("first_name", ""), o.get("last_name", "")])).strip()
+                            )
+                            if not full:
+                                continue
+                            officers.append({
+                                "name": full,
+                                "role": o.get("position") or o.get("role") or "officer",
+                                "appointed_on": o.get("appointed_on") or o.get("start_date") or "",
+                            })
+                except Exception as e:
+                    logger.debug("DE officer enrichment failed (non-fatal): %s", e)
+
+            # ── PSC: German Transparency Register data is not on OffeneRegister.
+            # Leave empty rather than fabricate. Caller can chain to a separate
+            # Transparenzregister lookup if needed (TODO follow-up).
+            psc: list[dict] = []
+
+            source_url = f"https://www.offeneregister.de/companies/{company_id}" if company_id else "https://www.offeneregister.de"
+
+            return _build_result(
+                company_name=company_name,
+                company_number=company_number,
+                company_status=company_status,
+                date_of_creation=date_of_creation,
+                registered_office_address=address,
+                jurisdiction="DE",
+                sic_codes=sic_codes,
+                officers=officers,
+                psc=psc,
+                source_url=source_url,
+                adapter="germany_offeneregister",
+            )
+    except Exception as exc:
+        logger.warning("Germany Handelsregister lookup failed: %s", exc)
         return None
 
 

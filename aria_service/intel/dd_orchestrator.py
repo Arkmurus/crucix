@@ -140,6 +140,9 @@ def _infer_jurisdiction(target: dict, name: str, reg_number: str | None) -> str 
     # 4. Registration number format
     if reg_number:
         clean = reg_number.replace(" ", "")
+        # German Handelsregister: HRB / HRA / HRG / GnR / PR / VR + digits
+        if re.match(r"^HR[ABG]\d", clean, re.IGNORECASE) or re.match(r"^(GnR|PR|VR)\d", clean, re.IGNORECASE):
+            return "DE"
         # Slovak IČO: 6-8 pure digits
         if clean.isdigit() and 6 <= len(clean) <= 8:
             # Could be SK or CZ — default SK if address hints
