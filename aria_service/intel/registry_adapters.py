@@ -30,7 +30,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -65,6 +65,7 @@ async def lookup_entity(
         "CZ": _lookup_czech,
         "HU": _lookup_hungary,
         "DE": _lookup_germany,
+        "FR": _lookup_france,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -743,56 +744,154 @@ async def _lookup_nigeria(name: str, reg_number: str | None) -> dict | None:
 # 2026-04-12: uses the public UAE business search portal.
 
 async def _lookup_uae(name: str, reg_number: str | None) -> dict | None:
-    """Search UAE business registry for a company."""
+    """Search UAE company registries.
+
+    Strategy (most defence brokers register in financial free zones):
+      1. DIFC public register (Dubai International Financial Centre) — has a
+         JSON search endpoint. Most international defence-sector firms with
+         a UAE presence sit here.
+      2. ADGM public register (Abu Dhabi Global Market) — fallback.
+      3. DED Dubai mainland — last-resort HTML scrape.
+
+    Mainland 7-emirate DEDs and MoEAT do not expose clean public APIs and
+    are intentionally NOT covered here. Returns None if none of the above
+    yield usable data.
+    """
     from .ua_rotation import random_ua
+    query = (reg_number or name or "").strip()
+    if not query:
+        return None
+
     try:
-        query = reg_number or name
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-            # Try DED Dubai public search
-            resp = await client.get(
-                "https://www.dubaided.gov.ae/en/Pages/BusinessSearch.aspx",
-                params={"q": query},
-                headers={"User-Agent": random_ua()},
-            )
-            if resp.status_code != 200:
-                # Fallback to Abu Dhabi ADDED
-                resp = await client.get(
-                    "https://www.tamm.abudhabi/en/aspects-of-life/businessandprofessional",
-                    params={"search": query},
-                    headers={"User-Agent": random_ua()},
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT,
+            follow_redirects=True,
+            headers={
+                "User-Agent": random_ua(),
+                "Accept": "application/json, text/html;q=0.9",
+            },
+        ) as client:
+
+            # ── 1. DIFC public register ──
+            try:
+                difc_resp = await client.get(
+                    "https://www.difc.ae/api/public-register/search",
+                    params={"q": name or query, "limit": 5},
                 )
+                if difc_resp.status_code == 200:
+                    payload = difc_resp.json()
+                    hits = payload if isinstance(payload, list) else payload.get("results") or payload.get("data") or []
+                    if hits and isinstance(hits, list):
+                        target = (name or query).lower()
+                        match = next(
+                            (h for h in hits if isinstance(h, dict) and (h.get("name") or h.get("legal_name") or "").lower() == target),
+                            hits[0] if isinstance(hits[0], dict) else None,
+                        )
+                        if match:
+                            cname = match.get("name") or match.get("legal_name") or name
+                            cnum = match.get("license_number") or match.get("registration_number") or match.get("number") or reg_number or ""
+                            cstatus = (match.get("status") or "active").lower()
+                            cdate = match.get("incorporation_date") or match.get("license_issue_date") or ""
+                            caddr_obj = match.get("registered_address") or match.get("address") or {}
+                            if isinstance(caddr_obj, dict):
+                                caddr = ", ".join(filter(None, [
+                                    caddr_obj.get("line1", ""),
+                                    caddr_obj.get("city", "Dubai"),
+                                    "DIFC, UAE",
+                                ]))
+                            else:
+                                caddr = str(caddr_obj) if caddr_obj else "DIFC, Dubai, UAE"
+                            activity = match.get("activity") or match.get("business_activity") or match.get("category") or ""
+                            sic = [activity] if activity else []
+                            officers_raw = match.get("officers") or match.get("directors") or []
+                            officers: list[dict] = []
+                            for o in (officers_raw if isinstance(officers_raw, list) else [])[:25]:
+                                if isinstance(o, dict) and (o.get("name") or o.get("full_name")):
+                                    officers.append({
+                                        "name": o.get("name") or o.get("full_name"),
+                                        "role": o.get("position") or o.get("role") or "officer",
+                                        "appointed_on": o.get("appointed_on") or "",
+                                    })
+                            return _build_result(
+                                company_name=cname,
+                                company_number=cnum,
+                                company_status=cstatus,
+                                date_of_creation=cdate,
+                                registered_office_address=caddr,
+                                jurisdiction="AE",
+                                sic_codes=sic,
+                                officers=officers,
+                                psc=[],
+                                source_url="https://www.difc.ae/public-register",
+                                adapter="uae_difc",
+                            )
+            except Exception as e:
+                logger.debug("DIFC lookup failed (continuing to ADGM): %s", e)
 
-            if resp.status_code != 200:
-                logger.warning("[UAE DED] Status %d for '%s'", resp.status_code, query)
-                return None
+            # ── 2. ADGM public register ──
+            try:
+                adgm_resp = await client.get(
+                    "https://www.adgm.com/api/public-registers/search",
+                    params={"query": name or query, "size": 5},
+                )
+                if adgm_resp.status_code == 200:
+                    payload = adgm_resp.json()
+                    hits = payload if isinstance(payload, list) else payload.get("results") or payload.get("data") or []
+                    if hits and isinstance(hits, list):
+                        match = next((h for h in hits if isinstance(h, dict)), None)
+                        if match:
+                            cname = match.get("name") or match.get("legal_name") or name
+                            cnum = match.get("registration_number") or match.get("number") or reg_number or ""
+                            cstatus = (match.get("status") or "active").lower()
+                            return _build_result(
+                                company_name=cname,
+                                company_number=cnum,
+                                company_status=cstatus,
+                                date_of_creation=match.get("incorporation_date") or "",
+                                registered_office_address="ADGM, Abu Dhabi, UAE",
+                                jurisdiction="AE",
+                                sic_codes=[match.get("activity")] if match.get("activity") else [],
+                                officers=[],
+                                psc=[],
+                                source_url="https://www.adgm.com/public-registers",
+                                adapter="uae_adgm",
+                            )
+            except Exception as e:
+                logger.debug("ADGM lookup failed (continuing to DED): %s", e)
 
-            html = resp.text
-            name_match = re.search(r"(?:Trade Name|Company)[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
-            lic_match = re.search(r"(?:License|Licence)\s*(?:Number|No)[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
-            status_match = re.search(r"Status[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
-            activity_match = re.search(r"(?:Activity|Business Type)[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+            # ── 3. DED Dubai mainland HTML fallback ──
+            try:
+                resp = await client.get(
+                    "https://www.dubaided.gov.ae/en/Pages/BusinessSearch.aspx",
+                    params={"q": query},
+                )
+                if resp.status_code == 200:
+                    html = resp.text
+                    name_match = re.search(r"(?:Trade Name|Company)[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+                    lic_match = re.search(r"(?:License|Licence)\s*(?:Number|No)[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+                    status_match = re.search(r"Status[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+                    activity_match = re.search(r"(?:Activity|Business Type)[:\s]*</?\w+[^>]*>\s*([^<]+)", html, re.I)
+                    if name_match or lic_match:
+                        return _build_result(
+                            company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
+                            company_number=_html_unescape(lic_match.group(1).strip()) if lic_match else reg_number or "",
+                            company_status=_html_unescape(status_match.group(1).strip()) if status_match else "unknown",
+                            date_of_creation="",
+                            registered_office_address="Dubai, UAE",
+                            jurisdiction="AE",
+                            sic_codes=[_html_unescape(activity_match.group(1).strip())] if activity_match else [],
+                            officers=[],
+                            psc=[],
+                            source_url=f"https://www.dubaided.gov.ae/en/Pages/BusinessSearch.aspx?q={query}",
+                            adapter="uae_ded",
+                        )
+            except Exception as e:
+                logger.debug("DED Dubai lookup failed: %s", e)
 
-            company_name = _html_unescape(name_match.group(1).strip()) if name_match else name
-            company_number = _html_unescape(lic_match.group(1).strip()) if lic_match else reg_number or ""
-
-            if not name_match and not lic_match:
-                return None
-
-            return _build_result(
-                company_name=company_name,
-                company_number=company_number,
-                company_status=_html_unescape(status_match.group(1).strip()) if status_match else "unknown",
-                date_of_creation="",
-                registered_office_address="UAE",
-                jurisdiction="AE",
-                sic_codes=[_html_unescape(activity_match.group(1).strip())] if activity_match else [],
-                officers=[],
-                psc=[],
-                source_url=f"https://www.dubaided.gov.ae/en/Pages/BusinessSearch.aspx?q={query}",
-                adapter="uae_ded",
-            )
+            logger.info("UAE adapter: no usable data from DIFC/ADGM/DED for '%s'", query)
+            return None
     except Exception as exc:
-        logger.warning("UAE DED lookup failed: %s", exc)
+        logger.warning("UAE registry lookup failed: %s", exc)
         return None
 
 
@@ -1495,6 +1594,170 @@ async def _lookup_germany(name: str, reg_number: str | None) -> dict | None:
             )
     except Exception as exc:
         logger.warning("Germany Handelsregister lookup failed: %s", exc)
+        return None
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  France — recherche-entreprises.api.gouv.fr (FR)                   ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+#
+# Source: France's official open-data company API, served from the SIRENE
+# database. No auth, no key, generous rate limits. Replaces the older direct
+# INSEE SIRENE API which required OAuth.
+#
+# Returns SIRET (14-digit establishment id) + SIREN (9-digit company id),
+# legal form, NAF activity code, état administratif (active vs ceased),
+# registered address, and dirigeants (directors).
+
+_FR_API_BASE = "https://recherche-entreprises.api.gouv.fr"
+
+
+def _fr_extract_siren(text: str) -> str | None:
+    """Return a 9-digit SIREN if one appears in the input."""
+    if not text:
+        return None
+    digits = re.sub(r"\D", "", text)
+    if len(digits) >= 9:
+        return digits[:9]
+    return None
+
+
+async def _lookup_france(name: str, reg_number: str | None) -> dict | None:
+    """France SIRENE via recherche-entreprises.api.gouv.fr (open data, no auth)."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT,
+            follow_redirects=True,
+            headers={"Accept": "application/json", "User-Agent": "ARIA-DD/1.0"},
+        ) as client:
+            company: dict | None = None
+
+            # ── SIREN-direct lookup if reg_number contains 9+ digits ──
+            siren = _fr_extract_siren(reg_number or "") or _fr_extract_siren(name or "")
+            if siren:
+                resp = await client.get(f"{_FR_API_BASE}/search", params={"q": siren, "per_page": 1})
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    results = payload.get("results", [])
+                    if results:
+                        company = results[0]
+
+            # ── Fallback: name search ──
+            if not company and name:
+                resp = await client.get(
+                    f"{_FR_API_BASE}/search",
+                    params={"q": name.strip(), "per_page": 5},
+                )
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    results = payload.get("results", [])
+                    if results:
+                        target = name.strip().lower()
+                        company = next(
+                            (r for r in results if (r.get("nom_complet") or r.get("nom_raison_sociale") or "").lower() == target),
+                            results[0],
+                        )
+
+            if not company or not isinstance(company, dict):
+                return None
+
+            # ── Normalise core fields ──
+            company_name = (
+                company.get("nom_complet")
+                or company.get("nom_raison_sociale")
+                or company.get("denomination")
+                or name
+                or ""
+            )
+
+            siren_value = company.get("siren") or siren or ""
+            siege = company.get("siege") or {}
+            siret_value = siege.get("siret") or company.get("siret") or ""
+            company_number = siret_value or siren_value or reg_number or ""
+
+            # ── État administratif: 'A' = active, 'C' = ceased ──
+            etat = (company.get("etat_administratif") or siege.get("etat_administratif") or "").upper()
+            if etat == "A":
+                company_status = "active"
+            elif etat == "C":
+                company_status = "ceased"
+            else:
+                company_status = "unknown"
+
+            date_of_creation = (
+                company.get("date_creation")
+                or company.get("date_creation_entreprise")
+                or siege.get("date_creation")
+                or ""
+            )
+
+            # ── Address (siège social) ──
+            addr_parts = [
+                siege.get("numero_voie", ""),
+                siege.get("type_voie", ""),
+                siege.get("libelle_voie", ""),
+                siege.get("code_postal", ""),
+                siege.get("libelle_commune", ""),
+                "France",
+            ]
+            address = " ".join(p for p in addr_parts if p).strip() or siege.get("adresse", "") or ""
+
+            # ── NAF activity code ──
+            naf = (
+                company.get("activite_principale")
+                or siege.get("activite_principale")
+                or ""
+            )
+            naf_label = company.get("libelle_activite_principale") or ""
+            sic_codes = []
+            if naf:
+                sic_codes.append(f"{naf} {naf_label}".strip())
+
+            # ── Dirigeants (officers) ──
+            officers: list[dict] = []
+            for d in (company.get("dirigeants") or [])[:25]:
+                if not isinstance(d, dict):
+                    continue
+                full = (
+                    d.get("nom_complet")
+                    or " ".join(filter(None, [d.get("prenoms", ""), d.get("nom", "")])).strip()
+                    or d.get("denomination", "")
+                )
+                if not full:
+                    continue
+                officers.append({
+                    "name": full,
+                    "role": d.get("qualite") or d.get("role") or "dirigeant",
+                    "appointed_on": d.get("date_de_naissance") or "",
+                })
+
+            # Defensive: only return a result if we got real registry fields.
+            got_real_data = bool(siren_value or siret_value or address or officers)
+            if not got_real_data:
+                logger.info("FR adapter: API responded but no usable fields for '%s'", name)
+                return None
+
+            source_url = (
+                f"https://annuaire-entreprises.data.gouv.fr/entreprise/{siren_value}"
+                if siren_value
+                else "https://annuaire-entreprises.data.gouv.fr"
+            )
+
+            return _build_result(
+                company_name=company_name,
+                company_number=company_number,
+                company_status=company_status,
+                date_of_creation=date_of_creation,
+                registered_office_address=address,
+                jurisdiction="FR",
+                sic_codes=sic_codes,
+                officers=officers,
+                psc=[],
+                source_url=source_url,
+                adapter="france_recherche_entreprises",
+            )
+    except Exception as exc:
+        logger.warning("France registry lookup failed: %s", exc)
         return None
 
 
