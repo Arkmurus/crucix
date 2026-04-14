@@ -1164,8 +1164,23 @@ async def run_monitoring_cycle() -> dict:
 
     duration_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
 
+    # Pull per-portal health so zero-result runs carry a diagnostic breakdown
+    # (which portals errored vs. returned 0 vs. returned results) without
+    # requiring DEBUG logs.
+    portal_health = await rs.get_json(_KEY_PORTAL_HEALTH) or {}
+    portals_ok = sum(1 for h in portal_health.values() if h.get("status") == "ok")
+    portals_err = sum(1 for h in portal_health.values() if h.get("status") == "error")
+    portals_zero = sum(
+        1 for h in portal_health.values()
+        if h.get("status") == "ok" and not h.get("tenders_found")
+    )
+
     stats = {
-        "portals_crawled": 5,
+        "portals_crawled": len(portal_health),
+        "portals_ok": portals_ok,
+        "portals_error": portals_err,
+        "portals_zero_results": portals_zero,
+        "portal_health": portal_health,
         "tenders_found": len(all_tenders),
         "new_tenders": len(new_tenders),
         "top_matches": top_matches,

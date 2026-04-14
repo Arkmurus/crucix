@@ -2136,6 +2136,70 @@ def _derive_score_from_matches(matches: list[dict]) -> float:
     return max((m.get("score", 0) for m in matches if isinstance(m, dict)), default=0.0)
 
 
+def _buyer_matches_entity(buyer: str, entity_name: str) -> bool:
+    """Loose match: deals store buyer as a free-text string. We match on
+    case-insensitive substring in either direction, with a min token length
+    of 4 to avoid matching on short common words."""
+    if not buyer or not entity_name:
+        return False
+    b = buyer.strip().lower()
+    e = entity_name.strip().lower()
+    if len(e) < 4 or len(b) < 4:
+        return False
+    return e in b or b in e
+
+
+async def _fan_out_alert_to_deals(alert: dict) -> list[dict]:
+    """When a watchlist entity worsens, find every open deal whose buyer
+    matches and tag it. Returns list of {id, buyer, country, stage} impacted.
+    Silent on errors — never block the parent rescreen cycle."""
+    try:
+        from . import deal_pipeline
+    except Exception as e:
+        logger.debug("deal_pipeline unavailable for fan-out: %s", e)
+        return []
+
+    entity = alert.get("entity", "")
+    change_type = alert.get("change_type", "")
+    try:
+        open_deals = await deal_pipeline.get_pipeline(include_closed=False)
+    except Exception as e:
+        logger.warning("[watchlist fan-out] pipeline read failed: %s", e)
+        return []
+
+    impacted: list[dict] = []
+    tag = f"sanctions_alert_{datetime.now(timezone.utc).strftime('%Y%m%d')}"
+    note = f"Counterparty '{entity}' flagged ({change_type}) by watchlist re-screen."
+
+    for deal in open_deals:
+        if not _buyer_matches_entity(deal.get("buyer", ""), entity):
+            continue
+        deal_id = deal.get("id")
+        if not deal_id:
+            continue
+        try:
+            await deal_pipeline.update_lead(
+                deal_id,
+                tags=[tag, "FLAGGED_FOR_RESCREEN"],
+                notes=note,
+            )
+            impacted.append({
+                "id": deal_id,
+                "buyer": deal.get("buyer", ""),
+                "country": deal.get("country", ""),
+                "stage": deal.get("stage", ""),
+            })
+        except Exception as e:
+            logger.warning("[watchlist fan-out] update %s failed: %s", deal_id, e)
+
+    if impacted:
+        logger.warning(
+            "[watchlist fan-out] %s (%s) impacts %d open deal(s)",
+            entity, change_type, len(impacted),
+        )
+    return impacted
+
+
 async def rescreen_watchlist(llm=None) -> dict:
     """Re-screen every watchlist entity (sanctions + PEP only, no LLM).
 
@@ -2229,9 +2293,25 @@ async def rescreen_watchlist(llm=None) -> dict:
                     "change_type": change_type,
                     "old_status": old_status,
                     "new_status": new_status,
+                    "old_score": round(old_score, 3),
+                    "new_score": round(new_score, 3),
                     "detail": detail,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
+
+                # Fan out to linked deals on worsening changes only — don't
+                # tag deals when a counterparty is removed from a list or
+                # a match score drops. "score_change" with a drop is
+                # informational; with a rise it's a risk signal.
+                worsening = (
+                    change_type in ("new_hit", "new_pep")
+                    or (change_type == "score_change" and new_score > old_score)
+                )
+                if worsening:
+                    impacted = await _fan_out_alert_to_deals(alert)
+                    if impacted:
+                        alert["impacted_deals"] = impacted
+
                 changes.append(alert)
 
                 # Persist alert in Redis
