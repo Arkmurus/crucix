@@ -53,6 +53,7 @@ from ..intel.semantic_search import semantic_search, get_index_stats
 from ..intel import sanctions as aria_sanctions
 from ..intel import conflict_tracker
 from ..intel import tech_classifier
+from ..intel import dual_use_classifier
 from ..intel import local_brain
 from ..intel import reasoning_router
 from ..intel import reasoning_library
@@ -6212,6 +6213,38 @@ async def tech_classify_ep(req: TechClassifyRequest):
 async def tech_explain_ep(designation: str):
     """Look up a single weapon system designation in the technical database."""
     return tech_classifier.explain_item(designation)
+
+
+# ── Dual-use jurisdictional decision engine ─────────────────────────────────
+
+class DualUseRequest(BaseModel):
+    item: str
+    origin: str
+    destination: str
+    end_user: Optional[str] = None
+    end_use: Optional[str] = None
+
+
+@router.post("/compliance/dual-use-check")
+async def dual_use_check_ep(req: DualUseRequest):
+    """Full jurisdictional dual-use assessment: item + origin + destination →
+    licence required y/n, controlling authority, embargo check, next actions.
+
+    Wraps tech_classifier and adds the layer brokers actually need.
+    """
+    if not (req.item or "").strip() or len((req.item or "").strip()) < 3:
+        raise HTTPException(status_code=400, detail="item description required (min 3 chars)")
+    if not (req.origin or "").strip():
+        raise HTTPException(status_code=400, detail="origin country required")
+    if not (req.destination or "").strip():
+        raise HTTPException(status_code=400, detail="destination country required")
+    return await dual_use_classifier.assess(
+        item_description=req.item,
+        origin=req.origin,
+        destination=req.destination,
+        end_user=req.end_user,
+        end_use=req.end_use,
+    )
 
 
 # ── Knowledge contradictions (metacognitive self-correction) ────────────────
