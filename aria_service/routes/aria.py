@@ -6303,6 +6303,187 @@ async def euc_check_ep(req: EUCCheckRequest):
     return result
 
 
+# ── Composed export-assessment workflow ──────────────────────────────────────
+# Single endpoint that combines dual-use classification + matching EUC profile
+# + deal-pipeline link + optional compliance case. The actual workflow a broker
+# runs end-to-end when scoping a new export — replaces 3-4 separate calls.
+
+# Origin → EUC profile mapping. Keys are the same loose country strings
+# accepted by dual_use_classifier (case-insensitive, with aliases).
+_EUC_PROFILE_BY_ORIGIN: dict[str, str] = {
+    # US/ITAR
+    "us": "US_DSP83", "usa": "US_DSP83", "united states": "US_DSP83", "america": "US_DSP83",
+    # UK
+    "uk": "UK_GENERAL", "gb": "UK_GENERAL", "united kingdom": "UK_GENERAL", "great britain": "UK_GENERAL", "england": "UK_GENERAL",
+    # EU member states → EU dual-use
+    "de": "EU_DUAL_USE", "germany": "EU_DUAL_USE", "deutschland": "EU_DUAL_USE",
+    "fr": "EU_DUAL_USE", "france": "EU_DUAL_USE",
+    "it": "EU_DUAL_USE", "italy": "EU_DUAL_USE", "italia": "EU_DUAL_USE",
+    "es": "EU_DUAL_USE", "spain": "EU_DUAL_USE", "españa": "EU_DUAL_USE",
+    "nl": "EU_DUAL_USE", "netherlands": "EU_DUAL_USE",
+    "be": "EU_DUAL_USE", "belgium": "EU_DUAL_USE",
+    "se": "EU_DUAL_USE", "sweden": "EU_DUAL_USE",
+    "pl": "EU_DUAL_USE", "poland": "EU_DUAL_USE",
+    "ro": "EU_DUAL_USE", "romania": "EU_DUAL_USE",
+    "cz": "EU_DUAL_USE", "czech republic": "EU_DUAL_USE",
+    "pt": "EU_DUAL_USE", "portugal": "EU_DUAL_USE",
+    "at": "EU_DUAL_USE", "austria": "EU_DUAL_USE",
+    "eu": "EU_DUAL_USE", "european union": "EU_DUAL_USE",
+    # GCC
+    "ae": "GCC_GENERIC", "uae": "GCC_GENERIC", "united arab emirates": "GCC_GENERIC",
+    "sa": "GCC_GENERIC", "saudi arabia": "GCC_GENERIC",
+    "qa": "GCC_GENERIC", "qatar": "GCC_GENERIC",
+    "om": "GCC_GENERIC", "oman": "GCC_GENERIC",
+    "kw": "GCC_GENERIC", "kuwait": "GCC_GENERIC",
+    "bh": "GCC_GENERIC", "bahrain": "GCC_GENERIC",
+}
+
+
+def _euc_profile_for_origin(origin: str) -> str:
+    """Map an origin country (loose string) to the most-applicable EUC profile.
+    Falls back to Wassenaar generic for unmapped origins."""
+    return _EUC_PROFILE_BY_ORIGIN.get((origin or "").strip().lower(), "WASSENAAR_GENERIC")
+
+
+class ExportAssessmentRequest(BaseModel):
+    item: str
+    origin: str
+    destination: str
+    end_user: Optional[str] = None
+    end_use: Optional[str] = None
+    deal_id: Optional[str] = None
+    create_case: bool = False
+
+
+@router.post("/compliance/export-assessment")
+async def export_assessment_ep(req: ExportAssessmentRequest):
+    """Compose the full broker workflow into one call.
+
+    Runs dual-use classification, picks the matching EUC profile, returns the
+    template, optionally tags the linked deal and creates a compliance case.
+    Replaces 3-4 separate calls a broker would otherwise have to chain
+    manually for each prospective export.
+    """
+    if not (req.item or "").strip() or len((req.item or "").strip()) < 3:
+        raise HTTPException(status_code=400, detail="item description required (min 3 chars)")
+    if not (req.origin or "").strip():
+        raise HTTPException(status_code=400, detail="origin country required")
+    if not (req.destination or "").strip():
+        raise HTTPException(status_code=400, detail="destination country required")
+
+    # 1. Dual-use jurisdictional decision
+    dual_use = await dual_use_classifier.assess(
+        item_description=req.item,
+        origin=req.origin,
+        destination=req.destination,
+        end_user=req.end_user,
+        end_use=req.end_use,
+    )
+
+    # 2. Matching EUC profile + template
+    profile_id = _euc_profile_for_origin(req.origin)
+    profile_meta = next(
+        (p for p in euc_library.list_profiles() if p["id"] == profile_id),
+        {"id": profile_id, "label": profile_id, "regime": "", "clause_count": 0, "critical_clauses": 0},
+    )
+    euc = {
+        "profile_id": profile_id,
+        "profile_label": profile_meta["label"],
+        "regime": profile_meta["regime"],
+        "template": euc_library.get_template(profile_id),
+        "critical_clause_count": profile_meta["critical_clauses"],
+        "total_clause_count": profile_meta["clause_count"],
+    }
+
+    # 3. Optional deal-pipeline link
+    deal_link: Optional[dict] = None
+    if req.deal_id:
+        try:
+            from ..intel import deal_pipeline
+            decision = dual_use["decision"]["licence_required"]
+            tag = f"export_{decision.lower()}"
+            note = (
+                f"Export assessment: {req.item[:60]} → {req.destination}. "
+                f"Decision: {decision}. EUC profile: {profile_id}."
+            )
+            await deal_pipeline.update_lead(
+                req.deal_id,
+                tags=[tag, "EXPORT_ASSESSED", f"euc_profile_{profile_id.lower()}"],
+                notes=note,
+            )
+            deal_link = {"deal_id": req.deal_id, "tags_applied": [tag, "EXPORT_ASSESSED"]}
+        except Exception as e:
+            deal_link = {"deal_id": req.deal_id, "error": str(e)[:200]}
+
+    # 4. Optional compliance case
+    compliance_case: Optional[dict] = None
+    if req.create_case:
+        try:
+            from ..intel import compliance_workflow
+            entity_name = req.end_user or f"{req.item[:40]} → {req.destination}"
+            case = await compliance_workflow.create_case(
+                entity_name=entity_name,
+                entity_type="export_transaction",
+                jurisdiction=req.origin,
+                screened_by="export_assessment",
+            )
+            compliance_case = {"case_id": case.get("case_id"), "state": case.get("state", "pending")}
+        except Exception as e:
+            compliance_case = {"error": str(e)[:200]}
+
+    # 5. Compose summary + next actions
+    decision = dual_use["decision"]["licence_required"]
+    embargo_status = dual_use["embargo_check"]["status"]
+    summary = (
+        f"{req.item[:60]} ({req.origin} → {req.destination}): "
+        f"{decision}"
+        + (f" — {embargo_status}" if embargo_status != "STANDARD" else "")
+        + f". EUC profile: {profile_id}."
+    )
+
+    combined_actions = list(dual_use.get("next_actions", []))
+    if decision in ("YES", "LIKELY") and embargo_status != "HARD_STOP":
+        combined_actions.append(f"Send the {profile_id} EUC template to the destination authority for completion.")
+        combined_actions.append("After receipt, validate via /api/aria/compliance/euc/check.")
+    if req.deal_id and deal_link and "error" not in deal_link:
+        combined_actions.append(f"Deal {req.deal_id} tagged with EXPORT_ASSESSED + decision.")
+    if compliance_case and "case_id" in compliance_case:
+        combined_actions.append(f"Compliance case {compliance_case['case_id']} created for tracking.")
+
+    result = {
+        "summary": summary,
+        "input": {
+            "item": req.item,
+            "origin": req.origin,
+            "destination": req.destination,
+            "end_user": req.end_user,
+            "end_use": req.end_use,
+        },
+        "dual_use": dual_use,
+        "euc": euc,
+        "deal_link": deal_link,
+        "compliance_case": compliance_case,
+        "next_actions": combined_actions,
+        "disclaimer": dual_use.get("disclaimer", ""),
+        "timestamp": dual_use.get("timestamp"),
+    }
+
+    # Brain hook: feed the composed assessment into learning
+    try:
+        from ..intel import brain_hook
+        await brain_hook.absorb(
+            module="dual_use_classifier",  # composed call attributes to dual-use
+            summary=f"Export assessment composed: {summary}",
+            entity_name=req.item[:80],
+            success=(decision != "PROHIBITED"),
+            confidence="ASSESSED",
+        )
+    except Exception:
+        pass
+
+    return result
+
+
 # ── Knowledge contradictions (metacognitive self-correction) ────────────────
 
 @router.get("/knowledge/contradictions")
