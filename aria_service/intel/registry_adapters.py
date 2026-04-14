@@ -1465,6 +1465,21 @@ async def _lookup_germany(name: str, reg_number: str | None) -> dict | None:
 
             source_url = f"https://www.offeneregister.de/companies/{company_id}" if company_id else "https://www.offeneregister.de"
 
+            # Defensive: only return a result if we actually got registry data
+            # back. If the API shape differs from expectations and we'd ship a
+            # result populated only with the user's own input, return None
+            # instead — that lets DD report "no registry data" honestly rather
+            # than fake-confirming the entity.
+            got_real_data = bool(
+                (register_type and register_number)
+                or address
+                or officers
+                or company_id
+            )
+            if not got_real_data:
+                logger.info("DE adapter: API responded but no usable fields extracted for '%s'", name)
+                return None
+
             return _build_result(
                 company_name=company_name,
                 company_number=company_number,
