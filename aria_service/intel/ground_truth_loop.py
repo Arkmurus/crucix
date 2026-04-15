@@ -47,7 +47,10 @@ from typing import Optional
 from enum import Enum
 
 import os
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 from aria_service.config import Settings
 
 _settings = Settings()
@@ -476,7 +479,7 @@ class ARIALivingConstitution:
     def __init__(self, redis_client=None, notify_fn=None):
         self.redis = redis_client
         self.notify = notify_fn
-        self.client = anthropic.Anthropic(api_key=config.anthropic_api_key)
+        self.client = anthropic.Anthropic(api_key=config.anthropic_api_key) if anthropic else None
         self._local_clauses: list[ConstitutionClause] = []
 
     def report_incident(
@@ -615,6 +618,13 @@ class ARIALivingConstitution:
         context: str,
     ) -> tuple[str, str, list[str]]:
         """Use Claude to draft a constitution clause from an incident."""
+        if not self.client:
+            return (
+                f"When encountering {incident_type}, I must apply extra scrutiny "
+                f"and verify all claims independently before acting.",
+                f"Anchored to incident: {incident[:100]} (SDK unavailable; placeholder)",
+                [],
+            )
         try:
             response = self.client.messages.create(
                 model=config.model_standard,

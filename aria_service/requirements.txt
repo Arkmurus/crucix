@@ -37,3 +37,10 @@ chromadb>=0.4.0
 #   resident and is now the only local backend.
 pytesseract>=0.3.10
 Pillow>=10.0.0
+
+# ── Anthropic SDK for active_challenge_engine, claim_ledger, ground_truth ──
+# These three modules use the Claude API directly (not through ARIA's own
+# LLM provider abstraction) to keep their logic self-contained. The SDK is
+# also imported defensively — modules load without it (import guarded) but
+# their LLM-powered methods return empty results if it is missing.
+anthropic>=0.40.0

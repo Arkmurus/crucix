@@ -32,7 +32,10 @@ from typing import Optional
 from enum import Enum
 
 import os
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 from aria_service.config import Settings
 
 _settings = Settings()
@@ -264,7 +267,7 @@ class ARIAActiveChallengeEngine:
             deliver_fn: Function that posts a challenge to the appropriate channel.
                         Signature: deliver_fn(challenge: Challenge, channel: str)
         """
-        self.client = anthropic.Anthropic(api_key=config.anthropic_api_key)
+        self.client = anthropic.Anthropic(api_key=config.anthropic_api_key) if anthropic else None
         self.deliver = deliver_fn
         self._segment_buffer: list[str] = []
         self._challenges_this_meeting: list[Challenge] = []
@@ -519,6 +522,8 @@ Respond ONLY with JSON array. Example:
   }}
 ]"""
 
+        if not self.client:
+            return []
         try:
             response = self.client.messages.create(
                 model=config.model_standard,
@@ -570,6 +575,8 @@ Respond ONLY with JSON array. Example:
         deal_context: DealContext,
     ) -> list[Challenge]:
         """Extract novel unstated assumptions using LLM analysis."""
+        if not self.client:
+            return []
         try:
             prompt = f"""Analyse this business conversation and identify unstated assumptions 
 the team is making. Focus on assumptions that:

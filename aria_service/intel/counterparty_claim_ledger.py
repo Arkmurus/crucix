@@ -29,7 +29,10 @@ from typing import Optional
 from enum import Enum
 
 import os
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 from aria_service.config import Settings
 
 _settings = Settings()
@@ -189,7 +192,7 @@ class ARIACounterpartyClaimLedger:
     def __init__(self, redis_client=None, notify_fn=None):
         self.redis = redis_client
         self.notify = notify_fn
-        self.client = anthropic.Anthropic(api_key=config.anthropic_api_key)
+        self.client = anthropic.Anthropic(api_key=config.anthropic_api_key) if anthropic else None
         self._local_cache: dict[str, list[Claim]] = {}
 
     def ingest_message(
@@ -379,6 +382,8 @@ Respond ONLY with JSON array. Each claim:
 
 Return [] if no material claims found."""
 
+        if not self.client:
+            return []
         try:
             response = self.client.messages.create(
                 model=config.model_standard,
@@ -481,6 +486,8 @@ Respond ONLY with JSON:
 
 If no contradiction, return: {{"contradicts": false}}"""
 
+        if not self.client:
+            return None
         try:
             response = self.client.messages.create(
                 model=config.model_standard,
