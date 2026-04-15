@@ -9242,6 +9242,79 @@ async def golden_stats_ep():
 # GROUNDED-RATE DASHBOARD ENDPOINT
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ADVERSARIAL CHALLENGE ENGINE — manipulation-resistance testing
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _AdversarialRunBody(BaseModel):
+    attack_ids: list[str] | None = None
+
+
+@router.post("/adversarial/run_weekly")
+async def adversarial_run_weekly_ep(body: _AdversarialRunBody):
+    """Execute the weekly adversarial sweep. Same code path as the
+    WEEKLY-ADVERSARIAL-AUDIT autonomous task. Returns per-category
+    scores + overall manipulation_resistance."""
+    from ..intel import adversarial_challenge as _ac
+    return await _ac.run_weekly(attack_ids=body.attack_ids)
+
+
+@router.post("/adversarial/run_single")
+async def adversarial_run_single_ep(attack_id: str):
+    """Run one attack on-demand."""
+    from ..intel import adversarial_challenge as _ac
+    return await _ac.run_single(attack_id)
+
+
+@router.post("/adversarial/regression_replay")
+async def adversarial_regression_replay_ep(attack_id: str):
+    """Re-run an attack after a clause amendment. Logs to regression log."""
+    from ..intel import adversarial_challenge as _ac
+    return await _ac.regression_replay(attack_id)
+
+
+@router.get("/adversarial/stats")
+async def adversarial_stats_ep():
+    """Last run + 4-week trend + pending amendment count."""
+    from ..intel import adversarial_challenge as _ac
+    return await _ac.stats()
+
+
+@router.get("/adversarial/library")
+async def adversarial_library_ep():
+    """The versioned attack library — every attack cites a real public
+    case (OFSI, SIPRI, FCA, OFAC, Interpol) so blocking decisions are
+    legally defensible."""
+    from ..intel.adversarial_challenge import ATTACK_LIBRARY
+    return {
+        "version": 1,
+        "count": len(ATTACK_LIBRARY),
+        "attacks": [
+            {
+                "id": a.id,
+                "category": a.category.value,
+                "severity": a.severity.value,
+                "name": a.name,
+                "description": a.description,
+                "turns_count": len(a.turns),
+                "anchor_clauses": a.anchor_clauses,
+                "source_cases": a.source_cases,
+                "must_break_at_turn": a.must_break_at_turn,
+            }
+            for a in ATTACK_LIBRARY
+        ],
+    }
+
+
+@router.get("/adversarial/amendments")
+async def adversarial_amendments_ep():
+    """Pending clause-amendment candidates staged from failed attacks.
+    Human approves via self_improve.deploy_improvement per doctrine."""
+    from ..intel import redis_store as rs
+    queue = await rs.get_json("aria:adversarial:amendments_queue") or []
+    return {"queue_depth": len(queue), "amendments": queue}
+
+
 @router.get("/metrics/grounded_rate")
 async def metrics_grounded_rate_ep(days: int = 14):
     """Return the grounded-rate baseline + a time-series over the last

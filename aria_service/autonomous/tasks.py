@@ -445,6 +445,13 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         report = await _ga.propose_batch(max_candidates=max_cands)
         return {"golden_autogen": report}
 
+    elif tool_kind == "adversarial_weekly":
+        # Manipulation-resistance weekly sweep — 5 attacks across
+        # 4 categories. Failures stage clause-amendment candidates.
+        from ..intel import adversarial_challenge as _ac
+        report = await _ac.run_weekly()
+        return {"adversarial": report}
+
     elif tool_kind == "pipeline_dormancy_check":
         from ..intel import deal_pipeline
         dormant = await deal_pipeline.check_dormant_leads()
@@ -540,7 +547,8 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "core_develop",
                            "core_meta",
                            "source_scout",
-                           "golden_autogen"):
+                           "golden_autogen",
+                           "adversarial_weekly"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             try:

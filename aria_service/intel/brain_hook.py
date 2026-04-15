@@ -71,6 +71,7 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "ecosystem_reassess":   ["general"],
     "golden_autogen":       ["osint", "general"],
     "paraphrase_guard":     ["osint", "general"],
+    "adversarial_challenge": ["compliance", "general", "osint"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)
@@ -115,6 +116,7 @@ _MODULE_WEIGHT: dict[str, float] = {
     "ecosystem_reassess":   0.05,  # read-only queue build
     "golden_autogen":       0.10,  # self-growing eval set — meaningful curation
     "paraphrase_guard":     0.05,  # per-turn discipline check — high frequency
+    "adversarial_challenge": 0.30, # weekly stress test — highest-value mastery signal
 }
 
 

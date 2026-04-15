@@ -48,7 +48,14 @@ from typing import Any, Optional
 
 logger = logging.getLogger("aria.self_metrics")
 
-AXES = {"accuracy", "coverage", "timeliness", "calibration", "utility"}
+AXES = {"accuracy", "coverage", "timeliness", "calibration", "utility",
+        # Manipulation resistance — how well ARIA holds her constitution
+        # under adversarial pressure (false premises, authority attacks,
+        # gradual drift, social engineering). Scored 0.0–1.0 per weekly
+        # adversarial run. A platform with 90% accuracy but 45%
+        # manipulation_resistance is not trustworthy with live
+        # counterparties.
+        "manipulation_resistance"}
 
 _KEY_LOG = "crucix:self_metrics:log"
 _KEY_HEAD_HASH = "crucix:self_metrics:head_hash"
