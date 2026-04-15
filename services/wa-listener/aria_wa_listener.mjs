@@ -100,6 +100,7 @@ const BRAIN_URL     = process.env.BRAIN_SERVICE_URL      || 'http://localhost:31
 const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || 'aria-internal';
 const REDIS_URL     = process.env.REDIS_URL              || '';
 const AUTO_RESPOND  = (process.env.WA_LISTENER_AUTO_RESPOND || 'true').toLowerCase() === 'true';
+const MAX_DOC_CHARS = parseInt(process.env.ARIA_MAX_DOC_CHARS || '200000', 10);
 
 // Parse group IDs — can be set after first run once you know your group IDs
 const TARGET_GROUPS = GROUP_IDS_RAW
@@ -791,7 +792,7 @@ async function startListener() {
               let factsLearned = 0;
               try {
                 const dr = await brainPost('/api/aria/read-document', {
-                  content: extracted.slice(0, 15000),
+                  content: extracted.slice(0, MAX_DOC_CHARS),
                   filename,
                   source: `whatsapp_group:${groupName}:${senderName}`,
                   context: caption || `Image OCR from ${groupName}`,
@@ -886,7 +887,7 @@ async function startListener() {
             const isBinary = /pdf|word|spreadsheet|octet-stream|msword|officedocument/.test(mimetype);
             const content = isBinary
               ? buf.toString('base64')                  // FULL base64 of byte-sliced buffer
-              : buf.toString('utf-8').slice(0, 15000);
+              : buf.toString('utf-8').slice(0, MAX_DOC_CHARS);
             if (content.length > 50) {
               const result = await brainPost('/api/aria/read-document', {
                 content,

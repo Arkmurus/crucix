@@ -4,8 +4,11 @@ ARIA API Routes — all 18 endpoints matching the Node.js API surface.
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
+
+MAX_DOC_CHARS = int(os.environ.get("ARIA_MAX_DOC_CHARS", "200000"))
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -4012,7 +4015,7 @@ async def read_document_ep(request: Request):
             try:
                 import fitz  # PyMuPDF
                 doc = fitz.open(stream=raw_bytes, filetype="pdf")
-                extracted = "\n".join(page.get_text() for page in doc)[:15000]
+                extracted = "\n".join(page.get_text() for page in doc)[:MAX_DOC_CHARS]
                 doc.close()
             except ImportError:
                 llm = get_llm(request)
@@ -4029,7 +4032,7 @@ async def read_document_ep(request: Request):
                 if "word/document.xml" in zf.namelist():
                     xml = zf.read("word/document.xml").decode("utf-8", errors="ignore")
                     extracted = _re.sub(r"<[^>]+>", " ", xml)
-                    extracted = " ".join(extracted.split())[:15000]
+                    extracted = " ".join(extracted.split())[:MAX_DOC_CHARS]
                 zf.close()
             except Exception as e:
                 _log.warning("DOCX extraction failed: %s", e)
@@ -4048,7 +4051,7 @@ async def read_document_ep(request: Request):
                         rows.append(f"--- Sheet: {sh.name} ---")
                         for ri in range(min(500, sh.nrows)):
                             rows.append(",".join(str(sh.cell_value(ri, ci) or "") for ci in range(min(40, sh.ncols))))
-                    extracted = "\n".join(rows)[:15000]
+                    extracted = "\n".join(rows)[:MAX_DOC_CHARS]
                 except Exception as e:
                     _log.warning("Legacy .xls extraction via xlrd failed: %s", e)
             else:
@@ -4061,7 +4064,7 @@ async def read_document_ep(request: Request):
                         for row in ws.iter_rows(max_row=500, max_col=40, values_only=True):
                             rows.append(",".join(str(c or "") for c in row))
                     wb.close()
-                    extracted = "\n".join(rows)[:15000]
+                    extracted = "\n".join(rows)[:MAX_DOC_CHARS]
                 except Exception as e:
                     _log.warning("Excel extraction failed: %s — mime=%s name=%s", e, mime_lower, fname_lower)
 
@@ -4081,7 +4084,7 @@ async def read_document_ep(request: Request):
                 llm = get_llm(request)
                 dr_result = await _dr.read_document(source=tmp_path, llm=llm, query=context)
                 if dr_result.is_usable:
-                    extracted = dr_result.text[:15000]
+                    extracted = dr_result.text[:MAX_DOC_CHARS]
                     _log.info("[read-document] v3 fallback succeeded: %s %.0f%%", dr_result.method, dr_result.confidence * 100)
                 import os
                 os.unlink(tmp_path)
