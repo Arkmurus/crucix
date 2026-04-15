@@ -4110,6 +4110,12 @@ async def read_document_ep(request: Request):
         raise HTTPException(status_code=400, detail="content required (min 30 chars)")
     llm = get_llm(request)
     result = await read_document(llm, content, filename, source, context)
+    # Surface the extracted text so callers (WA listener, email reader) can
+    # render the ATTACHED DOCUMENT block when local extraction failed and the
+    # backend's OCR / v3 fallback chain rescued the content.
+    if isinstance(result, dict) and "extracted_text" not in result:
+        result["extracted_text"] = content
+        result["extracted_chars"] = len(content)
     return result
 
 
