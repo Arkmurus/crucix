@@ -4116,6 +4116,22 @@ async def read_document_ep(request: Request):
     if isinstance(result, dict) and "extracted_text" not in result:
         result["extracted_text"] = content
         result["extracted_chars"] = len(content)
+
+    # Document-intelligence pass: classify the form, pull a structured JSON
+    # of canonical fields, run red-flag rules, render a markdown overview,
+    # persist the discovered entities/officers/holders to the knowledge base.
+    # Best-effort — any failure leaves the original `result` intact.
+    try:
+        from ..intel import document_intelligence as _di
+        di = await _di.process_document(
+            text=content, filename=filename, source=source, llm=llm,
+        )
+        if di and isinstance(result, dict):
+            result["doc_intel"] = di
+            result["overview_markdown"] = di.get("overview_markdown")
+    except Exception as _di_err:
+        _log.debug("doc_intelligence pass failed (non-fatal): %s", _di_err)
+
     return result
 
 

@@ -899,8 +899,13 @@ async function startListener() {
               }).catch(() => null);
               if (result) {
                 const summary = result.summary || `${docType} file, ${content.length} characters`;
-                console.log(`[ARIA Listener] Doc processed: ${filename} → ${result.facts_learned || 0} facts`);
-                await sendReply(chatId, `📄 I've read *${filename}*. ${summary}\n\nAsk me anything about it.`);
+                console.log(`[ARIA Listener] Doc processed: ${filename} → ${result.facts_learned || 0} facts (form: ${result.doc_intel?.form_code || '?'})`);
+                const overview = result.overview_markdown;
+                if (overview && overview.length > 40) {
+                  await sendReply(chatId, `🧠 *ARIA — document overview*\n\n${overview}`.slice(0, 3800));
+                } else {
+                  await sendReply(chatId, `📄 I've read *${filename}*. ${summary}\n\nAsk me anything about it.`);
+                }
               }
             }
           } catch (e) {
