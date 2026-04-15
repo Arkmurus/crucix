@@ -8600,3 +8600,99 @@ async def prediction_taxonomy_ep():
     Returned here so dashboards and docs can render it consistently."""
     from ..intel.ground_truth_loop import PREDICTION_TAXONOMY
     return {"taxonomy": PREDICTION_TAXONOMY}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CLAUSE 17 — MULTI-SOURCE VERIFIED INTELLIGENCE PIPELINE
+# Read-only endpoints over the verified_intel module. Full process() wiring
+# (with async Redis persistence) lands in the next commit — this commit
+# exposes the pure-function primitives so the frontend / dashboard can
+# classify URLs and inspect the verification policy.
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class _VIClassifyBody(BaseModel):
+    url: str
+    context: str = ""
+
+
+@router.post("/verified_intel/classify")
+async def verified_intel_classify_ep(body: _VIClassifyBody):
+    """Classify a source URL into Tier 1a..5 per Clause 17 policy."""
+    from ..intel.verified_intel import SourceTierClassifier, TIER_SCORES
+    tier = SourceTierClassifier().classify(body.url, body.context)
+    return {
+        "url": body.url,
+        "tier": tier.value,
+        "score": TIER_SCORES[tier],
+        "allow_single_source_verification": tier.value == "1a",
+    }
+
+
+class _VIContradictionBody(BaseModel):
+    fact_type: str                 # e.g. "APPOINTMENT", "SANCTIONS_STATUS"
+    existing_value: str
+    new_value: str
+    existing_url: str = ""
+    new_url: str = ""
+
+
+@router.post("/verified_intel/contradiction_check")
+async def verified_intel_contradiction_ep(body: _VIContradictionBody):
+    """Check whether two source claims materially contradict each other."""
+    from ..intel.verified_intel import (
+        ContradictionDetector, SourceRecord, SourceTierClassifier,
+        TIER_SCORES, FactType,
+    )
+    try:
+        ft = FactType[body.fact_type]
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"unknown fact_type: {body.fact_type}")
+    classifier = SourceTierClassifier()
+    tier_a = classifier.classify(body.existing_url or "https://unknown.local/")
+    tier_b = classifier.classify(body.new_url or "https://unknown.local/")
+    src_a = SourceRecord(
+        url=body.existing_url or "https://unknown.local/",
+        tier=tier_a, score=TIER_SCORES[tier_a],
+    )
+    src_b = SourceRecord(
+        url=body.new_url or "https://unknown.local/",
+        tier=tier_b, score=TIER_SCORES[tier_b],
+    )
+    contradiction = ContradictionDetector().check(
+        existing_sources=[src_a],
+        new_source=src_b,
+        new_claim_value=body.new_value,
+        existing_claim_value=body.existing_value,
+        fact_type=ft,
+    )
+    if not contradiction:
+        return {"contradiction": False, "severity": None, "type": None}
+    return {
+        "contradiction": True,
+        "severity": contradiction.severity,
+        "type": contradiction.contradiction_type,
+        "requires_human": contradiction.requires_human,
+        "claim_a": contradiction.claim_a,
+        "claim_b": contradiction.claim_b,
+    }
+
+
+@router.get("/verified_intel/policy")
+async def verified_intel_policy_ep():
+    """Return the Clause 17 verification policy — TTLs, tier scores, thresholds.
+    Dashboards render this so operators can see the active policy without
+    having to read the source."""
+    from ..intel.verified_intel import (
+        FACT_TTL_DAYS, FACT_SOURCE_REQUIREMENTS, TIER_SCORES,
+        VERIFICATION_RULES, SourceTier, FactType,
+    )
+    return {
+        "clause": 17,
+        "tier_scores": {t.value: TIER_SCORES[t] for t in SourceTier},
+        "verification_rules": VERIFICATION_RULES,
+        "fact_ttl_days": {ft.value: FACT_TTL_DAYS[ft] for ft in FACT_TTL_DAYS},
+        "fact_source_requirements": {
+            ft.value: FACT_SOURCE_REQUIREMENTS[ft] for ft in FACT_SOURCE_REQUIREMENTS
+        },
+    }

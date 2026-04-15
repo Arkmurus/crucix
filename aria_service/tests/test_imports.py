@@ -73,6 +73,8 @@ CORE_MODULES = [
     "aria_service.autonomous.tasks",
     "aria_service.autonomous.delivery",
     "aria_service.autonomous.engine",
+    # Clause 17 — multi-source verified intelligence pipeline
+    "aria_service.intel.verified_intel",
 ]
 
 
@@ -516,3 +518,141 @@ def test_chat_request_accepts_group_context_field():
         group_context="[Antonio]: prior turn 1\n[Antonio]: prior turn 2",
     )
     assert "prior turn" in req2.group_context
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Clause 17 — multi-source verification pipeline
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_verified_intel_source_tier_classification():
+    """Classifier must place official registries/sanctions lists at Tier 1a,
+    quality wires at Tier 2, specialist defence press at Tier 3, and
+    social media at Tier 5 — otherwise the verification thresholds built
+    on top of these tiers are meaningless."""
+    from aria_service.intel.verified_intel import SourceTierClassifier, SourceTier
+    c = SourceTierClassifier()
+    # Tier 1a — official registries and sanctions lists
+    assert c.classify("https://ofac.treasury.gov/sanctions-programs") == SourceTier.TIER_1A
+    assert c.classify(
+        "https://companies-house.service.gov.uk/company/12345"
+    ) == SourceTier.TIER_1A
+    # Tier 2 — quality journalism
+    assert c.classify("https://www.reuters.com/world/africa/nigeria-cds-2024") in (
+        SourceTier.TIER_1A,  # reuters.com is in TIER_1A_DOMAINS (wire-service quality)
+        SourceTier.TIER_2,
+    )
+    assert c.classify("https://premiumtimesng.com/news/tinubu-appoints-musa") == SourceTier.TIER_2
+    # Tier 3 — specialist defence press
+    assert c.classify("https://www.defensenews.com/global/2024/angola") == SourceTier.TIER_3
+    # Tier 5 — social media must never verify alone
+    assert c.classify("https://twitter.com/something") == SourceTier.TIER_5
+    assert c.classify("https://linkedin.com/in/someone") == SourceTier.TIER_5
+
+
+def test_verified_intel_contradiction_detector_flags_year_mismatch():
+    """Two sources that disagree on the YEAR of an appointment must be
+    flagged as MAJOR — that pattern is the exact failure mode Clause 17
+    exists to catch."""
+    from aria_service.intel.verified_intel import (
+        ContradictionDetector, SourceRecord, SourceTier, TIER_SCORES, FactType,
+    )
+    src_a = SourceRecord(
+        url="https://reuters.com/x", tier=SourceTier.TIER_2,
+        score=TIER_SCORES[SourceTier.TIER_2],
+    )
+    src_b = SourceRecord(
+        url="https://premiumtimesng.com/y", tier=SourceTier.TIER_2,
+        score=TIER_SCORES[SourceTier.TIER_2],
+    )
+    contradiction = ContradictionDetector().check(
+        existing_sources=[src_a],
+        new_source=src_b,
+        new_claim_value="appointed 19 June 2023",
+        existing_claim_value="appointed 19 June 2024",
+        fact_type=FactType.APPOINTMENT,
+    )
+    assert contradiction is not None, "year mismatch must register as a contradiction"
+    assert contradiction.severity == "MAJOR"
+    assert contradiction.requires_human is True
+
+
+def test_verified_intel_independence_same_family_not_independent():
+    """Two reuters.com URLs are the SAME source family — they cannot
+    count as two independent sources. This is the heart of why the
+    original proposal's 'just add more sources' was insufficient."""
+    from aria_service.intel.verified_intel import (
+        SourceIndependenceChecker, SourceRecord, SourceTier, TIER_SCORES,
+    )
+    src_a = SourceRecord(
+        url="https://reuters.com/a", tier=SourceTier.TIER_2,
+        score=TIER_SCORES[SourceTier.TIER_2],
+    )
+    src_b = SourceRecord(
+        url="https://reuters.tv/b", tier=SourceTier.TIER_2,
+        score=TIER_SCORES[SourceTier.TIER_2],
+    )
+    ic = SourceIndependenceChecker()
+    assert ic.are_independent(src_a, src_b) is False, (
+        "reuters.com and reuters.tv share the 'reuters' family — not independent"
+    )
+    # And the independence count collapses to 1
+    assert ic.get_independent_count([src_a, src_b]) == 1
+
+
+def test_verified_intel_tenure_never_stored():
+    """TENURE_CALC is an explicit trap door in the engine — attempting
+    to store a tenure number must raise. Tenure is always computed at
+    query time from the APPOINTMENT fact."""
+    from aria_service.intel.verified_intel import ARIAVerificationEngine, FactType
+    engine = ARIAVerificationEngine(redis_client=None, web_search_fn=None)
+    import pytest as _pytest
+    with _pytest.raises(ValueError, match="TENURE_CALC"):
+        engine.process(
+            claim_text="Gen. Musa has been in role for 665 days",
+            claim_value="665",
+            entity_name="Gen. Christopher Musa",
+            entity_type="person",
+            fact_type=FactType.TENURE_CALC,
+            source_url="https://reuters.com/x",
+        )
+
+
+def test_verified_intel_tier1a_single_source_verifies():
+    """A Tier 1a official source (e.g. OFAC) must verify on its own without
+    corroboration. Clause 17's `allow_single` exception for registries."""
+    from aria_service.intel.verified_intel import (
+        ARIAVerificationEngine, FactType, VerificationStatus,
+    )
+    engine = ARIAVerificationEngine(redis_client=None, web_search_fn=None)
+    fact = engine.process(
+        claim_text="Entity X sanctioned by OFAC",
+        claim_value="sanctioned",
+        entity_name="Entity X",
+        entity_type="company",
+        fact_type=FactType.SANCTIONS_STATUS,
+        source_url="https://ofac.treasury.gov/sdn-list/entity-x",
+    )
+    assert fact.verification_status == VerificationStatus.VERIFIED
+    assert fact.verification_score >= 0.9
+    assert len(fact.sources) == 1
+
+
+def test_constitution_contains_clause_17_verified_intel():
+    """Clause 17 text must be present in the system prompt — otherwise the
+    LLM has no instruction to actually USE the pipeline and the module
+    sits dormant."""
+    # Read the engine file directly — don't import, because aria_engine
+    # pulls numpy/chromadb via semantic_search at import time and those
+    # are optional in CI. We only need to see the prompt string.
+    import pathlib as _pl
+    engine_src = (
+        _pl.Path(__file__).resolve().parent.parent / "aria_engine.py"
+    ).read_text(encoding="utf-8")
+    assert "17. MULTI-SOURCE VERIFICATION" in engine_src, (
+        "Clause 17 must be embedded in the system prompt"
+    )
+    assert "LEGACY_UNVERIFIED" in engine_src
+    assert "verified_intel" in engine_src, (
+        "System prompt must name the verified_intel module so the LLM "
+        "knows which tool implements Clause 17"
+    )
