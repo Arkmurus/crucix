@@ -54,6 +54,12 @@ TG_CHAT_ID         = os.getenv("TELEGRAM_CHAT_ID",      "")
 REDIS_URL          = os.getenv("REDIS_URL",             "redis://localhost:6379")
 BOT_NAME           = "ARIA — Arkmurus Intelligence"
 
+# ── Slice 6: Devil's Advocate flags ───────────────────────────────────────────
+CHALLENGE_ENABLED  = os.getenv("ARIA_CHALLENGE_ENABLED", "0") == "1"
+CHALLENGE_TO_ZOOM  = os.getenv("ARIA_CHALLENGE_TO_ZOOM", "0") == "1"  # post to Zoom chat in addition to Telegram
+CHALLENGE_RATE_KEY = "crucix:devils_advocate:rate:{mid}"  # 15 min cooldown per meeting
+CHALLENGE_COOLDOWN = 15 * 60
+
 try:
     rc = redis_lib.from_url(REDIS_URL, decode_responses=True)
     rc.ping()
@@ -322,16 +328,85 @@ Return JSON only:
                 except Exception as e:
                     log.warning(f"Auto-create deal failed: {e}")
 
-        await self._tg(_fmt(analysis, self.title, participants, auto, self.started_at))
+        # ── Slice 6: Devil's Advocate ──────────────────────────────────────
+        da_block = ""
+        da_payload = None
+        if CHALLENGE_ENABLED and "#ariasilent" not in self.title.lower():
+            if self._challenge_allowed():
+                try:
+                    from aria_service.intel.devils_advocate import (
+                        analyse as _da_analyse,
+                        render_for_telegram as _da_tg,
+                        render_for_zoom_chat as _da_chat,
+                    )
+                    da_payload = await _da_analyse(self.title, participants, transcript_copy)
+                    da_block = _da_tg(da_payload)
+                    if CHALLENGE_TO_ZOOM:
+                        chat_msg = _da_chat(da_payload)
+                        if chat_msg:
+                            self._chat(chat_msg)
+                    self._mark_challenge_fired()
+                    await self._emit_challenge_metrics(da_payload)
+                except Exception as e:
+                    log.warning(f"Devil's advocate failed: {e}")
+
+        await self._tg(_fmt(analysis, self.title, participants, auto, self.started_at) + da_block)
 
         if rc:
             key = f"crucix:meetings:{self.started_at[:10].replace('-','')}:{self.meeting_id}"
             rc.setex(key, 30*86400, json.dumps({
                 "title": self.title, "date": self.started_at[:10],
                 "participants": participants, "transcript": transcript_copy,
-                "analysis": analysis, "lines": len(transcript_copy)
+                "analysis": analysis, "lines": len(transcript_copy),
+                "devils_advocate": da_payload,
             }))
             log.info(f"Saved: {key} ({len(transcript_copy)} lines)")
+
+    # ── Slice 6: Devil's Advocate helpers ────────────────────────────────────
+    def _challenge_allowed(self) -> bool:
+        """Rate limit: max 1 devil's-advocate firing per 15 min per meeting."""
+        if not rc:
+            return True
+        try:
+            key = CHALLENGE_RATE_KEY.format(mid=self.meeting_id)
+            return not rc.exists(key)
+        except Exception:
+            return True
+
+    def _mark_challenge_fired(self):
+        if not rc:
+            return
+        try:
+            key = CHALLENGE_RATE_KEY.format(mid=self.meeting_id)
+            rc.setex(key, CHALLENGE_COOLDOWN, "1")
+        except Exception:
+            pass
+
+    async def _emit_challenge_metrics(self, da: dict):
+        """Push slice-6 counters to self_metrics so State-of-ARIA can see them."""
+        try:
+            from aria_service.intel import self_metrics as sm
+            counts = (
+                len(da.get("counter_arguments") or [])
+                + len(da.get("unasked_dd_questions") or [])
+                + len(da.get("unchallenged_assumptions") or [])
+            )
+            await sm.emit(
+                axis="utility",
+                domain="devils_advocate",
+                signal="challenge_fired",
+                value=float(counts),
+                context={
+                    "meeting_id": self.meeting_id,
+                    "title": self.title[:80],
+                    "confidence": da.get("confidence", "medium"),
+                    "counter_arguments": len(da.get("counter_arguments") or []),
+                    "unasked_dd_questions": len(da.get("unasked_dd_questions") or []),
+                    "unchallenged_assumptions": len(da.get("unchallenged_assumptions") or []),
+                },
+            )
+        except Exception as e:
+            log.debug(f"self_metrics emit failed: {e}")
 
     async def _tg(self, text:str):
         if not TG_TOKEN or not TG_CHAT_ID: return
