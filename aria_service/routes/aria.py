@@ -8696,3 +8696,195 @@ async def verified_intel_policy_ep():
             ft.value: FACT_SOURCE_REQUIREMENTS[ft] for ft in FACT_SOURCE_REQUIREMENTS
         },
     }
+
+
+class _VIVerifyBody(BaseModel):
+    claim_text: str
+    claim_value: str
+    entity_name: str
+    entity_type: str = "unknown"
+    fact_type: str = "GENERAL_CLAIM"
+    source_url: str
+    source_excerpt: str = ""
+    source_context: str = ""
+
+
+@router.post("/verified_intel/verify")
+async def verified_intel_verify_ep(body: _VIVerifyBody):
+    """Verify a claim end-to-end — classify source, seek corroboration,
+    detect contradictions, persist (via async redis_store), audit-log,
+    return the resulting VerifiedFact."""
+    from ..intel import verified_intel as _vi
+    from ..intel import researcher as _r
+    try:
+        ft = _vi.FactType[body.fact_type]
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"unknown fact_type: {body.fact_type}")
+    engine = _vi.ARIAVerificationEngine(web_search_fn=_r.web_search)
+    try:
+        fact = await engine.averify_and_store(
+            claim_text=body.claim_text,
+            claim_value=body.claim_value,
+            entity_name=body.entity_name,
+            entity_type=body.entity_type,
+            fact_type=ft,
+            source_url=body.source_url,
+            source_excerpt=body.source_excerpt,
+            source_context=body.source_context,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return fact.to_dict()
+
+
+@router.get("/verified_intel/get")
+async def verified_intel_get_ep(
+    entity_name: str,
+    fact_type: str,
+    compute_tenure: bool = False,
+):
+    """Retrieve a verified fact by entity + type. Returns citation,
+    verification status, source URLs, and (for appointments) tenure
+    computed at query time per Clause 17."""
+    from ..intel import verified_intel as _vi
+    try:
+        ft = _vi.FactType[fact_type]
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"unknown fact_type: {fact_type}")
+    engine = _vi.ARIAVerificationEngine()
+    result = await engine.aget_fact(entity_name, ft, compute_tenure=compute_tenure)
+    if result is None:
+        raise HTTPException(status_code=404, detail="no verified fact found")
+    return result
+
+
+class _VIRefreshBody(BaseModel):
+    max_facts: int = 50
+
+
+@router.post("/verified_intel/refresh")
+async def verified_intel_refresh_ep(body: _VIRefreshBody):
+    """Manually trigger the stale-fact refresh pass. Same code path as
+    the scheduled DAILY-FACT-REFRESH autonomous task."""
+    from ..intel import verified_intel as _vi
+    from ..intel import researcher as _r
+    engine = _vi.ARIAVerificationEngine(web_search_fn=_r.web_search)
+    stats = await engine.arefresh_stale_facts(max_facts=body.max_facts)
+    return {"ok": True, "stats": stats}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WEB ATLAS — per-topic × per-source reliability map (PR 2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/atlas/stats")
+async def atlas_stats_ep():
+    """Top-line atlas stats — families tracked, topics, coverage cells,
+    gap counts. Dashboard + daily briefing render this."""
+    from ..intel import web_atlas
+    return await web_atlas.stats()
+
+
+@router.get("/atlas/coverage")
+async def atlas_coverage_ep(region: str = ""):
+    """Per-region × topic coverage map. Flags CRITICAL / HIGH / MEDIUM / OK
+    so operators see where ARIA is blind before a brief goes out."""
+    from ..intel import web_atlas
+    regions = [region] if region else None
+    return {"coverage": await web_atlas.coverage_map(regions=regions)}
+
+
+@router.get("/atlas/gaps")
+async def atlas_gaps_ep(min_level: str = "HIGH", limit: int = 20):
+    """Return coverage cells at the given gap level or worse.
+    Feed for the source-scout pipeline."""
+    from ..intel import web_atlas
+    return {"gaps": await web_atlas.surface_gaps(min_level=min_level, limit=limit)}
+
+
+@router.get("/atlas/rank")
+async def atlas_rank_ep(topic: str, limit: int = 10):
+    """Top-N sources for a topic, ranked by reliability EMA."""
+    from ..intel import web_atlas
+    return {"topic": topic, "ranked": await web_atlas.rank_sources_for_topic(topic, limit=limit)}
+
+
+class _AtlasAddBody(BaseModel):
+    url: str
+    tier: str
+    topic_tags: list[str]
+    region: str = "global"
+    added_by: str = "manual"
+
+
+@router.post("/atlas/add")
+async def atlas_add_ep(body: _AtlasAddBody):
+    """Manually add a source to the atlas — audit-logged."""
+    from ..intel import web_atlas
+    return await web_atlas.add_source(
+        url=body.url, tier=body.tier, topic_tags=body.topic_tags,
+        region=body.region, added_by=body.added_by,
+    )
+
+
+@router.post("/atlas/snapshot")
+async def atlas_snapshot_ep():
+    """Write the YAML mirror of the atlas so self_improve can edit it
+    through the whitelisted path."""
+    from ..intel import web_atlas
+    return await web_atlas.snapshot_to_yaml()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CORE SELF-DEVELOPMENT LOOP (PR 3)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/ecosystem/reassess")
+async def ecosystem_reassess_ep():
+    """Manually trigger the hourly reassess pass. Same code path as
+    the scheduled HOURLY-ECOSYSTEM-REASSESS task."""
+    from ..intel import ecosystem_reassess
+    return await ecosystem_reassess.run()
+
+
+@router.get("/ecosystem/queue")
+async def ecosystem_queue_ep(limit: int = 50):
+    """Read the current priority queue — what ARIA plans to work on next."""
+    from ..intel import ecosystem_reassess
+    return {"queue": await ecosystem_reassess.get_queue(limit=limit)}
+
+
+class _CoreDevelopBody(BaseModel):
+    max_actions: int = 3
+
+
+@router.post("/core/develop")
+async def core_develop_ep(body: _CoreDevelopBody):
+    """Manually trigger the daily core-develop pass. Same code path
+    as DAILY-CORE-DEVELOP. Only auto-allowed actions per doctrine."""
+    from ..intel import core_develop
+    return await core_develop.run(max_actions=body.max_actions)
+
+
+@router.post("/core/meta")
+async def core_meta_ep():
+    """Weekly meta-review — capability diff, action summary, atlas stats."""
+    from ..intel import core_develop
+    return await core_develop.meta_review()
+
+
+class _SourceScoutBody(BaseModel):
+    pattern: str = "citation"
+    region: str = "global"
+    topic: str = "defence_procurement"
+    max_finds: int = 5
+
+
+@router.post("/source/scout")
+async def source_scout_ep(body: _SourceScoutBody):
+    """Manually fire a scout pattern — citation / tld_probe / targeted."""
+    from ..intel import source_scout
+    return await source_scout.run(
+        pattern=body.pattern, region=body.region, topic=body.topic,
+        max_finds=body.max_finds,
+    )

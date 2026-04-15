@@ -64,6 +64,17 @@ MODIFIABLE_FILES = {
     "lib/self/opportunity_engine.mjs",
     "lib/self/web_explorer.mjs",
     "lib/self/bd_intelligence.mjs",
+    # ── Autonomy expansion (2026-04-15) — core self-development ─────────
+    # Per aria_autonomy_doctrine.md, knowledge ingests, new sources,
+    # prompt refinements and new registry adapters are in the
+    # auto-allowed bucket. Before PR 1 the plumbing didn't let ARIA
+    # exercise these rights. These three entries close that gap; every
+    # mutation is schema-validated below and HMAC-audited via
+    # audit_log.record(self_improve_staged / self_improve_deployed).
+    "aria_service/intel/corpus_registry.yaml",   # Source catalogue
+    "aria_service/autonomous/tasks.yaml",        # Scheduled tasks
+    "aria_service/intel/v3_prompts.py",          # Prompt refinements
+    "aria_service/intel/web_atlas.yaml",         # PR 2 — per-topic reliability map
 }
 
 # Files ARIA can NEVER modify (protected)
@@ -159,16 +170,14 @@ async def stage_improvement(
     if change_type not in CHANGE_TYPES:
         return {"error": f"Unknown change type: {change_type}. Valid: {list(CHANGE_TYPES.keys())}"}
 
-    # Syntax validation
-    if file_path.endswith(".py"):
-        valid = _validate_python(new_content)
-    elif file_path.endswith(".mjs") or file_path.endswith(".js"):
+    # Syntax + schema validation routed by file type.
+    if file_path.endswith(".mjs") or file_path.endswith(".js"):
         valid = await _validate_javascript(new_content)
     else:
-        valid = {"ok": True}
+        valid = _validate_by_path(file_path, new_content)
 
     if not valid["ok"]:
-        return {"error": f"Syntax error in proposed change: {valid.get('error', 'unknown')}",
+        return {"error": f"Schema/syntax check failed: {valid.get('error', 'unknown')}",
                 "staged": False}
 
     # Load existing staged improvements
@@ -462,6 +471,198 @@ def _validate_python(code: str) -> dict:
         return {"ok": False, "error": f"Line {e.lineno}: {e.msg}"}
 
 
+# ── Schema validators for autonomy-expansion files ───────────────────────
+# Each returns {"ok": bool, "error": str?} matching _validate_python's shape.
+
+_SECRET_PATTERNS = (
+    re.compile(r"sk-[A-Za-z0-9_\-]{20,}"),
+    re.compile(r"ghp_[A-Za-z0-9]{20,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"ANTHROPIC_API_KEY\s*=\s*[\"'][^\"']+[\"']"),
+    re.compile(r"OPENAI_API_KEY\s*=\s*[\"'][^\"']+[\"']"),
+    re.compile(r"(?i)api[_-]?key\s*=\s*[\"'][A-Za-z0-9_\-]{20,}[\"']"),
+)
+
+
+def _scan_for_secrets(content: str) -> Optional[str]:
+    for pat in _SECRET_PATTERNS:
+        m = pat.search(content)
+        if m:
+            return f"secret pattern detected: {pat.pattern[:40]}…"
+    return None
+
+
+def _validate_corpus_registry_yaml(content: str) -> dict:
+    """Schema + safety check for corpus_registry.yaml mutations.
+
+    Rules:
+      1. Must parse as YAML.
+      2. Top-level shape unchanged (either dict or sources list — tolerant).
+      3. Each source entry: required {url, tier}; tier in {1a,1b,2,3,4,5}.
+      4. Tier 1a reserved for government/official domains — reject if the
+         claimed Tier 1a URL does not match the gov/mil/official patterns.
+      5. No duplicate URLs.
+      6. No embedded secrets (belt-and-braces).
+    """
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        return {"ok": False, "error": "PyYAML not available — cannot validate"}
+    try:
+        data = yaml.safe_load(content)
+    except Exception as e:
+        return {"ok": False, "error": f"YAML parse failed: {e}"}
+    if data is None:
+        return {"ok": False, "error": "empty YAML"}
+
+    # The registry can be a list-of-sources or a dict with nested tiers.
+    sources: list = []
+    if isinstance(data, list):
+        sources = data
+    elif isinstance(data, dict):
+        # Flatten any nested dict-of-lists into a single sources list.
+        for v in data.values():
+            if isinstance(v, list):
+                sources.extend(v)
+            elif isinstance(v, dict):
+                for vv in v.values():
+                    if isinstance(vv, list):
+                        sources.extend(vv)
+
+    seen_urls: set[str] = set()
+    gov_pat = re.compile(
+        r"\.gov\.|\.gov$|\.mil\.|\.mil$|\.gouv\.|\.gob\.|\.go\.|"
+        r"presidency\.|ministry|parlement|parlament|senate\.|congress\."
+    )
+    # Conservative Tier 1a allow-list (mirrors verified_intel.TIER_1A_DOMAINS).
+    tier1a_allow = {
+        "companies-house.service.gov.uk",
+        "find-and-update.company-information.service.gov.uk",
+        "treasury.gov", "ofac.treasury.gov", "eeas.europa.eu", "un.org",
+        "gov.uk", "whitehouse.gov",
+    }
+    for idx, src in enumerate(sources):
+        if not isinstance(src, dict):
+            continue  # Tolerate non-dict entries (comments, etc.)
+        url = str(src.get("url") or src.get("URL") or "").strip()
+        tier = str(src.get("tier") or src.get("TIER") or "").strip()
+        if not url or not tier:
+            continue  # Partial entries — not blocking, just skip checks
+        if tier not in {"1a", "1b", "2", "3", "4", "5"}:
+            return {"ok": False,
+                    "error": f"source #{idx} {url}: invalid tier '{tier}'"}
+        if url in seen_urls:
+            return {"ok": False, "error": f"duplicate URL: {url}"}
+        seen_urls.add(url)
+        if tier == "1a":
+            from urllib.parse import urlparse
+            try:
+                domain = urlparse(url).netloc.replace("www.", "").lower()
+            except Exception:
+                domain = ""
+            if domain not in tier1a_allow and not gov_pat.search(domain):
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Tier 1a reserved for official gov/mil sources — "
+                        f"{url} ({domain}) does not qualify"
+                    ),
+                }
+    secret_err = _scan_for_secrets(content)
+    if secret_err:
+        return {"ok": False, "error": secret_err}
+    return {"ok": True, "sources_checked": len(seen_urls)}
+
+
+def _validate_tasks_yaml(content: str) -> dict:
+    """Schema check for autonomous/tasks.yaml mutations.
+
+    Rules:
+      1. Must parse as YAML with top-level `tasks:` list.
+      2. Every task: id (unique), cron (5 fields), cost_cap_usd > 0.
+      3. tool_chain non-empty, each entry is dict with `tool` key.
+      4. No secrets embedded.
+    """
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        return {"ok": False, "error": "PyYAML not available — cannot validate"}
+    try:
+        data = yaml.safe_load(content) or {}
+    except Exception as e:
+        return {"ok": False, "error": f"YAML parse failed: {e}"}
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "top-level must be a mapping"}
+    tasks = data.get("tasks", [])
+    if not isinstance(tasks, list):
+        return {"ok": False, "error": "'tasks' must be a list"}
+
+    seen_ids: set[str] = set()
+    for idx, task in enumerate(tasks):
+        if not isinstance(task, dict):
+            return {"ok": False, "error": f"task #{idx} is not a mapping"}
+        tid = str(task.get("id", "")).strip()
+        if not tid:
+            return {"ok": False, "error": f"task #{idx} missing id"}
+        if tid in seen_ids:
+            return {"ok": False, "error": f"duplicate task id: {tid}"}
+        seen_ids.add(tid)
+        cron = str(task.get("cron", "")).strip()
+        if cron and len(cron.split()) != 5:
+            return {"ok": False,
+                    "error": f"task {tid}: cron must have 5 fields, got: {cron!r}"}
+        cost_cap = task.get("cost_cap_usd", 0)
+        try:
+            cost_cap_f = float(cost_cap)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": f"task {tid}: cost_cap_usd not numeric"}
+        if cost_cap_f <= 0:
+            return {"ok": False,
+                    "error": f"task {tid}: cost_cap_usd must be > 0"}
+        tool_chain = task.get("tool_chain", [])
+        if not isinstance(tool_chain, list) or not tool_chain:
+            return {"ok": False,
+                    "error": f"task {tid}: tool_chain must be non-empty list"}
+        for ti, tc in enumerate(tool_chain):
+            if not isinstance(tc, dict) or not tc.get("tool"):
+                return {"ok": False,
+                        "error": f"task {tid} tool_chain[{ti}]: missing 'tool'"}
+    secret_err = _scan_for_secrets(content)
+    if secret_err:
+        return {"ok": False, "error": secret_err}
+    return {"ok": True, "tasks_checked": len(seen_ids)}
+
+
+def _validate_by_path(file_path: str, content: str) -> dict:
+    """Route a staged mutation to the right validator by file path."""
+    if file_path.endswith(".yaml") or file_path.endswith(".yml"):
+        if "corpus_registry" in file_path or "web_atlas" in file_path:
+            return _validate_corpus_registry_yaml(content)
+        if "tasks.yaml" in file_path:
+            return _validate_tasks_yaml(content)
+        # Unknown YAML — parse-check only.
+        try:
+            import yaml  # type: ignore
+            yaml.safe_load(content)
+            secret_err = _scan_for_secrets(content)
+            if secret_err:
+                return {"ok": False, "error": secret_err}
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": f"YAML parse failed: {e}"}
+    if file_path.endswith(".py"):
+        base = _validate_python(content)
+        if not base["ok"]:
+            return base
+        secret_err = _scan_for_secrets(content)
+        if secret_err:
+            return {"ok": False, "error": secret_err}
+        return base
+    if file_path.endswith(".mjs") or file_path.endswith(".js"):
+        return {"ok": True}  # async validator called separately in stage_improvement
+    return {"ok": True}
+
+
 async def _validate_javascript(code: str) -> dict:
     """Validate JavaScript syntax using Node --check."""
     import asyncio
@@ -500,7 +701,9 @@ async def _git_commit(file_path: str, change_type: str, description: str) -> Non
 
 
 async def _log_improvement(action: str, improvement: dict) -> None:
-    """Log an improvement action."""
+    """Log an improvement action — to Redis for the /improvements dashboard
+    AND to the HMAC-signed audit_log so Clause 14 tamper-evidence covers
+    every self-evolution action."""
     log = await rs.get_json(IMPROVEMENT_LOG_KEY) or []
     log.append({
         "action": action,
@@ -513,6 +716,32 @@ async def _log_improvement(action: str, improvement: dict) -> None:
     if len(log) > 500:
         log = log[-500:]
     await rs.set_json(IMPROVEMENT_LOG_KEY, log, ex=90 * 86400)
+
+    # Audit-log integration (Clause 14). `action` is "staged" or "deployed";
+    # map to the RECORDED_ACTIONS entries added for this pathway. Swallow
+    # failures — the improvement log must not be blocked by an audit hiccup.
+    try:
+        from . import audit_log as _al
+        kind = f"self_improve_{action}"  # staged → self_improve_staged
+        if kind in _al.RECORDED_ACTIONS:
+            await _al.record(
+                kind,
+                actor="aria_self_improve",
+                inputs={
+                    "file": improvement["file"],
+                    "change_type": improvement["change_type"],
+                    "reasoning": (improvement.get("reasoning") or "")[:500],
+                },
+                outputs={
+                    "id": improvement["id"],
+                    "auto_deployable": improvement.get("auto_deployable", False),
+                    "status": improvement.get("status", action),
+                },
+                decision=action,
+                notes=improvement.get("description", "")[:300],
+            )
+    except Exception as e:
+        logger.debug("self_improve audit-log emit failed: %s", e)
 
 
 # ── Code Learning — ARIA studies her own codebase to get better at coding ────

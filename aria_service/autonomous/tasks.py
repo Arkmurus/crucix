@@ -403,6 +403,41 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
             "requests": requests,
         }
 
+    elif tool_kind == "verified_fact_refresh":
+        # Clause 17 daily refresh — re-verify PENDING_CORROBORATION / STALE
+        # facts by searching for new corroborating sources.
+        from ..intel import verified_intel as _vi
+        from ..intel import researcher as _r
+        max_facts = int((task.tool_chain[0] or {}).get("max_facts", 50))
+        engine = _vi.ARIAVerificationEngine(web_search_fn=_r.web_search)
+        stats = await engine.arefresh_stale_facts(max_facts=max_facts)
+        return {"clause17_refresh": stats}
+
+    elif tool_kind == "ecosystem_reassess":
+        # PR 3 — hourly reassess: computes gap queue without mutating state.
+        from ..intel import ecosystem_reassess as _er
+        report = await _er.run()
+        return {"ecosystem": report}
+
+    elif tool_kind == "core_develop":
+        # PR 3 — daily self-development pass (auto-allowed actions only).
+        from ..intel import core_develop as _cd
+        report = await _cd.run()
+        return {"core_develop": report}
+
+    elif tool_kind == "core_meta":
+        # PR 3 — weekly meta-review.
+        from ..intel import core_develop as _cd
+        report = await _cd.meta_review()
+        return {"core_meta": report}
+
+    elif tool_kind == "source_scout":
+        # PR 3 — scout patterns (citation, TLD probe, sitemap sweep).
+        from ..intel import source_scout as _ss
+        pattern = (task.tool_chain[0] or {}).get("pattern", "citation")
+        report = await _ss.run(pattern=pattern)
+        return {"scout": report}
+
     elif tool_kind == "pipeline_dormancy_check":
         from ..intel import deal_pipeline
         dormant = await deal_pipeline.check_dormant_leads()
@@ -491,7 +526,13 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "metacognitive_monthly_sprint",
                            "dd_watchlist_sweep", "knowledge_freshness_audit",
                            "daily_team_briefing", "pipeline_dormancy_check",
-                           "source_discovery"):
+                           "source_discovery",
+                           # Clause 17 + Core Self-Development Loop
+                           "verified_fact_refresh",
+                           "ecosystem_reassess",
+                           "core_develop",
+                           "core_meta",
+                           "source_scout"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             try:

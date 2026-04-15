@@ -164,14 +164,63 @@ def _detect_contradictions(topic: str, content: str, existing_facts: list[dict])
 
 
 async def store_fact(topic: str, content: str, source: str = "user",
-                     confidence: str = "CONFIRMED") -> dict:
+                     confidence: str = "CONFIRMED",
+                     *,
+                     source_url: str = "",
+                     fact_type: str = "",
+                     entity_name: str = "",
+                     entity_type: str = "") -> dict:
     """Store a fact, detecting contradictions and merging duplicates.
+
+    Clause 17 wiring: when `source_url` + `fact_type` + `entity_name` are
+    supplied, the fact is routed through `verified_intel.averify_and_store`
+    so it carries full provenance (tier, verification score, expiry).
+    When they are absent, the legacy record is stamped
+    `verification_status="LEGACY_UNVERIFIED"` so downstream renderers emit
+    the `[LEGACY — pre-verification pipeline]` citation instead of silently
+    presenting the fact as verified.
 
     Returns a dict with action taken: ``{action: "created"|"updated"|"superseded",
     fact_id, contradictions: [...]}``
     """
     db = await _load()
     now = datetime.now(timezone.utc).isoformat()
+
+    # ── Clause 17 provenance gate ─────────────────────────────────────────
+    # Lazy import — verified_intel pulls nothing heavy, but keep the pattern
+    # consistent with semantic_search / rag_store elsewhere in this module.
+    verified_meta: dict = {}
+    if source_url and fact_type and entity_name:
+        try:
+            from . import verified_intel as _vi
+            engine = _vi.ARIAVerificationEngine()
+            try:
+                ft = _vi.FactType[fact_type]
+            except KeyError:
+                ft = _vi.FactType.GENERAL_CLAIM
+            vfact = await engine.averify_and_store(
+                claim_text=content[:500],
+                claim_value=content[:200],
+                entity_name=entity_name,
+                entity_type=entity_type or "unknown",
+                fact_type=ft,
+                source_url=source_url,
+                source_excerpt=content[:300],
+            )
+            verified_meta = {
+                "verification_status": vfact.verification_status.value,
+                "verification_score": vfact.verification_score,
+                "verified_fact_id": vfact.fact_id,
+                "citation": vfact.citation,
+                "expires_at": vfact.expires_at,
+                "source_urls": [s.url for s in vfact.sources],
+            }
+        except Exception as e:
+            logger.debug("verified_intel wiring failed (non-fatal): %s", e)
+            verified_meta = {"verification_status": "LEGACY_UNVERIFIED"}
+    else:
+        # No URL/fact_type supplied — this is a bare /teach or legacy ingest.
+        verified_meta = {"verification_status": "LEGACY_UNVERIFIED"}
 
     # ── Detect contradictions BEFORE storing ──────────────────────────────
     contradictions = _detect_contradictions(topic, content, db["facts"])
@@ -218,12 +267,14 @@ async def store_fact(topic: str, content: str, source: str = "user",
             f["confidence"] = confidence
             f["updatedAt"] = now
             f["accessCount"] = f.get("accessCount", 0) + 1
+            if verified_meta:
+                f.update(verified_meta)
             await _save()
             return {"action": "updated", "fact_id": f["id"], "contradictions": []}
 
     # ── Brand-new fact ────────────────────────────────────────────────────
     new_id = str(uuid.uuid4())[:8]
-    db["facts"].insert(0, {
+    new_record = {
         "id": new_id,
         "topic": topic,
         "content": content,
@@ -233,7 +284,10 @@ async def store_fact(topic: str, content: str, source: str = "user",
         "updatedAt": now,
         "accessCount": 0,
         "contradictions_detected": len(contradictions),
-    })
+    }
+    if verified_meta:
+        new_record.update(verified_meta)
+    db["facts"].insert(0, new_record)
     if len(db["facts"]) > MAX_FACTS:
         db["facts"] = db["facts"][:MAX_FACTS]
     await _save()

@@ -106,6 +106,18 @@ RECORDED_ACTIONS = {
     "compliance_case_state_change",
     "registry_lookup_decisive",
     "manual_override",
+    # Clause 17 — verified intelligence pipeline
+    "verified_fact_stored",
+    "verified_fact_refreshed",
+    "verified_fact_contradicted",
+    # Self-evolution (clause 17 + autonomy doctrine)
+    "self_improve_staged",
+    "self_improve_deployed",
+    # Web Atlas (PR 2+)
+    "source_atlas_add",
+    "source_atlas_update",
+    "source_atlas_promote",
+    "source_atlas_demote",
 }
 
 

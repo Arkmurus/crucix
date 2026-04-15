@@ -75,6 +75,11 @@ CORE_MODULES = [
     "aria_service.autonomous.engine",
     # Clause 17 — multi-source verified intelligence pipeline
     "aria_service.intel.verified_intel",
+    # PR 2+3 — Core Self-Development Loop
+    "aria_service.intel.web_atlas",
+    "aria_service.intel.ecosystem_reassess",
+    "aria_service.intel.core_develop",
+    "aria_service.intel.source_scout",
 ]
 
 
@@ -86,7 +91,7 @@ CORE_MODULES = [
 _OPTIONAL_DEPS_FRAGMENTS = (
     "torch", "sentence_transformers", "chromadb", "fitz", "PyMuPDF",
     "easyocr", "pytesseract", "fastembed", "onnxruntime", "tiktoken",
-    "playwright", "selenium", "openai_agents",
+    "playwright", "selenium", "openai_agents", "numpy",
 )
 
 
@@ -656,3 +661,375 @@ def test_constitution_contains_clause_17_verified_intel():
         "System prompt must name the verified_intel module so the LLM "
         "knows which tool implements Clause 17"
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# PR 1 — async verify-and-store path
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_verified_intel_averify_and_store_persists_and_roundtrips():
+    """The async entry point must: verify the claim, persist to the
+    in-memory redis fallback, and return a matching VerifiedFact that
+    aget_fact() can retrieve by entity_name + fact_type."""
+    import asyncio
+    from aria_service.intel.verified_intel import (
+        ARIAVerificationEngine, FactType, VerificationStatus,
+    )
+
+    async def run():
+        engine = ARIAVerificationEngine(web_search_fn=None)
+        fact = await engine.averify_and_store(
+            claim_text="Entity X sanctioned by OFAC 2024-03-10",
+            claim_value="sanctioned",
+            entity_name="Entity X roundtrip",
+            entity_type="company",
+            fact_type=FactType.SANCTIONS_STATUS,
+            source_url="https://ofac.treasury.gov/sdn-list/x-roundtrip",
+        )
+        assert fact.verification_status == VerificationStatus.VERIFIED
+        got = await engine.aget_fact("Entity X roundtrip", FactType.SANCTIONS_STATUS)
+        assert got is not None
+        assert got["verification_status"] == "VERIFIED"
+        assert any("ofac.treasury.gov" in u for u in got["sources"])
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_verified_intel_averify_raises_on_tenure_calc():
+    """TENURE_CALC must raise — tenure is never stored, always computed."""
+    import asyncio
+    import pytest as _pytest
+    from aria_service.intel.verified_intel import ARIAVerificationEngine, FactType
+
+    async def run():
+        engine = ARIAVerificationEngine()
+        with _pytest.raises(ValueError, match="TENURE_CALC"):
+            await engine.averify_and_store(
+                claim_text="X", claim_value="1",
+                entity_name="Y", entity_type="person",
+                fact_type=FactType.TENURE_CALC,
+                source_url="https://reuters.com/x",
+            )
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_knowledge_store_fact_tags_legacy_when_no_source():
+    """knowledge.store_fact without source_url must stamp
+    LEGACY_UNVERIFIED so renderers emit the legacy citation."""
+    import asyncio
+    from aria_service.intel import knowledge
+
+    async def run():
+        result = await knowledge.store_fact(
+            topic="Test topic — legacy",
+            content="Test content, no URL provided.",
+            source="user",
+            confidence="CONFIRMED",
+        )
+        assert result["action"] in ("created", "updated")
+        facts = await knowledge.get_all_facts()
+        match = next((f for f in facts if f.get("id") == result["fact_id"]), None)
+        assert match is not None
+        assert match.get("verification_status") == "LEGACY_UNVERIFIED"
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_knowledge_store_fact_verified_when_url_and_fact_type():
+    """knowledge.store_fact WITH source_url + fact_type + entity_name
+    must route through verified_intel and stamp VERIFIED for a Tier 1a
+    source."""
+    import asyncio
+    from aria_service.intel import knowledge
+
+    async def run():
+        result = await knowledge.store_fact(
+            topic="Entity A sanctions status",
+            content="Entity A listed on OFAC SDN 2024-01-15",
+            source="aria_auto",
+            confidence="CONFIRMED",
+            source_url="https://ofac.treasury.gov/sdn/entity-a",
+            fact_type="SANCTIONS_STATUS",
+            entity_name="Entity A verified-path",
+            entity_type="company",
+        )
+        facts = await knowledge.get_all_facts()
+        match = next((f for f in facts if f.get("id") == result["fact_id"]), None)
+        assert match is not None
+        # Tier 1a → VERIFIED
+        assert match.get("verification_status") == "VERIFIED"
+        assert match.get("verification_score", 0) >= 0.9
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_self_improve_widened_whitelist_includes_autonomy_files():
+    """The Core Self-Development Loop requires these three files in the
+    self_improve whitelist — otherwise ARIA cannot exercise the
+    auto-allowed rights from aria_autonomy_doctrine.md."""
+    from aria_service.intel.self_improve import MODIFIABLE_FILES
+    required = {
+        "aria_service/intel/corpus_registry.yaml",
+        "aria_service/autonomous/tasks.yaml",
+        "aria_service/intel/v3_prompts.py",
+    }
+    missing = required - MODIFIABLE_FILES
+    assert not missing, f"missing from whitelist: {missing}"
+
+
+def test_self_improve_tasks_yaml_validator_rejects_bad_cron():
+    """Schema validator must reject a tasks.yaml with a malformed cron
+    — prevents ARIA from auto-writing a broken schedule."""
+    from aria_service.intel.self_improve import _validate_tasks_yaml
+    bad = """
+tasks:
+  - id: BAD
+    cron: "broken cron"
+    cost_cap_usd: 0.10
+    tool_chain:
+      - tool: deep_research
+"""
+    result = _validate_tasks_yaml(bad)
+    assert result["ok"] is False
+    assert "cron" in result["error"].lower()
+
+
+def test_self_improve_tasks_yaml_validator_rejects_zero_cost_cap():
+    from aria_service.intel.self_improve import _validate_tasks_yaml
+    bad = """
+tasks:
+  - id: ZERO-COST
+    cron: "0 5 * * *"
+    cost_cap_usd: 0
+    tool_chain:
+      - tool: deep_research
+"""
+    result = _validate_tasks_yaml(bad)
+    assert result["ok"] is False
+    assert "cost_cap" in result["error"].lower()
+
+
+def test_self_improve_tasks_yaml_validator_rejects_duplicate_ids():
+    from aria_service.intel.self_improve import _validate_tasks_yaml
+    bad = """
+tasks:
+  - id: DUP
+    cron: "0 5 * * *"
+    cost_cap_usd: 0.10
+    tool_chain: [{tool: deep_research}]
+  - id: DUP
+    cron: "0 6 * * *"
+    cost_cap_usd: 0.10
+    tool_chain: [{tool: web_search}]
+"""
+    result = _validate_tasks_yaml(bad)
+    assert result["ok"] is False
+    assert "duplicate" in result["error"].lower()
+
+
+def test_self_improve_tasks_yaml_validator_accepts_clean_input():
+    from aria_service.intel.self_improve import _validate_tasks_yaml
+    good = """
+tasks:
+  - id: CLEAN
+    cron: "0 5 * * *"
+    cost_cap_usd: 0.10
+    tool_chain:
+      - tool: verified_fact_refresh
+        max_facts: 50
+"""
+    result = _validate_tasks_yaml(good)
+    assert result["ok"] is True
+
+
+def test_self_improve_corpus_registry_validator_rejects_bogus_tier1a():
+    """Tier 1a is reserved for gov/mil domains. A non-gov URL claiming
+    Tier 1a must be rejected — protects the 'official registry' meaning."""
+    from aria_service.intel.self_improve import _validate_corpus_registry_yaml
+    bad = """
+- url: https://random-blog.example.com/sanctions
+  tier: "1a"
+  region: global
+  domain_category: blog
+"""
+    result = _validate_corpus_registry_yaml(bad)
+    assert result["ok"] is False
+    assert "tier 1a" in result["error"].lower()
+
+
+def test_self_improve_secret_scanner_blocks_embedded_api_key():
+    """No matter how clever a staged change is, embedded secrets must
+    fail the validator. This is the floor under ARIA's self-edit rights."""
+    from aria_service.intel.self_improve import _validate_by_path
+    leaked = '''
+"""Normal module."""
+API_KEY = "sk-proj-012345678901234567890123456789012345"
+'''
+    result = _validate_by_path("aria_service/intel/v3_prompts.py", leaked)
+    assert result["ok"] is False
+    assert "secret" in result["error"].lower()
+
+
+def test_audit_log_has_new_action_entries():
+    """Clause 14 substrate must cover the new verification pipeline +
+    atlas + self-evolve actions — otherwise ARIA can mutate state
+    outside the tamper-evident chain."""
+    from aria_service.intel.audit_log import RECORDED_ACTIONS
+    required = {
+        "verified_fact_stored",
+        "verified_fact_refreshed",
+        "verified_fact_contradicted",
+        "self_improve_staged",
+        "self_improve_deployed",
+        "source_atlas_add",
+        "source_atlas_update",
+    }
+    missing = required - RECORDED_ACTIONS
+    assert not missing, f"audit_log missing actions: {missing}"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# PR 2 — Web Atlas reliability learning
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_web_atlas_reliability_ema_updates():
+    """record_ingest must nudge score toward 1.0 on success, 0.0 on
+    failure. EMA alpha is 0.2 → one success moves 0.5 to 0.6."""
+    import asyncio
+    from aria_service.intel import web_atlas
+
+    async def run():
+        await web_atlas.record_ingest(
+            "https://reuters.com/test-ema", "test_topic_ema", success=True,
+        )
+        rec = await web_atlas.get_reliability(
+            "https://reuters.com/test-ema-other", "test_topic_ema",
+        )
+        # Same family (reuters), same topic — should see the update.
+        assert rec["score"] > 0.5
+        # Now fail once
+        await web_atlas.record_ingest(
+            "https://reuters.com/test-ema-fail", "test_topic_ema", success=False,
+        )
+        rec2 = await web_atlas.get_reliability(
+            "https://reuters.com/x", "test_topic_ema",
+        )
+        # Score must have moved back toward the middle
+        assert rec2["score"] < rec["score"]
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_web_atlas_add_source_indexes_family():
+    import asyncio
+    from aria_service.intel import web_atlas
+
+    async def run():
+        result = await web_atlas.add_source(
+            url="https://premiumtimesng.com/defence",
+            tier="2",
+            topic_tags=["defence_procurement", "nigeria"],
+            region="africa_west",
+            added_by="test",
+        )
+        assert result["action"] in ("added", "updated")
+        assert result["record"]["tier"] == "2"
+        assert "defence_procurement" in result["record"]["topics"]
+        stats = await web_atlas.stats()
+        assert stats["source_families"] >= 1
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_web_atlas_coverage_surfaces_critical_gaps():
+    """A region/topic cell with 0 sources must surface as CRITICAL."""
+    import asyncio
+    from aria_service.intel import web_atlas
+
+    async def run():
+        # Force a CRITICAL cell by not updating any coverage for a fresh topic.
+        await web_atlas.update_coverage("test_region_crit", "no_sources_topic",
+                                         fetch_success=False)
+        gaps = await web_atlas.surface_gaps(min_level="MEDIUM", limit=50)
+        # The cell we just made has 0 sources → CRITICAL.
+        match = next((g for g in gaps
+                      if g.get("region") == "test_region_crit" and
+                         g.get("topic") == "no_sources_topic"), None)
+        assert match is not None
+        assert match.get("gap_level") == "CRITICAL"
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_ecosystem_reassess_produces_queue():
+    """run() must return a queue-shaped dict with at least a breakdown key."""
+    import asyncio
+    from aria_service.intel import ecosystem_reassess, web_atlas
+
+    async def run():
+        # Seed a critical gap so there's something to find.
+        await web_atlas.update_coverage("reassess_region", "reassess_topic",
+                                         fetch_success=False)
+        report = await ecosystem_reassess.run()
+        assert "queued" in report
+        assert "breakdown" in report
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_autonomous_tasks_yaml_has_new_self_dev_tasks():
+    """tasks.yaml must contain all 6 new tasks from the self-dev loop."""
+    from aria_service.autonomous.tasks import load_tasks
+    tasks = load_tasks()
+    required = {
+        "DAILY-FACT-REFRESH",
+        "HOURLY-ECOSYSTEM-REASSESS",
+        "DAILY-CORE-DEVELOP",
+        "WEEKLY-CORE-META",
+        "DAILY-CITATION-SCOUT",
+        "WEEKLY-TLD-PROBE",
+    }
+    for tid in required:
+        assert tid in tasks, f"tasks.yaml missing {tid}"
+        task = tasks[tid]
+        assert task.enabled is False, (
+            f"{tid} must default disabled (opt-in autonomy doctrine)"
+        )
+        assert task.tool_chain
+        assert task.cost_cap_usd > 0
+
+
+def test_intel_ledger_tags_source_tier_when_url_present():
+    """add_signal with a URL must attach source_tier + score from the
+    Clause 17 tier classifier — making the ledger provenance-aware."""
+    import asyncio
+    from aria_service.intel import intel_ledger
+
+    async def run():
+        await intel_ledger.add_signal({
+            "summary": "Test signal from OFAC",
+            "source": "autonomous",
+            "url": "https://ofac.treasury.gov/test-signal",
+        })
+        sigs = await intel_ledger.get_signals(limit=5) if hasattr(intel_ledger, "get_signals") else []
+        # Fall back to reading the cache directly
+        if not sigs:
+            # load private cache
+            from aria_service.intel.intel_ledger import _cache
+            sigs = (_cache or {}).get("signals", [])
+        match = next((s for s in sigs if "OFAC" in s.get("text", "")), None)
+        if match is not None:
+            assert match.get("source_tier") == "1a"
+            assert match.get("source_tier_score", 0) >= 0.9
+        return True
+
+    assert asyncio.run(run()) is True

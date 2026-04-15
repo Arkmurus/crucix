@@ -380,6 +380,65 @@ class VerifiedFact:
 
 
 # =============================================================================
+# AUDIT-LOG HELPER — Clause 14 substrate integration
+# =============================================================================
+# Every verified-fact mutation emits an HMAC-signed audit entry so the chain
+# remains tamper-evident. Failures here are swallowed with a logger.warning
+# — the verification pipeline must not be blocked by a logging failure.
+
+async def _arecord_audit(
+    kind: str,
+    fact: Optional["VerifiedFact"] = None,
+    stats_ref: Optional[dict] = None,
+) -> None:
+    """Emit an audit-log entry for a verified-fact action.
+
+    kind: one of 'verified_fact_stored', 'verified_fact_refreshed',
+          'verified_fact_contradicted'.
+    fact: the VerifiedFact instance (required for stored/contradicted).
+    stats_ref: summary stats for refresh runs.
+    """
+    try:
+        from . import audit_log as _al
+        if kind not in _al.RECORDED_ACTIONS:
+            return  # silently skip unregistered actions
+        if fact is not None:
+            await _al.record(
+                kind,
+                actor="aria_verified_intel",
+                entity_name=fact.entity_name,
+                inputs={
+                    "fact_type": fact.fact_type.value,
+                    "claim": fact.claim[:400],
+                    "value": fact.value[:200],
+                },
+                outputs={
+                    "verification_status": fact.verification_status.value,
+                    "verification_score": fact.verification_score,
+                    "source_count": len(fact.sources),
+                    "source_domains": [s.domain for s in fact.sources][:5],
+                    "expires_at": fact.expires_at,
+                    "contradictions": len(fact.contradictions),
+                },
+                decision=fact.verification_status.value,
+                confidence=fact.confidence_label,
+                sources=[s.url for s in fact.sources][:10],
+                notes=f"Clause 17 pipeline — fact_id {fact.fact_id}",
+            )
+        elif stats_ref is not None:
+            await _al.record(
+                kind,
+                actor="aria_verified_intel",
+                inputs={"task": "DAILY-FACT-REFRESH"},
+                outputs=dict(stats_ref),
+                decision="completed",
+                notes="Clause 17 stale-fact refresh pass",
+            )
+    except Exception as e:
+        logger.warning("audit log emit failed for %s: %s", kind, e)
+
+
+# =============================================================================
 # SOURCE TIER CLASSIFIER
 # =============================================================================
 
@@ -1087,6 +1146,152 @@ class ARIAVerificationEngine:
             except Exception:
                 continue
 
+        return None
+
+    # ── ASYNC API (production path, uses redis_store) ────────────────────────
+    #
+    # The sync `process()` / `get_fact()` above operate on the injected
+    # `self.redis` client. For PR 1 the async path intentionally does NOT
+    # mutate `process()` — it calls it with self.redis = None so process()
+    # runs the pure verification logic without persisting, then we persist
+    # via redis_store (async). Every async write emits an audit_log entry
+    # (Clause 14 substrate) so tampering with a verified fact breaks the
+    # HMAC chain.
+
+    async def averify_and_store(
+        self,
+        claim_text: str,
+        claim_value: str,
+        entity_name: str,
+        entity_type: str,
+        fact_type: "FactType",
+        source_url: str,
+        source_excerpt: str = "",
+        source_context: str = "",
+    ) -> "VerifiedFact":
+        """Async variant of process() — verifies then persists via redis_store.
+
+        This is the production entry point that fact-writing paths
+        (knowledge.store_fact, intel_ledger.add_signal) call to enforce
+        Clause 17 provenance on every material fact.
+        """
+        # Save + restore self.redis so process() doesn't double-persist.
+        saved_redis, self.redis = self.redis, None
+        try:
+            fact = self.process(
+                claim_text=claim_text,
+                claim_value=claim_value,
+                entity_name=entity_name,
+                entity_type=entity_type,
+                fact_type=fact_type,
+                source_url=source_url,
+                source_excerpt=source_excerpt,
+                source_context=source_context,
+            )
+        finally:
+            self.redis = saved_redis
+
+        await self._astore_fact(fact)
+        await _arecord_audit("verified_fact_stored", fact)
+        return fact
+
+    async def aget_fact(
+        self,
+        entity_name: str,
+        fact_type: "FactType",
+        compute_tenure: bool = False,
+    ) -> Optional[dict]:
+        """Async retrieve a verified fact with provenance. Mirrors get_fact()."""
+        from . import redis_store as rs
+        pattern = f"aria:verified_facts:{fact_type.value}:*"
+        keys = await rs.scan_keys(pattern, count=500)
+        for key in keys:
+            data = await rs.get_json(key)
+            if not data:
+                continue
+            try:
+                if data.get("entity_name", "").lower() != entity_name.lower():
+                    continue
+                fact = self._dict_to_fact(data)
+                if fact.is_stale:
+                    fact.verification_status = VerificationStatus.STALE
+                    await self._astore_fact(fact)
+                result = {
+                    "value": fact.value,
+                    "claim": fact.claim,
+                    "confidence": fact.confidence_label,
+                    "verification_status": fact.verification_status.value,
+                    "citation": fact.citation,
+                    "sources": [s.url for s in fact.sources],
+                    "verified_at": fact.verified_at,
+                    "expires_at": fact.expires_at,
+                }
+                if (compute_tenure and
+                        fact_type == FactType.APPOINTMENT and
+                        fact.is_verified):
+                    result["tenure_days"] = self._compute_tenure(fact.value)
+                    result["tenure_note"] = (
+                        "Tenure computed at query time from verified appointment date."
+                    )
+                return result
+            except Exception:
+                continue
+        return None
+
+    async def arefresh_stale_facts(self, max_facts: int = 50) -> dict:
+        """Async re-verify facts that are pending corroboration or stale.
+        Scheduled as DAILY-FACT-REFRESH at 05:00 UTC."""
+        from . import redis_store as rs
+        stats = {"refreshed": 0, "verified": 0, "failed": 0, "scanned": 0}
+        keys = await rs.scan_keys("aria:verified_facts:*", count=max_facts)
+        for key in keys[:max_facts]:
+            data = await rs.get_json(key)
+            if not data:
+                continue
+            stats["scanned"] += 1
+            status = data.get("verification_status")
+            if status not in ("PENDING_CORROBORATION", "STALE"):
+                continue
+            try:
+                fact_type = FactType[data.get("fact_type", "GENERAL_CLAIM")]
+            except KeyError:
+                continue
+            sources_data = data.get("sources", [])
+            if not sources_data:
+                continue
+            existing_domains = [s.get("domain", "") for s in sources_data]
+            new_sources = self.corroboration.search(
+                claim=data.get("claim", ""),
+                entity=data.get("entity_name", ""),
+                fact_type=fact_type,
+                existing_domains=existing_domains,
+                max_sources=3,
+            )
+            if new_sources:
+                stats["refreshed"] += 1
+                # Tag for re-verification on next averify_and_store call
+                data["last_checked"] = datetime.now(timezone.utc).isoformat()
+                await rs.set_json(key, data, ex=max(
+                    FACT_TTL_DAYS.get(fact_type, 90), 30) * 86400 * 2)
+        await _arecord_audit("verified_fact_refreshed", stats_ref=stats)
+        return stats
+
+    async def _astore_fact(self, fact: "VerifiedFact") -> None:
+        from . import redis_store as rs
+        key = f"aria:verified_facts:{fact.fact_type.value}:{fact.fact_id}"
+        ttl = max(FACT_TTL_DAYS.get(fact.fact_type, 90), 30) * 86400 * 2
+        await rs.set_json(key, fact.to_dict(), ex=ttl)
+
+    async def _aload_fact(self, fact_id: str) -> Optional["VerifiedFact"]:
+        from . import redis_store as rs
+        keys = await rs.scan_keys(f"aria:verified_facts:*:{fact_id}", count=10)
+        for key in keys:
+            data = await rs.get_json(key)
+            if data:
+                try:
+                    return self._dict_to_fact(data)
+                except Exception:
+                    return None
         return None
 
     # ── INTERNAL ─────────────────────────────────────────────────────────────

@@ -736,3 +736,139 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: ["thin_coverage", "critical_gap"]
     mem0_tags: [source_discovery, self_improvement, knowledge_gap, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # CLAUSE 17 + CORE SELF-DEVELOPMENT LOOP
+  # ═══════════════════════════════════════════════════════════════════
+  # DAILY-FACT-REFRESH — re-verify PENDING_CORROBORATION / STALE facts.
+  # Runs verified_intel.ARIAVerificationEngine.arefresh_stale_facts().
+  # Disabled by default (opt-in per file header convention).
+  - id: DAILY-FACT-REFRESH
+    name: Verified-fact refresh (Clause 17)
+    description: |
+      Daily 05:00 UTC — re-verify facts whose status is
+      PENDING_CORROBORATION or STALE. Runs a targeted corroboration
+      search per fact; does not mutate verified records, only tags
+      last_checked. Human review still required on CONTRADICTED facts.
+    cron: "0 5 * * *"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 300
+    cost_cap_usd: 0.10
+    tool_chain:
+      - tool: verified_fact_refresh
+        max_facts: 50
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["contradicted", "human_required"]
+    mem0_tags: [verified_intel, clause17, refresh, autonomous]
+
+  # HOURLY-ECOSYSTEM-REASSESS — every hour on the hour, ARIA surveys her
+  # own ecosystem: mastery drift, source freshness, mistake-ledger patterns,
+  # capability gaps. Emits a priority queue `aria:core:reassess:queue` that
+  # CORE-DEVELOP drains the next morning. Read-only, cheap.
+  - id: HOURLY-ECOSYSTEM-REASSESS
+    name: Ecosystem reassessment (hourly)
+    description: |
+      Every hour — ARIA surveys her ecosystem and writes a priority
+      queue for CORE-DEVELOP. No external calls, no mutations.
+    cron: "0 * * * *"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 60
+    cost_cap_usd: 0.01
+    tool_chain:
+      - tool: ecosystem_reassess
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["critical_gap"]
+    mem0_tags: [ecosystem, reassess, self_development, autonomous]
+
+  # DAILY-CORE-DEVELOP — 03:00 UTC daily, ARIA drains the top 3 items
+  # from the reassess queue and executes them within the auto-allowed
+  # bucket (ingest new sources, refine prompts, expand eval suite).
+  # Every action is audit-logged.
+  - id: DAILY-CORE-DEVELOP
+    name: Core self-development (auto-allowed actions)
+    description: |
+      Daily 03:00 UTC — drains top 3 gap-queue items and acts on them.
+      Per aria_autonomy_doctrine.md: only auto-allowed actions
+      (source ingests, prompt refinements, new adapters, eval
+      expansion). All mutations HMAC-audited.
+    cron: "0 3 * * *"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 600
+    cost_cap_usd: 0.30
+    tool_chain:
+      - tool: core_develop
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["validator_rejected", "blocked_by_doctrine"]
+    mem0_tags: [core_develop, self_evolution, autonomous, clause17]
+
+  # WEEKLY-CORE-META — Sunday 04:00 UTC — diffs the capability manifest
+  # week-over-week, spots regressions, seeds next week's reassess queue.
+  - id: WEEKLY-CORE-META
+    name: Core meta-review (weekly)
+    description: |
+      Sunday 04:00 UTC — week-over-week capability diff, regression
+      flagging, next-week queue seed. Output feeds the 05:45 team
+      briefing so operators see what ARIA changed and what she plans.
+    cron: "0 4 * * sun"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 300
+    cost_cap_usd: 0.10
+    tool_chain:
+      - tool: core_meta
+    delivery_channels: [mem0, whatsapp]
+    whatsapp_group_id: ""
+    escalate_if: ["regression", "coverage_drop"]
+    mem0_tags: [core_meta, weekly, self_review, autonomous]
+
+  # DAILY-CITATION-SCOUT — 02:00 UTC — walks citations from trusted
+  # sources to find authoritative citees; adds qualifying ones to the
+  # Web Atlas (per-topic reliability map).
+  - id: DAILY-CITATION-SCOUT
+    name: Citation-graph source scout
+    description: |
+      Daily 02:00 UTC — crawls outbound citations from trusted Tier
+      1a/1b/2 sources, scores each citee, adds qualifying ones to
+      the Web Atlas. Boundary-pushing — finds sources we don't yet
+      have.
+    cron: "0 2 * * *"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 300
+    cost_cap_usd: 0.15
+    tool_chain:
+      - tool: source_scout
+        pattern: citation
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["new_tier1a", "new_tier1b"]
+    mem0_tags: [source_scout, citation_graph, web_atlas, autonomous]
+
+  # WEEKLY-TLD-PROBE — Saturday 02:00 UTC — systematic sweep of gov/mil
+  # subdomains per target market. Discovers ministerial, parliamentary,
+  # gazette sources Aria may have missed.
+  - id: WEEKLY-TLD-PROBE
+    name: TLD probe — gov/mil subdomain sweep
+    description: |
+      Saturday 02:00 UTC — systematic probing of gov/mil subdomains
+      across target markets (Angola, Mozambique, Nigeria, Ghana,
+      Turkey, Brazil, Kenya, Indonesia, Philippines, Vietnam, UAE,
+      Saudi Arabia, Poland, Romania). Adds hits to Web Atlas.
+    cron: "0 2 * * sat"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 600
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: source_scout
+        pattern: tld_probe
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["new_gazette_found", "new_ministry_found"]
+    mem0_tags: [source_scout, tld_probe, web_atlas, autonomous]

@@ -114,17 +114,33 @@ async def add_signal(payload: dict) -> str:
         return "skipped:propaganda"
     ent = _extract_entities(text)
     now = datetime.now(timezone.utc).isoformat()
+    # Clause 17 — attach source tier to every signal carrying a URL so the
+    # ledger itself becomes provenance-aware. Tier classification is pure
+    # (no network, no redis), safe to run inline.
+    url = payload.get("url", "")
+    source_tier = ""
+    source_score = 0.0
+    if url:
+        try:
+            from . import verified_intel as _vi
+            _tier = _vi.SourceTierClassifier().classify(url)
+            source_tier = _tier.value
+            source_score = _vi.TIER_SCORES[_tier]
+        except Exception:
+            pass
     db["signals"].insert(0, {
         "text": text[:500],
         "source": source,
         "type": payload.get("type", "brain_lead"),
-        "url": payload.get("url", ""),
+        "url": url,
         "countries": ent["countries"],
         "products": ent["products"],
         "oems": ent["oems"],
         "severity": payload.get("severity", "medium"),
         "ts": payload.get("timestamp") or now,
         "tags": payload.get("tags", []),
+        "source_tier": source_tier,
+        "source_tier_score": source_score,
     })
     _prune()
     await _save()
