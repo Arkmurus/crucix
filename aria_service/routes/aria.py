@@ -2882,61 +2882,99 @@ async def _execute_tool(intent: dict, llm) -> str:
             )
 
         if tool == "web_search":
-            # Standalone web search for entity-only investigations (no URL).
-            # Past incident 2026-04-09: ARIA could only investigate
-            # entities for which the user provided a URL — there was no
-            # way for her to discover related URLs (registry filings,
-            # LinkedIn, news articles) on her own. This tool gives her
-            # snippet-level OSINT discovery via Brave Search API
-            # (preferred) or DuckDuckGo HTML scraping (free fallback).
+            # Clause 19 path: search_doctrine wraps web_search with
+            # wrapper strip, decomposition, 3-attempt reformulation
+            # with vocabulary swap, adaptive result count, pre-read
+            # tier classification, single-source + seeding flags, and
+            # primary-chain follow. Flags + markers flow through to
+            # the LLM so answers carry [WEB] / [UNVERIFIED_SINGLE_SOURCE]
+            # / [SUSPECTED_SEEDING] / [INSUFFICIENT_PUBLIC_INTEL] tags.
+            from ..intel import search_doctrine as _sd
             query = intent.get("query") or intent.get("topic") or ""
-            r = await web_search(query, max_results=8)
-            if not r.get("ok"):
+            sd_intent = intent.get("search_intent") or "entity"
+            r_sd = await _sd.search(query, intent=sd_intent)
+
+            if r_sd.get("status") == "insufficient_public_intel":
                 return (
-                    f"\n\n[TOOL: web_search — FAILED]\n"
+                    f"\n\n[TOOL: web_search — INSUFFICIENT_PUBLIC_INTEL]\n"
                     f"Query: {query}\n"
-                    f"Provider: {r.get('provider', 'none')}\n"
-                    f"Error: {r.get('error', 'unknown')}\n"
-                    f"Duration: {r.get('duration_ms', 0)}ms\n"
-                    + _no_data_warning(
-                        "web_search", query,
-                        blocking=False,
-                    )
+                    f"Cleaned: {r_sd.get('cleaned_query','')}\n"
+                    f"Attempts: {r_sd.get('attempts', [])}\n"
+                    f"Flags: {', '.join(r_sd.get('flags', []))}\n"
+                    f"\n[INSUFFICIENT_PUBLIC_INTEL] Three reformulation "
+                    f"attempts with vocabulary swaps returned zero results. "
+                    f"Do NOT fabricate — say 'I cannot verify this from "
+                    f"public sources' and recommend what additional context "
+                    f"would help."
                 )
-            results = r.get("results") or []
+
+            results = r_sd.get("results") or []
             if not results:
                 return (
                     f"\n\n[TOOL: web_search — NO RESULTS]\n"
                     f"Query: {query}\n"
-                    f"Provider: {r.get('provider')}\n"
-                    f"Duration: {r.get('duration_ms', 0)}ms\n"
+                    f"Cleaned: {r_sd.get('cleaned_query','')}\n"
+                    f"Attempts: {r_sd.get('attempts', [])}\n"
                     f"\nThe search returned zero results. Treat this as "
-                    f"INSUFFICIENT DATA per clause 9 — do not extrapolate "
-                    f"or invent information about the entity."
+                    f"INSUFFICIENT DATA per clause 9 — do not extrapolate."
                 )
+
+            # Detect conflicts across the result set
+            try:
+                conflicts = _sd.detect_conflicts(results)
+            except Exception:
+                conflicts = []
+
             results_block = "\n".join(
-                f"  [{i+1}] {r['title']}\n      URL: {r['url']}\n      Snippet: {r['snippet']}"
-                for i, r in enumerate(results)
+                f"  [{i+1}] [tier={r.get('tier','?')} tags={','.join(r.get('tags') or []) or 'none'}] "
+                f"{r.get('title','')}\n"
+                f"      URL: {r.get('url','')}\n"
+                f"      Snippet: {r.get('snippet','') or r.get('description','')}"
+                + (f"\n      PRIMARY: {', '.join(r.get('primary_urls') or [])[:200]}"
+                   if r.get("primary_urls") else "")
+                for i, r in enumerate(results[:12])
             )
+
+            flags_line = ", ".join(r_sd.get("flags", [])) or "none"
+            components_line = (
+                " | ".join(r_sd.get("components", []))
+                if len(r_sd.get("components", [])) > 1
+                else "(single query)"
+            )
+            conflicts_block = ""
+            if conflicts:
+                conflicts_block = "\n--- CONFLICTS DETECTED ---\n" + "\n".join(
+                    f"  [CONFLICT: {c.get('kind')}] {c.get('entity')} — "
+                    f"values: {c.get('values')}"
+                    for c in conflicts[:5]
+                ) + "\n"
+
             return (
-                f"\n\n[TOOL: web_search — verbatim search results below]\n"
-                f"Query: {query}\n"
-                f"Provider: {r.get('provider')}\n"
-                f"Results: {len(results)}\n"
-                f"Duration: {r.get('duration_ms', 0)}ms\n"
-                f"\n--- Search results (verbatim, in rank order) ---\n"
+                f"\n\n[TOOL: web_search — Clause 19 doctrine path]\n"
+                f"Original query: {query}\n"
+                f"Cleaned query:  {r_sd.get('cleaned_query','')}\n"
+                f"Decomposition:  {components_line}\n"
+                f"Attempts:       {r_sd.get('attempts', [])}\n"
+                f"Results:        {r_sd.get('result_count', 0)}\n"
+                f"Flags:          {flags_line}\n"
+                f"\n--- Search results (tier + tags shown) ---\n"
                 f"{results_block}\n"
                 f"--- End search results ---\n"
-                f"\nIMPORTANT — clauses 9, 13, 14: these snippets are "
-                f"EXCERPTS from third-party pages. They are POINTERS to "
-                f"sources, not verified facts. To produce a confident "
-                f"finding about the entity, you must (a) cite the source "
-                f"URL inline, (b) tag the claim with at most "
-                f"[ASSESSED — single search snippet] unless multiple "
-                f"snippets corroborate, and (c) recommend a follow-up "
-                f"extract_url call on the most relevant result for "
-                f"verbatim verification. Do NOT fabricate facts that go "
-                f"beyond the snippets."
+                f"{conflicts_block}"
+                f"\nIMPORTANT — Clause 19 + Clause 15 citation discipline:\n"
+                f"  (a) Cite every fact inline with [WEB] or [from <url>].\n"
+                f"  (b) If a result is tagged UNVERIFIED_SINGLE_SOURCE, "
+                f"tag your claim at most [ASSESSED — single source].\n"
+                f"  (c) If SUSPECTED_SEEDING is flagged, note that in the "
+                f"reply and rely on non-seeded sources only.\n"
+                f"  (d) If CONFLICTS are listed above, surface them "
+                f"explicitly with [CONFLICT: source-A-says-X vs "
+                f"source-B-says-Y] — do NOT silently pick one.\n"
+                f"  (e) Do NOT reproduce snippet text verbatim ≥200 chars. "
+                f"Paraphrase; never copy-paste.\n"
+                f"  (f) Any fact from LLM training / memory (not from this "
+                f"tool block) carries [MEMORY] so the reader distinguishes "
+                f"tool-fetched from recalled.\n"
             )
 
         if tool == "extract_url":
