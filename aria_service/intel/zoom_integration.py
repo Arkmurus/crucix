@@ -505,6 +505,62 @@ async def _handle_recording_completed(payload: dict, llm) -> dict:
     except Exception as e:
         logger.debug("Zoom proactive alert failed: %s", e)
 
+    # ── Slice 6: Devil's Advocate on post-meeting transcript ────────────────
+    if os.getenv("ARIA_CHALLENGE_ENABLED", "0") == "1" and "#ariasilent" not in topic.lower():
+        try:
+            from . import devils_advocate as _da
+            from . import self_metrics as _sm
+
+            da = await _da.analyse_raw(topic, transcript_text)
+            items = (
+                (da.get("counter_arguments") or [])
+                + (da.get("unasked_dd_questions") or [])
+                + (da.get("unchallenged_assumptions") or [])
+            )
+            if items:
+                body_lines = ["🎯 ARIA — Devil's Advocate"]
+                if da.get("counter_arguments"):
+                    body_lines.append("Counter-arguments:")
+                    body_lines.extend(f"  ↪ {c}" for c in da["counter_arguments"])
+                if da.get("unasked_dd_questions"):
+                    body_lines.append("Questions the team did not ask:")
+                    body_lines.extend(f"  ❓ {q}" for q in da["unasked_dd_questions"])
+                if da.get("unchallenged_assumptions"):
+                    body_lines.append("Unchallenged assumptions:")
+                    body_lines.extend(f"  ⚖ {a}" for a in da["unchallenged_assumptions"])
+                body_lines.append(
+                    f"Confidence: {da.get('confidence','medium')}. "
+                    "Push back if any are wrong — feeds the mistake ledger."
+                )
+                await proactive.push_alert({
+                    "type": "zoom_devils_advocate",
+                    "title": f"🎯 Devil's advocate: {topic}",
+                    "severity": "info",
+                    "body": "\n".join(body_lines),
+                    "metadata": {"meeting_id": meeting_id, "confidence": da.get("confidence")},
+                })
+
+            try:
+                await _sm.emit(
+                    axis="utility",
+                    domain="devils_advocate",
+                    signal="challenge_fired",
+                    value=float(len(items)),
+                    context={
+                        "meeting_id": meeting_id,
+                        "topic": topic[:80],
+                        "path": "webhook",
+                        "confidence": da.get("confidence", "medium"),
+                        "counter_arguments": len(da.get("counter_arguments") or []),
+                        "unasked_dd_questions": len(da.get("unasked_dd_questions") or []),
+                        "unchallenged_assumptions": len(da.get("unchallenged_assumptions") or []),
+                    },
+                )
+            except Exception as e:
+                logger.debug("self_metrics emit failed: %s", e)
+        except Exception as e:
+            logger.warning("Devil's advocate (webhook) failed: %s", e)
+
     return result
 
 

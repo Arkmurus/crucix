@@ -169,6 +169,73 @@ async def analyse(
     }
 
 
+async def analyse_raw(
+    title: str,
+    transcript_text: str,
+    deal_context: str | None = None,
+) -> dict[str, Any]:
+    """Variant for webhook flow — accepts raw transcript text (e.g. Zoom VTT
+    already stripped to dialogue). Bypasses the speaker/timestamp tuple format
+    used by the Meeting-SDK live path.
+    """
+    if not transcript_text or len(transcript_text.strip()) < 40:
+        return _empty("transcript_too_short")
+
+    transcript_formatted = transcript_text.strip()[:12000]
+    heuristic_missing = _heuristic_unasked_dd(transcript_formatted)
+
+    # Best-effort participant extraction from speaker labels in VTT-style text.
+    participants = []
+    try:
+        import re as _re
+        labels = _re.findall(r"(?m)^([A-Z][A-Za-z .'-]{1,40}):", transcript_formatted)
+        participants = list(dict.fromkeys(labels))[:10]
+    except Exception:
+        pass
+
+    prompt = _build_prompt(
+        title, participants or ["(unknown)"],
+        transcript_formatted, heuristic_missing, deal_context,
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as c:
+            r = await c.post(
+                f"{BRAIN_URL}/api/aria/chat",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {INT_TOKEN}",
+                },
+                json={
+                    "message": prompt,
+                    "session_id": f"devils_advocate_webhook_{title[:30]}",
+                },
+            )
+        if r.status_code != 200:
+            logger.warning("devils_advocate raw chat returned %s", r.status_code)
+            return _empty(f"http_{r.status_code}")
+        full = (r.json().get("response") or r.json().get("answer") or "").strip()
+        m = re.search(r"\{[\s\S]*\}", full)
+        if not m:
+            return _empty("no_json")
+        parsed = json.loads(m.group())
+    except Exception as e:
+        logger.warning("devils_advocate raw failed: %s", e)
+        return _empty(f"exception:{type(e).__name__}")
+
+    return {
+        "counter_arguments": _clean_list(parsed.get("counter_arguments")),
+        "unasked_dd_questions": _clean_list(parsed.get("unasked_dd_questions")),
+        "unchallenged_assumptions": _clean_list(parsed.get("unchallenged_assumptions")),
+        "confidence": (parsed.get("confidence") or "medium").lower(),
+        "meta": {
+            "heuristic_missing_dd": heuristic_missing,
+            "participants_detected": participants,
+            "ok": True,
+        },
+    }
+
+
 def _clean_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
