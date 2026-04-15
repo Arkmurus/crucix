@@ -61,6 +61,32 @@ async def run(max_actions: int = _MAX_ACTIONS_PER_RUN) -> dict:
     if len(history) > 60:
         history = history[-60:]
     await rs.set_json(_META_HISTORY_KEY, history, ex=90 * 86400)
+
+    # Brain signal — the self-development cycle is a core mastery signal:
+    # if she acts, the predictor and self_assess briefing should see it.
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="core_develop",
+            summary=f"Self-develop cycle: {acted}/{len(queue[:max_actions * 3])} actions taken",
+            detail=f"Kinds: {dict((i['kind'], 1) for i in queue[:max_actions * 3])}",
+            success=acted > 0,
+        )
+    except Exception:
+        pass
+    # Self_metrics: record utility signal so daily briefing reflects
+    # autonomy throughput.
+    try:
+        from . import self_metrics as _sm
+        await _sm.emit(
+            axis="utility",
+            domain="self_development",
+            signal=f"core_develop_actions_{acted}",
+            value=min(1.0, acted / max(max_actions, 1)),
+            source_module="core_develop",
+        )
+    except Exception:
+        pass
     return summary
 
 
@@ -249,6 +275,24 @@ async def meta_review() -> dict:
         "auto_suspended_this_pass": suspension_result,
         "coverage_gaps_by_domain": coverage_by_domain,
     }
+
+    # Brain signal for the weekly meta review — this is what lets the
+    # daily 05:45 briefing say "last week: X actions, Y suspensions,
+    # Z new sources added, W coverage gaps remaining".
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="core_develop",
+            summary=(f"Weekly meta: {total_acted} actions, "
+                     f"{suspension_result.get('suspended', 0)} suspended, "
+                     f"{len(coverage_by_domain)} coverage gaps"),
+            detail=(f"Healthy sources: {registry_health.get('healthy_count', 0)}; "
+                    f"degraded: {registry_health.get('degraded_count', 0)}; "
+                    f"failing: {registry_health.get('failing_count', 0)}"),
+            success=True,
+        )
+    except Exception:
+        pass
 
     # Snapshot the Web Atlas to its YAML mirror so self_improve can
     # touch it through the whitelisted path if needed next week.

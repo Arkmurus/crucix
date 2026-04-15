@@ -311,6 +311,17 @@ async def add_source(
             )
     except Exception as e:
         logger.debug("audit emit for atlas %s failed: %s", action, e)
+    # Brain signal — so the atlas growth feeds mastery + daily briefing
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="web_atlas",
+            summary=f"Atlas {action}: {family} (Tier {tier})",
+            detail=f"Region {region}, topics {topic_tags[:5]}, by {added_by}",
+            success=True,
+        )
+    except Exception:
+        pass
     return {"action": action, "family": family, "record": record}
 
 

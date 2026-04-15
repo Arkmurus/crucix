@@ -683,6 +683,18 @@ async def approve_candidate(candidate_id: str, approved_by: str = "human") -> di
             )
     except Exception:
         pass
+    # Brain signal — an approved candidate is a curation win
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="source_validator",
+            summary=f"Candidate approved: {cand.get('url','')} (Tier {cand.get('tier_proposed','?')})",
+            detail=f"Score {cand.get('overall_quality_score',0):.2f}, "
+                   f"gap {cand.get('gap_it_fills','')}, by {approved_by}",
+            success=True,
+        )
+    except Exception:
+        pass
     return {"ok": True, "candidate_id": candidate_id,
             "approved_by": approved_by, "url": cand["url"]}
 
@@ -714,6 +726,31 @@ async def reject_candidate(
                 outputs={"reason": reason[:200]},
                 decision="rejected",
             )
+    except Exception:
+        pass
+    # Brain signal + mistake-ledger entry — a rejected candidate is data
+    # about what NOT to add; predictor can warn on similar future candidates
+    try:
+        from . import brain_hook as _bh, mistake_ledger as _ml
+        await _bh.absorb(
+            module="source_validator",
+            summary=f"Candidate rejected: {cand.get('url','')}",
+            detail=f"Reason: {reason[:200]}",
+            success=False,
+            gap_type="source_validator_rejected",
+            gap_detail=reason[:200],
+        )
+        await _ml.record(
+            category="source_validator_rejected",
+            task_type="source_validator",
+            domain=cand.get("gap_it_fills", "unknown"),
+            what=f"Source {cand.get('url','')} rejected",
+            why=reason[:300],
+            fix="Predictor should flag similar domains before future scouts propose them",
+            what_class="source_quality_fail",
+            severity="LOW",
+            source_ref=candidate_id,
+        )
     except Exception:
         pass
     return {"ok": True, "candidate_id": candidate_id,
@@ -882,6 +919,31 @@ async def suspend_failing_sources(threshold: float = 0.40) -> dict:
                         decision="suspended",
                         notes=rec["degradation_reason"],
                     )
+            except Exception:
+                pass
+            # Brain signal + mistake-ledger so predictor knows which
+            # families are failing — future scouts should deprioritise
+            # candidates from suspended source families.
+            try:
+                from . import brain_hook as _bh, mistake_ledger as _ml
+                await _bh.absorb(
+                    module="source_validator",
+                    summary=f"Source auto-suspended: {fam}",
+                    detail=rec["degradation_reason"],
+                    success=False,
+                    gap_type="source_auto_suspended",
+                    gap_detail=rec["degradation_reason"],
+                )
+                await _ml.record(
+                    category="source_auto_suspended",
+                    task_type="web_atlas",
+                    domain=fam,
+                    what=f"Source {fam} auto-suspended",
+                    why=rec["degradation_reason"],
+                    fix="Investigate reliability drop; consider atlas removal",
+                    what_class="source_degradation",
+                    severity="MEDIUM",
+                )
             except Exception:
                 pass
     return {"suspended": len(suspended), "families": suspended}

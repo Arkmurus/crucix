@@ -61,6 +61,14 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "knowledge_ingestor":   ["general", "compliance", "legal"],
     "source_reliability":   ["osint"],
     "seenode":              ["general"],
+    # Core Self-Development Loop (Clauses 17/18/19) — shipped 2026-04-15
+    "verified_intel":       ["compliance", "osint", "legal"],
+    "web_atlas":            ["osint", "market_intel"],
+    "source_validator":     ["osint", "compliance"],
+    "source_scout":         ["osint", "market_intel"],
+    "search_doctrine":      ["osint", "general"],
+    "core_develop":         ["general"],
+    "ecosystem_reassess":   ["general"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)
@@ -95,6 +103,14 @@ _MODULE_WEIGHT: dict[str, float] = {
     "knowledge_ingestor":   0.2,   # /teach URL ingestion — high value
     "source_reliability":   0.05,  # automated source health — low weight
     "seenode":              0.1,
+    # Core Self-Development Loop (Clauses 17/18/19)
+    "verified_intel":       0.15,  # every verified fact = real provenance work
+    "web_atlas":            0.05,  # per-ingest EMA updates — high frequency, low weight
+    "source_validator":     0.10,  # each approval = meaningful curation
+    "source_scout":         0.05,  # automated discovery
+    "search_doctrine":      0.05,  # search-per-turn — high frequency
+    "core_develop":         0.20,  # acting on gaps is high-value self-improvement
+    "ecosystem_reassess":   0.05,  # read-only queue build
 }
 
 

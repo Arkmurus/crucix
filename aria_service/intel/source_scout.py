@@ -75,12 +75,28 @@ async def run(
 ) -> dict:
     """Entry point called by the scheduled scout tasks."""
     if pattern == "citation":
-        return await _scout_citation(max_finds=max_finds)
-    if pattern == "tld_probe":
-        return await _scout_tld_probe(max_finds=max_finds)
-    if pattern == "targeted":
-        return await _scout_targeted(region=region, topic=topic, max_finds=max_finds)
-    return {"ok": False, "error": f"unknown scout pattern: {pattern}"}
+        result = await _scout_citation(max_finds=max_finds)
+    elif pattern == "tld_probe":
+        result = await _scout_tld_probe(max_finds=max_finds)
+    elif pattern == "targeted":
+        result = await _scout_targeted(region=region, topic=topic, max_finds=max_finds)
+    else:
+        return {"ok": False, "error": f"unknown scout pattern: {pattern}"}
+
+    # Brain signal — scout runs feed mastery; the found-count tells the
+    # briefing whether the day's discovery was productive.
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="source_scout",
+            summary=(f"Scout {pattern}: {result.get('found', 0)} "
+                     f"new sources added/queued"),
+            detail=f"Region {region}, topic {topic}, max {max_finds}",
+            success=result.get("found", 0) > 0,
+        )
+    except Exception:
+        pass
+    return result
 
 
 # ── Pattern 1: citation-graph walk ───────────────────────────────────────

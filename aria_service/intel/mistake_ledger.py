@@ -57,6 +57,12 @@ logger = logging.getLogger("aria.mistake_ledger")
 CATEGORIES = {
     "correction", "eval_miss", "user_override", "escalation_miss",
     "false_confidence", "silent_failure", "hallucination",
+    # Core Self-Development Loop (Clauses 17/18/19) — shipped 2026-04-15
+    "source_seeding_suspected",    # search_doctrine: ≥3 uniform snippets
+    "insufficient_public_intel",   # search_doctrine: 3-attempt exhaustion
+    "verified_contradiction",      # verified_intel: sources disagree on fact
+    "source_validator_rejected",   # source_validator: candidate failed quality
+    "source_auto_suspended",       # web_atlas: reliability EMA < 0.4
 }
 
 _KEY_LOG = "crucix:mistake_ledger:log"

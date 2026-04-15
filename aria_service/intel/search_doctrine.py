@@ -481,6 +481,30 @@ async def search(
         dedup.append(r)
 
     if not dedup:
+        # Brain + mistake-ledger signal: search exhaustion is a learning
+        # signal — the predictor should warn on similar future queries.
+        try:
+            from . import brain_hook as _bh, mistake_ledger as _ml
+            await _bh.absorb(
+                module="search_doctrine",
+                summary=f"Search exhausted: {cleaned[:80]}",
+                detail=f"Attempts: {attempts}",
+                success=False,
+                gap_type="insufficient_public_intel",
+                gap_detail=f"Exhausted {len(attempts)} reformulations: {attempts}",
+            )
+            await _ml.record(
+                category="insufficient_public_intel",
+                task_type="web_search",
+                domain=(components[0] if components else cleaned)[:40].lower(),
+                what=f"Zero results after {len(attempts)} attempts: {cleaned[:100]}",
+                why="3 vocabulary-swap reformulations returned empty result sets",
+                fix="Surface INSUFFICIENT_PUBLIC_INTEL; do not fabricate",
+                what_class="search_exhaustion",
+                severity="MEDIUM",
+            )
+        except Exception:
+            pass
         return {
             "status": "insufficient_public_intel",
             "cleaned_query": cleaned,
@@ -503,6 +527,37 @@ async def search(
         flags.append("SUSPECTED_SEEDING")
     if all("UNVERIFIED_SINGLE_SOURCE" in r.get("tags", []) for r in dedup):
         flags.append("ALL_RESULTS_SINGLE_SOURCE")
+
+    # Brain signal: every successful search feeds mastery; seeding /
+    # single-source flags feed the mistake ledger so the predictor
+    # can warn on future queries in the same domain.
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="search_doctrine",
+            summary=f"Search: {cleaned[:80]} ({len(dedup)} results)",
+            detail=f"Flags: {flags or 'clean'}, attempts {len(attempts)}",
+            success=True,
+            gap_type=("source_seeding_suspected"
+                      if "SUSPECTED_SEEDING" in flags else None),
+            gap_detail=(f"{sum(1 for r in dedup if 'SUSPECTED_SEEDING' in r.get('tags', []))} "
+                        f"results flagged as seeded"
+                        if "SUSPECTED_SEEDING" in flags else None),
+        )
+        if "SUSPECTED_SEEDING" in flags:
+            from . import mistake_ledger as _ml
+            await _ml.record(
+                category="source_seeding_suspected",
+                task_type="web_search",
+                domain=(components[0] if components else cleaned)[:40].lower(),
+                what=f"Seeded results on query: {cleaned[:100]}",
+                why="≥3 snippets with similarity ≥0.85 — copy-paste signature",
+                fix="Rely on non-seeded sources; do not cite seeded cluster as CONFIRMED",
+                what_class="source_uniformity",
+                severity="MEDIUM",
+            )
+    except Exception:
+        pass
 
     return {
         "status": "ok",

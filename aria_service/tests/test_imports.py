@@ -1418,3 +1418,112 @@ def test_search_doctrine_returns_insufficient_on_empty_query():
     assert asyncio.run(run()) is True
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Brain-wiring verification (post-orphan fix)
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_brain_hook_registers_new_self_dev_modules():
+    """The 7 new modules (verified_intel, web_atlas, source_validator,
+    source_scout, search_doctrine, core_develop, ecosystem_reassess) must
+    be declared in brain_hook._MODULE_TOPICS, otherwise their absorb()
+    calls would be filed under 'general' with no topical grounding."""
+    from aria_service.intel.brain_hook import _MODULE_TOPICS, _MODULE_WEIGHT
+    required = {
+        "verified_intel", "web_atlas", "source_validator",
+        "source_scout", "search_doctrine", "core_develop",
+        "ecosystem_reassess",
+    }
+    for name in required:
+        assert name in _MODULE_TOPICS, f"brain_hook missing module: {name}"
+        assert _MODULE_TOPICS[name], f"{name} must have at least one topic"
+        assert name in _MODULE_WEIGHT, f"brain_hook missing weight for: {name}"
+        assert _MODULE_WEIGHT[name] > 0
+
+
+def test_mistake_ledger_has_new_self_dev_categories():
+    """The Core Self-Development Loop creates new failure modes — the
+    mistake ledger must be able to categorise them, otherwise the
+    predictor cannot forecast them on future tasks."""
+    from aria_service.intel.mistake_ledger import CATEGORIES
+    required = {
+        "source_seeding_suspected",
+        "insufficient_public_intel",
+        "verified_contradiction",
+        "source_validator_rejected",
+        "source_auto_suspended",
+    }
+    missing = required - CATEGORIES
+    assert not missing, f"mistake_ledger missing categories: {missing}"
+
+
+def test_search_doctrine_signals_brain_on_exhaustion():
+    """Integration smoke: search('') returns insufficient and the
+    brain-signal path must NOT raise. The signal itself is fire-and-
+    forget, so we only assert no exception escapes."""
+    import asyncio
+    from aria_service.intel import search_doctrine
+
+    async def run():
+        result = await search_doctrine.search("", intent="factual")
+        assert result["status"] == "insufficient_public_intel"
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_verified_intel_contradiction_records_mistake():
+    """When a verified_intel write produces a CONTRADICTED fact, the
+    brain-signal + mistake-ledger paths must fire without raising."""
+    import asyncio
+    from aria_service.intel.verified_intel import (
+        ARIAVerificationEngine, FactType, VerifiedFact, VerificationStatus,
+        SourceRecord, SourceTier, TIER_SCORES, _arecord_audit,
+    )
+
+    async def run():
+        # Manufacture a CONTRADICTED fact directly
+        fact = VerifiedFact(
+            fact_id="test-contra-1",
+            fact_type=FactType.APPOINTMENT,
+            entity_name="Test Entity",
+            entity_type="person",
+            claim="X appointed Y",
+            value="2024-01-01",
+            verification_status=VerificationStatus.CONTRADICTED,
+            sources=[SourceRecord(
+                url="https://a.example/x", tier=SourceTier.TIER_2,
+                score=TIER_SCORES[SourceTier.TIER_2],
+            )],
+        )
+        # _arecord_audit must not raise even when no audit_log key is set
+        await _arecord_audit("verified_fact_stored", fact=fact)
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_core_develop_run_signals_brain_without_raising():
+    import asyncio
+    from aria_service.intel import core_develop
+
+    async def run():
+        # Empty queue is fine — the signal path is the thing we exercise
+        result = await core_develop.run(max_actions=3)
+        assert "acted" in result
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_ecosystem_reassess_signals_brain_without_raising():
+    import asyncio
+    from aria_service.intel import ecosystem_reassess
+
+    async def run():
+        result = await ecosystem_reassess.run()
+        assert "queued" in result
+        return True
+
+    assert asyncio.run(run()) is True
+
+

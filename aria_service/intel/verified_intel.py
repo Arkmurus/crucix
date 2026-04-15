@@ -391,51 +391,103 @@ async def _arecord_audit(
     fact: Optional["VerifiedFact"] = None,
     stats_ref: Optional[dict] = None,
 ) -> None:
-    """Emit an audit-log entry for a verified-fact action.
+    """Emit an audit-log entry + brain signal for a verified-fact action.
 
     kind: one of 'verified_fact_stored', 'verified_fact_refreshed',
           'verified_fact_contradicted'.
     fact: the VerifiedFact instance (required for stored/contradicted).
     stats_ref: summary stats for refresh runs.
     """
+    # ── 1. HMAC audit log (Clause 14 substrate) ─────────────────────
     try:
         from . import audit_log as _al
-        if kind not in _al.RECORDED_ACTIONS:
-            return  # silently skip unregistered actions
-        if fact is not None:
-            await _al.record(
-                kind,
-                actor="aria_verified_intel",
-                entity_name=fact.entity_name,
-                inputs={
-                    "fact_type": fact.fact_type.value,
-                    "claim": fact.claim[:400],
-                    "value": fact.value[:200],
-                },
-                outputs={
-                    "verification_status": fact.verification_status.value,
-                    "verification_score": fact.verification_score,
-                    "source_count": len(fact.sources),
-                    "source_domains": [s.domain for s in fact.sources][:5],
-                    "expires_at": fact.expires_at,
-                    "contradictions": len(fact.contradictions),
-                },
-                decision=fact.verification_status.value,
-                confidence=fact.confidence_label,
-                sources=[s.url for s in fact.sources][:10],
-                notes=f"Clause 17 pipeline — fact_id {fact.fact_id}",
-            )
-        elif stats_ref is not None:
-            await _al.record(
-                kind,
-                actor="aria_verified_intel",
-                inputs={"task": "DAILY-FACT-REFRESH"},
-                outputs=dict(stats_ref),
-                decision="completed",
-                notes="Clause 17 stale-fact refresh pass",
-            )
+        if kind in _al.RECORDED_ACTIONS:
+            if fact is not None:
+                await _al.record(
+                    kind,
+                    actor="aria_verified_intel",
+                    entity_name=fact.entity_name,
+                    inputs={
+                        "fact_type": fact.fact_type.value,
+                        "claim": fact.claim[:400],
+                        "value": fact.value[:200],
+                    },
+                    outputs={
+                        "verification_status": fact.verification_status.value,
+                        "verification_score": fact.verification_score,
+                        "source_count": len(fact.sources),
+                        "source_domains": [s.domain for s in fact.sources][:5],
+                        "expires_at": fact.expires_at,
+                        "contradictions": len(fact.contradictions),
+                    },
+                    decision=fact.verification_status.value,
+                    confidence=fact.confidence_label,
+                    sources=[s.url for s in fact.sources][:10],
+                    notes=f"Clause 17 pipeline — fact_id {fact.fact_id}",
+                )
+            elif stats_ref is not None:
+                await _al.record(
+                    kind,
+                    actor="aria_verified_intel",
+                    inputs={"task": "DAILY-FACT-REFRESH"},
+                    outputs=dict(stats_ref),
+                    decision="completed",
+                    notes="Clause 17 stale-fact refresh pass",
+                )
     except Exception as e:
         logger.warning("audit log emit failed for %s: %s", kind, e)
+
+    # ── 2. Brain signal — so verified facts feed mastery + self_metrics ──
+    try:
+        from . import brain_hook as _bh
+        if fact is not None:
+            is_contradicted = fact.verification_status == VerificationStatus.CONTRADICTED
+            await _bh.absorb(
+                module="verified_intel",
+                summary=(f"Verified fact: {fact.entity_name} "
+                         f"({fact.fact_type.value}) — "
+                         f"{fact.verification_status.value}"),
+                detail=f"Score {fact.verification_score:.2f}, "
+                       f"{len(fact.sources)} sources, "
+                       f"{len(fact.contradictions)} contradictions",
+                entity_name=fact.entity_name,
+                success=not is_contradicted,
+                gap_type="verified_contradiction" if is_contradicted else None,
+                gap_detail=(
+                    f"Sources disagree on {fact.fact_type.value} for "
+                    f"{fact.entity_name}"
+                ) if is_contradicted else None,
+            )
+            # Contradiction = mistake_ledger entry, so the predictor
+            # can warn on future tasks about the same entity/domain.
+            if is_contradicted:
+                from . import mistake_ledger as _ml
+                try:
+                    await _ml.record(
+                        category="verified_contradiction",
+                        task_type="verified_intel",
+                        domain=fact.fact_type.value.lower(),
+                        what=(f"Contradicting sources for {fact.entity_name} "
+                              f"{fact.fact_type.value}"),
+                        why=(f"Multi-source verification blocked: "
+                             f"{fact.contradictions[0].claim_a if fact.contradictions else 'conflict'} "
+                             f"vs {fact.contradictions[0].claim_b if fact.contradictions else 'conflict'}"),
+                        fix="Escalate to human review; do not cite as CONFIRMED",
+                        what_class="source_disagreement",
+                        severity="HIGH",
+                        source_ref=fact.fact_id,
+                    )
+                except Exception:
+                    pass
+        elif stats_ref is not None:
+            await _bh.absorb(
+                module="verified_intel",
+                summary=f"Stale-fact refresh: {stats_ref.get('refreshed', 0)} re-verified",
+                detail=str(stats_ref)[:500],
+                success=True,
+            )
+    except Exception as e:
+        logger.debug("brain signal for %s failed: %s", kind, e)
 
 
 # =============================================================================

@@ -160,7 +160,7 @@ async def run() -> dict:
     await rs.set_json(_QUEUE_KEY, queue[:200], ex=7 * 86400)
     await rs.set(_LAST_RUN_KEY, now, ex=7 * 86400)
 
-    return {
+    result = {
         "queued": len(queue[:200]),
         "breakdown": {
             k: sum(1 for i in queue if i["kind"] == k) for k in set(i["kind"] for i in queue)
@@ -168,6 +168,22 @@ async def run() -> dict:
         "top_3": queue[:3],
         "at": now,
     }
+
+    # Brain signal — so the 05:45 briefing surfaces gap pressure
+    # ("12 CRITICAL gaps pending, 34 HIGH") before the operator asks.
+    try:
+        from . import brain_hook as _bh
+        critical = sum(1 for i in queue if i.get("kind") == "critical_gap")
+        high = sum(1 for i in queue if i.get("kind") == "high_gap")
+        await _bh.absorb(
+            module="ecosystem_reassess",
+            summary=f"Reassess: {len(queue)} items queued ({critical} critical, {high} high)",
+            detail=str(result["breakdown"])[:400],
+            success=True,
+        )
+    except Exception:
+        pass
+    return result
 
 
 async def get_queue(limit: int = 50) -> list[dict]:
