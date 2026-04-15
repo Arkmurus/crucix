@@ -207,6 +207,28 @@ async def meta_review() -> dict:
     except Exception:
         pass
 
+    # Source-registry health — NEW this commit. Suspends failing sources
+    # and produces a weekly top/degraded/failing breakdown. Auto-allowed
+    # per doctrine ("never silently trust a failing source").
+    registry_health: dict[str, Any] = {}
+    suspension_result: dict[str, Any] = {}
+    try:
+        from . import source_validator
+        suspension_result = await source_validator.suspend_failing_sources(
+            threshold=0.40,
+        )
+        registry_health = await source_validator.registry_health_report()
+    except Exception as e:
+        logger.debug("registry health pass failed: %s", e)
+
+    # Coverage-domain gap report — domain-level (not just cell-level)
+    coverage_by_domain = []
+    try:
+        from . import source_validator
+        coverage_by_domain = await source_validator.coverage_gaps_by_domain()
+    except Exception as e:
+        logger.debug("coverage-by-domain pass failed: %s", e)
+
     # Capability manifest diff — best-effort; module may not exist.
     manifest_diff = {}
     try:
@@ -223,6 +245,9 @@ async def meta_review() -> dict:
         "actions_by_kind": actions_by_kind,
         "atlas": atlas_stats,
         "capability_diff": manifest_diff,
+        "registry_health": registry_health,
+        "auto_suspended_this_pass": suspension_result,
+        "coverage_gaps_by_domain": coverage_by_domain,
     }
 
     # Snapshot the Web Atlas to its YAML mirror so self_improve can

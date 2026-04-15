@@ -80,6 +80,8 @@ CORE_MODULES = [
     "aria_service.intel.ecosystem_reassess",
     "aria_service.intel.core_develop",
     "aria_service.intel.source_scout",
+    # Clause 18 — content-quality gate + approval queue
+    "aria_service.intel.source_validator",
 ]
 
 
@@ -1033,3 +1035,179 @@ def test_intel_ledger_tags_source_tier_when_url_present():
         return True
 
     assert asyncio.run(run()) is True
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Clause 18 — source validator (content-quality gate)
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_source_validator_coverage_domains_catalogue_complete():
+    """All 23 named coverage domains must be present."""
+    from aria_service.intel.source_validator import COVERAGE_DOMAINS
+    assert len(COVERAGE_DOMAINS) >= 23
+    for required in ("angola_procurement", "nigeria_defence",
+                     "turkey_defence", "ofac_sanctions", "tender_portals"):
+        assert required in COVERAGE_DOMAINS
+
+
+def test_source_validator_propose_tier_gov_returns_1b():
+    """Pure-function tier proposal: gov TLD → Tier 1b at minimum."""
+    from aria_service.intel.source_validator import _propose_tier
+    tier, rationale = _propose_tier(
+        "https://defence.gov.ng/procurement",
+        "defence.gov.ng",
+        signals=[],
+        overall_score=0.5,
+    )
+    assert tier in ("1a", "1b")
+    assert "gov" in rationale.lower() or "official" in rationale.lower()
+
+
+def test_source_validator_propose_tier_ofac_returns_1a():
+    from aria_service.intel.source_validator import _propose_tier
+    tier, _ = _propose_tier(
+        "https://ofac.treasury.gov/sdn/entity",
+        "ofac.treasury.gov",
+        signals=[],
+        overall_score=0.5,
+    )
+    assert tier == "1a"
+
+
+def test_source_validator_propose_tier_blog_returns_4():
+    from aria_service.intel.source_validator import _propose_tier
+    tier, _ = _propose_tier(
+        "https://someone.wordpress.com/analysis",
+        "someone.wordpress.com",
+        signals=[],
+        overall_score=0.30,
+    )
+    assert tier == "4"
+
+
+def test_source_validator_queue_approve_roundtrip_registers_with_atlas():
+    """Queue a PENDING candidate, approve it, confirm atlas registered."""
+    import asyncio
+    from aria_service.intel import source_validator as sv, web_atlas
+
+    async def run():
+        cand = sv.SourceCandidate(
+            candidate_id="test-approve-rt-2",
+            url="https://test-journal.example/defence",
+            domain="test-journal.example",
+            discovered_via="test",
+            gap_it_fills="nigeria_defence",
+            coverage_domains=["nigeria_defence"],
+            validation_status=sv.ValidationStatus.PENDING,
+            quality_signals=[
+                sv.QualitySignal("Bylined Journalism", True, "ok", 2.0),
+                sv.QualitySignal("Institutional Backing", True, "ok", 1.5),
+            ],
+            overall_quality_score=0.75,
+            tier_proposed="2",
+            tier_rationale="test",
+        )
+        q = await sv.queue_candidate(cand)
+        assert q["queued"] is True
+        listed = await sv.list_candidates(status="PENDING", limit=50)
+        assert any(c["candidate_id"] == "test-approve-rt-2" for c in listed)
+        result = await sv.approve_candidate("test-approve-rt-2",
+                                             approved_by="pytest")
+        assert result["ok"] is True
+        stats = await web_atlas.stats()
+        assert stats["source_families"] >= 1
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_source_validator_reject_archives_candidate():
+    import asyncio
+    from aria_service.intel import source_validator as sv
+
+    async def run():
+        cand = sv.SourceCandidate(
+            candidate_id="test-reject-rt-1",
+            url="https://bad-source.example/x",
+            domain="bad-source.example",
+            discovered_via="test",
+            gap_it_fills="nigeria_defence",
+            coverage_domains=[],
+            validation_status=sv.ValidationStatus.PENDING,
+            tier_proposed="4",
+        )
+        await sv.queue_candidate(cand)
+        result = await sv.reject_candidate(
+            "test-reject-rt-1", reason="too weak", rejected_by="pytest",
+        )
+        assert result["ok"] is True
+        # Must no longer be in pending
+        listed = await sv.list_candidates(status="PENDING", limit=50)
+        assert not any(c["candidate_id"] == "test-reject-rt-1" for c in listed)
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_source_validator_coverage_gaps_sorted_by_priority():
+    import asyncio
+    from aria_service.intel import source_validator as sv
+
+    async def run():
+        gaps = await sv.coverage_gaps_by_domain()
+        assert isinstance(gaps, list)
+        order = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+        ranks = [order.index(g["priority"]) for g in gaps
+                 if g["priority"] in order]
+        assert ranks == sorted(ranks), f"priority order broken: {ranks}"
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_source_validator_suspend_failing_handles_empty():
+    import asyncio
+    from aria_service.intel import source_validator as sv
+
+    async def run():
+        result = await sv.suspend_failing_sources(threshold=0.40)
+        assert "suspended" in result
+        assert isinstance(result["families"], list)
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_constitution_has_clause_18_source_self_validation():
+    import pathlib as _pl
+    engine_src = (
+        _pl.Path(__file__).resolve().parent.parent / "aria_engine.py"
+    ).read_text(encoding="utf-8")
+    assert "18. SOURCE SELF-VALIDATION" in engine_src
+    assert "source_validator" in engine_src
+
+
+def test_source_validator_candidate_to_approval_message_contains_signals():
+    """The operator-facing approval message must include signal
+    evidence + proposed tier."""
+    from aria_service.intel import source_validator as sv
+    cand = sv.SourceCandidate(
+        candidate_id="test-fmt-1",
+        url="https://example.com/x", domain="example.com",
+        discovered_via="citation", gap_it_fills="nigeria_defence",
+        coverage_domains=["nigeria_defence"],
+        validation_status=sv.ValidationStatus.PENDING,
+        quality_signals=[
+            sv.QualitySignal("Bylined Journalism", True, "12 authors found", 2.0),
+            sv.QualitySignal("HTTPS", True, "Secure HTTPS", 0.5),
+        ],
+        overall_quality_score=0.68,
+        tier_proposed="3",
+        tier_rationale="regional specialist press",
+    )
+    msg = cand.to_approval_message()
+    assert "Bylined Journalism" in msg
+    assert "Tier" in msg or "tier" in msg
+    assert "3" in msg
+    assert "approve" in msg.lower()
+

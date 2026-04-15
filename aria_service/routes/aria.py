@@ -8888,3 +8888,100 @@ async def source_scout_ep(body: _SourceScoutBody):
         pattern=body.pattern, region=body.region, topic=body.topic,
         max_finds=body.max_finds,
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CLAUSE 18 — SOURCE VALIDATOR (content-quality gate, approval queue)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _SVValidateBody(BaseModel):
+    url: str
+    gap_domain: str = ""
+    discovered_via: str = "manual"
+
+
+@router.post("/source_validator/validate")
+async def source_validator_validate_ep(body: _SVValidateBody):
+    """Run the 10-signal quality validator on a candidate URL. Returns
+    the SourceCandidate dict with tier proposal + signals + status.
+    Does NOT queue — caller decides next step."""
+    from ..intel import source_validator as _sv
+    from ..intel import researcher as _r
+    web_search_fn = getattr(_r, "web_search", None)
+    cand = await _sv.validate(
+        url=body.url, gap_domain=body.gap_domain,
+        discovered_via=body.discovered_via,
+        web_search_fn=web_search_fn,
+    )
+    return cand.to_dict()
+
+
+@router.get("/source_validator/candidates")
+async def source_validator_candidates_ep(status: str = "", limit: int = 50):
+    """List pending candidates (status='' returns all, or filter by
+    PENDING / APPROVED / REJECTED / AUTO_REJECTED / AUTO_APPROVED)."""
+    from ..intel import source_validator as _sv
+    return {"candidates": await _sv.list_candidates(
+        status=status or None, limit=limit)}
+
+
+class _SVApproveBody(BaseModel):
+    candidate_id: str
+    approved_by: str = "human"
+
+
+@router.post("/source_validator/approve")
+async def source_validator_approve_ep(body: _SVApproveBody):
+    """Human approves a pending candidate — registers it with Web Atlas."""
+    from ..intel import source_validator as _sv
+    return await _sv.approve_candidate(body.candidate_id, approved_by=body.approved_by)
+
+
+class _SVRejectBody(BaseModel):
+    candidate_id: str
+    reason: str = ""
+    rejected_by: str = "human"
+
+
+@router.post("/source_validator/reject")
+async def source_validator_reject_ep(body: _SVRejectBody):
+    """Human rejects a pending candidate — archived with reason."""
+    from ..intel import source_validator as _sv
+    return await _sv.reject_candidate(
+        body.candidate_id, reason=body.reason, rejected_by=body.rejected_by,
+    )
+
+
+@router.get("/source_validator/coverage")
+async def source_validator_coverage_ep():
+    """Coverage-gap analysis against the 23 named domains (complementary
+    to /atlas/gaps which is cell-level)."""
+    from ..intel import source_validator as _sv
+    return {"gaps": await _sv.coverage_gaps_by_domain()}
+
+
+@router.get("/source_validator/coverage_report")
+async def source_validator_coverage_report_ep():
+    """Human-readable coverage summary for the daily briefing."""
+    from ..intel import source_validator as _sv
+    return {"report": await _sv.coverage_report()}
+
+
+@router.get("/source_validator/health")
+async def source_validator_health_ep():
+    """Registry health report — top performers / degraded / failing /
+    dead. Fed into WEEKLY-CORE-META by default."""
+    from ..intel import source_validator as _sv
+    return await _sv.registry_health_report()
+
+
+class _SVSuspendBody(BaseModel):
+    threshold: float = 0.40
+
+
+@router.post("/source_validator/suspend_failing")
+async def source_validator_suspend_ep(body: _SVSuspendBody):
+    """Auto-suspend sources whose overall reliability falls below the
+    threshold. Auto-allowed per doctrine. Also runs inside WEEKLY-CORE-META."""
+    from ..intel import source_validator as _sv
+    return await _sv.suspend_failing_sources(threshold=body.threshold)

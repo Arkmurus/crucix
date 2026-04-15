@@ -45,7 +45,7 @@ async def run() -> dict:
     now = datetime.now(timezone.utc).isoformat()
     queue: list[dict] = []
 
-    # 1. Coverage gaps from Web Atlas
+    # 1a. Coverage gaps from Web Atlas (cell-level: region × topic)
     try:
         from . import web_atlas
         gaps = await web_atlas.surface_gaps(min_level="MEDIUM", limit=50)
@@ -66,6 +66,31 @@ async def run() -> dict:
             })
     except Exception as e:
         logger.debug("web_atlas gap scan skipped: %s", e)
+
+    # 1b. Coverage-domain gaps (the 23 named domains from source_validator).
+    # This is richer than 1a because it carries priority tier and deficit
+    # explicitly — CRITICAL/HIGH/MEDIUM/LOW per domain requirements.
+    try:
+        from . import source_validator
+        domain_gaps = await source_validator.coverage_gaps_by_domain()
+        for g in domain_gaps:
+            priority = g.get("priority", "MEDIUM")
+            urgency_kind = {
+                "CRITICAL": "critical_gap",
+                "HIGH": "high_gap",
+                "MEDIUM": "medium_gap",
+                "LOW": "medium_gap",
+            }.get(priority, "medium_gap")
+            # Prefer this richer payload when it maps to the same domain
+            queue.append({
+                "key": f"coverage_domain:{g.get('domain')}",
+                "kind": urgency_kind,
+                "urgency": _URGENCY[urgency_kind] + g.get("deficit", 0) * 3,
+                "payload": g,
+                "added_at": now,
+            })
+    except Exception as e:
+        logger.debug("coverage-domain gap scan skipped: %s", e)
 
     # 2. Mastery drift — topics whose score fell >10 points in 7 days
     try:

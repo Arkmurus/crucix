@@ -146,13 +146,19 @@ async def _scout_citation(max_finds: int = 5) -> dict:
                 continue
             seen_domains.add(d)
             tier = classifier.classify(href)
-            if tier in (_vi.SourceTier.TIER_1A, _vi.SourceTier.TIER_1B, _vi.SourceTier.TIER_2):
-                result = await _wa.add_source(
-                    url=href, tier=tier.value,
-                    topic_tags=["citation_graph"], region="global",
-                    added_by="source_scout_citation",
-                )
-                found.append({"url": href, "tier": tier.value, "result": result})
+            if tier not in (_vi.SourceTier.TIER_1A, _vi.SourceTier.TIER_1B, _vi.SourceTier.TIER_2):
+                continue
+            # Quality gate — extracted from ARIA_Source_Discovery proposal.
+            # Validator runs the 10-signal check; AUTO_APPROVED goes
+            # straight to atlas, PENDING is queued for human review,
+            # AUTO_REJECTED is dropped.
+            gated = await _gated_add(
+                href, discovered_via="citation",
+                tier_hint=tier, region="global",
+                topic_tags=["citation_graph"],
+            )
+            if gated.get("added"):
+                found.append({"url": href, "tier": tier.value, "result": gated})
                 if len(found) >= max_finds:
                     break
 
@@ -201,14 +207,16 @@ async def _scout_tld_probe(max_finds: int = 5) -> dict:
                             continue
                         tier = classifier.classify(url)
                         if tier in (_vi.SourceTier.TIER_1A, _vi.SourceTier.TIER_1B):
-                            entry = await _wa.add_source(
-                                url=url, tier=tier.value,
-                                topic_tags=[hint, "gov"],
+                            gated = await _gated_add(
+                                url, discovered_via="tld_probe",
+                                tier_hint=tier,
                                 region=info["region"],
-                                added_by="source_scout_tld_probe",
+                                topic_tags=[hint, "gov"],
+                                gap_domain=hint,
                             )
-                            found.append({"market": market, "url": url,
-                                          "tier": tier.value, "result": entry})
+                            if gated.get("added"):
+                                found.append({"market": market, "url": url,
+                                              "tier": tier.value, "result": gated})
                             break
     return {"pattern": "tld_probe", "markets_scanned": len(_TARGET_MARKETS),
             "found": len(found), "entries": found[:max_finds]}
@@ -260,21 +268,77 @@ async def _scout_targeted(region: str, topic: str, max_finds: int = 3) -> dict:
             tier = classifier.classify(url)
             if tier in (_vi.SourceTier.TIER_1A, _vi.SourceTier.TIER_1B,
                         _vi.SourceTier.TIER_2, _vi.SourceTier.TIER_3):
-                entry = await _wa.add_source(
-                    url=url, tier=tier.value,
-                    topic_tags=[topic], region=region,
-                    added_by="source_scout_targeted",
+                gated = await _gated_add(
+                    url, discovered_via="targeted",
+                    tier_hint=tier, region=region,
+                    topic_tags=[topic], gap_domain=topic,
                 )
-                await _wa.update_coverage(region, topic, fetch_success=True)
-                found.append({"url": url, "tier": tier.value, "result": entry})
-                if len(found) >= max_finds:
-                    break
+                if gated.get("added"):
+                    await _wa.update_coverage(region, topic, fetch_success=True)
+                    found.append({"url": url, "tier": tier.value, "result": gated})
+                    if len(found) >= max_finds:
+                        break
 
     return {"pattern": "targeted", "region": region, "topic": topic,
             "found": len(found), "entries": found}
 
 
 # ── Refresh a stale family ──────────────────────────────────────────────
+
+async def _gated_add(
+    url: str,
+    *,
+    discovered_via: str,
+    tier_hint: Any,
+    region: str,
+    topic_tags: list[str],
+    gap_domain: str = "",
+) -> dict:
+    """Run candidate through the content-quality validator before adding
+    to Web Atlas. This is the gate that prevents fresh-domain blog-spam
+    from entering the atlas just because it sits on a gov TLD.
+
+    Returns {"added": bool, ...}. When the validator auto-approves
+    (gov Tier 1a/1b passing score), we call web_atlas.add_source
+    directly. PENDING goes to the approval queue. AUTO_REJECTED is
+    silently dropped.
+    """
+    from . import source_validator as _sv
+    from . import web_atlas as _wa
+
+    try:
+        from . import researcher as _r
+        web_search_fn = getattr(_r, "web_search", None)
+    except Exception:
+        web_search_fn = None
+
+    cand = await _sv.validate(
+        url=url, gap_domain=gap_domain or topic_tags[0] if topic_tags else "",
+        discovered_via=discovered_via,
+        web_search_fn=web_search_fn,
+    )
+    if cand.validation_status == _sv.ValidationStatus.AUTO_REJECTED:
+        logger.info("scout dropped %s: %s", url, cand.validation_notes)
+        return {"added": False, "reason": "validator_rejected",
+                "score": cand.overall_quality_score,
+                "notes": cand.validation_notes}
+    if cand.validation_status == _sv.ValidationStatus.AUTO_APPROVED:
+        # Gov Tier 1a/1b → add directly to atlas
+        entry = await _wa.add_source(
+            url=url, tier=cand.tier_proposed,
+            topic_tags=topic_tags + cand.coverage_domains,
+            region=region, added_by=f"scout_auto_approved:{discovered_via}",
+        )
+        return {"added": True, "path": "auto_approved",
+                "tier": cand.tier_proposed, "atlas": entry}
+    # PENDING → queue for human review. Not added to atlas until approved.
+    q = await _sv.queue_candidate(cand)
+    return {"added": False, "path": "queued_pending",
+            "candidate_id": cand.candidate_id,
+            "tier_proposed": cand.tier_proposed,
+            "score": cand.overall_quality_score,
+            "queue_depth": q.get("queue_depth")}
+
 
 async def refresh_family(family: str) -> dict:
     """Re-fetch a registered family's landing page to update last_ok
