@@ -1431,15 +1431,17 @@ def test_search_doctrine_returns_insufficient_on_empty_query():
 # ──────────────────────────────────────────────────────────────────────────
 
 def test_brain_hook_registers_new_self_dev_modules():
-    """The 7 new modules (verified_intel, web_atlas, source_validator,
-    source_scout, search_doctrine, core_develop, ecosystem_reassess) must
-    be declared in brain_hook._MODULE_TOPICS, otherwise their absorb()
-    calls would be filed under 'general' with no topical grounding."""
+    """All runtime modules that call brain_hook.absorb() must be
+    declared in _MODULE_TOPICS — otherwise signals get filed under
+    'general' with no topical grounding and the predictor can't
+    find them by topic."""
     from aria_service.intel.brain_hook import _MODULE_TOPICS, _MODULE_WEIGHT
     required = {
         "verified_intel", "web_atlas", "source_validator",
         "source_scout", "search_doctrine", "core_develop",
         "ecosystem_reassess",
+        # Added 2026-04-15: golden-autogen + paraphrase guard
+        "golden_autogen", "paraphrase_guard",
     }
     for name in required:
         assert name in _MODULE_TOPICS, f"brain_hook missing module: {name}"
@@ -1459,9 +1461,44 @@ def test_mistake_ledger_has_new_self_dev_categories():
         "verified_contradiction",
         "source_validator_rejected",
         "source_auto_suspended",
+        # Added 2026-04-15: paraphrase post-processor feeds brain
+        "paraphrase_violation",
     }
     missing = required - CATEGORIES
     assert not missing, f"mistake_ledger missing categories: {missing}"
+
+
+def test_chat_paraphrase_violation_feeds_brain_and_mistake_ledger():
+    """Paraphrase violations must call BOTH brain_hook.absorb AND
+    mistake_ledger.record — detection without learning means the
+    predictor can't warn on similar future turns."""
+    import pathlib as _pl
+    routes = (_pl.Path(__file__).resolve().parent.parent /
+              "routes" / "aria.py").read_text(encoding="utf-8")
+    # The paraphrase-violation branch must reference both hooks
+    idx = routes.find("summary[\"paraphrase_violation\"]")
+    assert idx > 0, "paraphrase_violation assignment missing"
+    # Scan the ~80 lines after the assignment for brain + ledger calls
+    window = routes[idx:idx + 4000]
+    assert "brain_hook" in window, "paraphrase branch must signal brain_hook"
+    assert "mistake_ledger" in window, "paraphrase branch must record mistake_ledger"
+    assert 'category="paraphrase_violation"' in window or \
+           "'paraphrase_violation'" in window, (
+        "mistake_ledger.record must use paraphrase_violation category"
+    )
+
+
+def test_golden_autogen_signals_its_own_module():
+    """golden_autogen.propose_batch must signal brain under
+    module='golden_autogen', not the old module='verified_intel'
+    attribution hack."""
+    import pathlib as _pl
+    src = (_pl.Path(__file__).resolve().parent.parent /
+           "intel" / "golden_autogen.py").read_text(encoding="utf-8")
+    assert 'module="golden_autogen"' in src
+    assert 'module="verified_intel"' not in src, (
+        "golden_autogen must not attribute its signals to verified_intel"
+    )
 
 
 def test_search_doctrine_signals_brain_on_exhaustion():

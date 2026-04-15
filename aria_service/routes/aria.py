@@ -3590,14 +3590,71 @@ async def chat_ep(req: ChatRequest, request: Request):
                             response_text, snippets,
                         )
                         if not pcheck.get("ok"):
+                            max_chars = max(
+                                (h.get("chars", 0)
+                                 for h in pcheck.get("verbatim_hits", [])),
+                                default=0,
+                            )
                             summary["paraphrase_violation"] = {
                                 "hits": len(pcheck.get("verbatim_hits", [])),
-                                "max_chars": max(
-                                    (h.get("chars", 0)
-                                     for h in pcheck.get("verbatim_hits", [])),
-                                    default=0,
-                                ),
+                                "max_chars": max_chars,
                             }
+                            # Brain + mistake_ledger: predictor should
+                            # warn on similar future turns ("this domain
+                            # had paraphrase leaks — remind the LLM to
+                            # paraphrase before grading the response").
+                            try:
+                                from ..intel import (
+                                    brain_hook as _bh,
+                                    mistake_ledger as _ml,
+                                )
+                                await _bh.absorb(
+                                    module="paraphrase_guard",
+                                    summary=(
+                                        f"Paraphrase violation: "
+                                        f"{summary['paraphrase_violation']['hits']} "
+                                        f"verbatim copy hits (max "
+                                        f"{max_chars} chars)"
+                                    ),
+                                    detail=f"tool_used={tool_used or 'none'}",
+                                    success=False,
+                                    gap_type="paraphrase_violation",
+                                    gap_detail=(
+                                        f"Response reproduced "
+                                        f"{max_chars} chars verbatim "
+                                        f"from tool snippet"
+                                    ),
+                                )
+                                await _ml.record(
+                                    category="paraphrase_violation",
+                                    task_type="chat",
+                                    domain=(tool_used or "chat").lower(),
+                                    what=(
+                                        f"Response copied {max_chars} "
+                                        f"chars verbatim from "
+                                        f"{summary['paraphrase_violation']['hits']} "
+                                        f"tool snippet(s)"
+                                    ),
+                                    why=(
+                                        "LLM reproduced source text "
+                                        "instead of paraphrasing — "
+                                        "Clause 19 synthesis rule"
+                                    ),
+                                    fix=(
+                                        "Predictor flag next similar "
+                                        "turn; prepend 'paraphrase, do "
+                                        "not reproduce verbatim ≥200 "
+                                        "chars' reminder to LLM system "
+                                        "prompt."
+                                    ),
+                                    what_class="paraphrase_leak",
+                                    severity="MEDIUM",
+                                )
+                            except Exception as _pe:
+                                _log.debug(
+                                    "paraphrase brain signal failed: %s",
+                                    _pe,
+                                )
                         # Conflicts only if /search_doctrine surfaced result
                         # dicts; we don't have structured results here, skip.
                 except Exception as _e:

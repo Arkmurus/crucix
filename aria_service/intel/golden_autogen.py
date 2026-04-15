@@ -267,7 +267,7 @@ async def propose_batch(max_candidates: int = 20) -> dict:
             {c["market"] for c in auto_promoted + proposed}
         )[:10]
         await _bh.absorb(
-            module="verified_intel",
+            module="golden_autogen",
             summary=(f"Golden auto-gen: {len(auto_promoted)} promoted, "
                      f"{len(proposed)} pending"),
             detail=f"Markets covered: {all_markets}",

@@ -69,6 +69,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "search_doctrine":      ["osint", "general"],
     "core_develop":         ["general"],
     "ecosystem_reassess":   ["general"],
+    "golden_autogen":       ["osint", "general"],
+    "paraphrase_guard":     ["osint", "general"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)
@@ -111,6 +113,8 @@ _MODULE_WEIGHT: dict[str, float] = {
     "search_doctrine":      0.05,  # search-per-turn — high frequency
     "core_develop":         0.20,  # acting on gaps is high-value self-improvement
     "ecosystem_reassess":   0.05,  # read-only queue build
+    "golden_autogen":       0.10,  # self-growing eval set — meaningful curation
+    "paraphrase_guard":     0.05,  # per-turn discipline check — high frequency
 }
 
 

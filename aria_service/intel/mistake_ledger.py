@@ -63,6 +63,7 @@ CATEGORIES = {
     "verified_contradiction",      # verified_intel: sources disagree on fact
     "source_validator_rejected",   # source_validator: candidate failed quality
     "source_auto_suspended",       # web_atlas: reliability EMA < 0.4
+    "paraphrase_violation",        # chat response copied ≥200 chars verbatim
 }
 
 _KEY_LOG = "crucix:mistake_ledger:log"
