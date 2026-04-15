@@ -1010,11 +1010,18 @@ def test_autonomous_tasks_yaml_has_new_self_dev_tasks():
         "DAILY-CITATION-SCOUT",
         "WEEKLY-TLD-PROBE",
     }
-    week1_enabled = {"DAILY-FACT-REFRESH", "HOURLY-ECOSYSTEM-REASSESS"}
+    # Tasks enabled by staged rollout (week-1 + week-2 operator-audit fix).
+    # DAILY-CORE-DEVELOP is enabled WITH allowed_actions=[source_gap]
+    # starter whitelist — not a loosening.
+    staged_enabled = {
+        "DAILY-FACT-REFRESH",            # Clause 17 re-verify only
+        "HOURLY-ECOSYSTEM-REASSESS",     # read-only queue builder
+        "DAILY-CORE-DEVELOP",            # source_gap-only (staged)
+    }
     for tid in required:
         assert tid in tasks, f"tasks.yaml missing {tid}"
         task = tasks[tid]
-        if tid not in week1_enabled:
+        if tid not in staged_enabled:
             assert task.enabled is False, (
                 f"{tid} must default disabled (opt-in autonomy doctrine)"
             )
@@ -1662,6 +1669,93 @@ def test_self_metrics_has_manipulation_resistance_axis():
     )
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Operational-audit gap closure (2026-04-15)
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_core_develop_staged_rollout_blocks_non_whitelisted_actions():
+    """Staged-rollout gate: items whose action_family is NOT in
+    allowed_actions must be SKIPPED with reason=blocked_by_rollout
+    — not acted on. The starter whitelist is ('source_gap',) only."""
+    import asyncio
+    from aria_service.intel import core_develop, redis_store as rs, ecosystem_reassess
+
+    async def run():
+        # Seed a non-source-gap item so it gets filtered
+        queue = [{
+            "key": "mistake:nigeria", "kind": "mistake_pattern",
+            "urgency": 50, "payload": {"topic": "nigeria", "count": 5},
+        }, {
+            "key": "capability:api_down", "kind": "capability_gap",
+            "urgency": 55, "payload": {"kind": "api_down"},
+        }]
+        await rs.set_json(ecosystem_reassess._QUEUE_KEY, queue, ex=3600)
+        result = await core_develop.run(
+            max_actions=3, allowed_actions=("source_gap",),
+        )
+        assert "allowed_families" in result
+        assert result["allowed_families"] == ["source_gap"]
+        # Both items should be blocked_by_rollout
+        reasons = [r.get("reason") for r in result["results"]]
+        assert all(r == "blocked_by_rollout" for r in reasons if r)
+        assert result["skipped_by_rollout"] >= 2
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_core_develop_rollout_starter_is_source_gap_only():
+    """The module-default allow-list MUST start conservative. If a
+    future commit loosens it silently, this test fails loudly."""
+    from aria_service.intel.core_develop import _DEFAULT_ALLOWED_ACTIONS
+    assert _DEFAULT_ALLOWED_ACTIONS == ("source_gap",), (
+        f"Default rollout set drifted: {_DEFAULT_ALLOWED_ACTIONS}. "
+        f"Widen only by tasks.yaml tool_chain, not by module default."
+    )
+
+
+def test_core_develop_tasks_yaml_carries_staged_allowed_actions():
+    """DAILY-CORE-DEVELOP must be enabled BUT carry the allowed_actions
+    starter set in its tool_chain. Flipping enabled without the
+    whitelist would immediately release the full action surface."""
+    from aria_service.autonomous.tasks import load_tasks
+    tasks = load_tasks()
+    t = tasks.get("DAILY-CORE-DEVELOP")
+    assert t is not None
+    assert t.enabled is True
+    assert t.tool_chain
+    allowed = t.tool_chain[0].get("allowed_actions")
+    assert allowed == ["source_gap"], (
+        f"Staged rollout broken — tool_chain allowed_actions = {allowed}. "
+        f"Must be [source_gap] until operator widens after 5 clean days."
+    )
+
+
+def test_deploy_workflow_is_gated_on_test_workflow():
+    """deploy-fly.yml must trigger on workflow_run of test-aria.yml
+    success, not on push. Previously parallel → failing tests did not
+    block deploy. This test pins the fix."""
+    import pathlib as _pl
+    wf = (_pl.Path(__file__).resolve().parent.parent.parent /
+          ".github" / "workflows" / "deploy-fly.yml").read_text(encoding="utf-8")
+    assert "workflow_run" in wf, "deploy must use workflow_run trigger"
+    assert "Test ARIA Python service" in wf
+    assert "conclusion == 'success'" in wf, (
+        "deploy must explicitly gate on test success"
+    )
+
+
+def test_constitution_baseline_endpoint_exists():
+    """Must have an endpoint to MEASURE baseline before the 85% CI
+    gate is relied on. Running CI blind could freeze the platform."""
+    import pathlib as _pl
+    routes = (_pl.Path(__file__).resolve().parent.parent /
+              "routes" / "aria.py").read_text(encoding="utf-8")
+    assert "/constitution/baseline" in routes
+    assert "ci_gate_recommended" in routes
+    assert "prior_baseline" in routes
+
+
 def test_search_doctrine_signals_brain_on_exhaustion():
     """Integration smoke: search('') returns insufficient and the
     brain-signal path must NOT raise. The signal itself is fire-and-
@@ -1752,8 +1846,11 @@ def test_autonomy_week1_tasks_enabled():
     assert tasks["HOURLY-ECOSYSTEM-REASSESS"].enabled is True, (
         "HOURLY-ECOSYSTEM-REASSESS must be ENABLED for week-1 rollout"
     )
-    # These should REMAIN disabled — they mutate state / hit the web
-    assert tasks["DAILY-CORE-DEVELOP"].enabled is False
+    # Week-2 staged rollout: DAILY-CORE-DEVELOP is enabled WITH the
+    # source_gap-only whitelist, not the full action surface.
+    assert tasks["DAILY-CORE-DEVELOP"].enabled is True
+    assert tasks["DAILY-CORE-DEVELOP"].tool_chain[0]["allowed_actions"] == ["source_gap"]
+    # These still disabled — hit the web / wider blast radius
     assert tasks["DAILY-CITATION-SCOUT"].enabled is False
     assert tasks["WEEKLY-TLD-PROBE"].enabled is False
     # New golden-autogen task should be enabled (reads VERIFIED facts,

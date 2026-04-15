@@ -30,17 +30,57 @@ logger = logging.getLogger("aria.intel.core_develop")
 _MAX_ACTIONS_PER_RUN = 3  # Hard cap — keeps the loop slow and auditable
 _META_HISTORY_KEY = "aria:core:meta:history"
 
+# Allowed-action whitelist for STAGED ROLLOUT. Per the operational audit
+# 2026-04-15: do not flip the full action surface on at once. Start with
+# source-gap scouts only (read-mostly, lowest blast radius), observe for
+# 5 days, then widen. Passed as `allowed_actions` in the tool_chain entry;
+# defaults to the conservative starter set.
+_DEFAULT_ALLOWED_ACTIONS = ("source_gap",)
 
-async def run(max_actions: int = _MAX_ACTIONS_PER_RUN) -> dict:
-    """Drain the top N items from the reassess queue and act on each one."""
+# Map item kinds → action family tags (the whitelist key)
+_ACTION_FAMILY = {
+    "critical_gap":   "source_gap",
+    "high_gap":       "source_gap",
+    "medium_gap":     "source_gap",
+    "source_stale":   "source_refresh",
+    "mastery_drift":  "reading_session",
+    "mistake_pattern": "prompt_evolution",
+    "capability_gap": "eng_ticket",
+}
+
+
+async def run(
+    max_actions: int = _MAX_ACTIONS_PER_RUN,
+    allowed_actions: tuple[str, ...] | list[str] | None = None,
+) -> dict:
+    """Drain the top N items from the reassess queue and act on each one.
+
+    `allowed_actions` is the staged-rollout gate. Only items whose action
+    family is in the whitelist will be acted on; others are SKIPPED with
+    reason=blocked_by_rollout so the operator can see what's queued but
+    not yet authorised. Starter set is ("source_gap",) — source-scout
+    targeted runs only.
+    """
     from . import ecosystem_reassess
-    queue = await ecosystem_reassess.get_queue(limit=max_actions * 3)
+    allowed = set(allowed_actions or _DEFAULT_ALLOWED_ACTIONS)
+    queue = await ecosystem_reassess.get_queue(limit=max_actions * 5)
 
     results: list[dict] = []
     acted = 0
+    skipped_by_rollout = 0
     for item in queue:
         if acted >= max_actions:
             break
+        family = _ACTION_FAMILY.get(item.get("kind", ""), "unknown")
+        if family not in allowed:
+            skipped_by_rollout += 1
+            results.append({
+                "key": item.get("key"), "acted": False,
+                "reason": "blocked_by_rollout",
+                "action_family": family,
+                "allowed_families": sorted(allowed),
+            })
+            continue
         try:
             action_result = await _act_on(item)
             results.append(action_result)
@@ -52,7 +92,10 @@ async def run(max_actions: int = _MAX_ACTIONS_PER_RUN) -> dict:
 
     now = datetime.now(timezone.utc).isoformat()
     summary = {
-        "at": now, "acted": acted, "scanned": len(queue[:max_actions * 3]),
+        "at": now, "acted": acted,
+        "scanned": len(queue[:max_actions * 5]),
+        "skipped_by_rollout": skipped_by_rollout,
+        "allowed_families": sorted(allowed),
         "results": results,
     }
     # Preserve a short history for the weekly meta-review.

@@ -421,8 +421,17 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
 
     elif tool_kind == "core_develop":
         # PR 3 — daily self-development pass (auto-allowed actions only).
+        # Staged rollout (2026-04-15): reads `allowed_actions` from the
+        # tool_chain entry so the operator widens the whitelist step
+        # by step rather than flipping the whole action surface on at once.
         from ..intel import core_develop as _cd
-        report = await _cd.run()
+        tc = task.tool_chain[0] or {}
+        allowed = tc.get("allowed_actions")  # list or None → module default
+        max_actions = int(tc.get("max_actions", 3))
+        report = await _cd.run(
+            max_actions=max_actions,
+            allowed_actions=tuple(allowed) if allowed else None,
+        )
         return {"core_develop": report}
 
     elif tool_kind == "core_meta":

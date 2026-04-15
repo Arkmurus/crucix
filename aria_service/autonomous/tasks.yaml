@@ -795,17 +795,26 @@ tasks:
       Per aria_autonomy_doctrine.md: only auto-allowed actions
       (source ingests, prompt refinements, new adapters, eval
       expansion). All mutations HMAC-audited.
+
+      STAGED ROLLOUT 2026-04-15: enabled with `allowed_actions:
+      [source_gap]` — source-scout targeted runs only, the lowest-
+      risk family. Other families (source_refresh, reading_session,
+      prompt_evolution, eng_ticket) remain blocked_by_rollout and
+      visible in the result log. After 5 days of clean runs, the
+      operator widens the list by editing this tool_chain.
     cron: "0 3 * * *"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 600
     cost_cap_usd: 0.30
     tool_chain:
       - tool: core_develop
+        max_actions: 2
+        allowed_actions: [source_gap]
     delivery_channels: [mem0]
     whatsapp_group_id: ""
     escalate_if: ["validator_rejected", "blocked_by_doctrine"]
-    mem0_tags: [core_develop, self_evolution, autonomous, clause17]
+    mem0_tags: [core_develop, self_evolution, autonomous, clause17, staged_rollout]
 
   # WEEKLY-CORE-META — Sunday 04:00 UTC — diffs the capability manifest
   # week-over-week, spots regressions, seeds next week's reassess queue.

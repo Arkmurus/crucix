@@ -1,16 +1,35 @@
 name: Deploy ARIA to Fly.io
 
+# Operational gap fix (2026-04-15): previously fired in parallel with
+# test-aria.yml on every push to main. That meant a failing smoke test
+# or a failing constitution suite did NOT block the deploy — the two
+# workflows were independent. Now gated on test-aria.yml successful
+# completion via workflow_run, so a failed test blocks the deploy.
+
 on:
-  push:
+  workflow_run:
+    workflows: ["Test ARIA Python service"]
+    types: [completed]
     branches: [main]
-    paths:
-      - 'aria_service/**'
-      - 'fly.toml'
+  # Manual override for the rare case a test flake shouldn't gate a
+  # hotfix deploy. Default behaviour remains gated.
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Manual-deploy justification (auditable)"
+        required: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # workflow_run fires regardless of test outcome — gate explicitly.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - run: flyctl deploy --remote-only --app aria-intel -t "${{ secrets.FLY_API_TOKEN }}"
+      - if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "::warning::Manual deploy bypass — reason: ${{ github.event.inputs.reason }}"
