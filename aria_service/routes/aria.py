@@ -8985,3 +8985,49 @@ async def source_validator_suspend_ep(body: _SVSuspendBody):
     threshold. Auto-allowed per doctrine. Also runs inside WEEKLY-CORE-META."""
     from ..intel import source_validator as _sv
     return await _sv.suspend_failing_sources(threshold=body.threshold)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CLAUSE 19 — SEARCH DOCTRINE
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _SearchDoctrineBody(BaseModel):
+    question: str
+    intent: str = "default"   # factual | entity | bd | dd | default
+    fact_ttl_days: int | None = None
+
+
+@router.post("/search_doctrine/search")
+async def search_doctrine_search_ep(body: _SearchDoctrineBody):
+    """Run a disciplined search per Clause 19 — wrapper strip, decomposition,
+    adaptive result count, 3-attempt reformulation with vocabulary swap,
+    pre-read tier classification, single-source/seeding flags, primary-
+    chain follow. Returns the tagged result set + flags."""
+    from ..intel import search_doctrine as _sd
+    return await _sd.search(
+        body.question, intent=body.intent,
+        fact_ttl_days=body.fact_ttl_days,
+    )
+
+
+class _SDParaphraseBody(BaseModel):
+    response_text: str
+    source_snippets: list[str]
+
+
+@router.post("/search_doctrine/check_paraphrase")
+async def search_doctrine_paraphrase_ep(body: _SDParaphraseBody):
+    """Post-generation paraphrase check — flags any verbatim reproduction
+    ≥200 chars from the supplied source snippets."""
+    from ..intel import search_doctrine as _sd
+    return _sd.check_paraphrase_discipline(
+        body.response_text, body.source_snippets,
+    )
+
+
+@router.post("/search_doctrine/detect_conflicts")
+async def search_doctrine_conflicts_ep(results: list[dict]):
+    """Heuristic numeric-mismatch detector over a result set. Returns
+    a list of conflicts for inline [CONFLICT: ...] rendering."""
+    from ..intel import search_doctrine as _sd
+    return {"conflicts": _sd.detect_conflicts(results)}

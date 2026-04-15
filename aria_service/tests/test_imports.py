@@ -82,6 +82,8 @@ CORE_MODULES = [
     "aria_service.intel.source_scout",
     # Clause 18 — content-quality gate + approval queue
     "aria_service.intel.source_validator",
+    # Clause 19 — search doctrine
+    "aria_service.intel.search_doctrine",
 ]
 
 
@@ -1210,4 +1212,209 @@ def test_source_validator_candidate_to_approval_message_contains_signals():
     assert "Tier" in msg or "tier" in msg
     assert "3" in msg
     assert "approve" in msg.lower()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Clause 19 — search doctrine
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_search_doctrine_strips_conversational_wrapper():
+    from aria_service.intel.search_doctrine import _strip_conversational_wrapper
+    cases = [
+        ("Aria, can you find the Angolan defence minister please?",
+         "angolan defence minister"),
+        ("hey aria, tell me about the Nigeria CDS",
+         "the Nigeria CDS"),
+        ("Please research Turkey tender 2026",
+         "Turkey tender 2026"),
+        ("Modirum Gespi ownership",
+         "Modirum Gespi ownership"),
+    ]
+    for raw, expected_contains in cases:
+        out = _strip_conversational_wrapper(raw)
+        assert expected_contains.lower() in out.lower(), (
+            f"strip of {raw!r} → {out!r}, expected to contain {expected_contains!r}"
+        )
+        assert "aria" not in out.lower() or raw.lower().startswith("modirum")
+        assert "?" not in out
+
+
+def test_search_doctrine_decomposes_compound_questions():
+    from aria_service.intel.search_doctrine import _decompose_question
+    q = "who is the CDS of Nigeria and what contracts have they awarded this year"
+    parts = _decompose_question(q)
+    assert len(parts) >= 2, f"expected decomposition, got {parts}"
+    # Each component has content words
+    for p in parts:
+        assert len(p.split()) >= 3
+
+
+def test_search_doctrine_does_not_decompose_simple_questions():
+    from aria_service.intel.search_doctrine import _decompose_question
+    parts = _decompose_question("Modirum Gespi ownership")
+    assert parts == ["Modirum Gespi ownership"]
+
+
+def test_search_doctrine_reformulation_swaps_vocabulary():
+    """Attempt 1 must swap a vocab token, not just add words."""
+    from aria_service.intel.search_doctrine import _reformulate
+    original = "Tinubu appointed CDS 2024"
+    reformulated = _reformulate(original, attempt=1)
+    assert reformulated is not None
+    # "appointed" → "named"
+    assert "appointed" not in reformulated.lower()
+    assert "named" in reformulated.lower()
+
+
+def test_search_doctrine_reformulation_widens_on_attempt_2():
+    from aria_service.intel.search_doctrine import _reformulate
+    original = "Gen Christopher Musa CDS appointment 2024"
+    # Attempt 2 drops the longest token
+    reformulated = _reformulate(original, attempt=2)
+    assert reformulated is not None
+    # Original has 6 tokens, attempt 2 should drop one (longest: "appointment")
+    assert len(reformulated.split()) == len(original.split()) - 1
+
+
+def test_search_doctrine_reformulation_reduces_to_two_tokens_on_attempt_3():
+    from aria_service.intel.search_doctrine import _reformulate
+    reformulated = _reformulate("Gen Christopher Musa CDS appointment 2024", attempt=3)
+    assert reformulated is not None
+    assert len(reformulated.split()) == 2
+
+
+def test_search_doctrine_adaptive_result_count_scales_with_intent():
+    from aria_service.intel.search_doctrine import _adaptive_result_count
+    assert _adaptive_result_count("factual") <= 2
+    assert _adaptive_result_count("entity") >= 4
+    assert _adaptive_result_count("bd") >= 8
+    assert _adaptive_result_count("dd") >= _adaptive_result_count("bd")
+
+
+def test_search_doctrine_inject_year_marker_skips_long_ttl():
+    from aria_service.intel.search_doctrine import _inject_year_marker
+    # Long TTL → no injection
+    q = "CPLP defence framework"
+    assert _inject_year_marker(q, fact_ttl_days=3650) == q
+    # Short TTL → year appended
+    q2 = "Nigeria defence minister"
+    out = _inject_year_marker(q2, fact_ttl_days=30)
+    assert out != q2
+    assert any(str(y) in out for y in range(2024, 2030))
+    # Existing year → no duplicate injection
+    q3 = "Nigeria 2026 defence budget"
+    assert _inject_year_marker(q3, fact_ttl_days=30) == q3
+
+
+def test_search_doctrine_uniformity_flags_identical_snippets():
+    from aria_service.intel.search_doctrine import _flag_uniformity
+    seeded = "Entity X is a leading defence integrator providing end-to-end solutions across the value chain."
+    results = [
+        {"url": "https://a.example/1", "snippet": seeded},
+        {"url": "https://b.example/2", "snippet": seeded},
+        {"url": "https://c.example/3", "snippet": seeded},
+        {"url": "https://d.example/4", "snippet": "unrelated snippet text"},
+    ]
+    out = _flag_uniformity(results)
+    # First three should be tagged SUSPECTED_SEEDING
+    seeded_count = sum(1 for r in out if "SUSPECTED_SEEDING" in r.get("tags", []))
+    assert seeded_count >= 3
+    # Unrelated stays clean
+    unrelated = next(r for r in out if r["url"] == "https://d.example/4")
+    assert "SUSPECTED_SEEDING" not in unrelated.get("tags", [])
+
+
+def test_search_doctrine_single_source_flag_when_distinct_families_low():
+    from aria_service.intel.search_doctrine import _flag_single_source
+    results = [
+        {"url": "https://one-source.example/a", "snippet": "x"},
+        {"url": "https://one-source.example/b", "snippet": "y"},
+    ]
+    out = _flag_single_source(results)
+    # Only one family present — both should tag as single-source
+    tags = [r.get("tags", []) for r in out]
+    # With 1 family total, everything is single-source
+    assert any("UNVERIFIED_SINGLE_SOURCE" in t for t in tags)
+
+
+def test_search_doctrine_paraphrase_check_flags_verbatim():
+    from aria_service.intel.search_doctrine import check_paraphrase_discipline
+    snippet = (
+        "The Nigerian Armed Forces underwent a significant restructuring in 2024 "
+        "following the appointment of General Christopher Musa as Chief of Defence "
+        "Staff, a role he has held since 19 June 2023 after being named by "
+        "President Bola Tinubu in a surprise cabinet reshuffle of the defence portfolio."
+    )
+    # Response copies >200 chars verbatim
+    response = (
+        "Here's what I found:\n\n" + snippet[:250] +
+        "\n\nSource: https://example.com"
+    )
+    result = check_paraphrase_discipline(response, [snippet])
+    assert result["ok"] is False
+    assert len(result["verbatim_hits"]) >= 1
+    assert result["verbatim_hits"][0]["chars"] >= 200
+
+    # Paraphrased — should pass
+    paraphrased = (
+        "Gen Musa became Nigeria's CDS in mid-2023 after Tinubu's cabinet "
+        "reshuffle."
+    )
+    result2 = check_paraphrase_discipline(paraphrased, [snippet])
+    assert result2["ok"] is True
+
+
+def test_search_doctrine_conflict_detector_flags_numeric_mismatch():
+    from aria_service.intel.search_doctrine import detect_conflicts
+    results = [
+        {"url": "https://a/x", "snippet": "The contract is worth $250 million.",
+         "entity": "X"},
+        {"url": "https://b/y", "snippet": "Analysts value the deal at $400 million.",
+         "entity": "X"},
+        {"url": "https://c/z", "snippet": "Sources say $250 million or more.",
+         "entity": "X"},
+    ]
+    conflicts = detect_conflicts(results)
+    assert len(conflicts) >= 1
+    assert conflicts[0]["kind"] == "numeric_mismatch"
+    assert "X" in conflicts[0]["entity"]
+
+
+def test_source_verifier_counts_new_doctrine_markers():
+    """Clause 19 markers ([MEMORY], [WEB], [CONFLICT: ...]) must count
+    as grounding signals so the LLM is rewarded for using them."""
+    from aria_service.intel.source_verifier import count_tool_refs
+    body = (
+        "Gen Musa was appointed CDS on 19 June 2023 [WEB]. "
+        "I recall reading about cabinet continuity debates [MEMORY]. "
+        "Two sources disagree on the contract value "
+        "[CONFLICT: Reuters says $250m vs FT says $400m]."
+    )
+    refs = count_tool_refs(body)
+    assert refs >= 3, f"expected ≥3 doctrine refs, got {refs}"
+
+
+def test_constitution_has_clause_19_search_doctrine():
+    import pathlib as _pl
+    engine_src = (
+        _pl.Path(__file__).resolve().parent.parent / "aria_engine.py"
+    ).read_text(encoding="utf-8")
+    assert "19. SEARCH DOCTRINE" in engine_src
+    assert "search_doctrine" in engine_src
+    assert "INSUFFICIENT_PUBLIC_INTEL" in engine_src
+    assert "SUSPECTED_SEEDING" in engine_src
+
+
+def test_search_doctrine_returns_insufficient_on_empty_query():
+    import asyncio
+    from aria_service.intel import search_doctrine
+
+    async def run():
+        result = await search_doctrine.search("", intent="factual")
+        assert result["status"] == "insufficient_public_intel"
+        assert "EMPTY_QUERY_AFTER_STRIP" in result["flags"]
+        return True
+
+    assert asyncio.run(run()) is True
+
 

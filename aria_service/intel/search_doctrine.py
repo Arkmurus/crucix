@@ -1,0 +1,594 @@
+"""ARIA Search Doctrine — Clause 19 discipline layer over researcher.web_search.
+
+Problem this solves
+───────────────────
+`researcher.web_search` and `deep_research` have the primitives: tier
+classification at rank time, multi-language parallel querying, 5 fixed
+angles, budget-gated execution. What was missing is the DISCIPLINE
+LAYER — the rules that say *when* to fire each primitive, *how* to
+react to failure, and *how* to mark results so the LLM renders them
+honestly.
+
+Five pillars from the Search Doctrine:
+  1. Query construction   — strip wrapper, broad-first, year markers,
+                            3-attempt reformulation with vocabulary swap
+  2. Source evaluation    — tier before read, single-source flag,
+                            uniformity/seeding detection, primary-chain
+  3. Search sequencing    — adaptive result count, decomposition,
+                            "insufficient_public_intel" on 3× zero
+  4. Synthesis            — [MEMORY] vs [WEB] vs [CONFLICT] tags
+  5. Language             — already IMPLEMENTED in web_search.py; this
+                            module just passes through
+
+Public API
+──────────
+  await search(question, intent="factual"|"entity"|"bd"|"dd") -> dict
+      Returns:
+        {
+          "status": "ok" | "insufficient_public_intel",
+          "cleaned_query": str,
+          "attempts": [query1, query2, ...],
+          "components": [q1, q2, ...],   # if decomposed
+          "result_count": int,
+          "results": [  # tagged
+            {"url": str, "snippet": str, "tier": "1a|1b|2|3|4|5",
+             "tags": ["UNVERIFIED_SINGLE_SOURCE" | "SUSPECTED_SEEDING"
+                      | "PRIMARY_FOLLOWED" | ...],
+             "angle": str},
+          ],
+          "flags": ["SUSPECTED_SEEDING" | "INSUFFICIENT_PUBLIC_INTEL" | ...],
+        }
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from datetime import datetime, timezone
+from difflib import SequenceMatcher
+from typing import Any, Optional
+from urllib.parse import urlparse
+
+logger = logging.getLogger("aria.intel.search_doctrine")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 1. QUERY CONSTRUCTION
+# ══════════════════════════════════════════════════════════════════════════
+
+# Conversational wrappers — strip before querying. The WhatsApp listener +
+# chat router already strip Aria's trigger token, but operators still type
+# "Aria, can you find..." style phrasing. These patterns are case-insensitive.
+_WRAPPER_PATTERNS = [
+    r"^\s*aria[,\s]+",
+    r"^\s*(?:hi|hey|hello)[,\s]+aria[,\s]+",
+    r"^\s*(?:can|could|would|will)\s+you\s+",
+    r"^\s*please\s+",
+    r"^\s*(?:find|look\s+up|tell\s+me|give\s+me|show\s+me|search\s+for|search|lookup|look\s+at|check|investigate|research|look\s+into)\s+",
+    r"^\s*(?:i\s+(?:want|need)(?:\s+to\s+know)?)\s+",
+    r"^\s*(?:for\s+me)[,\s]+",
+]
+_WRAPPER_RE = re.compile(
+    "|".join(f"({p})" for p in _WRAPPER_PATTERNS),
+    re.IGNORECASE,
+)
+
+# Trailing polite phrases
+_TAIL_PATTERNS = [
+    r"\s*please\s*\??\s*$",
+    r"\s*thanks?\s*\??\s*$",
+    r"\s*thank\s+you\s*\??\s*$",
+    r"\s*\?\s*$",
+]
+_TAIL_RE = re.compile(
+    "|".join(f"({p})" for p in _TAIL_PATTERNS),
+    re.IGNORECASE,
+)
+
+# Question decomposition — split multi-part questions into component
+# searches. Matches "AND", "plus", "; and", sentence-internal conjunctions
+# that connect two independent clauses.
+_DECOMPOSE_RE = re.compile(
+    r"\s+(?:and\s+(?:also\s+|who\s+|what\s+|which\s+|how\s+)|"
+    r"plus\s+|"
+    r";\s*(?:and\s+)?|"
+    r",\s+and\s+who\s+|"
+    r",\s+and\s+what\s+)",
+    re.IGNORECASE,
+)
+
+# Vocabulary swaps for reformulation on failure. These are targeted —
+# each swap changes the *kind* of source we're likely to match, not just
+# adds/removes specifiers.
+_VOCAB_SWAPS = [
+    # Appointment / office-holder language
+    ("appointed",     "named"),
+    ("appointment",   "nomination"),
+    ("chief of",      "head of"),
+    ("minister of",   "ministerial"),
+    # Corporate / procurement language
+    ("contract",      "tender"),
+    ("awarded",       "selected"),
+    ("signed",        "concluded"),
+    ("procurement",   "acquisition"),
+    ("purchase",      "order"),
+    # Legal / compliance language
+    ("sanctioned",    "designated"),
+    ("sanctions",     "restrictive measures"),
+    ("subsidiary",    "affiliate"),
+    # Military / defence language
+    ("weapons",       "armament"),
+    ("military",      "armed forces"),
+    ("defence",       "defense"),   # UK/US
+    ("defense",       "defence"),
+]
+
+
+def _strip_conversational_wrapper(text: str) -> str:
+    """Strip 'Aria, can you ...', tailing 'please', etc. Returns the
+    content words only. Idempotent."""
+    out = (text or "").strip()
+    # Repeat-strip up to 3 times so nested wrappers ("aria can you please
+    # find me...") collapse fully.
+    for _ in range(3):
+        new = _WRAPPER_RE.sub("", out, count=1).strip()
+        if new == out:
+            break
+        out = new
+    out = _TAIL_RE.sub("", out).strip()
+    return out
+
+
+def _decompose_question(text: str) -> list[str]:
+    """Split a compound question into component searches. Returns [text]
+    unchanged if no decomposition boundaries are found."""
+    if not text:
+        return []
+    parts = [p.strip() for p in _DECOMPOSE_RE.split(text) if p and p.strip()]
+    # Filter tiny fragments (pronouns alone, conjunctions, etc.)
+    parts = [p for p in parts if len(p.split()) >= 2]
+    if not parts:
+        return [text]
+    if len(parts) == 1:
+        return parts
+    # Only decompose if the component looks like an independent question
+    # (has at least 3 content words after stop-word filtering). Otherwise
+    # the split is probably mid-clause and we should keep the whole thing.
+    stopwords = {"the", "a", "an", "of", "in", "on", "to", "for", "with",
+                 "by", "at", "is", "are", "was", "were", "do", "does"}
+    viable = []
+    for p in parts:
+        content = [w for w in p.lower().split()
+                   if w.strip(".,;:?!") not in stopwords]
+        if len(content) >= 3:
+            viable.append(p)
+    return viable if len(viable) >= 2 else [text]
+
+
+def _reformulate(original: str, attempt: int) -> Optional[str]:
+    """Produce a reformulation with DIFFERENT vocabulary, not just added
+    words. Returns None if no further reformulation is possible.
+
+    Attempt 1: apply the first matching vocab swap.
+    Attempt 2: drop the most specific token (longest word); this widens.
+    Attempt 3: keep only the two most content-bearing words.
+    """
+    if not original:
+        return None
+    text = original.strip()
+    if attempt == 1:
+        for a, b in _VOCAB_SWAPS:
+            if re.search(rf"\b{re.escape(a)}\b", text, re.IGNORECASE):
+                return re.sub(rf"\b{re.escape(a)}\b", b, text,
+                              count=1, flags=re.IGNORECASE)
+        # No matching swap — fall through to attempt 2 behaviour
+        attempt = 2
+    if attempt == 2:
+        tokens = text.split()
+        if len(tokens) <= 2:
+            return None
+        # Drop the longest non-quoted token (most specific)
+        candidates = [(i, t) for i, t in enumerate(tokens)
+                      if not (t.startswith('"') or t.endswith('"'))]
+        if not candidates:
+            return None
+        idx, _ = max(candidates, key=lambda x: len(x[1]))
+        return " ".join(t for i, t in enumerate(tokens) if i != idx)
+    if attempt == 3:
+        # Extract the two most content-bearing tokens — prefer quoted
+        # entities, then capitalised words, then longest words.
+        tokens = text.split()
+        scored = []
+        for i, t in enumerate(tokens):
+            score = len(t)
+            if t.startswith('"') or t.endswith('"'):
+                score += 20
+            elif t and t[0].isupper():
+                score += 10
+            scored.append((score, i, t))
+        scored.sort(reverse=True)
+        picks = sorted(scored[:2], key=lambda x: x[1])
+        return " ".join(p[2] for p in picks) if picks else None
+    return None
+
+
+_CURRENT_YEAR = datetime.now(timezone.utc).year
+
+
+def _inject_year_marker(query: str, fact_ttl_days: Optional[int] = None) -> str:
+    """When the fact is time-sensitive (TTL < 365 days), append the
+    current year to the query unless a year is already present."""
+    if fact_ttl_days is not None and fact_ttl_days >= 365:
+        return query
+    if re.search(r"\b(19|20)\d{2}\b", query):
+        return query
+    return f"{query} {_CURRENT_YEAR}"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 3. SEARCH SEQUENCING — adaptive result count
+# ══════════════════════════════════════════════════════════════════════════
+
+_INTENT_RESULT_COUNTS = {
+    "factual":  2,     # simple lookup: "who is X", "what is Y"
+    "entity":   6,     # identity / role / employer research
+    "bd":       10,    # business development assessment
+    "dd":       12,    # due diligence — go wide
+    "default":  6,
+}
+
+
+def _adaptive_result_count(intent: str) -> int:
+    return _INTENT_RESULT_COUNTS.get(intent, _INTENT_RESULT_COUNTS["default"])
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 2. SOURCE EVALUATION
+# ══════════════════════════════════════════════════════════════════════════
+
+def _snippet_similarity(a: str, b: str) -> float:
+    """Sequence-matcher ratio on lowercased snippets, short-circuited
+    for obvious mismatches. Above ~0.85 is suspiciously uniform — the
+    kind of copy-paste signature seeded content leaves behind."""
+    if not a or not b:
+        return 0.0
+    a_l, b_l = a.lower()[:400], b.lower()[:400]
+    if abs(len(a_l) - len(b_l)) / max(len(a_l), len(b_l)) > 0.5:
+        return 0.0
+    return SequenceMatcher(None, a_l, b_l).ratio()
+
+
+def _flag_uniformity(results: list[dict]) -> list[dict]:
+    """Flag groups of ≥3 near-identical snippets as SUSPECTED_SEEDING.
+    Mutates each result's `tags` list in place and returns the list."""
+    n = len(results)
+    if n < 3:
+        return results
+    # Pair-wise similarity; seeded clusters of size ≥3 get flagged
+    cluster_map: dict[int, set[int]] = {}
+    for i in range(n):
+        for j in range(i + 1, n):
+            sim = _snippet_similarity(
+                results[i].get("snippet", ""),
+                results[j].get("snippet", ""),
+            )
+            if sim >= 0.85:
+                cluster_map.setdefault(i, {i}).add(j)
+                cluster_map.setdefault(j, {j}).add(i)
+    for idx, cluster in cluster_map.items():
+        if len(cluster) >= 3:
+            tags = results[idx].setdefault("tags", [])
+            if "SUSPECTED_SEEDING" not in tags:
+                tags.append("SUSPECTED_SEEDING")
+    return results
+
+
+def _flag_single_source(results: list[dict]) -> list[dict]:
+    """Flag results whose URL/family appears in only ONE angle as
+    UNVERIFIED_SINGLE_SOURCE. A claim backed by only one source is not
+    verified regardless of tier — the policy mirrors Clause 17."""
+    from urllib.parse import urlparse
+    family_counts: dict[str, int] = {}
+    for r in results:
+        try:
+            fam = urlparse(r.get("url", "")).netloc.replace("www.", "").lower()
+        except Exception:
+            fam = ""
+        r["_family"] = fam
+        if fam:
+            family_counts[fam] = family_counts.get(fam, 0) + 1
+    # A family is "multi-source" if it appears in ≥2 different angles,
+    # or if ≥2 different families cover the same snippet neighbourhood.
+    # Simplest heuristic: if only one result exists from this family AND
+    # the corpus has <3 families total, tag it.
+    distinct_families = len(family_counts)
+    for r in results:
+        fam = r.pop("_family", "")
+        # Tag as single-source if (a) the whole result set draws from only
+        # one family, or (b) this specific family appears exactly once AND
+        # the overall corpus has ≤2 distinct families (thin coverage).
+        if fam and (
+            distinct_families == 1
+            or (family_counts.get(fam, 0) == 1 and distinct_families <= 2)
+        ):
+            tags = r.setdefault("tags", [])
+            if "UNVERIFIED_SINGLE_SOURCE" not in tags:
+                tags.append("UNVERIFIED_SINGLE_SOURCE")
+    return results
+
+
+async def _primary_chain_follow(results: list[dict]) -> list[dict]:
+    """When a Tier 2/3 result's snippet or extract cites a Tier 1a/1b URL
+    in-body, enrich the result with a PRIMARY_FOLLOWED tag and append the
+    primary URL. We do not re-extract here; the extractor downstream picks
+    it up."""
+    try:
+        from . import verified_intel as _vi
+    except Exception:
+        return results
+    classifier = _vi.SourceTierClassifier()
+    url_pat = re.compile(r"https?://[^\s\"'<>)]+", re.IGNORECASE)
+    for r in results:
+        tier_str = (r.get("tier") or "").lower()
+        if tier_str not in ("2", "3"):
+            continue
+        snippet = r.get("snippet", "") or r.get("description", "")
+        extract = r.get("extract", "")
+        for chunk in (snippet, extract):
+            if not chunk:
+                continue
+            for url in url_pat.findall(chunk):
+                try:
+                    t = classifier.classify(url)
+                except Exception:
+                    continue
+                if t in (_vi.SourceTier.TIER_1A, _vi.SourceTier.TIER_1B):
+                    r.setdefault("tags", []).append("PRIMARY_FOLLOWED")
+                    r.setdefault("primary_urls", []).append(url)
+                    break
+    return results
+
+
+def _classify_tiers_pre_read(results: list[dict]) -> list[dict]:
+    """Attach tier to every result BEFORE the LLM/extractor reads it.
+    This is what makes 'tier before content' an enforceable rule."""
+    try:
+        from . import verified_intel as _vi
+    except Exception:
+        return results
+    classifier = _vi.SourceTierClassifier()
+    for r in results:
+        url = r.get("url", "")
+        if not url:
+            continue
+        try:
+            t = classifier.classify(url)
+            r["tier"] = t.value
+            r["tier_score"] = _vi.TIER_SCORES[t]
+        except Exception:
+            continue
+    return results
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# MAIN ORCHESTRATOR
+# ══════════════════════════════════════════════════════════════════════════
+
+_MAX_REFORMULATIONS = 3
+
+
+async def search(
+    question: str,
+    *,
+    intent: str = "default",
+    fact_ttl_days: Optional[int] = None,
+) -> dict:
+    """Run a disciplined web search per Clause 19.
+
+    Args:
+      question:        The raw user/LLM question (may contain wrappers)
+      intent:          "factual" | "entity" | "bd" | "dd" | "default"
+      fact_ttl_days:   Time-sensitivity hint; <365 injects current year
+
+    Returns:
+      dict as documented at module top.
+    """
+    cleaned = _strip_conversational_wrapper(question)
+    if not cleaned:
+        return {
+            "status": "insufficient_public_intel",
+            "cleaned_query": "",
+            "attempts": [],
+            "components": [],
+            "result_count": 0,
+            "results": [],
+            "flags": ["EMPTY_QUERY_AFTER_STRIP"],
+        }
+
+    # Decompose compound questions. Each component runs its own search;
+    # results are merged at the end.
+    components = _decompose_question(cleaned)
+
+    max_results = _adaptive_result_count(intent)
+
+    # Primary query is the first component (or the whole cleaned string
+    # if no decomposition). Year-marker injection only for time-sensitive.
+    primary = _inject_year_marker(components[0], fact_ttl_days=fact_ttl_days)
+
+    attempts: list[str] = []
+    aggregated_results: list[dict] = []
+    try:
+        from . import researcher as _r
+    except Exception as e:
+        return {
+            "status": "insufficient_public_intel",
+            "cleaned_query": cleaned, "attempts": [],
+            "components": components, "result_count": 0,
+            "results": [], "flags": ["RESEARCHER_MODULE_UNAVAILABLE"],
+        }
+
+    async def _one_query(q: str) -> list[dict]:
+        try:
+            raw = await _r.web_search(q, max_results=max_results)
+        except Exception as e:
+            logger.debug("web_search(%r) failed: %s", q, e)
+            return []
+        # researcher.web_search returns a dict with 'results' list
+        if isinstance(raw, dict):
+            items = raw.get("results") or raw.get("snippets") or []
+        elif isinstance(raw, list):
+            items = raw
+        else:
+            items = []
+        return items
+
+    # ── Primary query with 3-attempt reformulation ────────────────────
+    current = primary
+    for attempt in range(1, _MAX_REFORMULATIONS + 1):
+        attempts.append(current)
+        results = await _one_query(current)
+        if results:
+            for r in results:
+                r.setdefault("angle", f"primary_a{attempt}")
+            aggregated_results.extend(results)
+            break
+        # Empty — reformulate and retry
+        next_q = _reformulate(current, attempt)
+        if not next_q or next_q == current:
+            break
+        current = next_q
+
+    # ── Decomposed components (if any) run in parallel ────────────────
+    if len(components) > 1:
+        tasks = [_one_query(_inject_year_marker(c, fact_ttl_days))
+                 for c in components[1:]]
+        component_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, cres in enumerate(component_results):
+            if isinstance(cres, Exception):
+                continue
+            for r in cres:
+                r.setdefault("angle", f"component_{i+1}")
+            aggregated_results.extend(cres)
+
+    # ── De-dup by URL ────────────────────────────────────────────────
+    seen_urls: set[str] = set()
+    dedup: list[dict] = []
+    for r in aggregated_results:
+        url = r.get("url", "")
+        if url and url in seen_urls:
+            continue
+        seen_urls.add(url)
+        dedup.append(r)
+
+    if not dedup:
+        return {
+            "status": "insufficient_public_intel",
+            "cleaned_query": cleaned,
+            "attempts": attempts,
+            "components": components,
+            "result_count": 0,
+            "results": [],
+            "flags": ["INSUFFICIENT_PUBLIC_INTEL",
+                      f"exhausted_{len(attempts)}_attempts"],
+        }
+
+    # ── Apply the 4 discipline gates ───────────────────────────────────
+    dedup = _classify_tiers_pre_read(dedup)
+    dedup = _flag_single_source(dedup)
+    dedup = _flag_uniformity(dedup)
+    dedup = await _primary_chain_follow(dedup)
+
+    flags: list[str] = []
+    if any("SUSPECTED_SEEDING" in r.get("tags", []) for r in dedup):
+        flags.append("SUSPECTED_SEEDING")
+    if all("UNVERIFIED_SINGLE_SOURCE" in r.get("tags", []) for r in dedup):
+        flags.append("ALL_RESULTS_SINGLE_SOURCE")
+
+    return {
+        "status": "ok",
+        "cleaned_query": cleaned,
+        "attempts": attempts,
+        "components": components,
+        "result_count": len(dedup),
+        "results": dedup,
+        "flags": flags,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 4. SYNTHESIS — post-generation checks
+# ══════════════════════════════════════════════════════════════════════════
+
+# A snippet reproduced ≥200 chars verbatim is a paraphrase-discipline
+# violation. The check is best-effort — the snippet store must be passed
+# in by the caller; we can't sniff it from the prompt alone.
+
+_VERBATIM_THRESHOLD_CHARS = 200
+
+
+def check_paraphrase_discipline(
+    response_text: str,
+    source_snippets: list[str],
+) -> dict:
+    """Flag verbatim reproduction of source snippets ≥200 chars.
+    Returns {"ok": bool, "verbatim_hits": [{"snippet_start": str, "chars": int}]}.
+    Caller (source_verifier or the LLM gate) decides what to do on a hit."""
+    hits: list[dict] = []
+    if not response_text or not source_snippets:
+        return {"ok": True, "verbatim_hits": []}
+    for snip in source_snippets:
+        if not snip or len(snip) < _VERBATIM_THRESHOLD_CHARS:
+            continue
+        # Slide a window of 120 chars through the snippet; if any slice
+        # appears verbatim in the response, flag the full match length.
+        window = 120
+        for i in range(0, len(snip) - window, 40):
+            needle = snip[i:i + window]
+            if needle in response_text:
+                # Find max match length at this point
+                j = i
+                while j < len(snip) and snip[j:j + 20] in response_text:
+                    j += 20
+                match_len = max(j - i, window)
+                if match_len >= _VERBATIM_THRESHOLD_CHARS:
+                    hits.append({
+                        "snippet_start": snip[i:i + 60],
+                        "chars": match_len,
+                    })
+                    break  # one hit per source snippet is enough
+    return {"ok": not hits, "verbatim_hits": hits}
+
+
+def detect_conflicts(results: list[dict]) -> list[dict]:
+    """Crude conflict detector — scans snippets for opposing
+    numeric/date/status claims about the same entity. This is a
+    heuristic gate; the LLM is still expected to reason about conflicts
+    it finds, not blindly suppress them.
+
+    Returns a list of conflict descriptors for inline [CONFLICT: ...]
+    rendering by the synthesis layer.
+    """
+    conflicts: list[dict] = []
+    # Numeric conflicts — same entity cited with different headline numbers
+    number_re = re.compile(r"\$?\b(\d{1,3}(?:[,\.]\d{3})*(?:\.\d+)?)\s*(million|billion|m|bn)?\b", re.IGNORECASE)
+    by_entity: dict[str, list[tuple[str, str]]] = {}
+    for r in results:
+        url = r.get("url", "")
+        snippet = r.get("snippet", "")
+        if not snippet:
+            continue
+        for m in number_re.finditer(snippet):
+            val = m.group(1)
+            entity_bucket = r.get("entity") or "unspecified"
+            by_entity.setdefault(entity_bucket, []).append((val, url))
+    for ent, items in by_entity.items():
+        uniq_vals = {v for v, _ in items}
+        if len(uniq_vals) >= 2 and len(items) >= 2:
+            # Multiple different numeric claims about the same entity
+            conflicts.append({
+                "kind": "numeric_mismatch",
+                "entity": ent,
+                "values": sorted(uniq_vals),
+                "sources": [u for _, u in items][:4],
+            })
+    return conflicts

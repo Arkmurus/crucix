@@ -137,6 +137,23 @@ DD_REPORT_REF_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Clause 19 search-doctrine markers — the synthesis layer uses these to
+# distinguish memory recall from web-fetched facts, flag contradictions,
+# and surface single-source / seeding warnings. The verifier counts
+# them as grounding signals because they encode provenance.
+DOCTRINE_MARKER_RE = re.compile(
+    r"\[(?:"
+    r"MEMORY"              # LLM training-data or mem0 recall
+    r"|WEB"                # tool-fetched via search_doctrine.search
+    r"|CONFLICT\s*:\s*[^\]]+"  # explicit contradiction surfacing
+    r"|UNVERIFIED_SINGLE_SOURCE"
+    r"|SUSPECTED_SEEDING"
+    r"|PRIMARY_FOLLOWED"
+    r"|INSUFFICIENT_PUBLIC_INTEL"
+    r")\]",
+    re.IGNORECASE,
+)
+
 
 def extract_urls(text: str) -> list[str]:
     """Pull URLs out of a string, dedupe, and normalise.
@@ -241,6 +258,7 @@ def count_tool_refs(text: str) -> int:
         len(TOOL_REF_RE.findall(text))
         + len(INTERNAL_REF_RE.findall(text))
         + len(DD_REPORT_REF_RE.findall(text))
+        + len(DOCTRINE_MARKER_RE.findall(text))
     )
 
 
