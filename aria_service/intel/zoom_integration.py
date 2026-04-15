@@ -505,61 +505,88 @@ async def _handle_recording_completed(payload: dict, llm) -> dict:
     except Exception as e:
         logger.debug("Zoom proactive alert failed: %s", e)
 
-    # ── Slice 6: Devil's Advocate on post-meeting transcript ────────────────
+    # ── Active Challenge Engine on post-meeting transcript ──────────────────
+    # Replaces Slice 6 devils_advocate. Adds DD gap detection against canonical
+    # broker/oem/end_user/g2g checklists + structured challenge types.
     if os.getenv("ARIA_CHALLENGE_ENABLED", "0") == "1" and "#ariasilent" not in topic.lower():
         try:
-            from . import devils_advocate as _da
+            from .active_challenge_engine import (
+                ARIAActiveChallengeEngine,
+                DealContext,
+                ChallengeType,
+                ChallengeUrgency,
+            )
             from . import self_metrics as _sm
 
-            da = await _da.analyse_raw(topic, transcript_text)
-            items = (
-                (da.get("counter_arguments") or [])
-                + (da.get("unasked_dd_questions") or [])
-                + (da.get("unchallenged_assumptions") or [])
+            engine = ARIAActiveChallengeEngine(deliver_fn=None)
+            # Deal context is best-effort — future: pull from pipeline by meeting topic
+            ctx = DealContext(
+                deal_name=topic[:80],
+                deal_type=os.getenv("ARIA_DEFAULT_DEAL_TYPE", "broker"),
+                stage="due_diligence",
             )
-            if items:
-                body_lines = ["🎯 ARIA — Devil's Advocate"]
-                if da.get("counter_arguments"):
-                    body_lines.append("Counter-arguments:")
-                    body_lines.extend(f"  ↪ {c}" for c in da["counter_arguments"])
-                if da.get("unasked_dd_questions"):
-                    body_lines.append("Questions the team did not ask:")
-                    body_lines.extend(f"  ❓ {q}" for q in da["unasked_dd_questions"])
-                if da.get("unchallenged_assumptions"):
-                    body_lines.append("Unchallenged assumptions:")
-                    body_lines.extend(f"  ⚖ {a}" for a in da["unchallenged_assumptions"])
+
+            # Generate challenges from full transcript
+            challenges = engine._generate_challenges(transcript_text, ctx) or []
+            challenges += engine.audit_assumptions(transcript_text, ctx)
+            challenges += engine.check_dd_gaps(transcript_text, ctx.deal_type, ctx)
+
+            # Filter by relevance
+            challenges = [c for c in challenges if c.relevance_score >= engine.RELEVANCE_THRESHOLD]
+
+            if challenges:
+                by_type: dict[str, list] = {}
+                for c in challenges[:10]:  # hard cap at 10
+                    by_type.setdefault(c.challenge_type.value, []).append(c)
+
+                body_lines = ["🎯 ARIA — Active Challenges"]
+                emoji = {
+                    "DEVIL_ADVOCATE":   "↪",
+                    "DD_GAP":           "❓",
+                    "ASSUMPTION":       "⚖",
+                    "CONTRADICTION":    "⚠",
+                    "RISK_BLIND_SPOT":  "👁",
+                    "COMPLIANCE_FLAG":  "🛡",
+                }
+                for ctype, items_ in by_type.items():
+                    body_lines.append(f"{ctype.replace('_', ' ').title()}:")
+                    for c in items_[:3]:
+                        body_lines.append(f"  {emoji.get(ctype,'•')} {c.text[:280]}")
+                        if c.recommended_action:
+                            body_lines.append(f"    → {c.recommended_action[:200]}")
                 body_lines.append(
-                    f"Confidence: {da.get('confidence','medium')}. "
                     "Push back if any are wrong — feeds the mistake ledger."
                 )
                 await proactive.push_alert({
-                    "type": "zoom_devils_advocate",
-                    "title": f"🎯 Devil's advocate: {topic}",
+                    "type": "zoom_active_challenges",
+                    "title": f"🎯 Active challenges: {topic}",
                     "severity": "info",
                     "body": "\n".join(body_lines),
-                    "metadata": {"meeting_id": meeting_id, "confidence": da.get("confidence")},
+                    "metadata": {
+                        "meeting_id": meeting_id,
+                        "challenge_count": len(challenges),
+                        "deal_type": ctx.deal_type,
+                    },
                 })
 
             try:
                 await _sm.emit(
                     axis="utility",
-                    domain="devils_advocate",
-                    signal="challenge_fired",
-                    value=float(len(items)),
+                    domain="active_challenge_engine",
+                    signal="challenges_fired",
+                    value=float(len(challenges)),
                     context={
                         "meeting_id": meeting_id,
                         "topic": topic[:80],
                         "path": "webhook",
-                        "confidence": da.get("confidence", "medium"),
-                        "counter_arguments": len(da.get("counter_arguments") or []),
-                        "unasked_dd_questions": len(da.get("unasked_dd_questions") or []),
-                        "unchallenged_assumptions": len(da.get("unchallenged_assumptions") or []),
+                        "deal_type": ctx.deal_type,
+                        "by_type": {k: len(v) for k, v in by_type.items()} if challenges else {},
                     },
                 )
             except Exception as e:
                 logger.debug("self_metrics emit failed: %s", e)
         except Exception as e:
-            logger.warning("Devil's advocate (webhook) failed: %s", e)
+            logger.warning("Active challenge engine (webhook) failed: %s", e)
 
     return result
 

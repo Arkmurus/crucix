@@ -7990,3 +7990,341 @@ async def self_assess_briefing_ep():
     Returns `briefing: ""` when there's no meaningful data yet."""
     from ..intel import self_assess
     return {"briefing": await self_assess.generate_state_of_aria_briefing()}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COUNTERPARTY CLAIM LEDGER
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _ClaimIngestBody(BaseModel):
+    text: str
+    counterparty: str
+    deal_id: str
+    channel: str  # email | whatsapp | zoom | telegram | meeting
+    message_id: str = ""
+
+
+def _get_claim_ledger():
+    from ..intel.counterparty_claim_ledger import ARIACounterpartyClaimLedger
+    import redis as redis_lib
+    from ..config import Settings
+    rc = None
+    try:
+        rc = redis_lib.from_url(Settings().redis_url, decode_responses=True)
+        rc.ping()
+    except Exception:
+        rc = None
+    return ARIACounterpartyClaimLedger(redis_client=rc, notify_fn=None)
+
+
+@router.post("/claims/ingest")
+async def claims_ingest_ep(body: _ClaimIngestBody):
+    """Extract material claims from a counterparty message, store them,
+    and detect contradictions with prior claims by the same counterparty."""
+    ledger = _get_claim_ledger()
+    claims = ledger.ingest_message(
+        text=body.text,
+        counterparty=body.counterparty,
+        deal_id=body.deal_id,
+        channel=body.channel,
+        message_id=body.message_id,
+    )
+    return {
+        "counterparty": body.counterparty,
+        "deal_id": body.deal_id,
+        "channel": body.channel,
+        "claims_extracted": len(claims),
+        "claims": [c.to_dict() for c in claims],
+    }
+
+
+@router.get("/claims/{counterparty}")
+async def claims_list_ep(counterparty: str, deal_id: str = ""):
+    """Retrieve all logged claims for a counterparty."""
+    ledger = _get_claim_ledger()
+    claims = ledger.get_claims(counterparty, deal_id)
+    return {
+        "counterparty": counterparty,
+        "deal_id": deal_id,
+        "claim_count": len(claims),
+        "claims": [c.to_dict() for c in claims],
+    }
+
+
+@router.get("/claims/{counterparty}/summary")
+async def claims_summary_ep(counterparty: str, deal_id: str = ""):
+    """Formatted claim ledger summary for DD reports."""
+    ledger = _get_claim_ledger()
+    return {"summary": ledger.get_claim_summary(counterparty, deal_id)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GROUND TRUTH LOOP — predictions in, outcomes in, calibration out
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _AssessmentBody(BaseModel):
+    assessment_type: str  # TENDER_OPPORTUNITY | CONTACT_IN_POST | COUNTERPARTY_CLEAN | COUNTRY_RISK | WIN_PROBABILITY | PROGRAMME_ACTIVE | INTELLIGENCE_CLAIM
+    subject: str
+    aria_prediction: str
+    aria_confidence: float
+    context: str = ""
+    domain: str = "general"
+
+
+class _OutcomeBody(BaseModel):
+    assessment_id: str
+    outcome: str  # CORRECT | INCORRECT | PARTIALLY_CORRECT | UNABLE_TO_VERIFY
+    evidence: str
+    recorded_by: str = "team"
+
+
+def _get_gt_loop():
+    from ..intel.ground_truth_loop import ARIAGroundTruthLoop
+    import redis as redis_lib
+    from ..config import Settings
+    rc = None
+    try:
+        rc = redis_lib.from_url(Settings().redis_url, decode_responses=True)
+        rc.ping()
+    except Exception:
+        rc = None
+    return ARIAGroundTruthLoop(redis_client=rc)
+
+
+@router.post("/ground-truth/assessment")
+async def ground_truth_assessment_ep(body: _AssessmentBody):
+    """Record an ARIA prediction at the time it's made."""
+    from ..intel.ground_truth_loop import AssessmentType
+    try:
+        atype = AssessmentType[body.assessment_type]
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"Unknown assessment_type: {body.assessment_type}")
+    loop = _get_gt_loop()
+    aid = loop.record_assessment(
+        assessment_type=atype,
+        subject=body.subject,
+        aria_prediction=body.aria_prediction,
+        aria_confidence=body.aria_confidence,
+        context=body.context,
+        domain=body.domain,
+    )
+    return {"assessment_id": aid}
+
+
+@router.post("/ground-truth/outcome")
+async def ground_truth_outcome_ep(body: _OutcomeBody):
+    """Record the real-world outcome for a prior assessment."""
+    from ..intel.ground_truth_loop import OutcomeResult
+    try:
+        outcome = OutcomeResult[body.outcome]
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"Unknown outcome: {body.outcome}")
+    loop = _get_gt_loop()
+    record = loop.record_outcome(
+        assessment_id=body.assessment_id,
+        outcome=outcome,
+        evidence=body.evidence,
+        recorded_by=body.recorded_by,
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    return {"ok": True, "assessment_id": record.assessment_id, "outcome": outcome.value}
+
+
+@router.get("/ground-truth/calibration")
+async def ground_truth_calibration_ep(period_days: int = 30):
+    """Generate calibration report — accuracy by domain, overconfident misses."""
+    loop = _get_gt_loop()
+    report = loop.generate_calibration_report(period_days=period_days)
+    return {
+        "period_days": report.period_days,
+        "total_assessments": report.total_assessments,
+        "verified": report.verified_assessments,
+        "overall_accuracy": report.overall_accuracy,
+        "correct": report.correct,
+        "incorrect": report.incorrect,
+        "partially_correct": report.partially_correct,
+        "unable_to_verify": report.unable_to_verify,
+        "accuracy_by_domain": report.accuracy_by_domain,
+        "overconfident_assessments": report.overconfident_assessments,
+        "report_text": report.to_report(),
+    }
+
+
+@router.get("/ground-truth/pending")
+async def ground_truth_pending_ep(max_age_days: int = 90):
+    """Assessments still awaiting outcome verification — surfaces in weekly briefing."""
+    loop = _get_gt_loop()
+    pending = loop.get_pending_verification(max_age_days=max_age_days)
+    return {
+        "pending_count": len(pending),
+        "pending": [
+            {
+                "assessment_id": r.assessment_id,
+                "type": r.assessment_type.value,
+                "subject": r.subject,
+                "prediction": r.aria_prediction,
+                "confidence": r.aria_confidence,
+                "domain": r.domain,
+                "days_pending": r.days_pending,
+            }
+            for r in pending
+        ],
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LIVING CONSTITUTION — ARIA drafts clauses, humans approve
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _IncidentBody(BaseModel):
+    incident_description: str
+    incident_type: str
+    reported_by: str = "team"
+    context: str = ""
+
+
+class _ClauseReviewBody(BaseModel):
+    clause_id: str
+    reviewed_by: str
+    reason: str = ""
+
+
+def _get_constitution():
+    from ..intel.ground_truth_loop import ARIALivingConstitution
+    import redis as redis_lib
+    from ..config import Settings
+    rc = None
+    try:
+        rc = redis_lib.from_url(Settings().redis_url, decode_responses=True)
+        rc.ping()
+    except Exception:
+        rc = None
+    return ARIALivingConstitution(redis_client=rc)
+
+
+@router.post("/constitution/incident")
+async def constitution_incident_ep(body: _IncidentBody):
+    """Report a new incident. ARIA drafts a proposed clause for human review."""
+    c = _get_constitution()
+    clause = c.report_incident(
+        incident_description=body.incident_description,
+        incident_type=body.incident_type,
+        reported_by=body.reported_by,
+        context=body.context,
+    )
+    return {
+        "clause_id": clause.clause_id,
+        "clause_number": clause.clause_number,
+        "clause_text": clause.clause_text,
+        "rationale": clause.rationale,
+        "status": clause.status.value,
+    }
+
+
+@router.post("/constitution/approve")
+async def constitution_approve_ep(body: _ClauseReviewBody):
+    """Human approves a drafted clause — activates it in ARIA's system prompt."""
+    c = _get_constitution()
+    clause = c.approve_clause(body.clause_id, body.reviewed_by)
+    if not clause:
+        raise HTTPException(status_code=404, detail="Clause not found")
+    return {
+        "clause_id": clause.clause_id,
+        "clause_number": clause.clause_number,
+        "status": clause.status.value,
+        "activated_at": clause.activated_at,
+    }
+
+
+@router.post("/constitution/reject")
+async def constitution_reject_ep(body: _ClauseReviewBody):
+    """Human rejects a drafted clause."""
+    c = _get_constitution()
+    clause = c.reject_clause(body.clause_id, body.reviewed_by, body.reason)
+    if not clause:
+        raise HTTPException(status_code=404, detail="Clause not found")
+    return {"clause_id": clause.clause_id, "status": clause.status.value}
+
+
+@router.get("/constitution/pending")
+async def constitution_pending_ep():
+    """Draft clauses awaiting human review."""
+    c = _get_constitution()
+    drafts = c.get_pending_review()
+    return {
+        "pending_count": len(drafts),
+        "drafts": [
+            {
+                "clause_id": d.clause_id,
+                "clause_number": d.clause_number,
+                "incident_summary": d.incident_summary,
+                "incident_date": d.incident_date,
+                "clause_text": d.clause_text,
+                "rationale": d.rationale,
+                "examples": d.examples,
+            }
+            for d in drafts
+        ],
+    }
+
+
+@router.get("/constitution/active")
+async def constitution_active_ep():
+    """All approved living-constitution clauses currently active."""
+    c = _get_constitution()
+    active = c.get_active_clauses()
+    return {
+        "active_count": len(active),
+        "clauses": [
+            {
+                "clause_id": a.clause_id,
+                "clause_number": a.clause_number,
+                "clause_text": a.clause_text,
+                "activated_at": a.activated_at,
+                "reviewed_by": a.reviewed_by,
+            }
+            for a in active
+        ],
+        "system_prompt_addition": c.get_system_prompt_addition(),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DECEPTION DETECTION — counterparty risk scorer (pure function, no LLM)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _DeceptionBody(BaseModel):
+    text: str
+    context_type: str = "general"  # general | business_communication | testimony | proposal | entity_claim
+    reference_entity: str = ""
+
+
+@router.post("/deception/analyse")
+async def deception_analyse_ep(body: _DeceptionBody):
+    """Score a counterparty communication for deception risk indicators.
+    Returns tier (LOW/MODERATE/ELEVATED/HIGH), signals detected, and
+    linguistic features. Risk indicator, not a verdict."""
+    from ..intel.deception_detection import ARIADeceptionAnalyser
+    analyser = ARIADeceptionAnalyser()
+    score = analyser.analyse(body.text, body.context_type, body.reference_entity)
+    return {
+        "tier": score.tier.value,
+        "raw_score": score.raw_score,
+        "percentage": score.percentage,
+        "confidence": score.confidence,
+        "signals_detected": [
+            {
+                "category": s.category,
+                "description": s.description,
+                "evidence": s.evidence,
+                "weight": s.weight,
+                "source": s.source,
+            }
+            for s in score.signals_detected
+        ],
+        "linguistic_features": score.linguistic_features,
+        "analyst_note": score.analyst_note,
+        "requires_human_review": score.requires_human_review,
+        "report_text": score.to_report(),
+    }
