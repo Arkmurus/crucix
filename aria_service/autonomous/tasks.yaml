@@ -751,7 +751,7 @@ tasks:
       search per fact; does not mutate verified records, only tags
       last_checked. Human review still required on CONTRADICTED facts.
     cron: "0 5 * * *"
-    enabled: false
+    enabled: true    # ENABLED 2026-04-15: week-1 autonomy rollout — lowest-risk task (re-verify only)
     priority: MEDIUM
     timeout_seconds: 300
     cost_cap_usd: 0.10
@@ -773,7 +773,7 @@ tasks:
       Every hour — ARIA surveys her ecosystem and writes a priority
       queue for CORE-DEVELOP. No external calls, no mutations.
     cron: "0 * * * *"
-    enabled: false
+    enabled: true    # ENABLED 2026-04-15: read-only queue builder, safe to fire hourly
     priority: LOW
     timeout_seconds: 60
     cost_cap_usd: 0.01
@@ -853,6 +853,32 @@ tasks:
   # WEEKLY-TLD-PROBE — Saturday 02:00 UTC — systematic sweep of gov/mil
   # subdomains per target market. Discovers ministerial, parliamentary,
   # gazette sources Aria may have missed.
+  # DAILY-GOLDEN-AUTOGEN — 05:30 UTC, 30 min after DAILY-FACT-REFRESH.
+  # Scans VERIFIED facts, auto-promotes multi-source-corroborated ones to
+  # the golden eval set (no human re-gate — Clause 17 verification IS
+  # the approval), queues borderline ones for review. Keeps the golden
+  # set growing organically from ARIA's own verified discovery.
+  - id: DAILY-GOLDEN-AUTOGEN
+    name: Golden Q&A auto-generation from verified facts
+    description: |
+      Daily 05:30 UTC — read VERIFIED facts from verified_intel, generate
+      Q&A pairs per fact_type template, auto-promote multi-source ones to
+      the eval_runner golden set. The golden set becomes a self-growing
+      artifact where every entry has citation provenance inherited from
+      the underlying Clause-17 verification.
+    cron: "30 5 * * *"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 120
+    cost_cap_usd: 0.02
+    tool_chain:
+      - tool: golden_autogen
+        max_candidates: 20
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["new_market_coverage"]
+    mem0_tags: [golden, eval, autogen, clause17, autonomous]
+
   - id: WEEKLY-TLD-PROBE
     name: TLD probe — gov/mil subdomain sweep
     description: |

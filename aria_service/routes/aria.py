@@ -3577,6 +3577,31 @@ async def chat_ep(req: ChatRequest, request: Request):
                     "cited": len(verification.get("cited_urls", [])),
                     "unverified": len(verification.get("unverified", [])),
                 }
+                # ── Clause 19 post-processor checks (paraphrase + conflicts) ──
+                # Extract snippets from tool_context (each "Snippet: ..." line
+                # is a candidate source text). check_paraphrase_discipline
+                # flags ≥200-char verbatim copies; detect_conflicts flags
+                # numeric mismatches across the snippets.
+                try:
+                    from ..intel import search_doctrine as _sd
+                    snippets = _extract_snippets_from_tool_context(_verifier_ctx)
+                    if snippets:
+                        pcheck = _sd.check_paraphrase_discipline(
+                            response_text, snippets,
+                        )
+                        if not pcheck.get("ok"):
+                            summary["paraphrase_violation"] = {
+                                "hits": len(pcheck.get("verbatim_hits", [])),
+                                "max_chars": max(
+                                    (h.get("chars", 0)
+                                     for h in pcheck.get("verbatim_hits", [])),
+                                    default=0,
+                                ),
+                            }
+                        # Conflicts only if /search_doctrine surfaced result
+                        # dicts; we don't have structured results here, skip.
+                except Exception as _e:
+                    _log.debug("paraphrase/conflict post-check failed: %s", _e)
                 result["verification"] = summary
                 await trace_stream.attach_verification(trace_id, summary)
         except Exception as e:
@@ -9069,3 +9094,153 @@ async def search_doctrine_conflicts_ep(results: list[dict]):
     a list of conflicts for inline [CONFLICT: ...] rendering."""
     from ..intel import search_doctrine as _sd
     return {"conflicts": _sd.detect_conflicts(results)}
+
+
+def _extract_snippets_from_tool_context(ctx: str) -> list[str]:
+    """Pull snippet/extract text out of a tool_context block for
+    paraphrase discipline checks. Matches the two common shapes:
+      'Snippet: <text>' (from web_search + search_doctrine)
+      '--- EXTRACT N: ... ---\\n...\\nText:\\n<text>' (from deep_research)
+    """
+    if not ctx:
+        return []
+    snippets: list[str] = []
+    for line in ctx.splitlines():
+        s = line.strip()
+        if s.startswith("Snippet:"):
+            t = s[len("Snippet:"):].strip()
+            if len(t) >= 120:
+                snippets.append(t)
+    # Naïve extract-block capture
+    if "--- EXTRACT" in ctx:
+        import re as _re
+        for match in _re.finditer(r"Text:\s*\n([\s\S]*?)(?=\n---|\Z)", ctx):
+            t = match.group(1).strip()
+            if len(t) >= 120:
+                snippets.append(t[:4000])
+    return snippets
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GOLDEN Q&A AUTO-GENERATION (Clause 17-driven)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _GoldenProposeBody(BaseModel):
+    max_candidates: int = 20
+
+
+@router.post("/golden/propose_batch")
+async def golden_propose_batch_ep(body: _GoldenProposeBody):
+    """Scan VERIFIED facts, auto-promote multi-source ones directly to
+    the golden set, queue borderline ones for human review."""
+    from ..intel import golden_autogen
+    return await golden_autogen.propose_batch(max_candidates=body.max_candidates)
+
+
+@router.get("/golden/candidates")
+async def golden_candidates_ep(status: str = "", limit: int = 50):
+    """List pending golden-Q candidates (optional filter by status)."""
+    from ..intel import golden_autogen
+    return {"candidates": await golden_autogen.list_candidates(
+        status=status or None, limit=limit)}
+
+
+class _GoldenApproveBody(BaseModel):
+    candidate_id: str
+    approved_by: str = "human"
+
+
+@router.post("/golden/approve")
+async def golden_approve_ep(body: _GoldenApproveBody):
+    """Human approves a pending Q → promotes to eval_runner golden set."""
+    from ..intel import golden_autogen
+    return await golden_autogen.approve_candidate(
+        body.candidate_id, approved_by=body.approved_by,
+    )
+
+
+class _GoldenRejectBody(BaseModel):
+    candidate_id: str
+    reason: str = ""
+    rejected_by: str = "human"
+
+
+@router.post("/golden/reject")
+async def golden_reject_ep(body: _GoldenRejectBody):
+    """Human rejects a pending Q → archived with reason."""
+    from ..intel import golden_autogen
+    return await golden_autogen.reject_candidate(
+        body.candidate_id, reason=body.reason, rejected_by=body.rejected_by,
+    )
+
+
+@router.get("/golden/stats")
+async def golden_stats_ep():
+    """Breakdown: pending / approved / rejected / per-market coverage."""
+    from ..intel import golden_autogen
+    return await golden_autogen.stats()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GROUNDED-RATE DASHBOARD ENDPOINT
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/metrics/grounded_rate")
+async def metrics_grounded_rate_ep(days: int = 14):
+    """Return the grounded-rate baseline + a time-series over the last
+    N days (default 14). Source: source_verifier.record_verification
+    has been logging every chat verification since 2026-04-09. The
+    dashboard reads the stats and renders a simple trend."""
+    from ..intel import source_verifier
+    overall = await source_verifier.get_verification_stats()
+    # Recent verifications (up to 500, most-recent first)
+    try:
+        recents = await source_verifier.list_verifications(limit=500)
+    except Exception:
+        recents = []
+    # Bucket by day for the time-series
+    from collections import defaultdict
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    now = _dt.now(_tz.utc)
+    buckets: dict[str, dict] = defaultdict(
+        lambda: {"count": 0, "grounded_sum": 0.0, "paraphrase_violations": 0}
+    )
+    paraphrase_flag_count = 0
+    for v in recents:
+        ts = v.get("recorded_at") or v.get("created_at") or v.get("ts") or ""
+        try:
+            d = _dt.fromisoformat(ts.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if (now - d).days > days:
+            continue
+        key = d.date().isoformat()
+        b = buckets[key]
+        b["count"] += 1
+        gr = v.get("grounded_rate")
+        if gr is not None:
+            b["grounded_sum"] += float(gr)
+        if v.get("paraphrase_violation"):
+            b["paraphrase_violations"] += 1
+            paraphrase_flag_count += 1
+    series = []
+    for i in range(days - 1, -1, -1):
+        date_key = (now - _td(days=i)).date().isoformat()
+        b = buckets.get(date_key, {"count": 0, "grounded_sum": 0.0, "paraphrase_violations": 0})
+        avg = (b["grounded_sum"] / b["count"]) if b["count"] else None
+        series.append({
+            "date": date_key,
+            "verifications": b["count"],
+            "avg_grounded_rate": round(avg, 3) if avg is not None else None,
+            "paraphrase_violations": b["paraphrase_violations"],
+        })
+    # Baseline = mean grounded_rate across the window, excluding None
+    rates = [s["avg_grounded_rate"] for s in series if s["avg_grounded_rate"] is not None]
+    baseline = round(sum(rates) / len(rates), 3) if rates else None
+    return {
+        "window_days": days,
+        "overall_stats": overall,
+        "baseline_grounded_rate": baseline,
+        "paraphrase_violations_in_window": paraphrase_flag_count,
+        "series": series,
+    }

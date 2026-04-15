@@ -84,6 +84,8 @@ CORE_MODULES = [
     "aria_service.intel.source_validator",
     # Clause 19 — search doctrine
     "aria_service.intel.search_doctrine",
+    # Golden Q&A auto-generator (Clause 17-driven)
+    "aria_service.intel.golden_autogen",
 ]
 
 
@@ -991,7 +993,11 @@ def test_ecosystem_reassess_produces_queue():
 
 
 def test_autonomous_tasks_yaml_has_new_self_dev_tasks():
-    """tasks.yaml must contain all 6 new tasks from the self-dev loop."""
+    """tasks.yaml must contain all self-dev tasks with valid shape.
+    Week-1 rollout (2026-04-15) explicitly enables the two safest:
+    DAILY-FACT-REFRESH (re-verify only, no new writes) and
+    HOURLY-ECOSYSTEM-REASSESS (read-only queue builder). The rest
+    remain opt-in per aria_autonomy_doctrine.md."""
     from aria_service.autonomous.tasks import load_tasks
     tasks = load_tasks()
     required = {
@@ -1002,12 +1008,14 @@ def test_autonomous_tasks_yaml_has_new_self_dev_tasks():
         "DAILY-CITATION-SCOUT",
         "WEEKLY-TLD-PROBE",
     }
+    week1_enabled = {"DAILY-FACT-REFRESH", "HOURLY-ECOSYSTEM-REASSESS"}
     for tid in required:
         assert tid in tasks, f"tasks.yaml missing {tid}"
         task = tasks[tid]
-        assert task.enabled is False, (
-            f"{tid} must default disabled (opt-in autonomy doctrine)"
-        )
+        if tid not in week1_enabled:
+            assert task.enabled is False, (
+                f"{tid} must default disabled (opt-in autonomy doctrine)"
+            )
         assert task.tool_chain
         assert task.cost_cap_usd > 0
 
@@ -1525,5 +1533,149 @@ def test_ecosystem_reassess_signals_brain_without_raising():
         return True
 
     assert asyncio.run(run()) is True
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Autonomy rollout — DAILY-FACT-REFRESH + HOURLY-ECOSYSTEM-REASSESS enabled
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_autonomy_week1_tasks_enabled():
+    """First-week autonomy rollout: DAILY-FACT-REFRESH (re-verify only,
+    no new writes) + HOURLY-ECOSYSTEM-REASSESS (read-only queue builder)
+    must be enabled in tasks.yaml. DAILY-CORE-DEVELOP / SCOUTS stay off
+    pending a week of observation."""
+    from aria_service.autonomous.tasks import load_tasks
+    tasks = load_tasks()
+    assert "DAILY-FACT-REFRESH" in tasks
+    assert tasks["DAILY-FACT-REFRESH"].enabled is True, (
+        "DAILY-FACT-REFRESH must be ENABLED for week-1 rollout"
+    )
+    assert "HOURLY-ECOSYSTEM-REASSESS" in tasks
+    assert tasks["HOURLY-ECOSYSTEM-REASSESS"].enabled is True, (
+        "HOURLY-ECOSYSTEM-REASSESS must be ENABLED for week-1 rollout"
+    )
+    # These should REMAIN disabled — they mutate state / hit the web
+    assert tasks["DAILY-CORE-DEVELOP"].enabled is False
+    assert tasks["DAILY-CITATION-SCOUT"].enabled is False
+    assert tasks["WEEKLY-TLD-PROBE"].enabled is False
+    # New golden-autogen task should be enabled (reads VERIFIED facts,
+    # no external calls, auto-promotes based on Clause 17 threshold)
+    assert "DAILY-GOLDEN-AUTOGEN" in tasks
+    assert tasks["DAILY-GOLDEN-AUTOGEN"].enabled is True
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Golden auto-generator
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_golden_autogen_propose_batch_returns_shape():
+    import asyncio
+    from aria_service.intel import golden_autogen
+
+    async def run():
+        result = await golden_autogen.propose_batch(max_candidates=10)
+        assert "auto_promoted" in result
+        assert "pending" in result
+        assert "queue_depth" in result
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+def test_golden_autogen_should_auto_promote_on_tier1a():
+    """Single Tier 1a source with score ≥ 0.9 must auto-promote —
+    Clause 17 single-source rule for official registries."""
+    from aria_service.intel.golden_autogen import _should_auto_promote
+    data = {"verification_score": 0.9}
+    sources = [{"tier": "1a", "url": "https://ofac.treasury.gov/x"}]
+    assert _should_auto_promote(data, sources) is True
+
+
+def test_golden_autogen_should_auto_promote_on_multi_source():
+    """Two Tier 2 sources summing to ≥ 1.0 must auto-promote."""
+    from aria_service.intel.golden_autogen import _should_auto_promote
+    data = {"verification_score": 1.4}
+    sources = [
+        {"tier": "2", "url": "https://reuters.com/x"},
+        {"tier": "2", "url": "https://premiumtimesng.com/y"},
+    ]
+    assert _should_auto_promote(data, sources) is True
+
+
+def test_golden_autogen_rejects_weak_single_source():
+    """Single Tier 3 below threshold must NOT auto-promote — falls to
+    pending queue for human review."""
+    from aria_service.intel.golden_autogen import _should_auto_promote
+    data = {"verification_score": 0.5}
+    sources = [{"tier": "3", "url": "https://defensenews.com/x"}]
+    assert _should_auto_promote(data, sources) is False
+
+
+def test_golden_autogen_reject_round_trip():
+    import asyncio
+    from aria_service.intel import golden_autogen, redis_store as rs
+
+    async def run():
+        # Manually seed a pending candidate
+        cand = {
+            "candidate_id": "test-golden-reject-1",
+            "question": "?", "expected_answer": "?",
+            "status": "PENDING", "market": "test",
+        }
+        existing = await rs.get_json(golden_autogen._K_PENDING) or []
+        existing.insert(0, cand)
+        await rs.set_json(golden_autogen._K_PENDING, existing)
+        result = await golden_autogen.reject_candidate(
+            "test-golden-reject-1", reason="test", rejected_by="pytest",
+        )
+        assert result["ok"] is True
+        listed = await golden_autogen.list_candidates(status="PENDING")
+        assert not any(c.get("candidate_id") == "test-golden-reject-1" for c in listed)
+        return True
+
+    assert asyncio.run(run()) is True
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# CI workflow must run the constitution suite
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_ci_workflow_runs_constitution_suite():
+    """The test-aria.yml workflow must include a job that runs the
+    adversarial constitution suite on push to main (when ANTHROPIC_API_KEY
+    is present). Pass rate < 85% must fail the job."""
+    import pathlib as _pl
+    wf = (_pl.Path(__file__).resolve().parent.parent.parent /
+          ".github" / "workflows" / "test-aria.yml").read_text(encoding="utf-8")
+    assert "constitution-tests" in wf, "CI must have a constitution-tests job"
+    assert "ARIAConstitutionTestRunner" in wf
+    assert "pass_rate < 0.85" in wf, "Must enforce 85% floor"
+    assert "ANTHROPIC_API_KEY" in wf
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Chat post-processor wires paraphrase check
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_chat_response_post_processor_wires_paraphrase_check():
+    """The chat endpoint must call search_doctrine.check_paraphrase_discipline
+    after source_verifier.verify_response — otherwise verbatim copy-paste
+    of tool snippets goes undetected in production responses."""
+    import pathlib as _pl
+    routes = (_pl.Path(__file__).resolve().parent.parent /
+              "routes" / "aria.py").read_text(encoding="utf-8")
+    assert "check_paraphrase_discipline" in routes
+    assert "_extract_snippets_from_tool_context" in routes
+    assert "paraphrase_violation" in routes
+
+
+def test_grounded_rate_dashboard_endpoint_exists():
+    """Operator-facing dashboard endpoint for the 2-week grounded-rate
+    trend. Must exist at /metrics/grounded_rate."""
+    import pathlib as _pl
+    routes = (_pl.Path(__file__).resolve().parent.parent /
+              "routes" / "aria.py").read_text(encoding="utf-8")
+    assert "/metrics/grounded_rate" in routes
+    assert "baseline_grounded_rate" in routes
 
 
