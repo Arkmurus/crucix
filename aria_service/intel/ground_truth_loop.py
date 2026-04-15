@@ -85,6 +85,52 @@ class AssessmentType(Enum):
     INTELLIGENCE_CLAIM   = "INTELLIGENCE_CLAIM"    # General intelligence assessment
 
 
+# Calibration ontology — prediction-type taxonomy from test_constitution.py.
+# Maps each AssessmentType to its prediction class, verification method,
+# expected confidence range, and revalidation TTL. Without this, the
+# calibration report measures nothing because "confidence" means different
+# things for different prediction types.
+PREDICTION_TAXONOMY = {
+    "BINARY": {
+        "description": "Yes/No predictions about verifiable facts",
+        "assessment_types": ["CONTACT_IN_POST", "COUNTERPARTY_CLEAN", "PROGRAMME_ACTIVE"],
+        "verification_method": "Direct verification against authoritative source",
+        "typical_confidence_range": (0.60, 0.95),
+        "ttl_days": 30,
+    },
+    "PROBABILISTIC": {
+        "description": "Probability estimates for uncertain outcomes",
+        "assessment_types": ["WIN_PROBABILITY", "TENDER_OPPORTUNITY"],
+        "verification_method": "Outcome compared to prediction at resolution",
+        "typical_confidence_range": (0.40, 0.80),
+        "ttl_days": 90,
+    },
+    "RISK_ASSESSMENT": {
+        "description": "Risk tier or score assessments",
+        "assessment_types": ["COUNTRY_RISK"],
+        "verification_method": "Outcome events within 180 days",
+        "typical_confidence_range": (0.50, 0.85),
+        "ttl_days": 180,
+    },
+    "INTELLIGENCE_CLAIM": {
+        "description": "Factual claims about the world state",
+        "assessment_types": ["INTELLIGENCE_CLAIM"],
+        "verification_method": "OSINT verification, registry lookup, direct confirmation",
+        "typical_confidence_range": (0.55, 0.90),
+        "ttl_days": 60,
+    },
+}
+
+
+def get_prediction_class(assessment_type: "AssessmentType") -> str:
+    """Look up which prediction class an AssessmentType belongs to."""
+    name = assessment_type.value
+    for cls, meta in PREDICTION_TAXONOMY.items():
+        if name in meta["assessment_types"]:
+            return cls
+    return "INTELLIGENCE_CLAIM"  # fallback
+
+
 class OutcomeResult(Enum):
     CORRECT              = "CORRECT"
     INCORRECT            = "INCORRECT"

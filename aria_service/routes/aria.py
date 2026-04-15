@@ -8328,3 +8328,275 @@ async def deception_analyse_ep(body: _DeceptionBody):
         "requires_human_review": score.requires_human_review,
         "report_text": score.to_report(),
     }
+
+
+# Alias so the WhatsApp channel-mirror's historical endpoint name works.
+@router.post("/deception/screen")
+async def deception_screen_alias_ep(body: _DeceptionBody):
+    """Alias for /deception/analyse — kept for channel-mirror compatibility."""
+    return await deception_analyse_ep(body)
+
+
+# Alias so the WhatsApp channel-mirror's historical endpoint name works.
+@router.post("/claim-ledger/ingest")
+async def claim_ledger_ingest_alias_ep(body: _ClaimIngestBody):
+    """Alias for /claims/ingest — kept for channel-mirror compatibility."""
+    return await claims_ingest_ep(body)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GENERIC INGEST — silent intel ingestion from WhatsApp channel mirror etc.
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _IngestBody(BaseModel):
+    text: str
+    jid: str = ""
+    sender_jid: str = ""
+    message_id: str = ""
+    timestamp: int | str | None = None
+    source: str = "unknown"
+    is_internal: bool = True
+    deception_score: float | None = None
+    claims_extracted: int | None = None
+
+
+@router.post("/ingest")
+async def ingest_ep(body: _IngestBody):
+    """Silent ingestion endpoint — appends to intel ledger, no reply.
+    Used by the WhatsApp channel mirror for internal group messages."""
+    from ..intel import intel_ledger
+    severity = "info"
+    if body.deception_score and body.deception_score >= 0.50:
+        severity = "warning"
+    tags = [body.source]
+    if body.is_internal:
+        tags.append("internal")
+    else:
+        tags.append("external")
+    if body.sender_jid:
+        tags.append(f"sender:{body.sender_jid[:32]}")
+
+    payload = {
+        "summary": body.text[:280],
+        "source": body.source,
+        "type": "channel_ingest",
+        "severity": severity,
+        "tags": tags,
+        "metadata": {
+            "jid": body.jid,
+            "message_id": body.message_id,
+            "timestamp": body.timestamp,
+            "deception_score": body.deception_score,
+            "claims_extracted": body.claims_extracted,
+        },
+    }
+    try:
+        await intel_ledger.add_signal(payload)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:120]}
+    return {"ok": True, "source": body.source, "chars": len(body.text)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MEMORY ROUTER — unified query + health check across all stores
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _MemoryQueryBody(BaseModel):
+    query: str
+    force_type: str | None = None  # ENTITY_LOOKUP | FACTUAL_RECALL | RECENT_INTEL | ...
+    max_stores: int = 3
+    max_results: int = 8
+
+
+def _get_memory_router():
+    """Build a MemoryRouter with whatever stores are currently configured."""
+    from ..intel.memory_router import ARIAMemoryRouter
+    # Pass None for stores — health_check + classification still work.
+    # Full query wiring needs per-store adapters; future slice.
+    return ARIAMemoryRouter()
+
+
+@router.post("/memory/query")
+async def memory_query_ep(body: _MemoryQueryBody):
+    """Classify a query and route it across ARIA's 5 memory stores."""
+    from ..intel.memory_router import QueryType
+    router_obj = _get_memory_router()
+    force = None
+    if body.force_type:
+        try:
+            force = QueryType[body.force_type]
+        except KeyError:
+            raise HTTPException(status_code=400, detail=f"Unknown force_type: {body.force_type}")
+    result = router_obj.query(
+        body.query,
+        force_type=force,
+        max_stores=body.max_stores,
+        max_results=body.max_results,
+    )
+    return {
+        "query_type": result.query_type.value,
+        "stores_consulted": result.stores_consulted,
+        "stores_failed": result.stores_failed,
+        "result_count": len(result.results),
+        "query_time_ms": result.query_time_ms,
+        "routing_log": result.routing_log,
+        "merged_context": result.merged_context,
+    }
+
+
+@router.get("/memory/health")
+async def memory_health_ep():
+    """Which memory stores are currently reachable and how large they are.
+    Closes the perimeter-visibility gap — ARIA's self-awareness stack
+    reads this to know when a store is unavailable."""
+    router_obj = _get_memory_router()
+    return {"stores": router_obj.health_check()}
+
+
+@router.post("/memory/classify")
+async def memory_classify_ep(body: _MemoryQueryBody):
+    """Preview — classify a query without running it. Useful for debugging
+    the router's keyword patterns."""
+    router_obj = _get_memory_router()
+    qtype = router_obj.classify(body.query)
+    from ..intel.memory_router import ROUTING_MAP
+    return {
+        "query": body.query,
+        "query_type": qtype.value,
+        "routing_order": ROUTING_MAP.get(qtype, []),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COST MONITOR — production budget + circuit breaker
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_cost_monitor():
+    from ..autonomous.cost_monitor import ARIACostMonitor
+    import redis as redis_lib
+    from ..config import Settings
+    settings = Settings()
+    rc = None
+    try:
+        rc = redis_lib.from_url(settings.redis_url, decode_responses=True)
+        rc.ping()
+    except Exception:
+        rc = None
+    import os as _os
+    return ARIACostMonitor(
+        redis_client=rc,
+        daily_cap_usd=float(_os.getenv("ARIA_DAILY_CAP_USD", "10.0")),
+        task_cap_usd=float(_os.getenv("ARIA_TASK_CAP_USD", "2.0")),
+        warning_threshold=float(_os.getenv("ARIA_WARNING_THRESHOLD", "0.80")),
+    )
+
+
+@router.get("/cost/daily")
+async def cost_daily_ep():
+    """Today's cost summary — total, remaining, utilisation, task breakdown."""
+    return _get_cost_monitor().get_daily_summary()
+
+
+@router.get("/cost/leaderboard")
+async def cost_leaderboard_ep(days: int = 7):
+    """Per-task cost leaderboard for the past N days."""
+    return {"days": days, "leaderboard": _get_cost_monitor().get_cost_leaderboard(days=days)}
+
+
+class _CostResetBody(BaseModel):
+    task_id: str
+
+
+@router.post("/cost/reset-task")
+async def cost_reset_task_ep(body: _CostResetBody):
+    """Re-enable a suspended task (admin action)."""
+    _get_cost_monitor().reset_task(body.task_id)
+    return {"ok": True, "task_id": body.task_id}
+
+
+class _CostCapBody(BaseModel):
+    daily_cap_usd: float
+
+
+@router.post("/cost/set-cap")
+async def cost_set_cap_ep(body: _CostCapBody):
+    """Adjust daily cap at runtime."""
+    monitor = _get_cost_monitor()
+    monitor.set_daily_cap(body.daily_cap_usd)
+    return {"ok": True, "daily_cap_usd": body.daily_cap_usd}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONSTITUTION TEST SUITE — adversarial compliance checks
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _ConstitutionRunBody(BaseModel):
+    clauses: list[int] | None = None  # None = all
+    model: str | None = None           # default claude-sonnet-4-6
+
+
+@router.post("/constitution/test/run")
+async def constitution_test_run_ep(body: _ConstitutionRunBody):
+    """Run adversarial tests against each constitutional clause.
+    Returns pass/fail per clause plus a structured report."""
+    import os as _os
+    from ..tests.test_constitution import ARIAConstitutionTestRunner, CLAUSE_TESTS
+    api_key = _os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not set")
+    try:
+        runner = ARIAConstitutionTestRunner(
+            api_key=api_key,
+            model=body.model or "claude-sonnet-4-6",
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    report = runner.run_all(clauses=body.clauses)
+    return {
+        "passed": report.passed,
+        "failed": report.failed,
+        "errors": report.errors,
+        "total": report.total,
+        "pass_rate": report.pass_rate,
+        "run_at": report.run_at,
+        "results": [
+            {
+                "clause_number": r.clause_number,
+                "clause_name": r.clause_name,
+                "passed": r.passed,
+                "violation_found": r.violation_found,
+                "compliance_found": r.compliance_found,
+                "confidence": r.confidence,
+                "latency_ms": r.latency_ms,
+                "error": r.error,
+            }
+            for r in report.results
+        ],
+        "report_text": report.to_report(),
+    }
+
+
+@router.get("/constitution/test/catalogue")
+async def constitution_test_catalogue_ep():
+    """List the clause tests defined in the suite — for dashboard / docs."""
+    from ..tests.test_constitution import CLAUSE_TESTS
+    return {
+        "test_count": len(CLAUSE_TESTS),
+        "tests": [
+            {
+                "clause_number": t.clause_number,
+                "clause_name": t.clause_name,
+                "weight": t.weight,
+                "expected_behaviour": t.expected_behaviour,
+            }
+            for t in CLAUSE_TESTS
+        ],
+    }
+
+
+@router.get("/prediction/taxonomy")
+async def prediction_taxonomy_ep():
+    """The 4-class prediction taxonomy that calibrates the ground truth loop.
+    Returned here so dashboards and docs can render it consistently."""
+    from ..intel.ground_truth_loop import PREDICTION_TAXONOMY
+    return {"taxonomy": PREDICTION_TAXONOMY}
