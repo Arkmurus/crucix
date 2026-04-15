@@ -2645,6 +2645,42 @@ async def _execute_tool(intent: dict, llm) -> str:
                 "address": intent.get("registered_address") or intent.get("address"),
             }
             mode = intent.get("mode", "standard")
+
+            # ── Verification gate (Clause: document learning loop) ──
+            # If there's a recent DRAFT extraction for this entity that the
+            # team hasn't /docverify'd or /docfix'd, block the DD. Prevents
+            # a downstream report built on unconfirmed extracted fields.
+            # Bypass via intent.skip_doc_gate = True if the caller explicitly
+            # wants DD without a linked document.
+            if not intent.get("skip_doc_gate"):
+                try:
+                    from ..intel import document_corrections as _dc
+                    from ..intel.document_intelligence import FORM_CATALOGUE as _FC
+                    pending = await _dc.find_unverified_for_entity(target["name"])
+                    if pending:
+                        tier = _FC.get(pending.get("form_code", ""), {}).get("tier", 4)
+                        if tier <= 2:
+                            eid = pending.get("id")
+                            fcode = pending.get("form_code", "?")
+                            fname = pending.get("filename", "?")
+                            return (
+                                f"\n\n[TOOL: dd_orchestrate — BLOCKED BY VERIFICATION GATE]\n"
+                                f"Entity: {target['name']}\n"
+                                f"Pending draft: {eid} ({fcode} — {fname})\n"
+                                f"\n"
+                                f"A draft extraction for this entity is awaiting human sign-off. "
+                                f"I won't run a full DD on an unverified source document.\n"
+                                f"\n"
+                                f"Reply with either:\n"
+                                f"  `/docverify {eid}`   — if the extracted fields are correct\n"
+                                f"  `/docfix {eid} <field>: <value>`   — to correct a field\n"
+                                f"\n"
+                                f"Then re-run the DD. Tell the user this in your answer; do NOT "
+                                f"invent findings or proceed as if the document were confirmed."
+                            )
+                except Exception as _gate_err:
+                    _log.debug("dd verification gate check failed (non-fatal): %s", _gate_err)
+
             try:
                 report = await dd_orchestrator.orchestrate_dd(
                     target=target,

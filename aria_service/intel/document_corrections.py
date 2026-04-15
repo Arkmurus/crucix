@@ -240,6 +240,47 @@ async def recent_extractions(limit: int = 20, form_code: Optional[str] = None) -
     return items[:limit]
 
 
+async def find_unverified_for_entity(
+    entity_name: str,
+    *,
+    max_age_hours: int = 24,
+) -> Optional[dict]:
+    """Return the most recent unverified extraction whose structured payload
+    mentions `entity_name` (case-insensitive substring match).
+
+    Used as a pre-run gate by dd_orchestrate: if the team uploaded a draft
+    extraction for this entity but hasn't signed it off with /docverify or
+    corrected it with /docfix, block the DD so we don't build a report on
+    unconfirmed fields.
+
+    Returns None if there's nothing to gate on (either no match, already
+    verified, or has corrections — corrections imply the team engaged with
+    the draft so the DD can proceed using the corrected fields).
+    """
+    if not entity_name or len(entity_name.strip()) < 3:
+        return None
+    needle = entity_name.strip().lower()
+    store = await _load()
+    from datetime import timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_hours)).isoformat()
+    candidates: list[dict] = []
+    for rec in store["extractions"].values():
+        if rec.get("verifications") or rec.get("corrections"):
+            continue
+        if (rec.get("updated_at") or "") < cutoff:
+            continue
+        blob = json.dumps(
+            rec.get("structured_current") or rec.get("structured_original") or {},
+            ensure_ascii=False,
+        ).lower()
+        if needle in blob or needle in (rec.get("filename") or "").lower():
+            candidates.append(rec)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda r: r.get("updated_at", ""), reverse=True)
+    return candidates[0]
+
+
 async def verify_extraction(extraction_id: str, by: str) -> Optional[dict]:
     """Mark the extraction as human-verified. Returns the updated record."""
     async with _LOCK:
