@@ -1852,6 +1852,29 @@ app.post('/api/aria/correct', requireAuth, async (req, res) => {
   }});
 });
 
+// ── Document-intelligence learning loop (proxy to aria_service) ────────────
+app.post('/api/aria/document/verify', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/document/verify', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Document verify unavailable — backend offline' });
+  }}));
+
+app.post('/api/aria/document/correct', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/document/correct', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Document correct unavailable — backend offline' });
+  }}));
+
+app.get('/api/aria/document/extraction/:id', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/document/extraction/${encodeURIComponent(req.params.id)}`, { fallback: async () => {
+    res.status(503).json({ error: 'Document extraction lookup unavailable' });
+  }}));
+
+app.get('/api/aria/document/extractions/recent', requireAuth, (req, res) => {
+  const qs = new URLSearchParams(req.query || {}).toString();
+  ariaProxy(req, res, `/api/aria/document/extractions/recent${qs ? '?' + qs : ''}`, { fallback: async () => {
+    res.status(503).json({ count: 0, extractions: [], error: 'backend offline' });
+  }});
+});
+
 // ── ARIA brain health (proxy to Python aria_service) ───────────────────────
 app.get('/api/aria/brain/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/brain/stats', { fallback: async () => {

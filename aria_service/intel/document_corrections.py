@@ -47,7 +47,22 @@ logger = logging.getLogger("aria.doc_corrections")
 
 _LOCK = asyncio.Lock()
 
-_DATA_DIR = Path(os.environ.get("ARIA_DATA_DIR", "data"))
+# Storage location resolution — mirrors rag_store._resolve_rag_path:
+#   1. ARIA_DATA_DIR env var if set
+#   2. /data if the fly.io persistent volume is mounted (production)
+#   3. ./data otherwise (local dev — relative to cwd)
+# Past incident pattern: chromadb originally fell back to /tmp/aria_rag
+# because /data wasn't mounted, wiping data on every redeploy. Don't repeat.
+def _resolve_data_dir() -> Path:
+    env = os.environ.get("ARIA_DATA_DIR")
+    if env:
+        return Path(env)
+    if Path("/data").exists() and Path("/data").is_dir():
+        return Path("/data")
+    return Path("data")
+
+
+_DATA_DIR = _resolve_data_dir()
 _STORE_PATH = _DATA_DIR / "document_corrections.json"
 
 # Cap how many extractions we keep per form (for few-shot prompt size) and
