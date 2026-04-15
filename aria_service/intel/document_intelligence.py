@@ -29,6 +29,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from . import document_corrections as _corr
 from .knowledge import store_fact
 
 logger = logging.getLogger("aria.doc_intel")
@@ -544,6 +545,10 @@ async def extract_structured(
 
     Tries one extraction. On parse failure, attempts a single repair pass
     (asks the model to fix its JSON) before giving up.
+
+    Few-shot learning: if previous extractions of the same form have been
+    verified or corrected by the team, those are pulled from the corrections
+    store and injected into the system prompt as the gold reference.
     """
     if form_code not in FORM_CATALOGUE:
         form_code = "GEN_DOCUMENT"
@@ -552,8 +557,19 @@ async def extract_structured(
         return None
 
     prompt = _build_extract_prompt(text, form_code)
+    # Inject few-shot examples from the corrections store so each extraction
+    # benefits from the team's prior fixes on the same form type.
+    sysmsg = _EXTRACT_SYSTEM
     try:
-        result = await llm.complete(_EXTRACT_SYSTEM, prompt, max_tokens=max_tokens, timeout=120.0)
+        examples = await _corr.few_shot_examples(form_code)
+        if examples:
+            sysmsg = _EXTRACT_SYSTEM + "\n" + _corr.render_few_shot_block(examples)
+            logger.info("doc_intel: injected %d few-shot examples for %s", len(examples), form_code)
+    except Exception as e:
+        logger.debug("doc_intel: few-shot injection skipped (%s)", e)
+
+    try:
+        result = await llm.complete(sysmsg, prompt, max_tokens=max_tokens, timeout=120.0)
     except Exception as e:
         logger.warning("doc_intel: LLM call failed for %s — %s", form_code, e)
         return None
@@ -960,20 +976,45 @@ async def process_document(
         return None
 
     redflags = analyse_redflags(structured, form_code)
-    overview = render_overview(form_code, structured, redflags)
+    overview_body = render_overview(form_code, structured, redflags)
 
-    # Persist (best-effort)
+    # Mint a stable id and prepend the draft / verified / corrected marker so
+    # nothing leaves WA looking definitive without human sign-off, and the
+    # team can refer back via /docverify <id> or /docfix <id> <field>: <value>.
+    extraction_id = _corr.new_extraction_id()
+    spec = FORM_CATALOGUE.get(form_code, FORM_CATALOGUE["GEN_DOCUMENT"])
+    needs_review = spec.get("tier", 4) >= 2 or any(f.get("severity") == "high" for f in redflags)
+    status_line = (
+        "📝 *DRAFT — awaiting human verification*"
+        if needs_review
+        else "🟢 *Tier-1 official source — auto-confirmed pending review*"
+    )
+    overview = (
+        f"{status_line}\n*ID:* `{extraction_id}`  ·  reply `/docverify {extraction_id}` "
+        f"or `/docfix {extraction_id} <field>: <value>`\n\n{overview_body}"
+    )
+
+    # Persist (best-effort) to the knowledge base AND the corrections store
     try:
         await persist_filing(structured, form_code, source)
     except Exception as e:
         logger.debug("doc_intel persist outer-error: %s", e)
+    try:
+        await _corr.save_extraction(
+            extraction_id=extraction_id, form_code=form_code,
+            filename=filename, source=source,
+            structured=structured, overview_markdown=overview,
+        )
+    except Exception as e:
+        logger.debug("doc_intel corrections-store save failed: %s", e)
 
-    spec = FORM_CATALOGUE.get(form_code, FORM_CATALOGUE["GEN_DOCUMENT"])
     return {
+        "extraction_id": extraction_id,
         "form_code": form_code,
         "form_name": spec["name"],
         "jurisdiction": spec["jurisdiction"],
         "tier": spec.get("tier", 4),
+        "needs_review": needs_review,
         "structured": structured,
         "red_flags": redflags,
         "overview_markdown": overview,

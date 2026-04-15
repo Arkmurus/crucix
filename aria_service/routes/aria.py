@@ -3987,6 +3987,72 @@ async def read_article_ep(request: Request):
     return result
 
 
+# ── Document-intelligence learning loop ─────────────────────────────────────
+# Verify / correct / browse extractions produced by document_intelligence.
+# Corrections become few-shot examples for future extractions of the same
+# form type — ARIA gets sharper with every team check.
+
+@router.post("/document/verify")
+async def document_verify_ep(request: Request):
+    body = await request.json()
+    eid = (body.get("extraction_id") or "").strip()
+    by = (body.get("by") or "operator").strip()
+    if not eid:
+        raise HTTPException(status_code=400, detail="extraction_id required")
+    from ..intel import document_corrections as _dc
+    rec = await _dc.verify_extraction(eid, by)
+    if rec is None:
+        raise HTTPException(status_code=404, detail=f"extraction {eid} not found")
+    return {"ok": True, "extraction_id": eid, "verifications": rec.get("verifications", [])}
+
+
+@router.post("/document/correct")
+async def document_correct_ep(request: Request):
+    body = await request.json()
+    eid = (body.get("extraction_id") or "").strip()
+    field = (body.get("field") or "").strip()
+    value = body.get("value")
+    by = (body.get("by") or "operator").strip()
+    if not (eid and field):
+        raise HTTPException(status_code=400, detail="extraction_id and field required")
+    from ..intel import document_corrections as _dc
+    rec = await _dc.correct_extraction(eid, field, value, by)
+    if rec is None:
+        raise HTTPException(status_code=404, detail=f"extraction {eid} not found")
+    if isinstance(rec, dict) and rec.get("_error"):
+        raise HTTPException(status_code=400, detail=rec["_error"])
+    return {
+        "ok": True, "extraction_id": eid, "field": field, "value": value,
+        "corrections_total": len(rec.get("corrections", [])),
+    }
+
+
+@router.get("/document/extraction/{extraction_id}")
+async def document_extraction_get_ep(extraction_id: str):
+    from ..intel import document_corrections as _dc
+    rec = await _dc.get_extraction(extraction_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail=f"extraction {extraction_id} not found")
+    return rec
+
+
+@router.get("/document/extractions/recent")
+async def document_extractions_recent_ep(limit: int = 20, form_code: str = ""):
+    from ..intel import document_corrections as _dc
+    items = await _dc.recent_extractions(limit=max(1, min(limit, 100)), form_code=form_code or None)
+    # Strip the heaviest field from the listing — caller can fetch full record by id
+    out = []
+    for r in items:
+        out.append({
+            "id": r.get("id"), "form_code": r.get("form_code"),
+            "filename": r.get("filename"), "source": r.get("source"),
+            "verified": bool(r.get("verifications")),
+            "corrections": len(r.get("corrections") or []),
+            "created_at": r.get("created_at"), "updated_at": r.get("updated_at"),
+        })
+    return {"count": len(out), "extractions": out}
+
+
 # 25. POST /api/aria/read-document — Read a document (text content or base64 binary)
 @router.post("/read-document")
 async def read_document_ep(request: Request):
