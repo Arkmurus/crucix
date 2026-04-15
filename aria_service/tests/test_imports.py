@@ -807,19 +807,36 @@ tasks:
     assert "cron" in result["error"].lower()
 
 
-def test_self_improve_tasks_yaml_validator_rejects_zero_cost_cap():
+def test_self_improve_tasks_yaml_validator_rejects_negative_cost_cap():
+    """cost_cap_usd=0 is VALID for no-LLM internal aggregation tasks
+    (METACOG-DAILY pattern). Only negative values are rejected — they
+    would mean 'unbounded debt' which makes no sense."""
     from aria_service.intel.self_improve import _validate_tasks_yaml
     bad = """
 tasks:
-  - id: ZERO-COST
+  - id: NEGATIVE-COST
     cron: "0 5 * * *"
-    cost_cap_usd: 0
+    cost_cap_usd: -1.0
     tool_chain:
       - tool: deep_research
 """
     result = _validate_tasks_yaml(bad)
     assert result["ok"] is False
     assert "cost_cap" in result["error"].lower()
+
+    # Zero is explicitly ALLOWED for the METACOG-DAILY / internal pattern
+    zero_ok = """
+tasks:
+  - id: INTERNAL-AGG
+    cron: "0 22 * * *"
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: metacognitive_daily_check
+"""
+    result2 = _validate_tasks_yaml(zero_ok)
+    assert result2["ok"] is True, (
+        f"cost_cap_usd=0 must be allowed for internal tasks: {result2}"
+    )
 
 
 def test_self_improve_tasks_yaml_validator_rejects_duplicate_ids():

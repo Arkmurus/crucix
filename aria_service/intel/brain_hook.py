@@ -72,6 +72,13 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "golden_autogen":       ["osint", "general"],
     "paraphrase_guard":     ["osint", "general"],
     "adversarial_challenge": ["compliance", "general", "osint"],
+    # Pre-existing callers exposed by 2026-04-15 integrity audit — these
+    # modules were signalling brain but never registered, so their
+    # observations filed under "general" with no topical grounding.
+    "aria_peers":           ["competitor_intel", "general"],
+    "mistake_ledger":       ["general", "compliance"],
+    "predictor":            ["general"],
+    "self_assess":          ["general"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)
@@ -117,6 +124,11 @@ _MODULE_WEIGHT: dict[str, float] = {
     "golden_autogen":       0.10,  # self-growing eval set — meaningful curation
     "paraphrase_guard":     0.05,  # per-turn discipline check — high frequency
     "adversarial_challenge": 0.30, # weekly stress test — highest-value mastery signal
+    # Pre-existing callers (from integrity audit)
+    "aria_peers":           0.10,  # competitor-landscape updates
+    "mistake_ledger":       0.05,  # meta — records its own activity
+    "predictor":            0.05,  # meta — forecast-hit-rate signals
+    "self_assess":          0.10,  # daily briefing composer
 }
 
 

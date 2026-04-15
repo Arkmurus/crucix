@@ -611,14 +611,19 @@ def _validate_tasks_yaml(content: str) -> dict:
         if cron and len(cron.split()) != 5:
             return {"ok": False,
                     "error": f"task {tid}: cron must have 5 fields, got: {cron!r}"}
-        cost_cap = task.get("cost_cap_usd", 0)
+        # cost_cap_usd must be present and numeric. 0.00 is legitimate
+        # for no-LLM internal aggregation tasks (METACOG-DAILY, etc.) —
+        # it means "this task must not spend money, period". Negative is
+        # the only invalid value.
+        if "cost_cap_usd" not in task:
+            return {"ok": False, "error": f"task {tid}: cost_cap_usd missing"}
         try:
-            cost_cap_f = float(cost_cap)
+            cost_cap_f = float(task["cost_cap_usd"])
         except (TypeError, ValueError):
             return {"ok": False, "error": f"task {tid}: cost_cap_usd not numeric"}
-        if cost_cap_f <= 0:
+        if cost_cap_f < 0:
             return {"ok": False,
-                    "error": f"task {tid}: cost_cap_usd must be > 0"}
+                    "error": f"task {tid}: cost_cap_usd cannot be negative"}
         tool_chain = task.get("tool_chain", [])
         if not isinstance(tool_chain, list) or not tool_chain:
             return {"ok": False,

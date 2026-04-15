@@ -31,6 +31,15 @@ VALID_GAP_TYPES = frozenset({
     "knowledge_gap",
     "timeout",
     "format_unsupported",
+    # Core Self-Development Loop (Clauses 17/18/19) — shipped 2026-04-15
+    "verified_contradiction",          # verified_intel: sources disagree
+    "source_seeding_suspected",        # search_doctrine: uniformity cluster
+    "insufficient_public_intel",       # search_doctrine: 3-attempt exhaustion
+    "source_validator_rejected",       # source_validator: quality gate fail
+    "source_auto_suspended",           # web_atlas: reliability EMA < 0.40
+    "paraphrase_violation",            # chat post-processor: verbatim ≥200
+    "adversarial_critical_failure",    # adversarial_challenge: CRITICAL fail
+    "mistake",                         # generic bridge from mistake_ledger
 })
 
 
