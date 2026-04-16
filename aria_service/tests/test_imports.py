@@ -1453,10 +1453,11 @@ def test_brain_hook_registers_new_self_dev_modules():
     required = {
         "verified_intel", "web_atlas", "source_validator",
         "source_scout", "search_doctrine", "core_develop",
-        "ecosystem_reassess",
-        # Added 2026-04-15: golden-autogen + paraphrase guard
-        "golden_autogen", "paraphrase_guard",
+        "ecosystem_reassess", "golden_autogen",
+        # Added 2026-04-16: narrative_monitor
+        "narrative_monitor",
     }
+    # Removed 2026-04-16: paraphrase_guard (phantom — no implementation file)
     for name in required:
         assert name in _MODULE_TOPICS, f"brain_hook missing module: {name}"
         assert _MODULE_TOPICS[name], f"{name} must have at least one topic"

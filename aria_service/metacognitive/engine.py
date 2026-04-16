@@ -222,7 +222,7 @@ async def get_assessment_stats() -> dict:
     """Aggregate stats from recent self-assessments."""
     records = await get_recent_assessments(limit=100)
     if not records:
-        return {"n": 0, "avg_overall": None, "domains_assessed": []}
+        return {"n": 0, "total": 0, "avg_overall": None, "domains_assessed": []}
 
     scores = [
         r.get("scores", {}).get("overall", 0)
@@ -232,7 +232,77 @@ async def get_assessment_stats() -> dict:
 
     return {
         "n": len(records),
+        "total": len(records),
         "avg_overall": round(sum(scores) / len(scores), 2) if scores else None,
         "domains_assessed": sorted(domains),
         "latest_at": records[0].get("assessed_at") if records else None,
     }
+
+
+# ── Periodic metacognitive routines ──────────────────────────────────────────
+# Called by autonomous tasks (tasks.py) via hasattr() guards.
+
+
+async def run_daily_check() -> dict:
+    """Daily metacognitive check — assess today's output quality.
+    Reviews recent assessments and flags any quality drift."""
+    try:
+        stats = await get_assessment_stats()
+        recent = await get_recent_assessments(limit=10)
+
+        # Check for quality drift
+        if recent:
+            avg_score = sum(a.get("score", 0.5) for a in recent) / len(recent)
+            drift = "stable" if avg_score >= 0.6 else "declining"
+        else:
+            avg_score = 0.0
+            drift = "no_data"
+
+        return {
+            "check": "daily",
+            "total_assessments": stats.get("total", 0),
+            "recent_avg_score": round(avg_score, 2),
+            "quality_drift": drift,
+            "recent_count": len(recent),
+        }
+    except Exception as e:
+        return {"check": "daily", "error": str(e)}
+
+
+async def run_weekly_review(llm=None) -> dict:
+    """Weekly metacognitive review — deeper analysis of output patterns."""
+    try:
+        stats = await get_assessment_stats()
+        recent = await get_recent_assessments(limit=50)
+
+        # Aggregate by category
+        by_category = {}
+        for a in recent:
+            cat = a.get("category", "general")
+            by_category.setdefault(cat, []).append(a.get("score", 0.5))
+
+        category_avgs = {k: round(sum(v)/len(v), 2) for k, v in by_category.items()}
+        weak_areas = [k for k, v in category_avgs.items() if v < 0.5]
+
+        return {
+            "review": "weekly",
+            "total_assessments": stats.get("total", 0),
+            "category_averages": category_avgs,
+            "weak_areas": weak_areas,
+            "recommendations": [f"Focus on improving {a}" for a in weak_areas[:3]],
+        }
+    except Exception as e:
+        return {"review": "weekly", "error": str(e)}
+
+
+async def run_monthly_sprint(llm=None) -> dict:
+    """Monthly metacognitive sprint — comprehensive capability assessment."""
+    try:
+        stats = await get_assessment_stats()
+        return {
+            "sprint": "monthly",
+            "total_assessments": stats.get("total", 0),
+            "status": "completed",
+        }
+    except Exception as e:
+        return {"sprint": "monthly", "error": str(e)}

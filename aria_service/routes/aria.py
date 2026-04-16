@@ -174,15 +174,6 @@ class FactRequest(BaseModel):
     confidence: str = "CONFIRMED"
     source: str = "user"
 
-class ContactRequest(BaseModel):
-    name: str
-    country: str
-    role: str = ""
-    title: str = ""
-    organisation: str = ""
-    influence: str = "MEDIUM"
-    notes: str = ""
-
 class ApproachRequest(BaseModel):
     market: str
     product: str = ""
@@ -537,26 +528,12 @@ async def ledger_country_ep(country: str):
     return await intel_ledger.get_country_situation(country)
 
 
-# 8. GET /api/aria/contacts
-@router.get("/contacts")
-async def contacts_ep():
-    all_c = await contacts.get_all()
-    return {"contacts": all_c}
-
-
 # 9. GET /api/aria/contacts/country/{country}
 @router.get("/contacts/country/{country}")
 async def contacts_country_ep(country: str):
     country = _validate_country(country)
     cs = await contacts.get_by_country(country)
     return {"contacts": cs}
-
-
-# 10. POST /api/aria/contacts
-@router.post("/contacts")
-async def add_contact_ep(req: ContactRequest):
-    await contacts.add_contact(req.model_dump())
-    return {"ok": True, "message": "Contact added"}
 
 
 # 11. POST /api/aria/approach
@@ -4694,111 +4671,6 @@ async def neural_graph_ep(limit: int = 200):
             "returned_edges": len(edges),
             "categories": dict(cat_counts),
         },
-    }
-
-
-# 33a2. GET /api/aria/conversations/search — Full-text conversation search
-@router.get("/conversations/search")
-async def search_conversations_ep(q: str = "", limit: int = 20):
-    """Search across all ARIA conversation sessions for matching messages."""
-    if not q or len(q.strip()) < 2:
-        raise HTTPException(status_code=400, detail="q parameter required (min 2 chars)")
-
-    query_lower = q.strip().lower()
-    results = []
-
-    # Use SCAN to iterate session keys (never KEYS)
-    client = rs._client
-    if client:
-        cursor = 0
-        session_keys = []
-        while True:
-            cursor, keys = await client.scan(cursor, match="crucix:aria:session:*", count=100)
-            session_keys.extend(keys)
-            if cursor == 0:
-                break
-            if len(session_keys) > 500:  # safety cap
-                break
-
-        for key in session_keys:
-            if len(results) >= limit:
-                break
-            try:
-                raw = await client.get(key)
-                if not raw:
-                    continue
-                import json as _json
-                session = _json.loads(raw) if isinstance(raw, str) else raw
-                messages = session.get("messages") or session.get("history") or []
-                if isinstance(session, list):
-                    messages = session
-
-                matching_msgs = []
-                for msg in messages:
-                    content = ""
-                    if isinstance(msg, dict):
-                        content = msg.get("content", "") or msg.get("text", "") or msg.get("message", "")
-                    elif isinstance(msg, str):
-                        content = msg
-                    if query_lower in content.lower():
-                        matching_msgs.append({
-                            "role": msg.get("role", "unknown") if isinstance(msg, dict) else "unknown",
-                            "content": content[:500],
-                            "match": True,
-                        })
-
-                if matching_msgs:
-                    session_id = key.replace("crucix:aria:session:", "")
-                    results.append({
-                        "session_id": session_id,
-                        "matched_messages": matching_msgs[:5],
-                        "total_matches": len(matching_msgs),
-                    })
-            except Exception:
-                continue
-    else:
-        # Fallback: search in-memory store
-        for key, raw in rs._mem_store.items():
-            if not key.startswith("crucix:aria:session:"):
-                continue
-            if len(results) >= limit:
-                break
-            try:
-                import json as _json
-                session = _json.loads(raw) if isinstance(raw, str) else raw
-                messages = session.get("messages") or session.get("history") or []
-                if isinstance(session, list):
-                    messages = session
-
-                matching_msgs = []
-                for msg in messages:
-                    content = ""
-                    if isinstance(msg, dict):
-                        content = msg.get("content", "") or msg.get("text", "") or msg.get("message", "")
-                    elif isinstance(msg, str):
-                        content = msg
-                    if query_lower in content.lower():
-                        matching_msgs.append({
-                            "role": msg.get("role", "unknown") if isinstance(msg, dict) else "unknown",
-                            "content": content[:500],
-                            "match": True,
-                        })
-
-                if matching_msgs:
-                    session_id = key.replace("crucix:aria:session:", "")
-                    results.append({
-                        "session_id": session_id,
-                        "matched_messages": matching_msgs[:5],
-                        "total_matches": len(matching_msgs),
-                    })
-            except Exception:
-                continue
-
-    return {
-        "query": q,
-        "results": results,
-        "total_sessions_matched": len(results),
-        "limit": limit,
     }
 
 

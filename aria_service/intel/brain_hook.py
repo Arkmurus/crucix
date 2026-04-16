@@ -53,14 +53,12 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "sanctions":            ["compliance", "legal"],
     "conflict_tracker":     ["geopolitics", "relationships"],
     "international_law":    ["legal", "compliance"],
-    # Node.js seenode modules (via POST /api/aria/brain/absorb)
+    # Node.js seenode modules (via POST /api/aria/brain/absorb — registered
+    # here so their signals are correctly topic-mapped when they arrive)
     "registry_adapter":     ["compliance", "legal"],
     "opportunity_detector": ["market_intel", "competitor_intel"],
     "signal_generator":     ["finance", "compliance", "market_intel"],
-    "osint_sweep":          ["osint", "market_intel"],
     "knowledge_ingestor":   ["general", "compliance", "legal"],
-    "source_reliability":   ["osint"],
-    "seenode":              ["general"],
     # Core Self-Development Loop (Clauses 17/18/19) — shipped 2026-04-15
     "verified_intel":       ["compliance", "osint", "legal"],
     "web_atlas":            ["osint", "market_intel"],
@@ -70,7 +68,6 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "core_develop":         ["general"],
     "ecosystem_reassess":   ["general"],
     "golden_autogen":       ["osint", "general"],
-    "paraphrase_guard":     ["osint", "general"],
     "adversarial_challenge": ["compliance", "general", "osint"],
     "narrative_monitor": ["osint", "geopolitics", "competitor_intel"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
@@ -92,6 +89,7 @@ _MODULE_WEIGHT: dict[str, float] = {
     "financial_dd":         0.2,
     "network_walker":       0.2,
     "deep_researcher":      0.25,
+    "entity_graph":         0.15,
     "person_resolver":      0.1,
     "competitors":          0.15,
     "gtm_strategy":         0.15,
@@ -106,14 +104,11 @@ _MODULE_WEIGHT: dict[str, float] = {
     "sanctions":            0.15,
     "conflict_tracker":     0.1,
     "international_law":    0.15,
-    # Node.js seenode modules
+    # Node.js seenode modules (via POST /api/aria/brain/absorb)
     "registry_adapter":     0.15,
     "opportunity_detector": 0.15,
     "signal_generator":     0.15,
-    "osint_sweep":          0.1,
     "knowledge_ingestor":   0.2,   # /teach URL ingestion — high value
-    "source_reliability":   0.05,  # automated source health — low weight
-    "seenode":              0.1,
     # Core Self-Development Loop (Clauses 17/18/19)
     "verified_intel":       0.15,  # every verified fact = real provenance work
     "web_atlas":            0.05,  # per-ingest EMA updates — high frequency, low weight
@@ -123,7 +118,6 @@ _MODULE_WEIGHT: dict[str, float] = {
     "core_develop":         0.20,  # acting on gaps is high-value self-improvement
     "ecosystem_reassess":   0.05,  # read-only queue build
     "golden_autogen":       0.10,  # self-growing eval set — meaningful curation
-    "paraphrase_guard":     0.05,  # per-turn discipline check — high frequency
     "adversarial_challenge": 0.30, # weekly stress test — highest-value mastery signal
     "narrative_monitor": 0.15,     # hourly narrative scan — moderate weight per detection
     # Pre-existing callers (from integrity audit)

@@ -1801,6 +1801,19 @@ async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
     duration = int((time.time() - t_start) * 1000)
     logger.info(f"Article read: {facts_learned} facts, {hyp_generated} hypotheses ({duration}ms)")
 
+    # Feed brain with article learning outcome
+    try:
+        from . import brain_hook
+        await brain_hook.absorb(
+            module="knowledge_ingestor",
+            summary=f"Article read: {url[:80]} → {facts_learned} facts, {hyp_generated} hypotheses",
+            detail=body[:2000] if body else "",
+            success=facts_learned > 0,
+            confidence="ASSESSED",
+        )
+    except Exception:
+        pass
+
     result = {
         "url": url,
         "facts_learned": facts_learned,
