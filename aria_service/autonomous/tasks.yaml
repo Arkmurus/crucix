@@ -939,6 +939,29 @@ tasks:
     escalate_if: ["critical_failure", "score_below_80"]
     mem0_tags: [adversarial, trust_score, manipulation_resistance, clause17_18_19, autonomous]
 
+  # ═══════════════════════════════════════════════════════════════════
+  # HOURLY NARRATIVE MONITOR — cognitive warfare detection
+  # ═══════════════════════════════════════════════════════════════════
+  - id: HOURLY-NARRATIVE-MONITOR
+    name: Cognitive warfare narrative detector
+    description: |
+      Hourly scan of intel ledger and news signals for coordinated
+      messaging campaigns, narrative manipulation, and information
+      operations targeting defence markets. Detects OEM reputation
+      attacks, market manipulation rumours, and synchronized messaging
+      across "independent" outlets. Alerts on cognitive warfare indicators.
+    cron: "0 * * * *"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 120
+    cost_cap_usd: 0.05
+    tool_chain:
+      - tool: narrative_scan
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if: ["coordinated_campaign", "narrative_spike", "oem_attack", "information_operation"]
+    mem0_tags: [narrative, cognitive_warfare, coordination, hourly, autonomous]
+
   - id: WEEKLY-TLD-PROBE
     name: TLD probe — gov/mil subdomain sweep
     description: |

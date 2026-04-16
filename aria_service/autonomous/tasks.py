@@ -382,6 +382,14 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         engagement_brief = await team_engagement.generate_engagement_briefing()
         if engagement_brief:
             summary += f"\n{engagement_brief}"
+        # Narrative environment section
+        try:
+            from ..intel import narrative_monitor
+            narrative_brief = await narrative_monitor.generate_narrative_briefing()
+            if narrative_brief:
+                summary += f"\n{narrative_brief}"
+        except Exception as _e:
+            logger.debug("narrative briefing failed (non-fatal): %s", _e)
         # State-of-ARIA: what ARIA sees about herself today
         try:
             from ..intel import self_assess
@@ -460,6 +468,10 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..intel import adversarial_challenge as _ac
         report = await _ac.run_weekly()
         return {"adversarial": report}
+
+    elif tool_kind == "narrative_scan":
+        from ..intel import narrative_monitor
+        return await narrative_monitor.scan_narratives()
 
     elif tool_kind == "pipeline_dormancy_check":
         from ..intel import deal_pipeline
@@ -557,7 +569,8 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "core_meta",
                            "source_scout",
                            "golden_autogen",
-                           "adversarial_weekly"):
+                           "adversarial_weekly",
+                           "narrative_scan"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             try:
