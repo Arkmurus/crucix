@@ -129,7 +129,7 @@ TIER_1A_DOMAINS = {
     # Government sources
     "whitehouse.gov", "gov.uk", "gov.ng", "presidencia.gob.pe",
     "defenceweb.co.za",  # Tier 2 for most, but official Ministry of Defence announcements
-    "reuters.com",       # Wire service - Tier 2 but very high quality
+    # NOTE: reuters.com is in TIER_2_DOMAINS — do NOT duplicate here
 }
 
 # Tier 1b domains — official academic/institutional sources

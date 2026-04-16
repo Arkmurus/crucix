@@ -484,6 +484,53 @@ tasks:
     escalate_if: ["new conflict", "escalation", "peace agreement", "ceasefire", "battle deaths increase"]
     mem0_tags: [ucdp, conflict, data, monthly, autonomous]
 
+  # MONTHLY-CRISISWATCH — International Crisis Group CrisisWatch
+  # ──────────────────────────────────────────────────────────────────
+  # Added 2026-04-16. Tracks 70+ conflicts/crises monthly.
+  # RSS ingestion from crisisgroup.org/rss/crisiswatch.
+  - id: MONTHLY-CRISISWATCH
+    name: CrisisWatch conflict tracker refresh
+    description: |
+      Monthly 2nd Monday 06:00 UTC — ingest latest CrisisWatch
+      monthly update. Scans for deterioration/improvement alerts
+      across 70+ tracked situations. Cross-references with Arkmurus
+      target markets (Angola, Mozambique, Nigeria, Sahel, MENA,
+      Southeast Asia). Flags any escalation or new crisis in markets
+      where Arkmurus has active or prospective deals.
+    cron: "0 6 8-14 * mon"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 300
+    cost_cap_usd: 0.30
+    tool_chain:
+      - tool: deep_research
+        entity: "CrisisWatch International Crisis Group latest monthly conflict alerts deterioration improvement"
+        url: "https://www.crisisgroup.org/crisiswatch"
+    delivery_channels: [mem0, intel_ledger, whatsapp]
+    escalate_if: ["deteriorated", "new crisis", "escalation", "Angola", "Mozambique", "Nigeria", "Sahel"]
+    mem0_tags: [crisiswatch, conflict, early_warning, monthly, autonomous]
+
+  # WEEKLY-CRISISGROUP-AFRICA — Crisis Group Africa reports
+  # ──────────────────────────────────────────────────────────────────
+  - id: WEEKLY-CRISISGROUP-AFRICA
+    name: Crisis Group Africa RSS scan
+    description: |
+      Weekly Monday 07:00 UTC — scan Crisis Group Africa RSS feed
+      for new reports, briefings, and commentary on African conflicts.
+      Priority source for Arkmurus target markets.
+    cron: "0 7 * * mon"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 300
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "Crisis Group Africa latest reports briefings conflict analysis"
+        url: "https://www.crisisgroup.org/rss/1"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["Angola", "Mozambique", "Nigeria", "Sahel", "escalation", "coup", "armed group"]
+    mem0_tags: [crisisgroup, africa, conflict, weekly, autonomous]
+
   # ──────────────────────────────────────────────────────────────────
   # BLOCK G — Weekly Summary (Friday)
   # ──────────────────────────────────────────────────────────────────
