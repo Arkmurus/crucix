@@ -120,6 +120,12 @@ TIER_1A_DOMAINS = {
     # Sanctions lists
     "treasury.gov", "ofac.treasury.gov", "sanctionslist.ofsi.hmtreasury.gov.uk",
     "eeas.europa.eu", "un.org",
+    # UN arms transfer & disarmament (official state-reported data)
+    "unroca.org",              # UN Register of Conventional Arms
+    "resolutions.unoda.org",   # UN disarmament resolutions
+    "treaties.unoda.org",      # Multilateral arms regulation treaties
+    # US government defence data
+    "state.gov",               # WMEAT + State Dept arms transfer reports
     # Government sources
     "whitehouse.gov", "gov.uk", "gov.ng", "presidencia.gob.pe",
     "defenceweb.co.za",  # Tier 2 for most, but official Ministry of Defence announcements
@@ -128,7 +134,12 @@ TIER_1A_DOMAINS = {
 
 # Tier 1b domains — official academic/institutional sources
 TIER_1B_DOMAINS = {
-    "ucdp.uu.se",  # Uppsala Conflict Data Program — leading academic conflict dataset (1946-present)
+    "ucdp.uu.se",              # Uppsala Conflict Data Program — leading academic conflict dataset
+    "prio.org",                # Peace Research Institute Oslo — 32 datasets on organised violence
+    "smallarmssurvey.org",     # Small Arms Survey — global firearms/SALW databases
+    "conflictarm.com",         # Conflict Armament Research / iTrace — weapon diversion tracking
+    "internal-displacement.org",  # IDMC — global internal displacement database
+    "securityassistance.org",  # Security Assistance Monitor — US FMS/IMET/FMF tracking
 }
 
 # Tier 2 domains — quality journalism and specialist press
@@ -138,6 +149,16 @@ TIER_2_DOMAINS = {
     # Defence specialist — Tier 2 quality
     "janes.com", "iiss.org", "sipri.org", "rusi.org", "chathamhouse.org",
     "understandingwar.org",
+    # Arms control & conflict research
+    "caat.org.uk",              # Campaign Against Arms Trade — UK export licences
+    "aoav.org.uk",              # Action on Armed Violence — explosive violence data
+    "armscontrolcenter.org",    # Center for Arms Control and Non-proliferation
+    "correlatesofwar.org",      # Quantitative conflict data (academic)
+    "oneearthfuture.org",       # REIGN + TIOS datasets
+    "dronewars.net",            # Armed drone capabilities tracking
+    "economicsandpeace.org",    # Global Peace Index
+    "civiliansinconflict.org",  # Center for Civilians in Conflict (CIVIC)
+    "unidir.org",               # UN Institute for Disarmament Research
     # Regional high-quality
     "premiumtimesng.com", "defenceweb.co.za", "theafricareport.com",
     "agenciabrasil.ebc.com.br", "publico.pt",

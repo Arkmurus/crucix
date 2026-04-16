@@ -3335,3 +3335,388 @@ sources:
     frequency: monthly
     cplp_relevant: true
     notes: Profiles of armed non-state actors — directly relevant for African conflict ecosystems
+
+
+  # ── 📚 EVERYDAYPEACEBUILDING.COM — MILITARISM DATABASE CATALOGUE ────────
+  # Added 2026-04-16 from https://everydaypeacebuilding.com/militarism-databases/
+  # Meta-source: curated directory of 47 open databases on militarism, arms
+  # trade, and conflict (Taylor O'Connor, Aug 2023). Sources already in the
+  # registry (SIPRI, ACLED, SAM.gov, UNIDIR) are NOT duplicated below.
+
+  - url: https://everydaypeacebuilding.com/militarism-databases/
+    tier: B
+    source_class: Everyday Peacebuilding
+    category: meta_source_directory
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "Curated catalogue of 47 militarism/arms/conflict databases. Meta-source — re-crawl quarterly to discover new entries. Author: Taylor O'Connor."
+
+  # ── Arms Transfers & Conventional Weapons ──
+
+  - url: https://www.unroca.org/
+    tier: A
+    source_class: UNROCA
+    category: arms_transfers
+    region: global
+    ingest_strategy: api
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "UN Register of Conventional Arms — state-reported imports/exports across 20 weapon categories. Cross-check with SIPRI for gaps indicating opaque transfers."
+
+  - url: https://www.smallarmssurvey.org/databases
+    tier: A
+    source_class: Small Arms Survey
+    category: small_arms_trade
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "Global firearms holdings, violent deaths, small arms trade, munitions explosions. Critical for African SALW proliferation tracking."
+
+  - url: https://caat.org.uk/data/
+    tier: A
+    source_class: CAAT
+    category: export_controls
+    region: europe
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Campaign Against Arms Trade — UK arms export licences by destination, value, type. Competitor intel: see which UK firms got licences for which markets."
+
+  - url: https://www.conflictarm.com/itrace/
+    tier: A
+    source_class: Conflict Armament Research
+    category: weapons_diversion
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+    notes: "iTrace global weapon reporting — documents diverted conventional weapons in active conflicts. Key for compliance risk assessment and end-user certificate validation."
+
+  - url: https://globalweaponstracking.com/
+    tier: B
+    source_class: Global Weapons Tracking Portal
+    category: arms_transfers
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Monitors global weapons stockpiles, arms trade, military infrastructure movements."
+
+  - url: https://www.state.gov/world-military-expenditures-and-arms-transfers/
+    tier: A
+    source_class: US State Dept WMEAT
+    category: military_expenditure
+    region: global
+    ingest_strategy: pdf
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "World Military Expenditures and Arms Transfers — US State Dept official reporting. Cross-reference with SIPRI milex for discrepancy analysis."
+
+  - url: https://saferglobe.fi/en/publications-2/
+    tier: B
+    source_class: Safer Globe
+    category: arms_transfers
+    region: europe
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "Finnish and Nordic weapons manufacturing and export tracking."
+
+  # ── US Security Assistance & Procurement ──
+
+  - url: https://securityassistance.org/databases-2/
+    tier: A
+    source_class: Security Assistance Monitor
+    category: security_assistance
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+    notes: "Tracks US security assistance, FMS arms sales, foreign military training by country. Essential for understanding US competitor positioning in African markets."
+
+  - url: https://sgp.fas.org/crs/natsec/
+    tier: B
+    source_class: CRS National Security
+    category: us_defence_policy
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Congressional Research Service national security reports. Includes FMS sales, arms transfer policy, regional security assessments."
+
+  - url: https://www.cato.org/policy-analysis/2022-arms-sales-risk-index
+    tier: B
+    source_class: Cato Institute
+    category: arms_sales_risk
+    region: global
+    ingest_strategy: html_crawl
+    frequency: once
+    cplp_relevant: true
+    notes: "Arms Sales Risk Index — evaluates risk factors for US arms sales to foreign countries. Useful for predicting FMS approval likelihood."
+
+  # ── Conflict Data & Academic Datasets ──
+
+  - url: https://www.prio.org/data
+    tier: A
+    source_class: PRIO
+    category: conflict_data
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "Peace Research Institute Oslo — 32 datasets on organized violence, civil war, conflict. Academic Tier 1b quality. Complements UCDP."
+
+  - url: https://correlatesofwar.org/data-sets/
+    tier: B
+    source_class: Correlates of War
+    category: conflict_data
+    region: global
+    ingest_strategy: html_crawl
+    frequency: once
+    cplp_relevant: false
+    notes: "Quantitative conflict data from 1800s-present. Historical baseline for trend analysis."
+
+  - url: https://brecke.inta.gatech.edu/research/conflict/
+    tier: B
+    source_class: Conflict Catalogue
+    category: conflict_data
+    region: global
+    ingest_strategy: html_crawl
+    frequency: once
+    cplp_relevant: false
+    notes: "3,700+ wars/conflicts 1400-2000 with casualty data. Historical reference only."
+
+  - url: https://oneearthfuture.org/reign-dataset-international-elections-and-leaders
+    tier: B
+    source_class: REIGN Dataset
+    category: political_stability
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+    notes: "Monthly political condition data for 2,300+ leaders across 201 countries. Useful for coup risk and procurement cycle prediction."
+
+  - url: https://oneearthfuture.org/terrorist-and-insurgent-organization-social-services-tios-dataset
+    tier: B
+    source_class: TIOS Dataset
+    category: armed_non_state_actors
+    region: global
+    ingest_strategy: html_crawl
+    frequency: once
+    cplp_relevant: true
+    notes: "Social services by 400+ armed non-state orgs. Context for understanding insurgent legitimacy in target markets."
+
+  # ── Explosive Violence & Civilian Impact ──
+
+  - url: https://aoav.org.uk/explosiveviolence/
+    tier: B
+    source_class: AOAV Explosive Violence Monitor
+    category: explosive_violence
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+    notes: "Records explosive violence incidents with casualty data across 119 countries. Relevant for mine/EOD procurement opportunities."
+
+  - url: https://www.internal-displacement.org/database/displacement-data
+    tier: A
+    source_class: IDMC GIDD
+    category: displacement_data
+    region: global
+    ingest_strategy: api
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "Global Internal Displacement Database — conflict/disaster displacement by country. Indicator for humanitarian-security procurement overlap."
+
+  - url: https://yemendataproject.org/data.html
+    tier: B
+    source_class: Yemen Data Project
+    category: conflict_data
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Aerial bombardment and political violence data for Yemen. Regional conflict monitoring."
+
+  - url: https://www.iraqbodycount.org/database/
+    tier: B
+    source_class: Iraq Body Count
+    category: conflict_data
+    region: mena
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Civilian death records in Iraq from 2003. Historical conflict reference."
+
+  # ── Disarmament, Treaties & Policy ──
+
+  - url: https://resolutions.unoda.org/resolutions
+    tier: A
+    source_class: UNODA Resolutions
+    category: disarmament_policy
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "Searchable UN disarmament resolutions by weapon type. Legal compliance reference."
+
+  - url: https://treaties.unoda.org/
+    tier: A
+    source_class: UNODA Treaties
+    category: arms_control_treaties
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "28 multilateral arms regulation agreements with signatory info. Export control compliance reference."
+
+  - url: https://armscontrolcenter.org/issues/
+    tier: B
+    source_class: Center for Arms Control
+    category: arms_control_policy
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Fact sheets on military spending, nuclear arsenals, disarmament treaties."
+
+  - url: https://banmonitor.org/
+    tier: B
+    source_class: Nuclear Weapons Ban Monitor
+    category: nuclear_policy
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "TPNW compliance tracking. Niche but relevant for nuclear-adjacent procurement compliance."
+
+  # ── Drones & Emerging Tech ──
+
+  - url: https://dronewars.net/who-has-armed-drones/
+    tier: B
+    source_class: Drone Wars UK
+    category: unmanned_systems
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "Countries with armed drone capabilities and origins. Directly relevant for UAS procurement opportunities and competitor mapping."
+
+  - url: https://aipolicyportal.org/
+    tier: B
+    source_class: UNIDIR AI Policy Portal
+    category: ai_defence_policy
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "National AI policy and legislation by country. Relevant for AI-enabled defence procurement."
+
+  - url: https://cyberpolicyportal.org/
+    tier: B
+    source_class: UNIDIR Cyber Policy Portal
+    category: cyber_defence_policy
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "Cybersecurity policy and legislation globally. Relevant for cyber defence procurement."
+
+  - url: https://spacesecurityportal.org/
+    tier: B
+    source_class: UNIDIR Space Security Portal
+    category: space_defence_policy
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "Space security policy monitoring. Niche — relevant for satellite/ISR procurement."
+
+  # ── Nuclear Finance & Corporate Accountability ──
+
+  - url: https://www.dontbankonthebomb.com/
+    tier: B
+    source_class: Dont Bank on the Bomb
+    category: nuclear_finance
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "Tracks institutions financing nuclear weapons production. Compliance screening reference for banking/finance partners."
+
+  - url: https://database.centredelas.org/bbdd/?lang=en
+    tier: B
+    source_class: Centre Delas
+    category: arms_exports
+    region: europe
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "EU arms exports, armed banking, border militarization data. European competitor intel."
+
+  # ── Peace & Stability Indices ──
+
+  - url: https://www.economicsandpeace.org/reports/
+    tier: B
+    source_class: Global Peace Index
+    category: peace_stability_index
+    region: global
+    ingest_strategy: pdf
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "Ranks countries by peacefulness across 23 criteria. Useful as market risk/opportunity indicator."
+
+  - url: https://ourworldindata.org/war-and-peace
+    tier: B
+    source_class: Our World in Data
+    category: conflict_data
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "Interactive conflict death charts and peacekeeping data. Background analysis reference."
+
+  # ── Accountability & Documentation ──
+
+  - url: https://www.eyewitness.global/resources
+    tier: B
+    source_class: eyeWitness to Atrocities
+    category: accountability_tools
+    region: global
+    ingest_strategy: html_crawl
+    frequency: once
+    cplp_relevant: false
+    notes: "War crimes documentation tools. Reference for compliance awareness — know what evidence standards exist."
+
+  - url: https://civiliansinconflict.org/publications/
+    tier: B
+    source_class: CIVIC
+    category: civilian_protection
+    region: global
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+    notes: "Research on civilian protection in conflict zones. Context for force protection and PoC procurement."
+
+  - url: https://www.nationalpriorities.org/analysis/
+    tier: B
+    source_class: National Priorities Project
+    category: us_defence_spending
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "US federal spending analysis emphasising military expenditure. Context for FMS budget cycles."
+
+  - url: https://worldbeyondwar.org/no-bases/
+    tier: B+
+    source_class: World Beyond War
+    category: military_bases
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "Interactive map of 900+ US military installations worldwide. Useful for understanding US force posture in target markets."
