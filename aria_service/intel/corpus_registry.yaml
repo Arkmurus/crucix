@@ -3844,3 +3844,31 @@ sources:
     frequency: once
     cplp_relevant: false
     notes: "BGRI methodology paper — NLP on Refinitiv brokerage reports + Dow Jones News, sentiment-adjusted, brokerage-weighted. Understanding the methodology lets ARIA interpret BGRI scores correctly."
+
+
+  # ── 🕵️ OSINT FRAMEWORK — INVESTIGATION METHODOLOGY ─────────────────────
+  # Added 2026-04-16. Tier D — reasoning layer, NOT RAG retrieval.
+  # Teaches ARIA the 32-category OSINT investigation taxonomy:
+  # entity resolution chains (username→email→social→business→public records),
+  # cross-platform correlation, verification workflows, and counter-deception
+  # techniques (metadata, reverse image, domain age, WHOIS).
+
+  - url: https://osintframework.com/
+    tier: D
+    source_class: OSINT Framework
+    category: osint_methodology
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "32-category OSINT tool taxonomy (lockfale/osint-framework). Tier D — distilled into investigation methodology, not RAG. Key categories for ARIA: Business Records, Public Records, Domain Name, Email Address, Username, Social Networks, Digital Currency, Geolocation, Metadata, Transportation. Teaches the entity resolution chain ARIA's DD currently skips: Username → Email → Social → Business Records → Public Records → Domain verification."
+
+  - url: https://github.com/lockfale/osint-framework
+    tier: D
+    source_class: OSINT Framework Source
+    category: osint_methodology
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "GitHub source for OSINT Framework — tool links and category structure as JSON. Crawl quarterly to detect new tools and categories added by the community."
