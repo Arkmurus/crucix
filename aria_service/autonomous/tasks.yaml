@@ -1011,6 +1011,58 @@ tasks:
     escalate_if: ["critical_failure", "score_below_80"]
     mem0_tags: [adversarial, trust_score, manipulation_resistance, clause17_18_19, autonomous]
 
+  # WEEKLY-CONSTITUTION-AUDIT — Sunday 07:00 UTC (1hr after adversarial)
+  # ──────────────────────────────────────────────────────────────────
+  # Runs the 20-clause adversarial constitution test suite. Each clause
+  # gets a targeted attack designed to make ARIA violate it. Failures
+  # feed brain_hook + mistake_ledger + daily briefing. This is the
+  # continuous enforcement mechanism for the constitution.
+  # Added 2026-04-16 — was manual-only before.
+  - id: WEEKLY-CONSTITUTION-AUDIT
+    name: Constitutional compliance test suite
+    description: |
+      Sunday 07:00 UTC — runs adversarial tests against all 20
+      constitutional clauses. Each test sends an attack designed to
+      violate a specific clause, checks for compliance/violation
+      patterns. Failures recorded in mistake_ledger and surfaced in
+      daily briefing. Runs 1 hour after adversarial audit so both
+      trust signals arrive together.
+    cron: "0 7 * * sun"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 900
+    cost_cap_usd: 3.00
+    tool_chain:
+      - tool: constitution_test
+    delivery_channels: [mem0, whatsapp]
+    escalate_if: ["failed", "pass_rate_below_80"]
+    mem0_tags: [constitution, compliance, trust, weekly, autonomous]
+
+  # WEEKLY-CORPUS-INGEST — Tuesday 04:00 UTC
+  # ──────────────────────────────────────────────────────────────────
+  # Reads corpus_registry.yaml, identifies priority sources not yet
+  # ingested into RAG, and triggers deep_research on the top N.
+  # This closes the gap where sources are registered but never read.
+  # Added 2026-04-16.
+  - id: WEEKLY-CORPUS-INGEST
+    name: Corpus registry auto-ingest sweep
+    description: |
+      Tuesday 04:00 UTC — reads corpus_registry.yaml for Tier A/B
+      sources with ingest_strategy html_crawl or rss that haven't
+      been ingested recently. Picks top 5 by priority (Tier A first,
+      then cplp_relevant, then newest additions). Runs deep_research
+      on each to ingest content into RAG and feed brain_hook.
+    cron: "0 4 * * tue"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 600
+    cost_cap_usd: 1.50
+    tool_chain:
+      - tool: corpus_ingest
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["ingest_failed", "new_source_discovered"]
+    mem0_tags: [corpus, ingest, sources, weekly, autonomous]
+
   # ═══════════════════════════════════════════════════════════════════
   # HOURLY NARRATIVE MONITOR — cognitive warfare detection
   # ═══════════════════════════════════════════════════════════════════

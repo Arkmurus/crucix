@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -498,6 +499,115 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         readable = report.get("readable_report", str(report))
         return readable
 
+    elif tool_kind == "constitution_test":
+        # Weekly constitution compliance audit — runs all 20 clause tests.
+        # Failures feed mistake_ledger + brain_hook via structured report.
+        import os as _os
+        from ..tests.test_constitution import ARIAConstitutionTestRunner
+        api_key = _os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return {"error": "ANTHROPIC_API_KEY not set — cannot run constitution tests"}
+        runner = ARIAConstitutionTestRunner(
+            api_key=api_key,
+            model="claude-sonnet-4-6",
+        )
+        report = runner.run_all()
+        # Record failures in mistake_ledger + brain_hook
+        try:
+            from ..intel import mistake_ledger as _ml
+            from ..intel import brain_hook as _bh
+            for r in report.results:
+                if not r.passed and not r.error:
+                    await _ml.record(
+                        category="false_confidence",
+                        task_type="constitution_test",
+                        domain=f"clause_{r.clause_number}",
+                        what=f"Constitution clause {r.clause_number} ({r.clause_name}) FAILED",
+                        why=f"Violation pattern matched: {(r.violation_found or '')[:200]}",
+                        fix=f"Strengthen clause {r.clause_number} to catch this attack pattern",
+                    )
+            await _bh.absorb(
+                module="constitution_test",
+                summary=(
+                    f"Constitution audit: {report.passed}/{report.total} passed "
+                    f"({report.pass_rate:.0%}), {report.failed} failed"
+                ),
+                detail=report.to_report()[:500],
+                success=report.pass_rate >= 0.80,
+                gap_type="adversarial_critical_failure" if report.failed > 0 else None,
+                gap_detail=f"{report.failed} clause(s) failed" if report.failed else None,
+            )
+        except Exception:
+            pass
+        return report.to_report()
+
+    elif tool_kind == "corpus_ingest":
+        # Weekly corpus registry auto-ingest — reads YAML, picks top 5
+        # priority unread sources, runs deep_research on each.
+        import yaml as _yaml
+        from ..intel import researcher as _res
+        from ..intel import brain_hook as _bh
+        from ..llm.factory import create_llm_provider
+        registry_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "intel", "corpus_registry.yaml",
+        )
+        try:
+            with open(registry_path) as f:
+                reg = _yaml.safe_load(f)
+        except Exception as e:
+            return {"error": f"Failed to load corpus_registry.yaml: {e}"}
+        sources = reg.get("sources", [])
+        # Filter to crawlable Tier A/B sources
+        candidates = [
+            s for s in sources
+            if s.get("tier", "").upper() in ("A", "B", "B+")
+            and s.get("ingest_strategy") in ("html_crawl", "rss")
+            and s.get("url")
+        ]
+        # Sort: Tier A first, then cplp_relevant, then alphabetical
+        tier_order = {"A": 0, "B": 1, "B+": 2}
+        candidates.sort(key=lambda s: (
+            tier_order.get(s.get("tier", "B+").upper(), 3),
+            0 if s.get("cplp_relevant") else 1,
+            s.get("url", ""),
+        ))
+        # Pick top 5
+        to_ingest = candidates[:5]
+        results = []
+        llm = create_llm_provider()
+        for src in to_ingest:
+            url = src["url"]
+            try:
+                article = await _res.read_article(
+                    llm, url,
+                    context=f"Ingest source: {src.get('source_class', '')} — {src.get('notes', '')}",
+                )
+                results.append({
+                    "url": url,
+                    "source_class": src.get("source_class"),
+                    "status": "ingested" if article else "empty",
+                    "chars": len(str(article)),
+                })
+            except Exception as e:
+                results.append({
+                    "url": url,
+                    "source_class": src.get("source_class"),
+                    "status": f"error: {e}",
+                })
+        try:
+            await _bh.absorb(
+                module="knowledge_ingestor",
+                summary=f"Corpus auto-ingest: {sum(1 for r in results if r['status'] == 'ingested')}/{len(results)} sources ingested",
+                detail=str(results)[:500],
+                success=any(r["status"] == "ingested" for r in results),
+            )
+        except Exception:
+            pass
+        return {"ingested": len([r for r in results if r["status"] == "ingested"]),
+                "failed": len([r for r in results if r["status"] != "ingested"]),
+                "results": results}
+
     elif tool_kind == "narrative_scan":
         from ..intel import narrative_monitor
         return await narrative_monitor.scan_narratives()
@@ -599,6 +709,8 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "source_scout",
                            "golden_autogen",
                            "adversarial_weekly",
+                           "constitution_test",
+                           "corpus_ingest",
                            "narrative_scan"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
