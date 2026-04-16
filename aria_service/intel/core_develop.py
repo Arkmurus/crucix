@@ -19,7 +19,10 @@ Every action is HMAC-audited via audit_log.record(self_improve_*).
 """
 from __future__ import annotations
 
+import json as _json
 import logging
+import re
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -46,6 +49,7 @@ _ACTION_FAMILY = {
     "mastery_drift":  "reading_session",
     "mistake_pattern": "prompt_evolution",
     "capability_gap": "eng_ticket",
+    "learning_suggestion": "source_gap",  # piggy-back on source_gap family
 }
 
 
@@ -64,6 +68,24 @@ async def run(
     from . import ecosystem_reassess
     allowed = set(allowed_actions or _DEFAULT_ALLOWED_ACTIONS)
     queue = await ecosystem_reassess.get_queue(limit=max_actions * 5)
+
+    # Also pull learning suggestions extracted from ARIA's own responses
+    try:
+        raw_suggestions = await rs.lrange("aria:core:learning_suggestions", 0, 4)
+        for entry in (raw_suggestions or []):
+            try:
+                item = _json.loads(entry)
+                if item.get("status") == "pending":
+                    queue.append({
+                        "kind": "learning_suggestion",
+                        "key": f"ls:{item.get('queued_at', '')}",
+                        "urgency": 35,  # Medium-low — let real gaps take priority
+                        "payload": {"detail": item["text"], "source": item.get("source", "self")},
+                    })
+            except Exception:
+                continue
+    except Exception:
+        pass
 
     results: list[dict] = []
     acted = 0
@@ -159,6 +181,9 @@ async def _act_on(item: dict) -> dict:
         # Missing file parser, missing API — log an engineering ticket.
         return await _act_capability_gap(payload, key)
 
+    if kind == "learning_suggestion":
+        return await _act_learning_suggestion(payload, key)
+
     return {"key": key, "acted": False, "reason": f"no handler for kind={kind}"}
 
 
@@ -250,6 +275,124 @@ async def _act_capability_gap(payload: dict, key: str) -> dict:
                 "ticket": ticket}
     except Exception as e:
         return {"key": key, "acted": False, "error": str(e)}
+
+
+async def _act_learning_suggestion(payload: dict, key: str) -> dict:
+    """Learning suggestion from ARIA's own response — feed into source scout
+    as a broad discovery hint, or log as an engineering ticket if it looks
+    like a capability request."""
+    detail = payload.get("detail", "")
+    if not detail:
+        return {"key": key, "acted": False, "reason": "empty detail"}
+    try:
+        # Attempt a targeted source scout — the suggestion often names a
+        # data source or region that the scout can try to find.
+        from . import source_scout
+        scout_result = await source_scout.run(
+            pattern="targeted", region="global", topic=detail[:80], max_finds=2,
+        )
+        return {
+            "key": key, "acted": True, "action": "learning_suggestion_scouted",
+            "detail": detail, "scout": scout_result,
+        }
+    except Exception as e:
+        # Fall back to logging an engineering ticket
+        try:
+            ticket = {
+                "kind": "learning_suggestion_ticket",
+                "detail": detail,
+                "source": payload.get("source", "self"),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await rs.lpush("aria:engineering:tickets", str(ticket))
+            return {"key": key, "acted": True, "action": "learning_suggestion_ticketed",
+                    "detail": detail}
+        except Exception:
+            return {"key": key, "acted": False, "error": str(e)}
+
+
+# ── Learning suggestion extraction from ARIA responses ─────────────────
+
+_SUGGESTION_PATTERNS = [
+    # "we should/could/must [verb]" patterns
+    re.compile(r"\b(?:we\s+)?(?:should|could|must|need\s+to|recommend)\s+(?:also\s+)?(\w+(?:\s+\w+){2,15})", re.I),
+    # "Action: [text]" or "Action item: [text]"
+    re.compile(r"\bAction(?:\s+item)?:\s*(.{10,120})", re.I),
+    # "add [X] to [autonomous/sweep/monitor/atlas]"
+    re.compile(r"\badd\s+(.{5,80}?)\s+to\s+(?:the\s+)?(?:autonomous|sweep|monitor|atlas|knowledge|watchlist|registry)", re.I),
+    # "integrate [X]"
+    re.compile(r"\bintegrate\s+(.{5,80}?)(?:\.|$|\n)", re.I),
+    # "create a [task/module/endpoint]"
+    re.compile(r"\bcreate\s+(?:a\s+)?(?:new\s+)?(?:scheduled\s+)?(?:task|module|endpoint|monitor)\s+(?:that|to|for)\s+(.{5,100})", re.I),
+    # "Next Step: [text]"
+    re.compile(r"\bNext\s+Step:\s*(.{10,150})", re.I),
+]
+
+# Filter: don't queue suggestions that are just general advice
+_SUGGESTION_STOPWORDS = [
+    "contact", "reach out", "speak to", "email", "call",  # human actions
+    "commission", "hire", "subscribe", "purchase", "buy",  # spend money
+    "within 48 hours", "within 24 hours",  # time-bound promises (not actionable by code)
+]
+
+_LEARNING_QUEUE_KEY = "aria:core:learning_suggestions"
+
+
+async def extract_learning_suggestions(response_text: str, session_id: str = "") -> list[dict]:
+    """Scan an ARIA response for self-improvement suggestions and queue them.
+
+    Returns list of extracted suggestions with their queue status.
+    """
+    if not response_text or len(response_text) < 100:
+        return []
+
+    suggestions: list[dict] = []
+    seen: set[str] = set()
+
+    for pattern in _SUGGESTION_PATTERNS:
+        for match in pattern.finditer(response_text):
+            text = match.group(1).strip().rstrip(".")
+            if len(text) < 10 or len(text) > 200:
+                continue
+            # Dedup
+            key = text.lower()[:50]
+            if key in seen:
+                continue
+            seen.add(key)
+            # Filter human-only actions
+            if any(stop in text.lower() for stop in _SUGGESTION_STOPWORDS):
+                continue
+            suggestions.append({
+                "text": text,
+                "source": f"self_suggestion:{session_id}" if session_id else "self_suggestion",
+                "pattern": pattern.pattern[:40],
+            })
+
+    if not suggestions:
+        return []
+
+    # Queue as items in the core_develop pipeline
+    queued: list[dict] = []
+
+    for s in suggestions[:5]:  # Cap at 5 per response
+        item = {
+            "kind": "learning_suggestion",
+            "text": s["text"],
+            "source": s["source"],
+            "queued_at": time.time(),
+            "status": "pending",
+        }
+        try:
+            await rs.lpush(_LEARNING_QUEUE_KEY, _json.dumps(item))
+            await rs.ltrim(_LEARNING_QUEUE_KEY, 0, 99)  # Keep max 100
+            queued.append(item)
+        except Exception:
+            pass
+
+    if queued:
+        logger.info("[core_develop] Extracted %d learning suggestions from response", len(queued))
+
+    return queued
 
 
 # ── Weekly meta-review ───────────────────────────────────────────────────

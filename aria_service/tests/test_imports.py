@@ -1720,9 +1720,9 @@ def test_core_develop_rollout_starter_is_source_gap_only():
 
 
 def test_core_develop_tasks_yaml_carries_staged_allowed_actions():
-    """DAILY-CORE-DEVELOP must be enabled BUT carry the allowed_actions
-    starter set in its tool_chain. Flipping enabled without the
-    whitelist would immediately release the full action surface."""
+    """DAILY-CORE-DEVELOP must carry an explicit allowed_actions whitelist.
+    Full rollout (2026-04-16): widened to include source_refresh,
+    reading_session, mastery_drift. mistake_pattern + eng_ticket stay blocked."""
     from aria_service.autonomous.tasks import load_tasks
     tasks = load_tasks()
     t = tasks.get("DAILY-CORE-DEVELOP")
@@ -1730,10 +1730,13 @@ def test_core_develop_tasks_yaml_carries_staged_allowed_actions():
     assert t.enabled is True
     assert t.tool_chain
     allowed = t.tool_chain[0].get("allowed_actions")
-    assert allowed == ["source_gap"], (
-        f"Staged rollout broken — tool_chain allowed_actions = {allowed}. "
-        f"Must be [source_gap] until operator widens after 5 clean days."
-    )
+    assert "source_gap" in allowed, "source_gap must always be allowed"
+    assert "source_refresh" in allowed, "source_refresh enabled (full rollout)"
+    assert "reading_session" in allowed, "reading_session enabled (full rollout)"
+    assert "mastery_drift" in allowed, "mastery_drift enabled (full rollout)"
+    # These stay blocked — require code changes / higher blast radius
+    assert "mistake_pattern" not in allowed, "mistake_pattern must stay blocked"
+    assert "eng_ticket" not in allowed, "eng_ticket must stay blocked"
 
 
 def test_deploy_workflow_is_gated_on_test_workflow():
@@ -1846,9 +1849,11 @@ def test_autonomy_week1_tasks_enabled():
     assert tasks["DAILY-FACT-REFRESH"].enabled is True
     assert "HOURLY-ECOSYSTEM-REASSESS" in tasks
     assert tasks["HOURLY-ECOSYSTEM-REASSESS"].enabled is True
-    # DAILY-CORE-DEVELOP keeps the source_gap-only whitelist
+    # DAILY-CORE-DEVELOP widened to 4 action families (full rollout 2026-04-16)
     assert tasks["DAILY-CORE-DEVELOP"].enabled is True
-    assert tasks["DAILY-CORE-DEVELOP"].tool_chain[0]["allowed_actions"] == ["source_gap"]
+    _allowed = tasks["DAILY-CORE-DEVELOP"].tool_chain[0]["allowed_actions"]
+    assert "source_gap" in _allowed
+    assert "source_refresh" in _allowed
     # Scouts + DD watchlist now enabled (full rollout 2026-04-16)
     assert tasks["DAILY-CITATION-SCOUT"].enabled is True
     assert tasks["WEEKLY-TLD-PROBE"].enabled is True

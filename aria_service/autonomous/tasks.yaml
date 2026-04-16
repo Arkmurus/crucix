@@ -858,8 +858,8 @@ tasks:
     cost_cap_usd: 0.30
     tool_chain:
       - tool: core_develop
-        max_actions: 2
-        allowed_actions: [source_gap]
+        max_actions: 5
+        allowed_actions: [source_gap, source_refresh, reading_session, mastery_drift]
     delivery_channels: [mem0]
     whatsapp_group_id: ""
     escalate_if: ["validator_rejected", "blocked_by_doctrine"]

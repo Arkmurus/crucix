@@ -586,6 +586,16 @@ async def validate(
         cand.validation_notes = (
             "Auto-approved: Tier 1a/1b gov domain within schema gate"
         )
+    elif cand.tier_proposed == "2" and cand.overall_quality_score >= 0.70:
+        # Tier 2 sources (quality journalism, think tanks, ISW/UCDP/SIPRI class)
+        # auto-approve if they pass 70% of the 10-signal validator.
+        # Past incident 2026-04-16: ISW and UCDP were found by source_scout
+        # but sat in PENDING indefinitely because only gov TLDs auto-approved.
+        cand.validation_status = ValidationStatus.AUTO_APPROVED
+        cand.validation_notes = (
+            f"Auto-approved: Tier 2 source with quality score "
+            f"{cand.overall_quality_score:.0%} (≥70% threshold)"
+        )
     else:
         cand.validation_status = ValidationStatus.PENDING
 

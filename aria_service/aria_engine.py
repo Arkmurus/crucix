@@ -2171,6 +2171,16 @@ async def aria_chat(
     except Exception:
         pass  # non-blocking — sanitization is a safety net, not a gate
 
+    # Extract learning suggestions from ARIA's own response (non-blocking)
+    try:
+        from .intel import core_develop as _cd
+        _ls_task = asyncio.create_task(
+            _cd.extract_learning_suggestions(response_text, session_id)
+        )
+        _ls_task.add_done_callback(_bg_done("core_develop.extract_learning_suggestions"))
+    except Exception:
+        pass
+
     return {
         "response": response_text,
         "session_id": session_id,
@@ -2465,6 +2475,16 @@ async def aria_chat_stream(
                 )
             )
             metacog_task.add_done_callback(_bg_done("metacognitive"))
+    except Exception:
+        pass
+
+    # Extract learning suggestions from ARIA's own response (non-blocking)
+    try:
+        from .intel import core_develop as _cd
+        _ls_task = asyncio.create_task(
+            _cd.extract_learning_suggestions(response_text, session_id)
+        )
+        _ls_task.add_done_callback(_bg_done("core_develop.extract_learning_suggestions"))
     except Exception:
         pass
 

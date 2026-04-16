@@ -51,6 +51,17 @@ async def run() -> dict:
         gaps = await web_atlas.surface_gaps(min_level="MEDIUM", limit=50)
         for g in gaps:
             level = g.get("gap_level", "MEDIUM")
+            # Skip gaps touched in the last 24h — source_scout already attempted them
+            last_fetch = g.get("last_fetch") or g.get("last_fetch_ts", 0)
+            if isinstance(last_fetch, str):
+                try:
+                    last_fetch = datetime.fromisoformat(
+                        last_fetch.replace("Z", "+00:00")
+                    ).timestamp()
+                except Exception:
+                    last_fetch = 0
+            if last_fetch and (time.time() - last_fetch) < 86400:
+                continue  # Recently attempted — don't re-queue
             key = f"gap:{g.get('region')}:{g.get('topic')}"
             urgency_kind = {
                 "CRITICAL": "critical_gap",

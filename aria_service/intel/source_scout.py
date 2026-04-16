@@ -294,6 +294,14 @@ async def _scout_targeted(region: str, topic: str, max_finds: int = 3) -> dict:
                     found.append({"url": url, "tier": tier.value, "result": gated})
                     if len(found) >= max_finds:
                         break
+                elif gated.get("path") == "queued_pending":
+                    # Candidate found but pending approval — update coverage partially
+                    # so the gap doesn't keep re-firing every hour
+                    try:
+                        await _wa.update_coverage(region, topic, fetch_success=False)
+                    except Exception:
+                        pass
+                    found.append({"url": url, "tier": tier.value, "result": gated, "pending": True})
 
     return {"pattern": "targeted", "region": region, "topic": topic,
             "found": len(found), "entries": found}
@@ -349,6 +357,13 @@ async def _gated_add(
                 "tier": cand.tier_proposed, "atlas": entry}
     # PENDING → queue for human review. Not added to atlas until approved.
     q = await _sv.queue_candidate(cand)
+    # Update coverage to CANDIDATE so ecosystem_reassess stops re-firing
+    # this gap every hour. The gap isn't closed, but a candidate exists.
+    try:
+        await _wa.update_coverage(region, gap_domain or (topic_tags[0] if topic_tags else ""),
+                                  fetch_success=False)  # Partial — not fully resolved
+    except Exception:
+        pass
     return {"added": False, "path": "queued_pending",
             "candidate_id": cand.candidate_id,
             "tier_proposed": cand.tier_proposed,
