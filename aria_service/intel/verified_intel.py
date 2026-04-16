@@ -140,6 +140,7 @@ TIER_1B_DOMAINS = {
     "conflictarm.com",         # Conflict Armament Research / iTrace — weapon diversion tracking
     "internal-displacement.org",  # IDMC — global internal displacement database
     "securityassistance.org",  # Security Assistance Monitor — US FMS/IMET/FMF tracking
+    "crisisgroup.org",         # International Crisis Group — CrisisWatch conflict tracker
     "start.umd.edu",           # Global Terrorism Database — UMD START center
     "ipums.org",               # Integrated census/survey data — University of Minnesota
 }

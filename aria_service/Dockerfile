@@ -26,6 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Build tools — required for some pip wheels that compile from source
     gcc \
     g++ \
+    # curl — used to download Lightpanda binary at build time
+    curl \
     # SQLite for chromadb persistent backend (modern version)
     sqlite3 \
     libsqlite3-dev \
@@ -40,6 +42,15 @@ RUN mkdir -p /data/aria_rag && chmod 755 /data/aria_rag
 
 COPY aria_service/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+
+# ── Lightpanda headless browser (JS rendering, 24MB) ──────────────────────
+# Written in Zig — 11x faster than Chrome, 9x less memory. Speaks CDP so
+# Playwright connects as a thin client. Only invoked when httpx returns
+# thin/JS-only content (React SPAs, dashboards, procurement portals).
+# NOTE: Do NOT run `playwright install` — we use Lightpanda, not Chromium.
+RUN curl -fsSL -o /usr/local/bin/lightpanda \
+    https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-x86_64-linux \
+    && chmod +x /usr/local/bin/lightpanda
 
 # ── Pre-bake sentence-transformers model into image ─────────────────────────
 # Past incident 2026-04-07: every cold start triggered the all-MiniLM-L6-v2

@@ -44,3 +44,10 @@ Pillow>=10.0.0
 # also imported defensively — modules load without it (import guarded) but
 # their LLM-powered methods return empty results if it is missing.
 anthropic>=0.40.0
+
+# ── Lightpanda headless browser (JS rendering fallback) ──────────────────
+# Playwright acts as a thin CDP client connecting to Lightpanda's server —
+# no Chromium browser install needed. Lightpanda binary is installed in the
+# Dockerfile (~24MB). Only invoked on-demand when httpx returns thin/JS-only
+# content (React SPAs, dashboards, modern defence ministry sites).
+playwright>=1.40.0

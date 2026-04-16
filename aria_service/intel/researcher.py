@@ -554,6 +554,17 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
         if archived and len(archived) > len(html):
             html = archived
 
+    # ── Lightpanda JS-rendering fallback ──────────────────────────────
+    # If the page returned thin/JS-only content (React SPA, dashboard,
+    # etc.), try rendering with Lightpanda headless browser.
+    from . import headless as _headless
+    if _headless.is_thin_content(html) and _headless.is_available():
+        logger.info("Thin content from %s (%d chars) — trying Lightpanda",
+                     url[:80], len(html))
+        rendered = await _headless.fetch_rendered_html(url, timeout=20)
+        if rendered and len(rendered) > len(html):
+            html = rendered
+
     scan = scan_content(html, source=url[:100])
     if not scan["safe"]:
         logger.warning("Blocked unsafe content from %s: %s", url[:80],

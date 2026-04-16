@@ -3872,3 +3872,80 @@ sources:
     frequency: quarterly
     cplp_relevant: false
     notes: "GitHub source for OSINT Framework — tool links and category structure as JSON. Crawl quarterly to detect new tools and categories added by the community."
+
+
+  # ── 🔴 INTERNATIONAL CRISIS GROUP — CRISISWATCH ────────────────────────
+  # Added 2026-04-16. Tier A conflict early warning — tracks 70+
+  # situations monthly. RSS feeds available per region + global.
+  # Email alerts subscribed via aria@arkmurus.com.
+  # Website blocks automated crawling (403) — ingest via RSS feeds.
+
+  - url: https://www.crisisgroup.org/crisiswatch
+    tier: A
+    source_class: CrisisWatch
+    category: conflict_early_warning
+    region: global
+    ingest_strategy: rss
+    frequency: monthly
+    cplp_relevant: true
+    notes: "International Crisis Group CrisisWatch — 70+ conflicts/crises tracked monthly with deterioration/improvement alerts. Tier 1b institutional quality. RSS at /rss/crisiswatch. Email alerts subscribed at aria@arkmurus.com. Database searchable back to Sep 2003."
+
+  - url: https://www.crisisgroup.org/rss/crisiswatch
+    tier: A
+    source_class: CrisisWatch RSS
+    category: conflict_early_warning
+    region: global
+    ingest_strategy: rss
+    frequency: monthly
+    cplp_relevant: true
+    notes: "CrisisWatch RSS feed — monthly conflict updates. Auto-ingest via student.py RSS reader."
+
+  - url: https://www.crisisgroup.org/rss/1
+    tier: A
+    source_class: Crisis Group Africa
+    category: conflict_analysis
+    region: africa
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: true
+    notes: "Crisis Group Africa RSS — all reports, briefings, commentary. Covers Sahel, Central Africa, Horn, West Africa, Great Lakes. Priority for Arkmurus target markets."
+
+  - url: https://www.crisisgroup.org/rss/81
+    tier: A
+    source_class: Crisis Group MENA
+    category: conflict_analysis
+    region: mena
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: false
+    notes: "Crisis Group Middle East & North Africa RSS — East Mediterranean, Gulf, North Africa coverage."
+
+  - url: https://www.crisisgroup.org/rss/30
+    tier: A
+    source_class: Crisis Group Asia
+    category: conflict_analysis
+    region: asia
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: false
+    notes: "Crisis Group Asia-Pacific RSS — NE Asia, South Asia, SE Asia, Pacific."
+
+  - url: https://www.crisisgroup.org/rss/73
+    tier: B
+    source_class: Crisis Group LatAm
+    category: conflict_analysis
+    region: latam
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: true
+    notes: "Crisis Group Latin America & Caribbean RSS — Andes, Central America, Amazon. CPLP relevant (Brazil)."
+
+  - url: https://www.crisisgroup.org/rss/56
+    tier: B
+    source_class: Crisis Group Europe
+    category: conflict_analysis
+    region: europe
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: false
+    notes: "Crisis Group Europe RSS — Balkans, Caucasus, Central Asia, Eastern Europe. Russia-NATO + Ukraine coverage."
