@@ -290,6 +290,57 @@ sources:
     ingest_strategy: html_crawl
     frequency: weekly
     cplp_relevant: false
+    notes: "Center for Strategic & International Studies — top-tier US think tank. Same quality tier as RUSI/Chatham House. Publishes freely downloadable PDF reports, podcasts, video briefings, interactive dashboards."
+
+  - url: https://www.csis.org/programs/africa-program
+    tier: B
+    source_class: CSIS Africa
+    category: regional_security
+    region: africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+    notes: "CSIS Africa Programme — deep dives on African security dynamics. Priority for Arkmurus target markets (Angola, Mozambique, Nigeria, Sahel)."
+
+  - url: https://www.csis.org/programs/southeast-asia-program
+    tier: B
+    source_class: CSIS SE Asia
+    category: regional_security
+    region: asia
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: "CSIS Southeast Asia Programme — regional security analysis for ASEAN markets."
+
+  - url: https://www.csis.org/programs/transnational-threats-project
+    tier: B
+    source_class: CSIS Transnational Threats
+    category: transnational_threats
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+    notes: "CSIS Transnational Threats — terrorism, organised crime, cyber. Feeds risk assessment for DD and market entry analysis."
+
+  - url: https://www.csis.org/programs/international-security-program
+    tier: B
+    source_class: CSIS International Security
+    category: international_security
+    region: global
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: "CSIS International Security — NATO, alliances, force posture. Context for BD positioning and competitor mapping."
+
+  - url: https://www.csis.org/rss
+    tier: B
+    source_class: CSIS RSS
+    category: defence_research
+    region: global
+    ingest_strategy: rss
+    frequency: continuous
+    cplp_relevant: false
+    notes: "CSIS RSS feed — all publications, reports, commentary. Auto-ingest for timely intelligence on global security developments."
 
   - url: https://www.cnas.org
     tier: B

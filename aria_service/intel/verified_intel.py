@@ -151,7 +151,7 @@ TIER_2_DOMAINS = {
     "theguardian.com", "economist.com", "nytimes.com", "wsj.com",
     # Defence specialist — Tier 2 quality
     "janes.com", "iiss.org", "sipri.org", "rusi.org", "chathamhouse.org",
-    "understandingwar.org",
+    "understandingwar.org", "csis.org", "cnas.org",
     # Arms control & conflict research
     "caat.org.uk",              # Campaign Against Arms Trade — UK export licences
     "aoav.org.uk",              # Action on Armed Violence — explosive violence data
