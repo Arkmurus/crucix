@@ -140,6 +140,8 @@ TIER_1B_DOMAINS = {
     "conflictarm.com",         # Conflict Armament Research / iTrace — weapon diversion tracking
     "internal-displacement.org",  # IDMC — global internal displacement database
     "securityassistance.org",  # Security Assistance Monitor — US FMS/IMET/FMF tracking
+    "start.umd.edu",           # Global Terrorism Database — UMD START center
+    "ipums.org",               # Integrated census/survey data — University of Minnesota
 }
 
 # Tier 2 domains — quality journalism and specialist press
@@ -159,6 +161,10 @@ TIER_2_DOMAINS = {
     "economicsandpeace.org",    # Global Peace Index
     "civiliansinconflict.org",  # Center for Civilians in Conflict (CIVIC)
     "unidir.org",               # UN Institute for Disarmament Research
+    # Research & polling
+    "pewresearch.org",          # Pew Research Center — global attitudes surveys
+    "gallup.com",               # Gallup Global Indicators
+    "mar.umd.edu",              # Minorities at Risk — ethnic conflict data
     # Regional high-quality
     "premiumtimesng.com", "defenceweb.co.za", "theafricareport.com",
     "agenciabrasil.ebc.com.br", "publico.pt",

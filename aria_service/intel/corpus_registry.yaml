@@ -3720,3 +3720,99 @@ sources:
     frequency: quarterly
     cplp_relevant: true
     notes: "Interactive map of 900+ US military installations worldwide. Useful for understanding US force posture in target markets."
+
+
+  # ── 📚 USAWC LIBRARY GUIDE — DEFENCE & MILITARY DATA ────────────────────
+  # Added 2026-04-16 from https://usawc.libguides.com/c.php?g=1339930&p=9876748
+  # US Army War College curated data sources. Duplicates already in registry
+  # (Correlates of War, PRIO, SIPRI, UCDP, Iraq Body Count) NOT repeated.
+
+  - url: https://usawc.libguides.com/c.php?g=1339930&p=9876748
+    tier: B
+    source_class: USAWC Library
+    category: meta_source_directory
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "US Army War College library guide — curated directory of defence/military datasets. Meta-source for discovery."
+
+  - url: http://start.umd.edu/gtd
+    tier: A
+    source_class: Global Terrorism Database
+    category: terrorism_data
+    region: global
+    ingest_strategy: api
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "START/UMD Global Terrorism Database — 200,000+ terrorist events worldwide 1970-2020. Critical for threat assessment in target markets and force protection procurement."
+
+  - url: https://sites.duke.edu/icbdata/data-collections/
+    tier: B
+    source_class: ICB Project
+    category: conflict_data
+    region: global
+    ingest_strategy: html_crawl
+    frequency: once
+    cplp_relevant: false
+    notes: "Duke International Crisis Behavior — 496 international crises, 1,100 crisis actors (1918-2019). Historical crisis escalation patterns."
+
+  - url: http://www.mar.umd.edu/
+    tier: B
+    source_class: Minorities at Risk
+    category: ethnic_conflict_risk
+    region: global
+    ingest_strategy: html_crawl
+    frequency: once
+    cplp_relevant: true
+    notes: "UMD Minorities at Risk — politically-active communal groups in countries >500k pop. Useful for internal stability risk assessment in target markets."
+
+  - url: https://dwp.dmdc.osd.mil/dwp/app/dod-data-reports/workforce-reports
+    tier: B
+    source_class: DMDC
+    category: us_military_personnel
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "Defense Manpower Data Center — US military/civilian strength by service. Context for FMS programme sizing and US force posture."
+
+  - url: https://www.ipums.org/
+    tier: A
+    source_class: IPUMS
+    category: census_survey_data
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "Integrated census and survey data from around the world. Demographic baselines for market sizing and population-to-military ratios."
+
+  - url: https://www.pewresearch.org/global/database/
+    tier: B
+    source_class: Pew Global Indicators
+    category: public_opinion
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "Pew Global Indicators — 600,000+ interviews in 69 countries. Public attitudes on military, security, governance. Useful for political risk assessment."
+
+  - url: http://www.state.gov/j/ct/rls/crt/index.htm
+    tier: A
+    source_class: State Dept Terrorism Reports
+    category: terrorism_data
+    region: global
+    ingest_strategy: pdf
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "US State Dept Country Reports on Terrorism — annual official assessment by country and group. Tier 1a official US government source."
+
+  - url: https://www.gallup.com/394169/global-indicators.aspx
+    tier: B
+    source_class: Gallup Global
+    category: public_opinion
+    region: global
+    ingest_strategy: html_crawl
+    frequency: quarterly
+    cplp_relevant: false
+    notes: "Gallup global workplace and societal health indicators. Background for market stability assessment."
