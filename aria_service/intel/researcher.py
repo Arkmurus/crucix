@@ -63,6 +63,7 @@ RESEARCH_FEEDS = [
     {"name": "Chatham House", "url": "https://www.chathamhouse.org/rss.xml", "category": "geopolitics"},
     {"name": "CSIS", "url": "https://www.csis.org/rss.xml", "category": "strategy"},
     {"name": "RAND", "url": "https://www.rand.org/pubs/rss.xml", "category": "defence_research"},
+    {"name": "ISW", "url": "https://understandingwar.org/feed", "category": "conflict_intelligence"},
 
     # ── Regional: Africa ──────────────────────────────────────────────────
     {"name": "DefenceWeb", "url": "https://www.defenceweb.co.za/feed/", "category": "africa_defence"},

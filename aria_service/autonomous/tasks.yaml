@@ -436,6 +436,31 @@ tasks:
     mem0_tags: [sanctions, daily, compliance, autonomous]
 
   # ──────────────────────────────────────────────────────────────────
+  # WEEKLY-ISW-CRAWL — ISW conflict intelligence
+  # ──────────────────────────────────────────────────────────────────
+  - id: WEEKLY-ISW-CRAWL
+    name: ISW conflict intelligence crawl
+    description: |
+      Wednesday 03:00 UTC — crawl ISW for new conflict assessments,
+      Russian/Iranian/Turkish military analysis, and early warning
+      signals. Extracts methodology insights and threat assessments
+      that feed ARIA's predictive intelligence on markets affected
+      by active conflict (Mozambique Cabo Delgado, Sahel, Ukraine
+      spillover into NATO procurement).
+    cron: "0 3 * * wed"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 300
+    cost_cap_usd: 0.30
+    tool_chain:
+      - tool: deep_research
+        entity: "ISW Institute for the Study of War latest conflict assessments early warnings"
+        url: "https://understandingwar.org"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["early warning", "escalation", "new offensive", "arms transfer", "military aid"]
+    mem0_tags: [isw, conflict, intelligence, weekly, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
   # BLOCK G — Weekly Summary (Friday)
   # ──────────────────────────────────────────────────────────────────
   - id: WEEKLY-SUMMARY

@@ -132,6 +132,7 @@ TIER_2_DOMAINS = {
     "theguardian.com", "economist.com", "nytimes.com", "wsj.com",
     # Defence specialist — Tier 2 quality
     "janes.com", "iiss.org", "sipri.org", "rusi.org", "chathamhouse.org",
+    "understandingwar.org",
     # Regional high-quality
     "premiumtimesng.com", "defenceweb.co.za", "theafricareport.com",
     "agenciabrasil.ebc.com.br", "publico.pt",

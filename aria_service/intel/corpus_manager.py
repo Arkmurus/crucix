@@ -146,6 +146,7 @@ SEED_REGISTRY: dict[str, list[str]] = {
         "https://www.iiss.org/research",
         "https://www.csis.org/topics/defense-and-security",
         "https://issafrica.org/",
+        "https://understandingwar.org",
     ],
     "B+_HARDWARE": [
         "https://www.armyrecognition.com/",
