@@ -161,6 +161,8 @@ TIER_2_DOMAINS = {
     "economicsandpeace.org",    # Global Peace Index
     "civiliansinconflict.org",  # Center for Civilians in Conflict (CIVIC)
     "unidir.org",               # UN Institute for Disarmament Research
+    # Geopolitical risk indices
+    "blackrock.com",            # BGRI — geopolitical risk dashboard (10 tracked risks)
     # Research & polling
     "pewresearch.org",          # Pew Research Center — global attitudes surveys
     "gallup.com",               # Gallup Global Indicators

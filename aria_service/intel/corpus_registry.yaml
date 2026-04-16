@@ -3816,3 +3816,31 @@ sources:
     frequency: quarterly
     cplp_relevant: false
     notes: "Gallup global workplace and societal health indicators. Background for market stability assessment."
+
+
+  # ── 📊 BLACKROCK GEOPOLITICAL RISK DASHBOARD (BGRI) ─────────────────────
+  # Added 2026-04-16. No API available — quarterly PDF ingest from
+  # published reports. Dashboard blocks automated crawling (403).
+  # Value: Emerging Markets Political Crisis score maps directly to
+  # Arkmurus target markets; Market Movement Index flags unpriced
+  # defence spending surges (procurement opportunities).
+
+  - url: https://www.blackrock.com/corporate/insights/blackrock-investment-institute/interactive-charts/geopolitical-risk-dashboard
+    tier: B+
+    source_class: BlackRock BGRI
+    category: geopolitical_risk_index
+    region: global
+    ingest_strategy: manual
+    frequency: quarterly
+    cplp_relevant: true
+    notes: "BlackRock Geopolitical Risk Indicator — 10 tracked risks with BGRI attention score (std devs from 5yr avg), market movement index (-1 to +1), and expert likelihood (H/M/L). Dashboard blocks crawlers (403) — ingest via quarterly PDF when published. Key risks for Arkmurus: Emerging Markets Political Crisis, Middle East Regional War, Russia-NATO Conflict."
+
+  - url: https://www.blackrock.com/us/individual/insights/blackrock-investment-institute/geopolitical-risk-framework
+    tier: B+
+    source_class: BlackRock BGRI Methodology
+    category: geopolitical_risk_methodology
+    region: global
+    ingest_strategy: html_crawl
+    frequency: once
+    cplp_relevant: false
+    notes: "BGRI methodology paper — NLP on Refinitiv brokerage reports + Dow Jones News, sentiment-adjusted, brokerage-weighted. Understanding the methodology lets ARIA interpret BGRI scores correctly."
