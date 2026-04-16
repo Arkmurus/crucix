@@ -724,12 +724,34 @@ async def mastery_to_prompt_addendum(message: str) -> str:
         return ""
 
     lines = [
-        "⚠ MASTERY ALERT — The student module has detected that you "
-        "have LOW mastery on the following topic(s) relevant to this "
-        "question. Take extra care: cite more sources, flag uncertainty "
-        "explicitly, and prefer [ASSESSED] over [CONFIRMED] unless you "
-        "have strong grounding."
+        "⚠ MASTERY ALERT — MANDATORY BEHAVIORAL RULES for this response."
     ]
     for topic, score in sorted(weak_relevant, key=lambda x: x[1]):
         lines.append(f"  • {topic}: mastery {score:.0%} (below {WEAK_THRESHOLD:.0%} threshold)")
+
+    # Prescriptive rules — not advisory reminders, actual constraints
+    lines.append("")
+    lines.append("Because your mastery is LOW on the above topic(s), the "
+                 "following RULES OVERRIDE your default behavior for this "
+                 "response ONLY:")
+    lines.append("1. CONFIDENCE CAP — You MUST NOT use [CONFIRMED] on any "
+                 "claim touching the weak topic(s). Maximum allowed: "
+                 "[PROBABLE] with inline citation. Use [ASSESSED] or "
+                 "[UNCERTAIN] if you have fewer than 2 independent sources.")
+    lines.append("2. DOUBLE-SOURCE RULE — Every material fact on the weak "
+                 "topic(s) MUST cite at least 2 independent sources OR "
+                 "carry an explicit [SINGLE SOURCE — UNVERIFIED] flag. "
+                 "One source is not enough when your mastery is below "
+                 f"{WEAK_THRESHOLD:.0%}.")
+    lines.append("3. EXPLICIT GAP DISCLOSURE — If you are unsure about "
+                 "any aspect of the weak topic(s), say so explicitly: "
+                 "\"My knowledge on [topic] has been unreliable recently "
+                 "— I recommend independent verification.\" Do NOT fill "
+                 "gaps with plausible-sounding statements.")
+    lines.append("4. SEARCH BEFORE RECALL — For weak topic(s), prefer "
+                 "running a search tool over relying on memory/RAG. Your "
+                 "recall accuracy on these topics is below acceptable "
+                 "thresholds.")
+    lines.append("These rules are automatically lifted when mastery "
+                 f"recovers above {WEAK_THRESHOLD:.0%}.")
     return "\n".join(lines)

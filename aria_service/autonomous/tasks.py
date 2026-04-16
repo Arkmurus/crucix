@@ -683,6 +683,35 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
             return record
 
         tool_kind = (first.get("tool") or "").strip().lower()
+
+        # ── Pre-task predictor forecast ──────────────────────────────
+        # Consult the mistake ledger + self_metrics + capability_manifest
+        # BEFORE executing. If high-severity unprevented mistakes exist
+        # for this task_type × domain, the prediction is logged and
+        # injected as context so the task can compensate.
+        try:
+            from ..intel import predictor as _pred
+            domain = (first.get("entity") or first.get("topic") or
+                      task.id.split("-")[0] if "-" in task.id else "general").lower()
+            prediction = await _pred.forecast(
+                task_type=tool_kind,
+                domain=domain[:30],
+            )
+            record["predictor"] = {
+                "confidence": prediction.get("overall_confidence"),
+                "likely_failures": len(prediction.get("likely_failures", [])),
+                "past_mistakes": len(prediction.get("past_mistakes", [])),
+                "degraded": prediction.get("degraded", False),
+            }
+            if prediction.get("recommendations"):
+                record["predictor"]["recommendations"] = prediction["recommendations"][:3]
+                logger.info("[predictor] %s/%s: confidence %.0f%%, %d warnings",
+                            tool_kind, domain[:20],
+                            prediction["overall_confidence"] * 100,
+                            len(prediction.get("likely_failures", [])))
+        except Exception as e:
+            logger.debug("predictor forecast failed (non-fatal): %s", e)
+
         if tool_kind == "deep_research":
             entity = (first.get("entity") or "").strip()
             url = (first.get("url") or "").strip()
