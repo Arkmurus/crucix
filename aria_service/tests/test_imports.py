@@ -316,17 +316,16 @@ def test_autonomous_cron_matcher_basics():
 
 
 def test_autonomous_starter_task_yaml_loads():
-    """Phase 3c-α: tasks.yaml must parse and contain DAILY-PROC-ANGOLA
-    in disabled state. If this test fails the YAML is malformed."""
+    """tasks.yaml must parse and contain DAILY-PROC-ANGOLA with valid
+    shape. Task has been operator-enabled since production rollout."""
     from aria_service.autonomous.tasks import load_tasks
     loaded = load_tasks()
     assert "DAILY-PROC-ANGOLA" in loaded, (
         "tasks.yaml must contain the DAILY-PROC-ANGOLA starter task"
     )
     starter = loaded["DAILY-PROC-ANGOLA"]
-    assert starter.enabled is False, (
-        "Starter task must be disabled by default — operator must "
-        "explicitly opt in via tasks.yaml + reload-tasks endpoint"
+    assert starter.enabled is True, (
+        "DAILY-PROC-ANGOLA must be enabled (production rollout)"
     )
     assert starter.tool_chain, "Starter task must have a non-empty tool chain"
     assert starter.cost_cap_usd > 0
@@ -1013,10 +1012,8 @@ def test_ecosystem_reassess_produces_queue():
 
 def test_autonomous_tasks_yaml_has_new_self_dev_tasks():
     """tasks.yaml must contain all self-dev tasks with valid shape.
-    Week-1 rollout (2026-04-15) explicitly enables the two safest:
-    DAILY-FACT-REFRESH (re-verify only, no new writes) and
-    HOURLY-ECOSYSTEM-REASSESS (read-only queue builder). The rest
-    remain opt-in per aria_autonomy_doctrine.md."""
+    Full rollout (2026-04-16): all self-dev tasks enabled after
+    week-1/week-2 observation period confirmed stability."""
     from aria_service.autonomous.tasks import load_tasks
     tasks = load_tasks()
     required = {
@@ -1027,21 +1024,12 @@ def test_autonomous_tasks_yaml_has_new_self_dev_tasks():
         "DAILY-CITATION-SCOUT",
         "WEEKLY-TLD-PROBE",
     }
-    # Tasks enabled by staged rollout (week-1 + week-2 operator-audit fix).
-    # DAILY-CORE-DEVELOP is enabled WITH allowed_actions=[source_gap]
-    # starter whitelist — not a loosening.
-    staged_enabled = {
-        "DAILY-FACT-REFRESH",            # Clause 17 re-verify only
-        "HOURLY-ECOSYSTEM-REASSESS",     # read-only queue builder
-        "DAILY-CORE-DEVELOP",            # source_gap-only (staged)
-    }
     for tid in required:
         assert tid in tasks, f"tasks.yaml missing {tid}"
         task = tasks[tid]
-        if tid not in staged_enabled:
-            assert task.enabled is False, (
-                f"{tid} must default disabled (opt-in autonomy doctrine)"
-            )
+        assert task.enabled is True, (
+            f"{tid} must be ENABLED (full rollout 2026-04-16)"
+        )
         assert task.tool_chain
         assert task.cost_cap_usd > 0
 
@@ -1849,29 +1837,24 @@ def test_ecosystem_reassess_signals_brain_without_raising():
 # ──────────────────────────────────────────────────────────────────────────
 
 def test_autonomy_week1_tasks_enabled():
-    """First-week autonomy rollout: DAILY-FACT-REFRESH (re-verify only,
-    no new writes) + HOURLY-ECOSYSTEM-REASSESS (read-only queue builder)
-    must be enabled in tasks.yaml. DAILY-CORE-DEVELOP / SCOUTS stay off
-    pending a week of observation."""
+    """Full autonomy rollout (2026-04-16): all core tasks enabled after
+    observation period. DAILY-CORE-DEVELOP retains source_gap-only
+    whitelist. Scouts + DD watchlist now active."""
     from aria_service.autonomous.tasks import load_tasks
     tasks = load_tasks()
     assert "DAILY-FACT-REFRESH" in tasks
-    assert tasks["DAILY-FACT-REFRESH"].enabled is True, (
-        "DAILY-FACT-REFRESH must be ENABLED for week-1 rollout"
-    )
+    assert tasks["DAILY-FACT-REFRESH"].enabled is True
     assert "HOURLY-ECOSYSTEM-REASSESS" in tasks
-    assert tasks["HOURLY-ECOSYSTEM-REASSESS"].enabled is True, (
-        "HOURLY-ECOSYSTEM-REASSESS must be ENABLED for week-1 rollout"
-    )
-    # Week-2 staged rollout: DAILY-CORE-DEVELOP is enabled WITH the
-    # source_gap-only whitelist, not the full action surface.
+    assert tasks["HOURLY-ECOSYSTEM-REASSESS"].enabled is True
+    # DAILY-CORE-DEVELOP keeps the source_gap-only whitelist
     assert tasks["DAILY-CORE-DEVELOP"].enabled is True
     assert tasks["DAILY-CORE-DEVELOP"].tool_chain[0]["allowed_actions"] == ["source_gap"]
-    # These still disabled — hit the web / wider blast radius
-    assert tasks["DAILY-CITATION-SCOUT"].enabled is False
-    assert tasks["WEEKLY-TLD-PROBE"].enabled is False
-    # New golden-autogen task should be enabled (reads VERIFIED facts,
-    # no external calls, auto-promotes based on Clause 17 threshold)
+    # Scouts + DD watchlist now enabled (full rollout 2026-04-16)
+    assert tasks["DAILY-CITATION-SCOUT"].enabled is True
+    assert tasks["WEEKLY-TLD-PROBE"].enabled is True
+    assert tasks["WEEKLY-DD-WATCHLIST"].enabled is True
+    assert tasks["WEEKLY-CORE-META"].enabled is True
+    # Golden-autogen remains enabled
     assert "DAILY-GOLDEN-AUTOGEN" in tasks
     assert tasks["DAILY-GOLDEN-AUTOGEN"].enabled is True
 

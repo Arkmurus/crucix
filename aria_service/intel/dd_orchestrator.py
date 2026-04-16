@@ -83,6 +83,7 @@ _PHONE_PREFIX_TO_ISO2 = {
     "+39": "IT", "+90": "TR", "+55": "BR", "+234": "NG", "+971": "AE",
     "+91": "IN", "+350": "GI", "+351": "PT", "+966": "SA", "+962": "JO",
     "+20": "EG", "+254": "KE", "+27": "ZA", "+244": "AO", "+258": "MZ",
+    "+233": "GH",
 }
 
 _ADDRESS_KEYWORDS_TO_ISO2 = {
@@ -1457,10 +1458,17 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
             logger.info("Confidence gate: GREEN → AMBER for %s (%s)", _entity_name, "; ".join(_gate_reasons))
 
     # ── 6c. SAR trigger — UK POCA / FATF typology ──
-    # Triggers:
+    # Triggers (original):
     #   - sanctions hit on subject OR director
     #   - ghost score >= 12 (RED) combined with layered secrecy chain
     #   - transaction value >= 100k with no declared activity
+    # Extended triggers (FATF typology / POCA indicators):
+    #   - ghost score >= 12 AND no directors (layered secrecy)
+    #   - multiple jurisdictions with no apparent business reason
+    #   - PEP + opaque ownership (PSC not disclosed)
+    #   - entity registered < 12 months with large scope
+    #   - director on multiple sanctioned boards
+    #   - address cluster with 5+ co-located entities (mail-drop)
     sar_reasons: list[str] = []
     if any("sanctions" in str(f.title).lower() and "hit" in str(f.title).lower()
            for f in report.identity.findings):
@@ -1470,6 +1478,67 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
         sar_reasons.append("sanctions hit in network layer (one-hop)")
     if report.synthesis.ghost_score_total >= 12:
         sar_reasons.append(f"ghost score {report.synthesis.ghost_score_total}/20 at RED threshold")
+
+    # SAR-ext-1: ghost score >= 12 AND no directors (layered secrecy)
+    _has_directors = bool(report.identity.directors)
+    if report.synthesis.ghost_score_total >= 12 and not _has_directors:
+        sar_reasons.append("ghost score >= 12 with no directors on file — layered secrecy indicator")
+
+    # SAR-ext-2: multiple jurisdictions with no apparent business reason
+    _jurisdictions_seen: set[str] = set()
+    if report.identity.jurisdiction_iso2:
+        _jurisdictions_seen.add(report.identity.jurisdiction_iso2)
+    for _cl in report.network.cross_linked_entities:
+        _j = _cl.get("jurisdiction") or _cl.get("jurisdiction_iso2") or ""
+        if _j:
+            _jurisdictions_seen.add(_j.upper()[:2])
+    if len(_jurisdictions_seen) >= 3 and not report.identity.declared_activity:
+        sar_reasons.append(
+            f"entity spans {len(_jurisdictions_seen)} jurisdictions with no declared activity — complex structuring"
+        )
+
+    # SAR-ext-3: PEP connection combined with opaque ownership (no PSC / UBO)
+    _has_pep = bool(report.network.pep_connections)
+    _has_ubo = bool(report.identity.ubo_chain)
+    _has_shareholders = bool(report.identity.shareholders)
+    if _has_pep and not _has_ubo and not _has_shareholders:
+        sar_reasons.append("PEP connection with no disclosed PSC/UBO — opaque ownership")
+
+    # SAR-ext-4: entity registered < 12 months with large transaction scope
+    _inc_date_str = report.identity.incorporation_date
+    if _inc_date_str and not _is_person:
+        try:
+            from datetime import date as _date_type
+            _inc_date = _date_type.fromisoformat(str(_inc_date_str)[:10])
+            _age_days = (datetime.now(timezone.utc).date() - _inc_date).days
+            if _age_days < 365 and report.identity.declared_activity:
+                sar_reasons.append(
+                    f"entity incorporated < 12 months ago ({_age_days} days) — newco with declared activity"
+                )
+        except (ValueError, TypeError):
+            pass  # unparseable date — skip
+
+    # SAR-ext-5: director appears on multiple sanctioned entities' boards
+    _director_sanctions_hits = [
+        f for f in report.identity.findings
+        if getattr(f, "source", "") == "sanctions.director_screen"
+        and getattr(f, "severity", "") in ("hard_stop", "red")
+    ]
+    if len(_director_sanctions_hits) >= 2:
+        sar_reasons.append(
+            f"{len(_director_sanctions_hits)} directors flagged on sanctions/debarment lists — cross-board exposure"
+        )
+
+    # SAR-ext-6: address cluster — entity shares address with 5+ others (mail-drop)
+    _addr_cluster = report.network.address_cluster or {}
+    _max_colocated = 0
+    for _addr, _info in _addr_cluster.items() if isinstance(_addr_cluster, dict) else []:
+        _n = len(_info) if isinstance(_info, list) else int(_info.get("count", 0)) if isinstance(_info, dict) else 0
+        _max_colocated = max(_max_colocated, _n)
+    if _max_colocated >= 5:
+        sar_reasons.append(
+            f"address shared with {_max_colocated}+ entities — mail-drop indicator"
+        )
 
     if sar_reasons:
         report.synthesis.sar_trigger = True
@@ -1515,11 +1584,110 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
         hypotheses["H3_shell"]["support"] += 5
         hypotheses["H1_legit"]["against"] += 5
 
+    # ── ACH-ext-1: Verification quality ──
+    _grounded = report.verification.grounded_rate
+    _conflicts = report.verification.conflicts
+    if _grounded is not None and _grounded < 0.4:
+        hypotheses["H2_enhanced"]["support"] += 2
+        hypotheses["H1_legit"]["against"] += 1
+    elif _grounded is not None and _grounded >= 0.8:
+        hypotheses["H1_legit"]["support"] += 1
+    if _conflicts:
+        hypotheses["H2_enhanced"]["support"] += 1
+        hypotheses["H3_shell"]["support"] += 1
+        hypotheses["H1_legit"]["against"] += 1
+
+    # ── ACH-ext-2: Digital footprint ──
+    _has_press = bool(report.digital.press_coverage)
+    _has_procurement = bool(report.digital.procurement_history)
+    if not _has_press and not _has_procurement and not _is_person:
+        hypotheses["H2_enhanced"]["support"] += 2
+        hypotheses["H3_shell"]["support"] += 1
+        hypotheses["H1_legit"]["against"] += 1
+    elif _has_press and _has_procurement:
+        hypotheses["H1_legit"]["support"] += 2
+
+    # ── ACH-ext-3: Network red flags ──
+    if report.network.pep_connections:
+        hypotheses["H2_enhanced"]["support"] += 2
+        hypotheses["H1_legit"]["against"] += 1
+    if report.network.sanctions_network:
+        hypotheses["H3_shell"]["support"] += 3
+        hypotheses["H1_legit"]["against"] += 2
+
+    # ── ACH-ext-4: Director screening ──
+    _dir_sanctions = any(
+        getattr(f, "source", "") == "sanctions.director_screen"
+        and getattr(f, "severity", "") in ("hard_stop", "red")
+        for f in report.identity.findings
+    )
+    if _dir_sanctions:
+        hypotheses["H3_shell"]["support"] += 3
+        hypotheses["H1_legit"]["against"] += 3
+
+    # ── ACH-ext-5: Registration anomalies — empty company ──
+    _no_directors = not report.identity.directors
+    _no_inc_date = not report.identity.incorporation_date
+    if _no_directors and _no_inc_date and not _is_person:
+        hypotheses["H3_shell"]["support"] += 2
+        hypotheses["H1_legit"]["against"] += 2
+
+    # ── ACH-ext-6: Export control ──
+    _ec = report.compliance.export_control or {}
+    _ec_class = (_ec.get("classification") or _ec.get("rating") or "").upper()
+    if _ec_class in ("RESTRICTED", "CONTROLLED", "ML", "MTCR", "WA-CAT1", "WA-CAT2"):
+        hypotheses["H2_enhanced"]["support"] += 2
+        hypotheses["H1_legit"]["against"] += 1
+
+    # ── Determine winner ──
     report.synthesis.ach_matrix = {
         "hypotheses": hypotheses,
         "method": "balance of support minus against",
         "winner": max(hypotheses.items(), key=lambda kv: kv[1]["support"] - kv[1]["against"])[0],
     }
+
+    # ── 6d2. Competing narratives ──
+    _winner = report.synthesis.ach_matrix["winner"]
+    _h = hypotheses
+    _narratives: list[str] = []
+    if _winner == "H1_legit":
+        _narratives.append(
+            f"Most likely: {report.identity.entity_name or 'entity'} is a legitimate counterparty. "
+            f"Supported by ghost score {ghost_total}/20, "
+            f"grounded rate {_grounded if _grounded is not None else 'N/A'}, "
+            f"and {'presence' if _has_press else 'absence'} in public record."
+        )
+        _narratives.append(
+            "Alternative: entity may still present enhanced-DD risks if verification gaps "
+            "remain or counterparty operates in a higher-risk jurisdiction."
+        )
+    elif _winner == "H2_enhanced":
+        _narratives.append(
+            f"Most likely: {report.identity.entity_name or 'entity'} is a higher-risk counterparty "
+            f"requiring enhanced due diligence before engagement. "
+            f"ACH balance: H2 support={_h['H2_enhanced']['support']}, "
+            f"H1 net={_h['H1_legit']['support'] - _h['H1_legit']['against']}."
+        )
+        _narratives.append(
+            "Alternative (benign): entity may be legitimate but operating in a complex "
+            "regulatory environment or recently incorporated, explaining data sparsity."
+        )
+        _narratives.append(
+            "Alternative (adverse): entity could be a concealment vehicle with "
+            "enough surface legitimacy to pass basic checks — deeper investigation warranted."
+        )
+    else:  # H3_shell
+        _narratives.append(
+            f"Most likely: {report.identity.entity_name or 'entity'} is a shell or concealment vehicle. "
+            f"ACH strongly favours H3 (support={_h['H3_shell']['support']}, "
+            f"against={_h['H3_shell']['against']}). "
+            f"Ghost score {ghost_total}/20."
+        )
+        _narratives.append(
+            "Alternative: entity may be a dormant but legitimate holding company "
+            "with minimal public footprint — verify with the counterparty directly."
+        )
+    report.synthesis.competing_narratives = _narratives
 
     # ── 6e. Key findings — pull the highest-severity items across sections ──
     all_findings: list[Finding] = []

@@ -212,6 +212,281 @@ def _reformulate(original: str, attempt: int) -> Optional[str]:
     return None
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# 1b. NAMED-ENTITY EXTRACTION (zero-dependency, regex/heuristic)
+# ══════════════════════════════════════════════════════════════════════════
+
+# Country → (ISO2, demonym(s))
+_COUNTRY_MAP: dict[str, tuple[str, list[str]]] = {
+    "Angola":           ("AO", ["Angolan"]),
+    "Mozambique":       ("MZ", ["Mozambican"]),
+    "Nigeria":          ("NG", ["Nigerian"]),
+    "Kenya":            ("KE", ["Kenyan"]),
+    "Turkey":           ("TR", ["Turkish"]),
+    "Brazil":           ("BR", ["Brazilian"]),
+    "Ghana":            ("GH", ["Ghanaian"]),
+    "Poland":           ("PL", ["Polish"]),
+    "Romania":          ("RO", ["Romanian"]),
+    "UAE":              ("AE", ["Emirati"]),
+    "Saudi Arabia":     ("SA", ["Saudi", "Saudi Arabian"]),
+    "India":            ("IN", ["Indian"]),
+    "Germany":          ("DE", ["German"]),
+    "France":           ("FR", ["French"]),
+    "UK":               ("GB", ["British"]),
+    "USA":              ("US", ["American"]),
+    "China":            ("CN", ["Chinese"]),
+    "Russia":           ("RU", ["Russian"]),
+    "Israel":           ("IL", ["Israeli"]),
+    "South Africa":     ("ZA", ["South African"]),
+    "Egypt":            ("EG", ["Egyptian"]),
+    "Morocco":          ("MA", ["Moroccan"]),
+    "Algeria":          ("DZ", ["Algerian"]),
+    "Ethiopia":         ("ET", ["Ethiopian"]),
+    "Tanzania":         ("TZ", ["Tanzanian"]),
+    "Uganda":           ("UG", ["Ugandan"]),
+    "Senegal":          ("SN", ["Senegalese"]),
+    "Côte d'Ivoire":    ("CI", ["Ivorian"]),
+    "Mali":             ("ML", ["Malian"]),
+    "Netherlands":      ("NL", ["Dutch"]),
+    "Portugal":         ("PT", ["Portuguese"]),
+    "Spain":            ("ES", ["Spanish"]),
+    "Italy":            ("IT", ["Italian"]),
+    "Japan":            ("JP", ["Japanese"]),
+    "South Korea":      ("KR", ["Korean"]),
+    "United Kingdom":   ("GB", ["British"]),
+    "United States":    ("US", ["American"]),
+    "United Arab Emirates": ("AE", ["Emirati"]),
+}
+
+# Build fast lookup: demonym/name/ISO2 → canonical country name
+_JURISDICTION_LOOKUP: dict[str, str] = {}
+for _country, (_iso2, _demonyms) in _COUNTRY_MAP.items():
+    _JURISDICTION_LOOKUP[_country.lower()] = _country
+    _JURISDICTION_LOOKUP[_iso2.lower()] = _country
+    for _dem in _demonyms:
+        _JURISDICTION_LOOKUP[_dem.lower()] = _country
+
+# Also map "Africa" as a region keyword (not a country) — useful for
+# search faceting
+_REGION_KEYWORDS = {
+    "africa", "african", "europe", "european", "asia", "asian",
+    "middle east", "latin america", "south america", "nato",
+    "ecowas", "sadc", "asean", "gcc", "mercosur",
+}
+
+# Role keywords — matched case-insensitively as whole words
+_ROLE_KEYWORDS = [
+    "minister", "director", "general", "colonel", "admiral",
+    "commander", "chief", "officer", "secretary", "attaché", "attache",
+    "procurement", "logistics", "defence", "defense", "military",
+    "naval", "air force", "army", "brigadier", "major", "captain",
+    "lieutenant", "marshal", "commodore", "cds",
+]
+_ROLE_RE = re.compile(
+    r"\b(" + "|".join(re.escape(r) for r in _ROLE_KEYWORDS) + r")\b",
+    re.IGNORECASE,
+)
+# Multi-word role phrases (matched greedily before single keywords)
+_ROLE_PHRASE_RE = re.compile(
+    r"\b(procurement\s+officer|air\s+force\s+chief|chief\s+of\s+(?:staff|defence|defense)"
+    r"|defence\s+attach[ée]|defense\s+attach[ée]|military\s+attach[ée]"
+    r"|naval\s+officer|logistics\s+officer|commanding\s+officer)\b",
+    re.IGNORECASE,
+)
+
+# Product/platform pattern: 2-4 uppercase letters, optional dash, 1-4 digits
+# e.g. TB2, MiG-29, F-16, C-130, VBTP-MR, AW109
+_PRODUCT_RE = re.compile(
+    r"\b([A-Z][A-Za-z]{0,3}(?:-[A-Z0-9]{1,4})?-?\d{1,4}[A-Z]?\b"
+    r"|[A-Z]{2,5}-[A-Z]{1,4})\b"
+)
+
+# URL pattern — extract separately so they don't pollute search terms
+_URL_RE = re.compile(r"https?://[^\s\"'<>)]+", re.IGNORECASE)
+
+# Entity names — capitalised multi-word sequences that look like orgs/companies
+# Excludes common English words that happen to start with caps at sentence start
+_ENTITY_STOPWORDS = {
+    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
+    "has", "have", "had", "do", "does", "did", "will", "would", "could",
+    "can", "may", "might", "should", "shall", "if", "then", "than",
+    "this", "that", "these", "those", "it", "its", "i", "we", "you",
+    "they", "he", "she", "who", "what", "where", "when", "why", "how",
+    "find", "search", "look", "tell", "give", "show", "check", "get",
+    "need", "want", "info", "information", "about", "research",
+    "aria", "please", "hi", "hey", "hello", "thanks",
+}
+
+
+def extract_search_entities(message: str) -> dict:
+    """Extract named entities from a user message using regex/heuristics.
+
+    Returns a dict with keys:
+      entities      - probable company/org names (capitalised sequences)
+      jurisdictions - country names resolved from demonyms, ISO2, or names
+      roles         - role/title phrases
+      products      - defence product/platform designators
+      urls          - extracted URLs
+      clean_query   - the message stripped of wrappers, URLs removed,
+                      with extracted facets joined for search
+    """
+    text = (message or "").strip()
+    if not text:
+        return {
+            "entities": [], "jurisdictions": [], "roles": [],
+            "products": [], "urls": [], "clean_query": "",
+        }
+
+    # ── URLs ─────────────────────────────────────────────────────────
+    urls = _URL_RE.findall(text)
+    # Remove URLs from working text so they don't interfere
+    working = _URL_RE.sub("", text).strip()
+
+    # ── Strip conversational wrapper ─────────────────────────────────
+    stripped = _strip_conversational_wrapper(working)
+
+    # ── Jurisdictions ────────────────────────────────────────────────
+    jurisdictions: list[str] = []
+    seen_j: set[str] = set()
+    # Check multi-word countries first (South Africa, South Korea, etc.)
+    for country_name in _COUNTRY_MAP:
+        if " " not in country_name:
+            continue
+        pat = re.compile(r"\b" + re.escape(country_name) + r"\b", re.IGNORECASE)
+        if pat.search(stripped):
+            canon = _JURISDICTION_LOOKUP.get(country_name.lower(), country_name)
+            if canon not in seen_j:
+                jurisdictions.append(canon)
+                seen_j.add(canon)
+    # Check single words: country names, demonyms, ISO2 codes
+    # For 2-letter tokens, require ALL UPPERCASE to avoid false positives
+    # (e.g. "in" matching India's ISO2 "IN", "it" matching Italy's "IT")
+    for word in re.findall(r"\b[\w']+\b", stripped):
+        wl = word.lower()
+        # Skip 2-letter tokens unless they are all-uppercase (real ISO2)
+        if len(word) == 2 and not word.isupper():
+            continue
+        canon = _JURISDICTION_LOOKUP.get(wl)
+        if canon and canon not in seen_j:
+            jurisdictions.append(canon)
+            seen_j.add(canon)
+    # Check region keywords (returned as-is, titlecased)
+    for region in _REGION_KEYWORDS:
+        if re.search(r"\b" + re.escape(region) + r"\b", stripped, re.IGNORECASE):
+            titled = region.title()
+            if titled not in seen_j:
+                jurisdictions.append(titled)
+                seen_j.add(titled)
+
+    # ── Roles ────────────────────────────────────────────────────────
+    roles: list[str] = []
+    seen_r: set[str] = set()
+    # Multi-word phrases first
+    for m in _ROLE_PHRASE_RE.finditer(stripped):
+        role = m.group(0).lower().strip()
+        if role not in seen_r:
+            roles.append(role)
+            seen_r.add(role)
+    # Single keywords — only if not already captured in a phrase
+    for m in _ROLE_RE.finditer(stripped):
+        kw = m.group(0).lower().strip()
+        # Skip if this keyword is part of an already-captured phrase
+        if any(kw in r for r in seen_r):
+            continue
+        if kw not in seen_r:
+            roles.append(kw)
+            seen_r.add(kw)
+
+    # ── Products/platforms ───────────────────────────────────────────
+    products: list[str] = []
+    seen_p: set[str] = set()
+    for m in _PRODUCT_RE.finditer(stripped):
+        prod = m.group(0)
+        if prod not in seen_p:
+            products.append(prod)
+            seen_p.add(prod)
+
+    # ── Entity names ─────────────────────────────────────────────────
+    # Capitalised sequences of 1-4 words (likely org/company/person names)
+    # Also catch all-uppercase tokens ≥2 chars (acronyms like MINFAR)
+    entities: list[str] = []
+    seen_e: set[str] = set()
+
+    # All-uppercase tokens (acronyms: MINFAR, NATO, etc.)
+    for m in re.finditer(r"\b([A-Z][A-Z0-9]{1,})\b", stripped):
+        tok = m.group(1)
+        # Skip ISO2 codes already captured as jurisdictions
+        if tok.lower() in _JURISDICTION_LOOKUP:
+            continue
+        # Skip product designators already captured
+        if tok in seen_p:
+            continue
+        if tok not in seen_e and len(tok) >= 2:
+            entities.append(tok)
+            seen_e.add(tok)
+
+    # Capitalised multi-word sequences (e.g. "DUMA Engineering", "Baykar")
+    for m in re.finditer(r"\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)\b", stripped):
+        phrase = m.group(0)
+        words = phrase.split()
+        # Filter out stopwords and jurisdiction/role words
+        filtered = [w for w in words
+                    if w.lower() not in _ENTITY_STOPWORDS
+                    and w.lower() not in _JURISDICTION_LOOKUP
+                    and not _ROLE_RE.fullmatch(w)]
+        if not filtered:
+            continue
+        name = " ".join(filtered)
+        if name not in seen_e and len(name) >= 2:
+            entities.append(name)
+            seen_e.add(name)
+
+    # ── Dedup: remove entities that duplicate jurisdictions or are
+    # substrings of other entities (e.g. "DUMA" when "DUMA Engineering"
+    # already captured, or "Africa" in both entities and jurisdictions).
+    # Filter entities that match a jurisdiction name or are a word within
+    # a multi-word jurisdiction (e.g. "Arabia" inside "Saudi Arabia")
+    _juris_lower = {j.lower() for j in jurisdictions}
+    _juris_words = {w.lower() for j in jurisdictions for w in j.split()}
+    entities = [e for e in entities
+                if e.lower() not in _juris_lower
+                and e.lower() not in _juris_words]
+    # Remove entities that are substrings of other entities or products
+    # (e.g. "DUMA" when "DUMA Engineering" exists, "MiG" when "MiG-29" exists)
+    _deduped_entities: list[str] = []
+    for e in entities:
+        if any(e != other and e in other for other in entities):
+            continue
+        if any(e in p for p in products):
+            continue
+        _deduped_entities.append(e)
+    entities = _deduped_entities
+
+    # ── Build clean_query ────────────────────────────────────────────
+    # Combine extracted facets into a focused search query.
+    # Priority: entities + jurisdictions + roles + products
+    facets: list[str] = []
+    facets.extend(entities)
+    facets.extend(jurisdictions)
+    facets.extend(roles)
+    facets.extend(products)
+    if facets:
+        clean_query = " ".join(facets)
+    else:
+        # No structured extractions — fall back to the stripped message
+        clean_query = stripped
+
+    return {
+        "entities": entities,
+        "jurisdictions": jurisdictions,
+        "roles": roles,
+        "products": products,
+        "urls": urls,
+        "clean_query": clean_query,
+    }
+
+
 _CURRENT_YEAR = datetime.now(timezone.utc).year
 
 
@@ -405,6 +680,14 @@ async def search(
             "flags": ["EMPTY_QUERY_AFTER_STRIP"],
         }
 
+    # ── NER pre-processing — extract structured facets ────────────────
+    ner = extract_search_entities(question)
+    # If NER produced a meaningful clean_query (has extracted facets),
+    # use it instead of the raw stripped text for better search precision.
+    if ner["entities"] or ner["jurisdictions"] or ner["roles"] or ner["products"]:
+        cleaned = ner["clean_query"]
+        logger.debug("NER facets: %s → query %r", {k: v for k, v in ner.items() if k != "clean_query"}, cleaned)
+
     # Decompose compound questions. Each component runs its own search;
     # results are merged at the end.
     components = _decompose_question(cleaned)
@@ -514,6 +797,7 @@ async def search(
             "results": [],
             "flags": ["INSUFFICIENT_PUBLIC_INTEL",
                       f"exhausted_{len(attempts)}_attempts"],
+            "ner": ner,
         }
 
     # ── Apply the 4 discipline gates ───────────────────────────────────
@@ -567,6 +851,7 @@ async def search(
         "result_count": len(dedup),
         "results": dedup,
         "flags": flags,
+        "ner": ner,
     }
 
 

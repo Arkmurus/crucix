@@ -11,6 +11,10 @@ Supported jurisdictions:
   RO — Romania ONRC / ANAF (REST API for CUI/VAT lookup)
   TR — Turkey MERSIS (HTML scraping)
   BR — Brazil ReceitaWS CNPJ (free REST API)
+  AO — Angola GUE (stub — no public API)
+  KE — Kenya BRS / eCitizen (HTML scraping + stub fallback)
+  SA — Saudi Arabia MOCI (HTML scraping + stub fallback)
+  GH — Ghana RGD (HTML scraping + stub fallback)
 
 Design principles:
   - Every adapter returns None on failure (graceful degradation)
@@ -31,7 +35,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -67,6 +71,10 @@ async def lookup_entity(
         "HU": _lookup_hungary,
         "DE": _lookup_germany,
         "FR": _lookup_france,
+        "AO": _lookup_angola,
+        "KE": _lookup_kenya,
+        "SA": _lookup_saudi_arabia,
+        "GH": _lookup_ghana,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -1779,6 +1787,365 @@ async def _lookup_france(name: str, reg_number: str | None) -> dict | None:
     except Exception as exc:
         logger.warning("France registry lookup failed: %s", exc)
         return None
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Angola — GUE / IGAPE  (AO)                                       ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+# Angola has no public registry REST API.  The Guichet Único da Empresa
+# (GUE) portal at https://gue.gov.ao provides in-person / PDF-based
+# verification only.  This adapter is a stub that ensures DD runs for
+# Angolan entities still produce a structured result with clear data_gaps
+# rather than silently skipping registry checks.
+
+
+async def _lookup_angola(name: str, reg_number: str | None) -> dict | None:
+    """Angola — stub adapter (no public registry API available).
+
+    Returns a minimal result with data_gaps explaining the limitation.
+    Recommends manual verification via IGAPE or GUE office.
+    """
+    # Attempt a best-effort GET against the GUE portal — it may return
+    # something useful if the site ever exposes a search page, but we
+    # do not rely on it.
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://gue.gov.ao/",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)",
+                    "Accept-Language": "pt-AO,pt;q=0.9,en;q=0.5",
+                },
+            )
+            # If the portal is reachable, try to extract any company info
+            if resp.status_code == 200:
+                html = resp.text
+                name_match = re.search(
+                    r'(?:Denomina[çc][ãa]o|Empresa|Raz[ãa]o Social)[:\s]*([^<]{3,120})',
+                    html, re.IGNORECASE,
+                )
+                nif_match = re.search(r'NIF[:\s]*(\d{9,15})', html, re.IGNORECASE)
+                if name_match or nif_match:
+                    return _build_result(
+                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
+                        company_number=nif_match.group(1) if nif_match else reg_number or "",
+                        company_status="unknown",
+                        date_of_creation="",
+                        registered_office_address="",
+                        jurisdiction="AO",
+                        sic_codes=[],
+                        officers=[],
+                        psc=[],
+                        source_url="https://gue.gov.ao",
+                        adapter="angola_gue",
+                    )
+    except Exception as exc:
+        logger.debug("Angola GUE portal unreachable (expected): %s", exc)
+
+    # Return a stub result so the DD report has a registry entry with
+    # explicit data_gaps rather than nothing at all.
+    result = _build_result(
+        company_name=name,
+        company_number=reg_number or "",
+        company_status="unknown",
+        date_of_creation="",
+        registered_office_address="",
+        jurisdiction="AO",
+        sic_codes=[],
+        officers=[],
+        psc=[],
+        source_url="https://gue.gov.ao",
+        adapter="angola_gue_stub",
+    )
+    result["data_gaps"] = [
+        "Angola has no public company registry API.",
+        "The Guichet Único da Empresa (GUE) at https://gue.gov.ao handles registrations but does not expose online search.",
+        "Recommend manual verification via IGAPE (Instituto de Gestão de Activos e Participações do Estado) or a local legal representative.",
+        "NIF (Número de Identificação Fiscal) can be verified in-person at the AGT (Administração Geral Tributária).",
+    ]
+    return result
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Kenya — Business Registration Service (BRS)  (KE)                 ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+# The eCitizen portal (https://www.ecitizen.go.ke) provides company search
+# via the BRS at https://brs.go.ke.  The search endpoint is behind a
+# session/CSRF wall, so this adapter attempts a direct hit and falls back
+# to a stub with guidance.
+
+_KE_BRS_SEARCH = "https://brs.go.ke/public-search"
+
+
+async def _lookup_kenya(name: str, reg_number: str | None) -> dict | None:
+    """Kenya Business Registration Service — attempt BRS search, stub fallback."""
+    from .ua_rotation import random_ua
+    query = reg_number or name
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            # Attempt the BRS public search endpoint
+            resp = await client.get(
+                _KE_BRS_SEARCH,
+                params={"q": query},
+                headers={
+                    "User-Agent": random_ua(),
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "en-KE,en;q=0.9",
+                },
+            )
+            if resp.status_code == 200:
+                html = resp.text
+
+                # Try to extract company data from BRS results
+                name_match = re.search(
+                    r'(?:Company Name|Entity Name|Business Name)[:\s]*</?\w+[^>]*>\s*([^<]{3,120})',
+                    html, re.IGNORECASE,
+                )
+                reg_match = re.search(
+                    r'(?:Registration Number|PVT|CPR)[/\-\s]*</?\w+[^>]*>\s*([^<]{3,30})',
+                    html, re.IGNORECASE,
+                )
+                status_match = re.search(
+                    r'(?:Status|State)[:\s]*</?\w+[^>]*>\s*([^<]{3,30})',
+                    html, re.IGNORECASE,
+                )
+                date_match = re.search(
+                    r'(?:Date of (?:Registration|Incorporation))[:\s]*</?\w+[^>]*>\s*([^<]{5,30})',
+                    html, re.IGNORECASE,
+                )
+                address_match = re.search(
+                    r'(?:Registered Office|Postal Address|Address)[:\s]*</?\w+[^>]*>\s*([^<]{5,200})',
+                    html, re.IGNORECASE,
+                )
+
+                if name_match or reg_match:
+                    return _build_result(
+                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
+                        company_number=_html_unescape(reg_match.group(1).strip()) if reg_match else reg_number or "",
+                        company_status=_html_unescape(status_match.group(1).strip()).lower() if status_match else "unknown",
+                        date_of_creation=_html_unescape(date_match.group(1).strip()) if date_match else "",
+                        registered_office_address=_html_unescape(address_match.group(1).strip()) if address_match else "",
+                        jurisdiction="KE",
+                        sic_codes=[],
+                        officers=[],
+                        psc=[],
+                        source_url=f"{_KE_BRS_SEARCH}?q={query}",
+                        adapter="kenya_brs",
+                    )
+    except Exception as exc:
+        logger.debug("Kenya BRS search failed (falling back to stub): %s", exc)
+
+    # Stub fallback — BRS is typically behind eCitizen login
+    result = _build_result(
+        company_name=name,
+        company_number=reg_number or "",
+        company_status="unknown",
+        date_of_creation="",
+        registered_office_address="",
+        jurisdiction="KE",
+        sic_codes=[],
+        officers=[],
+        psc=[],
+        source_url="https://brs.go.ke",
+        adapter="kenya_brs_stub",
+    )
+    result["data_gaps"] = [
+        "Kenya BRS (Business Registration Service) public search requires eCitizen session authentication.",
+        "Company search available at https://www.ecitizen.go.ke via the BRS service.",
+        "Recommend manual verification via eCitizen portal or direct enquiry to the Registrar of Companies, Nairobi.",
+        "PVT/CPR numbers can be verified through the eCitizen business name search.",
+    ]
+    return result
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Saudi Arabia — Ministry of Commerce (MOCI)  (SA)                  ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+# The Ministry of Commerce (mc.gov.sa) maintains the Commercial Registry
+# (CR).  There is no stable public REST API, but the MOCI portal exposes
+# a company-search page that sometimes returns structured data.
+
+_SA_MC_SEARCH = "https://mc.gov.sa/en/eservices/Pages/Commercial-data.aspx"
+
+
+async def _lookup_saudi_arabia(name: str, reg_number: str | None) -> dict | None:
+    """Saudi Arabia Ministry of Commerce — attempt CR lookup, stub fallback."""
+    from .ua_rotation import random_ua
+    query = reg_number or name
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            # Attempt the MOCI commercial data page
+            resp = await client.get(
+                _SA_MC_SEARCH,
+                params={"CRNumber": reg_number} if reg_number else {"entityName": name},
+                headers={
+                    "User-Agent": random_ua(),
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "en-SA,en;q=0.9,ar;q=0.5",
+                },
+            )
+            if resp.status_code == 200:
+                html = resp.text
+
+                # Try to extract CR data from the MOCI page
+                name_match = re.search(
+                    r'(?:Entity Name|Company Name|Trade Name|اسم المنشأة)[:\s]*</?\w+[^>]*>\s*([^<]{3,120})',
+                    html, re.IGNORECASE,
+                )
+                cr_match = re.search(
+                    r'(?:CR Number|Commercial Registration|رقم السجل التجاري)[:\s]*</?\w+[^>]*>\s*(\d{7,15})',
+                    html, re.IGNORECASE,
+                )
+                status_match = re.search(
+                    r'(?:Status|Entity Status|حالة المنشأة)[:\s]*</?\w+[^>]*>\s*([^<]{3,30})',
+                    html, re.IGNORECASE,
+                )
+                date_match = re.search(
+                    r'(?:Issue Date|Incorporation|تاريخ)[:\s]*</?\w+[^>]*>\s*([^<]{5,30})',
+                    html, re.IGNORECASE,
+                )
+                address_match = re.search(
+                    r'(?:Address|City|المدينة)[:\s]*</?\w+[^>]*>\s*([^<]{3,200})',
+                    html, re.IGNORECASE,
+                )
+                activity_match = re.search(
+                    r'(?:Activity|Business Activity|النشاط)[:\s]*</?\w+[^>]*>\s*([^<]{3,200})',
+                    html, re.IGNORECASE,
+                )
+
+                if name_match or cr_match:
+                    return _build_result(
+                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
+                        company_number=cr_match.group(1) if cr_match else reg_number or "",
+                        company_status=_html_unescape(status_match.group(1).strip()).lower() if status_match else "unknown",
+                        date_of_creation=_html_unescape(date_match.group(1).strip()) if date_match else "",
+                        registered_office_address=_html_unescape(address_match.group(1).strip()) if address_match else "",
+                        jurisdiction="SA",
+                        sic_codes=[_html_unescape(activity_match.group(1).strip())] if activity_match else [],
+                        officers=[],
+                        psc=[],
+                        source_url=_SA_MC_SEARCH,
+                        adapter="saudi_moci",
+                    )
+    except Exception as exc:
+        logger.debug("Saudi MOCI search failed (falling back to stub): %s", exc)
+
+    # Stub fallback — MOCI portal may require Absher/NAFATH auth
+    result = _build_result(
+        company_name=name,
+        company_number=reg_number or "",
+        company_status="unknown",
+        date_of_creation="",
+        registered_office_address="",
+        jurisdiction="SA",
+        sic_codes=[],
+        officers=[],
+        psc=[],
+        source_url="https://mc.gov.sa",
+        adapter="saudi_moci_stub",
+    )
+    result["data_gaps"] = [
+        "Saudi Arabia Ministry of Commerce (MOCI) commercial registry search may require Absher/NAFATH authentication.",
+        "CR (Commercial Registration) numbers can be verified at https://mc.gov.sa/en/eservices/Pages/Commercial-data.aspx.",
+        "Recommend verification via the MOCI portal or a local legal representative with NAFATH access.",
+        "700-number (unified licence) or CR number is required for official verification.",
+    ]
+    return result
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Ghana — Registrar General's Department (RGD)  (GH)               ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+# The RGD Online Registry (https://rgd.gov.gh) provides company search.
+# The portal is frequently gated behind login/CAPTCHA, so this adapter
+# attempts a hit and falls back to a stub.
+
+_GH_RGD_SEARCH = "https://rgd.gov.gh/online-search.php"
+
+
+async def _lookup_ghana(name: str, reg_number: str | None) -> dict | None:
+    """Ghana Registrar General's Department — attempt RGD search, stub fallback."""
+    from .ua_rotation import random_ua
+    query = reg_number or name
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            # Attempt the RGD online search
+            resp = await client.get(
+                _GH_RGD_SEARCH,
+                params={"search": query},
+                headers={
+                    "User-Agent": random_ua(),
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "en-GH,en;q=0.9",
+                },
+            )
+            if resp.status_code == 200:
+                html = resp.text
+
+                # Try to extract company data from RGD results
+                name_match = re.search(
+                    r'(?:Company Name|Entity Name|Business Name)[:\s]*</?\w+[^>]*>\s*([^<]{3,120})',
+                    html, re.IGNORECASE,
+                )
+                reg_match = re.search(
+                    r'(?:Registration Number|Company No|CS\d+)',
+                    html, re.IGNORECASE,
+                )
+                reg_num_match = re.search(
+                    r'(?:Registration Number|Company No)[:\s]*</?\w+[^>]*>\s*([^<]{3,30})',
+                    html, re.IGNORECASE,
+                )
+                status_match = re.search(
+                    r'(?:Status|State)[:\s]*</?\w+[^>]*>\s*([^<]{3,30})',
+                    html, re.IGNORECASE,
+                )
+                date_match = re.search(
+                    r'(?:Date of (?:Registration|Incorporation))[:\s]*</?\w+[^>]*>\s*([^<]{5,30})',
+                    html, re.IGNORECASE,
+                )
+                address_match = re.search(
+                    r'(?:Registered Office|Address)[:\s]*</?\w+[^>]*>\s*([^<]{5,200})',
+                    html, re.IGNORECASE,
+                )
+
+                if name_match or reg_num_match:
+                    return _build_result(
+                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
+                        company_number=_html_unescape(reg_num_match.group(1).strip()) if reg_num_match else reg_number or "",
+                        company_status=_html_unescape(status_match.group(1).strip()).lower() if status_match else "unknown",
+                        date_of_creation=_html_unescape(date_match.group(1).strip()) if date_match else "",
+                        registered_office_address=_html_unescape(address_match.group(1).strip()) if address_match else "",
+                        jurisdiction="GH",
+                        sic_codes=[],
+                        officers=[],
+                        psc=[],
+                        source_url=f"{_GH_RGD_SEARCH}?search={query}",
+                        adapter="ghana_rgd",
+                    )
+    except Exception as exc:
+        logger.debug("Ghana RGD search failed (falling back to stub): %s", exc)
+
+    # Stub fallback — RGD portal frequently requires login/CAPTCHA
+    result = _build_result(
+        company_name=name,
+        company_number=reg_number or "",
+        company_status="unknown",
+        date_of_creation="",
+        registered_office_address="",
+        jurisdiction="GH",
+        sic_codes=[],
+        officers=[],
+        psc=[],
+        source_url="https://rgd.gov.gh",
+        adapter="ghana_rgd_stub",
+    )
+    result["data_gaps"] = [
+        "Ghana Registrar General's Department (RGD) online search may require login or CAPTCHA verification.",
+        "Company search available at https://rgd.gov.gh/online-search.php.",
+        "Recommend manual verification via the RGD office in Accra or through a local legal representative.",
+        "Ghana company registration numbers typically follow the format CS123456789.",
+    ]
+    return result
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗

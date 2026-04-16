@@ -684,4 +684,226 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
 
     record["duration_ms"] = int((time.time() - t0) * 1000)
     await record_run(record)
+
+    # ── Post-execution hooks (non-fatal — run only on success) ────────────
+    if record.get("status") == "ok":
+        # For chat-path tasks `response_text` is a local with the full
+        # response; for direct-tool tasks it was never assigned, so fall
+        # back to the truncated preview stored in the run record.
+        try:
+            _hook_text: str = response_text  # type: ignore[possibly-undefined]
+        except NameError:
+            _hook_text = record.get("response_preview") or ""
+
+        await _auto_escalate_to_watchlist(task, _hook_text, record)
+        await _feed_knowledge(task, _hook_text)
+
     return record
+
+
+# ── Auto-escalation: autonomous scan → DD watchlist ──────────────────────
+#
+# When a procurement/research/intel scan surfaces RED or HARD_STOP risk
+# indicators, or names a new counterparty, we automatically add the
+# entity to the DD watchlist so it gets periodic re-screening.
+
+_ESCALATION_ELIGIBLE_TOOLS = frozenset({
+    "deep_research", "web_search", "investigate",
+    "dd_watchlist_sweep", "corpus_weekly_crawl",
+})
+
+_RISK_PATTERNS = re.compile(
+    r"\b(RED|HARD[_\s]?STOP|HIGH[_\s]?RISK|SANCTIONED|BLOCKED|DESIGNATED|"
+    r"DENIED[_\s]?PARTY|BLACKLISTED|EMBARGO|SDN|OFAC[_\s]?HIT)\b",
+    re.IGNORECASE,
+)
+
+# Simple entity extractor — looks for capitalised multi-word names near
+# risk keywords.  Not perfect, but good enough for auto-escalation.
+_ENTITY_NAME_RE = re.compile(
+    r"(?:(?:company|entity|counterparty|firm|organisation|organization|supplier|buyer|"
+    r"vendor|contractor|target|subject)[:\s]+)([A-Z][A-Za-z&.,'\- ]{2,60})",
+)
+
+
+async def _auto_escalate_to_watchlist(
+    task: Task, response_text: str, record: dict[str, Any]
+) -> None:
+    """Check response for risk indicators and escalate to DD watchlist."""
+    if not response_text:
+        return
+
+    # Only escalate from research/procurement/intel tasks
+    tool_used = (record.get("tool_used") or "").strip().lower()
+    first_tool = ""
+    if task.tool_chain:
+        first_tool = ((task.tool_chain[0] or {}).get("tool") or "").strip().lower()
+
+    eligible_tool = tool_used in _ESCALATION_ELIGIBLE_TOOLS or first_tool in _ESCALATION_ELIGIBLE_TOOLS
+    # Also eligible if the task id hints at procurement/research/intel
+    eligible_id = any(
+        kw in task.id.lower()
+        for kw in ("proc", "research", "intel", "scan", "monitor", "watchlist", "osint")
+    )
+    if not eligible_tool and not eligible_id:
+        return
+
+    # Look for risk signals
+    risk_matches = _RISK_PATTERNS.findall(response_text)
+    if not risk_matches:
+        return
+
+    # Extract entity names from the response
+    entity_matches = _ENTITY_NAME_RE.findall(response_text)
+    # Also check the task's own entity field
+    task_entity = ""
+    if task.tool_chain:
+        task_entity = (
+            (task.tool_chain[0] or {}).get("entity")
+            or (task.tool_chain[0] or {}).get("query")
+            or ""
+        ).strip()
+    if task_entity and task_entity not in entity_matches:
+        entity_matches.insert(0, task_entity)
+
+    if not entity_matches:
+        return
+
+    # Deduplicate and escalate
+    seen: set[str] = set()
+    from ..intel import dd_orchestrator
+    for raw_name in entity_matches[:5]:  # cap at 5 entities per task run
+        name = raw_name.strip().rstrip(".,")
+        name_lower = name.lower()
+        if name_lower in seen or len(name) < 3:
+            continue
+        seen.add(name_lower)
+
+        target = {
+            "name": name,
+            "source_task": task.id,
+            "detected_risk": list(set(r.upper() for r in risk_matches[:5])),
+            "detected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "auto_escalated": True,
+        }
+        try:
+            result = await dd_orchestrator.add_to_watchlist(target)
+            if result.get("note") != "already on watchlist":
+                logger.info(
+                    "[autonomous escalation] added %s to DD watchlist from task %s "
+                    "(risks: %s)",
+                    name, task.id, ", ".join(target["detected_risk"]),
+                )
+                record.setdefault("auto_escalations", []).append(name)
+        except Exception as e:
+            logger.warning(
+                "[autonomous escalation] failed to add %s to watchlist: %s", name, e
+            )
+
+
+# ── Knowledge feedback loop ──────────────────────────────────────────────
+#
+# After research/procurement/intel tasks, extract key facts from the
+# response and feed them into the knowledge base so ARIA accumulates
+# institutional memory from her own autonomous work.
+
+_KNOWLEDGE_ELIGIBLE_TOOLS = frozenset({
+    "deep_research", "web_search", "investigate",
+    "corpus_weekly_crawl", "dd_watchlist_sweep",
+})
+
+_CONTRACT_VALUE_RE = re.compile(
+    r"[\$€£]\s?(\d[\d,.]*)\s*(million|billion|mn|bn|m|b)\b"
+    r"|(\d[\d,.]*)\s*(million|billion|mn|bn|m|b)\s*(?:USD|EUR|GBP|dollars|euros|pounds)",
+    re.IGNORECASE,
+)
+
+_DATE_EVENT_RE = re.compile(
+    r"\b(signed|awarded|announced|concluded|entered into force|effective|expired|terminated|cancelled)"
+    r"\s+(?:on\s+)?(\d{1,2}[\s/\-]\w{3,9}[\s/\-]\d{4}|\d{4}[\-/]\d{2}[\-/]\d{2})",
+    re.IGNORECASE,
+)
+
+_COMPANY_ACTION_RE = re.compile(
+    r"\b([A-Z][A-Za-z&.,'\- ]{2,50})\s+(?:won|lost|signed|awarded|acquired|merged|divested|terminated|secured|received)\b",
+)
+
+
+async def _feed_knowledge(task: Task, response_text: str) -> None:
+    """Extract key facts from autonomous task output and store in knowledge base."""
+    if not response_text or len(response_text) < 50:
+        return
+
+    # Only run for research/procurement/intel tasks
+    first_tool = ""
+    if task.tool_chain:
+        first_tool = ((task.tool_chain[0] or {}).get("tool") or "").strip().lower()
+
+    eligible_tool = first_tool in _KNOWLEDGE_ELIGIBLE_TOOLS
+    eligible_id = any(
+        kw in task.id.lower()
+        for kw in ("proc", "research", "intel", "scan", "monitor", "osint")
+    )
+    if not eligible_tool and not eligible_id:
+        return
+
+    from ..intel import knowledge
+
+    source_tag = f"autonomous:{task.id}"
+    facts_stored = 0
+
+    # Extract contract values
+    for m in _CONTRACT_VALUE_RE.finditer(response_text):
+        # Get surrounding context (up to 120 chars before the match)
+        start = max(0, m.start() - 120)
+        context = response_text[start:m.end() + 40].strip()
+        # Clean up to a sentence-ish boundary
+        context = context.replace("\n", " ").strip()
+        try:
+            await knowledge.store_fact(
+                topic="contract_value",
+                content=context,
+                source=source_tag,
+                confidence="ASSESSED",
+            )
+            facts_stored += 1
+        except Exception as e:
+            logger.debug("[knowledge feed] store_fact failed: %s", e)
+
+    # Extract date events (signed/awarded/announced + date)
+    for m in _DATE_EVENT_RE.finditer(response_text):
+        start = max(0, m.start() - 80)
+        context = response_text[start:m.end() + 40].strip().replace("\n", " ")
+        try:
+            await knowledge.store_fact(
+                topic="event_date",
+                content=context,
+                source=source_tag,
+                confidence="ASSESSED",
+            )
+            facts_stored += 1
+        except Exception as e:
+            logger.debug("[knowledge feed] store_fact failed: %s", e)
+
+    # Extract company actions (Company X won/signed/etc)
+    for m in _COMPANY_ACTION_RE.finditer(response_text):
+        start = max(0, m.start() - 40)
+        context = response_text[start:m.end() + 80].strip().replace("\n", " ")
+        entity_name = m.group(1).strip().rstrip(".,")
+        try:
+            await knowledge.store_fact(
+                topic="company_action",
+                content=context,
+                source=source_tag,
+                confidence="ASSESSED",
+                entity_name=entity_name,
+            )
+            facts_stored += 1
+        except Exception as e:
+            logger.debug("[knowledge feed] store_fact failed: %s", e)
+
+    if facts_stored:
+        logger.info(
+            "[knowledge feed] stored %d fact(s) from task %s",
+            facts_stored, task.id,
+        )

@@ -5428,6 +5428,111 @@ async def autonomous_reload_tasks_ep():
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+@router.get("/autonomous/cost-summary")
+async def autonomous_cost_summary_ep():
+    """Aggregate cost and run-count data for autonomous tasks.
+
+    Returns today / 7-day / 30-day USD totals, per-task breakdown, and
+    run counts.  Cost data comes from the cost_tracker index (which
+    records every LLM call with a feature label).  Run counts come from
+    the autonomous run history in Redis.
+    """
+    import time as _time
+    try:
+        from ..autonomous import tasks as _tsk
+        from ..intel import cost_tracker
+
+        now = _time.time()
+        today_start = now - (now % 86400)  # midnight UTC today
+        week_start = now - 7 * 86400
+        month_start = now - 30 * 86400
+
+        # ── Cost data from cost_tracker index ──
+        index = await cost_tracker.rs.get_json(cost_tracker.COST_INDEX_KEY) or []
+        today_usd = 0.0
+        week_usd = 0.0
+        month_usd = 0.0
+        by_task_cost: dict[str, float] = {}
+
+        for entry in index:
+            ts = entry.get("ts", 0)
+            feat = entry.get("feature", "")
+            cost = entry.get("cost_usd", 0.0)
+            # Only count autonomous_engine costs
+            if feat != "autonomous_engine":
+                continue
+            if ts >= month_start:
+                month_usd += cost
+            if ts >= week_start:
+                week_usd += cost
+            if ts >= today_start:
+                today_usd += cost
+
+        # ── Run records from autonomous task history ──
+        runs = await _tsk.get_recent_runs(limit=50)
+        run_count_today = 0
+        run_count_week = 0
+
+        for run in runs:
+            started = run.get("started_at", 0)
+            task_id = run.get("task_id", "unknown")
+            if started >= today_start:
+                run_count_today += 1
+            if started >= week_start:
+                run_count_week += 1
+            # Attribute cost to task from the run's duration-proportional
+            # share of the autonomous_engine feature bucket.  Since we
+            # don't have per-run cost in the record, distribute by task_id
+            # using the cost index as the source of truth.
+            by_task_cost.setdefault(task_id, 0.0)
+
+        # Per-task cost approximation from cost index: scan the index for
+        # autonomous_engine calls and attribute by timestamp overlap with
+        # run windows.  This is a heuristic — the cost_tracker doesn't
+        # tag calls with task_id, so we attribute each cost entry to the
+        # run that was active at that timestamp.
+        run_windows = []
+        for run in runs:
+            s = run.get("started_at", 0)
+            d = run.get("duration_ms", 0) / 1000.0
+            run_windows.append((run.get("task_id", "unknown"), s, s + d))
+
+        for entry in index:
+            ts = entry.get("ts", 0)
+            feat = entry.get("feature", "")
+            cost = entry.get("cost_usd", 0.0)
+            if feat != "autonomous_engine" or ts < month_start:
+                continue
+            # Find the run window this cost entry falls into
+            matched_task = None
+            for tid, ws, we in run_windows:
+                if ws <= ts <= we:
+                    matched_task = tid
+                    break
+            if matched_task:
+                by_task_cost[matched_task] = round(
+                    by_task_cost.get(matched_task, 0.0) + cost, 6
+                )
+            else:
+                by_task_cost["unattributed"] = round(
+                    by_task_cost.get("unattributed", 0.0) + cost, 6
+                )
+
+        # Clean up zero-cost entries
+        by_task_cost = {k: round(v, 4) for k, v in by_task_cost.items() if v > 0}
+
+        return {
+            "today_usd": round(today_usd, 4),
+            "week_usd": round(week_usd, 4),
+            "month_usd": round(month_usd, 4),
+            "by_task": by_task_cost,
+            "run_count_today": run_count_today,
+            "run_count_week": run_count_week,
+        }
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
 # ── OCR ──────────────────────────────────────────────────────────────────────
 
 # GET /api/aria/vision-status — Diagnostic for image OCR configuration

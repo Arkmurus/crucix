@@ -593,7 +593,7 @@ tasks:
       back RED or HARD_STOP fires an escalation signal to the
       autonomous/delivery.py pipeline.
     cron: "0 7 * * mon"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 600
     cost_cap_usd: 2.00
@@ -825,7 +825,7 @@ tasks:
       flagging, next-week queue seed. Output feeds the 05:45 team
       briefing so operators see what ARIA changed and what she plans.
     cron: "0 4 * * sun"
-    enabled: false
+    enabled: true
     priority: MEDIUM
     timeout_seconds: 300
     cost_cap_usd: 0.10
@@ -847,7 +847,7 @@ tasks:
       the Web Atlas. Boundary-pushing — finds sources we don't yet
       have.
     cron: "0 2 * * *"
-    enabled: false
+    enabled: true
     priority: LOW
     timeout_seconds: 300
     cost_cap_usd: 0.15
@@ -922,7 +922,7 @@ tasks:
       Turkey, Brazil, Kenya, Indonesia, Philippines, Vietnam, UAE,
       Saudi Arabia, Poland, Romania). Adds hits to Web Atlas.
     cron: "0 2 * * sat"
-    enabled: false
+    enabled: true
     priority: LOW
     timeout_seconds: 600
     cost_cap_usd: 0.20
