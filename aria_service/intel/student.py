@@ -723,35 +723,66 @@ async def mastery_to_prompt_addendum(message: str) -> str:
     if not weak_relevant:
         return ""
 
+    # Separate critical (<40%) from weak (40-55%) topics
+    _CRITICAL_THRESHOLD = 0.40
+    critical = [(t, s) for t, s in weak_relevant if s < _CRITICAL_THRESHOLD]
+    weak_only = [(t, s) for t, s in weak_relevant if s >= _CRITICAL_THRESHOLD]
+
     lines = [
         "⚠ MASTERY ALERT — MANDATORY BEHAVIORAL RULES for this response."
     ]
-    for topic, score in sorted(weak_relevant, key=lambda x: x[1]):
-        lines.append(f"  • {topic}: mastery {score:.0%} (below {WEAK_THRESHOLD:.0%} threshold)")
 
-    # Prescriptive rules — not advisory reminders, actual constraints
+    # ── CRITICAL mastery (<40%) — human review required ──────────
+    if critical:
+        lines.append("")
+        lines.append("🔴 CRITICAL MASTERY DEFICIT — the following topic(s) "
+                     "are below 40%. HUMAN REVIEW REQUIRED on any output "
+                     "touching these domains:")
+        for topic, score in sorted(critical, key=lambda x: x[1]):
+            lines.append(f"  • {topic}: mastery {score:.0%} — CRITICAL")
+        lines.append("")
+        lines.append("CRITICAL-TIER RULES (override everything below):")
+        lines.append("C1. CONFIDENCE FLOOR — Maximum allowed tag: [UNCERTAIN]. "
+                     "You MUST NOT use [CONFIRMED], [PROBABLE], or [ASSESSED] "
+                     "on any claim touching the critical topic(s). Every claim "
+                     "must carry [UNCERTAIN — low mastery, human review required].")
+        lines.append("C2. HUMAN REVIEW FLAG — Begin your response with: "
+                     "\"⚠ LOW-CONFIDENCE DOMAIN: My track record on [topic] is "
+                     "poor (mastery [X]%). This response requires human verification "
+                     "before any external use.\" This flag is non-negotiable.")
+        lines.append("C3. NO RECOMMENDATIONS — You MUST NOT make GO/NO-GO "
+                     "recommendations on critical-mastery topics. Present "
+                     "the evidence you have and explicitly state that a human "
+                     "must make the call.")
+        lines.append("C4. TRIPLE-SOURCE RULE — Every material fact MUST cite "
+                     "at least 3 independent sources OR carry [UNVERIFIED]. "
+                     "Two sources is not enough at critical mastery.")
+
+    # ── WEAK mastery (40-55%) — constrained but operational ──────
+    if weak_only:
+        lines.append("")
+        lines.append("🟠 LOW MASTERY — the following topic(s) are below "
+                     f"{WEAK_THRESHOLD:.0%}:")
+        for topic, score in sorted(weak_only, key=lambda x: x[1]):
+            lines.append(f"  • {topic}: mastery {score:.0%}")
+        lines.append("")
+        lines.append("LOW-TIER RULES:")
+        lines.append("1. CONFIDENCE CAP — You MUST NOT use [CONFIRMED] on any "
+                     "claim touching the weak topic(s). Maximum allowed: "
+                     "[PROBABLE] with inline citation. Use [ASSESSED] or "
+                     "[UNCERTAIN] if you have fewer than 2 independent sources.")
+        lines.append("2. DOUBLE-SOURCE RULE — Every material fact on the weak "
+                     "topic(s) MUST cite at least 2 independent sources OR "
+                     "carry an explicit [SINGLE SOURCE — UNVERIFIED] flag.")
+        lines.append("3. EXPLICIT GAP DISCLOSURE — If you are unsure about "
+                     "any aspect of the weak topic(s), say so explicitly: "
+                     "\"My knowledge on [topic] has been unreliable recently "
+                     "— I recommend independent verification.\"")
+        lines.append("4. SEARCH BEFORE RECALL — For weak topic(s), prefer "
+                     "running a search tool over relying on memory/RAG.")
+
     lines.append("")
-    lines.append("Because your mastery is LOW on the above topic(s), the "
-                 "following RULES OVERRIDE your default behavior for this "
-                 "response ONLY:")
-    lines.append("1. CONFIDENCE CAP — You MUST NOT use [CONFIRMED] on any "
-                 "claim touching the weak topic(s). Maximum allowed: "
-                 "[PROBABLE] with inline citation. Use [ASSESSED] or "
-                 "[UNCERTAIN] if you have fewer than 2 independent sources.")
-    lines.append("2. DOUBLE-SOURCE RULE — Every material fact on the weak "
-                 "topic(s) MUST cite at least 2 independent sources OR "
-                 "carry an explicit [SINGLE SOURCE — UNVERIFIED] flag. "
-                 "One source is not enough when your mastery is below "
-                 f"{WEAK_THRESHOLD:.0%}.")
-    lines.append("3. EXPLICIT GAP DISCLOSURE — If you are unsure about "
-                 "any aspect of the weak topic(s), say so explicitly: "
-                 "\"My knowledge on [topic] has been unreliable recently "
-                 "— I recommend independent verification.\" Do NOT fill "
-                 "gaps with plausible-sounding statements.")
-    lines.append("4. SEARCH BEFORE RECALL — For weak topic(s), prefer "
-                 "running a search tool over relying on memory/RAG. Your "
-                 "recall accuracy on these topics is below acceptable "
-                 "thresholds.")
     lines.append("These rules are automatically lifted when mastery "
-                 f"recovers above {WEAK_THRESHOLD:.0%}.")
+                 f"recovers above {WEAK_THRESHOLD:.0%}. Critical-tier "
+                 f"rules lift at {_CRITICAL_THRESHOLD:.0%}.")
     return "\n".join(lines)

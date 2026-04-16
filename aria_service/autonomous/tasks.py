@@ -686,9 +686,22 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
 
         # ── Pre-task predictor forecast ──────────────────────────────
         # Consult the mistake ledger + self_metrics + capability_manifest
-        # BEFORE executing. If high-severity unprevented mistakes exist
-        # for this task_type × domain, the prediction is logged and
-        # injected as context so the task can compensate.
+        # BEFORE executing. Three confidence tiers:
+        #   ≥ 0.5  → proceed normally
+        #   0.2–0.5 → proceed with warning logged
+        #   < 0.2  → BLOCK task, record as "blocked_by_predictor"
+        #
+        # Tasks that are never blocked (self-assessment infrastructure):
+        _NEVER_BLOCK = {
+            "metacognitive_daily_check", "metacognitive_weekly_review",
+            "metacognitive_monthly_sprint", "ecosystem_reassess",
+            "adversarial_weekly", "constitution_test", "golden_autogen",
+            "daily_team_briefing", "core_meta",
+        }
+        _BLOCK_THRESHOLD = 0.2   # below this → task blocked
+        _WARN_THRESHOLD = 0.5    # below this → warning logged
+
+        prediction = None
         try:
             from ..intel import predictor as _pred
             domain = (first.get("entity") or first.get("topic") or
@@ -697,18 +710,65 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                 task_type=tool_kind,
                 domain=domain[:30],
             )
+            conf = prediction.get("overall_confidence", 0.5)
+            n_failures = len(prediction.get("likely_failures", []))
+            n_mistakes = len(prediction.get("past_mistakes", []))
             record["predictor"] = {
-                "confidence": prediction.get("overall_confidence"),
-                "likely_failures": len(prediction.get("likely_failures", [])),
-                "past_mistakes": len(prediction.get("past_mistakes", [])),
+                "confidence": conf,
+                "likely_failures": n_failures,
+                "past_mistakes": n_mistakes,
                 "degraded": prediction.get("degraded", False),
             }
             if prediction.get("recommendations"):
                 record["predictor"]["recommendations"] = prediction["recommendations"][:3]
-                logger.info("[predictor] %s/%s: confidence %.0f%%, %d warnings",
-                            tool_kind, domain[:20],
-                            prediction["overall_confidence"] * 100,
-                            len(prediction.get("likely_failures", [])))
+
+            if conf < _BLOCK_THRESHOLD and tool_kind not in _NEVER_BLOCK:
+                # ── BLOCK — too many unprevented failures in this domain ──
+                record["status"] = "blocked_by_predictor"
+                record["predictor"]["action"] = "BLOCKED"
+                record["predictor"]["reason"] = (
+                    f"Confidence {conf:.0%} below {_BLOCK_THRESHOLD:.0%} threshold. "
+                    f"{n_failures} likely failure(s), {n_mistakes} past mistake(s). "
+                    f"Task will not execute until mistakes are addressed."
+                )
+                record["duration_ms"] = int((time.time() - t0) * 1000)
+                logger.warning(
+                    "[predictor] BLOCKED %s/%s: confidence %.0f%% < %.0f%% — "
+                    "%d failures, %d past mistakes",
+                    tool_kind, domain[:20], conf * 100,
+                    _BLOCK_THRESHOLD * 100, n_failures, n_mistakes,
+                )
+                # Record the block as a brain signal so the team sees it
+                try:
+                    from ..intel import brain_hook as _bh
+                    await _bh.absorb(
+                        module="predictor",
+                        summary=(
+                            f"BLOCKED task {task.id}: confidence {conf:.0%}, "
+                            f"{n_failures} likely failures, {n_mistakes} past mistakes"
+                        ),
+                        detail=record["predictor"]["reason"],
+                        success=False,
+                        gap_type="adversarial_critical_failure",
+                        gap_detail=f"Task {task.id} blocked by predictor",
+                    )
+                except Exception:
+                    pass
+                await record_run(record)
+                return record
+
+            elif conf < _WARN_THRESHOLD:
+                record["predictor"]["action"] = "WARNED"
+                logger.info(
+                    "[predictor] WARNING %s/%s: confidence %.0f%%, %d likely failures",
+                    tool_kind, domain[:20], conf * 100, n_failures,
+                )
+            else:
+                record["predictor"]["action"] = "CLEAR"
+                logger.info(
+                    "[predictor] CLEAR %s/%s: confidence %.0f%%",
+                    tool_kind, domain[:20], conf * 100,
+                )
         except Exception as e:
             logger.debug("predictor forecast failed (non-fatal): %s", e)
 
