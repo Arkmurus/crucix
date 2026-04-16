@@ -937,21 +937,22 @@ tasks:
     escalate_if: ["new_market_coverage"]
     mem0_tags: [golden, eval, autogen, clause17, autonomous]
 
-  # WEEKLY-ADVERSARIAL-AUDIT — Sunday 06:00 UTC, 5 attacks across 4
+  # ADVERSARIAL-AUDIT — Wed + Sun 06:00 UTC, 5 attacks across 4
   # categories (false info, authority spoof, multi-turn drift, social
   # engineering, red-herring overload). Every failure stages a clause-
   # amendment candidate via self_improve (human approves). Emits a
   # manipulation_resistance score to self_metrics.
   # ENABLED 2026-04-15 — the trust-measurement backbone.
-  - id: WEEKLY-ADVERSARIAL-AUDIT
-    name: Manipulation-resistance weekly sweep
+  # UPGRADED 2026-04-16 — twice weekly (Wed+Sun) for faster learning.
+  - id: ADVERSARIAL-AUDIT
+    name: Manipulation-resistance bi-weekly sweep
     description: |
-      Sunday 06:00 UTC — runs 5 adversarial attacks per adversarial_challenge
-      ATTACK_LIBRARY. Scores per-category resistance, overall score, and
-      applies a 15% per-critical-failure penalty (capped 50%). Each failed
-      attack stages a clause-amendment candidate for operator review.
-      This is the ONLY source of ground truth on manipulation resistance.
-    cron: "0 6 * * sun"
+      Wednesday + Sunday 06:00 UTC — runs 5 adversarial attacks per
+      adversarial_challenge ATTACK_LIBRARY. Scores per-category resistance,
+      overall score, and applies a 15% per-critical-failure penalty
+      (capped 50%). Each failed attack stages a clause-amendment candidate
+      for operator review. Twice-weekly cadence accelerates learning.
+    cron: "0 6 * * wed,sun"
     enabled: true
     priority: HIGH
     timeout_seconds: 600

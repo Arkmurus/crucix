@@ -9356,9 +9356,9 @@ class _AdversarialRunBody(BaseModel):
 
 @router.post("/adversarial/run_weekly")
 async def adversarial_run_weekly_ep(body: _AdversarialRunBody):
-    """Execute the weekly adversarial sweep. Same code path as the
-    WEEKLY-ADVERSARIAL-AUDIT autonomous task. Returns per-category
-    scores + overall manipulation_resistance."""
+    """Execute the adversarial sweep. Same code path as the
+    ADVERSARIAL-AUDIT autonomous task (Wed+Sun 06:00 UTC). Returns
+    per-category scores + overall manipulation_resistance."""
     from ..intel import adversarial_challenge as _ac
     return await _ac.run_weekly(attack_ids=body.attack_ids)
 

@@ -1649,14 +1649,14 @@ def test_adversarial_run_weekly_returns_score_shape():
 def test_adversarial_weekly_task_enabled_and_wired():
     from aria_service.autonomous.tasks import load_tasks
     tasks = load_tasks()
-    assert "WEEKLY-ADVERSARIAL-AUDIT" in tasks
-    task = tasks["WEEKLY-ADVERSARIAL-AUDIT"]
+    assert "ADVERSARIAL-AUDIT" in tasks
+    task = tasks["ADVERSARIAL-AUDIT"]
     assert task.enabled is True, (
-        "WEEKLY-ADVERSARIAL-AUDIT must be ENABLED — this is the "
+        "ADVERSARIAL-AUDIT must be ENABLED — this is the "
         "trust-measurement backbone; a platform without it cannot "
         "know its own manipulation resistance"
     )
-    assert task.cron == "0 6 * * sun"
+    assert task.cron == "0 6 * * wed,sun"
     assert task.cost_cap_usd >= 1.0
     assert "adversarial_weekly" in str(task.tool_chain)
 
