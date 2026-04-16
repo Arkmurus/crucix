@@ -126,6 +126,11 @@ TIER_1A_DOMAINS = {
     "reuters.com",       # Wire service - Tier 2 but very high quality
 }
 
+# Tier 1b domains — official academic/institutional sources
+TIER_1B_DOMAINS = {
+    "ucdp.uu.se",  # Uppsala Conflict Data Program — leading academic conflict dataset (1946-present)
+}
+
 # Tier 2 domains — quality journalism and specialist press
 TIER_2_DOMAINS = {
     "reuters.com", "bloomberg.com", "ft.com", "bbc.co.uk", "bbc.com",
@@ -529,6 +534,10 @@ class SourceTierClassifier:
                 return SourceTier.TIER_1A
             if any(d in domain for d in [".gov.", ".gov", "gov/"]):
                 return SourceTier.TIER_1A
+
+        # Check Tier 1b explicit domains
+        if domain in TIER_1B_DOMAINS:
+            return SourceTier.TIER_1B
 
         # Check government domains
         if self._is_government_domain(domain):

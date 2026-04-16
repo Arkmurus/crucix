@@ -461,6 +461,30 @@ tasks:
     mem0_tags: [isw, conflict, intelligence, weekly, autonomous]
 
   # ──────────────────────────────────────────────────────────────────
+  # MONTHLY-UCDP-REFRESH — Uppsala Conflict Data Program
+  # ──────────────────────────────────────────────────────────────────
+  - id: MONTHLY-UCDP-REFRESH
+    name: UCDP conflict data refresh
+    description: |
+      Monthly 1st Sunday 04:00 UTC — refresh UCDP conflict datasets.
+      Checks for new GED events, battle-related deaths updates,
+      and peace agreement additions. Cross-references with ARIA's
+      market risk assessments for Angola, Mozambique, Nigeria, Sahel,
+      and other active conflict zones in target markets.
+    cron: "0 4 1-7 * sun"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 300
+    cost_cap_usd: 0.30
+    tool_chain:
+      - tool: deep_research
+        entity: "UCDP Uppsala Conflict Data Program new conflict events battle deaths peace agreements Africa"
+        url: "https://ucdp.uu.se"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["new conflict", "escalation", "peace agreement", "ceasefire", "battle deaths increase"]
+    mem0_tags: [ucdp, conflict, data, monthly, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
   # BLOCK G — Weekly Summary (Friday)
   # ──────────────────────────────────────────────────────────────────
   - id: WEEKLY-SUMMARY

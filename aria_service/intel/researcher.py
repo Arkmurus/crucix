@@ -64,6 +64,7 @@ RESEARCH_FEEDS = [
     {"name": "CSIS", "url": "https://www.csis.org/rss.xml", "category": "strategy"},
     {"name": "RAND", "url": "https://www.rand.org/pubs/rss.xml", "category": "defence_research"},
     {"name": "ISW", "url": "https://understandingwar.org/feed", "category": "conflict_intelligence"},
+    {"name": "UCDP", "url": "https://ucdp.uu.se/apidocs/", "category": "conflict_data"},
 
     # ── Regional: Africa ──────────────────────────────────────────────────
     {"name": "DefenceWeb", "url": "https://www.defenceweb.co.za/feed/", "category": "africa_defence"},
@@ -1772,6 +1773,11 @@ async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
     if context:
         article_text += f"Context from sender: {context}\n"
     article_text += f"Content:\n{body}"
+
+    # Truncate heavy pages to prevent LLM timeout (past incident 2026-04-16:
+    # UCDP downloads page returned 8,000+ chars causing synthesis timeout)
+    if len(body) > 6000:
+        body = body[:6000] + "\n\n[TRUNCATED — original content was " + str(len(body)) + " chars]"
 
     existing_kb = search_knowledge(body[:200])
     hypotheses = await _load_hypotheses()

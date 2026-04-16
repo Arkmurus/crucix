@@ -139,6 +139,7 @@ SEED_REGISTRY: dict[str, list[str]] = {
         "https://sam.gov/",
         "https://opensanctions.org/",
         "https://www.un.org/securitycouncil/sanctions/information",
+        "https://ucdp.uu.se",
     ],
     "B": [
         "https://www.rand.org/topics/defense-and-national-security.html",
