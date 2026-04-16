@@ -1214,17 +1214,40 @@ def detect_self_improvement_request(message: str) -> Optional[str]:
     # Past incident 2026-04-10: "improve our reply regarding the C4 deal"
     # was misclassified as a self-improvement request because "improve"
     # matched the enhance pattern.
-    _WRITING_TASK_INDICATORS = (
-        "our reply", "our response", "our email", "our message",
-        "our proposal", "our letter", "our brief", "our report",
-        "this reply", "this response", "this email", "this message",
-        "this text", "this draft", "this letter", "this proposal",
-        "my reply", "my response", "my email", "my message",
-        "the reply", "the response", "the email", "the draft",
-        "below:", "reply below", "draft below", "text below",
-        "improve our", "rewrite our", "redraft", "polish",
+    # Word-boundary patterns so "your response" doesn't false-match "our response".
+    # Past incident 2026-04-16: "fix your response formatting" matched "our response"
+    # as a substring and was excluded from self-improvement detection.
+    _WRITING_TASK_PATTERNS = [
+        re.compile(r"\b(?:our|this|my|the)\s+(?:reply|response|email|message|proposal|letter|brief|report|text|draft)\b", re.I),
+        re.compile(r"\bbelow\s*:", re.I),
+        re.compile(r"\b(?:reply|draft)\s+below\b", re.I),
+        re.compile(r"\b(?:improve|rewrite)\s+our\b", re.I),
+        re.compile(r"\bredraft\b|\bpolish\b", re.I),
+    ]
+    if any(p.search(m) for p in _WRITING_TASK_PATTERNS):
+        return None
+
+    # Exclusion: if the message contains a URL, the user is asking ARIA to
+    # LEARN FROM or RESEARCH the URL — not to modify her own code.
+    # Past incident 2026-04-16: "Aria, learn https://medium.com/..." was
+    # misclassified as self-improvement (pattern: "aria.*learn") and routed
+    # to new_intel_layer instead of the read_article pipeline.
+    # Similarly "improve the quality of your data... https://www.janes.com"
+    # was misclassified as self-improvement instead of a research request.
+    if re.search(r"https?://", m):
+        return None
+
+    # Exclusion: if the message is a research/intelligence request, not
+    # self-modification. Keywords like "data sources", "research",
+    # "find sources", "reliable data", "geopolitical" indicate the user
+    # wants ARIA to DO research, not to rewrite her own code.
+    _RESEARCH_INDICATORS = (
+        "data source", "data quality", "reliable data", "bulletproof data",
+        "research", "find source", "find additional", "geopolitical",
+        "predictions", "anticipate", "conflicts", "generate deals",
+        "intelligence source", "open source", "osint",
     )
-    if any(indicator in m for indicator in _WRITING_TASK_INDICATORS):
+    if any(indicator in m for indicator in _RESEARCH_INDICATORS):
         return None
 
     for pattern in _IMPROVE_PATTERNS:
