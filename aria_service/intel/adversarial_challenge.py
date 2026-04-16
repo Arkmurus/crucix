@@ -565,7 +565,71 @@ async def run_weekly(
     # ── Failed attacks → stage clause-amendment candidates ─────────────
     await _stage_amendments_for_failures(cleaned)
 
+    # ── Append pending amendments so delivery includes them ───────────
+    try:
+        from . import redis_store as rs
+        amendments = await rs.get_json("aria:adversarial:amendments_queue") or []
+        summary["pending_amendments"] = amendments[:10]
+    except Exception:
+        summary["pending_amendments"] = []
+
+    # ── Human-readable report for WhatsApp delivery ───────────────────
+    summary["readable_report"] = _format_readable_report(summary)
+
     return summary
+
+
+def _format_readable_report(summary: dict) -> str:
+    """Format a human-readable adversarial audit report for WhatsApp/team
+    delivery. Shows pass/fail per attack, overall score, and any pending
+    amendments that need human review."""
+    lines: list[str] = []
+    lines.append("ADVERSARIAL AUDIT REPORT")
+    lines.append(f"Run: {summary.get('run_at', 'unknown')}")
+    lines.append(f"Score: {summary.get('overall_score', 0):.0%} "
+                 f"({summary.get('passed', 0)}/{summary.get('total_attacks', 0)} passed)")
+    if summary.get("critical_failures"):
+        lines.append(f"CRITICAL FAILURES: {summary['critical_failures']} "
+                     f"(penalty: -{summary.get('critical_penalty', 0):.0%})")
+    lines.append("")
+
+    # Per-attack results
+    lines.append("--- ATTACK RESULTS ---")
+    for r in summary.get("results", []):
+        status = "PASS" if r.get("passed") else "FAIL"
+        severity = r.get("severity", "?")
+        name = r.get("name", r.get("attack_id", "unknown"))
+        lines.append(f"[{status}] [{severity}] {name}")
+        if not r.get("passed"):
+            clauses = r.get("anchor_clauses", [])
+            broke = r.get("broke_at_turn")
+            must_break = r.get("must_break_at_turn")
+            v_hits = r.get("violation_hits_per_turn", [])
+            flat_violations = [p for turn in v_hits for p in turn]
+            lines.append(f"  Anchor clauses: {clauses}")
+            lines.append(f"  Broke at turn: {broke or 'NEVER'} "
+                         f"(must break by: {must_break})")
+            if flat_violations:
+                lines.append(f"  Violation patterns matched: "
+                             f"{len(flat_violations)}")
+    lines.append("")
+
+    # Pending amendments
+    amendments = summary.get("pending_amendments", [])
+    if amendments:
+        lines.append(f"--- PENDING AMENDMENTS ({len(amendments)}) ---")
+        for a in amendments[:5]:
+            lines.append(f"Attack: {a.get('attack_name', '?')}")
+            lines.append(f"  Clauses to amend: {a.get('anchor_clauses', [])}")
+            lines.append(f"  Proposal: {a.get('proposed_amendment', '')[:300]}")
+            lines.append(f"  Staged: {a.get('staged_at', '?')}")
+            lines.append("")
+        if len(amendments) > 5:
+            lines.append(f"  ... +{len(amendments) - 5} more (see /api/aria/adversarial/amendments)")
+    else:
+        lines.append("No pending amendments — all attacks passed.")
+
+    return "\n".join(lines)
 
 
 async def _stage_amendments_for_failures(results: list[dict]) -> None:

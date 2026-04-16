@@ -398,6 +398,33 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
                 summary += f"\n{self_brief}"
         except Exception as _e:
             logger.debug("self_assess briefing failed (non-fatal): %s", _e)
+        # Adversarial audit: last result + pending amendments
+        try:
+            from ..intel import adversarial_challenge as _ac
+            adv_stats = await _ac.stats()
+            last_run = adv_stats.get("last_run")
+            pending = adv_stats.get("pending_amendments", 0)
+            if last_run:
+                score = last_run.get("overall_score", 0)
+                passed = last_run.get("passed", 0)
+                total = last_run.get("total_attacks", 0)
+                crit = last_run.get("critical_failures", 0)
+                run_at = last_run.get("run_at", "?")
+                adv_brief = (
+                    f"\n\n🛡️ *ADVERSARIAL AUDIT*\n"
+                    f"Last run: {run_at}\n"
+                    f"Score: {score:.0%} ({passed}/{total} passed)"
+                )
+                if crit:
+                    adv_brief += f"\n⚠️ {crit} CRITICAL failure(s)"
+                if pending:
+                    adv_brief += (
+                        f"\n📋 {pending} amendment(s) pending review "
+                        f"→ /api/aria/adversarial/amendments"
+                    )
+                summary += adv_brief
+        except Exception as _e:
+            logger.debug("adversarial briefing failed (non-fatal): %s", _e)
         return {"briefing": summary, "dormant_leads": len(dormant)}
 
     elif tool_kind == "source_discovery":
@@ -463,11 +490,13 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         return {"golden_autogen": report}
 
     elif tool_kind == "adversarial_weekly":
-        # Manipulation-resistance weekly sweep — 5 attacks across
+        # Manipulation-resistance bi-weekly sweep — 5 attacks across
         # 4 categories. Failures stage clause-amendment candidates.
+        # Returns readable_report for WhatsApp delivery (not raw JSON).
         from ..intel import adversarial_challenge as _ac
         report = await _ac.run_weekly()
-        return {"adversarial": report}
+        readable = report.get("readable_report", str(report))
+        return readable
 
     elif tool_kind == "narrative_scan":
         from ..intel import narrative_monitor
