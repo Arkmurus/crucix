@@ -10067,7 +10067,8 @@ async def writers_produce_ep(body: _WriterProduceBody):
     except Exception as e:
         logger.exception("Writer failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
-    return {
+
+    body_out = {
         "writer_type": result.writer_type,
         "reference": result.reference,
         "document": result.document,
@@ -10077,7 +10078,22 @@ async def writers_produce_ep(body: _WriterProduceBody):
         "word_count": result.word_count,
         "success": result.success,
         "error": result.error,
+        # Degradation signalling — 2026-04-17 PM. When Claude is down
+        # the writer falls back to DeepSeek; `degraded: true` tells the
+        # operator to regenerate once billing is restored.
+        "degraded": getattr(result, "degraded", False),
+        "actual_model": getattr(result, "actual_model", ""),
+        "degraded_reason": getattr(result, "degraded_reason", ""),
     }
+    headers = {}
+    if body_out["degraded"]:
+        headers["X-ARIA-Writer-Degraded"] = "true"
+        headers["X-ARIA-Writer-Actual-Model"] = body_out["actual_model"] or "deepseek-chat"
+        headers["X-ARIA-Writer-Warning"] = (
+            "Produced on DeepSeek fallback — regenerate on Claude when restored"
+        )
+    from fastapi.responses import JSONResponse
+    return JSONResponse(content=body_out, headers=headers)
 
 
 @router.get("/writers/capabilities")

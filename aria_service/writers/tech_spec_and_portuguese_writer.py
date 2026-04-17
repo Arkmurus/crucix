@@ -168,19 +168,18 @@ Return JSON:
   "applicable_standards": ["List of all standards referenced"]
 }}"""
 
-        response = self.client.messages.create(
-            model=self.model,
+        from ._resilient_llm import resilient_complete
+        rr = resilient_complete(
+            anthropic_client=self.client,
+            anthropic_model=self.model,
+            system_prompt=self.SYSTEM_PROMPT,
+            user_prompt=prompt,
             max_tokens=3000,
-            # Prompt caching — SYSTEM_PROMPT carries the STANAG reference
-            # table + NSN conventions that repeat across every tech spec.
-            system=[{
-                "type": "text",
-                "text": self.SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=[{"role": "user", "content": prompt}],
         )
-        raw = re.sub(r"```json\s*|\s*```", "", response.content[0].text.strip()).strip()
+        self._last_llm_degraded = rr.degraded
+        self._last_llm_model = rr.model_used
+        self._last_llm_reason = rr.reason
+        raw = re.sub(r"```json\s*|\s*```", "", rr.text).strip()
         data = json.loads(raw)
         data["platform"] = request.platform_type
         data["produced_by"] = "ARIA — Arkmurus Research Intelligence Agent"
@@ -365,19 +364,18 @@ Return JSON:
   "register_notes": "Notes on register choices made"
 }}"""
 
-        response = self.client.messages.create(
-            model=self.model,
+        from ._resilient_llm import resilient_complete
+        rr = resilient_complete(
+            anthropic_client=self.client,
+            anthropic_model=self.model,
+            system_prompt=self.SYSTEM_PROMPT,
+            user_prompt=prompt,
             max_tokens=2000,
-            # Prompt caching — SYSTEM_PROMPT carries the PT-AO / PT-MZ /
-            # PT-GW / PT-CV register conventions, static per-call.
-            system=[{
-                "type": "text",
-                "text": self.SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=[{"role": "user", "content": prompt}],
         )
-        raw = re.sub(r"```json\s*|\s*```", "", response.content[0].text.strip()).strip()
+        self._last_llm_degraded = rr.degraded
+        self._last_llm_model = rr.model_used
+        self._last_llm_reason = rr.reason
+        raw = re.sub(r"```json\s*|\s*```", "", rr.text).strip()
         data = json.loads(raw)
         data["produced_by"] = "ARIA — Arkmurus Research Intelligence Agent"
         data["produced_at"] = datetime.now(timezone.utc).isoformat()

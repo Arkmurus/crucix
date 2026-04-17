@@ -129,6 +129,13 @@ class WriterResult:
     word_count:   int
     success:      bool
     error:        Optional[str] = None
+    # Degradation flags — set to True when the writer fell back from
+    # Claude to DeepSeek (e.g. during Anthropic billing cooldown).
+    # Operator should regenerate when Claude is restored; tests trust
+    # `degraded=False` as the full-fidelity path.
+    degraded:       bool = False
+    actual_model:   str = ""     # "claude-opus-4-7" / "deepseek-chat" / ""
+    degraded_reason: str = ""
 
 
 class WriterOrchestrator:
@@ -435,12 +442,33 @@ class WriterOrchestrator:
         produced_at = datetime.now(timezone.utc).isoformat()
         word_count = len(rendered.split())
 
+        # Pull degradation markers from whichever writer ran. Each writer
+        # sets self._last_llm_* on its instance after the LLM call; we
+        # look them up by writer_type so the flag propagates into
+        # WriterResult + response headers without a signature change.
+        degraded = False
+        actual_model = ""
+        degraded_reason = ""
+        _writer_instance = {
+            "assessment":         self._assessment,
+            "procurement_paper":  self._procurement,
+            "compliance_opinion": self._compliance,
+            "tech_spec":          self._tech_spec,
+            "portuguese_doc":     self._portuguese,
+        }.get(writer_type)
+        if _writer_instance is not None:
+            degraded = bool(getattr(_writer_instance, "_last_llm_degraded", False))
+            actual_model = str(getattr(_writer_instance, "_last_llm_model", "") or "")
+            degraded_reason = str(getattr(_writer_instance, "_last_llm_reason", "") or "")
+
         self.audit.log(
             event_type=f"document_produced:{writer_type}",
             metadata={
                 "reference": reference,
                 "word_count": word_count,
                 "writer": writer_type,
+                "degraded": degraded,
+                "actual_model": actual_model,
             },
             output_hash=output_hash,
         )
@@ -449,14 +477,29 @@ class WriterOrchestrator:
             try:
                 self.brain_hook.absorb(
                     module="writer_orchestrator",
-                    summary=f"Produced {writer_type}: {reference} ({word_count} words)",
+                    summary=(
+                        f"Produced {writer_type}: {reference} ({word_count} words)"
+                        + (" [DEGRADED: DeepSeek fallback]" if degraded else "")
+                    ),
                     success=True,
-                    metadata={"writer_type": writer_type, "reference": reference},
+                    metadata={
+                        "writer_type": writer_type,
+                        "reference": reference,
+                        "degraded": degraded,
+                        "actual_model": actual_model,
+                    },
                 )
-            except Exception:
-                pass
+            except Exception as _bh_err:
+                logger.debug("writer_orchestrator brain_hook failed: %s", _bh_err)
 
-        logger.info(f"Document produced: {writer_type} | {reference} | {word_count} words")
+        if degraded:
+            logger.warning(
+                "Document produced on DEGRADED fallback: %s | %s | %s | %d words — "
+                "operator should regenerate when Claude is restored",
+                writer_type, reference, actual_model, word_count,
+            )
+        else:
+            logger.info(f"Document produced: {writer_type} | {reference} | {word_count} words")
 
         return WriterResult(
             writer_type=writer_type,
@@ -467,6 +510,9 @@ class WriterOrchestrator:
             produced_at=produced_at,
             word_count=word_count,
             success=True,
+            degraded=degraded,
+            actual_model=actual_model,
+            degraded_reason=degraded_reason,
         )
 
     def _error_result(self, writer_type: str, error: str) -> WriterResult:

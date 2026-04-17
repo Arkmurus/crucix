@@ -154,17 +154,30 @@ async def _drafts_awaiting() -> dict[str, Any]:
         logger.debug("dd_reports: %s", e)
 
     # ── Writer outputs (from WriterAuditLog) ──
+    # Also counts how many of today's outputs were produced on DEGRADED
+    # fallback — useful signal for the dashboard during Anthropic cooldown.
     try:
         from pathlib import Path
+        import json as _json
         log_path = Path(os.getenv("ARIA_WRITER_AUDIT_PATH",
                                   "/data/aria_writer_audit.jsonl"))
         if log_path.exists():
             today = datetime.now(timezone.utc).date().isoformat()
             count = 0
+            degraded_count = 0
             for line in log_path.read_text(encoding="utf-8").splitlines()[-500:]:
-                if today in line:
-                    count += 1
+                if today not in line:
+                    continue
+                count += 1
+                try:
+                    entry = _json.loads(line)
+                    md = entry.get("metadata") or {}
+                    if md.get("degraded") is True:
+                        degraded_count += 1
+                except Exception:
+                    continue
             out["writer_outputs_today"] = count
+            out["writer_outputs_degraded_today"] = degraded_count
     except Exception as e:
         logger.debug("writer_outputs: %s", e)
 

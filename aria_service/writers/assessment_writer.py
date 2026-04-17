@@ -354,20 +354,21 @@ Return JSON with this exact schema:
 }}"""
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
+            from ._resilient_llm import resilient_complete
+            rr = resilient_complete(
+                anthropic_client=self.client,
+                anthropic_model=self.model,
+                system_prompt=self.SYSTEM_PROMPT,
+                user_prompt=prompt,
                 max_tokens=2000,
-                # Prompt caching: SYSTEM_PROMPT is static across every
-                # assessment request — cache the full prefix so repeat
-                # calls pay ~10% of input cost for the cached portion.
-                system=[{
-                    "type": "text",
-                    "text": self.SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }],
-                messages=[{"role": "user", "content": prompt}],
             )
-            raw = re.sub(r"```json\s*|\s*```", "", response.content[0].text.strip()).strip()
+            # Carry degradation flags onto self so the writer's caller
+            # (WriterOrchestrator) can propagate them into the final
+            # WriterResult without changing the method signature.
+            self._last_llm_degraded = rr.degraded
+            self._last_llm_model = rr.model_used
+            self._last_llm_reason = rr.reason
+            raw = re.sub(r"```json\s*|\s*```", "", rr.text).strip()
             data = json.loads(raw)
         except Exception as e:
             logger.error(f"Assessment generation failed: {e}")

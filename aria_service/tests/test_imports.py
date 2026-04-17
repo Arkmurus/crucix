@@ -93,6 +93,8 @@ CORE_MODULES = [
     "aria_service.intel.autonomy_surface",
     # F3 DD debug follow-up (2026-04-17 late PM)
     "aria_service.intel.domain_ownership_verifier",
+    # Writer fallback (2026-04-17 late PM)
+    "aria_service.writers._resilient_llm",
     "aria_service.writers",
     "aria_service.writers.writer_orchestrator",
     "aria_service.writers.assessment_writer",

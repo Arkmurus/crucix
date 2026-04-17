@@ -375,20 +375,18 @@ Return ONLY valid JSON matching the schema."""
         prompt = self._build_prompt(request, intermediaries, pre_analysis)
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
+            from ._resilient_llm import resilient_complete
+            rr = resilient_complete(
+                anthropic_client=self.client,
+                anthropic_model=self.model,
+                system_prompt=self.SYSTEM_PROMPT,
+                user_prompt=prompt,
                 max_tokens=3000,
-                # Prompt caching — SYSTEM_PROMPT carries the MoJ Six
-                # Principles + CPI risk map + Red Flags, static across
-                # every compliance opinion.
-                system=[{
-                    "type": "text",
-                    "text": self.SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }],
-                messages=[{"role": "user", "content": prompt}],
             )
-            raw = re.sub(r"```json\s*|\s*```", "", response.content[0].text.strip()).strip()
+            self._last_llm_degraded = rr.degraded
+            self._last_llm_model = rr.model_used
+            self._last_llm_reason = rr.reason
+            raw = re.sub(r"```json\s*|\s*```", "", rr.text).strip()
             data = json.loads(raw)
         except Exception as e:
             logger.error(f"Compliance opinion generation failed: {e}")
@@ -458,17 +456,18 @@ Return JSON:
   "external_counsel_required": true/false
 }}"""
 
-        response = self.client.messages.create(
-            model=self.model,
+        from ._resilient_llm import resilient_complete
+        rr = resilient_complete(
+            anthropic_client=self.client,
+            anthropic_model=self.model,
+            system_prompt=self.SYSTEM_PROMPT,
+            user_prompt=prompt,
             max_tokens=2000,
-            system=[{
-                "type": "text",
-                "text": self.SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=[{"role": "user", "content": prompt}],
         )
-        return response.content[0].text.strip()
+        self._last_llm_degraded = rr.degraded
+        self._last_llm_model = rr.model_used
+        self._last_llm_reason = rr.reason
+        return rr.text
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
