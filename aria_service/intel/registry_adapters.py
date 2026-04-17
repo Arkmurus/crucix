@@ -35,7 +35,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL", "US"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -46,12 +46,16 @@ async def lookup_entity(
     name: str,
     jurisdiction_iso2: str,
     registration_number: str | None = None,
+    address: str | None = None,
 ) -> dict | None:
     """Look up a company in its national registry.
 
     Returns a normalised dict with keys:
         profile, officers, psc, source_url, adapter
     or None if the jurisdiction is unsupported / lookup failed.
+
+    `address` is used by the US adapter to route to the correct state
+    Secretary of State; other adapters ignore it.
     """
     iso2 = (jurisdiction_iso2 or "").upper().strip()
     if iso2 not in _SUPPORTED_JURISDICTIONS:
@@ -77,6 +81,7 @@ async def lookup_entity(
         "GH": _lookup_ghana,
         "ZA": _lookup_south_africa,
         "IL": _lookup_israel,
+        "US": _lookup_united_states,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -85,7 +90,10 @@ async def lookup_entity(
     try:
         logger.info("Registry adapter [%s]: looking up '%s' (reg=%s)", iso2, name, registration_number)
         _t0 = time.monotonic()
-        result = await adapter_fn(name, registration_number)
+        if iso2 == "US":
+            result = await adapter_fn(name, registration_number, address)
+        else:
+            result = await adapter_fn(name, registration_number)
         _elapsed = time.monotonic() - _t0
         if result:
             logger.info("Registry adapter [%s]: found %s", iso2, result.get("profile", {}).get("company_name", "?"))
@@ -2340,3 +2348,263 @@ def _html_unescape(text: str) -> str:
     text = text.replace("&#39;", "'")
     text = text.replace("&nbsp;", " ")
     return text.strip()
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  United States — per-state Secretary of State dispatch               ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+#
+# The US has no federal company registry. Each state maintains its own
+# Secretary of State business database. This adapter dispatches on state
+# inferred from the address, then falls back to a stub with manual-
+# verification guidance if no state can be determined or no adapter
+# exists for that state.
+
+_US_STATE_KEYWORDS = {
+    "FL": ["florida", "miami", "orlando", "tampa", "jacksonville", "tallahassee",
+           "fort lauderdale", "ft lauderdale", "st petersburg", "boca raton", "sunny isles"],
+    "DE": ["delaware", "wilmington", "dover"],
+    "NY": ["new york", "manhattan", "brooklyn", "queens", "bronx", "ny "],
+    "CA": ["california", "los angeles", "san francisco", "san diego", "sacramento",
+           "san jose", "oakland", "beverly hills"],
+    "TX": ["texas", "houston", "dallas", "austin", "san antonio", "fort worth"],
+    "NV": ["nevada", "las vegas", "reno", "carson city"],
+    "WY": ["wyoming", "cheyenne", "sheridan"],
+}
+
+_US_STATE_ABBR_RE = re.compile(r"\b([A-Z]{2})\s+\d{5}(?:-\d{4})?\b")  # "FL 33160" or "FL 33160-1234"
+
+_US_STATE_NAMES = {
+    "FL": "Florida", "DE": "Delaware", "NY": "New York", "CA": "California",
+    "TX": "Texas", "NV": "Nevada", "WY": "Wyoming",
+}
+
+_FL_SUNBIZ_SEARCH = "https://search.sunbiz.org/Inquiry/CorporationSearch/SearchResults"
+_DE_SOS_SEARCH = "https://icis.corp.delaware.gov/Ecorp/EntitySearch/NameSearch.aspx"
+
+
+def _detect_us_state(address: str | None, name: str = "", reg_number: str | None = None) -> str | None:
+    """Best-effort US state detection from address, name, or reg-number prefix."""
+    haystack = " ".join(filter(None, [address or "", name or ""])).lower()
+    # 1. Zip-code-adjacent abbreviation (strongest signal)
+    if address:
+        m = _US_STATE_ABBR_RE.search(address)
+        if m and m.group(1) in _US_STATE_KEYWORDS:
+            return m.group(1)
+    # 2. City / state-name keyword match
+    for state, keywords in _US_STATE_KEYWORDS.items():
+        for kw in keywords:
+            if kw in haystack:
+                return state
+    # 3. Registration-number prefix (e.g. some FL docs start with L/P)
+    # Not reliable enough to rely on — skip.
+    return None
+
+
+async def _lookup_united_states(
+    name: str,
+    reg_number: str | None,
+    address: str | None = None,
+) -> dict | None:
+    """US dispatch — routes to state-specific Secretary of State lookup.
+
+    Florida (Sunbiz) and Delaware (ICIS) have public search pages. Other
+    states return a stub with manual-verification guidance so the DD
+    orchestrator always gets structured output instead of None.
+    """
+    state = _detect_us_state(address, name, reg_number)
+
+    # ── Florida Sunbiz ──
+    if state == "FL":
+        return await _lookup_us_florida(name, reg_number, address)
+    # ── Delaware ICIS ──
+    if state == "DE":
+        return await _lookup_us_delaware(name, reg_number, address)
+
+    # ── Stub states (NY/CA/TX/NV/WY + unknown) ──
+    state_hint = _US_STATE_NAMES.get(state, "the relevant US state")
+    return _build_us_stub(name, reg_number, address, state, state_hint)
+
+
+async def _lookup_us_florida(
+    name: str,
+    reg_number: str | None,
+    address: str | None,
+) -> dict:
+    """Florida Division of Corporations (Sunbiz) — public HTML search.
+
+    Sunbiz has no public JSON API; the Inquiry page returns an HTML
+    results table. We perform a best-effort parse of the first row.
+    """
+    from .ua_rotation import random_ua
+    search_term = (name or "").strip()
+    if not search_term:
+        return _build_us_stub(name, reg_number, address, "FL", "Florida")
+
+    params = {
+        "inquiryType": "EntityName",
+        "searchNameOrder": search_term.upper(),
+        "aggregateId": "",
+        "searchTerm": search_term,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(
+                _FL_SUNBIZ_SEARCH,
+                params=params,
+                headers={
+                    "User-Agent": random_ua(),
+                    "Accept": "text/html",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+            )
+            if resp.status_code == 200 and resp.text:
+                html = resp.text
+                # Sunbiz results table: each row has a link like
+                # <a href="/Inquiry/CorporationSearch/SearchResultDetail?inquirytype=EntityName&directionType=Initial&searchNameOrder=...&aggregateId=...">ENTITY NAME</a>
+                detail_re = re.compile(
+                    r'href="(/Inquiry/CorporationSearch/SearchResultDetail\?[^"]+)"[^>]*>([^<]+)</a>',
+                    re.IGNORECASE,
+                )
+                matches = detail_re.findall(html)
+                for detail_path, entity_name in matches[:3]:
+                    clean = _html_unescape(entity_name).strip()
+                    if not clean:
+                        continue
+                    # Pull the aggregateId (= Document Number) from the URL
+                    doc_m = re.search(r"aggregateId=([^&]+)", detail_path)
+                    document_number = doc_m.group(1) if doc_m else ""
+                    # Status is sometimes in the adjacent cell — not reliable
+                    # across Sunbiz layout changes, so leave unknown and note.
+                    result = _build_result(
+                        company_name=clean,
+                        company_number=document_number or (reg_number or ""),
+                        company_status="unknown",
+                        date_of_creation="",
+                        registered_office_address=address or "",
+                        jurisdiction="US-FL",
+                        sic_codes=[],
+                        officers=[],
+                        psc=[],
+                        source_url=f"https://search.sunbiz.org{detail_path}",
+                        adapter="us_florida_sunbiz",
+                    )
+                    result["data_gaps"] = [
+                        "Sunbiz exposes registration + address but NOT ultimate "
+                        "beneficial ownership. UBO is filed with FinCEN BOI under "
+                        "the Corporate Transparency Act — not public.",
+                        "Officers / registered-agent require following the "
+                        "aggregateId detail link and re-parsing the HTML.",
+                        f"Manual: open {result['source_url']} to confirm status "
+                        f"(active / dissolved / inactive) + registered agent.",
+                    ]
+                    return result
+    except Exception as exc:
+        logger.debug("Florida Sunbiz lookup failed: %s", exc)
+
+    # Search ran but returned no hits — treat as "not found in FL registry"
+    # which is itself a strong signal on a DD.
+    result = _build_us_stub(name, reg_number, address, "FL", "Florida")
+    result["data_gaps"].insert(
+        0,
+        f"Sunbiz search for '{name}' returned no HTML match rows. "
+        f"Entity may be filed under a variant name or not registered in FL. "
+        f"Treat as NOT-VERIFIED until manual Sunbiz search confirms or rules out.",
+    )
+    return result
+
+
+async def _lookup_us_delaware(
+    name: str,
+    reg_number: str | None,
+    address: str | None,
+) -> dict:
+    """Delaware Secretary of State — ICIS entity name search.
+
+    Delaware's ICIS portal performs a JavaScript POST-back on a form;
+    scraping is fragile. We probe it for reachability only and return a
+    stub with manual-verification guidance. Full ICIS data is fee-based
+    (per-document), so the manual step is the operator-correct path.
+    """
+    from .ua_rotation import random_ua
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(
+                _DE_SOS_SEARCH,
+                headers={
+                    "User-Agent": random_ua(),
+                    "Accept": "text/html",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+            )
+            logger.debug("Delaware ICIS reachability: %d", resp.status_code)
+    except Exception as exc:
+        logger.debug("Delaware ICIS probe failed: %s", exc)
+
+    result = _build_us_stub(name, reg_number, address, "DE", "Delaware")
+    result["data_gaps"].insert(
+        0,
+        "Delaware ICIS performs a JS-driven form POST; no stable HTML "
+        "parse. Full entity detail is fee-based per document.",
+    )
+    return result
+
+
+def _build_us_stub(
+    name: str,
+    reg_number: str | None,
+    address: str | None,
+    state: str | None,
+    state_hint: str,
+) -> dict:
+    """Stub result for US states without an automated adapter."""
+    jurisdiction_code = f"US-{state}" if state else "US"
+    manual_links = {
+        "FL": "https://search.sunbiz.org/Inquiry/CorporationSearch/ByName",
+        "DE": "https://icis.corp.delaware.gov/Ecorp/EntitySearch/NameSearch.aspx",
+        "NY": "https://apps.dos.ny.gov/publicInquiry/",
+        "CA": "https://bizfileonline.sos.ca.gov/search/business",
+        "TX": "https://mycpa.cpa.state.tx.us/coa/",
+        "NV": "https://esos.nv.gov/EntitySearch/OnlineEntitySearch",
+        "WY": "https://wyobiz.wyo.gov/Business/FilingSearch.aspx",
+    }
+    manual_url = manual_links.get(state or "", "")
+
+    result = _build_result(
+        company_name=name,
+        company_number=reg_number or "",
+        company_status="unknown",
+        date_of_creation="",
+        registered_office_address=address or "",
+        jurisdiction=jurisdiction_code,
+        sic_codes=[],
+        officers=[],
+        psc=[],
+        source_url=manual_url or "https://www.naass.org/state-business-links/",
+        adapter=f"us_{(state or 'unknown').lower()}_stub",
+    )
+    gaps = [
+        f"US has no federal company registry — each state maintains its own "
+        f"Secretary of State database.",
+        f"Ultimate beneficial ownership is NOT public at any US state level. "
+        f"UBO lives in FinCEN BOI filings (Corporate Transparency Act, 2024) — "
+        f"request the BOI report directly from the counterparty during DD.",
+    ]
+    if state and manual_url:
+        gaps.append(
+            f"Manual verification ({state_hint}): open {manual_url} and search "
+            f"for '{name}'. Confirm: (a) registration exists, (b) status is "
+            f"ACTIVE, (c) registered agent, (d) principal address matches disclosure."
+        )
+    else:
+        gaps.append(
+            "State could not be inferred from address. Ask counterparty which "
+            "US state the entity is registered in before proceeding."
+        )
+    gaps.append(
+        "If the entity is a US LLC acting as an international defence financier, "
+        "apply enhanced scrutiny: ghost-entity check, virtual-office detector, "
+        "and OFAC SDN / BIS Entity List screen are mandatory."
+    )
+    result["data_gaps"] = gaps
+    return result

@@ -84,6 +84,9 @@ _PHONE_PREFIX_TO_ISO2 = {
     "+91": "IN", "+350": "GI", "+351": "PT", "+966": "SA", "+962": "JO",
     "+20": "EG", "+254": "KE", "+27": "ZA", "+244": "AO", "+258": "MZ",
     "+233": "GH",
+    # +1 is US/CA/Caribbean. Default to US for our deal flow; address
+    # keywords will override if the entity is clearly Canadian.
+    "+1": "US",
 }
 
 _ADDRESS_KEYWORDS_TO_ISO2 = {
@@ -99,6 +102,12 @@ _ADDRESS_KEYWORDS_TO_ISO2 = {
     "france": "FR", "germany": "DE", "deutschland": "DE",
     "spain": "ES", "españa": "ES", "italy": "IT", "italia": "IT",
     "portugal": "PT", "austria": "AT", "österreich": "AT",
+    "united states": "US", "usa": "US", "u.s.a.": "US",
+    # Common US state markers — any of these in the address strongly
+    # implies jurisdiction = US. Fine-grained state detection is the
+    # responsibility of registry_adapters._detect_us_state.
+    "florida": "US", "delaware": "US", "california": "US",
+    "new york": "US", "texas": "US", "nevada": "US", "wyoming": "US",
 }
 
 _ISO2_TO_COUNTRY = {v: k.title() for k, v in _ADDRESS_KEYWORDS_TO_ISO2.items()}
@@ -543,6 +552,63 @@ async def _run_identity(
                 confidence="ASSESSED",
             ))
 
+        # ── Virtual-office / mail-drop detection ──
+        # Catches CMRA addresses (e.g. North Miami Beach corridor,
+        # Cheyenne WY mass-registration), PMB markers, and registered-
+        # agent towers. Added 2026-04-17 after the F3 / SERBAN DD
+        # learnings — a US LLC at a virtual-office address should
+        # always carry an explicit signal.
+        try:
+            from . import virtual_office_registry
+            _vo = virtual_office_registry.check_address(supplied_address)
+            if _vo.get("is_virtual_office"):
+                _sev = "red" if _vo.get("risk") == "high" else "amber"
+                _provider = _vo.get("provider") or "virtual-office / mail-drop"
+                _signals = " ".join(_vo.get("signals") or [])
+                _notes = _vo.get("notes") or ""
+                report.identity.findings.append(Finding(
+                    severity=_sev,
+                    title=f"Registered address is a virtual office / mail drop",
+                    detail=(
+                        f"'{supplied_address}' matches a known virtual-office "
+                        f"or CMRA pattern: {_provider}. {_signals} {_notes} "
+                        f"Operating business is unlikely to be physically at "
+                        f"this address. Require counterparty to disclose the "
+                        f"actual principal place of business before proceeding."
+                    ).strip(),
+                    source="dd_orchestrator.virtual_office_detector",
+                    confidence="ASSESSED",
+                ))
+        except Exception as _vo_err:
+            logger.debug("Virtual-office check failed (non-fatal): %s", _vo_err)
+
+        # ── FinCEN BOI caveat for US entities ──
+        # US state registries disclose registered agent + managers but NOT
+        # ultimate beneficial ownership. UBO lives in FinCEN BOI filings
+        # (Corporate Transparency Act, 2024) — not public. Any DD on a US
+        # entity must explicitly surface this gap so the operator doesn't
+        # assume Sunbiz / SOS records = full ownership disclosure.
+        _jur_hint = (
+            (target.get("jurisdiction_iso2") or "")
+            or (target.get("jurisdiction") or "")
+        ).upper()
+        _is_us = (
+            _jur_hint in ("US", "USA", "UNITED STATES")
+            or any(kw in _addr_lower for kw in (
+                "united states", "usa", "florida", "delaware", "california",
+                "new york", "texas", "nevada", "wyoming",
+            ))
+        )
+        if _is_us:
+            report.identity.data_gaps.append(
+                "UBO not visible on US public registry — US state Secretary "
+                "of State records disclose registered agent + managers only. "
+                "Ultimate beneficial ownership lives in FinCEN BOI filings "
+                "(Corporate Transparency Act, effective 2024) which are NOT "
+                "public. Require the counterparty to provide a copy of its "
+                "FinCEN BOI report during KYC before contracting."
+            )
+
     # ── 1a. Sanctions screen (always runs) ──
     #
     # Classification is by BOTH score AND OpenSanctions topic labels.
@@ -800,10 +866,17 @@ async def _run_identity(
         # Try multi-jurisdiction registry adapter
         try:
             from . import registry_adapters
+            _addr_for_adapter = (
+                target.get("registered_address")
+                or target.get("address")
+                or report.identity.registered_address
+                or ""
+            )
             reg_result = await registry_adapters.lookup_entity(
                 name=name,
                 jurisdiction_iso2=jurisdiction_iso2,
                 registration_number=registration_number,
+                address=_addr_for_adapter,
             )
             if reg_result:
                 profile = reg_result.get("profile", {})

@@ -85,6 +85,12 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "sipri_ingest":         ["market_intel", "procurement"],
     # Writer package (2026-04-17) — structured document production.
     "writer_orchestrator":  ["general", "legal", "compliance", "procurement"],
+    # NAK / SERBAN / F3 learnings (2026-04-17) — six new capabilities closing
+    # the gaps observed on the live KNDS / FK-3000 engagement.
+    "virtual_office_registry":    ["compliance", "osint", "finance"],
+    "sanctions_propagation":      ["compliance", "legal", "procurement"],
+    "cited_artifact_verifier":    ["compliance", "legal", "osint"],
+    "protective_reply_drafter":   ["compliance", "legal", "general"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
@@ -146,6 +152,11 @@ _MODULE_WEIGHT: dict[str, float] = {
     "equipment_specs":      0.10,
     "sipri_ingest":         0.15,  # each ingest lands real historical data
     "writer_orchestrator":  0.25,  # each produced document is high-value work
+    # NAK / SERBAN / F3 learnings (2026-04-17)
+    "virtual_office_registry":    0.10,
+    "sanctions_propagation":      0.15,
+    "cited_artifact_verifier":    0.10,
+    "protective_reply_drafter":   0.15,
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity

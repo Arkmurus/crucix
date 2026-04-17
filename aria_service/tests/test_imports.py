@@ -72,6 +72,11 @@ CORE_MODULES = [
     "aria_service.intel.knowledge_west_africa",
     "aria_service.intel.knowledge_latam_non_lusophone",
     "aria_service.intel.equipment_specs",
+    # NAK / SERBAN / F3 learnings (2026-04-17)
+    "aria_service.intel.virtual_office_registry",
+    "aria_service.intel.sanctions_propagation",
+    "aria_service.intel.cited_artifact_verifier",
+    "aria_service.intel.protective_reply_drafter",
     "aria_service.writers",
     "aria_service.writers.writer_orchestrator",
     "aria_service.writers.assessment_writer",
