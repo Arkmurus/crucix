@@ -825,6 +825,10 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..learning import style_learner
         return await style_learner.run_hourly_style_learn()
 
+    elif tool_kind == "memory_replication":
+        from ..learning import memory_replication
+        return await memory_replication.run_daily_backup()
+
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}
 

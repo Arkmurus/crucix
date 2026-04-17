@@ -120,6 +120,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     # Reading, writing, response formulation (2026-04-18)
     "pdf_deep_ingest":             ["osint", "general"],
     "style_learner":               ["general"],
+    # Memory durability (2026-04-18)
+    "memory_replication":          ["general", "compliance"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
@@ -225,6 +227,7 @@ _MODULE_WEIGHT: dict[str, float] = {
     # Reading, writing, response formulation (2026-04-18)
     "pdf_deep_ingest":             0.15,  # per-PDF learning signal
     "style_learner":               0.15,  # structural pattern extraction
+    "memory_replication":          0.10,  # infra — low weight per run
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity

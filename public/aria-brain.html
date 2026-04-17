@@ -679,6 +679,14 @@ async function loadLearning() {
       .join(' · ');
     html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Styles: ${topTopics}</div>`;
   }
+  // Memory durability row (backup freshness + retention)
+  const mb = d.memory_backup || {};
+  const backupCount = mb.total_backups_on_disk ?? 0;
+  html += metricRow('Memory backups on disk', backupCount,
+                    backupCount > 0 ? 'good' : 'warn');
+  if (mb.newest_backup) {
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Last: ${mb.newest_backup} · ${mb.total_kb_on_disk ?? 0} KB</div>`;
+  }
   html += '</div>';
 
   html += '</div>';

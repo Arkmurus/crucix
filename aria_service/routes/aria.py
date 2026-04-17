@@ -10388,7 +10388,57 @@ async def learning_stats_ep():
     except Exception:
         out["pdf_deep_ingest"] = {}
 
+    # Memory replication — durability floor
+    try:
+        from ..learning import memory_replication
+        out["memory_backup"] = await memory_replication.get_stats()
+    except Exception as e:
+        _log.debug("learning/stats memory_backup failed: %s", e)
+        out["memory_backup"] = {}
+
     return out
+
+
+# ── Memory replication endpoints (2026-04-18) ─────────────────────────────
+
+@router.post("/memory/backup/run")
+async def memory_backup_run_ep():
+    """Run the daily backup on-demand. Same function the autonomous
+    task calls at 04:00 UTC."""
+    from ..learning import memory_replication
+    return await memory_replication.run_daily_backup()
+
+
+@router.get("/memory/backup/list")
+async def memory_backup_list_ep():
+    """List all backup files on disk, newest first."""
+    from ..learning import memory_replication
+    items = await memory_replication.list_backups()
+    return {"count": len(items), "items": items}
+
+
+@router.post("/memory/backup/restore")
+async def memory_backup_restore_ep(request: Request):
+    """Restore keys from a dated backup. dry_run=True by default —
+    operator MUST explicitly pass dry_run=False to write to Redis.
+
+    Body: { "date": "YYYY-MM-DD", "keys": ["..."] | null, "dry_run": true }
+    """
+    from ..learning import memory_replication
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    date = (body.get("date") or "").strip()
+    if not date:
+        raise HTTPException(status_code=400, detail="date (YYYY-MM-DD) required")
+    keys = body.get("keys") if isinstance(body.get("keys"), list) else None
+    dry_run = body.get("dry_run", True)
+    if dry_run is not False:
+        dry_run = True  # default safety: always dry-run unless explicit False
+    return await memory_replication.restore_from_backup(
+        date=date, keys=keys, dry_run=dry_run
+    )
 
 
 @router.get("/calibration/baseline")

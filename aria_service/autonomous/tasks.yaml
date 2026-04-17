@@ -1398,6 +1398,26 @@ tasks:
     escalate_if: ["stalled_cell"]
     mem0_tags: [learning, research, autonomous]
 
+  - id: MEMORY-BACKUP-DAILY
+    name: Memory replication — daily forensic snapshot
+    description: |
+      Daily 04:00 UTC — gzipped snapshot of every critical Redis key
+      to /data/aria_backups/YYYY-MM-DD.json.gz. 30-day retention.
+      Phase 1 memory durability: survives Redis wipes, LRU eviction,
+      and add-on restarts. Phase 2 (future) adds off-host mirroring
+      to S3 or Neon for genuine cross-host durability.
+    cron: "0 4 * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 180
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: memory_replication
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, memory, backup, autonomous]
+
   - id: STYLE-LEARN-HOURLY
     name: Style learner — extract structural patterns from grounded replies
     description: |

@@ -110,6 +110,8 @@ CORE_MODULES = [
     # Reading / writing / formulation (2026-04-18)
     "aria_service.intel.pdf_deep_ingest",
     "aria_service.learning.style_learner",
+    # Memory durability (2026-04-18)
+    "aria_service.learning.memory_replication",
     "aria_service.writers",
     "aria_service.writers.writer_orchestrator",
     "aria_service.writers.assessment_writer",
