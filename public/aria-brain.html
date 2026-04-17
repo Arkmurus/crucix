@@ -50,6 +50,13 @@
 </style>
 </head>
 <body>
+<script src="js/app.js?v=3"></script>
+<script src="js/sidebar.js?v=3"></script>
+<script>
+Auth.requireAuth();
+Sidebar.init('brain');
+</script>
+
 <div id="sidebar-placeholder"></div>
 <div id="header-placeholder"></div>
 
@@ -449,11 +456,5 @@ setInterval(refreshAll, 60000);
 </script>
 
 </main>
-<script src="js/app.js?v=3"></script>
-<script src="js/sidebar.js?v=3"></script>
-<script>
-Auth.requireAuth();
-Sidebar.init('brain');
-</script>
 </body>
 </html>
