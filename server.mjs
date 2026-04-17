@@ -977,6 +977,8 @@ setTelegramLLM(llmProvider);
 const PUBLIC_DIR = join(ROOT, 'public');
 app.use(express.static(PUBLIC_DIR));
 app.get('/', (req, res) => res.redirect('/signin.html'));
+// ARIA Brain dashboard — explicit route to ensure it's served
+app.get('/aria-brain', (req, res) => res.sendFile(join(PUBLIC_DIR, 'aria-brain.html')));
 console.log('[Crucix] Static dashboard live at /');
 
 app.get('/api/data', requireAuth, (req, res) => {
