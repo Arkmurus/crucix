@@ -185,6 +185,135 @@ async def get_psc(company_number: str) -> list[dict]:
     ]
 
 
+async def search_officers(name: str, limit: int = 20) -> list[dict]:
+    """Search for officers (directors / PSCs) by name.
+
+    Returns items with `officer_id` and `appointments_url` so the caller
+    can drill down into company appointments. Each entry carries a
+    short address snippet + date_of_birth (partial — month/year only).
+
+    This is the PSC-reverse entry point: "give me every UK company this
+    person has been an officer of."
+    """
+    import urllib.parse as _urlp
+    q = _urlp.quote(name or "")
+    if not q:
+        return []
+    data = await _get(f"/search/officers?q={q}&items_per_page={limit}")
+    if not data:
+        return []
+    out: list[dict] = []
+    for item in data.get("items") or []:
+        links = item.get("links") or {}
+        self_link = links.get("self") or ""  # e.g. "/officers/<id>/appointments"
+        officer_id = ""
+        if "/officers/" in self_link:
+            officer_id = self_link.split("/officers/")[-1].split("/")[0]
+        dob = item.get("date_of_birth") or {}
+        out.append({
+            "title": item.get("title"),
+            "officer_id": officer_id,
+            "appointments_url": self_link,
+            "address_snippet": item.get("address_snippet", ""),
+            "description": item.get("description", ""),
+            "date_of_birth": {"month": dob.get("month"), "year": dob.get("year")} if dob else None,
+        })
+    return out
+
+
+async def get_officer_appointments(officer_id: str, limit: int = 50) -> list[dict]:
+    """List every company appointment for a given officer.
+
+    Foundational for PSC-reverse: answers "which UK companies is this
+    person a director / PSC of?" Returns both active and resigned roles
+    so the caller can flag recently-resigned directors as a risk signal.
+    """
+    if not officer_id:
+        return []
+    data = await _get(f"/officers/{officer_id}/appointments?items_per_page={limit}")
+    if not data:
+        return []
+    out: list[dict] = []
+    for item in data.get("items") or []:
+        appointed_to = item.get("appointed_to") or {}
+        out.append({
+            "company_name": item.get("appointed_to", {}).get("company_name")
+                or item.get("name_elements", {}).get("forename"),
+            "company_number": appointed_to.get("company_number"),
+            "company_status": appointed_to.get("company_status"),
+            "officer_role": item.get("officer_role"),
+            "appointed_on": item.get("appointed_on"),
+            "resigned_on": item.get("resigned_on"),
+            "is_current": item.get("resigned_on") is None,
+            "occupation": item.get("occupation"),
+            "nationality": item.get("nationality"),
+        })
+    return out
+
+
+async def psc_reverse_lookup(name: str, max_officers: int = 5, max_apts_per_officer: int = 30) -> dict:
+    """One-call answer to "which UK companies is this person tied to?"
+
+    Steps:
+      1. search_officers(name) — get up to `max_officers` candidates
+      2. for each, get_officer_appointments(officer_id)
+      3. merge + dedupe by company_number + flag recent resignations
+
+    Returns `{candidates: [...], appointments: [...], summary: str}`.
+    Low-signal if name is too common (e.g. "John Smith") — callers should
+    require a dob or locality to disambiguate before acting on it.
+    """
+    candidates = await search_officers(name, limit=max_officers)
+    if not candidates:
+        return {"candidates": [], "appointments": [], "summary": "No matching officers."}
+    all_apts: list[dict] = []
+    seen_companies: set[str] = set()
+    for cand in candidates[:max_officers]:
+        oid = cand.get("officer_id") or ""
+        if not oid:
+            continue
+        apts = await get_officer_appointments(oid, limit=max_apts_per_officer)
+        for a in apts:
+            cnum = a.get("company_number") or ""
+            if cnum and cnum in seen_companies:
+                continue
+            if cnum:
+                seen_companies.add(cnum)
+            a["matched_via_officer_id"] = oid
+            a["matched_via_name"] = cand.get("title", "")
+            all_apts.append(a)
+    current_count = sum(1 for a in all_apts if a.get("is_current"))
+    resigned_last_12mo = 0
+    try:
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        cutoff = (_dt.now(_tz.utc) - _td(days=365)).date()
+        for a in all_apts:
+            r = a.get("resigned_on")
+            if r:
+                try:
+                    if _dt.fromisoformat(r).date() >= cutoff:
+                        resigned_last_12mo += 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    summary = (
+        f"{len(candidates)} officer candidate(s) matched '{name}' — "
+        f"{len(all_apts)} appointments across {len(seen_companies)} UK companies "
+        f"({current_count} current, {resigned_last_12mo} resigned in last 12mo)."
+    )
+    if len(candidates) > 1:
+        summary += " ⚠️ Multiple candidates — dob or locality required to disambiguate."
+    return {
+        "candidates": candidates,
+        "appointments": all_apts,
+        "companies_total": len(seen_companies),
+        "appointments_current": current_count,
+        "appointments_resigned_last_12mo": resigned_last_12mo,
+        "summary": summary,
+    }
+
+
 async def get_filing_history(company_number: str, limit: int = 10) -> list[dict]:
     """Get recent filing history."""
     data = await _get(f"/company/{company_number}/filing-history?items_per_page={limit}")

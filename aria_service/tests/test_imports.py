@@ -66,6 +66,7 @@ CORE_MODULES = [
     "aria_service.intel.procurement_calendar",
     "aria_service.intel.competitor_tracker",
     "aria_service.intel.oem_contact_graph",
+    "aria_service.intel.sipri_ingest",
     "aria_service.intel.tech_classifier",
     "aria_service.intel.local_brain",
     "aria_service.intel.reasoning_router",

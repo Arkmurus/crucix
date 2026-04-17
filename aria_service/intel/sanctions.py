@@ -374,6 +374,101 @@ async def fuzzy_screen(name: str, *, threshold: float = 0.78) -> dict:
     return result
 
 
+async def enrich_with_relationships(screen_result: dict, *, max_targets: int = 3,
+                                    target_threshold: float = 0.78) -> dict:
+    """Extend a fuzzy_screen() result with relationship-risk enrichment.
+
+    For each of the top matches, walks up to `max_targets` family/associate
+    relationship targets and checks whether each target is itself on a
+    sanctions list. If so, attaches an `inherited_risk` block so ARIA can
+    cite it as "subject's spouse/sibling/associate is sanctioned".
+
+    Rate-limit aware: caps at `max_targets` relationships per match so a
+    subject with 30 associates doesn't hammer the OpenSanctions free tier
+    (1 req/sec). Caller should prefer paying for a key in production.
+
+    Non-destructive: mutates nothing, returns a new dict with
+    `relationships_enriched=True` and `inherited_risk_count` summary.
+    """
+    if not isinstance(screen_result, dict) or not screen_result.get("matches"):
+        return screen_result
+    enriched_matches: list[dict] = []
+    seen_targets: set[str] = set()
+    inherited_total = 0
+    for m in screen_result.get("matches", []):
+        m = dict(m)  # shallow copy
+        rels = m.get("relationships") or []
+        inherited: list[dict] = []
+        for rel in rels[:max_targets]:
+            target_name = (rel.get("target") or "").strip()
+            if not target_name or len(target_name) < 3:
+                continue
+            target_key = target_name.lower()
+            if target_key in seen_targets:
+                continue
+            seen_targets.add(target_key)
+            try:
+                # Free-text search is the cheapest path; /match would need a
+                # schema choice we don't have for a raw name.
+                hits = await _opensanctions_search(target_name, limit=2)
+            except Exception:
+                continue
+            target_hit = None
+            for h in hits or []:
+                candidate = (((h.get("properties") or {}).get("name") or [h.get("caption", "")])[0])
+                sim = _similarity(target_name, candidate)
+                if sim >= target_threshold:
+                    target_hit = h
+                    target_hit["_sim"] = sim
+                    break
+            if not target_hit:
+                continue
+            datasets = target_hit.get("datasets") or []
+            props = target_hit.get("properties") or {}
+            topics = props.get("topics") or []
+            inherited.append({
+                "kind": rel.get("kind"),
+                "target_name": target_name,
+                "target_lists": datasets,
+                "target_topics": topics,
+                "target_score": round(float(target_hit.get("_sim", 0.0)), 3),
+                "target_url": (
+                    f"https://www.opensanctions.org/entities/{target_hit.get('id','')}/"
+                    if target_hit.get("id") else None
+                ),
+            })
+        if inherited:
+            m["inherited_risk"] = inherited
+            inherited_total += len(inherited)
+        m["relationships_enriched"] = True
+        enriched_matches.append(m)
+    out = dict(screen_result)
+    out["matches"] = enriched_matches
+    out["inherited_risk_count"] = inherited_total
+    out["relationships_enriched"] = True
+    if inherited_total and not out.get("blocked"):
+        # Inherited risk never auto-blocks, but it DOES escalate the
+        # suggestion tier. The DD layer decides whether to hard-stop.
+        out["inherited_risk_note"] = (
+            f"{inherited_total} relationship(s) match an OpenSanctions entry — "
+            "subject inherits elevated risk. Review relationship targets manually."
+        )
+    return out
+
+
+async def screen_with_relationships(name: str, *, threshold: float = 0.78,
+                                    max_rel_targets: int = 3) -> dict:
+    """Convenience wrapper: fuzzy_screen() + enrich_with_relationships().
+
+    Use when the caller actively cares about family/associate risk
+    inheritance (person DD, beneficial-ownership screens). For plain
+    tender-counterparty checks, fuzzy_screen() without enrichment is fine.
+    """
+    screen = await fuzzy_screen(name, threshold=threshold)
+    return await enrich_with_relationships(screen, max_targets=max_rel_targets,
+                                           target_threshold=threshold)
+
+
 async def screen_with_aliases(name: str, known_aliases: list[str] | None = None) -> dict:
     """Screen a primary name plus user-provided aliases. Combines results.
 
