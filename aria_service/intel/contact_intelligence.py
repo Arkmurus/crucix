@@ -310,4 +310,18 @@ async def generate_contact_briefing() -> str:
         for n in nudges[:5]:
             lines.append(f"• {n['_nudge']}")
 
+    # Chain-driven activation nudges (Priority 1, 2026-04-17). Surfaces
+    # relationships due for activation based on an approaching
+    # long-horizon procurement window. Non-fatal if unavailable.
+    try:
+        from . import chain_correlator
+        activation_nudges = await chain_correlator.relationship_activation_nudges()
+        if activation_nudges:
+            lines.append("")
+            lines.append("*Activation window (causal chain):*")
+            for n in activation_nudges[:5]:
+                lines.append(f"• {n['_nudge']}")
+    except Exception as _e:
+        logger.debug("chain activation nudges failed (non-fatal): %s", _e)
+
     return "\n".join(lines)

@@ -732,13 +732,22 @@ def _sync_correlation_context(message: str) -> str:
     try:
         import asyncio
         from .intel import signal_correlator
+        from .intel import chain_correlator
 
         async def _get_both():
             parts = []
-            # Correlation insights
+            # Short-window correlation insights (14-day opportunity convergence)
             corr = await signal_correlator.get_correlation_context(message)
             if corr:
                 parts.append(corr)
+            # Long-horizon causal chain (Priority 1, 2026-04-17)
+            # — adds a [CHAIN: ...] marker so ARIA can cite the chain.
+            try:
+                chain_ctx = await chain_correlator.get_chain_context(message)
+                if chain_ctx:
+                    parts.append(chain_ctx)
+            except Exception:
+                pass
             # Coverage confidence for mentioned countries
             import re
             _COUNTRY_NAMES = [

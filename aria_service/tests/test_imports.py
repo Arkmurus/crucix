@@ -61,6 +61,8 @@ CORE_MODULES = [
     "aria_service.intel.deep_researcher",
     "aria_service.intel.sanctions",
     "aria_service.intel.conflict_tracker",
+    "aria_service.intel.country_taxonomy",
+    "aria_service.intel.chain_correlator",
     "aria_service.intel.tech_classifier",
     "aria_service.intel.local_brain",
     "aria_service.intel.reasoning_router",

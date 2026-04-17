@@ -70,6 +70,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "golden_autogen":       ["osint", "general"],
     "adversarial_challenge": ["compliance", "general", "osint"],
     "narrative_monitor": ["osint", "geopolitics", "competitor_intel"],
+    # Priority 1 (2026-04-17) — long-horizon causal chain correlator
+    "chain_correlator":     ["geopolitics", "procurement", "relationships", "market_intel"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
@@ -120,6 +122,7 @@ _MODULE_WEIGHT: dict[str, float] = {
     "golden_autogen":       0.10,  # self-growing eval set — meaningful curation
     "adversarial_challenge": 0.30, # weekly stress test — highest-value mastery signal
     "narrative_monitor": 0.15,     # hourly narrative scan — moderate weight per detection
+    "chain_correlator":     0.20,  # each confirmed causal chain is high-value learning
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity

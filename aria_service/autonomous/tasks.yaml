@@ -1128,3 +1128,84 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: ["new_gazette_found", "new_ministry_found"]
     mem0_tags: [source_scout, tld_probe, web_atlas, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # CHAIN-SCAN-SHIFTS — detect structural geopolitical shifts
+  # ═══════════════════════════════════════════════════════════════════
+  # Part of Priority 1 (2026-04-17 session): long-horizon causal chain
+  # from geopolitics → procurement → relationships. This task walks the
+  # last 90 days of intel_ledger and classifies signals as structural
+  # shifts (coup, new minister, sanctions change, budget announcement,
+  # alliance shift, major election). See aria_service/intel/chain_correlator.py.
+  - id: CHAIN-SCAN-SHIFTS
+    name: Chain correlator — scan structural shifts
+    description: |
+      Every 2h at :15 past the hour — walk the last 90 days of intel_ledger,
+      classify signals into 6 structural shift types, deduplicate by
+      (type, country, date, text-prefix), persist to Redis.
+    cron: "15 */2 * * *"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 60
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: chain_correlator
+        action: scan_shifts
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [chain_correlator, shifts, geopolitics, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # CHAIN-PROJECT-WINDOWS — forward-project procurement windows
+  # ═══════════════════════════════════════════════════════════════════
+  # Runs at 05:30 UTC — 15 minutes before the 05:45 daily team briefing,
+  # so the briefing always sees the freshest windows. Emits a window for
+  # every live shift: window_open = shift + 12mo, window_close = shift + 18mo,
+  # activation_due = shift + 9mo. Also registers each prediction with
+  # predictor.forecast for later hit-rate scoring.
+  - id: CHAIN-PROJECT-WINDOWS
+    name: Chain correlator — project procurement windows
+    description: |
+      Daily 05:30 UTC — for every live shift, emit a ProcurementWindow
+      with PROJECTED/ACTIVE/EXPIRED status. Registers each with the
+      predictor so hit rate is scored over time.
+    cron: "30 5 * * *"
+    enabled: false
+    priority: MEDIUM
+    timeout_seconds: 90
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: chain_correlator
+        action: project_windows
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if: ["window_opening"]
+    mem0_tags: [chain_correlator, windows, procurement, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # CHAIN-CLOSE-DAILY — score closed causal chains
+  # ═══════════════════════════════════════════════════════════════════
+  # Daily 22:00 UTC retro — scan recent tender_monitor alerts + pipeline
+  # leads. For each proc event in ISO2 X, look back up to 24mo for a
+  # preceding shift in the same country. When found, record a
+  # ConfirmedChain with within_window / activation_active flags so the
+  # chain accuracy is learnable over time.
+  - id: CHAIN-CLOSE-DAILY
+    name: Chain correlator — close causal chains
+    description: |
+      Daily 22:00 UTC — match recent procurement events back to stored
+      shifts within 24mo. Records ConfirmedChain with within_window and
+      activation_active flags for scoring.
+    cron: "0 22 * * *"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 90
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: chain_correlator
+        action: close_chains
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [chain_correlator, confirmed, scoring, autonomous]

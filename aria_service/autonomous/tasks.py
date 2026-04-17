@@ -375,6 +375,14 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         correlation_brief = await signal_correlator.generate_correlation_briefing()
         if correlation_brief:
             summary += f"\n{correlation_brief}"
+        # Add long-horizon causal chain (Priority 1, 2026-04-17)
+        try:
+            from ..intel import chain_correlator
+            chain_brief = await chain_correlator.generate_chain_briefing()
+            if chain_brief:
+                summary += f"\n{chain_brief}"
+        except Exception as _e:
+            logger.debug("chain briefing failed (non-fatal): %s", _e)
         # Add contact intelligence section
         contact_brief = await contact_intelligence.generate_contact_briefing()
         if contact_brief:
@@ -697,6 +705,33 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
             "stale_leads": len(stale),
             "deadlines_7d": len(deadlines),
         }
+
+    elif tool_kind == "chain_correlator":
+        # Priority 1 (2026-04-17) — long-horizon causal chain geopolitics
+        # → procurement → relationships. Dispatches by `action` in the
+        # first tool_chain entry. See aria_service/intel/chain_correlator.py.
+        from ..intel import chain_correlator
+        action = ((task.tool_chain[0] or {}).get("action") or "").strip().lower()
+        if action == "scan_shifts":
+            shifts = await chain_correlator.scan_geopolitical_shifts()
+            return {"new_shifts": len(shifts), "shifts": shifts[:20]}
+        if action == "project_windows":
+            windows = await chain_correlator.project_windows()
+            active = [w for w in windows if w.get("status") == "ACTIVE"]
+            return {
+                "windows_total": len(windows),
+                "windows_active": len(active),
+                "windows": windows[:20],
+            }
+        if action == "close_chains":
+            chains = await chain_correlator.close_chains()
+            in_window = [c for c in chains if c.get("within_window")]
+            return {
+                "new_chains": len(chains),
+                "in_window": len(in_window),
+                "chains": chains[:20],
+            }
+        return {"error": f"chain_correlator: unknown action {action!r}"}
 
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}
