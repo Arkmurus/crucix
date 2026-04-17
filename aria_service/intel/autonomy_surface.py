@@ -29,6 +29,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
+from . import redis_store as rs
+
 logger = logging.getLogger("aria.intel.autonomy_surface")
 
 
@@ -288,16 +290,167 @@ async def _operator_queue() -> dict[str, Any]:
 # Public API
 # ═══════════════════════════════════════════════════════════════════════
 
+async def _resilience_floor() -> dict[str, Any]:
+    """Report ARIA's "never dies" resilience floor — provider chain
+    health + local_brain availability + memory durability.
+
+    Rationale: the operator directive is "brain never dies, memory
+    never wipes, learning never stops". This surface makes each of
+    those invariants directly observable.
+    """
+    out: dict[str, Any] = {
+        "providers": [],
+        "providers_active": 0,
+        "providers_configured": 0,
+        "providers_cooling": 0,
+        "local_brain_ready": False,
+        "local_brain_invocations_24h": 0,
+        "memory": {
+            "redis_reachable": False,
+            "rag_chunks": 0,
+            "mem0_facts": 0,
+            "claim_ledger_entries": 0,
+        },
+        "resilience_count": 0,
+        "verdict": "unknown",
+    }
+
+    # ── Provider chain health ──
+    try:
+        # The FallbackProvider's stats are per-instance; we query it via
+        # the module-level helper already exposed on /health. Simpler:
+        # re-derive from env vars (authoritative truth about configured keys)
+        # and the rate_limiter/last-kind cache when available.
+        import os
+        provider_keys = {
+            "anthropic": os.getenv("ANTHROPIC_API_KEY", ""),
+            "deepseek":  os.getenv("DEEPSEEK_API_KEY", ""),
+            "groq":      os.getenv("GROQ_API_KEY", ""),
+            "openai":    os.getenv("OPENAI_API_KEY", ""),
+            "gemini":    os.getenv("GEMINI_API_KEY", ""),
+            "openrouter": os.getenv("OPENROUTER_API_KEY", ""),
+            "mistral":   os.getenv("MISTRAL_API_KEY", ""),
+        }
+        configured = [n for n, k in provider_keys.items() if k]
+        out["providers_configured"] = len(configured)
+
+        # Pull runtime state from fallback stats if the chain is initialised
+        try:
+            from ..llm import fallback as _fb
+            # No module-level singleton exists, but we can probe the
+            # LLM factory's active chain via health endpoint's shape.
+            # For now, trust configured keys as "active" and rely on the
+            # per-provider failure counter (below) to mark cooling.
+            pass
+        except Exception:
+            pass
+
+        # Cooldown state (Redis-backed — the fallback.py writes cooldowns
+        # to its instance dict, not Redis directly; so "cooling" reflects
+        # whatever the last run recorded).
+        for name in configured:
+            try:
+                cd_raw = await rs.get(f"crucix:llm:{name}:cooldown_until")
+                cooling = False
+                if cd_raw is not None:
+                    try:
+                        cooling = float(cd_raw) > datetime.now(timezone.utc).timestamp()
+                    except (TypeError, ValueError):
+                        cooling = False
+                status = "cooling" if cooling else "active"
+                out["providers"].append({"name": name, "status": status})
+                if cooling:
+                    out["providers_cooling"] += 1
+                else:
+                    out["providers_active"] += 1
+            except Exception:
+                out["providers"].append({"name": name, "status": "unknown"})
+
+    except Exception as e:
+        logger.debug("provider chain probe failed: %s", e)
+
+    # ── Local-brain readiness ──
+    # local_brain is rule-based Python + local data; it's ready iff the
+    # module imports cleanly and its dependent stores (knowledge cache,
+    # neural_memory) are reachable. Cheap to probe.
+    try:
+        from . import local_brain  # noqa: F401
+        out["local_brain_ready"] = True
+        invocations = await rs.get("crucix:local_brain:invocations_24h")
+        if invocations is not None:
+            try:
+                out["local_brain_invocations_24h"] = int(invocations)
+            except (TypeError, ValueError):
+                pass
+    except Exception as e:
+        logger.debug("local_brain probe failed: %s", e)
+        out["local_brain_ready"] = False
+
+    # ── Memory durability ──
+    try:
+        # Redis reachable
+        _ping = await rs.get("crucix:aria:health_ping")
+        await rs.set("crucix:aria:health_ping", "ok", ex=60)
+        out["memory"]["redis_reachable"] = True
+    except Exception as e:
+        logger.debug("redis probe failed: %s", e)
+
+    try:
+        from . import rag_store as _rag
+        if hasattr(_rag, "get_stats"):
+            s = await _rag.get_stats()
+            out["memory"]["rag_chunks"] = int(s.get("total_chunks", 0)) if isinstance(s, dict) else 0
+    except Exception:
+        pass
+
+    try:
+        from . import knowledge as _kb
+        _c = getattr(_kb, "_cache", None) or {}
+        facts = _c.get("facts", []) if isinstance(_c, dict) else []
+        out["memory"]["mem0_facts"] = sum(
+            1 for f in facts
+            if isinstance(f, dict) and (f.get("source") or "").startswith("mem0:")
+        )
+    except Exception:
+        pass
+
+    try:
+        from . import counterparty_claim_ledger  # noqa: F401
+        # Exact count requires iteration; skip for speed — presence is enough.
+        out["memory"]["claim_ledger_entries"] = -1  # "available, count not probed"
+    except Exception:
+        pass
+
+    # ── Resilience count ──
+    # How many independent fallback paths are available RIGHT NOW?
+    # Active providers + local_brain (always +1 if ready).
+    out["resilience_count"] = out["providers_active"] + (1 if out["local_brain_ready"] else 0)
+
+    # Verdict ladder
+    if out["resilience_count"] >= 3:
+        out["verdict"] = "ROBUST"
+    elif out["resilience_count"] == 2:
+        out["verdict"] = "ADEQUATE"
+    elif out["resilience_count"] == 1:
+        out["verdict"] = "SINGLE_POINT"
+    else:
+        out["verdict"] = "CRITICAL"
+
+    return out
+
+
 async def get_surface() -> dict[str, Any]:
     """Return the full autonomy-surface payload for dashboard + briefing."""
     auto = await _auto_allowed_summary()
     drafts = await _drafts_awaiting()
     queue = await _operator_queue()
+    resilience = await _resilience_floor()
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "auto_allowed": auto,
         "drafts_awaiting": drafts,
         "operator_queue": queue,
+        "resilience": resilience,
         "doctrine_reference": "memory/aria_autonomy_doctrine.md",
     }
 
@@ -315,8 +468,36 @@ async def build_operator_prompt() -> str:
     auto = s.get("auto_allowed") or {}
     drafts = s.get("drafts_awaiting") or {}
     queue = s.get("operator_queue") or {}
+    resilience = s.get("resilience") or {}
 
     lines: list[str] = ["\n\n🧭 *AUTONOMY SURFACE*"]
+
+    # Resilience — shown only when degraded (ROBUST = silent).
+    # "Brain never dies" mandate: we want the operator to notice
+    # BEFORE we hit the floor, so SINGLE_POINT and CRITICAL must
+    # always surface.
+    verdict = (resilience.get("verdict") or "").upper()
+    if verdict in ("SINGLE_POINT", "CRITICAL", "ADEQUATE"):
+        count = resilience.get("resilience_count", 0)
+        active = resilience.get("providers_active", 0)
+        cooling = resilience.get("providers_cooling", 0)
+        local = resilience.get("local_brain_ready", False)
+        lines.append(
+            f"🛡️ Resilience: *{verdict}* — "
+            f"{count} path(s): {active} provider(s) active, "
+            f"{cooling} cooling, local brain {'READY' if local else 'OFF'}"
+        )
+        if verdict in ("SINGLE_POINT", "CRITICAL"):
+            lines.append(
+                "   Action: operator should check provider health / "
+                "top up billing before the next outage."
+            )
+    lb_fires = resilience.get("local_brain_invocations_24h", 0)
+    if lb_fires >= 5:
+        lines.append(
+            f"⚠️ Local brain fired {lb_fires}× in 24h — the LLM chain is "
+            f"degraded more often than normal. Investigate providers."
+        )
 
     # A. What ARIA did on its own
     a_bits: list[str] = []

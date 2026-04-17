@@ -410,6 +410,27 @@ async def degraded_response(message: str, reason: str = "LLM unavailable") -> di
     Always returns SOMETHING — even if just a "ARIA is in degraded mode but
     here's what I know from local data" report. Never raises.
     """
+    # Counter — every invocation is a signal that the LLM chain failed.
+    # High-frequency invocation is the early warning that provider keys /
+    # billing / network are degraded. Fire-and-forget. Added 2026-04-17
+    # as part of the "never dies" resilience pass.
+    try:
+        from . import redis_store as _rs
+        import asyncio as _asyncio
+        async def _bump():
+            try:
+                current = await _rs.get("crucix:local_brain:invocations_24h")
+                n = int(current) if current is not None else 0
+                await _rs.set("crucix:local_brain:invocations_24h", n + 1, ex=86400)
+            except Exception:
+                pass
+        try:
+            _asyncio.get_running_loop().create_task(_bump())
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
+
     # Step 1: Try the deterministic rule router
     local = await try_local_response(message)
     if local.get("answered"):

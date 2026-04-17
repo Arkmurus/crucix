@@ -256,12 +256,18 @@ def create_fallback_chain(
     if primary and primary.is_configured:
         providers.append(primary)
 
-    # Fallbacks from env vars (only if different from primary)
+    # Fallbacks from env vars (only if different from primary).
+    # Order is intentional — each entry is an independent billing domain,
+    # auth path, and infrastructure provider. For ARIA to lose all LLM
+    # access, ALL of the configured providers would have to fail at once.
+    # Added groq 2026-04-17: 14,400 req/day free tier on Llama-3.1-70B
+    # widens the "never wipes out" floor.
     fallback_configs = [
         ("anthropic", os.getenv("ANTHROPIC_API_KEY", ""), "claude-sonnet-4-6"),
-        ("deepseek", os.getenv("DEEPSEEK_API_KEY", ""), "deepseek-chat"),
-        ("openai", os.getenv("OPENAI_API_KEY", ""), "gpt-4o-mini"),
-        ("gemini", os.getenv("GEMINI_API_KEY", ""), "gemini-2.5-flash"),
+        ("deepseek",  os.getenv("DEEPSEEK_API_KEY", ""),  "deepseek-chat"),
+        ("groq",      os.getenv("GROQ_API_KEY", ""),      "llama-3.3-70b-versatile"),
+        ("openai",    os.getenv("OPENAI_API_KEY", ""),    "gpt-4o-mini"),
+        ("gemini",    os.getenv("GEMINI_API_KEY", ""),    "gemini-2.5-flash"),
     ]
 
     # Also check explicit fallback keys

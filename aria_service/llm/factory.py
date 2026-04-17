@@ -74,6 +74,18 @@ def create_llm_provider(
             base_url="https://api.minimax.io/v1",
         )
 
+    if p == "groq":
+        # Groq — OpenAI-compatible, very fast inference, generous free tier
+        # (~14,400 requests/day on Llama-3.1-70B). Widens the fallback chain
+        # so ARIA stays up even if DeepSeek + Anthropic both go down at once.
+        # Added 2026-04-17 as part of the "forever on" resilience pass.
+        return OpenAICompatProvider(
+            name="groq",
+            api_key=api_key,
+            model=model or "llama-3.3-70b-versatile",
+            base_url="https://api.groq.com/openai/v1",
+        )
+
     if p == "ollama":
         return OpenAICompatProvider(
             name="ollama",

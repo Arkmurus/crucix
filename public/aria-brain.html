@@ -495,6 +495,35 @@ async function loadSurface() {
   html += metricRow('Writer outputs today', drafts.writer_outputs_today ?? 0,  'neutral');
   html += '</div>';
 
+  // ── Resilience floor (brain never dies) ──
+  const resilience = d.resilience || {};
+  if (resilience) {
+    const verdict = resilience.verdict || 'unknown';
+    const verdictCls = verdict === 'ROBUST' ? 'good'
+                     : verdict === 'ADEQUATE' ? 'good'
+                     : verdict === 'SINGLE_POINT' ? 'warn'
+                     : 'bad';
+    html += '<div style="grid-column: 1 / -1; margin-bottom:10px; padding:8px; background:#0d1117; border:1px solid #30363d; border-radius:6px">';
+    html += `<div style="font-weight:600;color:#a371f7;margin-bottom:4px">🛡️ Resilience floor — ${verdict} (${resilience.resilience_count || 0} independent paths)</div>`;
+    const providerChips = (resilience.providers || []).map(p => {
+      const cls = p.status === 'active' ? 'good' : (p.status === 'cooling' ? 'warn' : 'neutral');
+      return `<span class="value ${cls}" style="padding:2px 6px;margin-right:4px;font-size:0.8em">${p.name}: ${p.status}</span>`;
+    }).join('');
+    html += `<div style="margin-top:4px">${providerChips || '<span class="neutral">No LLM providers configured</span>'}</div>`;
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Local brain: ${resilience.local_brain_ready ? '<span class="value good">READY</span>' : '<span class="value bad">OFF</span>'}`;
+    if ((resilience.local_brain_invocations_24h || 0) > 0) {
+      html += ` · fired ${resilience.local_brain_invocations_24h}× in 24h (high count = LLM chain degraded)`;
+    }
+    html += '</div>';
+    const mem = resilience.memory || {};
+    const memBits = [];
+    memBits.push(`Redis: ${mem.redis_reachable ? '<span class="value good">up</span>' : '<span class="value bad">down</span>'}`);
+    if ((mem.rag_chunks || 0) > 0) memBits.push(`RAG: ${mem.rag_chunks} chunks`);
+    if ((mem.mem0_facts || 0) > 0) memBits.push(`mem0: ${mem.mem0_facts} facts`);
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Memory — ${memBits.join(' · ')}</div>`;
+    html += '</div>';
+  }
+
   // ── Column C — Operator queue ──
   html += '<div>';
   html += '<div style="font-weight:600;color:#f85149;margin-bottom:6px">⚠️ Operator queue</div>';
