@@ -9634,8 +9634,8 @@ async def health_check_ep():
     rag_ok = False
     try:
         from ..intel import rag_store
-        probe = await rag_store.probe()
-        rag_ok = probe.get("available", False)
+        rag_stats = await rag_store.get_stats()
+        rag_ok = rag_stats.get("available", False)
     except Exception:
         pass
 
