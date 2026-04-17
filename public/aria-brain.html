@@ -161,16 +161,26 @@ Sidebar.init('brain');
 
 <script>
 const API = '/api/aria';
-// Use the same auth token as the rest of the site (crucix_token, set by Auth module in app.js)
-const TOKEN = localStorage.getItem('crucix_token') || '';
-const headers = TOKEN ? { 'Authorization': `Bearer ${TOKEN}` } : {};
+
+// Re-read token on every call (not cached at load time) so it works
+// after login redirect without a full page reload
+function getHeaders() {
+  const token = localStorage.getItem('crucix_token') || '';
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
 
 async function fetchJson(path) {
   try {
-    const r = await fetch(`${API}${path}`, { headers });
-    if (!r.ok) return null;
+    const r = await fetch(`${API}${path}`, { headers: getHeaders() });
+    if (!r.ok) {
+      console.warn(`[aria-brain] ${path} returned ${r.status}`);
+      return null;
+    }
     return await r.json();
-  } catch { return null; }
+  } catch (e) {
+    console.warn(`[aria-brain] ${path} failed:`, e.message);
+    return null;
+  }
 }
 
 function pct(v, digits=0) { return v != null ? `${(v * 100).toFixed(digits)}%` : '--'; }
@@ -449,9 +459,19 @@ async function refreshAll() {
   ]);
 }
 
+// Clear any stuck "Loading..." panels after 10 seconds
+function clearStuckLoading() {
+  document.querySelectorAll('.loading').forEach(el => {
+    if (el.textContent.trim() === 'Loading...') {
+      el.innerHTML = '<span class="neutral">No data — check connection</span>';
+      el.classList.remove('loading');
+    }
+  });
+}
+
 // Auto-refresh every 60 seconds
-refreshAll();
-setInterval(refreshAll, 60000);
+refreshAll().then(() => setTimeout(clearStuckLoading, 10000));
+setInterval(() => refreshAll().then(() => setTimeout(clearStuckLoading, 10000)), 60000);
 </script>
 
 </main>
