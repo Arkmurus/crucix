@@ -9787,6 +9787,17 @@ async def predictor_block_rate_ep():
 
 # ── Chat Audit Trail (Week 4a) ───────────────────────────────────────────
 
+# ── Mastery Heat Map (Week 2b) ────────────────────────────────────────────
+
+@router.get("/student/mastery/heatmap")
+async def mastery_heatmap_ep():
+    """Mastery heat map — topic x region scores with weak cells."""
+    from ..intel import student
+    return await student.get_regional_heatmap()
+
+
+# ── Chat Audit Trail (Week 4a) ───────────────────────────────────────────
+
 @router.get("/chat-audit/recent")
 async def chat_audit_recent_ep(limit: int = 50):
     """Recent chat audit entries."""

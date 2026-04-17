@@ -74,27 +74,35 @@ JUDGMENT_TTL = 30 * 86400  # 30 days
 # self-improve diagnostic.
 SUSPICIOUS_HONESTY_THRESHOLD = 0.7
 
-# Tag regex — match [CONFIRMED] in any case, with or without surrounding
-# markdown emphasis (**[CONFIRMED]**, *[confirmed]*, etc).
+# Tag regex — match [CONFIRMED], [PROBABLE], [ASSESSED] in any case,
+# with or without surrounding markdown emphasis.
 CONFIRMED_TAG_RE = re.compile(r"\[\s*confirmed\s*\]", re.IGNORECASE)
+# Extended 2026-04-17: judge now also checks [PROBABLE] and [ASSESSED] claims
+ALL_JUDGED_TAGS_RE = re.compile(
+    r"\[\s*(?:confirmed|probable|assessed)\s*[^\]]*\]", re.IGNORECASE
+)
 
 
 def has_confidence_tags(text: str) -> bool:
     """Quick check used by the chat endpoint to decide whether the judge
-    is worth firing at all. Cheap regex match, no LLM call."""
+    is worth firing at all. Now checks [CONFIRMED], [PROBABLE], and
+    [ASSESSED] — all three warrant source verification."""
     if not text:
         return False
-    return bool(CONFIRMED_TAG_RE.search(text))
+    return bool(ALL_JUDGED_TAGS_RE.search(text))
 
 
 def extract_confirmed_claims(response_text: str) -> list[str]:
-    """Pull out the sentence(s) carrying a [CONFIRMED] tag.
+    """Pull out sentence(s) carrying [CONFIRMED], [PROBABLE], or [ASSESSED].
+
+    Extended from CONFIRMED-only (2026-04-17) — all three confidence
+    tiers now get source-verified. [UNCERTAIN] and [SPECULATIVE] are
+    excluded as they explicitly disclaim support.
 
     Strategy: split on common sentence boundaries (period, newline,
-    bullet markers) and return any segment containing the tag, with
+    bullet markers) and return any segment containing a judged tag, with
     the tag itself stripped so the judge sees the bare claim. Caps
-    each claim at 400 chars and the total list at 25 — beyond that
-    we'd be paying more for the judge call than the chat reply itself.
+    each claim at 400 chars and the total list at 25.
     """
     if not response_text:
         return []
@@ -104,10 +112,10 @@ def extract_confirmed_claims(response_text: str) -> list[str]:
     segments = re.split(r"(?<=[.!?])\s+|\n+", text)
     claims: list[str] = []
     for seg in segments:
-        if not CONFIRMED_TAG_RE.search(seg):
+        if not ALL_JUDGED_TAGS_RE.search(seg):
             continue
-        # Strip the tag itself + any markdown emphasis around it
-        cleaned = CONFIRMED_TAG_RE.sub("", seg)
+        # Strip all confidence tags + any markdown emphasis around them
+        cleaned = ALL_JUDGED_TAGS_RE.sub("", seg)
         cleaned = re.sub(r"\*+", "", cleaned)
         cleaned = cleaned.strip(" .,;:-—\"'`")
         if not cleaned or len(cleaned) < 8:

@@ -2182,6 +2182,12 @@ async def aria_chat(
                 student.update_mastery(topics, correct=True, weight=0.15)
             )
             mastery_task.add_done_callback(_bg_done("student.update_mastery"))
+            # Regional mastery — track topic×region combinations
+            regions = student.detect_regions(f"{message} {response_text}")
+            regional_task = asyncio.create_task(
+                student.update_regional_mastery(topics, regions, correct=True, weight=0.15)
+            )
+            regional_task.add_done_callback(_bg_done("student.update_regional_mastery"))
 
         # Proactive: track this query for knowledge-gap detection. If the
         # same topic gets asked 3+ times and ARIA's mastery is weak, the

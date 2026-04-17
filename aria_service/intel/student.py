@@ -669,6 +669,121 @@ async def compare_local_silently(question: str, cloud_response: str) -> dict:
         return {"compared": False, "error": str(e)}
 
 
+# ── Regional mastery (topic × region heat map) ────────────────────────────
+
+REGIONS = [
+    "lusophone", "west_africa", "east_africa", "north_africa",
+    "southern_africa", "mena", "gulf", "asia_pacific", "latam",
+    "europe", "nato", "global",
+]
+
+_REGION_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("lusophone", re.compile(
+        r"\b(?:angola|mozambique|cape\s+verde|cabo\s+verde|guinea.bissau|"
+        r"são\s+tomé|cplp|lusophone|portuguese|fadm|faa|fasb)\b", re.I)),
+    ("west_africa", re.compile(
+        r"\b(?:nigeria|ghana|senegal|côte\s+d.ivoire|cameroon|ecowas|"
+        r"niger|mali|burkina|togo|benin|sierra\s+leone|liberia)\b", re.I)),
+    ("east_africa", re.compile(
+        r"\b(?:kenya|ethiopia|somalia|uganda|tanzania|rwanda|eac|amisom|"
+        r"djibouti|eritrea|south\s+sudan|sudan)\b", re.I)),
+    ("north_africa", re.compile(
+        r"\b(?:libya|algeria|morocco|tunisia|egypt|sahel)\b", re.I)),
+    ("southern_africa", re.compile(
+        r"\b(?:south\s+africa|sadc|botswana|namibia|zimbabwe|zambia)\b", re.I)),
+    ("mena", re.compile(
+        r"\b(?:middle\s+east|syria|iraq|iran|jordan|lebanon|palestine|israel)\b", re.I)),
+    ("gulf", re.compile(
+        r"\b(?:saudi|uae|qatar|oman|kuwait|bahrain|gcc)\b", re.I)),
+    ("asia_pacific", re.compile(
+        r"\b(?:indonesia|philippines|vietnam|thailand|myanmar|india|"
+        r"pakistan|bangladesh|south\s+korea|japan|taiwan|asean|aukus|quad)\b", re.I)),
+    ("latam", re.compile(
+        r"\b(?:brazil|colombia|peru|argentina|chile|mexico|venezuela|"
+        r"ecuador|mercosur|central\s+america)\b", re.I)),
+    ("europe", re.compile(
+        r"\b(?:ukraine|poland|romania|baltic|czech|hungary|turkey|"
+        r"european|pesco|edirpa)\b", re.I)),
+    ("nato", re.compile(
+        r"\b(?:nato|alliance|article\s+5|stanag|nspa|nsn)\b", re.I)),
+]
+
+REGIONAL_MASTERY_KEY = "crucix:aria:student:regional_mastery"
+_regional_cache: dict | None = None
+
+
+def detect_regions(text: str) -> list[str]:
+    """Detect which regions a text relates to."""
+    if not text:
+        return ["global"]
+    regions = []
+    for region, pattern in _REGION_PATTERNS:
+        if pattern.search(text):
+            regions.append(region)
+    return regions or ["global"]
+
+
+async def _load_regional_mastery() -> dict:
+    global _regional_cache
+    if _regional_cache is not None:
+        return _regional_cache
+    raw = await rs.get_json(REGIONAL_MASTERY_KEY)
+    if isinstance(raw, dict):
+        _regional_cache = raw
+    else:
+        _regional_cache = {}
+    return _regional_cache
+
+
+async def _save_regional_mastery() -> None:
+    if _regional_cache is not None:
+        await rs.set_json(REGIONAL_MASTERY_KEY, _regional_cache, ex=180 * 86400)
+
+
+async def update_regional_mastery(
+    topics: list[str], regions: list[str], correct: bool, weight: float = 1.0,
+) -> None:
+    """Update mastery for topic×region combinations."""
+    if not topics or not regions:
+        return
+    rm = await _load_regional_mastery()
+    alpha = min(0.3, 0.1 * weight)
+    for topic in topics:
+        if topic not in TOPICS:
+            continue
+        for region in regions:
+            key = f"{topic}:{region}"
+            if key not in rm:
+                rm[key] = {"score": INITIAL_MASTERY, "samples": 0}
+            entry = rm[key]
+            obs = 1.0 if correct else 0.0
+            entry["score"] = entry["score"] + alpha * (obs - entry["score"])
+            entry["samples"] = entry.get("samples", 0) + 1
+    _regional_cache.update(rm)
+    await _save_regional_mastery()
+
+
+async def get_regional_heatmap() -> dict:
+    """Return mastery heat map: topic × region scores."""
+    rm = await _load_regional_mastery()
+    heatmap: dict[str, dict[str, float]] = {}
+    for key, val in rm.items():
+        if ":" not in key:
+            continue
+        topic, region = key.split(":", 1)
+        if topic not in heatmap:
+            heatmap[topic] = {}
+        heatmap[topic][region] = round(val.get("score", INITIAL_MASTERY), 3)
+    # Find weak cells
+    weak_cells = []
+    for topic, regions in heatmap.items():
+        for region, score in regions.items():
+            if score < WEAK_THRESHOLD:
+                weak_cells.append({"topic": topic, "region": region, "score": score})
+    weak_cells.sort(key=lambda x: x["score"])
+    return {"heatmap": heatmap, "weak_cells": weak_cells[:20]}
+
+
 # ── Stats and reporting ────────────────────────────────────────────────────
 
 async def get_student_stats() -> dict:
