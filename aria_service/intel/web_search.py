@@ -42,10 +42,14 @@ logger = logging.getLogger("aria.web_search")
 
 BRAVE_API_KEY = (os.getenv("BRAVE_SEARCH_API_KEY") or os.getenv("BRAVE_API_KEY") or "").strip()
 SEARXNG_INSTANCES = [
-    "https://searx.be",
-    "https://search.mdosch.de",
+    # Updated 2026-04-17 — previous instances (searx.be, search.mdosch.de,
+    # paulgo.io) returning 403/429. Replaced with instances from searx.space
+    # that have JSON API enabled. Re-check quarterly at https://searx.space/
+    "https://search.sapti.me",
     "https://searxng.world",
-    "https://paulgo.io",
+    "https://search.bus-hit.me",
+    "https://searx.tiekoetter.com",
+    "https://search.ononoki.org",
 ]
 REQUEST_TIMEOUT = 12.0
 MAX_RESULTS_PER_BACKEND = 15

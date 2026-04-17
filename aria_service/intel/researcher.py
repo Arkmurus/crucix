@@ -40,7 +40,7 @@ logger = logging.getLogger("aria.researcher")
 RESEARCH_FEEDS = [
     # ── Global Defence Procurement ────────────────────────────────────────
     {"name": "Defense News", "url": "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml", "category": "defence_procurement"},
-    {"name": "Janes", "url": "https://www.janes.com/feeds/news", "category": "defence_industry"},
+    {"name": "Janes", "url": "https://www.janes.com/osint-insights/defence-news", "category": "defence_industry"},  # old /feeds/news → 404
     {"name": "Defense One", "url": "https://www.defenseone.com/rss/", "category": "defence_policy"},
     {"name": "The Defense Post", "url": "https://www.thedefensepost.com/feed/", "category": "defence_news"},
     {"name": "Army Recognition", "url": "https://www.armyrecognition.com/rss", "category": "land_systems"},
@@ -55,16 +55,18 @@ RESEARCH_FEEDS = [
     {"name": "Defence Notes", "url": "https://www.shephardmedia.com/news/defence-notes/feed/", "category": "defence_news"},
 
     # ── Arms Trade & Policy ───────────────────────────────────────────────
-    {"name": "SIPRI Blog", "url": "https://www.sipri.org/rss.xml", "category": "arms_trade"},
-    {"name": "DSCA Major Arms Sales", "url": "https://www.dsca.mil/press-media/major-arms-sales/feed", "category": "fms"},
-    {"name": "IISS", "url": "https://www.iiss.org/rss", "category": "strategic_studies"},
-    {"name": "RUSI", "url": "https://www.rusi.org/rss.xml", "category": "defence_research"},
+    {"name": "SIPRI Blog", "url": "https://www.sipri.org/rss", "category": "arms_trade"},  # old /rss.xml → 404
+    {"name": "DSCA Major Arms Sales", "url": "https://www.dsca.mil/dsca-rss-really-simple-syndication", "category": "fms"},  # old /feed → 403
+    {"name": "IISS", "url": "https://www.iiss.org/online-analysis/military-balance/feed", "category": "strategic_studies"},  # old /rss → 404
+    {"name": "RUSI", "url": "https://www.rusi.org/rusi-rss-feeds", "category": "defence_research"},  # old /rss.xml → 404
     {"name": "War on the Rocks", "url": "https://warontherocks.com/feed/", "category": "strategy"},
     {"name": "Chatham House", "url": "https://www.chathamhouse.org/rss.xml", "category": "geopolitics"},
-    {"name": "CSIS", "url": "https://www.csis.org/rss.xml", "category": "strategy"},
+    {"name": "CSIS", "url": "https://www.csis.org/rss", "category": "strategy"},  # fixed from /rss.xml
     {"name": "RAND", "url": "https://www.rand.org/pubs/rss.xml", "category": "defence_research"},
     {"name": "ISW", "url": "https://understandingwar.org/feed", "category": "conflict_intelligence"},
     {"name": "UCDP", "url": "https://ucdp.uu.se/apidocs/", "category": "conflict_data"},
+    {"name": "CrisisWatch", "url": "https://www.crisisgroup.org/rss/crisiswatch", "category": "conflict_early_warning"},
+    {"name": "Crisis Group Africa", "url": "https://www.crisisgroup.org/rss/1", "category": "africa_security"},
 
     # ── Regional: Africa ──────────────────────────────────────────────────
     {"name": "DefenceWeb", "url": "https://www.defenceweb.co.za/feed/", "category": "africa_defence"},
@@ -72,7 +74,8 @@ RESEARCH_FEEDS = [
     {"name": "DW Africa", "url": "https://rss.dw.com/xml/rss-en-africa", "category": "africa_news"},
     {"name": "Africa Confidential", "url": "https://www.africa-confidential.com/rss", "category": "africa_intelligence"},
     {"name": "Club of Mozambique", "url": "https://clubofmozambique.com/feed/", "category": "mozambique"},
-    {"name": "Africa Intelligence", "url": "https://www.africaintelligence.com/rss", "category": "africa_intelligence"},
+    # Africa Intelligence has no public RSS — paywall site, removed (was 404)
+    # {"name": "Africa Intelligence", "url": "https://www.africaintelligence.com/rss", "category": "africa_intelligence"},
 
     # ── Regional: Middle East ─────────────────────────────────────────────
     {"name": "Al-Monitor Defence", "url": "https://www.al-monitor.com/rss", "category": "middle_east"},
@@ -83,16 +86,16 @@ RESEARCH_FEEDS = [
     {"name": "Asia Times", "url": "https://asiatimes.com/feed/", "category": "asia_pacific"},
 
     # ── Regional: Europe & NATO ───────────────────────────────────────────
-    {"name": "EurActiv Defence", "url": "https://www.euractiv.com/sections/defence-and-security/feed/", "category": "europe_defence"},
+    {"name": "European Security & Defence", "url": "https://euro-sd.com/feed/", "category": "europe_defence"},  # EurActiv /feed → 404, replaced with euro-sd.com
     {"name": "Breaking Defense", "url": "https://breakingdefense.com/feed/", "category": "defence_procurement"},
 
     # ── Regional: Latin America (Spanish) ────────────────────────────────
-    {"name": "Infodefensa LatAm", "url": "https://www.infodefensa.com/latam/rss.xml", "category": "latam_defence"},
-    {"name": "Infodefensa España", "url": "https://www.infodefensa.com/espana/rss.xml", "category": "spain_defence"},
+    {"name": "Infodefensa", "url": "https://www.infodefensa.com/feed", "category": "latam_defence"},  # old /latam/rss.xml + /espana/rss.xml → 404, consolidated
     {"name": "Defensa.com", "url": "https://www.defensa.com/rss", "category": "latam_defence"},
     {"name": "Zona Militar", "url": "https://www.zona-militar.com/feed/", "category": "latam_defence"},
     {"name": "Dialogo Americas", "url": "https://dialogo-americas.com/feed/", "category": "latam_security"},
-    {"name": "BN Americas Defence", "url": "https://www.bnamericas.com/en/rss/infrastructure", "category": "latam_procurement"},
+    # BN Americas RSS removed — /rss/infrastructure → 404, paywall site
+    # {"name": "BN Americas Defence", "url": "https://www.bnamericas.com/en/rss/infrastructure", "category": "latam_procurement"},
 
     # ── Export Controls & Compliance ──────────────────────────────────────
     {"name": "BIS Federal Register", "url": "https://www.bis.doc.gov/index.php/component/rssfeed/feed/2-federal-register-notices?format=feed", "category": "export_controls"},
