@@ -62,7 +62,32 @@ _COMMITMENT_PATTERNS = [
         r"(?:Your next step|Next step)[^.!?]*I (?:will|shall)\s+[^.!?]+[.!?]",
         re.IGNORECASE,
     ), "next-step deliverable"),
+
+    # "You will receive X within N hours/by Y"
+    (re.compile(
+        r"You will receive\s+[^.!?]+?(?:within|by|before|in)\s+[^.!?]+[.!?]",
+        re.IGNORECASE,
+    ), "delivery promise to user"),
+
+    # Performative status footer — "ARIA Status: Live. Autonomy engine active..."
+    (re.compile(
+        r"(?:ARIA\s+(?:Status|is)\s*[:—]\s*[^.!?]*(?:live|active|running|operational|enabled)[^.!?]*[.!?]\s*){1,}",
+        re.IGNORECASE,
+    ), "performative status footer"),
+
+    # "Deception Detection & Daily Conversation Audit protocols running"
+    (re.compile(
+        r"(?:Deception|Detection|Audit|Protocol|Observability)[^.!?]*(?:running|active|enabled|live|operational)[^.!?]*[.!?]",
+        re.IGNORECASE,
+    ), "performative protocol claim"),
 ]
+
+# Separate note for status footers — different correction than deliverable promises
+_CLAUSE_20_STATUS_NOTE = (
+    " [Clause 20(d): Performative status lines removed — every claim "
+    "in a status line must be individually verifiable. See /aria-brain "
+    "dashboard for actual system status.]"
+)
 
 _CLAUSE_20_NOTE = (
     " [Clause 20: I cannot commit to future deliverables with deadlines "
@@ -109,12 +134,16 @@ def guard_commitments(response_text: str) -> dict:
                 "match": match_text[:200],
             })
 
-            # Rewrite: append Clause 20 note after the commitment sentence
-            guarded = guarded.replace(
-                match_text,
-                match_text.rstrip(".!?") + "." + _CLAUSE_20_NOTE,
-                1,  # only first occurrence
-            )
+            # Status footers get STRIPPED entirely (not rewritten)
+            if pattern_type in ("performative status footer", "performative protocol claim"):
+                guarded = guarded.replace(match_text, "", 1)
+            else:
+                # Commitment promises get Clause 20 note appended
+                guarded = guarded.replace(
+                    match_text,
+                    match_text.rstrip(".!?") + "." + _CLAUSE_20_NOTE,
+                    1,  # only first occurrence
+                )
 
     changed = guarded != response_text
     if changed:
