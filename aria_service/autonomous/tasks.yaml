@@ -1144,7 +1144,7 @@ tasks:
       classify signals into 6 structural shift types, deduplicate by
       (type, country, date, text-prefix), persist to Redis.
     cron: "15 */2 * * *"
-    enabled: false
+    enabled: true    # ENABLED 2026-04-17: operator go-live for Priority 1 chain correlator
     priority: LOW
     timeout_seconds: 60
     cost_cap_usd: 0.00
@@ -1171,7 +1171,7 @@ tasks:
       with PROJECTED/ACTIVE/EXPIRED status. Registers each with the
       predictor so hit rate is scored over time.
     cron: "30 5 * * *"
-    enabled: false
+    enabled: true    # ENABLED 2026-04-17: feeds 05:45 daily briefing
     priority: MEDIUM
     timeout_seconds: 90
     cost_cap_usd: 0.00
@@ -1197,7 +1197,7 @@ tasks:
       political-cycle events into chain_correlator for downstream
       procurement-window projection.
     cron: "0 4 * * sun"
-    enabled: false
+    enabled: true    # ENABLED 2026-04-17: weekly calendar upkeep
     priority: LOW
     timeout_seconds: 60
     cost_cap_usd: 0.00
@@ -1221,7 +1221,7 @@ tasks:
       Daily 23:00 UTC — scan tender_monitor + intel_ledger for competitor
       firm mentions and record activities for downstream briefing + chat.
     cron: "0 23 * * *"
-    enabled: false
+    enabled: true    # ENABLED 2026-04-17: daily competitor activity scan
     priority: LOW
     timeout_seconds: 90
     cost_cap_usd: 0.00
@@ -1246,7 +1246,7 @@ tasks:
       Monday 06:30 UTC — scan placeholder coverage across the OEM graph
       and surface which role slots await verification.
     cron: "30 6 * * mon"
-    enabled: false
+    enabled: true    # ENABLED 2026-04-17: weekly OEM placeholder-coverage scan
     priority: LOW
     timeout_seconds: 60
     cost_cap_usd: 0.00
@@ -1273,7 +1273,7 @@ tasks:
       shifts within 24mo. Records ConfirmedChain with within_window and
       activation_active flags for scoring.
     cron: "0 22 * * *"
-    enabled: false
+    enabled: true    # ENABLED 2026-04-17: nightly retro chain scoring
     priority: LOW
     timeout_seconds: 90
     cost_cap_usd: 0.00
