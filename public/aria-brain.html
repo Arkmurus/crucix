@@ -687,6 +687,17 @@ async function loadLearning() {
   if (mb.newest_backup) {
     html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Last: ${mb.newest_backup} · ${mb.total_kb_on_disk ?? 0} KB</div>`;
   }
+  // Off-host email shipping status (Phase 2a)
+  const shipStatus = mb.email_shipping_status || 'UNKNOWN';
+  const shipCls = shipStatus === 'LIVE' ? 'good'
+                : shipStatus === 'DISABLED' ? 'neutral'
+                : 'warn';
+  html += metricRow('Off-host email shipping', shipStatus, shipCls);
+  if (shipStatus === 'LIVE' && mb.email_destination) {
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">→ ${mb.email_destination}</div>`;
+  } else if (shipStatus === 'GATED') {
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Set ARIA_SMTP_HOST/USER/PASS on fly.io to enable</div>`;
+  }
   html += '</div>';
 
   html += '</div>';

@@ -40,6 +40,10 @@ _BACKUP_DIR = Path(os.getenv("ARIA_BACKUP_DIR", "/data/aria_backups"))
 _MANIFEST_FILE = _BACKUP_DIR / "manifest.json"
 _RETENTION_DAYS = int(os.getenv("ARIA_BACKUP_RETENTION_DAYS", "30"))
 
+# Email shipping (Phase 2a) — cross-host durability via the existing SMTP
+# channel. Attachment cap is 20 MB (most providers cap at 25 MB).
+_MAX_EMAIL_ATTACHMENT_BYTES = 20 * 1024 * 1024
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Critical-keys registry — what we snapshot every day
@@ -172,6 +176,18 @@ async def run_daily_backup() -> dict[str, Any]:
     except Exception:
         pass
 
+    # ── Phase 2a: email shipping (cross-host durability) ──
+    # After every successful on-disk backup, email the gzipped file to
+    # the operator as an off-site copy. Uses the existing ARIA_EMAIL_*
+    # SMTP config already set up for the WhatsApp listener, so no new
+    # infrastructure. Best-effort — a failed email never fails the backup.
+    email_result = await _ship_backup_email(out_file, size_bytes, snapshot["created_at"])
+    if email_result.get("sent"):
+        logger.info(
+            "[memory_replication] emailed backup to %s (%d bytes)",
+            email_result.get("to"), size_bytes,
+        )
+
     # brain_hook — every successful backup is a durability win
     try:
         from ..intel import brain_hook
@@ -195,6 +211,118 @@ async def run_daily_backup() -> dict[str, Any]:
     }
     logger.info("[memory_replication] %s", summary)
     return summary
+
+
+async def _ship_backup_email(
+    backup_path: Path, size_bytes: int, created_iso: str,
+) -> dict[str, Any]:
+    """Email the backup file to the operator as an off-host copy.
+
+    Uses the same SMTP env vars the WhatsApp listener uses
+    (ARIA_SMTP_HOST, ARIA_SMTP_USER, ARIA_SMTP_PASS, ARIA_SMTP_PORT).
+    Destination: ARIA_BACKUP_EMAIL_TO (falls back to ARIA_OPERATOR_EMAIL).
+
+    Best-effort. Returns {sent, skipped_reason, to, bytes}. Never raises.
+    """
+    result: dict[str, Any] = {
+        "sent": False,
+        "skipped_reason": "",
+        "to": "",
+        "bytes": size_bytes,
+    }
+
+    # Operator can set ARIA_BACKUP_EMAIL_ENABLED=0 to disable shipping
+    if (os.getenv("ARIA_BACKUP_EMAIL_ENABLED", "1") or "1").strip() in ("0", "false", "no"):
+        result["skipped_reason"] = "ARIA_BACKUP_EMAIL_ENABLED=0"
+        return result
+
+    if size_bytes > _MAX_EMAIL_ATTACHMENT_BYTES:
+        result["skipped_reason"] = (
+            f"attachment size {size_bytes} exceeds cap "
+            f"{_MAX_EMAIL_ATTACHMENT_BYTES}; email delivery would fail"
+        )
+        return result
+
+    # Collect SMTP config — same env vars as emailReader.mjs
+    smtp_host = (os.getenv("ARIA_SMTP_HOST")
+                 or os.getenv("ARIA_EMAIL_HOST")
+                 or "").strip()
+    smtp_user = (os.getenv("ARIA_SMTP_USER")
+                 or os.getenv("EMAIL_USER")
+                 or os.getenv("ARIA_EMAIL_USER")
+                 or "").strip()
+    smtp_pass = (os.getenv("ARIA_SMTP_PASS")
+                 or os.getenv("EMAIL_PASS")
+                 or os.getenv("ARIA_EMAIL_PASS")
+                 or "").strip()
+    smtp_port = int(os.getenv("ARIA_SMTP_PORT")
+                    or os.getenv("EMAIL_PORT")
+                    or "465")
+    to_addr = (os.getenv("ARIA_BACKUP_EMAIL_TO")
+               or os.getenv("ARIA_OPERATOR_EMAIL")
+               or smtp_user).strip()
+
+    if not (smtp_host and smtp_user and smtp_pass and to_addr):
+        result["skipped_reason"] = (
+            "SMTP env not configured — set ARIA_SMTP_HOST / "
+            "ARIA_SMTP_USER / ARIA_SMTP_PASS to enable backup email shipping"
+        )
+        return result
+
+    result["to"] = to_addr
+
+    try:
+        import smtplib, ssl
+        from email.message import EmailMessage
+
+        msg = EmailMessage()
+        msg["From"] = smtp_user
+        msg["To"] = to_addr
+        msg["Subject"] = f"ARIA memory backup — {created_iso[:10]}"
+        msg.set_content(
+            f"Automated off-host copy of ARIA's state snapshot.\n"
+            f"\n"
+            f"Created (UTC):   {created_iso}\n"
+            f"File:            {backup_path.name}\n"
+            f"Size:            {size_bytes:,} bytes ({size_bytes / 1024:.1f} KB)\n"
+            f"Retention:       local {_RETENTION_DAYS} days\n"
+            f"\n"
+            f"This email IS your off-host copy. Keep it — in a fly.io-loss\n"
+            f"scenario you restore from this attachment:\n"
+            f"  1. gunzip <filename>.json.gz  →  <filename>.json\n"
+            f"  2. POST to /api/aria/memory/backup/restore with:\n"
+            f"     {{\"date\": \"{created_iso[:10]}\", \"dry_run\": false}}\n"
+            f"     (after uploading the .json.gz to /data/aria_backups/)\n"
+            f"\n"
+            f"— ARIA (automated)"
+        )
+
+        with backup_path.open("rb") as f:
+            msg.add_attachment(
+                f.read(),
+                maintype="application",
+                subtype="gzip",
+                filename=backup_path.name,
+            )
+
+        ctx = ssl.create_default_context()
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx, timeout=45) as s:
+                s.login(smtp_user, smtp_pass)
+                s.send_message(msg)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=45) as s:
+                s.starttls(context=ctx)
+                s.login(smtp_user, smtp_pass)
+                s.send_message(msg)
+
+        result["sent"] = True
+    except Exception as exc:
+        result["skipped_reason"] = f"send failed: {str(exc)[:200]}"
+        logger.warning(
+            "[memory_replication] email shipping failed: %s", result["skipped_reason"]
+        )
+    return result
 
 
 async def _purge_old_backups() -> int:
@@ -348,6 +476,26 @@ async def get_stats() -> dict[str, Any]:
         stats = {}
     backups = await list_backups()
     total_bytes = sum(b.get("size_bytes", 0) for b in backups)
+
+    # Report email-shipping configured-ness so the dashboard + operator
+    # can see whether off-host copies are actually going out.
+    smtp_ok = bool(
+        (os.getenv("ARIA_SMTP_HOST") or os.getenv("ARIA_EMAIL_HOST")) and
+        (os.getenv("ARIA_SMTP_USER") or os.getenv("ARIA_EMAIL_USER")) and
+        (os.getenv("ARIA_SMTP_PASS") or os.getenv("ARIA_EMAIL_PASS"))
+    )
+    email_disabled = (os.getenv("ARIA_BACKUP_EMAIL_ENABLED", "1") or "1").strip() in ("0", "false", "no")
+    email_destination = (
+        os.getenv("ARIA_BACKUP_EMAIL_TO")
+        or os.getenv("ARIA_OPERATOR_EMAIL")
+        or (os.getenv("ARIA_SMTP_USER") or os.getenv("ARIA_EMAIL_USER"))
+        or ""
+    )
+    email_shipping_status = (
+        "DISABLED" if email_disabled
+        else ("LIVE" if smtp_ok else "GATED")
+    )
+
     return {
         "runs_24h": stats.get("runs_24h", 0),
         "keys_saved_24h": stats.get("keys_saved_24h", 0),
@@ -360,6 +508,9 @@ async def get_stats() -> dict[str, Any]:
         "newest_backup": backups[0]["date"] if backups else "",
         "retention_days": _RETENTION_DAYS,
         "backup_dir": str(_BACKUP_DIR),
+        # Off-host shipping status (Phase 2a)
+        "email_shipping_status": email_shipping_status,
+        "email_destination":     email_destination,
     }
 
 
