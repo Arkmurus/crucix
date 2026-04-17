@@ -9795,16 +9795,10 @@ async def fact_decay_ep():
 async def predictor_block_rate_ep():
     """Per-domain predictor block counts (7d, 30d)."""
     from ..intel import redis_store as rs
-    import re as _re
-    # Scan for predictor block keys
+    # Use scan_keys (the available function in redis_store)
     all_keys = []
     try:
-        cursor = 0
-        while True:
-            cursor, keys = await rs.scan(cursor, match="crucix:predictor:blocks:*", count=100)
-            all_keys.extend(keys)
-            if cursor == 0:
-                break
+        all_keys = await rs.scan_keys("crucix:predictor:blocks:*")
     except Exception:
         pass
     domains = {}

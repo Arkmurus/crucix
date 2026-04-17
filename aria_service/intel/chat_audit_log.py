@@ -141,7 +141,9 @@ async def get_recent(limit: int = 50) -> list[dict]:
 async def get_stats() -> dict:
     """Aggregate audit stats."""
     from . import redis_store as rs
-    total = await rs.llen(_K_LOG)
+    # redis_store has no llen — use lrange and count
+    entries = await rs.lrange(_K_LOG, 0, -1)
+    total = len(entries) if entries else 0
     head = await rs.get(_K_HEAD)
     return {
         "total_entries": total or 0,

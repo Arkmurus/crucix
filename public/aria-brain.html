@@ -285,7 +285,11 @@ async function loadPredictor() {
 
 async function loadAudit() {
   const d = await fetchJson('/chat-audit/stats');
-  if (!d) { document.getElementById('audit-metrics').innerHTML = '<span class="neutral">No data</span>'; return; }
+  if (!d || d.error) {
+    document.getElementById('audit-metrics').innerHTML = '<span class="neutral">No audit data yet — populates after first chat</span>';
+    document.getElementById('audit-recent').innerHTML = '<span class="neutral">No entries yet</span>';
+    return;
+  }
   document.getElementById('audit-metrics').innerHTML =
     metricRow('Total Entries', d.total_entries || 0, 'neutral') +
     metricRow('Head Hash', (d.head_hash || '--').slice(0, 12) + '...', 'neutral') +
