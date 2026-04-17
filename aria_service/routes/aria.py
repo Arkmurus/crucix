@@ -9625,7 +9625,8 @@ async def health_check_ep():
     # Infra
     redis_ok = False
     try:
-        await rs.ping()
+        # redis_store has no ping() — test with a simple get
+        await rs.get("crucix:health:check")
         redis_ok = True
     except Exception:
         pass
@@ -9642,7 +9643,8 @@ async def health_check_ep():
     mastery = {}
     try:
         report = await student.get_mastery_report()
-        mastery = {"overall": report.get("overall_score", 0),
+        # Key is "overall_mastery" not "overall_score"
+        mastery = {"overall": report.get("overall_mastery", 0),
                     "weak_topics": report.get("weak_topics", [])}
     except Exception:
         pass
