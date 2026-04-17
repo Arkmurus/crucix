@@ -837,6 +837,33 @@ def _sync_correlation_context(message: str) -> str:
             # AES Alliance, Algeria dual-exposure, DRC, UAE/Houthi, Libya,
             # Myanmar, DPRK. Text scan + country scan. Always surfaced
             # when triggered so the LLM sees the compliance gate.
+            # Virtual-office pre-screen on any address-like substring in
+            # the chat message. Fires [VIRTUAL OFFICE MATCH] when the
+            # operator pastes a counterparty address — catching it before
+            # the DD layer even runs. Extracted 2026-04-17 PM after the
+            # F3 case where the detector only ran inside the DD path.
+            try:
+                from .intel import virtual_office_registry as _vor
+                import re as _re
+                # US-style: "... City, XX 12345" or "... #NNN, City XX NNNNN"
+                _us_addr_matches = _re.findall(
+                    r"[0-9][\w\s,.'#/-]{8,120},?\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?",
+                    message,
+                )
+                _addr_candidates = list(set(_us_addr_matches))[:3]
+                for _addr in _addr_candidates:
+                    _vo = _vor.check_address(_addr)
+                    if _vo.get("is_virtual_office"):
+                        parts.append(
+                            f"[VIRTUAL OFFICE MATCH] '{_addr}' — "
+                            f"{_vo.get('provider') or 'known corridor'} "
+                            f"(risk={_vo.get('risk')}, confidence={_vo.get('confidence')})"
+                        )
+            except Exception:
+                pass
+            # Domain check is async (RDAP HTTPS call) — runs inside the
+            # DD layer when operator triggers a DD. We do NOT run it from
+            # this sync chat-context path to avoid blocking the chat loop.
             try:
                 from .intel import regional_bright_lines
                 hits = regional_bright_lines.check_text(message)

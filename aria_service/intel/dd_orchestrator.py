@@ -895,6 +895,33 @@ async def _run_identity(
                     source=f"registry_adapters.{reg_result.get('adapter', 'unknown')}",
                     confidence="CONFIRMED",
                 ))
+                # ── Virtual-office re-check on registry-returned address ──
+                # If the registry returned an address and the supplied_address
+                # check earlier did not fire (e.g. no address was supplied
+                # initially), now is the time to check. This catches the
+                # F3 case where the address only comes from Sunbiz/registry.
+                _reg_address = profile.get("registered_office_address") or ""
+                # data_gaps may include a US stub — also probe for any FL/DE
+                # address pattern there so the detector has material.
+                if _reg_address:
+                    try:
+                        from . import virtual_office_registry
+                        _vo = virtual_office_registry.check_address(_reg_address)
+                        if _vo.get("is_virtual_office"):
+                            _sev = "red" if _vo.get("risk") == "high" else "amber"
+                            report.identity.findings.append(Finding(
+                                severity=_sev,
+                                title=f"Virtual-office match on registry address",
+                                detail=(
+                                    f"'{_reg_address}' matches known virtual-office "
+                                    f"corridor: {_vo.get('provider') or '?'}. "
+                                    f"{' '.join(_vo.get('signals') or [])}"
+                                ),
+                                source="dd_orchestrator.virtual_office_detector.registry",
+                                confidence="ASSESSED",
+                            ))
+                    except Exception as _vo_err:
+                        logger.debug("Virtual-office check on registry addr failed: %s", _vo_err)
             else:
                 # Adapter returned None — jurisdiction not supported or lookup failed
                 jur_hint = _national_registry_hint(jurisdiction_iso2, jurisdiction)
@@ -1269,6 +1296,77 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
         except Exception as e:
             logger.warning("Digital: deep_research failed: %s", e)
             report.digital.data_gaps.append(f"deep_research failed: {str(e)[:120]}")
+
+    # ── 5e-bis. Domain ownership verification (RDAP) ──
+    # Any DD with a URL / website / domain field runs an RDAP check. This
+    # catches the specific failure mode from 2026-04-17: SERBAN cited
+    # f3ir.com as F3 International Resources' site but RDAP would have
+    # shown the domain belongs to someone else / was recently registered.
+    # Independent of _mode_is_deep — cheap (one HTTPS call) and the
+    # signal is worth having in quick mode too.
+    _dom_candidate = (
+        target.get("website")
+        or target.get("domain")
+        or target.get("url")
+        or ""
+    )
+    # If the DD target name itself looks like a URL (e.g. the operator
+    # typed "run dd on https://f3ir.com/"), pick it up here.
+    if not _dom_candidate:
+        for fld in ("name", "entity", "query"):
+            v = target.get(fld) or ""
+            if isinstance(v, str) and ("://" in v or v.count(".") >= 1 and " " not in v and len(v) < 120):
+                if "://" in v or v.endswith((".com", ".net", ".org", ".io", ".co",
+                                               ".ai", ".uk", ".de", ".fr", ".eu",
+                                               ".ae", ".sa", ".qa", ".ru", ".cn",
+                                               ".tr", ".br", ".ng", ".ma", ".za",
+                                               ".ir")):
+                    _dom_candidate = v
+                    break
+    if _dom_candidate:
+        try:
+            from . import domain_ownership_verifier as dov
+            dom_result = await dov.verify_domain(
+                _dom_candidate,
+                claimed_entity_name=name,
+                claimed_jurisdiction=(
+                    report.identity.jurisdiction_iso2
+                    or report.identity.jurisdiction
+                    or target.get("jurisdiction_iso2")
+                    or target.get("jurisdiction")
+                ),
+            )
+            if dom_result.get("verified"):
+                sev = dov.severity_for(dom_result)
+                body = dov.render_finding(dom_result)
+                # Emit one finding with the flags summary
+                report.digital.findings.append(Finding(
+                    severity=sev,
+                    title=f"Domain ownership (RDAP): {dom_result['domain']} — flags: {', '.join(dom_result.get('flags') or []) or 'none'}",
+                    detail=body + ("\n" + "\n".join(dom_result.get("signals") or []) if dom_result.get("signals") else ""),
+                    source="dd_orchestrator.domain_ownership_verifier",
+                    confidence="CONFIRMED",
+                ))
+                # If there's an entity mismatch or a not-registered flag,
+                # escalate to the identity section as a hard-stop-worthy signal.
+                if any(f in (dom_result.get("flags") or []) for f in (
+                    "REGISTRANT_ENTITY_MISMATCH",
+                    "DOMAIN_NOT_REGISTERED",
+                    "VERY_RECENTLY_REGISTERED",
+                )):
+                    report.identity.findings.append(Finding(
+                        severity="red",
+                        title=f"Domain ownership flag: {', '.join(dom_result['flags'])}",
+                        detail=body,
+                        source="dd_orchestrator.domain_ownership_verifier",
+                        confidence="CONFIRMED",
+                    ))
+            elif dom_result.get("reason"):
+                report.digital.data_gaps.append(
+                    f"Domain RDAP check inconclusive for {dom_result.get('domain') or _dom_candidate}: {dom_result['reason']}"
+                )
+        except Exception as e:
+            logger.debug("domain_ownership_verifier failed (non-fatal): %s", e)
 
     # ── 5f. Link-investigator (deep mode only) ──
     # Recursive URL-tree walk seeded from the target's own website (if
