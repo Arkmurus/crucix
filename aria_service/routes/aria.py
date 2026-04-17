@@ -10163,6 +10163,46 @@ async def dd_quarantine_add_ep(request: Request):
     return result
 
 
+# ── Verification gate (2026-04-18) ────────────────────────────────────────
+# On CRITICAL outputs (RED DD verdicts, sanctions yes/no, client-facing
+# drafts), run the same decision through two independent providers and
+# only accept the answer when both agree. Disagreement → human review.
+# The engineering path to 99.9% reliability.
+
+@router.post("/verification/verify")
+async def verification_verify_ep(request: Request):
+    """Compare two independent responses on structured-verdict fields.
+
+    Body:
+      {
+        "primary":   "<full response text from provider A>",
+        "secondary": "<full response text from provider B>",
+        "metadata":  { "risk_classification": "RED", "is_client_facing": true, ... }
+      }
+    """
+    from ..learning import verification_gate as vg
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    primary = (body.get("primary") or "").strip()
+    secondary = (body.get("secondary") or "").strip()
+    if not primary or not secondary:
+        raise HTTPException(
+            status_code=400,
+            detail="both 'primary' and 'secondary' response texts are required",
+        )
+    metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else None
+    return await vg.verify(primary, secondary, metadata=metadata)
+
+
+@router.get("/verification/stats")
+async def verification_stats_ep():
+    """24h rolling stats on verification-gate firings + recent list."""
+    from ..learning import verification_gate as vg
+    return await vg.get_stats()
+
+
 @router.get("/calibration/baseline")
 async def calibration_baseline_get_ep():
     """Return saved calibration baseline."""

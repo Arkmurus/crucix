@@ -106,6 +106,7 @@ CORE_MODULES = [
     "aria_service.learning.knowledge_spider",
     "aria_service.learning.metacognitive_journal",
     "aria_service.learning.research_engine",
+    "aria_service.learning.verification_gate",
     "aria_service.writers",
     "aria_service.writers.writer_orchestrator",
     "aria_service.writers.assessment_writer",
