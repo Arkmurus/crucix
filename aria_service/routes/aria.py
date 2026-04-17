@@ -3763,6 +3763,43 @@ async def chat_ep(req: ChatRequest, request: Request):
         except Exception as e:
             _log.debug("response_verifier failed (non-fatal): %s", e)
 
+        # ── Commitment guard (Clause 20 enforcement) ──────────────────
+        # Detects and rewrites fabricated commitments: "Within 24 hours
+        # I will prepare..." → appends Clause 20 correction inline.
+        # Past incident 2026-04-16: ARIA promised deliverables she
+        # could not produce. Past incident 2026-04-17: KNDS query
+        # response included "Within 24 hours I will execute a search."
+        try:
+            from ..intel import commitment_guard as _cg
+            cg_result = _cg.guard_commitments(response_text)
+            if cg_result.get("changed"):
+                response_text = cg_result["guarded"]
+                result["response"] = response_text
+                result["commitment_guard"] = {
+                    "violations": cg_result["violations_found"],
+                    "details": cg_result["violations"],
+                }
+                _log.info(
+                    "[commitment_guard] %d Clause 20 violation(s) rewritten",
+                    cg_result["violations_found"],
+                )
+                # Record in mistake ledger so predictor learns
+                try:
+                    from ..intel import mistake_ledger as _ml
+                    for v in cg_result["violations"][:3]:
+                        await _ml.record(
+                            category="fabrication",
+                            task_type="chat",
+                            domain="clause_20",
+                            what=f"Fabricated commitment: {v['pattern_type']}",
+                            why=f"Match: {v['match'][:150]}",
+                            fix="Clause 20 correction appended inline",
+                        )
+                except Exception:
+                    pass
+        except Exception as e:
+            _log.debug("commitment_guard failed (non-fatal): %s", e)
+
         # ── Confidence-tagged reply footer ──
         # Wires existing observability signals (confidence tags +
         # source_verifier verdict + grounded/unverified counts) into a
