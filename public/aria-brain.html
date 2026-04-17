@@ -160,25 +160,14 @@ Sidebar.init('brain');
 </div>
 
 <script>
-const API = '/api/aria';
-
-// Re-read token on every call (not cached at load time) so it works
-// after login redirect without a full page reload
-function getHeaders() {
-  const token = localStorage.getItem('crucix_token') || '';
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
-}
-
+// Use the site's existing API helper from app.js (handles auth, token refresh, 401 redirect)
+// API.get() is defined in js/app.js which loads before this script
 async function fetchJson(path) {
   try {
-    const r = await fetch(`${API}${path}`, { headers: getHeaders() });
-    if (!r.ok) {
-      console.warn(`[aria-brain] ${path} returned ${r.status}`);
-      return null;
-    }
-    return await r.json();
+    // API.get returns parsed JSON directly, null on error
+    return await API.get('/api/aria' + path);
   } catch (e) {
-    console.warn(`[aria-brain] ${path} failed:`, e.message);
+    console.warn('[aria-brain] fetch failed:', path, e.message);
     return null;
   }
 }
