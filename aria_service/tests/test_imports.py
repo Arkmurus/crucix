@@ -512,7 +512,10 @@ def test_intent_detector_handles_noun_form_investigation():
     ]:
         intent2 = _detect_tool_intent(phrase)
         assert intent2 is not None, f"phrase failed to match: {phrase!r}"
-        assert intent2["tool"] in ("deep_research", "profile"), (
+        # dd_orchestrate added 2026-04-17 — it's the current full-DD path
+        # that supersedes the earlier deep_research / profile routes for
+        # entity/URL investigations. Accept all three.
+        assert intent2["tool"] in ("deep_research", "profile", "dd_orchestrate"), (
             f"phrase {phrase!r} routed to wrong tool: {intent2.get('tool')!r}"
         )
 
@@ -1592,9 +1595,9 @@ def test_adversarial_every_attack_has_anchor_clause():
     from aria_service.intel.adversarial_challenge import ATTACK_LIBRARY
     for a in ATTACK_LIBRARY:
         assert a.anchor_clauses, f"{a.id} must name ≥1 anchor clause"
-        # Each clause number must be valid (1–19 after clause 19 shipped)
+        # Each clause number must be valid (1–20 after clause 20 shipped 2026-04-17)
         for c in a.anchor_clauses:
-            assert 1 <= c <= 19
+            assert 1 <= c <= 20
 
 
 def test_adversarial_multi_turn_drift_breaks_at_turn_4():

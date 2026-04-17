@@ -22,7 +22,17 @@ import re
 from collections import Counter, defaultdict
 from typing import Any
 
-import numpy as np
+# numpy is optional — sentence-transformers embedding path needs it, but
+# the TF-IDF fallback path (default when embeddings are unavailable) does
+# not. Making the import lazy means `import aria_engine` succeeds on
+# minimal test environments that haven't installed numpy. Callers that
+# actually hit the embedding path will get a clear error then.
+try:
+    import numpy as np  # type: ignore
+    _NUMPY_AVAILABLE = True
+except ImportError:  # pragma: no cover — CI always has numpy
+    np = None  # type: ignore
+    _NUMPY_AVAILABLE = False
 
 logger = logging.getLogger("aria.semantic")
 
@@ -171,6 +181,13 @@ class SemanticIndex:
         """Rebuild the stacked embedding matrix for fast batch cosine search."""
         if not self._matrix_dirty:
             return
+        if not _NUMPY_AVAILABLE:
+            # No numpy in this environment — TF-IDF fallback is the only
+            # search path. Clear any stale matrix state.
+            self._embedding_matrix = None
+            self._embedding_ids = []
+            self._matrix_dirty = False
+            return
         if not self._embeddings:
             self._embedding_matrix = None
             self._embedding_ids = []
@@ -184,6 +201,8 @@ class SemanticIndex:
 
     def _search_embeddings(self, query: str, top_k: int, min_score: float) -> list[dict] | None:
         """Search using sentence embeddings. Returns None if unavailable."""
+        if not _NUMPY_AVAILABLE:
+            return None
         model = _get_embedder()
         if model is None or not self._embeddings:
             return None

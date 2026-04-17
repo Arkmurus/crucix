@@ -108,13 +108,18 @@ def _dominant_tag(response_text: str) -> str | None:
     avg = total / len(all_tags)
 
     # Hard floor: if any SPECULATIVE / UNCERTAIN tag is present, the
-    # headline cannot exceed PROBABLE — a serious gap stays visible
-    # in the headline even if most tags are CONFIRMED.
+    # headline cannot exceed UNCERTAIN. A serious gap (data we do NOT
+    # have) must be reflected in the headline — otherwise the reader
+    # sees a confident-looking banner on top of a reply that actually
+    # admits it doesn't know something. V2 floored too aggressively
+    # (any ASSESSED → WEAKEST); V3 over-corrected by keeping UNCERTAIN
+    # near ASSESSED. The correct rule: ASSESSED is normal rigour and
+    # averages in; UNCERTAIN is a named data gap and hard-floors here.
     present = set(all_tags)
     if "SPECULATIVE" in present:
         avg = min(avg, _TAG_TO_CONFIDENCE["UNCERTAIN"])
     elif "UNCERTAIN" in present:
-        avg = min(avg, _TAG_TO_CONFIDENCE["ASSESSED"] + 0.05)  # barely above ASSESSED
+        avg = min(avg, _TAG_TO_CONFIDENCE["UNCERTAIN"])
 
     # Map the weighted confidence back to the nearest tag level.
     # Nearest-threshold by absolute distance.
