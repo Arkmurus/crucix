@@ -158,6 +158,12 @@ Sidebar.init('brain');
     <div id="surface-metrics" class="loading">Loading...</div>
   </div>
 
+  <!-- Learning & Verification — 24/7 loop + CRITICAL-output gate -->
+  <div class="card wide" id="learning-panel">
+    <h2>Learning & Verification</h2>
+    <div id="learning-metrics" class="loading">Loading...</div>
+  </div>
+
   <!-- Recent Audit Entries -->
   <div class="card wide">
     <h2>Recent Chat Audit Entries</h2>
@@ -569,13 +575,120 @@ async function loadSurface() {
   el.classList.remove('loading');
 }
 
+async function loadLearning() {
+  const d = await fetchJson('/learning/stats');
+  const el = document.getElementById('learning-metrics');
+  if (!el) return;
+  if (!d) {
+    el.innerHTML = '<span class="neutral">No data</span>';
+    return;
+  }
+
+  const te = d.training_export || {};
+  const sp = d.knowledge_spider || {};
+  const mj = d.metacog_journal || {};
+  const re = d.research_engine || {};
+  const vg = d.verification_gate || {};
+  const qn = d.quarantine || {};
+  const bl = d.bright_lines || {};
+  const sx = d.sanctions_propagation || {};
+
+  let html = '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px">';
+
+  // ── Column A: 24/7 learning loop ──
+  html += '<div>';
+  html += '<div style="font-weight:600;color:#79c0ff;margin-bottom:6px">🧠 24/7 Learning Loop</div>';
+  const totalExamples = te.total_examples ?? 0;
+  html += metricRow('Training examples',
+                    totalExamples,
+                    totalExamples > 1000 ? 'good' : totalExamples > 100 ? 'warn' : 'neutral');
+  if (te.by_source) {
+    const sources = Object.entries(te.by_source)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(' · ');
+    if (sources) {
+      html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">${sources}</div>`;
+    }
+  }
+  html += metricRow('Spider fetches 24h',       sp.fetches_24h ?? 0, 'neutral');
+  html += metricRow('Spider ingests 24h',       sp.ingests_24h ?? 0,
+                    (sp.ingests_24h ?? 0) > 0 ? 'good' : 'neutral');
+  html += metricRow('Spider queue depth',       sp.queue_depth ?? 0, 'neutral');
+  html += metricRow('Research ticks 24h',       re.ticks_24h ?? 0, 'neutral');
+  html += metricRow('Research URLs queued 24h', re.urls_queued_24h ?? 0,
+                    (re.urls_queued_24h ?? 0) > 0 ? 'good' : 'neutral');
+  if ((re.stalled_cells || []).length) {
+    const stalled = re.stalled_cells.map(c => c.cell).slice(0, 2).join(', ');
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#d29922">Stalled cells need operator source: ${stalled}</div>`;
+  }
+  html += '</div>';
+
+  // ── Column B: Self-reflection + verification ──
+  html += '<div>';
+  html += '<div style="font-weight:600;color:#a371f7;margin-bottom:6px">🔍 Self-Reflection & Verification</div>';
+  html += metricRow('Journal hours recorded', mj.hours_recorded ?? 0, 'neutral');
+  const sRatio = mj.success_to_failure_ratio;
+  html += metricRow('Success-to-failure ratio',
+                    sRatio != null ? sRatio : '--',
+                    sRatio != null && sRatio >= 3 ? 'good' : sRatio != null && sRatio >= 1 ? 'warn' : 'bad');
+  html += metricRow('Novelties logged',       mj.novelties ?? 0, 'neutral');
+  html += metricRow('Verification verified 24h',   vg.verified_24h ?? 0, 'good');
+  const unverified = vg.unverified_24h ?? 0;
+  html += metricRow('Verification unverified 24h', unverified,
+                    unverified > 0 ? 'warn' : 'good');
+  html += metricRow('Blocking disagreements 24h',  vg.blocking_disagreements_24h ?? 0,
+                    (vg.blocking_disagreements_24h ?? 0) > 0 ? 'bad' : 'good');
+  if (vg.verification_rate != null) {
+    html += metricRow('Verification rate',
+                      `${(vg.verification_rate * 100).toFixed(0)}%`,
+                      vg.verification_rate >= 0.95 ? 'good' : vg.verification_rate >= 0.80 ? 'warn' : 'bad');
+  }
+  html += '</div>';
+
+  // ── Column C: Compliance gates + quarantine ──
+  html += '<div>';
+  html += '<div style="font-weight:600;color:#f85149;margin-bottom:6px">🛑 Compliance Gates</div>';
+  const blTotal = bl.total_24h ?? 0;
+  html += metricRow('Bright-lines fired 24h', blTotal,
+                    blTotal > 0 ? 'warn' : 'good');
+  if (bl.by_code && Object.keys(bl.by_code).length) {
+    const topCodes = Object.entries(bl.by_code)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([k, v]) => `${k} ×${v}`)
+      .join(', ');
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Top: ${topCodes}</div>`;
+  }
+  html += metricRow('DD runs quarantined', qn.count ?? 0,
+                    (qn.count ?? 0) > 0 ? 'warn' : 'good');
+  if ((qn.items || []).length) {
+    const recentQ = qn.items.slice(0, 2).map(q => q.run_id).join(', ');
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Recent: ${recentQ}</div>`;
+  }
+  html += metricRow('Sanctions OEMs tracked', sx.oems_covered ?? 0, 'good');
+  html += '</div>';
+
+  html += '</div>';
+  html += `<div style="margin-top:10px;font-size:0.75em;color:#6e7681">`;
+  html += `Endpoints — <a href="/api/aria/learning/stats" style="color:#58a6ff">/learning/stats</a> · `;
+  html += `<a href="/api/aria/verification/stats" style="color:#58a6ff">/verification/stats</a> · `;
+  html += `<a href="/api/aria/dd/quarantine" style="color:#58a6ff">/dd/quarantine</a> · `;
+  html += `<a href="/api/aria/autonomy/surface" style="color:#58a6ff">/autonomy/surface</a>`;
+  html += `</div>`;
+
+  el.innerHTML = html;
+  el.classList.remove('loading');
+}
+
 async function refreshAll() {
   document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
   await Promise.all([
     loadHealth(), loadMode(), loadEngine(), loadAdversarial(),
     loadBreakers(), loadPredictor(), loadAudit(), loadHeatmap(),
     loadDLQ(), loadMastery(), loadComposite(), loadCalibration(),
-    loadSurface(),
+    loadSurface(), loadLearning(),
   ]);
 }
 

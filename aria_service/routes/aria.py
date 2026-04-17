@@ -10265,6 +10265,92 @@ async def verification_stats_ep():
     return await vg.get_stats()
 
 
+# ── Learning & Verification aggregator (2026-04-18) ──────────────────────
+# Single endpoint that the dashboard's Learning panel calls. Pulls from
+# every new 2026-04-17/18 module so everything that was "backend-only"
+# becomes visible without 7 separate panel load calls.
+
+@router.get("/learning/stats")
+async def learning_stats_ep():
+    """One-shot aggregator for the Learning & Verification dashboard panel."""
+    out = {
+        "training_export":   {},
+        "knowledge_spider":  {},
+        "metacog_journal":   {},
+        "research_engine":   {},
+        "verification_gate": {},
+        "quarantine":        {"count": 0, "items": []},
+        "bright_lines":      {"total_24h": 0, "by_code": {}},
+        "sanctions_propagation": {"oems_tracked": 0},
+    }
+    # Training corpus — manifest.json plus summary
+    try:
+        from ..learning import training_export
+        out["training_export"] = {
+            **training_export.summary(),
+            "manifest": training_export.get_manifest(),
+        }
+    except Exception as e:
+        _log.debug("learning/stats training_export failed: %s", e)
+
+    # Spider stats
+    try:
+        from ..learning import knowledge_spider
+        out["knowledge_spider"] = await knowledge_spider.get_stats()
+    except Exception as e:
+        _log.debug("learning/stats spider failed: %s", e)
+
+    # Metacog journal weekly summary
+    try:
+        from ..learning import metacognitive_journal
+        out["metacog_journal"] = await metacognitive_journal.get_weekly_summary()
+    except Exception as e:
+        _log.debug("learning/stats journal failed: %s", e)
+
+    # Research engine
+    try:
+        from ..learning import research_engine
+        out["research_engine"] = await research_engine.get_stats()
+    except Exception as e:
+        _log.debug("learning/stats research failed: %s", e)
+
+    # Verification gate
+    try:
+        from ..learning import verification_gate
+        out["verification_gate"] = await verification_gate.get_stats()
+    except Exception as e:
+        _log.debug("learning/stats verification failed: %s", e)
+
+    # Quarantine list (seed + operator-added)
+    try:
+        from ..intel import run_quarantine
+        items = await run_quarantine.list_quarantined()
+        out["quarantine"] = {"count": len(items), "items": items[:10]}
+    except Exception as e:
+        _log.debug("learning/stats quarantine failed: %s", e)
+
+    # Bright-lines last 24h
+    try:
+        from ..intel import regional_bright_lines
+        hits = await regional_bright_lines.get_hits_24h()
+        out["bright_lines"] = {
+            "total_24h": hits.get("total", 0),
+            "by_code": hits.get("by_code", {}),
+            "recent": (hits.get("items") or [])[-5:],
+        }
+    except Exception as e:
+        _log.debug("learning/stats bright_lines failed: %s", e)
+
+    # Sanctions propagation — OEM tracking count (approximate static signal)
+    try:
+        from ..intel import sanctions_propagation
+        out["sanctions_propagation"] = sanctions_propagation.summary()
+    except Exception as e:
+        _log.debug("learning/stats sanctions_prop failed: %s", e)
+
+    return out
+
+
 @router.get("/calibration/baseline")
 async def calibration_baseline_get_ep():
     """Return saved calibration baseline."""
