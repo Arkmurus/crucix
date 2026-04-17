@@ -671,10 +671,20 @@ async def compare_local_silently(question: str, cloud_response: str) -> dict:
 
 # ── Regional mastery (topic × region heat map) ────────────────────────────
 
+# Heat-map regions — updated 2026-04-17 PM per user feedback on the
+# NAK-session gap review. Turkey is ITS OWN column (not NATO-merged,
+# per aria_global_positioning.md hard rule). LatAm is split between
+# Lusophone (Brazil anchor) and non-Lusophone (Peru anchor). Central
+# Africa is explicit. South Asia and Southeast Asia are separated.
+# Balkans added as a Tier 2 positioning column.
 REGIONS = [
-    "lusophone", "west_africa", "east_africa", "north_africa",
-    "southern_africa", "mena", "gulf", "asia_pacific", "latam",
-    "europe", "nato", "global",
+    "lusophone", "west_africa", "east_africa", "central_africa",
+    "north_africa", "southern_africa", "mena", "gulf",
+    "turkey",              # standalone — not NATO
+    "south_asia", "southeast_asia",
+    "latam_lusophone", "latam_non_lusophone",
+    "europe", "balkans", "nato",
+    "global",
 ]
 
 _REGION_PATTERNS: list[tuple[str, re.Pattern]] = [
@@ -683,27 +693,51 @@ _REGION_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"são\s+tomé|cplp|lusophone|portuguese|fadm|faa|fasb)\b", re.I)),
     ("west_africa", re.compile(
         r"\b(?:nigeria|ghana|senegal|côte\s+d.ivoire|cameroon|ecowas|"
-        r"niger|mali|burkina|togo|benin|sierra\s+leone|liberia)\b", re.I)),
+        r"niger|mali|burkina|togo|benin|sierra\s+leone|liberia|aes\s+alliance)\b", re.I)),
     ("east_africa", re.compile(
-        r"\b(?:kenya|ethiopia|somalia|uganda|tanzania|rwanda|eac|amisom|"
-        r"djibouti|eritrea|south\s+sudan|sudan)\b", re.I)),
+        r"\b(?:ethiopia|somalia|eac|amisom|djibouti|eritrea|"
+        r"south\s+sudan|sudan)\b", re.I)),
+    ("central_africa", re.compile(
+        r"\b(?:d\.?r\.?c\.?|drc|democratic\s+republic\s+of\s+(?:the\s+)?congo|"
+        r"kinshasa|rwanda|kigali|uganda|kampala|tanzania|dodoma|dar\s+es\s+salaam|"
+        r"kenya|nairobi|burundi|m23|monusco)\b", re.I)),
     ("north_africa", re.compile(
-        r"\b(?:libya|algeria|morocco|tunisia|egypt|sahel)\b", re.I)),
+        r"\b(?:libya|algeria|morocco|tunisia|egypt|sahel|maghreb)\b", re.I)),
     ("southern_africa", re.compile(
         r"\b(?:south\s+africa|sadc|botswana|namibia|zimbabwe|zambia)\b", re.I)),
     ("mena", re.compile(
         r"\b(?:middle\s+east|syria|iraq|iran|jordan|lebanon|palestine|israel)\b", re.I)),
     ("gulf", re.compile(
-        r"\b(?:saudi|uae|qatar|oman|kuwait|bahrain|gcc)\b", re.I)),
-    ("asia_pacific", re.compile(
-        r"\b(?:indonesia|philippines|vietnam|thailand|myanmar|india|"
-        r"pakistan|bangladesh|south\s+korea|japan|taiwan|asean|aukus|quad)\b", re.I)),
-    ("latam", re.compile(
-        r"\b(?:brazil|colombia|peru|argentina|chile|mexico|venezuela|"
-        r"ecuador|mercosur|central\s+america)\b", re.I)),
+        r"\b(?:saudi|uae|qatar|oman|kuwait|bahrain|gcc|edge\s+group|sami|tawazun|gami|vision\s+2030)\b", re.I)),
+    ("turkey", re.compile(
+        r"\b(?:turkey|türkiye|ssb|baykar|aselsan|roketsan|tai|stm|"
+        r"savunma\s+sanayii|tb2|bayraktar|nihai\s+kullan)\b", re.I)),
+    ("south_asia", re.compile(
+        r"\b(?:india|delhi|bengaluru|hindustan|hal\b|drdo|"
+        r"pakistan|islamabad|bangladesh|dhaka|sri\s+lanka|nepal|"
+        r"make\s+in\s+india|dap\s*2020|dpp)\b", re.I)),
+    ("southeast_asia", re.compile(
+        r"\b(?:indonesia|jakarta|philippines|manila|vietnam|hanoi|thailand|"
+        r"bangkok|myanmar|burma|malaysia|kuala\s+lumpur|singapore|"
+        r"asean|aukus|quad)\b", re.I)),
+    ("latam_lusophone", re.compile(
+        r"\b(?:brazil|brasília|brasilia|brasil|são\s+paulo|rio\s+de\s+janeiro|"
+        r"embraer|taurus\s+armas|avibras)\b", re.I)),
+    ("latam_non_lusophone", re.compile(
+        r"\b(?:colombia|bogotá|bogota|indumil|cotecmar|"
+        r"peru|lima|seace|"
+        r"chile|santiago|dgmn|fidae|"
+        r"argentina|buenos\s+aires|fabricaciones\s+militares|"
+        r"ecuador|quito|"
+        r"mexico|méxico|sedena|"
+        r"mercosur|central\s+america|panama|panamá)\b", re.I)),
     ("europe", re.compile(
-        r"\b(?:ukraine|poland|romania|baltic|czech|hungary|turkey|"
-        r"european|pesco|edirpa)\b", re.I)),
+        r"\b(?:ukraine|kyiv|poland|warsaw|romania|bucharest|baltic|czech|hungary|"
+        r"european|pesco|edirpa|france|germany|italy|spain|portugal)\b", re.I)),
+    ("balkans", re.compile(
+        r"\b(?:serbia|belgrade|bosnia|sarajevo|kosovo|pristina|"
+        r"north\s+macedonia|skopje|albania|tirana|montenegro|podgorica|"
+        r"slovenia|ljubljana|croatia|zagreb|balkans|former\s+yugoslav)\b", re.I)),
     ("nato", re.compile(
         r"\b(?:nato|alliance|article\s+5|stanag|nspa|nsn)\b", re.I)),
 ]

@@ -77,6 +77,12 @@ CORE_MODULES = [
     "aria_service.intel.sanctions_propagation",
     "aria_service.intel.cited_artifact_verifier",
     "aria_service.intel.protective_reply_drafter",
+    # Tier 2 heat-map expansion (2026-04-17 PM)
+    "aria_service.intel.knowledge_north_africa",
+    "aria_service.intel.knowledge_south_se_asia",
+    "aria_service.intel.knowledge_central_africa",
+    "aria_service.intel.knowledge_balkans",
+    "aria_service.intel.regional_bright_lines",
     "aria_service.writers",
     "aria_service.writers.writer_orchestrator",
     "aria_service.writers.assessment_writer",

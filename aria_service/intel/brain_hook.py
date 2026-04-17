@@ -91,6 +91,12 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "sanctions_propagation":      ["compliance", "legal", "procurement"],
     "cited_artifact_verifier":    ["compliance", "legal", "osint"],
     "protective_reply_drafter":   ["compliance", "legal", "general"],
+    # Tier 2 regional knowledge (2026-04-17 PM) — heat-map expansion
+    "knowledge_north_africa":      ["market_intel", "procurement", "compliance"],
+    "knowledge_south_se_asia":     ["market_intel", "procurement", "compliance"],
+    "knowledge_central_africa":    ["market_intel", "procurement", "compliance"],
+    "knowledge_balkans":           ["market_intel", "procurement", "compliance"],
+    "regional_bright_lines":       ["compliance", "legal", "procurement"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
@@ -157,6 +163,12 @@ _MODULE_WEIGHT: dict[str, float] = {
     "sanctions_propagation":      0.15,
     "cited_artifact_verifier":    0.10,
     "protective_reply_drafter":   0.15,
+    # Tier 2 regional knowledge (2026-04-17 PM)
+    "knowledge_north_africa":      0.05,
+    "knowledge_south_se_asia":     0.05,
+    "knowledge_central_africa":    0.05,
+    "knowledge_balkans":           0.05,
+    "regional_bright_lines":       0.15,
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity

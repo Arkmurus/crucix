@@ -4091,3 +4091,191 @@ sources:
     frequency: monthly
     cplp_relevant: true
     notes: "Mozambique National Directorate of Arms & Customs — FADM modernisation programme timeline. Rwanda troop withdrawal creates urgent capability gap (2026 signal)."
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Tier 1 expansion 2026-04-17 PM — region-specific media + regulators
+  # ═══════════════════════════════════════════════════════════════════════
+
+  # ── Türkiye / SSB ecosystem ────────────────────────────────────────────
+  - url: https://www.ssb.gov.tr
+    tier: A
+    source_class: Türkiye SSB
+    category: procurement_calendar
+    region: turkey
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: "Presidency of Defence Industries (SSB) — primary regulator for Turkish defence procurement + export. Savunma Sanayii İcra Komitesi decisions published here first."
+
+  - url: https://www.msb.gov.tr
+    tier: A
+    source_class: Türkiye MSB
+    category: procurement_calendar
+    region: turkey
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Ministry of National Defence (Millî Savunma Bakanlığı) — complementary to SSB; EUC (nihai kullanıcı sertifikası) process guidance."
+
+  - url: https://www.savunmasanayiidergisi.com
+    tier: B+
+    source_class: Savunma Sanayii Dergisi
+    category: defence_journal
+    region: turkey
+    ingest_strategy: rss
+    frequency: weekly
+    cplp_relevant: false
+    notes: "Primary Turkish defence-industry trade journal — programme announcements, SSB commentary, industry moves."
+
+  - url: https://www.resmigazete.gov.tr
+    tier: A
+    source_class: Türkiye Resmî Gazete
+    category: regulatory
+    region: turkey
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: "Turkish Official Gazette — SSB executive-committee decisions publish here within days. Filter for 'Savunma Sanayii' keyword."
+
+  - url: https://www.baykartech.com/en/press
+    tier: B+
+    source_class: Baykar
+    category: oem_press
+    region: turkey
+    ingest_strategy: rss
+    frequency: weekly
+    cplp_relevant: true
+    notes: "Baykar press releases — TB2 / Akıncı / Kızılelma export announcements, including African + Middle East customers."
+
+  # ── Gulf / Vision 2030 / Arabic media ──────────────────────────────────
+  - url: https://www.gami.gov.sa
+    tier: A
+    source_class: KSA GAMI
+    category: procurement_calendar
+    region: gulf
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "General Authority for Military Industries — Vision 2030 localisation regulator; publishes licence-holder list + programme updates."
+
+  - url: https://www.sami.com.sa
+    tier: B+
+    source_class: KSA SAMI
+    category: oem_press
+    region: gulf
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Saudi Arabian Military Industries — state OEM aggregator; subsidiary announcements + JV deals."
+
+  - url: https://www.tawazun.ae
+    tier: A
+    source_class: UAE Tawazun
+    category: procurement_calendar
+    region: gulf
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "UAE Tawazun Economic Council — offset programme administrator. Offset announcements tie to IDEX cycle."
+
+  - url: https://www.edgegroup.ae
+    tier: B+
+    source_class: UAE EDGE Group
+    category: oem_press
+    region: gulf
+    ingest_strategy: rss
+    frequency: weekly
+    cplp_relevant: true
+    notes: "EDGE Group press releases — ~25 subsidiaries including ADASI, Caracal, Al Tariq, Halcon. African + Asian export announcements."
+
+  - url: https://wam.ae
+    tier: B
+    source_class: UAE WAM
+    category: state_media
+    region: gulf
+    ingest_strategy: rss
+    frequency: daily
+    cplp_relevant: false
+    notes: "Emirates News Agency — state-aligned defence announcement surface."
+
+  - url: https://www.spa.gov.sa
+    tier: B
+    source_class: Saudi Press Agency
+    category: state_media
+    region: gulf
+    ingest_strategy: rss
+    frequency: daily
+    cplp_relevant: false
+    notes: "Saudi Press Agency — state-aligned; defence + Vision 2030 announcements."
+
+  # ── ECOWAS + West Africa ───────────────────────────────────────────────
+  - url: https://www.ecowas.int
+    tier: A
+    source_class: ECOWAS Commission
+    category: regulatory
+    region: west_africa
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: true
+    notes: "ECOWAS Commission — arms-embargo decisions, AES Alliance sanctions layer, regional defence policy (MARAC)."
+
+  - url: https://bpp.gov.ng
+    tier: A
+    source_class: Nigeria BPP
+    category: procurement_calendar
+    region: west_africa
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Nigeria Bureau of Public Procurement — annual procurement plan publication."
+
+  - url: https://www.mod.gov.gh
+    tier: B+
+    source_class: Ghana MoD
+    category: procurement_calendar
+    region: west_africa
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Ghana Ministry of Defence — equipment committee sittings + programme announcements."
+
+  # ── LatAm non-Lusophone ────────────────────────────────────────────────
+  - url: https://www.seace.gob.pe
+    tier: A
+    source_class: Peru SEACE
+    category: procurement_calendar
+    region: latam_non_lusophone
+    ingest_strategy: html_crawl
+    frequency: weekly
+    cplp_relevant: false
+    notes: "Peru SEACE — Sistema Electrónico de Contrataciones del Estado. MINDEF tenders surface as lots within ministerial scope."
+
+  - url: https://www.indumil.gov.co
+    tier: B+
+    source_class: Colombia INDUMIL
+    category: oem_press
+    region: latam_non_lusophone
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Industria Militar Colombia — state land-systems OEM."
+
+  - url: https://www.cotecmar.com
+    tier: B+
+    source_class: Colombia COTECMAR
+    category: oem_press
+    region: latam_non_lusophone
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Corporación de Ciencia y Tecnología para el Desarrollo Marítimo — Colombian naval prime."
+
+  - url: https://www.dgmn.cl
+    tier: A
+    source_class: Chile DGMN
+    category: procurement_calendar
+    region: latam_non_lusophone
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Dirección General de Movilización Nacional — Chile armed-forces procurement coordinator."

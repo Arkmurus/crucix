@@ -803,6 +803,54 @@ def _sync_correlation_context(message: str) -> str:
                     parts.append(lc)
             except Exception:
                 pass
+            # Tier 2 regional knowledge (2026-04-17 PM) — North Africa,
+            # South/SE Asia, Central Africa, Balkans.
+            try:
+                from .intel import knowledge_north_africa
+                nac = knowledge_north_africa.get_north_africa_context(message)
+                if nac:
+                    parts.append(nac)
+            except Exception:
+                pass
+            try:
+                from .intel import knowledge_south_se_asia
+                sac = knowledge_south_se_asia.get_south_se_asia_context(message)
+                if sac:
+                    parts.append(sac)
+            except Exception:
+                pass
+            try:
+                from .intel import knowledge_central_africa
+                cac = knowledge_central_africa.get_central_africa_context(message)
+                if cac:
+                    parts.append(cac)
+            except Exception:
+                pass
+            try:
+                from .intel import knowledge_balkans
+                bc = knowledge_balkans.get_balkans_context(message)
+                if bc:
+                    parts.append(bc)
+            except Exception:
+                pass
+            # Regional bright-line compliance rules (2026-04-17 PM) —
+            # AES Alliance, Algeria dual-exposure, DRC, UAE/Houthi, Libya,
+            # Myanmar, DPRK. Text scan + country scan. Always surfaced
+            # when triggered so the LLM sees the compliance gate.
+            try:
+                from .intel import regional_bright_lines
+                hits = regional_bright_lines.check_text(message)
+                if hits:
+                    lines = ["[BRIGHT-LINES TRIGGERED]"]
+                    for h in hits[:3]:
+                        lines.append(
+                            f"• {h['code']} ({h['severity'].upper()}): {h['title']}"
+                        )
+                        for act in h["required_actions"][:2]:
+                            lines.append(f"    – {act}")
+                    parts.append("\n".join(lines))
+            except Exception:
+                pass
             # Equipment specs — [EQUIPMENT: ...] marker when a platform
             # or operator country is mentioned.
             try:
