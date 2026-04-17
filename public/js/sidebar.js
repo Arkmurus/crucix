@@ -91,6 +91,7 @@ const Sidebar = {
         <div class="sidebar-divider"></div>
         <div class="sidebar-section">System</div>
         ${link('sources', '/sources.html', 'bi-activity', 'Source Health')}
+        ${link('brain',   '/aria-brain',   'bi-heart-pulse', 'ARIA Brain')}
 
         <div data-admin style="display:none">
           <div class="sidebar-divider"></div>
