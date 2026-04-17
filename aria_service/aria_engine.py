@@ -748,6 +748,30 @@ def _sync_correlation_context(message: str) -> str:
                     parts.append(chain_ctx)
             except Exception:
                 pass
+            # Procurement calendar (Priority 3) — [CALENDAR: ...] marker
+            try:
+                from .intel import procurement_calendar
+                cal_ctx = await procurement_calendar.get_calendar_context(message)
+                if cal_ctx:
+                    parts.append(cal_ctx)
+            except Exception:
+                pass
+            # Competitor landscape (Priority 4) — [COMPETITORS: ...] marker
+            try:
+                from .intel import competitor_tracker
+                comp_ctx = await competitor_tracker.get_competitor_context(message)
+                if comp_ctx:
+                    parts.append(comp_ctx)
+            except Exception:
+                pass
+            # OEM contact graph (Priority 2) — [OEM: ...] marker
+            try:
+                from .intel import oem_contact_graph
+                oem_ctx = await oem_contact_graph.get_oem_context(message)
+                if oem_ctx:
+                    parts.append(oem_ctx)
+            except Exception:
+                pass
             # Coverage confidence for mentioned countries
             import re
             _COUNTRY_NAMES = [

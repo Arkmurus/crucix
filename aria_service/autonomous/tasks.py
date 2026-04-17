@@ -383,6 +383,30 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
                 summary += f"\n{chain_brief}"
         except Exception as _e:
             logger.debug("chain briefing failed (non-fatal): %s", _e)
+        # Add procurement calendar (Priority 3, 2026-04-17)
+        try:
+            from ..intel import procurement_calendar
+            calendar_brief = await procurement_calendar.generate_calendar_briefing()
+            if calendar_brief:
+                summary += f"\n{calendar_brief}"
+        except Exception as _e:
+            logger.debug("calendar briefing failed (non-fatal): %s", _e)
+        # Add competitor activity (Priority 4, 2026-04-17)
+        try:
+            from ..intel import competitor_tracker
+            competitor_brief = await competitor_tracker.generate_competitor_briefing()
+            if competitor_brief:
+                summary += f"\n{competitor_brief}"
+        except Exception as _e:
+            logger.debug("competitor briefing failed (non-fatal): %s", _e)
+        # Add OEM contact graph coverage (Priority 2, 2026-04-17)
+        try:
+            from ..intel import oem_contact_graph
+            oem_brief = await oem_contact_graph.generate_oem_briefing()
+            if oem_brief:
+                summary += f"\n{oem_brief}"
+        except Exception as _e:
+            logger.debug("OEM briefing failed (non-fatal): %s", _e)
         # Add contact intelligence section
         contact_brief = await contact_intelligence.generate_contact_briefing()
         if contact_brief:
@@ -705,6 +729,44 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
             "stale_leads": len(stale),
             "deadlines_7d": len(deadlines),
         }
+
+    elif tool_kind == "procurement_calendar":
+        # Priority 3 (2026-04-17). Actions:
+        #   refresh           — compute upcoming alerts + push to chain
+        #   list_upcoming     — return events in horizon (days_ahead: int)
+        from ..intel import procurement_calendar
+        action = ((task.tool_chain[0] or {}).get("action") or "refresh").strip().lower()
+        if action == "refresh":
+            return await procurement_calendar.refresh()
+        if action == "list_upcoming":
+            days = int((task.tool_chain[0] or {}).get("days_ahead", 180))
+            return {"upcoming": await procurement_calendar.list_upcoming(days_ahead=days)}
+        return {"error": f"procurement_calendar: unknown action {action!r}"}
+
+    elif tool_kind == "competitor_tracker":
+        # Priority 4 (2026-04-17). Actions:
+        #   scan              — walk tender alerts + ledger, record activities
+        #   who_else_in       — look up competitor activity for a country
+        from ..intel import competitor_tracker
+        action = ((task.tool_chain[0] or {}).get("action") or "scan").strip().lower()
+        if action == "scan":
+            return await competitor_tracker.scan_sources()
+        if action == "who_else_in":
+            country = (task.tool_chain[0] or {}).get("country", "")
+            return {"hits": await competitor_tracker.who_else_in(country)}
+        return {"error": f"competitor_tracker: unknown action {action!r}"}
+
+    elif tool_kind == "oem_contact_graph":
+        # Priority 2 (2026-04-17). Actions:
+        #   enrich            — operator-driven enrichment scan
+        #   stats             — coverage snapshot
+        from ..intel import oem_contact_graph
+        action = ((task.tool_chain[0] or {}).get("action") or "enrich").strip().lower()
+        if action == "enrich":
+            return await oem_contact_graph.enrich_from_linkedin()
+        if action == "stats":
+            return await oem_contact_graph.stats()
+        return {"error": f"oem_contact_graph: unknown action {action!r}"}
 
     elif tool_kind == "chain_correlator":
         # Priority 1 (2026-04-17) — long-horizon causal chain geopolitics

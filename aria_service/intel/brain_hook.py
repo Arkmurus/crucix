@@ -72,6 +72,10 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "narrative_monitor": ["osint", "geopolitics", "competitor_intel"],
     # Priority 1 (2026-04-17) — long-horizon causal chain correlator
     "chain_correlator":     ["geopolitics", "procurement", "relationships", "market_intel"],
+    # Priorities 2-4 (2026-04-17) — temporal + competitor + OEM graph
+    "procurement_calendar": ["procurement", "geopolitics", "market_intel"],
+    "competitor_tracker":   ["competitor_intel", "market_intel"],
+    "oem_contact_graph":    ["relationships", "market_intel", "competitor_intel"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
@@ -123,6 +127,9 @@ _MODULE_WEIGHT: dict[str, float] = {
     "adversarial_challenge": 0.30, # weekly stress test — highest-value mastery signal
     "narrative_monitor": 0.15,     # hourly narrative scan — moderate weight per detection
     "chain_correlator":     0.20,  # each confirmed causal chain is high-value learning
+    "procurement_calendar": 0.10,  # static calendar upkeep — low frequency
+    "competitor_tracker":   0.15,  # competitor observations drive mastery
+    "oem_contact_graph":    0.15,  # OEM landscape updates — moderate weight
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity

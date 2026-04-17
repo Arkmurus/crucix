@@ -1184,6 +1184,81 @@ tasks:
     mem0_tags: [chain_correlator, windows, procurement, autonomous]
 
   # ═══════════════════════════════════════════════════════════════════
+  # CALENDAR-REFRESH-WEEKLY — procurement calendar upkeep
+  # ═══════════════════════════════════════════════════════════════════
+  # Priority 3 (2026-04-17): country-level procurement calendar with
+  # political cycle dependencies. Weekly refresh recomputes upcoming
+  # alerts AND pushes eligible election / budget events into the
+  # chain_correlator shifts store so they feed the 12-18mo projection.
+  - id: CALENDAR-REFRESH-WEEKLY
+    name: Procurement calendar — weekly refresh
+    description: |
+      Sunday 04:00 UTC — recompute upcoming calendar alerts and push
+      political-cycle events into chain_correlator for downstream
+      procurement-window projection.
+    cron: "0 4 * * sun"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 60
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: procurement_calendar
+        action: refresh
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [procurement_calendar, refresh, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # COMPETITOR-SCAN-DAILY — scan for competitor activity
+  # ═══════════════════════════════════════════════════════════════════
+  # Priority 4 (2026-04-17): firm-level activity tracker. Walks
+  # tender_monitor alerts and intel_ledger for mentions of known
+  # competitor firms and records them as CompetitorActivity entries.
+  - id: COMPETITOR-SCAN-DAILY
+    name: Competitor tracker — daily scan
+    description: |
+      Daily 23:00 UTC — scan tender_monitor + intel_ledger for competitor
+      firm mentions and record activities for downstream briefing + chat.
+    cron: "0 23 * * *"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 90
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: competitor_tracker
+        action: scan
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [competitor_tracker, scan, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # OEM-GRAPH-ENRICH-WEEKLY — OEM contact coverage scan
+  # ═══════════════════════════════════════════════════════════════════
+  # Priority 2 (2026-04-17): person-level OEM mapping. Weekly enrichment
+  # scan reports placeholder coverage so the operator knows which slots
+  # still need DSEI / Eurosatory / LinkedIn verification. Populating the
+  # actual names is operator-driven — this task does NOT hallucinate.
+  - id: OEM-GRAPH-ENRICH-WEEKLY
+    name: OEM contact graph — enrichment scan
+    description: |
+      Monday 06:30 UTC — scan placeholder coverage across the OEM graph
+      and surface which role slots await verification.
+    cron: "30 6 * * mon"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 60
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: oem_contact_graph
+        action: enrich
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [oem_contact_graph, enrich, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
   # CHAIN-CLOSE-DAILY — score closed causal chains
   # ═══════════════════════════════════════════════════════════════════
   # Daily 22:00 UTC retro — scan recent tender_monitor alerts + pipeline
