@@ -2223,6 +2223,53 @@ def _national_registry_hint(iso2: Optional[str], jurisdiction: Optional[str]) ->
 # PUBLIC ENTRY POINT
 # =============================================================================
 
+# ══════════════════════════════════════════════════════════════════════════
+# Entity-name sanity gate
+# ══════════════════════════════════════════════════════════════════════════
+#
+# Rejects obvious garbage names before the 7-layer pipeline runs.
+# Garbage names produce noise findings that then poison mem0 /
+# claim_ledger for future conversations. Prevention > cleanup.
+
+_URL_SCHEME_FRAGMENTS = {
+    "http", "https", "ftp", "ftps", "ws", "wss",
+    "file", "about", "data", "mailto",
+}
+
+
+def _validate_entity_name(name: str) -> tuple[bool, str]:
+    """Return (is_valid, reject_reason). Reject reason is empty on valid."""
+    if not name or not name.strip():
+        return False, "empty"
+    s = name.strip()
+
+    # Scheme fragments — "https", "http", "ftp" etc. come from URL
+    # regex captures that terminated at `/` or `:`.
+    if s.lower().strip(":/") in _URL_SCHEME_FRAGMENTS:
+        return False, f"looks like a URL scheme fragment, not an entity"
+
+    # Pure punctuation / whitespace
+    if not re.search(r"[A-Za-z0-9]", s):
+        return False, "no alphanumeric characters"
+
+    # Very short all-lowercase strings with no spaces — likely garbage
+    # (single words like 'http', 'com', 'www'). Real entity names are
+    # usually capitalised OR longer than 4 chars. Domain names are
+    # rescued by the `.` check below.
+    if len(s) <= 4 and s.islower() and "." not in s:
+        return False, f"too short ({len(s)} chars, lowercase, no dot)"
+
+    # Over-long input
+    if len(s) > 500:
+        return False, f"too long ({len(s)} chars)"
+
+    # Starts with a scheme separator
+    if s.startswith((":", "/", "\\", "?", "#", "&", "=")):
+        return False, "starts with a URL delimiter"
+
+    return True, ""
+
+
 async def orchestrate_dd(
     target: dict,
     *,
@@ -2260,6 +2307,21 @@ async def orchestrate_dd(
         raise RuntimeError("DD orchestrator disabled via ARIA_DD_ORCHESTRATOR_ENABLED=0")
     if not target or not (target.get("name") or target.get("entity") or target.get("query")):
         raise ValueError("target must include 'name', 'entity', or 'query'")
+
+    # ── Entity-name sanity gate (2026-04-17 21:40 fix) ──
+    # Tonight's F3 incident: DD ran on entity "https" because the intent
+    # regex captured "https:" from a URL. The 7-layer pipeline then
+    # produced a 5-match "sanctions hit" (noise matches on the string
+    # "https") and that defective result was ingested into mem0 as
+    # confirmed evidence. Gate it here so garbage names never run.
+    _raw_name = (target.get("name") or target.get("entity") or target.get("query", "")).strip()
+    _is_valid, _reject_reason = _validate_entity_name(_raw_name)
+    if not _is_valid:
+        raise ValueError(
+            f"Refusing DD on malformed entity name {_raw_name!r}: {_reject_reason}. "
+            f"If this came from URL parsing, pass the domain (e.g. 'f3ir.com') "
+            f"instead of the scheme."
+        )
 
     cost_cap = cost_cap_usd if cost_cap_usd is not None else DEFAULT_COST_CAP_USD
     t_run_start = time.time()

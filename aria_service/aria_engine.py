@@ -2096,6 +2096,20 @@ async def aria_chat(
     # service other requests while the encode runs.
     context = await _aio.to_thread(_build_7_layer_context, message, intel_data)
 
+    # Sanctions yes/no guard (2026-04-17 21:50): when the user asks
+    # "is X sanctioned?" force a LIVE primary-source check and prepend
+    # its verdict to the context as authoritative truth. Never let
+    # a yes/no compliance answer rest on mem0 recall alone.
+    try:
+        from .intel import sanctions_claim_guard as _scg
+        _guard_block = await _scg.guard_context_block(message)
+        if _guard_block:
+            # Prepend — the guard block must be the FIRST context line
+            # the LLM sees, above any recall layer.
+            context = _guard_block + "\n\n" + (context or "")
+    except Exception as _scg_err:
+        logger.debug("sanctions claim guard failed (non-fatal): %s", _scg_err)
+
     # Detect language and add hint
     lang_hint = _detect_language_hint(message)
 
@@ -2559,6 +2573,20 @@ async def aria_chat_stream(
     _rag_ctx_var.set(rag_ctx)
 
     context = await _aio.to_thread(_build_7_layer_context, message, intel_data)
+
+    # Sanctions yes/no guard (2026-04-17 21:50): when the user asks
+    # "is X sanctioned?" force a LIVE primary-source check and prepend
+    # its verdict to the context as authoritative truth. Never let
+    # a yes/no compliance answer rest on mem0 recall alone.
+    try:
+        from .intel import sanctions_claim_guard as _scg
+        _guard_block = await _scg.guard_context_block(message)
+        if _guard_block:
+            # Prepend — the guard block must be the FIRST context line
+            # the LLM sees, above any recall layer.
+            context = _guard_block + "\n\n" + (context or "")
+    except Exception as _scg_err:
+        logger.debug("sanctions claim guard failed (non-fatal): %s", _scg_err)
 
     lang_hint = _detect_language_hint(message)
 

@@ -95,6 +95,9 @@ CORE_MODULES = [
     "aria_service.intel.domain_ownership_verifier",
     # Writer fallback (2026-04-17 late PM)
     "aria_service.writers._resilient_llm",
+    # F3 cascade remediation (2026-04-17 21:45-21:55)
+    "aria_service.intel.run_quarantine",
+    "aria_service.intel.sanctions_claim_guard",
     "aria_service.writers",
     "aria_service.writers.writer_orchestrator",
     "aria_service.writers.assessment_writer",

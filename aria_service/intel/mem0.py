@@ -381,4 +381,28 @@ def retrieve_for_query(query: str) -> str:
         "(These are notebook facts from past chats — useful for continuity but"
         " always re-verify with a tool before tagging [CONFIRMED])"
     )
-    return "\n".join(lines)
+    block = "\n".join(lines)
+
+    # Quarantine filter (2026-04-17 21:45 fix). Scrubs citations of
+    # DD runs known to be defective (e.g. tonight's dd_30477701e537 /
+    # dd_adc7c7f87e4a / dd_07f45b072b9f which ran on malformed entity
+    # "https"). Replaces the citation with [CITATION-QUARANTINED] so
+    # the LLM sees the recall but knows the prior evidence cannot be
+    # relied on.
+    try:
+        from . import run_quarantine
+        block, quarantined_found = run_quarantine.filter_citations_sync(block)
+        if quarantined_found:
+            block += (
+                f"\n\n⚠️ [QUARANTINE] {len(set(quarantined_found))} prior "
+                f"DD run(s) cited in this recall were DEFECTIVE "
+                f"(malformed entity names). Do NOT cite their findings "
+                f"as evidence — re-run DD on the corrected entity name "
+                f"if you need a verdict."
+            )
+    except Exception:
+        # Quarantine module missing / Redis down — fail open (better to
+        # show unfiltered recall than break the chat layer entirely).
+        pass
+
+    return block

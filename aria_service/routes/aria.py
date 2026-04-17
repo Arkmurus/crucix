@@ -10013,6 +10013,45 @@ async def autonomy_surface_prompt_ep():
     return {"prompt": await asurf.build_operator_prompt()}
 
 
+# ── Defective-run quarantine (2026-04-17 21:45) ──────────────────────
+# When a DD run is later identified as defective (e.g. ran on a
+# malformed entity name), its output should never be cited as evidence
+# in future chats. These endpoints manage the quarantine list.
+
+@router.get("/dd/quarantine")
+async def dd_quarantine_list_ep():
+    """List all quarantined DD runs (seeded + operator-added)."""
+    from ..intel import run_quarantine
+    items = await run_quarantine.list_quarantined()
+    return {"items": items, "count": len(items)}
+
+
+@router.post("/dd/quarantine")
+async def dd_quarantine_add_ep(request: Request):
+    """Add a DD run_id to the quarantine list.
+
+    Body: {run_id, reason, entity_was?, real_entity?}
+    """
+    from ..intel import run_quarantine
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    run_id = (body.get("run_id") or "").strip()
+    reason = (body.get("reason") or "").strip()
+    if not run_id:
+        raise HTTPException(status_code=400, detail="run_id required")
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason required")
+    result = await run_quarantine.quarantine_run(
+        run_id=run_id,
+        reason=reason,
+        entity_was=body.get("entity_was") or "",
+        real_entity=body.get("real_entity") or "",
+    )
+    return result
+
+
 @router.get("/calibration/baseline")
 async def calibration_baseline_get_ep():
     """Return saved calibration baseline."""
