@@ -9961,3 +9961,129 @@ async def calibration_baseline_get_ep():
     if not baseline:
         raise HTTPException(status_code=404, detail="No calibration baseline saved yet")
     return baseline
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WRITER PACKAGE (2026-04-17) — structured document production
+# ══════════════════════════════════════════════════════════════════════════════
+# Five specialist writers behind a single dispatching endpoint. Each produces
+# a formally-structured document (NATO STANAG 2511 assessment, procurement
+# paper under UK/EU/AO/MZ/PE/TR frameworks, UKBA/FCPA compliance opinion,
+# NATO tech spec, Portuguese legal document for PT-AO/MZ/GW/CV).
+#
+# Every call:
+#   1. Uses Claude direct (bypasses the LLM factory — matches
+#      active_challenge_engine/claim_ledger pattern) with prompt caching
+#      on the static SYSTEM_PROMPT so repeat calls pay ~10% for the prefix.
+#   2. Logs output to an HMAC-signed audit file (ARIA_AUDIT_SECRET).
+#   3. Feeds the brain hook as "writer_orchestrator" so mastery tracks
+#      document-production volume.
+
+class _WriterProduceBody(BaseModel):
+    writer_type: str        # assessment | procurement_paper | compliance_opinion | tech_spec | portuguese_doc
+    params: dict
+
+
+_WRITER_SINGLETON = None
+
+
+def _get_writer_orchestrator():
+    """Lazy-init singleton. Requires ANTHROPIC_API_KEY in env; raises
+    HTTPException 503 if not configured so the error is surfaced cleanly."""
+    global _WRITER_SINGLETON
+    if _WRITER_SINGLETON is not None:
+        return _WRITER_SINGLETON
+    from ..config import Settings
+    s = Settings()
+    key = (s.anthropic_api_key or "").strip()
+    if not key:
+        raise HTTPException(
+            status_code=503,
+            detail="Writer package requires ANTHROPIC_API_KEY (not the fallback — writers bypass the LLM factory).",
+        )
+    try:
+        from ..writers import WriterOrchestrator
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Writer package unavailable: {e}")
+    _WRITER_SINGLETON = WriterOrchestrator(api_key=key)
+    return _WRITER_SINGLETON
+
+
+@router.post("/writers/produce")
+async def writers_produce_ep(body: _WriterProduceBody):
+    """Produce a structured document via the writer orchestrator.
+
+    body.writer_type ∈ {assessment, procurement_paper, compliance_opinion,
+                         tech_spec, portuguese_doc}
+    body.params — kwargs for the matching WriterOrchestrator.write_<type>()
+    """
+    orch = _get_writer_orchestrator()
+    kind = (body.writer_type or "").strip().lower()
+    try:
+        if kind == "assessment":
+            result = orch.write_assessment(**body.params)
+        elif kind == "procurement_paper":
+            result = orch.write_procurement_paper(**body.params)
+        elif kind == "compliance_opinion":
+            result = orch.write_compliance_opinion(**body.params)
+        elif kind == "tech_spec":
+            result = orch.write_tech_spec(**body.params)
+        elif kind == "portuguese_doc":
+            result = orch.write_portuguese_document(**body.params)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown writer_type {kind!r}. Expected one of: "
+                       "assessment, procurement_paper, compliance_opinion, "
+                       "tech_spec, portuguese_doc.",
+            )
+    except HTTPException:
+        raise
+    except TypeError as e:
+        # Missing / unexpected kwargs from the caller
+        raise HTTPException(status_code=400, detail=f"Bad params: {e}")
+    except Exception as e:
+        logger.exception("Writer failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "writer_type": result.writer_type,
+        "reference": result.reference,
+        "document": result.document,
+        "structured": result.structured,
+        "output_hash": result.output_hash,
+        "produced_at": result.produced_at,
+        "word_count": result.word_count,
+        "success": result.success,
+        "error": result.error,
+    }
+
+
+@router.get("/writers/capabilities")
+async def writers_capabilities_ep():
+    """Static capability manifest — what the writers can produce. Does NOT
+    require ANTHROPIC_API_KEY so the dashboard can probe it safely."""
+    from ..writers import (
+        DocumentType, ProcurementFramework, ContractType, EvaluationMethod,
+        PortugueseVariant, PortugueseDocumentType, ClassificationLevel,
+        OFFSET_REGIMES, STANAG_REFERENCES, ADEQUATE_PROCEDURES_PRINCIPLES,
+    )
+    return {
+        "writer_types": [
+            "assessment", "procurement_paper", "compliance_opinion",
+            "tech_spec", "portuguese_doc",
+        ],
+        "procurement": {
+            "document_types": [e.name for e in DocumentType],
+            "frameworks": [e.name for e in ProcurementFramework],
+            "contract_types": [e.name for e in ContractType],
+            "evaluation_methods": [e.name for e in EvaluationMethod],
+            "offset_regimes": sorted(OFFSET_REGIMES.keys()),
+        },
+        "portuguese": {
+            "variants": [e.name for e in PortugueseVariant],
+            "document_types": [e.name for e in PortugueseDocumentType],
+        },
+        "assessment_classifications": [e.name for e in ClassificationLevel],
+        "stanag_references": list(STANAG_REFERENCES.keys()),
+        "compliance_principles": sorted(ADEQUATE_PROCEDURES_PRINCIPLES.keys()),
+    }

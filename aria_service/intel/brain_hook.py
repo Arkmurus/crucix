@@ -83,6 +83,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "knowledge_latam_non_lusophone": ["market_intel", "procurement", "compliance"],
     "equipment_specs":      ["technical", "market_intel", "procurement"],
     "sipri_ingest":         ["market_intel", "procurement"],
+    # Writer package (2026-04-17) — structured document production.
+    "writer_orchestrator":  ["general", "legal", "compliance", "procurement"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
@@ -143,6 +145,7 @@ _MODULE_WEIGHT: dict[str, float] = {
     "knowledge_latam_non_lusophone": 0.05,
     "equipment_specs":      0.10,
     "sipri_ingest":         0.15,  # each ingest lands real historical data
+    "writer_orchestrator":  0.25,  # each produced document is high-value work
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity
