@@ -107,6 +107,9 @@ CORE_MODULES = [
     "aria_service.learning.metacognitive_journal",
     "aria_service.learning.research_engine",
     "aria_service.learning.verification_gate",
+    # Reading / writing / formulation (2026-04-18)
+    "aria_service.intel.pdf_deep_ingest",
+    "aria_service.learning.style_learner",
     "aria_service.writers",
     "aria_service.writers.writer_orchestrator",
     "aria_service.writers.assessment_writer",

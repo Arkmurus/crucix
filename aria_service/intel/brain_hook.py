@@ -117,6 +117,9 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "research_engine":             ["general", "osint", "market_intel"],
     "document_entity_bridge":      ["compliance", "legal"],
     "verification_gate":           ["compliance", "legal", "general"],
+    # Reading, writing, response formulation (2026-04-18)
+    "pdf_deep_ingest":             ["osint", "general"],
+    "style_learner":               ["general"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
@@ -219,6 +222,9 @@ _MODULE_WEIGHT: dict[str, float] = {
     "document_entity_bridge":      0.15,
     "verification_gate":           0.25,  # double-check on critical outputs =
                                            # highest-value learning signal we emit
+    # Reading, writing, response formulation (2026-04-18)
+    "pdf_deep_ingest":             0.15,  # per-PDF learning signal
+    "style_learner":               0.15,  # structural pattern extraction
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity

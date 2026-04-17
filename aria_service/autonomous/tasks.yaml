@@ -1397,3 +1397,23 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: ["stalled_cell"]
     mem0_tags: [learning, research, autonomous]
+
+  - id: STYLE-LEARN-HOURLY
+    name: Style learner — extract structural patterns from grounded replies
+    description: |
+      Hourly at :35 past — scan recent grounded chat replies, extract
+      BLUF shapes, section headings, citation formats, recommendation
+      framings. Cluster by topic (dd_report / compliance / assessment
+      / procurement / technical / chat). Persist as style exemplars
+      for future few-shot reference injection. LLM-free; pure regex.
+    cron: "35 * * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 60
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: style_learner
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, style, autonomous]

@@ -668,6 +668,17 @@ async function loadLearning() {
     html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Recent: ${recentQ}</div>`;
   }
   html += metricRow('Sanctions OEMs tracked', sx.oems_covered ?? 0, 'good');
+  const sl = d.style_learner || {};
+  html += metricRow('Style exemplars', sl.total_exemplars ?? 0,
+                    (sl.total_exemplars ?? 0) > 5 ? 'good' : 'neutral');
+  if (sl.by_topic && Object.keys(sl.by_topic).length) {
+    const topTopics = Object.entries(sl.by_topic)
+      .sort((a,b) => b[1]-a[1])
+      .slice(0,3)
+      .map(([k,v]) => `${k}:${v}`)
+      .join(' · ');
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Styles: ${topTopics}</div>`;
+  }
   html += '</div>';
 
   html += '</div>';

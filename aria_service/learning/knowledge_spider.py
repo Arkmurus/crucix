@@ -49,7 +49,8 @@ _MAX_DEPTH                = 3
 _FETCH_INTERVAL_SEC       = 3.0     # min seconds between requests (per-run)
 _FETCH_TIMEOUT_SEC        = 20.0
 _WALL_BUDGET_SEC          = 180.0   # 3 min per run
-_MAX_TEXT_PER_CHUNK       = 10_000  # characters
+_MAX_TEXT_PER_CHUNK       = 30_000  # characters — bumped 2026-04-18 from 10k;
+                                     # 10k truncated real articles mid-paragraph
 
 _USER_AGENT = "ARIA-Spider/1.0 (+https://arkmurus.com/aria — autonomous research)"
 

@@ -821,6 +821,10 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..learning import research_engine
         return await research_engine.run_research_tick()
 
+    elif tool_kind == "style_learner":
+        from ..learning import style_learner
+        return await style_learner.run_hourly_style_learn()
+
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}
 

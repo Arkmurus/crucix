@@ -8,7 +8,7 @@ import os
 import re
 import uuid
 
-MAX_DOC_CHARS = int(os.environ.get("ARIA_MAX_DOC_CHARS", "200000"))
+MAX_DOC_CHARS = int(os.environ.get("ARIA_MAX_DOC_CHARS", "500000"))  # bumped 2026-04-18 from 200k
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -4377,13 +4377,38 @@ async def read_document_ep(request: Request):
         fname_lower = filename.lower()
         mime_lower = mimetype.lower()
 
-        # PDF extraction
+        # PDF extraction — 2026-04-18 upgraded to multi-page + image OCR.
+        # The enhanced path splits every page into its own RAG chunk
+        # with page_number metadata AND extracts/OCRs embedded images.
+        # Returns the CONCATENATED text for the caller but also quietly
+        # ingests each page as a separate RAG entry in the background.
         if "pdf" in mime_lower or fname_lower.endswith(".pdf"):
             try:
                 import fitz  # PyMuPDF
                 doc = fitz.open(stream=raw_bytes, filetype="pdf")
-                extracted = "\n".join(page.get_text() for page in doc)[:MAX_DOC_CHARS]
+                # Per-page text: join so /read-document still returns a
+                # single flat string for backward compatibility, but each
+                # page is clearly demarcated with a [Page N] marker so
+                # downstream LLM prompts can cite page numbers.
+                page_parts = []
+                for pg_idx, page in enumerate(doc):
+                    pg_text = page.get_text().strip()
+                    if pg_text:
+                        page_parts.append(f"[Page {pg_idx + 1}]\n{pg_text}")
+                extracted = ("\n\n".join(page_parts))[:MAX_DOC_CHARS]
                 doc.close()
+                # Fire-and-forget deep ingest (per-page RAG chunks +
+                # image OCR). Runs in the background so /read-document
+                # stays responsive.
+                try:
+                    from ..intel import pdf_deep_ingest
+                    import asyncio
+                    asyncio.create_task(pdf_deep_ingest.ingest_pdf_multi_page(
+                        raw_bytes, filename, source_context=source,
+                        ingest_images=True,
+                    ))
+                except Exception as _ingest_err:
+                    _log.debug("pdf_deep_ingest dispatch failed: %s", _ingest_err)
             except ImportError:
                 llm = get_llm(request)
                 ocr_result = await aria_ocr.extract_text_from_image(raw_bytes, filename, context, llm)
@@ -10347,6 +10372,21 @@ async def learning_stats_ep():
         out["sanctions_propagation"] = sanctions_propagation.summary()
     except Exception as e:
         _log.debug("learning/stats sanctions_prop failed: %s", e)
+
+    # Style learner (2026-04-18)
+    try:
+        from ..learning import style_learner
+        out["style_learner"] = await style_learner.get_stats()
+    except Exception as e:
+        _log.debug("learning/stats style_learner failed: %s", e)
+        out["style_learner"] = {}
+
+    # PDF deep ingest (static summary)
+    try:
+        from ..intel import pdf_deep_ingest
+        out["pdf_deep_ingest"] = pdf_deep_ingest.summary()
+    except Exception:
+        out["pdf_deep_ingest"] = {}
 
     return out
 
