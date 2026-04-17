@@ -190,7 +190,8 @@ export async function fetchAllNews() {
     ['https://www.sbs.com.au/news/topic/australia/feed', 'SBS Australia'],
     ['https://indianexpress.com/section/india/feed/', 'Indian Express'],
     ['https://www.thehindu.com/news/national/feeder/default.rss', 'The Hindu'],
-    ['https://en.mercopress.com/rss/latin-america', 'MercoPress'],
+    // MercoPress removed 2026-04-17 — SSL cert issue, consistently failing
+    ['https://www.batimes.com.ar/feed', 'Buenos Aires Times'],
   ];
 
   const results = await Promise.allSettled(

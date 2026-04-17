@@ -109,7 +109,7 @@ class FallbackProvider(LLMProvider):
         user_message: str,
         *,
         max_tokens: int = 4096,
-        timeout: float = 60.0,
+        timeout: float = 90.0,  # bumped from 60s — DeepSeek needs more for complex queries
     ) -> LLMResult:
         """Try each provider in order. The caller's `timeout` is the
         budget for the PRIMARY provider. If the primary fails FAST (e.g.
