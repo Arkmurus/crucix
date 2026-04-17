@@ -426,6 +426,62 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
                 summary += adv_brief
         except Exception as _e:
             logger.debug("adversarial briefing failed (non-fatal): %s", _e)
+        # Instrument panel — critical metrics for the team
+        try:
+            from ..intel import operating_modes as _om
+            from ..intel import circuit_breaker as _cb
+            from ..intel import source_verifier as _sv
+            from ..intel import verified_intel as _vi
+            from ..intel import chat_audit_log as _cal
+            from ..intel import redis_store as _rs
+
+            mode = await _om.get_mode()
+            breakers = _cb.get_all_breakers()
+            open_breakers = [b for b in breakers if b["state"] == "OPEN"]
+            blocks_24h = int(await _rs.get("crucix:predictor:blocks:24h") or 0)
+
+            # Grounded rate
+            grounded = None
+            try:
+                sv_stats = await _sv.get_verification_stats()
+                grounded = sv_stats.get("avg_grounded_rate")
+            except Exception:
+                pass
+
+            # Fact health
+            try:
+                vi_stats = await _vi.get_verification_summary()
+                total_facts = vi_stats.get("total_facts", 0)
+                stale_facts = vi_stats.get("stale", 0)
+                contradicted = vi_stats.get("contradicted", 0)
+            except Exception:
+                total_facts = stale_facts = contradicted = 0
+
+            # Audit trail
+            try:
+                audit_stats = await _cal.get_stats()
+                audit_total = audit_stats.get("total_entries", 0)
+            except Exception:
+                audit_total = 0
+
+            panel = "\n\n📊 *INSTRUMENT PANEL*"
+            panel += f"\nMode: {mode.name}"
+            if grounded is not None:
+                panel += f" | Grounded: {grounded:.0%}"
+            panel += f" | Facts: {total_facts}"
+            if stale_facts:
+                panel += f" ({stale_facts} stale)"
+            if contradicted:
+                panel += f" ({contradicted} contradicted)"
+            if blocks_24h:
+                panel += f"\n⚠️ Predictor blocked {blocks_24h} task(s) in 24h"
+            if open_breakers:
+                panel += f"\n⚠️ {len(open_breakers)} circuit breaker(s) OPEN: {', '.join(b['name'] for b in open_breakers)}"
+            panel += f"\nAudit trail: {audit_total} entries"
+            panel += f"\n🔗 Dashboard: /aria-brain.html"
+            summary += panel
+        except Exception as _e:
+            logger.debug("instrument panel failed (non-fatal): %s", _e)
         return {"briefing": summary, "dormant_leads": len(dormant)}
 
     elif tool_kind == "source_discovery":
@@ -453,6 +509,15 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         # PR 3 — hourly reassess: computes gap queue without mutating state.
         from ..intel import ecosystem_reassess as _er
         report = await _er.run()
+        # Also evaluate operating mode auto-transitions (hourly check)
+        try:
+            from ..intel import operating_modes as _om
+            transition = await _om.evaluate_auto_transition()
+            if transition:
+                report["mode_transition"] = transition
+                logger.warning("[ecosystem_reassess] operating mode auto-transition: %s", transition)
+        except Exception as _e:
+            logger.debug("operating mode evaluation failed (non-fatal): %s", _e)
         return {"ecosystem": report}
 
     elif tool_kind == "core_develop":
