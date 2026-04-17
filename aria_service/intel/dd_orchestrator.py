@@ -2477,6 +2477,102 @@ async def orchestrate_dd(
 
     # ── BLUF + assembly ──
     await _assemble_bluf(report)
+
+    # ── Verification gate (2026-04-18) ──
+    # On RED verdicts, run a second-opinion pass through a different
+    # provider and compare the structured decision. If they disagree
+    # we stamp CRITICAL_UNVERIFIED and the downstream handler knows
+    # to block auto-send. If they agree we stamp VERIFIED BY
+    # DISAGREEMENT so the confidence is earned, not claimed.
+    # Adds ~20-40s to a RED DD only; GREEN/AMBER passes through
+    # untouched so routine DD latency is unchanged.
+    try:
+        _risk = (report.risk_classification or "").upper()
+        if _risk in ("RED", "HARD_STOP", "NO-GO") and llm is not None:
+            from ..learning import verification_gate as _vg
+            # Build a concise secondary-opinion prompt from what we
+            # already have. The secondary doesn't re-run tools — it
+            # reasons over the same evidence to see if it reaches
+            # the same verdict independently.
+            evidence_brief = (
+                f"Entity: {report.identity.entity_name}\n"
+                f"Jurisdiction: {report.identity.jurisdiction_iso2 or 'unknown'}\n"
+                f"Sanctions screen: {report.identity.sanctions_screen or 'CLEAN'}\n"
+                f"Data gaps: {', '.join(report.data_gaps_summary[:10]) if report.data_gaps_summary else 'none'}\n"
+                f"Findings (identity): {'; '.join(getattr(f, 'title', '')[:120] for f in report.identity.findings[:6])}\n"
+                f"Findings (network):  {'; '.join(getattr(f, 'title', '')[:120] for f in report.network.findings[:4])}\n"
+                f"Findings (digital):  {'; '.join(getattr(f, 'title', '')[:120] for f in report.digital.findings[:4])}\n"
+            )
+            sys_prompt = (
+                "You are a defence-compliance auditor reviewing evidence "
+                "on one specific entity. Return a concise verdict:\n"
+                "  Risk: RED / AMBER / GREEN\n"
+                "  Sanctions: HIT / CLEAN\n"
+                "  Recommendation: HALT / PROCEED\n"
+                "  Confidence: [CONFIRMED / PROBABLE / ASSESSED / UNCERTAIN]\n"
+                "Be brief — reasoning in 6-10 lines max. Do NOT invent "
+                "new facts. Only reason over the evidence given."
+            )
+            primary_narrative = report.bottom_line or (report.synthesis.rationale or "")
+            if primary_narrative and len(primary_narrative) > 50:
+                # Run ONLY the secondary via a different provider — use
+                # whatever narrative is already in the report as the primary
+                sec_provider = _vg.pick_secondary_provider(
+                    llm, exclude_name=getattr(llm, "_last_used_name", "") or ""
+                )
+                secondary_narrative = ""
+                if sec_provider is not None:
+                    try:
+                        _t_sec_start = time.time()
+                        _r = await asyncio.wait_for(
+                            sec_provider.complete(
+                                sys_prompt, evidence_brief,
+                                max_tokens=400, timeout=45.0,
+                            ),
+                            timeout=50.0,
+                        )
+                        secondary_narrative = getattr(_r, "text", "") or ""
+                        logger.info(
+                            "[dd_orchestrator] verification secondary pass on %s — %.1fs",
+                            sec_provider.name, time.time() - _t_sec_start,
+                        )
+                    except Exception as _sec_err:
+                        logger.warning(
+                            "[dd_orchestrator] verification secondary pass failed: %s",
+                            _sec_err,
+                        )
+                if secondary_narrative:
+                    vres = await _vg.verify(
+                        primary_narrative, secondary_narrative,
+                        metadata={"risk_classification": _risk},
+                    )
+                    # Attach to report — schema-tolerant (the field may
+                    # not exist in all dataclass variants, so use setattr).
+                    try:
+                        report.verification_gate = {
+                            "verdict": vres["verdict"],
+                            "severity": vres["disagreement"]["severity"] if vres.get("disagreement") else "NONE",
+                            "disagreements": vres["disagreement"]["disagreements"] if vres.get("disagreement") else [],
+                            "recommendation": vres.get("recommendation"),
+                            "primary_provider": getattr(llm, "_last_used_name", "") or "fallback",
+                            "secondary_provider": getattr(sec_provider, "name", "") if sec_provider else "",
+                        }
+                    except Exception:
+                        pass
+                    # Stamp the BLUF so any downstream renderer surfaces it
+                    tag = (
+                        "\n\n🛡 [VERIFIED BY DISAGREEMENT — both providers agree]"
+                        if vres["verdict"] == "CRITICAL_VERIFIED"
+                        else f"\n\n⚠ [CRITICAL — PROVIDERS DISAGREE — {vres['disagreement']['severity']}] "
+                             f"Block auto-send; human adjudication required."
+                    )
+                    if report.bottom_line and tag not in report.bottom_line:
+                        report.bottom_line = report.bottom_line + tag
+    except Exception as _vg_err:
+        logger.warning(
+            "[dd_orchestrator] verification gate failed (non-fatal): %s", _vg_err
+        )
+
     report.total_duration_ms = int((time.time() - t_run_start) * 1000)
     report.layer_costs_usd = {
         "identity":     report.identity.meta.cost_usd,

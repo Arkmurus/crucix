@@ -3688,6 +3688,68 @@ async def chat_ep(req: ChatRequest, request: Request):
 
         response_text = (result or {}).get("response") or (result or {}).get("answer") or ""
 
+        # ── Verification gate on CRITICAL chat outputs (2026-04-18) ──
+        # When ARIA's reply is CRITICAL (NO-GO / RED / HARD_STOP / direct
+        # sanctions yes/no), run the same user message on a secondary
+        # provider and verify structured-decision agreement. On
+        # agreement, append `[VERIFIED BY DISAGREEMENT]`. On
+        # disagreement, append `[CRITICAL — PROVIDERS DISAGREE]` and
+        # block the WhatsApp auto-send by setting `critical_unverified`
+        # in the result so the listener can surface the warning.
+        try:
+            from ..learning import verification_gate as _vg
+            _severity = _vg.classify_severity(response_text)
+            if _severity == "CRITICAL" and llm is not None and response_text:
+                _sec_provider = _vg.pick_secondary_provider(llm)
+                if _sec_provider is not None:
+                    try:
+                        _sec_r = await _sec_provider.complete(
+                            "You are ARIA reviewing a user question. Return "
+                            "your own brief structured verdict on the question "
+                            "below. Include: risk tier (RED/AMBER/GREEN), "
+                            "sanctions (HIT/CLEAN), recommendation "
+                            "(HALT/PROCEED), confidence tag "
+                            "[CONFIRMED/PROBABLE/ASSESSED/UNCERTAIN]. "
+                            "Keep it to 6-10 lines. Be honest — if evidence "
+                            "is insufficient, say UNCERTAIN.",
+                            (req.message or "")[:3000],
+                            max_tokens=350,
+                            timeout=40.0,
+                        )
+                        _sec_text = getattr(_sec_r, "text", "") or ""
+                        if _sec_text:
+                            _vres = await _vg.verify(
+                                response_text, _sec_text,
+                                metadata={"is_client_facing": False},
+                            )
+                            result["verification"] = {
+                                "verdict": _vres["verdict"],
+                                "severity": (_vres.get("disagreement") or {}).get("severity", "NONE"),
+                                "secondary_provider": getattr(_sec_provider, "name", ""),
+                            }
+                            if _vres["verdict"] == "CRITICAL_VERIFIED":
+                                if "[VERIFIED BY DISAGREEMENT]" not in response_text:
+                                    response_text = (
+                                        response_text
+                                        + "\n\n🛡 [VERIFIED BY DISAGREEMENT — "
+                                          "independent provider confirms the "
+                                          "structured verdict]"
+                                    )
+                            elif _vres["verdict"] == "CRITICAL_UNVERIFIED":
+                                result["critical_unverified"] = True
+                                response_text = (
+                                    response_text
+                                    + f"\n\n⚠ [CRITICAL — PROVIDERS DISAGREE — "
+                                      f"{(_vres.get('disagreement') or {}).get('severity', 'WARN')}] "
+                                      f"Human adjudication required before "
+                                      f"acting on this answer."
+                                )
+                            result["response"] = response_text
+                    except Exception as _vg_inner:
+                        _log.debug("verification gate chat pass failed: %s", _vg_inner)
+        except Exception as _vg_err:
+            _log.debug("verification gate (chat) failed (non-fatal): %s", _vg_err)
+
         # H1: contract self-review for chat / WhatsApp path.
         # When the message contains an [ATTACHED DOCUMENT ...] block AND
         # contract-review intent, run the same self_review_contract loop

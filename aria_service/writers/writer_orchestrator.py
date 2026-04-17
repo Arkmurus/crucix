@@ -136,6 +136,13 @@ class WriterResult:
     degraded:       bool = False
     actual_model:   str = ""     # "claude-opus-4-7" / "deepseek-chat" / ""
     degraded_reason: str = ""
+    # Verification-gate fields (2026-04-18). Populated when a second
+    # independent provider reviewed the same writer output and the
+    # verification_gate reached a verdict. Empty when gate didn't
+    # fire (low-stakes writer or no secondary provider available).
+    verification_verdict:   str = ""   # CRITICAL_VERIFIED / CRITICAL_UNVERIFIED / NOT_REQUIRED
+    verification_severity:  str = ""   # BLOCKING / WARN / NONE / ""
+    verification_secondary: str = ""   # provider name that gave the second opinion
 
 
 class WriterOrchestrator:

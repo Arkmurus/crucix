@@ -240,6 +240,11 @@ class ARKDDReport:
     total_duration_ms: int = 0
     layer_costs_usd: dict = field(default_factory=dict)
 
+    # Verification gate (2026-04-18) — populated on RED/HARD_STOP verdicts
+    # when a secondary provider has reviewed the same evidence. Empty dict
+    # when the gate didn't fire (GREEN/AMBER or no secondary available).
+    verification_gate: dict = field(default_factory=dict)
+
     # ── Serialisation helpers ────────────────────────────────────────────
 
     def as_dict(self) -> dict:

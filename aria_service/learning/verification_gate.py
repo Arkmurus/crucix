@@ -426,6 +426,92 @@ async def double_opinion_llm(
     return primary_text, secondary_text
 
 
+def pick_secondary_provider(primary_llm: Any, exclude_name: str = "") -> Any | None:
+    """Given the fallback-chain LLM used for the primary call, return
+    a DIFFERENT provider from inside the chain for the second opinion.
+
+    Returns None when no non-cooling alternative is configured.
+
+    Implementation: the FallbackProvider exposes `.providers` as an
+    ordered list. We walk it, skipping the provider whose name matches
+    `exclude_name` (or the one that most recently succeeded), and
+    return the first one that's configured + not in cooldown.
+    """
+    if primary_llm is None:
+        return None
+    providers = getattr(primary_llm, "providers", None)
+    if not providers:
+        # Not a FallbackProvider — there's no chain to pick from.
+        return None
+
+    stats = getattr(primary_llm, "_stats", {}) or {}
+    excluded = (exclude_name or "").lower().strip()
+    import time as _t
+    now = _t.monotonic()
+
+    for prov in providers:
+        name = getattr(prov, "name", "") or ""
+        if not name:
+            continue
+        if name.lower() == excluded:
+            continue
+        if not getattr(prov, "is_configured", False):
+            continue
+        cd = stats.get(name, {}).get("cooldown_until", 0) or 0
+        if cd > now:
+            continue
+        return prov
+    return None
+
+
+async def double_via_fallback(
+    system_prompt: str,
+    user_prompt: str,
+    fallback_llm: Any,
+    max_tokens: int = 2000,
+    timeout: float = 60.0,
+) -> tuple[str, str, str, str]:
+    """Convenience wrapper: given a FallbackProvider, produce two
+    independent answers using two different underlying providers.
+
+    Returns (primary_text, secondary_text, primary_name, secondary_name).
+    Either text may be empty if that provider failed — caller must
+    handle the empty-string case before calling verify().
+    """
+    # Primary pass through the full fallback chain — use whichever
+    # provider answers first. We capture its name from the LLMResult.
+    primary_text = ""
+    primary_name = ""
+    try:
+        r = await fallback_llm.complete(
+            system_prompt, user_prompt, max_tokens=max_tokens, timeout=timeout,
+        )
+        primary_text = getattr(r, "text", "") or ""
+        # LLMResult carries routed_via = "fallback:<provider_name>" from
+        # FallbackProvider.complete — parse the name out.
+        routed = getattr(r, "routed_via", "") or ""
+        if routed.startswith("fallback:"):
+            primary_name = routed.split(":", 1)[1]
+    except Exception as exc:
+        logger.warning("verification primary call failed: %s", exc)
+
+    # Secondary pass — explicit second provider
+    secondary_text = ""
+    secondary_name = ""
+    sec_provider = pick_secondary_provider(fallback_llm, exclude_name=primary_name)
+    if sec_provider is not None:
+        secondary_name = getattr(sec_provider, "name", "") or ""
+        try:
+            r = await sec_provider.complete(
+                system_prompt, user_prompt, max_tokens=max_tokens, timeout=timeout,
+            )
+            secondary_text = getattr(r, "text", "") or ""
+        except Exception as exc:
+            logger.warning("verification secondary call failed: %s", exc)
+
+    return primary_text, secondary_text, primary_name, secondary_name
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Stats accessors
 # ═══════════════════════════════════════════════════════════════════════
