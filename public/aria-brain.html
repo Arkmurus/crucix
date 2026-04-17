@@ -44,7 +44,6 @@
   .audit-entry { font-size: 0.8em; padding: 4px 0; border-bottom: 1px solid #21262d; }
   .dlq-entry { background: #3d1418; border: 1px solid #5c2125; border-radius: 4px; padding: 8px; margin-bottom: 6px; font-size: 0.8em; }
   .loading { color: #8b949e; font-style: italic; }
-</style>
   /* Offset content for sidebar */
   #app-main { margin-left: 240px; padding: 20px; }
   @media (max-width: 1024px) { #app-main { margin-left: 0; } }
@@ -143,8 +142,8 @@
 
 <script>
 const API = '/api/aria';
-// Use the same auth token as the rest of the site (set by Auth module in app.js)
-const TOKEN = localStorage.getItem('authToken') || localStorage.getItem('token') || '';
+// Use the same auth token as the rest of the site (crucix_token, set by Auth module in app.js)
+const TOKEN = localStorage.getItem('crucix_token') || '';
 const headers = TOKEN ? { 'Authorization': `Bearer ${TOKEN}` } : {};
 
 async function fetchJson(path) {
