@@ -80,6 +80,19 @@ async def set_mode(mode: Mode, reason: str = "manual") -> dict:
     history.insert(0, entry)
     await rs.set_json(_K_MODE_HISTORY, history[:100], ex=90 * 86400)
     logger.warning("[operating_mode] %s → %s (reason: %s)", current.name, mode.name, reason)
+    # Signal brain on mode transitions
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="operating_modes",
+            summary=f"Operating mode: {current.name} → {mode.name} ({reason})",
+            detail=reason,
+            success=mode == Mode.NORMAL,
+            gap_type="adversarial_critical_failure" if mode.value >= 2 else None,
+            gap_detail=f"Mode degraded to {mode.name}" if mode.value >= 2 else None,
+        )
+    except Exception:
+        pass
     return {"mode": mode.name, "changed": True, "reason": reason}
 
 

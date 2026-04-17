@@ -129,6 +129,21 @@ async def run_calibration_review() -> dict:
     except Exception:
         pass
 
+    # Signal brain if calibration is off
+    if calibration_status in ("overconfident", "underconfident"):
+        try:
+            from . import brain_hook as _bh
+            await _bh.absorb(
+                module="calibration_review",
+                summary=f"Calibration {calibration_status}: mastery {overall_mastery:.0%} vs accuracy {estimated_accuracy:.0%} (delta {calibration_delta:+.0%})",
+                detail=review["recommendation"],
+                success=False,
+                gap_type="adversarial_critical_failure" if calibration_status == "overconfident" else None,
+                gap_detail=f"Mastery scores {calibration_status} by {abs(calibration_delta):.0%}",
+            )
+        except Exception:
+            pass
+
     return review
 
 

@@ -95,6 +95,17 @@ async def ltrim(key: str, start: int, stop: int) -> None:
             logger.warning("Redis LTRIM %s failed: %s", key, e)
 
 
+async def llen(key: str) -> int:
+    """Return the length of a Redis list."""
+    if _client:
+        try:
+            return await _client.llen(key)
+        except Exception as e:
+            logger.warning("Redis LLEN %s failed: %s", key, e)
+    lst = json.loads(_mem_store.get(key, "[]"))
+    return len(lst) if isinstance(lst, list) else 0
+
+
 async def lrange(key: str, start: int, stop: int) -> list[str]:
     if _client:
         try:

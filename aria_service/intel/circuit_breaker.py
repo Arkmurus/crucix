@@ -83,6 +83,22 @@ class CircuitBreaker:
                     self.name, self.consecutive_failures,
                 )
                 self.state = "OPEN"
+                # Signal brain — source reliability degraded
+                try:
+                    import asyncio
+                    from . import brain_hook as _bh
+                    asyncio.get_event_loop().create_task(
+                        _bh.absorb(
+                            module="circuit_breaker",
+                            summary=f"Circuit breaker OPEN: {self.name} ({self.consecutive_failures} failures)",
+                            detail=f"Backend {self.name} marked DOWN for {self.cooldown_seconds}s",
+                            success=False,
+                            gap_type="timeout",
+                            gap_detail=f"Backend {self.name} unreachable",
+                        )
+                    )
+                except Exception:
+                    pass
 
     def to_dict(self) -> dict:
         return {
