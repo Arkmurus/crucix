@@ -167,12 +167,21 @@ async def deliver(
     others. The full result is returned to execute_task() which
     persists it in the run history.
     """
+    # Check operating mode — suppress external delivery if degraded
+    from ..intel import operating_modes as _om
+    mode = await _om.get_mode()
+    suppress_external = not _om.should_deliver_external(mode)
+
     out: dict[str, str] = {}
     channels = task.delivery_channels or []
 
     for channel in channels:
         ch = (channel or "").strip().lower()
         if not ch:
+            continue
+        # In DEGRADED/SUPERVISED/EMERGENCY, suppress WhatsApp delivery
+        if ch == "whatsapp" and suppress_external:
+            out[ch] = f"suppressed:operating_mode={mode.name}"
             continue
         try:
             if ch == "mem0":
@@ -192,7 +201,20 @@ async def deliver(
             else:
                 out[ch] = "error:unknown_channel"
         except Exception as e:
-            out[ch] = f"error:{type(e).__name__}:{str(e)[:200]}"
+            error_msg = f"error:{type(e).__name__}:{str(e)[:200]}"
+            out[ch] = error_msg
+            # Dead letter queue — capture failed delivery for retry
+            try:
+                from ..intel import dead_letter_queue as _dlq
+                await _dlq.enqueue(
+                    task_id=task.id,
+                    task_name=task.name,
+                    result=response_text,
+                    channel=ch,
+                    error=error_msg,
+                )
+            except Exception:
+                pass  # DLQ itself failing must not cascade
 
     # ── Auto-create pipeline leads from task outputs ──────────────────────
     # Every autonomous task result is scanned for procurement signals.

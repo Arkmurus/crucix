@@ -1511,6 +1511,29 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("mastery prompt injection failed (non-fatal): %s", e)
 
+    # ── VERIFIED INTEL CONTEXT (Clause 17 wired into chat) ──────────
+    # Query the verified_intel store for facts relevant to the current
+    # message. If verified facts exist, inject them as authoritative
+    # context so ARIA cites verified data instead of confabulating.
+    try:
+        from .intel import verified_intel as _vi
+        vi_context = await _vi.get_relevant_verified_facts(message, limit=5)
+        if vi_context:
+            vi_lines = [
+                "VERIFIED FACTS (Clause 17 — cite these over recall):"
+            ]
+            for fact in vi_context:
+                status = fact.get("verification_status", "UNKNOWN")
+                claim = (fact.get("claim") or "")[:200]
+                sources = fact.get("source_count", 0)
+                vi_lines.append(
+                    f"  [{status}] {claim} ({sources} source(s))"
+                )
+            addendum_parts.append("\n".join(vi_lines))
+            logger.info("[verified_intel] %d verified facts injected into prompt", len(vi_context))
+    except Exception as e:
+        logger.debug("verified_intel context injection failed (non-fatal): %s", e)
+
     # NATO standards context — surfaces relevant STANAGs, AQAPs, AECTPs
     # when the query touches military procurement or standardisation.
     try:
@@ -2167,6 +2190,28 @@ async def aria_chat(
         gap_task.add_done_callback(_bg_done("proactive.detect_knowledge_gaps"))
     except Exception as e:
         logger.warning("Student/proactive hooks failed at scheduling stage: %s", e)
+
+    # ── CHAT AUDIT TRAIL — HMAC-signed log of every response ──────────
+    # Every chat output is recorded for auditability. This is what makes
+    # ARIA a commercial product for regulated enterprises.
+    try:
+        from .intel import chat_audit_log as _cal
+        from .intel import operating_modes as _om
+        _mastery_report = await student.get_mastery_report()
+        _audit_task = asyncio.create_task(
+            _cal.record_chat(
+                session_id=session_id or "",
+                user_message=message,
+                response_text=response_text,
+                mastery_overall=_mastery_report.get("overall_score", 0.0),
+                mastery_weak_topics=_mastery_report.get("weak_topics", []),
+                operating_mode=(await _om.get_mode()).name,
+                tool_context=tool_context if tool_context else None,
+            )
+        )
+        _audit_task.add_done_callback(_bg_done("chat_audit_log.record_chat"))
+    except Exception as e:
+        logger.debug("Chat audit trail hook failed (non-fatal): %s", e)
 
     # Output sanitization — redact any leaked API keys, internal URLs,
     # Redis keys, file paths, or stack traces before the response reaches

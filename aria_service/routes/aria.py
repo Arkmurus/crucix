@@ -9563,3 +9563,246 @@ async def metrics_grounded_rate_ep(days: int = 14):
         "paraphrase_violations_in_window": paraphrase_flag_count,
         "series": series,
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WEEK 1-4 ROADMAP ENDPOINTS — added 2026-04-17
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ── Health Check (Week 1c) ────────────────────────────────────────────────
+
+@router.get("/health")
+async def health_check_ep():
+    """Self-diagnosing health check with quality metrics — not just infra.
+    Single endpoint an operator checks to know if ARIA is healthy AND accurate."""
+    from ..intel import redis_store as rs
+    from ..intel import student
+    from ..intel import source_verifier
+    from ..intel import operating_modes as om
+    from ..intel import circuit_breaker as cb
+
+    # Infra
+    redis_ok = False
+    try:
+        await rs.ping()
+        redis_ok = True
+    except Exception:
+        pass
+
+    rag_ok = False
+    try:
+        from ..intel import rag_store
+        probe = await rag_store.probe()
+        rag_ok = probe.get("available", False)
+    except Exception:
+        pass
+
+    # Quality metrics
+    mastery = {}
+    try:
+        report = await student.get_mastery_report()
+        mastery = {"overall": report.get("overall_score", 0),
+                    "weak_topics": report.get("weak_topics", [])}
+    except Exception:
+        pass
+
+    grounded = None
+    try:
+        stats = await source_verifier.get_verification_stats()
+        grounded = stats.get("avg_grounded_rate")
+    except Exception:
+        pass
+
+    adversarial = None
+    try:
+        from ..intel import adversarial_challenge as ac
+        adv = await ac.stats()
+        last = adv.get("last_run") or {}
+        adversarial = last.get("overall_score")
+    except Exception:
+        pass
+
+    mode = (await om.get_mode()).name
+
+    # Predictor blocks in 24h
+    blocks_24h = 0
+    try:
+        blocks_24h = int(await rs.get("crucix:predictor:blocks:24h") or 0)
+    except Exception:
+        pass
+
+    # Circuit breaker summary
+    breakers = cb.get_all_breakers()
+    open_breakers = [b for b in breakers if b["state"] == "OPEN"]
+
+    healthy = redis_ok and rag_ok and mode == "NORMAL"
+    return {
+        "status": "healthy" if healthy else "degraded",
+        "operating_mode": mode,
+        "infra": {"redis": redis_ok, "rag": rag_ok},
+        "quality": {
+            "mastery_overall": mastery.get("overall"),
+            "weak_topics": mastery.get("weak_topics", []),
+            "grounded_rate": grounded,
+            "adversarial_score": adversarial,
+            "predictor_blocks_24h": blocks_24h,
+        },
+        "circuit_breakers": {
+            "total": len(breakers),
+            "open": len(open_breakers),
+            "open_backends": [b["name"] for b in open_breakers],
+        },
+    }
+
+
+# ── Operating Modes (Week 1d) ────────────────────────────────────────────
+
+@router.get("/operating-mode")
+async def operating_mode_get_ep():
+    """Current operating mode + transition history."""
+    from ..intel import operating_modes as om
+    from ..intel import redis_store as rs
+    mode = await om.get_mode()
+    history = await rs.get_json("crucix:aria:operating_mode:history") or []
+    return {"mode": mode.name, "value": mode.value, "history": history[:20]}
+
+
+@router.post("/operating-mode/set")
+async def operating_mode_set_ep(mode: str, reason: str = "manual"):
+    """Manually set operating mode. Values: NORMAL, DEGRADED, SUPERVISED, EMERGENCY."""
+    from ..intel import operating_modes as om
+    try:
+        target = om.Mode[mode.upper()]
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}. Use: NORMAL, DEGRADED, SUPERVISED, EMERGENCY")
+    return await om.set_mode(target, reason)
+
+
+# ── Circuit Breakers (Week 1a) ───────────────────────────────────────────
+
+@router.get("/circuit-breakers")
+async def circuit_breakers_ep():
+    """Status of all circuit breakers."""
+    from ..intel import circuit_breaker as cb
+    return {"breakers": cb.get_all_breakers()}
+
+
+@router.post("/circuit-breakers/reset")
+async def circuit_breaker_reset_ep(name: str):
+    """Manually reset a circuit breaker to CLOSED."""
+    from ..intel import circuit_breaker as cb
+    if cb.reset_breaker(name):
+        return {"reset": True, "name": name}
+    raise HTTPException(status_code=404, detail=f"Breaker '{name}' not found")
+
+
+# ── Dead Letter Queue (Week 1b) ──────────────────────────────────────────
+
+@router.get("/autonomous/dlq")
+async def dlq_get_ep():
+    """View dead letter queue — failed autonomous deliveries."""
+    from ..intel import dead_letter_queue as dlq
+    queue = await dlq.get_queue()
+    stats = await dlq.get_stats()
+    return {"stats": stats, "queue": queue}
+
+
+@router.post("/autonomous/dlq/resolve")
+async def dlq_resolve_ep(index: int):
+    """Mark a DLQ entry as resolved."""
+    from ..intel import dead_letter_queue as dlq
+    if await dlq.mark_resolved(index):
+        return {"resolved": True, "index": index}
+    raise HTTPException(status_code=404, detail=f"DLQ entry {index} not found")
+
+
+# ── Dashboard Metrics (Week 2a) ──────────────────────────────────────────
+
+@router.get("/metrics/contradiction_rate")
+async def contradiction_rate_ep():
+    """Contradiction rate — CONTRADICTED facts as % of total verified."""
+    from ..intel import verified_intel as vi
+    try:
+        stats = await vi.get_verification_summary()
+        total = stats.get("total_facts", 0)
+        contradicted = stats.get("contradicted", 0)
+        rate = round(contradicted / total, 4) if total > 0 else 0.0
+        return {"contradiction_rate": rate, "contradicted": contradicted, "total": total}
+    except Exception as e:
+        return {"contradiction_rate": None, "error": str(e)}
+
+
+@router.get("/metrics/fact_decay")
+async def fact_decay_ep():
+    """Fact decay — STALE facts as % of total verified."""
+    from ..intel import verified_intel as vi
+    try:
+        stats = await vi.get_verification_summary()
+        total = stats.get("total_facts", 0)
+        stale = stats.get("stale", 0)
+        rate = round(stale / total, 4) if total > 0 else 0.0
+        return {"fact_decay_rate": rate, "stale": stale, "total": total}
+    except Exception as e:
+        return {"fact_decay_rate": None, "error": str(e)}
+
+
+# ── Predictor Block Rate (Week 2c) ───────────────────────────────────────
+
+@router.get("/predictor/block_rate")
+async def predictor_block_rate_ep():
+    """Per-domain predictor block counts (7d, 30d)."""
+    from ..intel import redis_store as rs
+    import re as _re
+    # Scan for predictor block keys
+    all_keys = []
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = await rs.scan(cursor, match="crucix:predictor:blocks:*", count=100)
+            all_keys.extend(keys)
+            if cursor == 0:
+                break
+    except Exception:
+        pass
+    domains = {}
+    for key in all_keys:
+        if isinstance(key, bytes):
+            key = key.decode()
+        domain = key.replace("crucix:predictor:blocks:", "")
+        if domain == "24h":
+            continue
+        try:
+            count = int(await rs.get(key) or 0)
+            domains[domain] = count
+        except Exception:
+            pass
+    blocks_24h = 0
+    try:
+        blocks_24h = int(await rs.get("crucix:predictor:blocks:24h") or 0)
+    except Exception:
+        pass
+    return {"blocks_24h": blocks_24h, "by_domain": domains}
+
+
+# ── Chat Audit Trail (Week 4a) ───────────────────────────────────────────
+
+@router.get("/chat-audit/recent")
+async def chat_audit_recent_ep(limit: int = 50):
+    """Recent chat audit entries."""
+    from ..intel import chat_audit_log as cal
+    return {"entries": await cal.get_recent(limit)}
+
+
+@router.get("/chat-audit/stats")
+async def chat_audit_stats_ep():
+    """Chat audit trail aggregate stats."""
+    from ..intel import chat_audit_log as cal
+    return await cal.get_stats()
+
+
+@router.get("/chat-audit/verify")
+async def chat_audit_verify_ep(sample: int = 100):
+    """Verify chat audit trail chain integrity."""
+    from ..intel import chat_audit_log as cal
+    return await cal.verify_chain(sample)

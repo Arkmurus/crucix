@@ -726,6 +726,18 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                 # ── BLOCK — too many unprevented failures in this domain ──
                 record["status"] = "blocked_by_predictor"
                 record["predictor"]["action"] = "BLOCKED"
+                # Track block count per domain + 24h counter for operating mode
+                try:
+                    from ..intel import redis_store as _rs
+                    _blk_key = f"crucix:predictor:blocks:{domain[:30]}"
+                    await _rs.incr(_blk_key)
+                    await _rs.expire(_blk_key, 30 * 86400)
+                    # 24h counter for operating mode auto-transition
+                    _blk_24h = "crucix:predictor:blocks:24h"
+                    await _rs.incr(_blk_24h)
+                    await _rs.expire(_blk_24h, 86400)
+                except Exception:
+                    pass
                 record["predictor"]["reason"] = (
                     f"Confidence {conf:.0%} below {_BLOCK_THRESHOLD:.0%} threshold. "
                     f"{n_failures} likely failure(s), {n_mistakes} past mistake(s). "

@@ -60,6 +60,27 @@ STARTUP_DELAY_SECONDS = 90  # don't poll until the server is fully warm
 
 _ENABLED_VAR = "ARIA_AUTONOMOUS_ENABLED"
 _DRY_RUN_VAR = "ARIA_AUTONOMOUS_DRY_RUN"
+_AUTONOMY_LEVEL_VAR = "ARIA_AUTONOMY_LEVEL"
+
+# Autonomy ladder:
+#   L0 = off (engine does not run)
+#   L1 = research-only (tasks run but no delivery at all)
+#   L2 = internal delivery (mem0 + intel_ledger, no WhatsApp)
+#   L3 = full delivery (all channels including WhatsApp)
+AUTONOMY_LEVELS = {0: "OFF", 1: "RESEARCH", 2: "INTERNAL", 3: "FULL"}
+
+
+def get_autonomy_level() -> int:
+    """Current autonomy level. Default: inferred from ENABLED + DRY_RUN."""
+    explicit = os.getenv(_AUTONOMY_LEVEL_VAR, "").strip()
+    if explicit.isdigit() and int(explicit) in AUTONOMY_LEVELS:
+        return int(explicit)
+    # Backward compat: infer from old flags
+    if not is_enabled():
+        return 0
+    if is_dry_run():
+        return 1
+    return 3  # enabled + not dry_run = full
 
 
 def is_enabled() -> bool:
@@ -88,9 +109,12 @@ def get_engine_status() -> dict[str, Any]:
     """One-shot snapshot of the engine's in-process state. Used by the
     /api/aria/autonomous/status admin endpoint together with the
     safety state and the recent run history."""
+    level = get_autonomy_level()
     return {
         "enabled": is_enabled(),
         "dry_run": is_dry_run(),
+        "autonomy_level": level,
+        "autonomy_label": AUTONOMY_LEVELS.get(level, "UNKNOWN"),
         "running": _engine_task is not None and not _engine_task.done(),
         "started_at": _started_at,
         "last_tick_at": _last_tick_at,
@@ -141,6 +165,10 @@ async def _engine_loop(llm) -> None:
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
                 continue
 
+            # Check operating mode — some modes restrict which tasks can run
+            from ..intel import operating_modes as _om
+            mode = await _om.get_mode()
+
             # Iterate over loaded tasks
             loaded = tasks_mod.get_loaded_tasks()
             if not loaded:
@@ -153,6 +181,11 @@ async def _engine_loop(llm) -> None:
                 if not task.enabled:
                     continue
                 if not tasks_mod.cron_matches(task.cron, now_utc):
+                    continue
+                # Operating mode filter — EMERGENCY blocks non-essential tasks
+                if not _om.should_task_run(task_id, mode):
+                    logger.info("[autonomous engine] task %s blocked by operating mode %s",
+                                task_id, mode.name)
                     continue
 
                 # Determine the entity used for the dedupe hash. We use

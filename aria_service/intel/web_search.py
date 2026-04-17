@@ -175,8 +175,13 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
 # ── Backend: SearXNG (free meta-search) ─────────────────────────────────────
 
 async def _search_searxng(query: str, max_results: int = 10, language: str = "en") -> list[SearchResult]:
-    """SearXNG — free meta-search engine, tries multiple instances."""
+    """SearXNG — free meta-search engine, tries multiple instances.
+    Circuit breaker per instance — skips instances that are DOWN."""
+    from .circuit_breaker import get_breaker
     for instance in SEARXNG_INSTANCES:
+        cb = get_breaker(f"searx:{instance.split('//')[1].split('/')[0]}", cooldown_seconds=600)
+        if cb.is_open():
+            continue
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 resp = await client.get(
@@ -189,7 +194,9 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
                     headers={"User-Agent": random_ua()},
                 )
                 if resp.status_code != 200:
+                    cb.record_failure()
                     continue
+                cb.record_success()
                 data = resp.json()
                 results = []
                 for item in (data.get("results", []))[:max_results]:
@@ -205,6 +212,7 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
                     logger.debug("SearXNG (%s): %d results for %r", instance, len(results), query[:60])
                     return results
         except Exception:
+            cb.record_failure()
             continue
     return []
 

@@ -1607,6 +1607,51 @@ if __name__ == "__main__":
 
     print()
     classifier = SourceTierClassifier()
+
+# ── Chat context integration (wired 2026-04-17) ──────────────────────────
+
+async def get_relevant_verified_facts(message: str, limit: int = 5) -> list[dict]:
+    """Query verified facts relevant to a chat message. Returns facts
+    sorted by relevance for injection into the system prompt."""
+    from . import redis_store as rs
+    # Get all verified facts from Redis
+    facts_raw = await rs.get_json("crucix:verified_intel:facts") or []
+    if not facts_raw:
+        return []
+    # Simple keyword matching — find facts whose entity/claim matches query terms
+    terms = set(message.lower().split())
+    scored: list[tuple[float, dict]] = []
+    for fact in facts_raw:
+        claim = (fact.get("claim") or "").lower()
+        entity = (fact.get("entity_name") or "").lower()
+        combined = f"{claim} {entity}"
+        overlap = sum(1 for t in terms if t in combined and len(t) > 3)
+        if overlap > 0:
+            scored.append((overlap, fact))
+    scored.sort(key=lambda x: -x[0])
+    return [f for _, f in scored[:limit]]
+
+
+async def get_verification_summary() -> dict:
+    """Aggregate verification stats for dashboard metrics."""
+    from . import redis_store as rs
+    facts = await rs.get_json("crucix:verified_intel:facts") or []
+    total = len(facts)
+    by_status: dict[str, int] = {}
+    for f in facts:
+        status = f.get("verification_status", "UNKNOWN")
+        by_status[status] = by_status.get(status, 0) + 1
+    return {
+        "total_facts": total,
+        "verified": by_status.get("VERIFIED", 0),
+        "contradicted": by_status.get("CONTRADICTED", 0),
+        "stale": by_status.get("STALE", 0),
+        "pending": by_status.get("PENDING_CORROBORATION", 0),
+        "legacy": by_status.get("LEGACY_UNVERIFIED", 0),
+        "by_status": by_status,
+    }
+
+
     test_urls = [
         "https://ofac.treasury.gov/sanctions-programs",
         "https://reuters.com/world/africa/nigeria-appoints-new-cds-2024",
