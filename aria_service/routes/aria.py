@@ -3521,7 +3521,18 @@ async def chat_ep(req: ChatRequest, request: Request):
                     f"{tool_context}"
                 )
 
-            result = await aria_chat(message_for_llm, session_id, llm, intel)
+            # ── Response cache check (high-frequency stable queries) ──
+            from ..intel import response_cache as _rc
+            _cached = await _rc.get_cached(req.message, tool_context or "")
+            if _cached:
+                result = {"response": _cached["response"], "cached": True,
+                          "cached_at": _cached.get("cached_at")}
+            else:
+                result = await aria_chat(message_for_llm, session_id, llm, intel)
+                # Cache if eligible
+                _resp_text = (result or {}).get("response", "")
+                if _resp_text and len(_resp_text) > 50:
+                    await _rc.set_cached(req.message, _resp_text, tool_context or "")
         if tool_used:
             result["tool_used"] = tool_used
         result["trace_id"] = trace_id
@@ -3722,6 +3733,35 @@ async def chat_ep(req: ChatRequest, request: Request):
                 e, trace_id,
                 exc_info=True,
             )
+
+        # ── Three-pass response verification (Week 3 — inline tags) ──
+        # Post-processes the response to add [VERIFIED], [UNVERIFIED],
+        # or [CONTRADICTED] tags on every factual claim with a confidence
+        # tag. Runs AFTER source_verifier + officeholder_guard, BEFORE
+        # the confidence footer. Transparency, not restriction.
+        try:
+            from ..intel import response_verifier as _rv
+            rv_result = await _rv.verify_and_tag_response(
+                response_text=response_text,
+                tool_context=tool_context or "",
+                session_id=session_id,
+            )
+            if not rv_result.get("unchanged"):
+                response_text = rv_result["tagged"]
+                result["response"] = response_text
+                result["inline_verification"] = {
+                    "claims_checked": rv_result["claims_checked"],
+                    "verified": rv_result["verified"],
+                    "unverified": rv_result["unverified"],
+                    "contradicted": rv_result["contradicted"],
+                }
+                _log.info(
+                    "[response_verifier] %d claims: %d verified, %d unverified, %d contradicted",
+                    rv_result["claims_checked"], rv_result["verified"],
+                    rv_result["unverified"], rv_result["contradicted"],
+                )
+        except Exception as e:
+            _log.debug("response_verifier failed (non-fatal): %s", e)
 
         # ── Confidence-tagged reply footer ──
         # Wires existing observability signals (confidence tags +
