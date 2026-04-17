@@ -1940,10 +1940,23 @@ def _detect_dd_intent(message: str) -> dict | None:
                 jurisdiction_iso2 = "SK"  # default for IČO
                 jurisdiction = "Slovak Republic"
 
-    # Generic registration/company number — "File number: 10774/R" / "Reg: 12345678"
+    # Generic registration/company number — "File number: 10774/R" / "Reg No: 12345678"
+    # Pre-2026-04-17 bug: the `reg\.?\s*(?:no|#)?` branch had an OPTIONAL
+    # trailing "no" / "#", so the bare word "Reg" matched and captured
+    # whatever came next as the number. That made "Registered Agent Name
+    # & Address:" capture the literal "istered" (case-insensitive match
+    # on "Reg", then [A-Z0-9]{3,20} grabbed "istered" up to the word
+    # boundary). Fix: mandatory colon after the key, and "Reg" shorthand
+    # now REQUIRES a following "no" / "number" / "#" with no optional.
     if "registration_number" not in extra:
         reg_match = re.search(
-            r"\b(?:registration\s+(?:no|number|#)|file\s+number|company\s+(?:no|number)|reg\.?\s*(?:no|#)?)\s*[:\s]*([A-Z0-9/\-]{3,20})\b",
+            r"\b(?:"
+            r"registration\s+(?:no|number|#)"
+            r"|file\s+number"
+            r"|company\s+(?:no|number)"
+            r"|reg\.?\s+(?:no|number|#)"   # require a following qualifier word
+            r")\s*:\s*"                     # mandatory colon after the key
+            r"([A-Z0-9/\-]{3,20})\b",
             message, re.IGNORECASE,
         )
         if reg_match:
@@ -2101,6 +2114,44 @@ def _detect_dd_intent(message: str) -> dict | None:
     # when the operator only typed the URL (no standalone company name).
     if _extracted_website and not extra.get("website"):
         extra["website"] = _extracted_website
+
+    # ── Document-to-entity bridge (2026-04-17 23:30) ──
+    # If the captured name is a pronoun reference ("this company",
+    # "the entity", etc.) AND the message carries an [ATTACHED DOCUMENT]
+    # block, parse the document for the real entity name + jurisdiction
+    # + address + registration number. Overrides the pronoun with the
+    # document-derived entity so every downstream detector fires on
+    # real data (Sunbiz, virtual-office, FinCEN BOI, bright-lines).
+    try:
+        from ..intel import document_entity_bridge as _deb
+        if _deb.is_pronoun_reference(name):
+            bridged = _deb.bridge_from_message(message, entity_hint=name)
+            if bridged and bridged.get("name"):
+                # Pronoun + attached document → document is authoritative.
+                # Override ALL fields from the document, not just empty ones.
+                # This prevents the pre-existing prose-regex noise (e.g.
+                # "Reg" in "Registered Agent" capturing "istered") from
+                # beating the document-extracted value.
+                name = bridged["name"]
+                if bridged.get("jurisdiction_iso2"):
+                    jurisdiction_iso2 = bridged["jurisdiction_iso2"]
+                    jurisdiction = bridged.get("jurisdiction") or jurisdiction
+                if bridged.get("registered_address"):
+                    registered_address = bridged["registered_address"]
+                if bridged.get("registration_number"):
+                    extra["registration_number"] = bridged["registration_number"]
+                if bridged.get("incorporation_date"):
+                    _ic = bridged["incorporation_date"]
+                    if len(_ic) >= 4:
+                        try:
+                            extra["claimed_founding_year"] = int(_ic[:4])
+                        except (TypeError, ValueError):
+                            pass
+                if bridged.get("directors"):
+                    extra["directors"] = bridged["directors"]
+                extra["_bridged_from_document"] = True
+    except Exception as _deb_err:
+        _log.debug("document_entity_bridge failed (non-fatal): %s", _deb_err)
 
     return {
         "tool": "dd_orchestrate",
