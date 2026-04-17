@@ -3566,10 +3566,70 @@ async def chat_ep(req: ChatRequest, request: Request):
                 result = {"response": _cached["response"], "cached": True,
                           "cached_at": _cached.get("cached_at")}
             else:
-                result = await aria_chat(message_for_llm, session_id, llm, intel)
-                # Cache if eligible
+                # LLM-failure resilience: when the entire fallback chain
+                # collapses (e.g. Anthropic billing out AND DeepSeek 5xx),
+                # DO NOT propagate as an HTTP 500/400. Return 200 with a
+                # clear, actionable message so the WA listener can render
+                # a friendly reply instead of "fallback 400". Added
+                # 2026-04-17 22:40 after the PDF upload incident.
+                try:
+                    result = await aria_chat(message_for_llm, session_id, llm, intel)
+                except Exception as _llm_err:
+                    _log.warning(
+                        "[chat] aria_chat raised: %s — returning 200 with explanation",
+                        _llm_err,
+                    )
+                    _err_kind = ""
+                    _msg_lower = str(_llm_err).lower()
+                    if any(k in _msg_lower for k in (
+                        "billing", "credit", "quota", "balance", "insufficient",
+                    )):
+                        _err_kind = "LLM_BILLING"
+                    elif "timeout" in _msg_lower or "aborted" in _msg_lower:
+                        _err_kind = "LLM_TIMEOUT"
+                    elif "auth" in _msg_lower or "401" in _msg_lower:
+                        _err_kind = "LLM_AUTH"
+                    else:
+                        _err_kind = "LLM_OTHER"
+                    _friendly = {
+                        "LLM_BILLING": (
+                            "The primary LLM provider (Anthropic) is out of "
+                            "credit and the DeepSeek fallback is also unavailable "
+                            "right now. Please retry in ~60 seconds — the "
+                            "cooldown will clear the circuit breaker. If it "
+                            "persists, ARIA's /health endpoint will show which "
+                            "provider is failing."
+                        ),
+                        "LLM_TIMEOUT": (
+                            "The LLM request took longer than the budget allowed. "
+                            "Retry with a shorter message, or split the request "
+                            "into smaller pieces. For document reviews, paste the "
+                            "relevant passages directly."
+                        ),
+                        "LLM_AUTH": (
+                            "The LLM provider returned an authentication error. "
+                            "The operator should verify DEEPSEEK_API_KEY / "
+                            "ANTHROPIC_API_KEY on fly.io."
+                        ),
+                        "LLM_OTHER": (
+                            f"The LLM chain failed: {str(_llm_err)[:200]}. "
+                            f"Retry in a moment — the fallback chain will "
+                            f"try a different provider."
+                        ),
+                    }[_err_kind]
+                    result = {
+                        "response": f"⚠️ {_friendly}",
+                        "llm_failure": True,
+                        "llm_error_kind": _err_kind,
+                        "llm_error_detail": str(_llm_err)[:240],
+                    }
+                # Cache if eligible (but NOT if it was an error response)
                 _resp_text = (result or {}).get("response", "")
-                if _resp_text and len(_resp_text) > 50:
+                if (
+                    _resp_text
+                    and len(_resp_text) > 50
+                    and not result.get("llm_failure")
+                ):
                     await _rc.set_cached(req.message, _resp_text, tool_context or "")
         if tool_used:
             result["tool_used"] = tool_used
