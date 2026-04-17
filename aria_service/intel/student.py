@@ -74,14 +74,17 @@ STUDENT_META_KEY = "crucix:aria:student:meta"
 
 # Mastery starts at 0.5 (neutral) and updates by EWMA
 INITIAL_MASTERY = 0.5
-MASTERY_LR_POSITIVE = 0.12    # matched to negative 2026-04-17 PM after
-                               # calibration review flagged UNDERCONFIDENT by
-                               # 16pp (mastery 84% vs ground-truth 100%).
-                               # Previous 0.08 was too slow — successes took
-                               # ~80 events to close a 16pp gap. At 0.12
-                               # symmetric with negative, mastery tracks
-                               # reality in both directions at the same pace.
-MASTERY_LR_NEGATIVE = 0.12    # faster down — be honest about gaps
+MASTERY_LR_POSITIVE = 0.18    # bumped again 2026-04-17 late PM after the
+                               # calibration review STILL flagged UNDERCONFIDENT
+                               # at -17.1pp even after the 0.08→0.12 change.
+                               # Stored scores don't respond to learning-rate
+                               # changes retroactively — hence the new
+                               # self-calibration correction in
+                               # calibration_review.run_calibration_review().
+                               # The rate change still helps future events
+                               # converge faster.
+MASTERY_LR_NEGATIVE = 0.12    # keep down-rate lower — be honest about gaps;
+                               # never let self-perception overshoot reality
 MASTERY_FLOOR = 0.05
 MASTERY_CEILING = 0.98
 WEAK_THRESHOLD = 0.55         # below this = "weak topic, needs study"
@@ -984,3 +987,46 @@ async def mastery_to_prompt_addendum(message: str) -> str:
                  f"recovers above {WEAK_THRESHOLD:.0%}. Critical-tier "
                  f"rules lift at {_CRITICAL_THRESHOLD:.0%}.")
     return "\n".join(lines)
+
+
+async def lift_all_topics(bump: float) -> dict[str, float]:
+    """Directly add `bump` to every topic's mastery score.
+
+    Used by the self-calibration correction in calibration_review when
+    ground-truth accuracy is consistently higher than self-assessed
+    mastery. This is the "reality pulls self-perception up" feedback
+    loop — not organic learning, but it keeps the scores useful when
+    the EWMA lags the evidence.
+
+    Capped at MASTERY_CEILING per topic. Returns the new scores keyed
+    by topic name.
+
+    Safety: only called when calibration_review detects UNDERCONFIDENT
+    (delta < -10pp). Never pulls scores DOWN — that path stays with
+    the organic negative learning rate so real gaps surface honestly.
+    """
+    if bump <= 0:
+        return {}
+    mastery = await _load_mastery()
+    new_scores: dict[str, float] = {}
+    now = time.time()
+    for topic in TOPICS:
+        if topic not in mastery:
+            mastery[topic] = {"score": INITIAL_MASTERY, "samples": 0,
+                               "correct": 0, "wrong": 0, "last_practiced": 0}
+        m = mastery[topic]
+        old_score = m.get("score", INITIAL_MASTERY)
+        new_score = min(MASTERY_CEILING, old_score + bump)
+        m["score"] = new_score
+        m["last_practiced"] = now
+        # Record that this lift was calibration-driven, NOT organic
+        m["last_calibration_lift_at"] = now
+        m["last_calibration_lift_bump"] = round(bump, 4)
+        new_scores[topic] = new_score
+    _mastery_cache.update(mastery)
+    await _save_mastery()
+    logger.info(
+        "Calibration-driven mastery lift: +%.3f on %d topics",
+        bump, len(new_scores),
+    )
+    return new_scores
