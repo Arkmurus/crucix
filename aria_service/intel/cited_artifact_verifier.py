@@ -203,7 +203,7 @@ def verify_cited_artifacts(
             f"of the unverified references before acknowledging them."
         )
 
-    return {
+    result = {
         "cited": [
             {
                 "doc_type": a.doc_type,
@@ -218,3 +218,34 @@ def verify_cited_artifacts(
         "verified": len(verified),
         "unverified": len(unverified),
     }
+
+    # Brain-hook: unverified citations = deception signal; verified = benign.
+    if artifacts:
+        try:
+            import asyncio as _asyncio
+            from . import brain_hook as _bh
+            has_unverified = len(unverified) > 0
+            async def _emit():
+                try:
+                    await _bh.absorb(
+                        module="cited_artifact_verifier",
+                        summary=f"Cited-artifact check on {counterparty or 'unknown'}: "
+                                f"{len(verified)} verified, {len(unverified)} unverified",
+                        entity_name=counterparty,
+                        success=not has_unverified,
+                        confidence="CONFIRMED" if not has_unverified else "ASSESSED",
+                        gap_type="unverified_citation" if has_unverified else None,
+                        gap_detail=(
+                            ", ".join(a.doc_id for a in unverified[:3])
+                            if has_unverified else None
+                        ),
+                    )
+                except Exception as e:
+                    logger.debug("cited_artifact brain_hook failed: %s", e)
+            try:
+                _asyncio.get_running_loop().create_task(_emit())
+            except RuntimeError:
+                pass
+        except Exception as exc:
+            logger.debug("cited_artifact brain dispatch failed: %s", exc)
+    return result

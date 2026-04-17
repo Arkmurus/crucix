@@ -260,6 +260,33 @@ def check_address(address: str) -> dict[str, Any]:
         )
         # Do not flip is_virtual_office on this alone.
 
+    # Brain-hook: feed check result to the brain so stale-module alerts
+    # stop firing. Only absorb on a positive match (actual work).
+    if out["is_virtual_office"]:
+        try:
+            import asyncio as _asyncio
+            from . import brain_hook as _bh
+            provider = out.get("provider") or "virtual-office"
+            risk = out.get("risk") or "medium"
+            async def _emit():
+                try:
+                    await _bh.absorb(
+                        module="virtual_office_registry",
+                        summary=f"Virtual-office match: {provider} (risk={risk})",
+                        success=True,
+                        confidence=out.get("confidence") or "MEDIUM",
+                        gap_type="ghost_entity" if risk == "high" else None,
+                        gap_detail=address[:160],
+                    )
+                except Exception as e:
+                    logger.debug("virtual_office_registry brain_hook failed: %s", e)
+            try:
+                _asyncio.get_running_loop().create_task(_emit())
+            except RuntimeError:
+                pass
+        except Exception as exc:
+            logger.debug("virtual_office brain dispatch failed: %s", exc)
+
     return out
 
 

@@ -268,12 +268,43 @@ def check_text(text: str) -> list[dict[str, Any]]:
                 if trigger in needle:
                     out.append(_rule_to_dict(rule, trigger))
                     break
-    # Fire-and-forget hit counter
+    # Fire-and-forget hit counter + brain-hook absorb
     if out:
         try:
             _record_hits([h["code"] for h in out])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("bright-line hit counter failed: %s", exc)
+        try:
+            import asyncio as _asyncio
+            from . import brain_hook as _bh
+            codes = [h["code"] for h in out]
+            sevs = [h["severity"] for h in out]
+            worst = "hard_stop" if "hard_stop" in sevs else (
+                "enhanced_dd" if "enhanced_dd" in sevs else "flag"
+            )
+            async def _emit():
+                try:
+                    await _bh.absorb(
+                        module="regional_bright_lines",
+                        summary=f"Bright-lines triggered: {', '.join(codes)} ({worst})",
+                        success=True,
+                        confidence="CONFIRMED",
+                        # A triggered hard-stop/enhanced-DD IS a capability gap
+                        # in the sense that it identifies compliance friction
+                        # that needs operator action.
+                        gap_type="compliance_gate" if worst != "flag" else None,
+                        gap_detail=", ".join(codes) if worst != "flag" else None,
+                    )
+                except Exception as e:
+                    logger.debug("bright-lines brain_hook failed: %s", e)
+            try:
+                loop = _asyncio.get_running_loop()
+                loop.create_task(_emit())
+            except RuntimeError:
+                # No running loop — skip (check_text was called from sync).
+                pass
+        except Exception as exc:
+            logger.debug("bright-lines brain_hook dispatch failed: %s", exc)
     return out
 
 
@@ -315,14 +346,19 @@ def _record_hits(codes: list[str]) -> None:
             return
 
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(_write())
-        else:
-            loop.run_until_complete(_write())
+        loop = asyncio.get_running_loop()
+        loop.create_task(_write())
     except RuntimeError:
-        # No running loop at call site — drop.
-        return
+        # No running loop — fall back to a blocking run (only fires when
+        # check_text is called outside an event loop, e.g. CLI tests).
+        try:
+            asyncio.run(_write())
+        except Exception as exc:
+            # Already-closed-loop / nested-run conditions — drop silently.
+            import logging as _logging
+            _logging.getLogger("aria.intel.regional_bright_lines").debug(
+                "hit-counter fallback write failed: %s", exc
+            )
 
 
 async def get_hits_24h() -> dict[str, Any]:

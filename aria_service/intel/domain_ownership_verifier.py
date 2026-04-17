@@ -344,6 +344,36 @@ async def verify_domain(
                 f"jurisdiction '{claimed}'."
             )
 
+    # Brain-hook: fire-and-forget absorb so the brain sees RDAP verification
+    # activity. Silent module = silent learning, which defeats the point of
+    # having registered in brain_hook._TOPIC_MAP. Best-effort — does not block.
+    try:
+        from . import brain_hook
+        flags = out.get("flags") or []
+        success = bool(out.get("verified")) and "REGISTRANT_ENTITY_MISMATCH" not in flags
+        gap_detail = None
+        if not out.get("verified"):
+            gap_detail = out.get("reason")
+        elif flags:
+            gap_detail = "flags: " + ", ".join(flags[:3])
+        summary_line = (
+            f"RDAP on {out.get('domain') or '?'}: "
+            f"registrar={out.get('registrar') or 'unknown'}, "
+            f"age={out.get('age_days')}d, "
+            f"flags=[{','.join(flags) or 'none'}]"
+        )
+        await brain_hook.absorb(
+            module="domain_ownership_verifier",
+            summary=summary_line,
+            entity_name=claimed_entity_name or out.get("domain"),
+            success=success,
+            confidence="CONFIRMED" if out.get("verified") else "ASSESSED",
+            gap_type="domain_ownership" if gap_detail else None,
+            gap_detail=gap_detail,
+        )
+    except Exception as _bh:
+        logger.debug("domain_ownership_verifier brain_hook failed: %s", _bh)
+
     return out
 
 

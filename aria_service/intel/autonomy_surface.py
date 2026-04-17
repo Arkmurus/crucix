@@ -128,18 +128,28 @@ async def _drafts_awaiting() -> dict[str, Any]:
         logger.debug("drafts.pending: %s", e)
 
     # ── DD reports produced today ──
+    # dd_orchestrator writes a LIST of dicts each with `generated_at`
+    # (not a dict with items + run_at). Handle both shapes defensively
+    # in case storage format changes.
     try:
         from . import redis_store as rs
         from . import dd_orchestrator as dd
         idx = await rs.get_json(getattr(dd, "REPORT_INDEX_KEY", "crucix:dd:report_index"))
-        if isinstance(idx, dict):
-            today = datetime.now(timezone.utc).date().isoformat()
+        if isinstance(idx, list):
+            items = idx
+        elif isinstance(idx, dict):
             items = idx.get("items") or []
-            out["dd_reports_today"] = sum(
-                1 for it in items
-                if isinstance(it, dict)
-                and (it.get("run_at") or "").startswith(today)
+        else:
+            items = []
+        today = datetime.now(timezone.utc).date().isoformat()
+        out["dd_reports_today"] = sum(
+            1 for it in items
+            if isinstance(it, dict)
+            and (
+                (it.get("generated_at") or "").startswith(today)
+                or (it.get("run_at") or "").startswith(today)
             )
+        )
     except Exception as e:
         logger.debug("dd_reports: %s", e)
 

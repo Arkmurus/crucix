@@ -746,32 +746,32 @@ def _sync_correlation_context(message: str) -> str:
                 chain_ctx = await chain_correlator.get_chain_context(message)
                 if chain_ctx:
                     parts.append(chain_ctx)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Procurement calendar (Priority 3) — [CALENDAR: ...] marker
             try:
                 from .intel import procurement_calendar
                 cal_ctx = await procurement_calendar.get_calendar_context(message)
                 if cal_ctx:
                     parts.append(cal_ctx)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Competitor landscape (Priority 4) — [COMPETITORS: ...] marker
             try:
                 from .intel import competitor_tracker
                 comp_ctx = await competitor_tracker.get_competitor_context(message)
                 if comp_ctx:
                     parts.append(comp_ctx)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # OEM contact graph (Priority 2) — [OEM: ...] marker
             try:
                 from .intel import oem_contact_graph
                 oem_ctx = await oem_contact_graph.get_oem_context(message)
                 if oem_ctx:
                     parts.append(oem_ctx)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Tier 1 regional knowledge (2026-04-17) — Gulf, Turkey-standalone,
             # West Africa, LatAm non-Lusophone. Each module is keyword-gated
             # so only regions mentioned in the message produce content.
@@ -780,29 +780,29 @@ def _sync_correlation_context(message: str) -> str:
                 gc = knowledge_gulf.get_gulf_context(message)
                 if gc:
                     parts.append(gc)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             try:
                 from .intel import knowledge_turkey_standalone
                 tc = knowledge_turkey_standalone.get_turkey_context(message)
                 if tc:
                     parts.append(tc)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             try:
                 from .intel import knowledge_west_africa
                 wc = knowledge_west_africa.get_west_africa_context(message)
                 if wc:
                     parts.append(wc)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             try:
                 from .intel import knowledge_latam_non_lusophone
                 lc = knowledge_latam_non_lusophone.get_latam_context(message)
                 if lc:
                     parts.append(lc)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Tier 2 regional knowledge (2026-04-17 PM) — North Africa,
             # South/SE Asia, Central Africa, Balkans.
             try:
@@ -810,29 +810,29 @@ def _sync_correlation_context(message: str) -> str:
                 nac = knowledge_north_africa.get_north_africa_context(message)
                 if nac:
                     parts.append(nac)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             try:
                 from .intel import knowledge_south_se_asia
                 sac = knowledge_south_se_asia.get_south_se_asia_context(message)
                 if sac:
                     parts.append(sac)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             try:
                 from .intel import knowledge_central_africa
                 cac = knowledge_central_africa.get_central_africa_context(message)
                 if cac:
                     parts.append(cac)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             try:
                 from .intel import knowledge_balkans
                 bc = knowledge_balkans.get_balkans_context(message)
                 if bc:
                     parts.append(bc)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Regional bright-line compliance rules (2026-04-17 PM) —
             # AES Alliance, Algeria dual-exposure, DRC, UAE/Houthi, Libya,
             # Myanmar, DPRK. Text scan + country scan. Always surfaced
@@ -859,8 +859,8 @@ def _sync_correlation_context(message: str) -> str:
                             f"{_vo.get('provider') or 'known corridor'} "
                             f"(risk={_vo.get('risk')}, confidence={_vo.get('confidence')})"
                         )
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Domain check is async (RDAP HTTPS call) — runs inside the
             # DD layer when operator triggers a DD. We do NOT run it from
             # this sync chat-context path to avoid blocking the chat loop.
@@ -876,48 +876,48 @@ def _sync_correlation_context(message: str) -> str:
                         for act in h["required_actions"][:2]:
                             lines.append(f"    – {act}")
                     parts.append("\n".join(lines))
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Gulf OEM structure — SAMI / EDGE / Tawazun / Barzan
             try:
                 from .intel import gulf_oem_structure
                 gs = gulf_oem_structure.get_gulf_oem_context(message)
                 if gs:
                     parts.append(gs)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # KSA Vision 2030 localisation tracker
             try:
                 from .intel import vision_2030_tracker
                 v2 = vision_2030_tracker.get_vision_2030_context(message)
                 if v2:
                     parts.append(v2)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Baykar export pipeline
             try:
                 from .intel import baykar_export_pipeline
                 bx = baykar_export_pipeline.get_baykar_context(message)
                 if bx:
                     parts.append(bx)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Political risk index (Fund For Peace FSI + CrisisWatch tier)
             try:
                 from .intel import political_risk_index
                 pr = political_risk_index.get_risk_context(message)
                 if pr:
                     parts.append(pr)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Cross-regional correlator — geopolitical trigger → downstream region
             try:
                 from .intel import cross_regional_correlator
                 cr = cross_regional_correlator.get_cross_regional_context(message)
                 if cr:
                     parts.append(cr)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Equipment specs — [EQUIPMENT: ...] marker when a platform
             # or operator country is mentioned.
             try:
@@ -925,8 +925,8 @@ def _sync_correlation_context(message: str) -> str:
                 eq = equipment_specs.get_equipment_context(message)
                 if eq:
                     parts.append(eq)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Coverage confidence for mentioned countries
             import re
             _COUNTRY_NAMES = [
@@ -2028,16 +2028,16 @@ async def aria_chat(
                     source=f"local_reasoning:{local_attempt.get('source', 'unknown')}",
                     llm=None,  # don't waste an LLM call on extraction
                 )
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
 
             # Student mastery: local answer succeeded → small confidence boost
             try:
                 topics = student.detect_topics(message)
                 if topics:
                     await student.update_mastery(topics, correct=True, weight=0.5)
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
 
             return {
                 "response": local_attempt["response"],
@@ -2250,8 +2250,8 @@ async def aria_chat(
                     logger.info("[mem0] stored: %s", (r.get("summary") or "")[:120])
                 elif r.get("skipped") and r.get("skipped_reason") not in ("not_substantive", "summariser_returned_none"):
                     logger.debug("[mem0] skipped: %s", r.get("skipped_reason"))
-            except Exception:
-                pass
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
         mem0_task.add_done_callback(_on_mem0_done)
     except Exception as e:
         logger.debug("MEM0 hook setup failed (non-fatal): %s", e)

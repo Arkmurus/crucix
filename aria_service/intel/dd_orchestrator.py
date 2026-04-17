@@ -582,32 +582,43 @@ async def _run_identity(
         except Exception as _vo_err:
             logger.debug("Virtual-office check failed (non-fatal): %s", _vo_err)
 
-        # ── FinCEN BOI caveat for US entities ──
-        # US state registries disclose registered agent + managers but NOT
-        # ultimate beneficial ownership. UBO lives in FinCEN BOI filings
-        # (Corporate Transparency Act, 2024) — not public. Any DD on a US
-        # entity must explicitly surface this gap so the operator doesn't
-        # assume Sunbiz / SOS records = full ownership disclosure.
-        _jur_hint = (
-            (target.get("jurisdiction_iso2") or "")
-            or (target.get("jurisdiction") or "")
-        ).upper()
-        _is_us = (
-            _jur_hint in ("US", "USA", "UNITED STATES")
-            or any(kw in _addr_lower for kw in (
-                "united states", "usa", "florida", "delaware", "california",
-                "new york", "texas", "nevada", "wyoming",
-            ))
+    # ── FinCEN BOI caveat for US entities ──
+    # MOVED OUT of the `if supplied_address` guard 2026-04-17 PM so the
+    # caveat also fires on URL-based / name-only DDs where the address
+    # may only surface later from the registry adapter. US state registries
+    # disclose registered agent + managers but NOT ultimate beneficial
+    # ownership. UBO lives in FinCEN BOI filings (Corporate Transparency
+    # Act, 2024) — not public.
+    _all_address_hint = " ".join(filter(None, [
+        (supplied_address or ""),
+        (report.identity.registered_address or ""),
+        (target.get("address") or ""),
+    ])).lower()
+    _jur_hint = (
+        (target.get("jurisdiction_iso2") or "")
+        or (jurisdiction_iso2 or "")
+        or (target.get("jurisdiction") or "")
+        or (jurisdiction or "")
+    ).upper()
+    _is_us = (
+        _jur_hint in ("US", "USA", "UNITED STATES")
+        or any(kw in _all_address_hint for kw in (
+            "united states", "usa", "florida", "delaware", "california",
+            "new york", "texas", "nevada", "wyoming",
+        ))
+        # LLC shape in entity name + no other jurisdiction inferred
+        or ((name or "").lower().rstrip(".").endswith((" llc", ",llc", " inc", " inc."))
+            and not _jur_hint)
+    )
+    if _is_us:
+        report.identity.data_gaps.append(
+            "UBO not visible on US public registry — US state Secretary "
+            "of State records disclose registered agent + managers only. "
+            "Ultimate beneficial ownership lives in FinCEN BOI filings "
+            "(Corporate Transparency Act, effective 2024) which are NOT "
+            "public. Require the counterparty to provide a copy of its "
+            "FinCEN BOI report during KYC before contracting."
         )
-        if _is_us:
-            report.identity.data_gaps.append(
-                "UBO not visible on US public registry — US state Secretary "
-                "of State records disclose registered agent + managers only. "
-                "Ultimate beneficial ownership lives in FinCEN BOI filings "
-                "(Corporate Transparency Act, effective 2024) which are NOT "
-                "public. Require the counterparty to provide a copy of its "
-                "FinCEN BOI report during KYC before contracting."
-            )
 
     # ── 1a. Sanctions screen (always runs) ──
     #

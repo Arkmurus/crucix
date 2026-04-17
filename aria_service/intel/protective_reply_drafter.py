@@ -196,7 +196,7 @@ def draft_protective_reply(inp: ProtectiveReplyInput) -> dict[str, Any]:
     ]
     body = "\n".join(p for p in body_parts if p is not None)
 
-    return {
+    out = {
         "subject": subject_line,
         "body": body,
         "internal_note": _deception_signals_block(inp.deception_signals),
@@ -206,6 +206,31 @@ def draft_protective_reply(inp: ProtectiveReplyInput) -> dict[str, Any]:
         "tier": inp.deception_tier,
         "counterparty": inp.counterparty,
     }
+
+    # Brain-hook: each protective reply drafted is high-value work
+    try:
+        import asyncio as _asyncio
+        from . import brain_hook as _bh
+        async def _emit():
+            try:
+                await _bh.absorb(
+                    module="protective_reply_drafter",
+                    summary=f"Protective reply drafted for {inp.counterparty} "
+                            f"(tier={inp.deception_tier}, subject={inp.deal_subject[:60]})",
+                    entity_name=inp.counterparty,
+                    success=True,
+                    confidence="ASSESSED",
+                )
+            except Exception as e:
+                logger.debug("protective_reply brain_hook failed: %s", e)
+        try:
+            _asyncio.get_running_loop().create_task(_emit())
+        except RuntimeError:
+            pass
+    except Exception as exc:
+        logger.debug("protective_reply brain dispatch failed: %s", exc)
+
+    return out
 
 
 # ═══════════════════════════════════════════════════════════════════════

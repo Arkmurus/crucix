@@ -152,6 +152,34 @@ def correlate(trigger_text: str) -> list[dict[str, Any]]:
             if sig in needle:
                 hits.append(_to_dict(rule, matched_signal=sig))
                 break
+
+    # Brain-hook: cross-regional correlations are high-learning signals
+    # (the correlator has weight 0.20 — the highest of today's additions).
+    if hits:
+        try:
+            import asyncio as _asyncio
+            from . import brain_hook as _bh
+            codes = [h["code"] for h in hits]
+            regions = set()
+            for h in hits:
+                for r in h.get("downstream_regions", []):
+                    regions.add(r)
+            async def _emit():
+                try:
+                    await _bh.absorb(
+                        module="cross_regional_correlator",
+                        summary=f"Cross-regional triggers: {', '.join(codes)} → {', '.join(sorted(regions))}",
+                        success=True,
+                        confidence="ASSESSED",
+                    )
+                except Exception as e:
+                    logger.debug("cross_regional brain_hook failed: %s", e)
+            try:
+                _asyncio.get_running_loop().create_task(_emit())
+            except RuntimeError:
+                pass
+        except Exception as exc:
+            logger.debug("cross_regional brain dispatch failed: %s", exc)
     return hits
 
 

@@ -334,6 +334,30 @@ def propagate(
         parts.append(entry.notes)
     out["human_summary"] = " ".join(parts)
 
+    # Brain-hook: a sanctions-propagation hit is high-value learning signal
+    try:
+        import asyncio as _asyncio
+        from . import brain_hook as _bh
+        async def _emit():
+            try:
+                await _bh.absorb(
+                    module="sanctions_propagation",
+                    summary=f"{entry.oem} → {regimes_str} | verdict={out['verdict']}",
+                    entity_name=entry.oem,
+                    success=True,
+                    confidence="CONFIRMED",
+                    gap_type="sanctions_hit" if out["verdict"] in ("HARD_STOP", "HIGH") else None,
+                    gap_detail=out["verdict"] if out["verdict"] in ("HARD_STOP", "HIGH") else None,
+                )
+            except Exception as e:
+                logger.debug("sanctions_propagation brain_hook failed: %s", e)
+        try:
+            _asyncio.get_running_loop().create_task(_emit())
+        except RuntimeError:
+            pass  # Sync caller — skip async emit
+    except Exception as exc:
+        logger.debug("sanctions_propagation brain dispatch failed: %s", exc)
+
     return out
 
 
