@@ -977,11 +977,8 @@ setTelegramLLM(llmProvider);
 const PUBLIC_DIR = join(ROOT, 'public');
 app.use(express.static(PUBLIC_DIR));
 app.get('/', (req, res) => res.redirect('/signin.html'));
-// ARIA Brain dashboard — auth-gated, sensitive operational data
-// Served from protected/ (NOT public/) so express.static can't bypass auth
-const PROTECTED_DIR = join(ROOT, 'protected');
-app.get('/aria-brain', requireAuth, (req, res) => res.sendFile(join(PROTECTED_DIR, 'aria-brain.html')));
-app.get('/aria-brain.html', requireAuth, (req, res) => res.sendFile(join(PROTECTED_DIR, 'aria-brain.html')));
+// ARIA Brain dashboard — served from public/ like all other pages.
+// Auth handled client-side via Auth.requireAuth() (same as dashboard.html).
 console.log('[Crucix] Static dashboard live at /');
 
 app.get('/api/data', requireAuth, (req, res) => {
