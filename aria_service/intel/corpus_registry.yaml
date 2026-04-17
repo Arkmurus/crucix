@@ -4000,3 +4000,94 @@ sources:
     frequency: continuous
     cplp_relevant: false
     notes: "Crisis Group Europe RSS — Balkans, Caucasus, Central Asia, Eastern Europe. Russia-NATO + Ukraine coverage."
+
+
+  # ── 🇪🇺 EUROPEAN COMPANY REGISTRIES — DD VERIFICATION ─────────────
+  # Added 2026-04-17. Critical gap: ARIA cannot verify European
+  # counterparty claims through open sources. These are the primary
+  # verification pathway for European OEM subsidiaries and intermediaries.
+
+  - url: https://www.bundesanzeiger.de
+    tier: E
+    source_class: Bundesanzeiger
+    category: company_registry
+    region: europe
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "German Federal Gazette — company filings, financial statements, shareholder notices. Primary DE corporate verification."
+
+  - url: https://www.handelsregister.de
+    tier: E
+    source_class: Handelsregister
+    category: company_registry
+    region: europe
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "German Commercial Register — company registration, legal form, registered agents. Primary DE entity verification for Rheinmetall, KMW, Hensoldt subs."
+
+  - url: https://www.infogreffe.fr
+    tier: E
+    source_class: Infogreffe
+    category: company_registry
+    region: europe
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "French Commercial Court Registry — company extracts (Kbis), directors, financial data. Primary FR verification for KNDS/Nexter, Thales, Safran subs."
+
+  - url: https://www.consob.it
+    tier: E
+    source_class: CONSOB
+    category: company_registry
+    region: europe
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Italian Securities Commission — listed company filings, ownership structures. Primary IT verification for Leonardo, Fincantieri subs."
+
+  - url: https://registroimprese.it
+    tier: E
+    source_class: Registro Imprese
+    category: company_registry
+    region: europe
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Italian Business Register — company registration, legal representatives. Complements CONSOB for unlisted IT entities."
+
+  - url: https://www.bolagsverket.se
+    tier: E
+    source_class: Bolagsverket
+    category: company_registry
+    region: europe
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: false
+    notes: "Swedish Companies Registration Office — entity verification for Saab, BAE Hägglunds subs."
+
+
+  # ── 📅 LUSOPHONE PROCUREMENT CALENDAR — INSTITUTIONAL KNOWLEDGE ────
+  # Encodes Arkmurus institutional knowledge that competitors don't have.
+  # This is the moat — not the score.
+
+  - url: https://www.simportex.gov.ao
+    tier: A
+    source_class: SIMPORTEX Angola
+    category: procurement_calendar
+    region: lusophone
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+    notes: "Angola Single Window for Foreign Trade — procurement authorisations, import licences. Budget cycle peaks Q2. Presidential decree mandate structure governs broker engagement."
+
+  - url: https://www.dnac.gov.mz
+    tier: A
+    source_class: DNAC Mozambique
+    category: procurement_calendar
+    region: lusophone
+    ingest_strategy: html_crawl
+    frequency: monthly
+    cplp_relevant: true
+    notes: "Mozambique National Directorate of Arms & Customs — FADM modernisation programme timeline. Rwanda troop withdrawal creates urgent capability gap (2026 signal)."

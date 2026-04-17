@@ -896,6 +896,49 @@ async def mastery_to_prompt_addendum(message: str) -> str:
         lines.append("4. SEARCH BEFORE RECALL — For weak topic(s), prefer "
                      "running a search tool over relying on memory/RAG.")
 
+    # ── REGIONAL MASTERY CHECK — missing cells and uninformed prior ──
+    # Check if the query hits topic×region combinations with no data
+    # (-- cells) or uninformed prior (≤55%). These are the most
+    # dangerous gaps because ARIA answers confidently from noise.
+    _UNINFORMED_PRIOR_THRESHOLD = 0.56  # anything at or below initial EWMA
+    try:
+        regions = detect_regions(message)
+        rm = await _load_regional_mastery()
+        missing_cells = []
+        prior_cells = []
+        for t in topics:
+            if t not in TOPICS:
+                continue
+            for r in regions:
+                key = f"{t}:{r}"
+                if key not in rm or rm[key].get("samples", 0) < 2:
+                    missing_cells.append(f"{t}/{r}")
+                elif rm[key].get("score", 0.5) <= _UNINFORMED_PRIOR_THRESHOLD:
+                    prior_cells.append((f"{t}/{r}", rm[key].get("score", 0.5)))
+
+        if missing_cells:
+            lines.append("")
+            lines.append("🔴 NO VERIFIED DATA — the following topic/region "
+                         "combinations have ZERO data points:")
+            for cell in missing_cells[:8]:
+                lines.append(f"  • {cell} — NO DATA")
+            lines.append("MANDATORY: Begin your response with: \"⚠ I have no "
+                         "verified intelligence for [topic] in [region]. The "
+                         "following is based on general training data, not "
+                         "verified sources. Human verification required before "
+                         "any action.\"")
+
+        if prior_cells:
+            lines.append("")
+            lines.append("🟠 UNINFORMED PRIOR — the following cells are at or "
+                         "below the initial baseline (possibly noise, not knowledge):")
+            for cell, score in prior_cells[:8]:
+                lines.append(f"  • {cell}: {score:.0%}")
+            lines.append("Treat any output on these topic/region combinations "
+                         "as UNVERIFIED. Do not use [CONFIRMED] or [PROBABLE].")
+    except Exception:
+        pass
+
     lines.append("")
     lines.append("These rules are automatically lifted when mastery "
                  f"recovers above {WEAK_THRESHOLD:.0%}. Critical-tier "

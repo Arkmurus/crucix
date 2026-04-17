@@ -117,6 +117,16 @@ TIER_1A_DOMAINS = {
     "companies-house.service.gov.uk", "find-and-update.company-information.service.gov.uk",
     "orsr.sk", "krs.ms.gov.pl", "anaf.ro", "receita.economia.gov.br",
     "data.merkez.gov.tr",
+    # European OEM country registries (added 2026-04-17 — DD gap)
+    "bundesanzeiger.de",       # German Federal Gazette
+    "handelsregister.de",      # German Commercial Register
+    "infogreffe.fr",           # French Commercial Court Registry
+    "consob.it",               # Italian Securities Commission
+    "registroimprese.it",      # Italian Business Register
+    "bolagsverket.se",         # Swedish Companies Registration
+    # Lusophone procurement
+    "simportex.gov.ao",        # Angola Single Window for Foreign Trade
+    "dnac.gov.mz",             # Mozambique arms & customs
     # Sanctions lists
     "treasury.gov", "ofac.treasury.gov", "sanctionslist.ofsi.hmtreasury.gov.uk",
     "eeas.europa.eu", "un.org",
