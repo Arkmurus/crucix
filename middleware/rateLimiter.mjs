@@ -252,20 +252,61 @@ export const rules = {
 
 // ── XSS / Injection Guard (additional layer) ──────────────────────────────────
 
+// Patterns that are a real XSS threat IF reflected unsanitised into
+// HTML output. These rules make sense for form fields on a page that
+// renders user input (login, deal entry, etc). They do NOT make sense
+// for LLM chat messages or extracted document content, where the text
+// is consumed by Claude/DeepSeek and never rendered as HTML.
+//
+// Previous list (2026-04-17 23:08 incident) included `\$\{.*?\}` and
+// `\{\{.*?\}\}` which match standard JavaScript template literals and
+// Angular/Handlebars/Jinja syntax — present in EVERY code-containing
+// document. A user uploading a PDF of a quantum-computing security
+// whitepaper got blocked because the paper contained `${algorithm}`
+// style code snippets. Tightened + scoped below.
 const DANGEROUS_PATTERNS = [
   /<script[\s\S]*?>[\s\S]*?<\/script>/gi,
-  /javascript:/gi,
-  /on\w+\s*=/gi,          // onclick=, onload=, etc.
-  /\$\{.*?\}/g,           // template injection
-  /\{\{.*?\}\}/g,         // Angular/Handlebars injection
-  /';\s*drop\s+table/gi,  // SQL injection
-  /;\s*delete\s+from/gi,
+  /javascript:\s*[a-z0-9]/gi,          // "javascript:doBadThing" — require a real call after
+  /\son(?:click|load|error|mouseover|submit|focus|blur|change|keydown|keyup|mousedown|mouseup)\s*=\s*["']/gi,  // actual event-handler attributes in HTML
+  /';\s*drop\s+table\s+/gi,             // require a table name after
+  /;\s*delete\s+from\s+/gi,
+];
+
+// Paths that legitimately accept free-form text, LLM messages, or
+// document content. XSS guard is SKIPPED for these — the content is
+// consumed by an LLM or written to a structured store, never reflected
+// into a browser-rendered page. Exempting them fixes the 2026-04-17
+// PDF-upload incident where `${}` / `{{}}` in a security-research PDF
+// tripped the template-injection pattern.
+const XSS_GUARD_EXEMPT_PREFIXES = [
+  '/api/aria/chat',           // chat + streaming chat
+  '/api/aria/think',
+  '/api/aria/read-document',
+  '/api/aria/corpus',         // corpus ingest (PDF/DOCX bulk text)
+  '/api/aria/document',       // document extraction pipeline
+  '/api/aria/investigate',    // research topics — free-form query text
+  '/api/aria/crawl',          // web crawl — URLs + context text
+  '/api/aria/deep-research',
+  '/api/aria/teach',          // /teach topic: content — user corpus additions
+  '/api/aria/writers/produce',  // writer inputs include template-looking content
 ];
 
 export function xssGuard(req, res, next) {
+  // Path-level exemption for LLM / document / research endpoints.
+  // These paths accept content that is consumed by downstream LLMs
+  // or ingested into structured stores — not rendered to a browser.
+  const reqPath = (req.path || req.url || '').toLowerCase();
+  for (const prefix of XSS_GUARD_EXEMPT_PREFIXES) {
+    if (reqPath.startsWith(prefix)) {
+      return next();
+    }
+  }
+
   const check = (value) => {
     if (typeof value !== 'string') return value;
     for (const pattern of DANGEROUS_PATTERNS) {
+      // Reset lastIndex — /g flags carry state across .test() calls
+      pattern.lastIndex = 0;
       if (pattern.test(value)) {
         return null;  // reject dangerous input
       }
@@ -273,24 +314,37 @@ export function xssGuard(req, res, next) {
     return value;
   };
 
+  // Returns {rejected, field} — first offending field stops the scan.
+  // Caller is responsible for NOT calling next() when rejected=true.
   const sanitize = (obj) => {
-    if (!obj || typeof obj !== 'object') return obj;
+    if (!obj || typeof obj !== 'object') return {rejected: false};
     for (const [key, value] of Object.entries(obj)) {
       if (typeof value === 'string') {
         const checked = check(value);
         if (checked === null) {
-          return res.status(400).json({ error: `Invalid input in field: ${key}` });
+          return {rejected: true, field: key};
         }
         obj[key] = checked;
       } else if (typeof value === 'object') {
-        sanitize(value);
+        const inner = sanitize(value);
+        if (inner.rejected) return inner;
       }
     }
-    return obj;
+    return {rejected: false};
   };
 
-  if (req.body)  sanitize(req.body);
-  if (req.query) sanitize(req.query);
+  if (req.body) {
+    const r = sanitize(req.body);
+    if (r.rejected) {
+      return res.status(400).json({ error: `Invalid input in field: ${r.field}` });
+    }
+  }
+  if (req.query) {
+    const r = sanitize(req.query);
+    if (r.rejected) {
+      return res.status(400).json({ error: `Invalid input in field: ${r.field}` });
+    }
+  }
   next();
 }
 
