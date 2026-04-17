@@ -98,6 +98,14 @@ CORE_MODULES = [
     # F3 cascade remediation (2026-04-17 21:45-21:55)
     "aria_service.intel.run_quarantine",
     "aria_service.intel.sanctions_claim_guard",
+    # Document-to-entity bridge (2026-04-17 23:30)
+    "aria_service.intel.document_entity_bridge",
+    # Continuous learning loop (2026-04-18)
+    "aria_service.learning",
+    "aria_service.learning.training_export",
+    "aria_service.learning.knowledge_spider",
+    "aria_service.learning.metacognitive_journal",
+    "aria_service.learning.research_engine",
     "aria_service.writers",
     "aria_service.writers.writer_orchestrator",
     "aria_service.writers.assessment_writer",

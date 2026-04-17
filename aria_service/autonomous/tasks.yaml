@@ -1311,3 +1311,89 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: ["window_opening_critical"]
     mem0_tags: [procurement_calendar, window_alert, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # CONTINUOUS LEARNING LOOP — 2026-04-18
+  # ═══════════════════════════════════════════════════════════════════
+  # Four tasks that make ARIA learn 24/7 at zero marginal cost:
+  #   - LEARNING-EXPORT-DAILY      builds her fine-tune training corpus
+  #   - SPIDER-HOURLY              follows URLs + entities in new content
+  #   - METACOG-JOURNAL-HOURLY     hourly structured self-reflection
+  #   - RESEARCH-WEAK-CELL-HOURLY  attacks her own weakest mastery cells
+  # All are LLM-free. All run independently. All absorb into brain_hook.
+
+  - id: LEARNING-EXPORT-DAILY
+    name: Training-data export — daily corpus snapshot
+    description: |
+      Daily 03:30 UTC — scan the last 24h of DD reports, chat audit,
+      writer outputs, and adversarial passes. Export high-quality
+      grounded examples as JSONL training corpus under
+      /data/aria_training/YYYY-MM-DD.jsonl. Feeds future fine-tune pilots.
+    cron: "30 3 * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 120
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: training_export
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, training_export, autonomous]
+
+  - id: SPIDER-HOURLY
+    name: Knowledge spider — follow URLs + entity citations
+    description: |
+      Hourly at :10 past — scan recent RAG chunks + chat audit for
+      referenced URLs + entity names, fetch + ingest into RAG,
+      recurse up to 3 hops. Respects robots.txt + rate limits.
+      Zero LLM cost — pure httpx + rule-based extraction.
+    cron: "10 * * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 240
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: knowledge_spider
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, spider, autonomous]
+
+  - id: METACOG-JOURNAL-HOURLY
+    name: Metacognitive journal — hourly self-reflection
+    description: |
+      Hourly at :45 past — read the last hour's successes, failures,
+      and novelties from mistake_ledger + chat_audit + adversarial +
+      bright_lines + calibration. Write structured journal entry to
+      Redis. Feeds future fine-tune supervision + operator visibility.
+    cron: "45 * * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 90
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: metacognitive_journal
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, metacognitive, autonomous]
+
+  - id: RESEARCH-WEAK-CELL-HOURLY
+    name: Research engine — attack weakest mastery cell
+    description: |
+      Hourly at :20 past — pick the 2 weakest (topic, region) cells
+      from mastery heatmap, generate 3 research queries each,
+      dispatch via web_search, queue top URLs for the spider.
+      Attacks stalled cells are escalated as capability gaps.
+    cron: "20 * * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 240
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: research_engine
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["stalled_cell"]
+    mem0_tags: [learning, research, autonomous]

@@ -805,6 +805,22 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
             }
         return {"error": f"chain_correlator: unknown action {action!r}"}
 
+    elif tool_kind == "training_export":
+        from ..learning import training_export
+        return await training_export.run_daily_export(days_lookback=1)
+
+    elif tool_kind == "knowledge_spider":
+        from ..learning import knowledge_spider
+        return await knowledge_spider.run_spider_tick()
+
+    elif tool_kind == "metacognitive_journal":
+        from ..learning import metacognitive_journal
+        return await metacognitive_journal.run_hourly_journal()
+
+    elif tool_kind == "research_engine":
+        from ..learning import research_engine
+        return await research_engine.run_research_tick()
+
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}
 

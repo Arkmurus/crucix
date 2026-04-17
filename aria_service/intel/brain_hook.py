@@ -110,6 +110,12 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     # F3 cascade remediation (2026-04-17 21:45-21:55)
     "run_quarantine":              ["compliance", "general"],
     "sanctions_claim_guard":       ["compliance", "legal"],
+    # Continuous learning loop (2026-04-18)
+    "training_export":             ["general"],
+    "knowledge_spider":            ["osint", "general", "market_intel"],
+    "metacognitive_journal":       ["general", "compliance"],
+    "research_engine":             ["general", "osint", "market_intel"],
+    "document_entity_bridge":      ["compliance", "legal"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
@@ -204,6 +210,12 @@ _MODULE_WEIGHT: dict[str, float] = {
     # F3 cascade remediation (2026-04-17 21:45-21:55)
     "run_quarantine":              0.15,
     "sanctions_claim_guard":       0.25,  # live primary check = high-value signal
+    # Continuous learning loop (2026-04-18)
+    "training_export":             0.10,
+    "knowledge_spider":            0.15,
+    "metacognitive_journal":       0.10,
+    "research_engine":             0.20,  # self-directed attacking weak cells
+    "document_entity_bridge":      0.15,
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity
