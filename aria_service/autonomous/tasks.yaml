@@ -1284,3 +1284,30 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: []
     mem0_tags: [chain_correlator, confirmed, scoring, autonomous]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # WINDOW-ALERT-DAILY — 90-day procurement-window alert
+  # ═══════════════════════════════════════════════════════════════════
+  # Part of the 2026-04-17 PM heat-map expansion. Daily 06:00 UTC
+  # scan of procurement_calendar for events whose next occurrence is
+  # within the lead_days window. Surfaces into morning team briefing
+  # plus mem0 for downstream chat retrieval. No LLM spend.
+  - id: WINDOW-ALERT-DAILY
+    name: Procurement calendar — 90-day window alerts
+    description: |
+      Daily 06:00 UTC — scan procurement_calendar.list_upcoming across
+      all regions, surface events whose open date is within lead_days.
+      Emit [WINDOW-OPENING] markers into mem0 for chat retrieval and
+      include in the 05:45-UTC briefing context.
+    cron: "0 6 * * *"
+    enabled: true    # ENABLED 2026-04-17 PM: zero-cost calendar scan
+    priority: LOW
+    timeout_seconds: 60
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: procurement_calendar
+        action: alerts
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["window_opening_critical"]
+    mem0_tags: [procurement_calendar, window_alert, autonomous]

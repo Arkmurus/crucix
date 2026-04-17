@@ -851,6 +851,46 @@ def _sync_correlation_context(message: str) -> str:
                     parts.append("\n".join(lines))
             except Exception:
                 pass
+            # Gulf OEM structure — SAMI / EDGE / Tawazun / Barzan
+            try:
+                from .intel import gulf_oem_structure
+                gs = gulf_oem_structure.get_gulf_oem_context(message)
+                if gs:
+                    parts.append(gs)
+            except Exception:
+                pass
+            # KSA Vision 2030 localisation tracker
+            try:
+                from .intel import vision_2030_tracker
+                v2 = vision_2030_tracker.get_vision_2030_context(message)
+                if v2:
+                    parts.append(v2)
+            except Exception:
+                pass
+            # Baykar export pipeline
+            try:
+                from .intel import baykar_export_pipeline
+                bx = baykar_export_pipeline.get_baykar_context(message)
+                if bx:
+                    parts.append(bx)
+            except Exception:
+                pass
+            # Political risk index (Fund For Peace FSI + CrisisWatch tier)
+            try:
+                from .intel import political_risk_index
+                pr = political_risk_index.get_risk_context(message)
+                if pr:
+                    parts.append(pr)
+            except Exception:
+                pass
+            # Cross-regional correlator — geopolitical trigger → downstream region
+            try:
+                from .intel import cross_regional_correlator
+                cr = cross_regional_correlator.get_cross_regional_context(message)
+                if cr:
+                    parts.append(cr)
+            except Exception:
+                pass
             # Equipment specs — [EQUIPMENT: ...] marker when a platform
             # or operator country is mentioned.
             try:

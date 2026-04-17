@@ -83,6 +83,12 @@ CORE_MODULES = [
     "aria_service.intel.knowledge_central_africa",
     "aria_service.intel.knowledge_balkans",
     "aria_service.intel.regional_bright_lines",
+    # Heat-map expansion follow-up (2026-04-17 late PM)
+    "aria_service.intel.gulf_oem_structure",
+    "aria_service.intel.vision_2030_tracker",
+    "aria_service.intel.baykar_export_pipeline",
+    "aria_service.intel.political_risk_index",
+    "aria_service.intel.cross_regional_correlator",
     "aria_service.writers",
     "aria_service.writers.writer_orchestrator",
     "aria_service.writers.assessment_writer",

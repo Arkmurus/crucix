@@ -97,6 +97,12 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "knowledge_central_africa":    ["market_intel", "procurement", "compliance"],
     "knowledge_balkans":           ["market_intel", "procurement", "compliance"],
     "regional_bright_lines":       ["compliance", "legal", "procurement"],
+    # Heat-map expansion follow-up modules (2026-04-17 late PM)
+    "gulf_oem_structure":          ["market_intel", "procurement", "relationships"],
+    "vision_2030_tracker":         ["market_intel", "procurement", "compliance"],
+    "baykar_export_pipeline":      ["market_intel", "competitor_intel", "procurement"],
+    "political_risk_index":        ["geopolitics", "compliance", "market_intel"],
+    "cross_regional_correlator":   ["geopolitics", "procurement", "relationships", "market_intel"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
@@ -169,6 +175,12 @@ _MODULE_WEIGHT: dict[str, float] = {
     "knowledge_central_africa":    0.05,
     "knowledge_balkans":           0.05,
     "regional_bright_lines":       0.15,
+    # Heat-map expansion follow-up (2026-04-17 late PM)
+    "gulf_oem_structure":          0.10,
+    "vision_2030_tracker":         0.10,
+    "baykar_export_pipeline":      0.15,
+    "political_risk_index":        0.15,
+    "cross_regional_correlator":   0.20,
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity

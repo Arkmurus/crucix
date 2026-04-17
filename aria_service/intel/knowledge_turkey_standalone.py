@@ -68,17 +68,72 @@ STM (Savunma Teknolojileri Mühendislik):
 FNSS, Otokar, BMC:
   - Armoured vehicles (Pars, Kaplan, ALTAY main battle tank)
 
-EXPORT CONTROL + EUC
+EXPORT CONTROL + EUC — DETAILED PROCESS
 
 Turkish End-User Certificate (Nihai Kullanıcı Sertifikası):
-  - Required for defence-equipment transactions
-  - Issued through MSB / SSB chain
-  - Re-export restrictions apply per contract terms; differ from UK ECJU
-    or US EAR/ITAR in both process and bright lines
+
+  The EUC is the foundational document in Turkish defence export control.
+  It is the buyer-state government's written undertaking to the Turkish
+  exporter, countersigned by Turkish authorities, that the equipment
+  will (a) be used only by the declared end-user, (b) remain in the
+  declared country of end-use, and (c) not be re-exported or re-
+  transferred without prior Turkish written consent.
+
+  Process flow:
+    1. Turkish OEM (Baykar, ASELSAN, Roketsan, etc.) applies to SSB
+       for export approval via the SSB online export-licence portal,
+       citing the end-user country + specific platform/quantity.
+    2. Buyer-state MoD (or authorised authority) signs a formal EUC on
+       its own letterhead, stamped and dated, naming the end-user unit.
+       Template typically includes re-export prohibition language and a
+       "if disposed of, return to Türkiye" clause.
+    3. Turkish MSB (Milli Savunma Bakanlığı) reviews the EUC + SSB
+       recommendation. Inter-agency vetting for strategic alignment.
+    4. SSB İcra Komitesi (executive committee) issues formal approval.
+       Decision published in Resmî Gazete within days — public.
+    5. Turkish customs releases the shipment only after (a) export
+       licence issued, (b) EUC copy on file.
+
+  Validity + conditions:
+    - EUC is transaction-specific (not a framework)
+    - Re-export requires a written SSB waiver + updated EUC from the
+      downstream country — NOT retroactively granted
+    - Quantity caps are binding; over-shipment triggers re-licensing
+    - Turkish authority reserves the right to audit end-use (in
+      practice rarely exercised for non-strategic platforms)
+
+  Re-export to African + Gulf buyers (Arkmurus-relevant cases):
+    - African re-transfer: if equipment lands in an African buyer
+      (Nigeria, Morocco, Togo, etc.) and the buyer wishes to re-export
+      to a third country, a new EUC from the new end-user MUST be
+      obtained AND a waiver from SSB. Practical reality: rarely granted
+      unless the downstream buyer is in Türkiye's strategic interest.
+    - Gulf re-transfer: Tawazun / Edge / SAMI integration contracts
+      that involve Turkish components sometimes carry EUC flow-through
+      — verify the original EUC permits embedded-component re-export
+      before accepting a sub-system assembly mandate.
+
+  Bright-line differences vs. UK ECJU / US EAR:
+    - UK ECJU open licences (OGEL) do not exist in Turkish regime —
+      every defence transaction is individual-licence
+    - US ITAR "significant military equipment" controls don't apply;
+      Turkish equivalent is the SSB strategic-items list
+    - Turkish regime has no equivalent of US "deemed export" rules
+      for foreign-national access within TR facilities — compliance
+      lives at the physical-export stage
 
 SSB export-licence lists (published in Resmi Gazete):
   - Useful leading indicator of which OEMs are in advanced export talks
     with which counterparty countries
+  - Filter: search "Savunma Sanayii" + target-country name on
+    resmigazete.gov.tr — usually 3-7 day lag from İcra Komitesi meeting
+
+  Reading the signal:
+    - A licence appears in Resmî Gazete ~2-3 weeks after İcra Komitesi
+      approval
+    - Appearance implies contract is imminent or already signed
+    - Non-appearance is NOT evidence of non-approval — some sensitive
+      items are redacted from the published list
 
 COMMERCIAL POSITIONING GAP
 
