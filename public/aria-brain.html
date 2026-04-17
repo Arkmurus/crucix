@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARIA Brain — Command Control Centre</title>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9;
+          --green: #3fb950; --yellow: #d29922; --red: #f85149; --blue: #58a6ff;
+          --purple: #bc8cff; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+  h1 { color: #fff; margin-bottom: 4px; font-size: 1.6em; }
+  .subtitle { color: #8b949e; margin-bottom: 20px; font-size: 0.9em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card h2 { font-size: 1em; color: var(--blue); margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .metric { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #21262d; }
+  .metric:last-child { border-bottom: none; }
+  .metric .label { color: #8b949e; font-size: 0.85em; }
+  .metric .value { font-weight: 600; font-size: 1.1em; }
+  .good { color: var(--green); }
+  .warn { color: var(--yellow); }
+  .bad { color: var(--red); }
+  .neutral { color: var(--text); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; font-weight: 600; }
+  .badge-green { background: #0d3117; color: var(--green); border: 1px solid #1a4d2e; }
+  .badge-yellow { background: #3d2e00; color: var(--yellow); border: 1px solid #5c4600; }
+  .badge-red { background: #3d1418; color: var(--red); border: 1px solid #5c2125; }
+  .badge-blue { background: #0d2137; color: var(--blue); border: 1px solid #1a3d5c; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+  th { text-align: left; color: #8b949e; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px 8px; border-bottom: 1px solid #21262d; }
+  .heatmap { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 4px; }
+  .heat-cell { padding: 8px; border-radius: 4px; text-align: center; font-size: 0.75em; }
+  .refresh-btn { background: var(--blue); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85em; }
+  .refresh-btn:hover { opacity: 0.8; }
+  .timestamp { color: #8b949e; font-size: 0.8em; }
+  #status-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; padding: 10px 16px; background: var(--card); border-radius: 8px; border: 1px solid var(--border); }
+  .wide { grid-column: 1 / -1; }
+  .audit-entry { font-size: 0.8em; padding: 4px 0; border-bottom: 1px solid #21262d; }
+  .dlq-entry { background: #3d1418; border: 1px solid #5c2125; border-radius: 4px; padding: 8px; margin-bottom: 6px; font-size: 0.8em; }
+  .loading { color: #8b949e; font-style: italic; }
+</style>
+</head>
+<body>
+
+<h1>ARIA Brain — Command Control Centre</h1>
+<p class="subtitle">Real-time intelligence platform health, quality metrics, and audit trail</p>
+
+<div id="status-bar">
+  <span id="health-badge" class="badge">Loading...</span>
+  <span id="mode-badge" class="badge">--</span>
+  <span id="autonomy-badge" class="badge">--</span>
+  <span class="timestamp" id="last-refresh">--</span>
+  <button class="refresh-btn" onclick="refreshAll()">Refresh</button>
+</div>
+
+<div class="grid">
+  <!-- Health & Infrastructure -->
+  <div class="card">
+    <h2>Infrastructure</h2>
+    <div id="infra-metrics" class="loading">Loading...</div>
+  </div>
+
+  <!-- Quality Metrics -->
+  <div class="card">
+    <h2>Quality Metrics</h2>
+    <div id="quality-metrics" class="loading">Loading...</div>
+  </div>
+
+  <!-- Mastery -->
+  <div class="card">
+    <h2>Mastery (88% overall)</h2>
+    <div id="mastery-metrics" class="loading">Loading...</div>
+  </div>
+
+  <!-- Adversarial -->
+  <div class="card">
+    <h2>Adversarial Testing</h2>
+    <div id="adversarial-metrics" class="loading">Loading...</div>
+  </div>
+
+  <!-- Circuit Breakers -->
+  <div class="card">
+    <h2>Circuit Breakers</h2>
+    <div id="breaker-metrics" class="loading">Loading...</div>
+  </div>
+
+  <!-- Predictor -->
+  <div class="card">
+    <h2>Predictor Gate</h2>
+    <div id="predictor-metrics" class="loading">Loading...</div>
+  </div>
+
+  <!-- Operating Mode -->
+  <div class="card">
+    <h2>Operating Mode</h2>
+    <div id="mode-metrics" class="loading">Loading...</div>
+  </div>
+
+  <!-- Chat Audit -->
+  <div class="card">
+    <h2>Chat Audit Trail</h2>
+    <div id="audit-metrics" class="loading">Loading...</div>
+  </div>
+
+  <!-- Mastery Heat Map -->
+  <div class="card wide">
+    <h2>Mastery Heat Map (Topic x Region)</h2>
+    <div id="heatmap" class="loading">Loading...</div>
+  </div>
+
+  <!-- Dead Letter Queue -->
+  <div class="card">
+    <h2>Dead Letter Queue</h2>
+    <div id="dlq-metrics" class="loading">Loading...</div>
+  </div>
+
+  <!-- Autonomous Engine -->
+  <div class="card">
+    <h2>Autonomous Engine</h2>
+    <div id="engine-metrics" class="loading">Loading...</div>
+  </div>
+
+  <!-- Recent Audit Entries -->
+  <div class="card wide">
+    <h2>Recent Chat Audit Entries</h2>
+    <div id="audit-recent" class="loading">Loading...</div>
+  </div>
+</div>
+
+<script>
+const API = '/api/aria';
+const TOKEN = localStorage.getItem('authToken') || '';
+const headers = TOKEN ? { 'Authorization': `Bearer ${TOKEN}` } : {};
+
+async function fetchJson(path) {
+  try {
+    const r = await fetch(`${API}${path}`, { headers });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+
+function pct(v, digits=0) { return v != null ? `${(v * 100).toFixed(digits)}%` : '--'; }
+function scoreClass(v, good=0.7, warn=0.4) {
+  if (v == null) return 'neutral';
+  return v >= good ? 'good' : v >= warn ? 'warn' : 'bad';
+}
+function heatColor(score) {
+  if (score >= 0.8) return '#0d3117';
+  if (score >= 0.6) return '#3d2e00';
+  if (score >= 0.4) return '#3d2818';
+  return '#3d1418';
+}
+
+function metricRow(label, value, cls='neutral') {
+  return `<div class="metric"><span class="label">${label}</span><span class="value ${cls}">${value}</span></div>`;
+}
+
+async function loadHealth() {
+  const d = await fetchJson('/health');
+  if (!d) { document.getElementById('infra-metrics').innerHTML = '<span class="bad">Failed to load</span>'; return; }
+
+  // Status bar
+  const hb = document.getElementById('health-badge');
+  hb.textContent = d.status?.toUpperCase() || 'UNKNOWN';
+  hb.className = `badge ${d.status === 'healthy' ? 'badge-green' : 'badge-yellow'}`;
+
+  document.getElementById('infra-metrics').innerHTML =
+    metricRow('Redis', d.infra?.redis ? 'Connected' : 'DOWN', d.infra?.redis ? 'good' : 'bad') +
+    metricRow('RAG Store', d.infra?.rag ? 'Available' : 'DOWN', d.infra?.rag ? 'good' : 'bad') +
+    metricRow('Open Breakers', d.circuit_breakers?.open || 0, d.circuit_breakers?.open > 0 ? 'warn' : 'good');
+
+  document.getElementById('quality-metrics').innerHTML =
+    metricRow('Mastery Overall', pct(d.quality?.mastery_overall), scoreClass(d.quality?.mastery_overall, 0.8, 0.55)) +
+    metricRow('Grounded Rate', pct(d.quality?.grounded_rate), scoreClass(d.quality?.grounded_rate)) +
+    metricRow('Adversarial Score', pct(d.quality?.adversarial_score), scoreClass(d.quality?.adversarial_score, 0.8, 0.5)) +
+    metricRow('Predictor Blocks (24h)', d.quality?.predictor_blocks_24h || 0, d.quality?.predictor_blocks_24h > 3 ? 'bad' : 'good') +
+    metricRow('Weak Topics', (d.quality?.weak_topics || []).join(', ') || 'None', d.quality?.weak_topics?.length ? 'warn' : 'good');
+}
+
+async function loadMode() {
+  const d = await fetchJson('/operating-mode');
+  if (!d) return;
+  const mb = document.getElementById('mode-badge');
+  mb.textContent = `MODE: ${d.mode}`;
+  const cls = {NORMAL:'badge-green', DEGRADED:'badge-yellow', SUPERVISED:'badge-yellow', EMERGENCY:'badge-red'}[d.mode] || 'badge-blue';
+  mb.className = `badge ${cls}`;
+
+  let html = metricRow('Current Mode', d.mode, d.mode === 'NORMAL' ? 'good' : 'warn');
+  if (d.history?.length) {
+    html += '<div style="margin-top:8px;font-size:0.8em;color:#8b949e">Recent transitions:</div>';
+    d.history.slice(0, 5).forEach(h => {
+      html += `<div style="font-size:0.75em;padding:2px 0">${h.from} → ${h.to} — ${h.reason} (${h.at})</div>`;
+    });
+  }
+  document.getElementById('mode-metrics').innerHTML = html;
+}
+
+async function loadEngine() {
+  const d = await fetchJson('/autonomous/status');
+  if (!d) { document.getElementById('engine-metrics').innerHTML = '<span class="bad">Failed</span>'; return; }
+  const e = d.engine || d;
+
+  const ab = document.getElementById('autonomy-badge');
+  const label = e.autonomy_label || (e.enabled ? 'ON' : 'OFF');
+  ab.textContent = `AUTONOMY: ${label}`;
+  ab.className = `badge ${e.enabled ? 'badge-green' : 'badge-red'}`;
+
+  document.getElementById('engine-metrics').innerHTML =
+    metricRow('Running', e.running ? 'Yes' : 'No', e.running ? 'good' : 'bad') +
+    metricRow('Autonomy Level', `L${e.autonomy_level || 0} (${e.autonomy_label || 'OFF'})`, e.autonomy_level >= 2 ? 'good' : 'warn') +
+    metricRow('Dry Run', e.dry_run ? 'Yes' : 'No', e.dry_run ? 'warn' : 'good') +
+    metricRow('Tasks Fired', e.fire_count || 0, 'neutral') +
+    metricRow('Ticks', e.tick_count || 0, 'neutral');
+}
+
+async function loadAdversarial() {
+  const d = await fetchJson('/adversarial/stats');
+  if (!d) { document.getElementById('adversarial-metrics').innerHTML = '<span class="neutral">No data yet</span>'; return; }
+  const last = d.last_run;
+  if (!last) { document.getElementById('adversarial-metrics').innerHTML = '<span class="neutral">No runs yet — first audit Wed 06:00 UTC</span>'; return; }
+  document.getElementById('adversarial-metrics').innerHTML =
+    metricRow('Overall Score', pct(last.overall_score), scoreClass(last.overall_score, 0.8, 0.5)) +
+    metricRow('Passed', `${last.passed}/${last.total_attacks}`, last.passed === last.total_attacks ? 'good' : 'warn') +
+    metricRow('Critical Failures', last.critical_failures || 0, last.critical_failures > 0 ? 'bad' : 'good') +
+    metricRow('Pending Amendments', d.pending_amendments || 0, d.pending_amendments > 0 ? 'warn' : 'good') +
+    metricRow('Last Run', last.run_at || '--', 'neutral');
+}
+
+async function loadBreakers() {
+  const d = await fetchJson('/circuit-breakers');
+  if (!d || !d.breakers?.length) { document.getElementById('breaker-metrics').innerHTML = '<span class="good">No breakers registered yet</span>'; return; }
+  let html = '<table><tr><th>Backend</th><th>State</th><th>Failures</th></tr>';
+  d.breakers.forEach(b => {
+    const cls = b.state === 'CLOSED' ? 'good' : b.state === 'OPEN' ? 'bad' : 'warn';
+    html += `<tr><td>${b.name}</td><td class="${cls}">${b.state}</td><td>${b.consecutive_failures}/${b.total_failures}</td></tr>`;
+  });
+  html += '</table>';
+  document.getElementById('breaker-metrics').innerHTML = html;
+}
+
+async function loadPredictor() {
+  const d = await fetchJson('/predictor/block_rate');
+  if (!d) { document.getElementById('predictor-metrics').innerHTML = '<span class="neutral">No data</span>'; return; }
+  let html = metricRow('Blocks (24h)', d.blocks_24h || 0, d.blocks_24h > 3 ? 'bad' : 'good');
+  const domains = d.by_domain || {};
+  if (Object.keys(domains).length) {
+    html += '<table><tr><th>Domain</th><th>Blocks</th></tr>';
+    Object.entries(domains).sort((a,b) => b[1]-a[1]).forEach(([dom, count]) => {
+      html += `<tr><td>${dom}</td><td class="${count > 2 ? 'bad' : 'warn'}">${count}</td></tr>`;
+    });
+    html += '</table>';
+  } else {
+    html += '<div style="font-size:0.8em;color:#8b949e;margin-top:8px">No blocks recorded yet</div>';
+  }
+  document.getElementById('predictor-metrics').innerHTML = html;
+}
+
+async function loadAudit() {
+  const d = await fetchJson('/chat-audit/stats');
+  if (!d) { document.getElementById('audit-metrics').innerHTML = '<span class="neutral">No data</span>'; return; }
+  document.getElementById('audit-metrics').innerHTML =
+    metricRow('Total Entries', d.total_entries || 0, 'neutral') +
+    metricRow('Head Hash', (d.head_hash || '--').slice(0, 12) + '...', 'neutral') +
+    metricRow('Retention', `${d.ttl_days || 90} days`, 'neutral');
+
+  // Recent entries
+  const recent = await fetchJson('/chat-audit/recent?limit=10');
+  if (recent?.entries?.length) {
+    let rhtml = '<table><tr><th>Time</th><th>Tags</th><th>Sources</th><th>Mastery</th><th>Mode</th></tr>';
+    recent.entries.forEach(e => {
+      const time = e.timestamp?.slice(11, 16) || '--';
+      const tags = (e.confidence_tags || []).join(', ') || '--';
+      const srcs = e.sources_count || 0;
+      rhtml += `<tr><td>${time}</td><td>${tags}</td><td>${srcs}</td><td>${pct(e.mastery_overall)}</td><td>${e.operating_mode || '--'}</td></tr>`;
+    });
+    rhtml += '</table>';
+    document.getElementById('audit-recent').innerHTML = rhtml;
+  } else {
+    document.getElementById('audit-recent').innerHTML = '<span class="neutral">No audit entries yet — will populate after first chat</span>';
+  }
+}
+
+async function loadHeatmap() {
+  const d = await fetchJson('/student/mastery/heatmap');
+  if (!d || !d.heatmap || !Object.keys(d.heatmap).length) {
+    document.getElementById('heatmap').innerHTML = '<span class="neutral">No regional data yet — populates as ARIA processes region-specific queries</span>';
+    return;
+  }
+  // Collect all regions
+  const allRegions = new Set();
+  Object.values(d.heatmap).forEach(regions => Object.keys(regions).forEach(r => allRegions.add(r)));
+  const regionList = [...allRegions].sort();
+  const topicList = Object.keys(d.heatmap).sort();
+
+  let html = '<table><tr><th></th>';
+  regionList.forEach(r => { html += `<th style="font-size:0.7em;writing-mode:vertical-rl;transform:rotate(180deg);height:80px">${r}</th>`; });
+  html += '</tr>';
+  topicList.forEach(topic => {
+    html += `<tr><td style="font-size:0.8em">${topic}</td>`;
+    regionList.forEach(region => {
+      const score = d.heatmap[topic]?.[region];
+      if (score != null) {
+        const bg = heatColor(score);
+        const cls = scoreClass(score, 0.7, 0.4);
+        html += `<td style="background:${bg};text-align:center;font-size:0.75em" class="${cls}">${pct(score)}</td>`;
+      } else {
+        html += '<td style="text-align:center;color:#30363d;font-size:0.7em">--</td>';
+      }
+    });
+    html += '</tr>';
+  });
+  html += '</table>';
+
+  if (d.weak_cells?.length) {
+    html += '<div style="margin-top:8px;font-size:0.8em;color:var(--yellow)">Weak cells: ';
+    html += d.weak_cells.map(c => `${c.topic}/${c.region} (${pct(c.score)})`).join(', ');
+    html += '</div>';
+  }
+  document.getElementById('heatmap').innerHTML = html;
+}
+
+async function loadDLQ() {
+  const d = await fetchJson('/autonomous/dlq');
+  if (!d) { document.getElementById('dlq-metrics').innerHTML = '<span class="neutral">No data</span>'; return; }
+  let html = metricRow('Total Failed', d.stats?.total || 0, d.stats?.total > 0 ? 'warn' : 'good') +
+    metricRow('Compliance', d.stats?.compliance || 0, d.stats?.compliance > 0 ? 'bad' : 'good') +
+    metricRow('Resolved', d.stats?.resolved || 0, 'neutral');
+  if (d.queue?.length) {
+    html += '<div style="margin-top:8px">';
+    d.queue.slice(0, 3).forEach(e => {
+      html += `<div class="dlq-entry"><strong>${e.task_id}</strong> → ${e.channel}<br>${e.error?.slice(0,100)}<br><span class="timestamp">${e.enqueued_at}</span></div>`;
+    });
+    html += '</div>';
+  }
+  document.getElementById('dlq-metrics').innerHTML = html;
+}
+
+async function loadMastery() {
+  const d = await fetchJson('/student/mastery');
+  if (!d) { document.getElementById('mastery-metrics').innerHTML = '<span class="neutral">Loading...</span>'; return; }
+  let html = '';
+  const topics = d.topics || d.mastery || {};
+  if (typeof topics === 'object') {
+    const entries = Object.entries(topics).sort((a,b) => (a[1]?.score||0) - (b[1]?.score||0));
+    entries.forEach(([topic, val]) => {
+      const score = val?.score || val || 0;
+      html += metricRow(topic, pct(score), scoreClass(score, 0.7, 0.55));
+    });
+  }
+  document.getElementById('mastery-metrics').innerHTML = html || '<span class="neutral">No mastery data</span>';
+}
+
+async function refreshAll() {
+  document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
+  await Promise.all([
+    loadHealth(), loadMode(), loadEngine(), loadAdversarial(),
+    loadBreakers(), loadPredictor(), loadAudit(), loadHeatmap(),
+    loadDLQ(), loadMastery(),
+  ]);
+}
+
+// Auto-refresh every 60 seconds
+refreshAll();
+setInterval(refreshAll, 60000);
+</script>
+</body>
+</html>
