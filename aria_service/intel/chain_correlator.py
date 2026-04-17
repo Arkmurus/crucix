@@ -416,6 +416,33 @@ async def project_windows() -> list[dict]:
     except Exception as e:
         logger.debug("predictor unavailable: %s", e)
 
+    # Ground-truth loop: register each projected window as a testable
+    # prediction so the team can later record the outcome (did a real
+    # tender actually land inside the projected window?). Fire-and-forget.
+    try:
+        from . import ground_truth_loop as _gt
+        for w in windows_out:
+            if w.status == "EXPIRED":
+                continue
+            try:
+                await _gt.record_assessment_async(
+                    assessment_type="TENDER_OPPORTUNITY",
+                    subject=f"{w.iso2}: procurement window "
+                            f"{w.window_open[:10]} to {w.window_close[:10]}",
+                    aria_prediction=(
+                        f"Geopolitical shift ({w.trigger_shift_type}) on "
+                        f"{w.shift_ts[:10]} will open a procurement window "
+                        f"{w.window_open[:10]}–{w.window_close[:10]} in {w.iso2}."
+                    ),
+                    aria_confidence=float(w.confidence),
+                    context=f"chain_correlator window {w.id}; region {w.region}",
+                    domain=w.iso2 or "general",
+                )
+            except Exception:
+                pass
+    except Exception as e:
+        logger.debug("ground_truth_loop unavailable: %s", e)
+
     active = [w for w in windows_out if w.status == "ACTIVE"]
     logger.info(
         "[chain] project_windows: %d projected, %d active",

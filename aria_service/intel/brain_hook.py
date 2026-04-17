@@ -76,6 +76,13 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "procurement_calendar": ["procurement", "geopolitics", "market_intel"],
     "competitor_tracker":   ["competitor_intel", "market_intel"],
     "oem_contact_graph":    ["relationships", "market_intel", "competitor_intel"],
+    # Tier 1 regional knowledge modules + equipment specs (2026-04-17)
+    "knowledge_gulf":              ["market_intel", "procurement", "compliance"],
+    "knowledge_turkey_standalone": ["market_intel", "procurement", "compliance"],
+    "knowledge_west_africa":       ["market_intel", "procurement", "compliance"],
+    "knowledge_latam_non_lusophone": ["market_intel", "procurement", "compliance"],
+    "equipment_specs":      ["technical", "market_intel", "procurement"],
+    "sipri_ingest":         ["market_intel", "procurement"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
@@ -130,6 +137,12 @@ _MODULE_WEIGHT: dict[str, float] = {
     "procurement_calendar": 0.10,  # static calendar upkeep — low frequency
     "competitor_tracker":   0.15,  # competitor observations drive mastery
     "oem_contact_graph":    0.15,  # OEM landscape updates — moderate weight
+    "knowledge_gulf":              0.05,  # static knowledge — low weight per query
+    "knowledge_turkey_standalone": 0.05,
+    "knowledge_west_africa":       0.05,
+    "knowledge_latam_non_lusophone": 0.05,
+    "equipment_specs":      0.10,
+    "sipri_ingest":         0.15,  # each ingest lands real historical data
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity

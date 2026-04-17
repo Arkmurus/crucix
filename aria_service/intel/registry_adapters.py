@@ -35,7 +35,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -75,6 +75,8 @@ async def lookup_entity(
         "KE": _lookup_kenya,
         "SA": _lookup_saudi_arabia,
         "GH": _lookup_ghana,
+        "ZA": _lookup_south_africa,
+        "IL": _lookup_israel,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -2144,6 +2146,151 @@ async def _lookup_ghana(name: str, reg_number: str | None) -> dict | None:
         "Company search available at https://rgd.gov.gh/online-search.php.",
         "Recommend manual verification via the RGD office in Accra or through a local legal representative.",
         "Ghana company registration numbers typically follow the format CS123456789.",
+    ]
+    return result
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  South Africa — CIPC (Companies & Intellectual Property Commission) ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+_ZA_CIPC_BASE = "https://www.cipc.co.za"
+_ZA_BIZPORTAL = "https://www.bizportal.gov.za"
+
+
+async def _lookup_south_africa(name: str, reg_number: str | None) -> dict | None:
+    """South Africa CIPC / BizPortal — best-effort lookup, stub fallback.
+
+    Full CIPC data requires paid credentials + manual disclosure requests.
+    Public disclosure of directors / shareholders is limited; the detailed
+    Form CoR 39 enumeration is behind login. This adapter returns a stub
+    result with data_gaps so the DD orchestrator can cite the limitation
+    honestly rather than invent officer records.
+    """
+    from .ua_rotation import random_ua
+    query = reg_number or name
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            # BizPortal search page — exploratory; often returns a login wall.
+            resp = await client.get(
+                f"{_ZA_BIZPORTAL}/Account/Login",
+                headers={
+                    "User-Agent": random_ua(),
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "en-ZA,en;q=0.9",
+                },
+            )
+            # If we land on anything other than 200, we don't try deeper parsing
+            if resp.status_code != 200:
+                logger.debug("CIPC BizPortal reachability check: %d", resp.status_code)
+    except Exception as exc:
+        logger.debug("South Africa CIPC adapter probe failed: %s", exc)
+
+    # Normalise a stub result. SA registration numbers typically follow
+    # the YYYY/NNNNNN/NN format (e.g. 2021/123456/07) — expose that pattern
+    # in data_gaps so operators can validate a supplied number.
+    result = _build_result(
+        company_name=name,
+        company_number=reg_number or "",
+        company_status="unknown",
+        date_of_creation="",
+        registered_office_address="",
+        jurisdiction="ZA",
+        sic_codes=[],
+        officers=[],
+        psc=[],
+        source_url=f"{_ZA_CIPC_BASE}",
+        adapter="south_africa_cipc_stub",
+    )
+    result["data_gaps"] = [
+        "CIPC does not expose a free programmatic company lookup API.",
+        "BizPortal (https://www.bizportal.gov.za) requires login; "
+        "disclosure searches are fee-based.",
+        "SA company registration numbers follow YYYY/NNNNNN/NN — "
+        "e.g. 2021/123456/07.",
+        "Recommend: (a) request a CIPC Disclosure Certificate via a "
+        "local attorney, or (b) query OpenSanctions + OpenCorporates for "
+        "cross-reference.",
+    ]
+    return result
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Israel — Companies Registrar (Reshamh Hahavarot)                    ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+_IL_REGISTRAR_BASE = "https://www.gov.il/en/departments/corporations_authority"
+_IL_REGISTRAR_DATA = "https://data.gov.il"  # partial open-data mirror
+
+
+async def _lookup_israel(name: str, reg_number: str | None) -> dict | None:
+    """Israel Companies Registrar — best-effort public-data lookup.
+
+    The official registrar site requires Hebrew-locale forms and CAPTCHA.
+    data.gov.il exposes a partial mirror of the registrar dataset; we
+    probe it here and degrade gracefully to a stub otherwise.
+    """
+    from .ua_rotation import random_ua
+    query = reg_number or name
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            # data.gov.il CKAN API — shape: /api/3/action/datastore_search
+            resp = await client.get(
+                f"{_IL_REGISTRAR_DATA}/api/3/action/datastore_search",
+                params={
+                    "resource_id": "f004176c-b85f-4542-8901-7b3176f9a054",
+                    "q": query,
+                    "limit": 5,
+                },
+                headers={
+                    "User-Agent": random_ua(),
+                    "Accept": "application/json",
+                    "Accept-Language": "en-IL,en;q=0.9,he;q=0.7",
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                records = ((data.get("result") or {}).get("records") or [])
+                for rec in records[:1]:  # take top hit
+                    return _build_result(
+                        company_name=(rec.get("שם חברה") or rec.get("company_name") or name),
+                        company_number=str(rec.get("מספר חברה") or rec.get("company_id") or reg_number or "").strip(),
+                        company_status=(rec.get("סטטוס חברה") or rec.get("status") or "unknown"),
+                        date_of_creation=(rec.get("תאריך התאגדות") or rec.get("date_of_registration") or ""),
+                        registered_office_address=(
+                            rec.get("כתובת מלאה") or rec.get("address") or ""
+                        ),
+                        jurisdiction="IL",
+                        sic_codes=[],
+                        officers=[],
+                        psc=[],
+                        source_url=f"{_IL_REGISTRAR_BASE}",
+                        adapter="israel_registrar_datagovil",
+                    )
+    except Exception as exc:
+        logger.debug("Israel data.gov.il probe failed: %s", exc)
+
+    result = _build_result(
+        company_name=name,
+        company_number=reg_number or "",
+        company_status="unknown",
+        date_of_creation="",
+        registered_office_address="",
+        jurisdiction="IL",
+        sic_codes=[],
+        officers=[],
+        psc=[],
+        source_url=_IL_REGISTRAR_BASE,
+        adapter="israel_registrar_stub",
+    )
+    result["data_gaps"] = [
+        "Official Israel Companies Registrar requires Hebrew-locale forms + CAPTCHA.",
+        "data.gov.il exposes a partial mirror but dataset IDs change — "
+        "verify the current `resource_id` if the probe fails.",
+        "IL company numbers are 9 digits. Non-profits use a separate "
+        "Amutot registrar; charities use a third registry.",
+        "Recommend: engage a local due-diligence firm for full registry "
+        "search + beneficial-ownership disclosure (not public).",
     ]
     return result
 

@@ -776,3 +776,66 @@ Respond with JSON:
             (c for c in self._load_clauses() if c.clause_id == clause_id),
             None
         )
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Async, fire-and-forget convenience wrapper
+# ═════════════════════════════════════════════════════════════════════════
+# Lets async modules (chain_correlator, tender_monitor, competitor_tracker)
+# register predictions without importing the sync-redis loop and without
+# blocking their own hot path. Stores under the same key prefix so the
+# existing routes + dashboards keep working.
+
+_ASYNC_KEY_PREFIX = "aria:ground_truth"
+
+
+async def record_assessment_async(
+    *,
+    assessment_type: "AssessmentType | str",
+    subject: str,
+    aria_prediction: str,
+    aria_confidence: float,
+    context: str = "",
+    domain: str = "general",
+) -> str:
+    """Async fire-and-forget version of ARIAGroundTruthLoop.record_assessment.
+
+    Uses the async redis_store module so it degrades cleanly when Redis is
+    unreachable. Returns the assessment_id so callers can link back when
+    the real-world outcome is later recorded.
+    """
+    from . import redis_store as _rs
+    if isinstance(assessment_type, str):
+        try:
+            assessment_type = AssessmentType[assessment_type]
+        except KeyError:
+            logger.debug("Unknown assessment_type %r; defaulting to INTELLIGENCE_CLAIM", assessment_type)
+            assessment_type = AssessmentType.INTELLIGENCE_CLAIM
+
+    assessment_id = hashlib.md5(
+        f"{assessment_type.value}{subject}{datetime.now().isoformat()}".encode()
+    ).hexdigest()[:12]
+
+    record = {
+        "assessment_id": assessment_id,
+        "assessment_type": assessment_type.value,
+        "subject": subject[:300],
+        "aria_prediction": aria_prediction[:500],
+        "aria_confidence": max(0.0, min(1.0, float(aria_confidence or 0.0))),
+        "context": context[:500],
+        "domain": domain[:120] if domain else "general",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "outcome": None,
+        "outcome_evidence": "",
+        "outcome_recorded_at": None,
+        "outcome_recorded_by": "",
+    }
+    try:
+        await _rs.set_json(f"{_ASYNC_KEY_PREFIX}:{assessment_id}", record)
+    except Exception as e:
+        logger.debug("record_assessment_async persist failed (non-fatal): %s", e)
+    logger.debug(
+        "[gt_loop] async assessment recorded: %s | %s | %s | %.0f%%",
+        assessment_id, assessment_type.value, subject[:60], record["aria_confidence"] * 100,
+    )
+    return assessment_id

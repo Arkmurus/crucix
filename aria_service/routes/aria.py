@@ -8710,11 +8710,23 @@ class _MemoryQueryBody(BaseModel):
 
 
 def _get_memory_router():
-    """Build a MemoryRouter with whatever stores are currently configured."""
+    """Build a MemoryRouter with whatever stores are currently configured.
+
+    2026-04-17 upgrade: chromadb collection is now wired live (rag_store
+    exposes a Collection object that matches the memory_router interface
+    directly). neural/ledger/mem0/audit still need sync .search() adapters;
+    they remain None and will surface as "not configured" in routing_log
+    instead of silently missing. Follow-up slice will add the four adapters.
+    """
     from ..intel.memory_router import ARIAMemoryRouter
-    # Pass None for stores — health_check + classification still work.
-    # Full query wiring needs per-store adapters; future slice.
-    return ARIAMemoryRouter()
+    chromadb_coll = None
+    try:
+        from ..intel import rag_store
+        if rag_store._ensure():
+            chromadb_coll = rag_store._documents_collection
+    except Exception as e:
+        logger.debug("memory_router: rag_store unavailable (%s)", e)
+    return ARIAMemoryRouter(chromadb_collection=chromadb_coll)
 
 
 @router.post("/memory/query")

@@ -772,6 +772,46 @@ def _sync_correlation_context(message: str) -> str:
                     parts.append(oem_ctx)
             except Exception:
                 pass
+            # Tier 1 regional knowledge (2026-04-17) — Gulf, Turkey-standalone,
+            # West Africa, LatAm non-Lusophone. Each module is keyword-gated
+            # so only regions mentioned in the message produce content.
+            try:
+                from .intel import knowledge_gulf
+                gc = knowledge_gulf.get_gulf_context(message)
+                if gc:
+                    parts.append(gc)
+            except Exception:
+                pass
+            try:
+                from .intel import knowledge_turkey_standalone
+                tc = knowledge_turkey_standalone.get_turkey_context(message)
+                if tc:
+                    parts.append(tc)
+            except Exception:
+                pass
+            try:
+                from .intel import knowledge_west_africa
+                wc = knowledge_west_africa.get_west_africa_context(message)
+                if wc:
+                    parts.append(wc)
+            except Exception:
+                pass
+            try:
+                from .intel import knowledge_latam_non_lusophone
+                lc = knowledge_latam_non_lusophone.get_latam_context(message)
+                if lc:
+                    parts.append(lc)
+            except Exception:
+                pass
+            # Equipment specs — [EQUIPMENT: ...] marker when a platform
+            # or operator country is mentioned.
+            try:
+                from .intel import equipment_specs
+                eq = equipment_specs.get_equipment_context(message)
+                if eq:
+                    parts.append(eq)
+            except Exception:
+                pass
             # Coverage confidence for mentioned countries
             import re
             _COUNTRY_NAMES = [
