@@ -1594,7 +1594,12 @@ _DD_ENTITY_CAPTURE_RE = re.compile(
     r"(?:^|[,.!?\n]\s*)(?:person|individual|subject|officer|director)\s*[:\-]\s*"
     r")"
     r"(.+?)"
-    r"(?:\s*(?:\?|\.\s|$|\n|/|,\s*(?:nationality|dob|role|title|position|address|registered|file\s+number|I[ČC])))",
+    # Terminators. DO NOT include bare `/` — tonight's f3ir.com DD
+    # (2026-04-17 21:30) proved it: "run DD on https://f3ir.com/"
+    # captured only "https:" because the first `/` after the scheme
+    # killed the match. URLs inside the entity field are a legitimate
+    # pattern (DD on a website → extract domain + look up registry).
+    r"(?:\s*(?:\?|\.\s|$|\n|,\s*(?:nationality|dob|role|title|position|address|registered|file\s+number|I[ČC])))",
     re.IGNORECASE,
 )
 
@@ -1739,6 +1744,32 @@ def _detect_dd_intent(message: str) -> dict | None:
     # Reject too-short or too-long captures — probably not an entity name
     if len(name) < 3 or len(name) > 500:
         return None
+
+    # ── URL-as-entity bridge (2026-04-17 21:30 fix) ──
+    # If the captured name IS a URL (or trivially becomes one when the
+    # scheme is added), use the domain as the entity placeholder and
+    # pass the full URL as `website` so the domain-ownership verifier
+    # + link tree get a seed. Intent detection's job is to get
+    # SOMETHING sensible through to the orchestrator — if the operator
+    # typed "DD on https://f3ir.com/" the domain IS the canonical
+    # reference until an entity name surfaces from registry / mem0.
+    _extracted_website: str | None = None
+    if name.lower().startswith(("http://", "https://", "www.")) or (
+        "." in name and " " not in name and "/" in name
+    ):
+        try:
+            from urllib.parse import urlparse
+            _probe = name if "://" in name else "https://" + name.lstrip("/")
+            _parsed = urlparse(_probe)
+            _host = (_parsed.hostname or "").strip(".")
+            if _host.startswith("www."):
+                _host = _host[4:]
+            if _host and "." in _host:
+                _extracted_website = _probe
+                name = _host
+        except Exception:
+            # Parsing failed — fall through with the raw capture
+            pass
 
     # ── Address-in-name extraction ──
     # Users often paste the registered address in the same line as the
@@ -2063,6 +2094,13 @@ def _detect_dd_intent(message: str) -> dict | None:
             )
             if _org_m:
                 extra["organisation"] = _org_m.group(1).strip()
+
+    # If the URL-as-entity bridge extracted a website and no other
+    # website hint was passed, use the extracted URL. This lets the
+    # domain_ownership_verifier + link_investigator see the seed even
+    # when the operator only typed the URL (no standalone company name).
+    if _extracted_website and not extra.get("website"):
+        extra["website"] = _extracted_website
 
     return {
         "tool": "dd_orchestrate",
