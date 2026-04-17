@@ -935,6 +935,29 @@ tasks:
   # DAILY-CITATION-SCOUT — 02:00 UTC — walks citations from trusted
   # sources to find authoritative citees; adds qualifying ones to the
   # Web Atlas (per-topic reliability map).
+  # WEEKLY-PROCUREMENT-SCOUT — Thursday 03:00 UTC — targeted source
+  # discovery for procurement (weakest mastery topic at 76%).
+  # Added 2026-04-17 based on dashboard finding.
+  - id: WEEKLY-PROCUREMENT-SCOUT
+    name: Procurement source scout (mastery gap)
+    description: |
+      Weekly Thursday 03:00 UTC — targeted source discovery for
+      defence procurement coverage. Procurement is the weakest
+      mastery topic (76%). Searches for new procurement portals,
+      tender databases, FMS trackers, and acquisition news sources
+      not already in the corpus registry.
+    cron: "0 3 * * thu"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 300
+    cost_cap_usd: 0.30
+    tool_chain:
+      - tool: deep_research
+        entity: "defence procurement tender portal database FMS acquisition new sources 2026"
+    delivery_channels: [mem0, intel_ledger]
+    escalate_if: ["new source", "procurement portal", "tender database"]
+    mem0_tags: [procurement, source_scout, mastery_gap, weekly, autonomous]
+
   - id: DAILY-CITATION-SCOUT
     name: Citation-graph source scout
     description: |
