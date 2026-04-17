@@ -509,11 +509,16 @@ async function loadSurface() {
       .join(', ');
     html += `<div style="margin-top:6px;font-size:0.8em;color:#8b949e">Priority: ${worst}</div>`;
   }
-  const gated = !!queue.wa_mirror_gated;
-  html += metricRow('WA counterparty mirror', gated ? 'GATED' : 'LIVE',
-                    gated ? 'warn' : 'good');
-  if (gated && (queue.wa_mirror_missing_env || []).length) {
+  // WA mirror: three states. GATED=warn, DEFERRED=neutral, LIVE=good.
+  const waStatus = queue.wa_mirror_status || (queue.wa_mirror_gated ? 'GATED' : 'LIVE');
+  const waCls = waStatus === 'LIVE' ? 'good'
+              : waStatus === 'DEFERRED' ? 'neutral'
+              : 'warn';
+  html += metricRow('WA counterparty mirror', waStatus, waCls);
+  if (waStatus === 'GATED' && (queue.wa_mirror_missing_env || []).length) {
     html += `<div style="margin-top:6px;font-size:0.8em;color:#8b949e">Missing env: ${queue.wa_mirror_missing_env.slice(0,2).join(', ')}</div>`;
+  } else if (waStatus === 'DEFERRED') {
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#8b949e">Intentionally off — unset ARIA_MIRROR_DEFERRED to re-enable nag.</div>`;
   }
   html += metricRow('Stale facts',        queue.stale_facts ?? 0,
                     (queue.stale_facts ?? 0) > 0 ? 'warn' : 'good');

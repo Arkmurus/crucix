@@ -215,13 +215,29 @@ async def _operator_queue() -> dict[str, Any]:
         logger.debug("oem coverage: %s", e)
 
     # ── WA mirror env-var gate ──
+    # Three possible states:
+    #   LIVE     — all three env vars set; mirror is running
+    #   GATED    — env vars missing; operator should flip on
+    #   DEFERRED — env vars missing but ARIA_MIRROR_DEFERRED=1 is set,
+    #              which explicitly marks the feature as intentionally
+    #              off. Doctrine is satisfied; briefing stops nagging.
+    #              Operator flips deferred flag off when ready.
     missing: list[str] = []
     for env in ("ARIA_MIRROR_GROUPS", "ARIA_COUNTERPARTY_CONTACTS",
                 "ARIA_DECEPTION_THRESHOLD"):
         if not os.getenv(env):
             missing.append(env)
+    deferred = (os.getenv("ARIA_MIRROR_DEFERRED", "") or "").strip().lower() in ("1", "true", "yes", "on")
     out["wa_mirror_missing_env"] = missing
-    out["wa_mirror_gated"] = len(missing) > 0
+    if not missing:
+        out["wa_mirror_status"] = "LIVE"
+        out["wa_mirror_gated"] = False
+    elif deferred:
+        out["wa_mirror_status"] = "DEFERRED"
+        out["wa_mirror_gated"] = False   # doctrine-satisfied — not a nag item
+    else:
+        out["wa_mirror_status"] = "GATED"
+        out["wa_mirror_gated"] = True
 
     # ── Stale / contradicted facts ──
     try:
@@ -313,6 +329,8 @@ async def build_operator_prompt() -> str:
         if worst:
             names = ", ".join(w["oem"] for w in worst[:3])
             q_bits.append(f"priority OEMs to fill: {names}")
+    # WA mirror — only surfaced when GATED (not when DEFERRED or LIVE).
+    # Doctrine: if the operator has explicitly deferred, we do NOT nag.
     if queue.get("wa_mirror_gated"):
         miss = queue.get("wa_mirror_missing_env") or []
         q_bits.append(

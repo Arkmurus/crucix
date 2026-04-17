@@ -168,3 +168,29 @@ def test_wa_mirror_live_when_all_env_set(monkeypatch):
     q = s["operator_queue"]
     assert q["wa_mirror_gated"] is False
     assert q["wa_mirror_missing_env"] == []
+    assert q.get("wa_mirror_status") == "LIVE"
+
+
+def test_wa_mirror_deferred_flag_suppresses_nag(monkeypatch):
+    """ARIA_MIRROR_DEFERRED=1 treats missing env as doctrine-satisfied."""
+    from aria_service.intel import autonomy_surface
+
+    for env in ("ARIA_MIRROR_GROUPS", "ARIA_COUNTERPARTY_CONTACTS",
+                "ARIA_DECEPTION_THRESHOLD"):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv("ARIA_MIRROR_DEFERRED", "1")
+
+    async def run_surface():
+        return await autonomy_surface.get_surface()
+
+    async def run_prompt():
+        return await autonomy_surface.build_operator_prompt()
+
+    s = asyncio.run(run_surface())
+    q = s["operator_queue"]
+    assert q["wa_mirror_gated"] is False
+    assert q.get("wa_mirror_status") == "DEFERRED"
+
+    # And the briefing prompt must NOT mention the mirror when deferred
+    text = asyncio.run(run_prompt())
+    assert "mirror" not in text.lower()
