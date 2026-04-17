@@ -458,9 +458,10 @@ function clearStuckLoading() {
   });
 }
 
-// Auto-refresh every 60 seconds
+// Auto-refresh every 5 minutes (300s) to avoid rate limiting
+// 14 endpoints × every 60s = 840 req/hr was triggering 429s
 refreshAll().then(() => setTimeout(clearStuckLoading, 10000));
-setInterval(() => refreshAll().then(() => setTimeout(clearStuckLoading, 10000)), 60000);
+setInterval(() => refreshAll().then(() => setTimeout(clearStuckLoading, 10000)), 300000);
 </script>
 
 </main>
