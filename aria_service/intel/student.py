@@ -74,7 +74,13 @@ STUDENT_META_KEY = "crucix:aria:student:meta"
 
 # Mastery starts at 0.5 (neutral) and updates by EWMA
 INITIAL_MASTERY = 0.5
-MASTERY_LR_POSITIVE = 0.08    # learning rate when answer was correct
+MASTERY_LR_POSITIVE = 0.12    # matched to negative 2026-04-17 PM after
+                               # calibration review flagged UNDERCONFIDENT by
+                               # 16pp (mastery 84% vs ground-truth 100%).
+                               # Previous 0.08 was too slow — successes took
+                               # ~80 events to close a 16pp gap. At 0.12
+                               # symmetric with negative, mastery tracks
+                               # reality in both directions at the same pace.
 MASTERY_LR_NEGATIVE = 0.12    # faster down — be honest about gaps
 MASTERY_FLOOR = 0.05
 MASTERY_CEILING = 0.98

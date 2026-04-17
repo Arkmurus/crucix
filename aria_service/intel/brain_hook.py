@@ -157,7 +157,8 @@ _MODULE_WEIGHT: dict[str, float] = {
     "golden_autogen":       0.10,  # self-growing eval set — meaningful curation
     "adversarial_challenge": 0.30, # weekly stress test — highest-value mastery signal
     "narrative_monitor": 0.15,     # hourly narrative scan — moderate weight per detection
-    "chain_correlator":     0.20,  # each confirmed causal chain is high-value learning
+    "chain_correlator":     0.25,  # was 0.20 — bumped 2026-04-17 PM;
+                                    # confirmed causal chain = high-value
     "procurement_calendar": 0.10,  # static calendar upkeep — low frequency
     "competitor_tracker":   0.15,  # competitor observations drive mastery
     "oem_contact_graph":    0.15,  # OEM landscape updates — moderate weight
@@ -169,16 +170,24 @@ _MODULE_WEIGHT: dict[str, float] = {
     "sipri_ingest":         0.15,  # each ingest lands real historical data
     "writer_orchestrator":  0.25,  # each produced document is high-value work
     # NAK / SERBAN / F3 learnings (2026-04-17)
-    "virtual_office_registry":    0.10,
-    "sanctions_propagation":      0.15,
-    "cited_artifact_verifier":    0.10,
-    "protective_reply_drafter":   0.15,
+    # Weights bumped 2026-04-17 PM after calibration review flagged
+    # UNDERCONFIDENT -16pp. These modules produce high-confidence
+    # structured signals (RDAP evidence, sanctions list hits, cited
+    # document verification, compliance draft produced) — every
+    # successful fire is real work and should give mastery credit
+    # proportional to that.
+    "virtual_office_registry":    0.15,  # was 0.10
+    "sanctions_propagation":      0.25,  # was 0.15
+    "cited_artifact_verifier":    0.15,  # was 0.10
+    "protective_reply_drafter":   0.20,  # was 0.15
     # Tier 2 regional knowledge (2026-04-17 PM)
     "knowledge_north_africa":      0.05,
     "knowledge_south_se_asia":     0.05,
     "knowledge_central_africa":    0.05,
     "knowledge_balkans":           0.05,
-    "regional_bright_lines":       0.15,
+    "regional_bright_lines":       0.25,  # was 0.15 — every triggered rule
+                                           # is a compliance-gate signal the
+                                           # brain should weight heavily
     # Heat-map expansion follow-up (2026-04-17 late PM)
     "gulf_oem_structure":          0.10,
     "vision_2030_tracker":         0.10,
@@ -187,7 +196,8 @@ _MODULE_WEIGHT: dict[str, float] = {
     "cross_regional_correlator":   0.20,
     "autonomy_surface":            0.05,  # aggregator — read-only, low weight
     # F3 DD follow-up (2026-04-17 late PM)
-    "domain_ownership_verifier":   0.15,
+    "domain_ownership_verifier":   0.20,  # was 0.15 — RDAP is hard external
+                                           # evidence, worth solid credit
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity
