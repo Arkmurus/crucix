@@ -1957,6 +1957,42 @@ app.get('/api/aria/rag/sources', requireAuth, (req, res) =>
     res.status(503).json({ available: false });
   }}));
 
+// ── ARIA Brain Dashboard proxy routes (2026-04-17) ────────────────────────
+// All endpoints needed by /aria-brain.html dashboard — proxied to fly.io.
+const _brainFallback = () => ({ error: 'ARIA service offline' });
+app.get('/api/aria/health', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/health', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/operating-mode', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/operating-mode', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/operating-mode/set', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/operating-mode/set', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/circuit-breakers', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/circuit-breakers', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/autonomous/dlq', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/autonomous/dlq', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/autonomous/status', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/autonomous/status', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/metrics/grounded_rate', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/metrics/grounded_rate${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/metrics/contradiction_rate', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/metrics/contradiction_rate', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/metrics/fact_decay', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/metrics/fact_decay', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/predictor/block_rate', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/predictor/block_rate', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/student/mastery', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/student/mastery', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/student/mastery/heatmap', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/student/mastery/heatmap', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/adversarial/stats', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/adversarial/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/chat-audit/stats', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/chat-audit/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/chat-audit/recent', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/chat-audit/recent${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/chat-audit/verify', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/chat-audit/verify${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+
 app.post('/api/aria/rag/search',
   express.json({ limit: '256kb' }),
   requireAuth,
