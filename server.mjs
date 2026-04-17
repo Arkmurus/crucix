@@ -979,6 +979,9 @@ app.use(express.static(PUBLIC_DIR));
 app.get('/', (req, res) => res.redirect('/signin.html'));
 // ARIA Brain dashboard — served from public/ like all other pages.
 // Auth handled client-side via Auth.requireAuth() (same as dashboard.html).
+// Explicit route for /aria-brain (without .html) — express.static only
+// handles /aria-brain.html, not the extensionless URL.
+app.get('/aria-brain', (req, res) => res.sendFile(join(PUBLIC_DIR, 'aria-brain.html')));
 console.log('[Crucix] Static dashboard live at /');
 
 app.get('/api/data', requireAuth, (req, res) => {
