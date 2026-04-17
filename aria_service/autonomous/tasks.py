@@ -518,6 +518,16 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
                 logger.warning("[ecosystem_reassess] operating mode auto-transition: %s", transition)
         except Exception as _e:
             logger.debug("operating mode evaluation failed (non-fatal): %s", _e)
+        # Compute composite autonomy score (hourly tracking)
+        try:
+            from ..intel import autonomy_scorer as _as
+            composite = await _as.compute_composite()
+            report["autonomy_composite"] = {
+                "score": composite.get("composite_score"),
+                "tier": composite.get("tier_name"),
+            }
+        except Exception as _e:
+            logger.debug("autonomy composite failed (non-fatal): %s", _e)
         return {"ecosystem": report}
 
     elif tool_kind == "core_develop":

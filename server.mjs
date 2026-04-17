@@ -1995,6 +1995,21 @@ app.get('/api/aria/chat-audit/recent', requireAuth, (req, res) =>
   ariaProxy(req, res, `/api/aria/chat-audit/recent${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/chat-audit/verify', requireAuth, (req, res) =>
   ariaProxy(req, res, `/api/aria/chat-audit/verify${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+// Week 4: Composite autonomy + calibration
+app.get('/api/aria/autonomy/composite', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/autonomy/composite', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/autonomy/history', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/autonomy/history${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/autonomy/baseline', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/autonomy/baseline', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/autonomy/baseline', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/autonomy/baseline', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/calibration/review', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/calibration/review', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/calibration/baseline', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/calibration/baseline', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/calibration/baseline', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/calibration/baseline', { fallback: async () => res.status(503).json(_brainFallback()) }));
 
 app.post('/api/aria/rag/search',
   express.json({ limit: '256kb' }),

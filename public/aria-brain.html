@@ -62,11 +62,24 @@
   <span id="health-badge" class="badge">Loading...</span>
   <span id="mode-badge" class="badge">--</span>
   <span id="autonomy-badge" class="badge">--</span>
+  <span id="composite-badge" class="badge badge-blue">--</span>
   <span class="timestamp" id="last-refresh">--</span>
   <button class="refresh-btn" onclick="refreshAll()">Refresh</button>
 </div>
 
 <div class="grid">
+  <!-- Composite Autonomy Score -->
+  <div class="card">
+    <h2>Composite Autonomy</h2>
+    <div id="composite-metrics" class="loading">Loading...</div>
+  </div>
+
+  <!-- Calibration -->
+  <div class="card">
+    <h2>Calibration Review</h2>
+    <div id="calibration-metrics" class="loading">Loading...</div>
+  </div>
+
   <!-- Health & Infrastructure -->
   <div class="card">
     <h2>Infrastructure</h2>
@@ -365,12 +378,51 @@ async function loadMastery() {
   document.getElementById('mastery-metrics').innerHTML = html || '<span class="neutral">No mastery data</span>';
 }
 
+// refreshAll defined below with composite + calibration
+
+async function loadComposite() {
+  const d = await fetchJson('/autonomy/composite');
+  if (!d || !d.composite_score) { document.getElementById('composite-metrics').innerHTML = '<span class="neutral">No data yet</span>'; return; }
+  const cb = document.getElementById('composite-badge');
+  cb.textContent = `SCORE: ${pct(d.composite_score)} ${d.tier_name}`;
+  const cls = d.tier >= 4 ? 'badge-green' : d.tier >= 3 ? 'badge-green' : d.tier >= 2 ? 'badge-yellow' : 'badge-red';
+  cb.className = `badge ${cls}`;
+
+  let html = metricRow('Composite Score', pct(d.composite_score), scoreClass(d.composite_score, 0.7, 0.5));
+  html += metricRow('Tier', `${d.tier_name} (${d.tier})`, d.tier >= 3 ? 'good' : d.tier >= 2 ? 'warn' : 'bad');
+  if (d.override) html += metricRow('OVERRIDE', d.override, 'bad');
+  html += '<div style="margin-top:8px;font-size:0.8em;color:#8b949e">Signal breakdown:</div>';
+  const signals = d.signals || {};
+  const weights = d.weights || {};
+  for (const [sig, val] of Object.entries(signals)) {
+    const w = weights[sig] ? ` (${(weights[sig]*100).toFixed(0)}%)` : '';
+    html += metricRow(`${sig}${w}`, val != null ? pct(val) : '--', val != null ? scoreClass(val) : 'neutral');
+  }
+  document.getElementById('composite-metrics').innerHTML = html;
+}
+
+async function loadCalibration() {
+  const d = await fetchJson('/calibration/review');
+  if (!d || d.calibration_status === 'insufficient_data') {
+    document.getElementById('calibration-metrics').innerHTML =
+      '<span class="neutral">Insufficient data — needs adversarial audit + honesty judge verdicts</span>';
+    return;
+  }
+  const statusCls = {well_calibrated:'good', acceptable:'warn', overconfident:'bad', underconfident:'warn'}[d.calibration_status] || 'neutral';
+  let html = metricRow('Mastery (self-assessed)', pct(d.overall_mastery), 'neutral');
+  html += metricRow('Accuracy (ground truth)', d.estimated_accuracy != null ? pct(d.estimated_accuracy) : '--', 'neutral');
+  html += metricRow('Delta', d.calibration_delta != null ? `${(d.calibration_delta * 100).toFixed(1)}pp` : '--', statusCls);
+  html += metricRow('Status', d.calibration_status?.replace('_', ' ')?.toUpperCase(), statusCls);
+  html += `<div style="margin-top:8px;font-size:0.8em;color:#8b949e">${d.recommendation || ''}</div>`;
+  document.getElementById('calibration-metrics').innerHTML = html;
+}
+
 async function refreshAll() {
   document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
   await Promise.all([
     loadHealth(), loadMode(), loadEngine(), loadAdversarial(),
     loadBreakers(), loadPredictor(), loadAudit(), loadHeatmap(),
-    loadDLQ(), loadMastery(),
+    loadDLQ(), loadMastery(), loadComposite(), loadCalibration(),
   ]);
 }
 

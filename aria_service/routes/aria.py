@@ -9859,3 +9859,62 @@ async def chat_audit_verify_ep(sample: int = 100):
     """Verify chat audit trail chain integrity."""
     from ..intel import chat_audit_log as cal
     return await cal.verify_chain(sample)
+
+
+# ── Composite Autonomy Scorer (Week 4) ───────────────────────────────────
+
+@router.get("/autonomy/composite")
+async def autonomy_composite_ep():
+    """Compute and return the composite autonomy score."""
+    from ..intel import autonomy_scorer as asc
+    return await asc.compute_composite()
+
+
+@router.get("/autonomy/history")
+async def autonomy_history_ep(limit: int = 168):
+    """Composite score history (default 7 days hourly)."""
+    from ..intel import autonomy_scorer as asc
+    return {"history": await asc.get_history(limit)}
+
+
+@router.post("/autonomy/baseline")
+async def autonomy_baseline_ep():
+    """Save current composite as Week 4 baseline."""
+    from ..intel import autonomy_scorer as asc
+    return await asc.save_baseline()
+
+
+@router.get("/autonomy/baseline")
+async def autonomy_baseline_get_ep():
+    """Return saved baseline."""
+    from ..intel import autonomy_scorer as asc
+    baseline = await asc.get_baseline()
+    if not baseline:
+        raise HTTPException(status_code=404, detail="No baseline saved yet")
+    return baseline
+
+
+# ── Calibration Review (Week 4) ──────────────────────────────────────────
+
+@router.get("/calibration/review")
+async def calibration_review_ep():
+    """Run calibration review — compare mastery to ground truth accuracy."""
+    from ..intel import calibration_review as cr
+    return await cr.run_calibration_review()
+
+
+@router.post("/calibration/baseline")
+async def calibration_baseline_ep():
+    """Save current calibration as Week 4 baseline."""
+    from ..intel import calibration_review as cr
+    return await cr.save_baseline()
+
+
+@router.get("/calibration/baseline")
+async def calibration_baseline_get_ep():
+    """Return saved calibration baseline."""
+    from ..intel import calibration_review as cr
+    baseline = await cr.get_baseline()
+    if not baseline:
+        raise HTTPException(status_code=404, detail="No calibration baseline saved yet")
+    return baseline
