@@ -89,6 +89,8 @@ CORE_MODULES = [
     "aria_service.intel.baykar_export_pipeline",
     "aria_service.intel.political_risk_index",
     "aria_service.intel.cross_regional_correlator",
+    # Autonomy Surface (2026-04-17 late PM)
+    "aria_service.intel.autonomy_surface",
     "aria_service.writers",
     "aria_service.writers.writer_orchestrator",
     "aria_service.writers.assessment_writer",

@@ -9953,6 +9953,28 @@ async def calibration_baseline_ep():
     return await cr.save_baseline()
 
 
+# ── Autonomy Surface (2026-04-17 late PM) ────────────────────────────────
+# Dashboard panel + WhatsApp-briefing data source aggregating:
+#   (a) auto-allowed actions fired in the last 24h,
+#   (b) drafts awaiting operator review,
+#   (c) operator action queue (OEM gaps, gated env vars, stale facts,
+#       recent bright-line triggers).
+# Memory reference: aria_autonomy_doctrine.md
+
+@router.get("/autonomy/surface")
+async def autonomy_surface_ep():
+    """Return the autonomy-surface payload: auto-allowed, drafts, operator queue."""
+    from ..intel import autonomy_surface as asurf
+    return await asurf.get_surface()
+
+
+@router.get("/autonomy/surface/prompt")
+async def autonomy_surface_prompt_ep():
+    """Return the WhatsApp-ready operator-prompt block (plain text)."""
+    from ..intel import autonomy_surface as asurf
+    return {"prompt": await asurf.build_operator_prompt()}
+
+
 @router.get("/calibration/baseline")
 async def calibration_baseline_get_ep():
     """Return saved calibration baseline."""

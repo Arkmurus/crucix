@@ -246,6 +246,11 @@ def check_text(text: str) -> list[dict[str, Any]]:
     Returns a list of matched rules, each as a dict suitable for
     rendering into a DD finding or chat-context injection. Empty list
     if no rules are triggered.
+
+    Side-effect: increments a Redis-backed hit counter per rule so the
+    autonomy_surface panel + WhatsApp briefing can show what fired in
+    the last 24h. Counter is best-effort (fails silently if Redis is
+    unreachable).
     """
     if not text or not text.strip():
         return []
@@ -263,7 +268,89 @@ def check_text(text: str) -> list[dict[str, Any]]:
                 if trigger in needle:
                     out.append(_rule_to_dict(rule, trigger))
                     break
+    # Fire-and-forget hit counter
+    if out:
+        try:
+            _record_hits([h["code"] for h in out])
+        except Exception:
+            pass
     return out
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Hit counter (Redis-backed, 24h rolling)
+# ═══════════════════════════════════════════════════════════════════════
+
+_HITS_KEY = "crucix:aria:bright_lines:hits_24h"
+
+
+def _record_hits(codes: list[str]) -> None:
+    """Best-effort incremental write to the rolling 24h hit log."""
+    from . import redis_store as rs  # local import to avoid cycles at module load
+    import asyncio
+    from datetime import datetime, timezone
+
+    async def _write():
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            existing = await rs.get_json(_HITS_KEY) or {}
+            if not isinstance(existing, dict) or "items" not in existing:
+                existing = {"items": []}
+            for code in codes:
+                existing["items"].append({"code": code, "at": now_iso})
+            # Trim to last 24h
+            cutoff = datetime.now(timezone.utc).timestamp() - 86400
+            kept = []
+            for it in existing["items"][-500:]:
+                try:
+                    ts = datetime.fromisoformat(it["at"].replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    ts = 0
+                if ts >= cutoff:
+                    kept.append(it)
+            existing["items"] = kept
+            await rs.set_json(_HITS_KEY, existing, ex=172800)
+        except Exception:
+            # Redis unreachable — silently skip; counter is best-effort.
+            return
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(_write())
+        else:
+            loop.run_until_complete(_write())
+    except RuntimeError:
+        # No running loop at call site — drop.
+        return
+
+
+async def get_hits_24h() -> dict[str, Any]:
+    """Return the rolling 24h hit counter for autonomy_surface."""
+    from . import redis_store as rs
+    from datetime import datetime, timezone
+    try:
+        data = await rs.get_json(_HITS_KEY)
+    except Exception:
+        return {"total": 0, "by_code": {}, "items": []}
+    if not isinstance(data, dict):
+        return {"total": 0, "by_code": {}, "items": []}
+    items = data.get("items") or []
+    # Re-filter to 24h to correct for any write-side drift
+    cutoff = datetime.now(timezone.utc).timestamp() - 86400
+    kept = []
+    for it in items:
+        try:
+            ts = datetime.fromisoformat(it["at"].replace("Z", "+00:00")).timestamp()
+        except Exception:
+            continue
+        if ts >= cutoff:
+            kept.append(it)
+    by_code: dict[str, int] = {}
+    for it in kept:
+        c = it.get("code", "?")
+        by_code[c] = by_code.get(c, 0) + 1
+    return {"total": len(kept), "by_code": by_code, "items": kept[-20:]}
 
 
 def check_country(iso2: str) -> list[dict[str, Any]]:

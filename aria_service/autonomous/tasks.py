@@ -514,6 +514,16 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
             summary += panel
         except Exception as _e:
             logger.debug("instrument panel failed (non-fatal): %s", _e)
+        # Autonomy Surface (2026-04-17 late PM) — tells the team what
+        # ARIA did overnight, what's queued for review, and what needs
+        # operator action. Only appended if there's something to show.
+        try:
+            from ..intel import autonomy_surface
+            surface_block = await autonomy_surface.build_operator_prompt()
+            if surface_block:
+                summary += surface_block
+        except Exception as _e:
+            logger.debug("autonomy_surface briefing failed (non-fatal): %s", _e)
         return {"briefing": summary, "dormant_leads": len(dormant)}
 
     elif tool_kind == "source_discovery":

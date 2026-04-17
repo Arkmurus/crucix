@@ -152,6 +152,12 @@ Sidebar.init('brain');
     <div id="engine-metrics" class="loading">Loading...</div>
   </div>
 
+  <!-- Autonomy Surface — what ARIA did / what needs your touch -->
+  <div class="card wide" id="autonomy-surface">
+    <h2>Autonomy Surface</h2>
+    <div id="surface-metrics" class="loading">Loading...</div>
+  </div>
+
   <!-- Recent Audit Entries -->
   <div class="card wide">
     <h2>Recent Chat Audit Entries</h2>
@@ -439,12 +445,103 @@ async function loadCalibration() {
   document.getElementById('calibration-metrics').innerHTML = html;
 }
 
+async function loadSurface() {
+  const d = await fetchJson('/autonomy/surface');
+  const el = document.getElementById('surface-metrics');
+  if (!el) return;
+  if (!d) {
+    el.innerHTML = '<span class="neutral">No data</span>';
+    return;
+  }
+  const auto = d.auto_allowed || {};
+  const drafts = d.drafts_awaiting || {};
+  const queue = d.operator_queue || {};
+
+  // Three-column grid: auto-allowed / drafts / operator queue
+  let html = '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px">';
+
+  // ── Column A — Auto-allowed last 24h ──
+  html += '<div>';
+  html += '<div style="font-weight:600;color:#79c0ff;margin-bottom:6px">✅ Auto-allowed (24h)</div>';
+  html += metricRow('Autonomous task fires', auto.autonomous_task_fires ?? 0, 'good');
+  html += metricRow('Chat turns served',     auto.chat_turns_served ?? 0,     'neutral');
+  html += metricRow('Corpus ingests',        auto.corpus_ingests ?? 0,        'neutral');
+  html += metricRow('Audit-trail entries',   auto.audit_entries ?? 0,         'neutral');
+  html += metricRow('Bright-lines fired',    auto.bright_lines_triggered ?? 0,
+                    (auto.bright_lines_triggered ?? 0) > 0 ? 'warn' : 'good');
+  const bl = auto.bright_lines_by_code || {};
+  const blCodes = Object.keys(bl);
+  if (blCodes.length) {
+    const topCodes = blCodes
+      .sort((a,b) => (bl[b] - bl[a]))
+      .slice(0,3)
+      .map(c => `${c} ×${bl[c]}`)
+      .join(', ');
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#8b949e">Top codes: ${topCodes}</div>`;
+  }
+  html += '</div>';
+
+  // ── Column B — Drafts awaiting review ──
+  html += '<div>';
+  html += '<div style="font-weight:600;color:#d29922;margin-bottom:6px">📋 Drafts for review</div>';
+  const pendTotal = drafts.total_pending ?? 0;
+  html += metricRow('Approvals pending', pendTotal, pendTotal > 0 ? 'warn' : 'good');
+  html += metricRow('Source validator',  drafts.source_validator_pending ?? 0, 'neutral');
+  html += metricRow('Constitution',      drafts.constitution_pending ?? 0,     'neutral');
+  html += metricRow('Codegen',           drafts.codegen_pending ?? 0,          'neutral');
+  html += metricRow('Golden autogen',    drafts.golden_pending ?? 0,           'neutral');
+  html += metricRow('Ground truth',      drafts.ground_truth_pending ?? 0,     'neutral');
+  html += metricRow('DD reports today',  drafts.dd_reports_today ?? 0,         'neutral');
+  html += metricRow('Writer outputs today', drafts.writer_outputs_today ?? 0,  'neutral');
+  html += '</div>';
+
+  // ── Column C — Operator queue ──
+  html += '<div>';
+  html += '<div style="font-weight:600;color:#f85149;margin-bottom:6px">⚠️ Operator queue</div>';
+  const oemEmpty = queue.oem_slots_empty ?? 0;
+  const oemTotal = queue.oem_slots_total ?? 0;
+  html += metricRow('OEM slots empty',
+                    oemTotal ? `${oemEmpty}/${oemTotal}` : '0',
+                    oemEmpty > 0 ? 'warn' : 'good');
+  if ((queue.oem_worst_oems || []).length) {
+    const worst = queue.oem_worst_oems
+      .map(w => `${w.oem} (${w.filled}/${w.total})`)
+      .join(', ');
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#8b949e">Priority: ${worst}</div>`;
+  }
+  const gated = !!queue.wa_mirror_gated;
+  html += metricRow('WA counterparty mirror', gated ? 'GATED' : 'LIVE',
+                    gated ? 'warn' : 'good');
+  if (gated && (queue.wa_mirror_missing_env || []).length) {
+    html += `<div style="margin-top:6px;font-size:0.8em;color:#8b949e">Missing env: ${queue.wa_mirror_missing_env.slice(0,2).join(', ')}</div>`;
+  }
+  html += metricRow('Stale facts',        queue.stale_facts ?? 0,
+                    (queue.stale_facts ?? 0) > 0 ? 'warn' : 'good');
+  html += metricRow('Contradicted facts', queue.contradicted_facts ?? 0,
+                    (queue.contradicted_facts ?? 0) > 0 ? 'bad' : 'good');
+  const recent = queue.bright_lines_recent || [];
+  if (recent.length) {
+    html += '<div style="margin-top:6px;font-size:0.8em;color:#8b949e">';
+    html += 'Recent bright-line fires: ';
+    html += recent.slice(-3).map(r => r.code).join(', ');
+    html += '</div>';
+  }
+  html += '</div>';
+
+  html += '</div>';
+  html += `<div style="margin-top:10px;font-size:0.75em;color:#6e7681">Per aria_autonomy_doctrine.md — internal actions auto-allowed; client-facing drafts only; no auto-spend.</div>`;
+
+  el.innerHTML = html;
+  el.classList.remove('loading');
+}
+
 async function refreshAll() {
   document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
   await Promise.all([
     loadHealth(), loadMode(), loadEngine(), loadAdversarial(),
     loadBreakers(), loadPredictor(), loadAudit(), loadHeatmap(),
     loadDLQ(), loadMastery(), loadComposite(), loadCalibration(),
+    loadSurface(),
   ]);
 }
 

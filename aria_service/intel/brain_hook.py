@@ -103,6 +103,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "baykar_export_pipeline":      ["market_intel", "competitor_intel", "procurement"],
     "political_risk_index":        ["geopolitics", "compliance", "market_intel"],
     "cross_regional_correlator":   ["geopolitics", "procurement", "relationships", "market_intel"],
+    # Autonomy Surface (2026-04-17 late PM) — dashboard + briefing aggregator
+    "autonomy_surface":            ["general", "compliance"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
@@ -181,6 +183,7 @@ _MODULE_WEIGHT: dict[str, float] = {
     "baykar_export_pipeline":      0.15,
     "political_risk_index":        0.15,
     "cross_regional_correlator":   0.20,
+    "autonomy_surface":            0.05,  # aggregator — read-only, low weight
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity
