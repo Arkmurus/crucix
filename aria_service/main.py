@@ -531,6 +531,11 @@ async def lifespan(app: FastAPI):
     # intel ledger). See aria_service/autonomous/AUTONOMOUS_ENGINE.md.
     try:
         from .autonomous import engine as autonomous_engine
+        # Hydrate the in-process runtime-override cache BEFORE checking
+        # is_enabled(). This lets /autonomous/enable keep the engine on
+        # after a redeploy when the env var is missing — the Redis flag
+        # survives restarts and gets picked up here on the next boot.
+        await autonomous_engine.refresh_runtime_override()
         if autonomous_engine.is_enabled():
             started = autonomous_engine.start_engine(llm)
             if started:
@@ -540,8 +545,41 @@ async def lifespan(app: FastAPI):
                 )
         else:
             logger.info(
-                "Autonomous engine NOT started — set ARIA_AUTONOMOUS_ENABLED=1 to enable"
+                "Autonomous engine NOT started — set ARIA_AUTONOMOUS_ENABLED=1 "
+                "or POST /api/aria/autonomous/enable to flip at runtime"
             )
+            # Log a pending-action so the operator sees this in the next
+            # daily briefing. CRITICAL severity so it gets nudged now.
+            try:
+                from .intel import pending_actions as _pa
+                await _pa.record(
+                    promise=(
+                        "Autonomous learning loop should be running 24/7 — "
+                        "spider, metacog, research, style_learner, plus 65 "
+                        "scheduled tasks."
+                    ),
+                    reason=(
+                        "ARIA_AUTONOMOUS_ENABLED env var is not set on the "
+                        "Python backend (fly.io app aria-intel). The engine "
+                        "cannot run until the master switch is on."
+                    ),
+                    resolver_kind="operator_action",
+                    resolver_ref="ARIA_AUTONOMOUS_ENABLED",
+                    severity="CRITICAL",
+                    source="lifespan_bootstrap",
+                    operator_prompt=(
+                        "POST /api/aria/autonomous/enable to turn on the "
+                        "autonomous engine right now (survives redeploy via "
+                        "Redis). For a permanent fix, also run: "
+                        "flyctl secrets set ARIA_AUTONOMOUS_ENABLED=1 "
+                        "-a aria-intel"
+                    ),
+                )
+            except Exception as _pa_err:
+                logger.debug(
+                    "pending_actions record at bootstrap failed (non-fatal): %s",
+                    _pa_err,
+                )
     except Exception as e:
         logger.warning("Autonomous engine bootstrap failed (non-fatal): %s", e)
 

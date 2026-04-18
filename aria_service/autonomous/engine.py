@@ -62,6 +62,20 @@ _ENABLED_VAR = "ARIA_AUTONOMOUS_ENABLED"
 _DRY_RUN_VAR = "ARIA_AUTONOMOUS_DRY_RUN"
 _AUTONOMY_LEVEL_VAR = "ARIA_AUTONOMY_LEVEL"
 
+# Redis override — lets /autonomous/enable flip the master switch without
+# a redeploy. Past incident 2026-04-18: Antonio added ARIA_AUTONOMOUS_ENABLED
+# on seenode (the Node WA listener), but the autonomous engine runs on
+# fly.io (the Python backend) — wrong environment. A redis-backed runtime
+# override closes that footgun: the admin endpoint flips a flag we check
+# in-process, no redeploy required.
+_REDIS_ENABLE_KEY = "crucix:autonomous:enabled_override"
+# Sentinel values:
+#   "1"      → force-enable (env var can be 0)
+#   "0"      → force-disable (env var can be 1)
+#   missing  → defer to env var (default path)
+_RUNTIME_ENABLE_CACHE: dict[str, Any] = {"val": None, "ts": 0.0}
+_RUNTIME_ENABLE_TTL_S = 5.0  # cache Redis read so is_enabled() stays cheap
+
 # Autonomy ladder:
 #   L0 = off (engine does not run)
 #   L1 = research-only (tasks run but no delivery at all)
@@ -84,10 +98,74 @@ def get_autonomy_level() -> int:
 
 
 def is_enabled() -> bool:
-    """Master engine kill switch — env var. Default OFF.
-    Even when True, individual tasks must ALSO be enabled in tasks.yaml."""
+    """Master engine kill switch. Env var default OFF, with a runtime
+    override that lets /autonomous/enable flip the switch without a
+    redeploy. Even when True, individual tasks must ALSO be enabled in
+    tasks.yaml.
+
+    Override precedence (purely in-process — read from the cache that
+    `refresh_runtime_override()` keeps fresh):
+      cache "1" → enabled (regardless of env var)
+      cache "0" → disabled (regardless of env var)
+      cache None → fall through to env var
+    """
+    override = _RUNTIME_ENABLE_CACHE.get("val")
+    if override == "1":
+        return True
+    if override == "0":
+        return False
     val = (os.getenv(_ENABLED_VAR, "0") or "0").strip().lower()
     return val in ("1", "true", "yes", "on")
+
+
+async def refresh_runtime_override() -> str | None:
+    """Read the Redis override into the in-process cache. Called at
+    lifespan startup (before start_engine) and once per engine tick so
+    flips made via /autonomous/enable are seen within one poll cycle.
+
+    Returns the cached value ("1", "0", or None) for logging.
+    """
+    try:
+        from ..intel import redis_store as rs
+        v = await rs.get(_REDIS_ENABLE_KEY)
+        cleaned = (v or "").strip()
+        _RUNTIME_ENABLE_CACHE["val"] = cleaned if cleaned in ("0", "1") else None
+        _RUNTIME_ENABLE_CACHE["ts"] = time.time()
+    except Exception as e:
+        logger.debug("[autonomous engine] runtime override read failed: %s", e)
+        _RUNTIME_ENABLE_CACHE["val"] = None
+    return _RUNTIME_ENABLE_CACHE.get("val")
+
+
+async def set_runtime_override(enabled: bool | None) -> dict[str, Any]:
+    """Flip the master switch at runtime via Redis. Also updates the
+    in-process cache immediately so the next is_enabled() call (including
+    the one inside start_engine() that the admin endpoint will make)
+    reflects the change without waiting for the tick refresh.
+
+    Args:
+        enabled: True to force-enable, False to force-disable, None to
+            clear the override (env var regains control).
+    """
+    from ..intel import redis_store as rs
+    if enabled is True:
+        await rs.set(_REDIS_ENABLE_KEY, "1")
+        _RUNTIME_ENABLE_CACHE["val"] = "1"
+    elif enabled is False:
+        await rs.set(_REDIS_ENABLE_KEY, "0")
+        _RUNTIME_ENABLE_CACHE["val"] = "0"
+    else:
+        try:
+            await rs.delete(_REDIS_ENABLE_KEY)
+        except Exception:
+            await rs.set(_REDIS_ENABLE_KEY, "")
+        _RUNTIME_ENABLE_CACHE["val"] = None
+    _RUNTIME_ENABLE_CACHE["ts"] = time.time()
+    return {
+        "override": _RUNTIME_ENABLE_CACHE["val"],
+        "is_enabled_now": is_enabled(),
+        "env_var_value": os.getenv(_ENABLED_VAR, ""),
+    }
 
 
 def is_dry_run() -> bool:
@@ -158,6 +236,16 @@ async def _engine_loop(llm) -> None:
         try:
             _last_tick_at = time.time()
             _tick_count += 1
+
+            # Refresh the runtime override so /autonomous/disable takes
+            # effect within one tick without restarting the service.
+            await refresh_runtime_override()
+            if not is_enabled():
+                # Master switch flipped off while running. Sleep the
+                # tick so we don't spin; the admin endpoint can flip us
+                # back on and the next tick will resume.
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                continue
 
             # Engine globally paused via Redis flag?
             if await safety.is_engine_paused():

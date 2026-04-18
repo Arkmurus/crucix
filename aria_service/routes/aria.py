@@ -2369,6 +2369,43 @@ def _detect_tool_intent(message: str) -> dict | None:
             "_reason": "officeholder_question",
         }
 
+    # ── 0a. OEM batch research — user wants a crawl across "the OEMs" with
+    # no specific URL. Past incident 2026-04-18 (Baykar): the user said
+    # "crawl the known OEM websites, extract everything each one does"
+    # with no URL — _detect_tool_intent returned None, the LLM then
+    # confidently wrote "I have begun the deep crawl of Baykar's
+    # official website using the extract_url_deep tool…". Zero tool
+    # calls fired. Pure fabrication.
+    #
+    # This intent must run BEFORE the generic _BATCH_RE path below,
+    # because prompts like "research all the OEMs for artillery" match
+    # both and the generic path returns spawn_research_task with empty
+    # entities (no bullets/commas to extract). The OEM path has the
+    # curated list and is strictly more useful.
+    _OEM_BATCH_KW = re.compile(
+        r"\b(?:oem|oems|manufacturer|manufacturers|primes?|prime\s+contractors?)\b",
+        re.IGNORECASE,
+    )
+    if not url and _OEM_BATCH_KW.search(msg) and (has_crawl or has_investigate or has_profile):
+        try:
+            from ..intel import oem_registry as _oreg
+            capability = _oreg.canonicalise_capability(msg)
+            entities = _oreg.filter_by_capability(capability, limit=15)
+        except Exception:
+            entities = []
+        if entities:
+            return {
+                "tool": "spawn_research_task",
+                "task_type": "research_each",
+                "entities": entities,
+                "context": msg,
+                "_reason": "oem_batch",
+                "batch_label": (
+                    f"Phase-1 OEM batch"
+                    + (f" (capability: {capability})" if capability else "")
+                ),
+            }
+
     # ── 0. Multi-entity batch detection — spawn a background research task ──
     # Triggered by patterns like "research each of these suppliers", "compare
     # these companies", "investigate all of them", "find out about each one".
@@ -2787,9 +2824,13 @@ async def _execute_tool(intent: dict, llm) -> str:
             task_type = intent.get("task_type", "investigate")
             entities = intent.get("entities") or []
             params = intent.get("params") or {}
+            batch_label = intent.get("batch_label") or ""
             if task_type == "research_each" and entities:
                 params = {"entities": entities, "context": intent.get("context", "")}
-                title = f"Research each: {', '.join(entities[:3])}"
+                if batch_label:
+                    title = f"{batch_label}: {len(entities)} entities ({', '.join(entities[:3])}…)"
+                else:
+                    title = f"Research each: {', '.join(entities[:3])}"
                 eta = max(60, 60 * len(entities))
             else:
                 title = f"{task_type}: {(params.get('topic') or params.get('url') or '')[:60]}"
@@ -4010,6 +4051,59 @@ async def chat_ep(req: ChatRequest, request: Request):
                     pass
         except Exception as e:
             _log.debug("commitment_guard failed (non-fatal): %s", e)
+
+        # ── Tool-claim guard (Clause 20(f), 2026-04-18) ───────────────
+        # Past incident 2026-04-18 — Baykar: user asked "crawl the known
+        # OEM websites" with no URL. _detect_tool_intent returned None
+        # (no URL), so tool_used=None, but the LLM still wrote "I have
+        # begun the deep crawl of Baykar's official website using the
+        # extract_url_deep tool. Stand by for the first data extract."
+        # Pure fabrication. This guard scans for present-tense tool-
+        # execution prose and, when no tool actually fired this turn,
+        # rewrites the claim inline and logs a pending-action so the
+        # operator sees an honest "I owe you this" in the next briefing.
+        try:
+            from ..intel import tool_claim_guard as _tcg
+            tcg_result = await _tcg.guard(
+                response_text,
+                tool_used=tool_used,
+                user_message=req.message,
+                user_id=getattr(req, "user_id", "") or "",
+                chat_id=getattr(req, "chat_id", "") or "",
+            )
+            if tcg_result.get("changed"):
+                response_text = tcg_result["guarded"]
+                result["response"] = response_text
+                result["tool_claim_guard"] = {
+                    "violations": tcg_result["violations_found"],
+                    "details": tcg_result["violations"],
+                }
+                _log.info(
+                    "[tool_claim_guard] %d tool-claim fabrication(s) rewritten",
+                    tcg_result["violations_found"],
+                )
+                # Record each as a hallucination in the mistake ledger so
+                # the predictor learns to downgrade confidence on similar
+                # tool-less turns next time.
+                try:
+                    from ..intel import mistake_ledger as _ml
+                    for v in tcg_result["violations"][:3]:
+                        await _ml.record(
+                            category="hallucination",
+                            task_type="chat",
+                            domain="tool_fabrication",
+                            what=f"Fabricated tool claim: {v['pattern_type']}",
+                            why=(
+                                f"Match: {v['match'][:150]} (no tool fired, "
+                                f"pending_action={v.get('action_id','?')})"
+                            ),
+                            fix="Clause 20(f) correction appended inline + pending_action recorded",
+                            what_class="tool_fabrication",
+                        )
+                except Exception:
+                    pass
+        except Exception as e:
+            _log.debug("tool_claim_guard failed (non-fatal): %s", e)
 
         # ── Confidence-tagged reply footer ──
         # Wires existing observability signals (confidence tags +
@@ -5609,6 +5703,172 @@ async def autonomous_reload_tasks_ep():
             "tasks_loaded": len(loaded),
             "task_ids": sorted(loaded.keys()),
         }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/autonomous/enable")
+async def autonomous_enable_ep(request: Request):
+    """Turn the autonomous engine ON at runtime — no redeploy needed.
+
+    Past incident 2026-04-18: ARIA_AUTONOMOUS_ENABLED env var was added
+    to seenode (wrong environment — that runs the Node WA listener, not
+    the Python backend). This endpoint flips the switch via a Redis
+    override that is_enabled() respects, so the engine can be turned on
+    immediately on whichever machine actually runs the Python service.
+
+    Also starts the engine loop in-process if it wasn't already running
+    (the original lifespan bootstrap skipped it when the env var was
+    unset). Satisfies the CRITICAL pending_actions entry recorded at
+    boot.
+    """
+    try:
+        from ..autonomous import engine as _eng
+        override = await _eng.set_runtime_override(True)
+
+        started = False
+        if not override["is_enabled_now"]:
+            # Should not happen — we just set the override to "1" — but
+            # bail if something else is blocking (LLM not configured?).
+            return {
+                "ok": False,
+                "error": "override set but is_enabled() still returns False",
+                "override": override,
+            }
+
+        llm = get_llm(request)
+        if llm is None or not getattr(llm, "is_configured", False):
+            return {
+                "ok": False,
+                "error": "LLM provider not configured — engine cannot start",
+                "override": override,
+            }
+        started = _eng.start_engine(llm)
+
+        # Close the CRITICAL pending_actions entry from the lifespan hook
+        try:
+            from ..intel import pending_actions as _pa
+            opens = await _pa.list_open(limit=50, severity="CRITICAL")
+            for e in opens:
+                if e.get("resolver_ref") == "ARIA_AUTONOMOUS_ENABLED":
+                    await _pa.mark_satisfied(
+                        e["action_id"],
+                        note="Runtime override set via /autonomous/enable",
+                    )
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "started": started,
+            "engine_status": _eng.get_engine_status(),
+            "override": override,
+            "note": (
+                "Runtime override set via Redis. To survive a full "
+                "container rebuild, also run: "
+                "flyctl secrets set ARIA_AUTONOMOUS_ENABLED=1 -a aria-intel"
+            ),
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/autonomous/disable")
+async def autonomous_disable_ep(request: Request):
+    """Turn the autonomous engine OFF at runtime — stops the poll loop
+    cleanly and sets a Redis override so it stays off across redeploys.
+
+    Use this as a firm stop when the engine is misbehaving — more than a
+    pause (which keeps the loop spinning) and less destructive than
+    redeploying. Clear with /autonomous/enable.
+    """
+    try:
+        from ..autonomous import engine as _eng
+        override = await _eng.set_runtime_override(False)
+        await _eng.stop_engine()
+        return {
+            "ok": True,
+            "stopped": True,
+            "engine_status": _eng.get_engine_status(),
+            "override": override,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/autonomous/clear-override")
+async def autonomous_clear_override_ep():
+    """Clear the runtime override so the env var regains control.
+
+    After this, ARIA_AUTONOMOUS_ENABLED governs engine state again. Use
+    when you want to audit what the env var actually resolves to, or
+    hand control back to the deploy config after a runtime flip.
+    """
+    try:
+        from ..autonomous import engine as _eng
+        override = await _eng.set_runtime_override(None)
+        return {
+            "ok": True,
+            "cleared": True,
+            "engine_status": _eng.get_engine_status(),
+            "override": override,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.get("/pending-actions")
+async def pending_actions_list_ep():
+    """List open pending actions (ARIA's 'I owe you' ledger).
+
+    Populated by the tool_claim_guard, the lifespan bootstrap (when the
+    autonomous engine is off), and any other subsystem that wants to
+    make a promise visible instead of silent-failing.
+    """
+    try:
+        from ..intel import pending_actions as _pa
+        open_items = await _pa.list_open(limit=100)
+        stats = await _pa.stats()
+        return {
+            "ok": True,
+            "open": open_items,
+            "stats": stats,
+            "briefing_block": _pa.briefing_summary(open_items),
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/pending-actions/{action_id}/satisfy")
+async def pending_actions_satisfy_ep(action_id: str, request: Request):
+    """Mark a pending action as satisfied (resolver completed)."""
+    try:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+        note = (body.get("note") if isinstance(body, dict) else "") or ""
+        from ..intel import pending_actions as _pa
+        result = await _pa.mark_satisfied(action_id, note=note)
+        return result
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/pending-actions/{action_id}/cancel")
+async def pending_actions_cancel_ep(action_id: str, request: Request):
+    """Cancel a pending action (no longer needed / superseded)."""
+    try:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+        note = (body.get("note") if isinstance(body, dict) else "") or ""
+        from ..intel import pending_actions as _pa
+        result = await _pa.mark_cancelled(action_id, note=note)
+        return result
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
