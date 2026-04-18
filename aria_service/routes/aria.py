@@ -3103,27 +3103,56 @@ async def _execute_tool(intent: dict, llm) -> str:
                                  "brain bridge is broken. Check /api/aria/diagnostic/unwired.")
                     parts.append("")
 
-                # 2c. Try to surface RECENT email summaries from RAG
-                # (every email body gets ingested via /api/aria/read-document).
-                # Filter on source prefix `email:` and sort by recency.
+                # 2c. Surface recent email-tagged documents from RAG.
+                # Email reader (lib/aria/emailReader.mjs) calls
+                # /api/aria/read-document with source="email:<from>" so we
+                # post-filter by source prefix. rag_store.search() is the
+                # actual public API (not .query — past handler bug fixed
+                # 2026-04-19 after ARIA reported "rag_store has no
+                # attribute query" via her own meta_query introspection).
                 try:
                     from ..intel import rag_store as _rag
-                    if hasattr(_rag, "search_by_source_prefix"):
-                        recent = await _rag.search_by_source_prefix("email:", limit=limit)
+                    # Wide query — we want anything tagged as email,
+                    # regardless of content. Search by topic-typical
+                    # keywords; post-filter by source.
+                    raw_hits = await _rag.search(
+                        "email message subject from",
+                        top_k=max(limit * 4, 20),  # over-fetch then filter
+                    )
+                    email_hits = [
+                        h for h in (raw_hits or [])
+                        if str(h.get("source", "")).startswith("email")
+                        or str(h.get("source_type", "")).startswith("email")
+                    ][:limit]
+                    if email_hits:
+                        parts.append(f"MOST RECENT {len(email_hits)} EMAIL-TAGGED RAG CHUNKS:")
+                        for i, r in enumerate(email_hits, 1):
+                            src = r.get("source", "unknown")
+                            title = r.get("title", "")
+                            txt = (r.get("text") or "")[:250].replace("\n", " ")
+                            ingested = r.get("ingested_at", "")
+                            parts.append(
+                                f"  {i}. source={src} | title={title[:80]} | "
+                                f"ingested={ingested} | content={txt}"
+                            )
                     else:
-                        # Fallback: semantic search for email-tagged content
-                        recent = await _rag.query("email", k=limit, source_filter="email:")
-                    if recent:
-                        parts.append(f"MOST RECENT {len(recent)} EMAIL CONTENTS (from RAG):")
-                        for i, r in enumerate(recent, 1):
-                            src = r.get("source", "unknown") if isinstance(r, dict) else getattr(r, "source", "unknown")
-                            txt = r.get("text", "") if isinstance(r, dict) else getattr(r, "text", "")
-                            parts.append(f"  {i}. source={src} | content={txt[:200]}")
-                    else:
-                        parts.append("RAG EMAIL SEARCH: no email-tagged documents found.")
-                        parts.append("  This means /api/aria/read-document either wasn't called or used a different source tag.")
+                        # No email-tagged chunks — could be that
+                        # /api/aria/read-document hasn't been called for
+                        # any of the seenode-processed emails yet (the
+                        # bridge was only just restored), or chromadb is
+                        # in fallback mode without persistence.
+                        scanned = len(raw_hits) if raw_hits else 0
+                        parts.append(
+                            f"RAG EMAIL SEARCH: 0 email-tagged chunks found "
+                            f"(scanned {scanned} total). Either /api/aria/read-"
+                            f"document hasn't ingested any emails yet, or RAG "
+                            f"is in non-persistent fallback mode (no /data volume)."
+                        )
                 except Exception as e:
-                    parts.append(f"RAG EMAIL SEARCH: failed — {e}")
+                    parts.append(
+                        f"RAG EMAIL SEARCH: failed — {type(e).__name__}: {e}. "
+                        f"This is the search backend, not a missing module."
+                    )
                 parts.append("")
 
             parts.append("INSTRUCTIONS TO ASSISTANT:")
