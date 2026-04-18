@@ -1695,7 +1695,7 @@ function _ariaHeaders(extra = {}) {
   return headers;
 }
 
-async function ariaProxy(req, res, path, { method = 'GET', fallback } = {}) {
+async function ariaProxy(req, res, path, { method = 'GET', fallback, timeoutMs } = {}) {
   let lastStatus = 0;
   let lastErr = '';
   if (ARIA_SERVICE_URL) {
@@ -1709,10 +1709,18 @@ async function ariaProxy(req, res, path, { method = 'GET', fallback } = {}) {
       // root cause was invisible. This block makes the failure mode
       // visible in seenode logs.
       const hasBearer = !!headers['Authorization'];
+      // Per-route timeout. Default 30s is fine for lookups + chat, but
+      // crawl / investigate / deep_research can take up to 3 min on fly.io.
+      // Past incident 2026-04-18 — /teach URL crawls on guides.fscj.edu
+      // and libguides.csn.edu fired 503 "Crawl unavailable" because the
+      // proxy's 30s timeout aborted BEFORE fly.io's crawl finished.
+      const resolvedTimeout = (typeof timeoutMs === 'number' && timeoutMs > 0)
+        ? timeoutMs
+        : 30000;
       const opts = {
         method: method || req.method,
         headers,
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(resolvedTimeout),
       };
       if (method === 'POST' && req.body) opts.body = JSON.stringify(req.body);
       const r = await fetch(url, opts);
@@ -2182,14 +2190,30 @@ app.get('/api/aria/knowledge/contradictions', requireAuth, (req, res) =>
 
 // ── ARIA deep research endpoints (proxy) ────────────────────────────────────
 app.post('/api/aria/investigate', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/investigate', { method: 'POST', fallback: async () => {
-    res.status(503).json({ error: 'Investigation unavailable — ARIA service offline' });
-  }}));
+  ariaProxy(req, res, '/api/aria/investigate', {
+    method: 'POST',
+    timeoutMs: 200000,  // deep investigation can take 2-3 min
+    fallback: async () => {
+      res.status(503).json({ error: 'Investigation unavailable — ARIA service offline' });
+    },
+  }));
 
 app.post('/api/aria/crawl', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/crawl', { method: 'POST', fallback: async () => {
-    res.status(503).json({ error: 'Crawl unavailable — ARIA service offline' });
-  }}));
+  // Crawls are slow — fly.io's crawl_website can take up to 150s on a
+  // JS-heavy site with 20 pages. Give the proxy 200s so we're comfortably
+  // above the typical worst case. Falls back to 503 only if fly.io is
+  // actually down (not just slow).
+  ariaProxy(req, res, '/api/aria/crawl', {
+    method: 'POST',
+    timeoutMs: 200000,
+    fallback: async ({ lastStatus, lastErr } = {}) => {
+      res.status(503).json({
+        error: 'Crawl unavailable — ARIA service offline',
+        fly_status: lastStatus || 0,
+        fly_error: (lastErr || '').slice(0, 200),
+      });
+    },
+  }));
 
 app.post('/api/aria/profile', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/profile', { method: 'POST', fallback: async () => {
