@@ -104,23 +104,25 @@ _TOOL_CLAIM_PATTERNS: list[tuple[re.Pattern, str]] = [
         re.IGNORECASE,
     ), "false-queue-claim"),
 
-    # ── Bracket-form fabricated tool calls — LLM emits literal
-    # [TOOL: name] ... [/TOOL] / [TOOL: name] / [TOOL CALL: ...]
-    # blocks pretending to invoke a tool when no tool actually fired
-    # this turn. Past incident 2026-04-18 23:07 (brain stats query):
-    # ARIA emitted "[TOOL: deep_research]\nQuery: ...\n[/TOOL]" then
-    # carried on to fabricate the answer as if the tool had returned.
-    # Triple violation (Clauses 11/13/14). The bracket form was missed
-    # by the natural-language patterns above because it has no
-    # "I have begun..." prose around it.
+]
+
+# ── Bracket-form fabricated tool calls — ALWAYS scanned, even when a
+# real tool ran earlier in the same turn. Past incident 2026-04-19 web
+# chat: the LLM ran a real web_search, presented results, then ALSO
+# emitted a "[TOOL: web_search]\n... json query ..." block at the end
+# proposing to run another search. tool_claim_guard early-returned
+# because tool_used was set, so the bracket leaked. Now the bracket
+# scan is in its own list (_BRACKET_PATTERNS) and runs after the
+# tool_used early-return — every bracket-form fake-call is caught
+# regardless of whether a real tool ran on this turn.
+_BRACKET_PATTERNS: list[tuple[re.Pattern, str]] = [
+    # [TOOL: name] ... [/TOOL] (with closing) or just [TOOL: name]
     (re.compile(
         r"\[\s*TOOL\s*(?:CALL)?\s*[:=]\s*[\w_-]+[^\]]*\]"
         r"(?:\s*[^\[]{0,800}\[\s*/\s*TOOL\s*\])?",
         re.IGNORECASE | re.DOTALL,
     ), "fabricated-tool-bracket"),
-
-    # Also catch the closing tag alone (defensive — sometimes the LLM
-    # emits only [/TOOL] when paired with prose elsewhere).
+    # Stand-alone closing tag
     (re.compile(
         r"\[\s*/\s*TOOL\s*\]",
         re.IGNORECASE,
@@ -192,17 +194,6 @@ async def guard(
         out["skipped_reason"] = "response-too-short"
         return out
 
-    # If a real tool ran, tool-execution prose is honest. Skip entirely.
-    if tool_used:
-        out["skipped_reason"] = f"tool-ran:{tool_used}"
-        return out
-
-    # Pre-filter: if the response doesn't mention any tool-like concept,
-    # the full regex scan is wasted CPU.
-    if not _QUICK_TRIGGER.search(response_text):
-        out["skipped_reason"] = "no-tool-keywords"
-        return out
-
     guarded = response_text
     violations: list[dict] = []
 
@@ -220,26 +211,34 @@ async def guard(
         logger.warning("[tool_claim_guard] pending_actions import failed: %s", e)
         _pa = None  # type: ignore
 
-    for pattern, pattern_type in _TOOL_CLAIM_PATTERNS:
+    # ── Bracket-form scan — ALWAYS RUNS ──────────────────────────────────
+    # [TOOL: name] / [/TOOL] are structured fake-call syntax that LLMs
+    # emit when imitating tool-using assistants. They are NEVER honest
+    # output regardless of whether a real tool ran this turn — the real
+    # tool's output is in `tool_context`, not in a bracket block in the
+    # response text. So we always strip these.
+    for pattern, pattern_type in _BRACKET_PATTERNS:
         for match in pattern.findall(guarded):
             match_text = match.strip() if isinstance(match, str) else ""
-            if not match_text or len(match_text) < 15:
+            if not match_text:
                 continue
-            # Don't double-tag
             ix = guarded.find(match_text)
             if ix < 0:
                 continue
             if "Clause 20(f)" in guarded[ix : ix + len(match_text) + 200]:
                 continue
-
             aid = "pending"
             if _pa is not None:
                 try:
                     entry = await _pa.record(
                         promise=match_text[:400],
                         reason=(
-                            f"Tool-execution prose emitted but no intent fired "
-                            f"this turn (tool_used=None). Pattern: {pattern_type}."
+                            f"Bracket-form tool call emitted in response text "
+                            f"(pattern: {pattern_type}). The LLM is imitating "
+                            f"tool-call syntax — real tool calls go through "
+                            f"_execute_tool, not response brackets. tool_used="
+                            f"{tool_used or 'None'} (irrelevant — bracket form "
+                            f"is fake-call syntax regardless)."
                         ),
                         resolver_kind=resolver_kind,
                         resolver_ref=resolver_ref,
@@ -251,14 +250,14 @@ async def guard(
                         metadata={
                             "pattern_type": pattern_type,
                             "user_message_head": (user_message or "")[:200],
+                            "tool_used_this_turn": tool_used or "",
                         },
                     )
                     aid = entry.get("action_id", "pending")
                 except Exception as e:
                     logger.debug("[tool_claim_guard] record failed: %s", e)
-
             note = _NOTE_TEMPLATE.format(
-                tool=_infer_tool_name(pattern_type),
+                tool="the named tool (bracket-form fake call)",
                 aid=aid,
                 resolver=resolver_ref or "operator input required",
             )
@@ -272,6 +271,69 @@ async def guard(
                 "match": match_text[:200],
                 "action_id": aid,
             })
+
+    # ── Prose-form scan — gated on no-tool-ran ──────────────────────────
+    # Natural-language tool prose ("I have begun the crawl") is only
+    # fabrication when NO real tool ran this turn. If a tool ran, prose
+    # describing it is honest. Bracket-form is structured fake syntax so
+    # it's checked unconditionally above.
+    if tool_used:
+        out["skipped_reason"] = f"prose-skipped:tool-ran:{tool_used}"
+    elif not _QUICK_TRIGGER.search(guarded):
+        out["skipped_reason"] = "prose-skipped:no-tool-keywords"
+    else:
+        for pattern, pattern_type in _TOOL_CLAIM_PATTERNS:
+            for match in pattern.findall(guarded):
+                match_text = match.strip() if isinstance(match, str) else ""
+                if not match_text or len(match_text) < 15:
+                    continue
+                # Don't double-tag
+                ix = guarded.find(match_text)
+                if ix < 0:
+                    continue
+                if "Clause 20(f)" in guarded[ix : ix + len(match_text) + 200]:
+                    continue
+
+                aid = "pending"
+                if _pa is not None:
+                    try:
+                        entry = await _pa.record(
+                            promise=match_text[:400],
+                            reason=(
+                                f"Tool-execution prose emitted but no intent fired "
+                                f"this turn (tool_used=None). Pattern: {pattern_type}."
+                            ),
+                            resolver_kind=resolver_kind,
+                            resolver_ref=resolver_ref,
+                            severity="HIGH",
+                            user_id=user_id,
+                            chat_id=chat_id,
+                            source="tool_claim_guard",
+                            operator_prompt=operator_prompt,
+                            metadata={
+                                "pattern_type": pattern_type,
+                                "user_message_head": (user_message or "")[:200],
+                            },
+                        )
+                        aid = entry.get("action_id", "pending")
+                    except Exception as e:
+                        logger.debug("[tool_claim_guard] record failed: %s", e)
+
+                note = _NOTE_TEMPLATE.format(
+                    tool=_infer_tool_name(pattern_type),
+                    aid=aid,
+                    resolver=resolver_ref or "operator input required",
+                )
+                guarded = guarded.replace(
+                    match_text,
+                    match_text.rstrip(".!?") + "." + note,
+                    1,
+                )
+                violations.append({
+                    "pattern_type": pattern_type,
+                    "match": match_text[:200],
+                    "action_id": aid,
+                })
 
     out["guarded"] = guarded
     out["violations_found"] = len(violations)

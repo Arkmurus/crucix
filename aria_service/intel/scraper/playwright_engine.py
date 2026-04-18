@@ -317,27 +317,60 @@ async def fetch_with_selectors(
 # ── Health check ───────────────────────────────────────────────────────────
 
 async def is_available() -> bool:
-    """Can we spawn a Chromium? Confirms Playwright + browser binary
-    are installed. Does NOT make a network call — just launches +
-    immediately closes."""
-    playwright = None
-    browser = None
+    """Lightweight readiness check — Playwright importable + Chromium
+    binary present on disk.
+
+    Past gap (self_diagnostic 2026-04-19): the previous implementation
+    launched a real Chromium with --no-sandbox + closed it. On fly.io's
+    constrained CPU + cold cache, that routinely took >15s and tripped
+    the diagnostic's smoke-check timeout, surfacing as
+    "FAIL: is_available raised: TimeoutError" even though the engine
+    works fine when actually called. Real fetch() calls have their own
+    longer timeouts (45-120s depending on portal).
+
+    The new check verifies:
+      1. playwright.async_api importable (catches missing package)
+      2. async_playwright().start() returns within 5s (catches broken
+         install where the driver bundle is corrupt)
+      3. The chromium executable_path exists on disk (catches the case
+         where `playwright install chromium` was never run)
+
+    No browser is actually launched. Sub-second execution. Zero RAM cost.
+    """
+    import asyncio as _aio
+    import os as _os
+
     try:
         from playwright.async_api import async_playwright
-        playwright = await async_playwright().start()
-        browser = await playwright.chromium.launch(
-            headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"],
+    except ImportError:
+        logger.debug("[playwright] is_available: package not installed")
+        return False
+
+    try:
+        # Driver-spinup itself is the next failure mode after a clean
+        # import — bound it tightly. Real launches take 10-30s; driver
+        # init is <2s on healthy systems.
+        playwright = await _aio.wait_for(
+            async_playwright().start(), timeout=5.0,
         )
-        await browser.close()
-        await playwright.stop()
-        return True
+    except _aio.TimeoutError:
+        logger.warning("[playwright] is_available: driver spinup > 5s — install may be broken")
+        return False
     except Exception as e:
-        logger.debug("[playwright] is_available probe failed: %s", e)
+        logger.debug("[playwright] is_available: driver init failed: %s", e)
+        return False
+
+    try:
+        # Resolve the bundled chromium binary path without launching it.
+        # If the binary is missing, .executable_path is None or points
+        # to a non-existent file (depends on Playwright version).
+        exe = playwright.chromium.executable_path
+        return bool(exe and _os.path.exists(exe))
+    except Exception as e:
+        logger.debug("[playwright] is_available: executable_path lookup failed: %s", e)
+        return False
+    finally:
         try:
-            if browser:
-                await browser.close()
-            if playwright:
-                await playwright.stop()
+            await _aio.wait_for(playwright.stop(), timeout=3.0)
         except Exception:
             pass
-        return False
