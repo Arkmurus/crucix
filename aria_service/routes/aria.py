@@ -5782,7 +5782,15 @@ async def diagnostic_unwired_ep():
             "last_signal_ago_h": m_stats.get("last_signal_ago_h"),
         }
 
-        if calls_absorb:
+        # If the module has actually produced signals — regardless of
+        # whether its OWN file calls absorb — treat it as wired. This
+        # handles centralized signaling (e.g. Tier B regional knowledge
+        # modules absorbed via aria_engine, indirect signals via
+        # dd_orchestrator etc.).
+        has_signals = entry["signals_seen"] > 0
+        wired_effectively = calls_absorb or has_signals
+
+        if wired_effectively:
             if modname in seen_modules and modname not in stale_modules:
                 classification["learner_wired_active"].append(entry)
             elif modname in stale_modules:
