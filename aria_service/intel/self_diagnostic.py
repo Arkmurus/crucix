@@ -230,6 +230,14 @@ _MODULES: list[dict] = [
         "smoke_is_available": True,
     },
     {
+        "name": "worldbank_documents",
+        "module": "aria_service.intel.sources.worldbank_documents",
+        "entry": "lookup",
+        "brain_registered": True,
+        "critical": False,
+        "smoke_is_available": True,
+    },
+    {
         "name": "acled",
         "module": "aria_service.intel.sources.acled",
         "entry": "lookup",

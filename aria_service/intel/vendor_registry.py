@@ -185,6 +185,21 @@ def _default_registry() -> list[dict]:
             "priority_to_buy": 2,
         },
         {
+            "id": "worldbank_documents", "name": "World Bank Documents & Reports API",
+            "tier": "free", "status": "live",
+            "coverage": ["registry", "adverse_media", "procurement"],
+            "monthly_cost_usd": 0.0,
+            "signup_url": "https://documents.worldbank.org/en/publication/documents-reports/api",
+            "docs_url": "https://documents.worldbank.org/en/publication/documents-reports/api",
+            "source_module": "aria_service.intel.sources.worldbank_documents",
+            "notes": "Free, no auth. 200k+ WB project reports, procurement plans, "
+                     "country assessments, INT investigations. Research-shaped — "
+                     "different from worldbank_debarred (compliance screen). Use "
+                     "for DD context when target operates in WB-funded markets "
+                     "(Angola, Kenya, Nigeria, Bangladesh, etc.).",
+            "priority_to_buy": 0,
+        },
+        {
             "id": "opensanctions_free", "name": "OpenSanctions (free tier)",
             "tier": "free", "status": "live",
             "coverage": ["sanctions", "adverse_media"],

@@ -142,6 +142,7 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "sources_fcdo_sanctions":      ["compliance", "legal"],
     "sources_un_sc_sanctions":     ["compliance", "legal"],
     "sources_worldbank_debarred":  ["compliance", "legal", "procurement"],
+    "sources_worldbank_documents": ["osint", "procurement", "market_intel"],
     "sources_acled":               ["geopolitics", "osint"],
     # RLAIF — Reinforcement Learning from AI Feedback (2026-04-18).
     # Per-turn quality eval broadcasts to all four core dimensions.

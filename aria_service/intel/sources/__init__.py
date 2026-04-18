@@ -47,6 +47,7 @@ __all__ = [
     "ofac_sdn",
     "fcdo_sanctions",
     "un_sc_sanctions",
-    "worldbank_debarred",
+    "worldbank_debarred",      # compliance screen (needs subscription key)
+    "worldbank_documents",     # research (free, no auth)
     "acled",
 ]
