@@ -106,20 +106,44 @@ _AUTH_WARNING_LOGGED = False
 
 
 def _aria_token() -> str:
-    """Return the configured shared-secret token, or empty string if unset."""
+    """Return the configured user-facing API token (empty if unset)."""
     return (_os.getenv("ARIA_API_TOKEN") or "").strip()
+
+
+def _aria_internal_token() -> str:
+    """Return the internal-service token (used by seenode → Python brain
+    bridge calls). Distinct secret so internal services don't share the
+    user-facing API key. Empty if unset."""
+    return (_os.getenv("ARIA_INTERNAL_TOKEN") or "").strip()
+
+
+def _accepted_tokens() -> list[str]:
+    """All tokens accepted by the router auth dependency. Either the
+    user-facing API token OR the internal-service token is valid.
+
+    Past gap (verified 2026-04-18 23:50): seenode → Python brain bridge
+    silently failed for hours because seenode posted with
+    ARIA_INTERNAL_TOKEN (the internal-service secret) but the Python
+    auth check only matched ARIA_API_TOKEN. 302 emails processed by
+    seenode → 0 signals reached the brain. The token mismatch was
+    invisible until ARIA's meta_query surfaced it. Accepting both
+    closes the gap without an operator env-var change.
+    """
+    return [t for t in (_aria_token(), _aria_internal_token()) if t]
 
 
 def require_aria_token(request: Request) -> None:
     """FastAPI dependency that enforces a bearer-token check when
-    ARIA_API_TOKEN is set. No-op when unset (soft rollout)."""
+    either ARIA_API_TOKEN or ARIA_INTERNAL_TOKEN is set. No-op when both
+    unset (soft rollout)."""
     global _AUTH_WARNING_LOGGED
-    expected = _aria_token()
-    if not expected:
+    accepted = _accepted_tokens()
+    if not accepted:
         if not _AUTH_WARNING_LOGGED:
             _log.warning(
-                "[auth] ARIA_API_TOKEN not set — fly.io endpoints are OPEN to the public internet. "
-                "Set the secret to enable enforcement."
+                "[auth] Neither ARIA_API_TOKEN nor ARIA_INTERNAL_TOKEN set — "
+                "fly.io endpoints are OPEN to the public internet. "
+                "Set at least one secret to enable enforcement."
             )
             _AUTH_WARNING_LOGGED = True
         return
@@ -130,10 +154,10 @@ def require_aria_token(request: Request) -> None:
             detail="Missing or malformed Authorization header. Expected 'Bearer <token>'.",
         )
     presented = auth_header[7:].strip()
-    # Constant-time-ish comparison — Python's == is technically not constant
-    # time but for a short shared secret on a low-volume API the timing leak
-    # is negligible. If we ever go higher-stakes, swap for hmac.compare_digest.
-    if presented != expected:
+    # Constant-time comparison via hmac.compare_digest. We compare against
+    # both tokens; if either matches, the request is authorized.
+    import hmac as _hmac
+    if not any(_hmac.compare_digest(presented, t) for t in accepted):
         raise HTTPException(status_code=401, detail="Invalid bearer token")
 
 
