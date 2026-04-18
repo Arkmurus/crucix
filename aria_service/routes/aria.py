@@ -1449,7 +1449,19 @@ _INVESTIGATE_KW = re.compile(
     r"dig\s+into|digging\s+into|"
     r"find\s+out\s+about|"
     r"deep[\-\s]?dive|do\s+a\s+deep\s+dive|"
-    r"tell\s+me\s+everything\s+about|"
+    # Natural phrasings users type instead of "investigate" — all should
+    # fire deep_research when combined with a URL. Past incident
+    # 2026-04-18: user asked "what do you know about csg.com/en" and
+    # intent router fell to the shallow `read` path, which extracted
+    # only the homepage. LLM then hallucinated "Jurisdiction: Turkey"
+    # off the CSG acronym instead of reading the full extract.
+    r"tell\s+me\s+(?:everything\s+)?about|"
+    r"tell\s+me\s+what\s+you\s+know|"
+    r"what\s+(?:do\s+you\s+know|can\s+you\s+tell\s+me)(?:\s+about)?|"
+    r"who\s+is|what\s+is\s+(?!the\s+(?:best|difference|status|cost|price))|"
+    r"information\s+(?:on|about)|"
+    r"details?\s+(?:on|about)|"
+    r"describe\s+(?:this|that|the)?|"
     r"explore|exploring|"
     r"due\s+diligence|"
     r"DD\s+(?:on|of)|"
@@ -2554,7 +2566,27 @@ def _detect_tool_intent(message: str) -> dict | None:
         return {"tool": "deep_research", "entity": entity, "url": url, "context": msg}
 
     # 3. Read / summarise URL — bare URL with no verb, or explicit "read this"
-    if (has_read and url) or (url and not (has_investigate or has_crawl or has_profile)):
+    #
+    # IMPORTANT distinction (hardened 2026-04-18):
+    #   - Bare URL with NO question words → tool=read (single page, cheap)
+    #   - URL WITH a question mark or interrogative words → tool=extract_url
+    #     (multi-page deep extract) because the user is asking for analysis,
+    #     not just a skim of the homepage. Past incident: "what do you know
+    #     about csg.com/en" fell into the shallow read path, LLM got only
+    #     the homepage marketing copy, confabulated "Turkey" from the CSG
+    #     acronym.
+    if has_read and url:
+        return {"tool": "read", "url": url, "context": msg}
+    if url and not (has_investigate or has_crawl or has_profile):
+        # Probe whether this is a question — if so, upgrade to extract_url
+        # (multi-page), else stay with the cheap read path.
+        is_question = (
+            "?" in msg
+            or re.search(r"\b(who|what|where|when|why|how|is|are|does|do|can|could|would|should)\b", msg, re.IGNORECASE)
+            or re.search(r"\b(sure|confirm|correct|right|wrong|really|actually)\b", msg, re.IGNORECASE)
+        )
+        if is_question:
+            return {"tool": "extract_url", "url": url, "context": msg, "_reason": "url_with_question"}
         return {"tool": "read", "url": url, "context": msg}
 
     # 4. Investigate topic (no URL) — fire deep_research for thorough OSINT.
@@ -3249,11 +3281,19 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"{(r.get('text','') or '')[:12000]}\n"
                 f"--- End extracted text ---\n"
                 f"{search_section}"
-                f"\nIMPORTANT — clauses 9, 13, 14:\n"
-                f"  (a) You may ONLY state facts about this entity that are "
-                f"verifiably present in EITHER the extracted page text OR a "
-                f"specific web search snippet above. Cite the source inline "
-                f"for every fact: '[from <url>]' or '[from search snippet #N]'.\n"
+                f"\nIMPORTANT — clauses 9, 13, 14 (HARDENED 2026-04-18 after "
+                f"the CSG Group incident where the LLM claimed 'Jurisdiction: "
+                f"Turkey' despite the extract clearly saying 'Czechoslovak "
+                f"Group'):\n"
+                f"  (a) READ-BEFORE-CLAIM RULE — Before stating ANY "
+                f"jurisdiction, HQ location, founded year, acronym expansion, "
+                f"ownership, or executive name, you MUST quote a verbatim "
+                f"phrase from the extract above that supports it. Format: "
+                f"'Jurisdiction: Czech Republic [per extract: \"Headquartered "
+                f"in Prague\"]'. If you cannot quote a supporting sentence, "
+                f"say 'jurisdiction unclear from extract — re-run with "
+                f"deeper crawl' — do NOT guess from training memory or "
+                f"pattern-match from the entity name / acronym.\n"
                 f"  (b) Do NOT invent company numbers, NACE codes, registered "
                 f"addresses, executive names, jurisdictions, or any other "
                 f"verifiable identifiers. If a fact is not in the materials "
@@ -3261,17 +3301,25 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"available data.'\n"
                 f"  (c) DO NOT infer nationality from language variants in "
                 f"the URL or HTML (e.g. /en, hreflang='pt-pt') — language "
-                f"variants reflect target audience, not company origin. State "
-                f"the actual jurisdiction ONLY if it appears in the extracted "
-                f"text or a search snippet. If multiple jurisdictions appear "
-                f"(HQ in one country, subsidiaries in another), report each "
-                f"one with its specific source.\n"
+                f"variants reflect target audience, not company origin. DO "
+                f"NOT infer nationality from acronyms (e.g. 'CSG' → Turkish). "
+                f"State the actual jurisdiction ONLY if it appears in the "
+                f"extracted text or a search snippet. If multiple "
+                f"jurisdictions appear (HQ in one country, subsidiaries in "
+                f"another), report each one with its specific source.\n"
                 f"  (d) Web search snippets are POINTERS, not verified facts. "
                 f"Tag findings derived from a single snippet at most as "
                 f"[ASSESSED — single search snippet]. Tag findings present "
                 f"in BOTH the extracted text AND a snippet as [PROBABLE]. "
                 f"Tag findings only present in 3+ independent snippets as "
-                f"[CONFIRMED]."
+                f"[CONFIRMED].\n"
+                f"  (e) POST-GENERATION VERIFICATION — every claim tagged "
+                f"[CONFIRMED] or [from TOOL: ...] gets checked by "
+                f"ground_truth_guard against this extract. If you tag "
+                f"something CONFIRMED without a verbatim quote from the "
+                f"extract, the gate rewrites it as UNVERIFIED and records "
+                f"a hallucination in the mistake ledger. Do not pay the "
+                f"cost of a flagged turn — quote first, claim second."
             )
 
         if tool == "crawl":
@@ -4104,6 +4152,66 @@ async def chat_ep(req: ChatRequest, request: Request):
                     pass
         except Exception as e:
             _log.debug("tool_claim_guard failed (non-fatal): %s", e)
+
+        # ── Ground-truth guard (2026-04-18) ──────────────────────────
+        # Past incident 2026-04-18 — CSG Group: user asked about
+        # csg.com/en. extract_url ran and pulled the actual page text
+        # (which clearly said "Czechoslovak Group"). But the LLM wrote:
+        #   "Jurisdiction: Turkey (HQ). [CONFIRMED — from website
+        #    content describing Turkish operations and sectors]"
+        # Pure pattern-matching off the CSG acronym — ignored the
+        # extract. The prompt footer (Clause 14) explicitly said "Do
+        # NOT invent jurisdictions" and the LLM ignored it.
+        #
+        # Prompts alone don't prevent this class of bug. This guard
+        # post-checks each jurisdiction/HQ/founded/acronym claim tagged
+        # [CONFIRMED] against the actual tool_context that was in the
+        # prompt. If the claim isn't in the extract, it rewrites the
+        # sentence inline with a UNVERIFIED correction.
+        try:
+            from ..intel import ground_truth_guard as _gtg
+            gtg_result = await _gtg.verify(
+                response_text,
+                tool_context=tool_context or "",
+                user_message=req.message,
+            )
+            if gtg_result.get("changed"):
+                response_text = gtg_result["guarded"]
+                result["response"] = response_text
+                result["ground_truth_guard"] = {
+                    "violations": gtg_result["violations_found"],
+                    "details": gtg_result["violations"],
+                }
+                _log.warning(
+                    "[ground_truth_guard] %d unverifiable claim(s) corrected "
+                    "(user_msg head=%r)",
+                    gtg_result["violations_found"],
+                    (req.message or "")[:80],
+                )
+                # Record in mistake ledger — this is a verified
+                # hallucination, the predictor should downgrade
+                # confidence on similar extract-then-synthesise turns.
+                try:
+                    from ..intel import mistake_ledger as _ml
+                    for v in gtg_result["violations"][:3]:
+                        contradictory = v.get("extract_has_contradictory") or []
+                        contradict_note = (
+                            f"extract actually mentions: {', '.join(contradictory)}"
+                            if contradictory else "not in extract"
+                        )
+                        await _ml.record(
+                            category="hallucination",
+                            task_type="chat",
+                            domain="ground_truth_violation",
+                            what=f"Unverifiable {v.get('slot','?')} claim: {v.get('claim','')[:100]}",
+                            why=contradict_note,
+                            fix="Inline UNVERIFIED correction appended by ground_truth_guard",
+                            what_class=f"gtg_{v.get('slot','?')}",
+                        )
+                except Exception:
+                    pass
+        except Exception as e:
+            _log.debug("ground_truth_guard failed (non-fatal): %s", e)
 
         # ── Confidence-tagged reply footer ──
         # Wires existing observability signals (confidence tags +
