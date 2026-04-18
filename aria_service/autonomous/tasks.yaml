@@ -1437,3 +1437,81 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: []
     mem0_tags: [learning, style, autonomous]
+
+  # ── "Fire on ARIA" autonomous triggers (2026-04-18) ────────────────
+  # Three scheduled tasks that close the feedback loop on the Now bundle
+  # shipped in commit 50a3288. Without these, the suites only run on
+  # manual POST — consistency scores would never refresh, capability
+  # card would go stale, calibration deltas would never adjust.
+
+  - id: CONSISTENCY-WEEKLY
+    name: Consistency test suite — same-question-different-phrasing
+    description: |
+      Sunday 05:00 UTC — fire all canonical-question-plus-variants tests
+      through the chat pipeline, score each variant on accuracy vs
+      ground-truth AND consistency vs the canonical answer. Overall =
+      min(accuracy_avg, consistency_avg) so a confidently-wrong-and-
+      consistent answer does NOT pass. Results persist to Redis +
+      failing tests into mistake_ledger so the predictor learns where
+      knowledge is unreliable.
+
+      Cost: ~6 tests × 6 variants × 1 chat turn = ~36 LLM calls per
+      week. Sampled through DeepSeek primary so ~$0.05-0.15/week.
+    cron: "0 5 * * 0"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 900
+    cost_cap_usd: 0.50
+    tool_chain:
+      - tool: consistency_suite
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, evaluation, consistency, autonomous]
+
+  - id: CAPABILITY-CARD-NIGHTLY
+    name: Capability card — regenerate the public evidence doc
+    description: |
+      Every night 03:30 UTC — pull current mastery, consistency,
+      calibration, adversarial, vendor, mistake-ledger stats and
+      render a fresh capability card served at
+      GET /api/aria/capability-card. Zero LLM cost — pure aggregation.
+
+      Regulated defence clients cite this doc directly when justifying
+      AI reliance in their own compliance framework. Going stale is
+      a real harm (clients see outdated coverage claims), so this
+      fires nightly rather than weekly.
+    cron: "30 3 * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 120
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: capability_card_refresh
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, capability_card, autonomous]
+
+  - id: CALIBRATION-AUTO-TUNE-WEEKLY
+    name: Calibration auto-tune — close the confidence-threshold loop
+    description: |
+      Monday 04:15 UTC (right after the Sunday consistency suite) —
+      read calibration_review, compute consecutive-runs streak, adjust
+      weak + critical thresholds asymmetrically (overconfident tightens
+      faster than underconfident loosens). Bounded ±3pp/run, cumulative
+      cap ±20pp. Every adjustment writes to audit_log with before/after.
+
+      Runs AFTER the consistency suite so the decision uses the
+      freshest signal.
+    cron: "15 4 * * 1"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 60
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: calibration_auto_tune
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, calibration, autonomous]

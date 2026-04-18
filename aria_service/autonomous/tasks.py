@@ -829,6 +829,23 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..learning import memory_replication
         return await memory_replication.run_daily_backup()
 
+    elif tool_kind == "consistency_suite":
+        # Weekly canonical-vs-variants test. Fires each variant through
+        # the chat pipeline — the LLM is the one passed in by the caller
+        # (same provider the rest of autonomous uses, with cost meter
+        # already wrapped).
+        from ..intel import consistency_suite
+        return await consistency_suite.run_all(llm)
+
+    elif tool_kind == "capability_card_refresh":
+        from ..intel import capability_card
+        card = await capability_card.build_card()
+        return {"ok": True, "version": card.get("version"), "generated_at": card.get("generated_at")}
+
+    elif tool_kind == "calibration_auto_tune":
+        from ..intel import calibration_auto_tune
+        return await calibration_auto_tune.run_auto_tune()
+
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}
 
