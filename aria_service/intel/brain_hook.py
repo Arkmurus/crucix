@@ -59,6 +59,10 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "opportunity_detector": ["market_intel", "competitor_intel"],
     "signal_generator":     ["finance", "compliance", "market_intel"],
     "knowledge_ingestor":   ["general", "compliance", "legal"],
+    # Email reader (seenode → POST /api/aria/brain/absorb) — every inbound
+    # email lands as a discrete signal so the brain stats endpoint can
+    # show email volume + linkedin/tender/compliance breakdown.
+    "email_reader":         ["general", "relationships", "competitor_intel"],
     # Core Self-Development Loop (Clauses 17/18/19) — shipped 2026-04-15
     "verified_intel":       ["compliance", "osint", "legal"],
     "web_atlas":            ["osint", "market_intel"],
@@ -245,6 +249,10 @@ _MODULE_WEIGHT: dict[str, float] = {
     "opportunity_detector": 0.15,
     "signal_generator":     0.15,
     "knowledge_ingestor":   0.2,   # /teach URL ingestion — high value
+    # Email reader — every inbound email feeds the brain. CRITICAL/HIGH
+    # priority emails (LinkedIn job changes, compliance alerts) get the
+    # most weight; general email lands at 0.10.
+    "email_reader":         0.10,
     # Core Self-Development Loop (Clauses 17/18/19)
     "verified_intel":       0.15,  # every verified fact = real provenance work
     "web_atlas":            0.05,  # per-ingest EMA updates — high frequency, low weight
