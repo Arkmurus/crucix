@@ -1034,7 +1034,15 @@ app.get('/api/health/cross', async (req, res) => {
   };
   try {
     const t0 = Date.now();
+    // Forward the shared-secret bearer token so the probe can reach
+    // Python's /api/aria/health (which is behind router-level auth).
+    // Without this, a fully-deployed pair with ARIA_API_TOKEN set would
+    // return 401 here and make cross-health look broken when it isn't.
+    const headers = { 'Accept': 'application/json' };
+    const tok = (process.env.ARIA_API_TOKEN || process.env.INT_TOKEN || '').trim();
+    if (tok) headers['Authorization'] = `Bearer ${tok}`;
     const r = await fetch(`${flyUrl}/api/aria/health`, {
+      headers,
       signal: AbortSignal.timeout(6000),
     });
     out.fly.latency_ms = Date.now() - t0;

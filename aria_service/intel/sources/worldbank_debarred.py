@@ -13,26 +13,31 @@ Why this matters for DD
 ───────────────────────
 A defence contractor debarred by the World Bank cannot be proposed to
 buyers who finance procurement through MDB loans (a significant share
-of African + MENA + LatAm defence-adjacent procurement). Missing this
-signal has material commercial consequences. This is exactly the kind
-of check commercial DD tools charge a lot for; it's free and authoritative.
+of African + MENA + LatAm defence-adjacent procurement).
 
-Data source
-───────────
-The WB publishes the list at:
-  https://projects.worldbank.org/en/projects-operations/procurement/debarred-firms
-  https://apigwext.worldbank.org/dvsvc/v1.0/json/APPLICATION/ADOBE_EXPRNCE_MGR/FIRM360/FIRM360
+Status — 2026-04-18 operational note
+────────────────────────────────────
+The WB has moved the `apigwext.worldbank.org/dvsvc/...` JSON endpoint
+behind an Azure API Management subscription key (returns HTTP 401
+"missing subscription key" without it). Free developer-portal signup
+is still possible but requires operator action.
 
-Two endpoints — the gwext.worldbank.org one returns JSON directly but
-sometimes rate-limits hard. We try it first, then fall back to parsing
-the HTML page (which embeds the same data in a JSON blob).
+Until a WORLDBANK_SUBSCRIPTION_KEY is set, this module degrades honestly:
+  - `lookup()` returns an error_result with the capability_gap reason
+  - `is_available()` returns False
+  - `dd_orchestrator` flags the gap in the report's data_gaps list
+
+OpenSanctions already aggregates WB debarments (dataset `wb_debarred`),
+so the DD pipeline doesn't lose the signal — it just loses the
+primary-source citation until someone registers for a WB API key.
+
+Fallback mode — if the env var is set, we try the authenticated endpoint.
 """
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import re
+import os
 import time
 from typing import Any
 
@@ -41,14 +46,19 @@ from . import _common
 logger = logging.getLogger("aria.sources.worldbank_debarred")
 
 _SOURCE = "worldbank_debarred"
-_AUTH = "anonymous"
+_AUTH = "api_key"  # Azure APIM subscription key required by WB as of 2024
 
 _FEED_JSON = "https://apigwext.worldbank.org/dvsvc/v1.0/json/APPLICATION/ADOBE_EXPRNCE_MGR/FIRM360/FIRM360"
 _HUMAN_URL = "https://projects.worldbank.org/en/projects-operations/procurement/debarred-firms"
+_API_KEY_ENV = "WORLDBANK_SUBSCRIPTION_KEY"
 
 _CACHE: dict[str, Any] = {"fetched_at": 0.0, "records": []}
 _CACHE_TTL_S = 24 * 3600  # 24h — WB refreshes weekly at most
 _CACHE_LOCK = asyncio.Lock()
+
+
+def _subscription_key() -> str:
+    return (os.getenv(_API_KEY_ENV) or "").strip()
 
 
 async def _load_records() -> list[dict]:
@@ -57,8 +67,19 @@ async def _load_records() -> list[dict]:
         if _CACHE["records"] and (now - _CACHE["fetched_at"] < _CACHE_TTL_S):
             return _CACHE["records"]
 
-        # Try the JSON feed first
-        data = await _common.http_get_json(_FEED_JSON, timeout=25.0)
+        sub_key = _subscription_key()
+        if not sub_key:
+            # Honest degrade — no key means no fetch. OpenSanctions
+            # provides the coverage in aggregated form via its
+            # dataset "wb_debarred" so the DD signal is not lost.
+            return _CACHE["records"]  # stale cache (possibly empty) — no HTTP call
+
+        # Try the JSON feed with the subscription key
+        headers = {
+            "Ocp-Apim-Subscription-Key": sub_key,
+            "Accept": "application/json",
+        }
+        data = await _common.http_get_json(_FEED_JSON, timeout=25.0, headers=headers)
         rows: list[dict] = []
         if isinstance(data, dict):
             # Response shape varies; try common keys
@@ -155,6 +176,17 @@ async def lookup(
         _SOURCE, query, auth=_AUTH, citation_url=_HUMAN_URL,
     )
 
+    if not _subscription_key():
+        # Honest "capability-gap" signal so the orchestrator knows to
+        # lean on the OpenSanctions wb_debarred dataset for coverage.
+        return _common.error_result(
+            _SOURCE, query,
+            "WORLDBANK_SUBSCRIPTION_KEY not configured — "
+            "register free at worldbank.org (developer portal). "
+            "Signal still available via OpenSanctions dataset wb_debarred.",
+            auth=_AUTH, started_at=started,
+        )
+
     if not name or len(name.strip()) < 2:
         return _common.error_result(
             _SOURCE, query, "name too short for screen",
@@ -165,7 +197,7 @@ async def lookup(
         records = await _load_records()
         if not records:
             return _common.error_result(
-                _SOURCE, query, "WB debarred list unavailable",
+                _SOURCE, query, "WB debarred list unavailable (auth key may be invalid)",
                 auth=_AUTH, started_at=started,
             )
         hits = _common.fuzzy_filter(
@@ -194,7 +226,17 @@ async def lookup(
 
 
 async def is_available() -> bool:
+    """Returns True only if an API subscription key is configured AND
+    the feed returns data. Without a key, this source is intentionally
+    marked unavailable so dd_orchestrator knows to lean on the
+    OpenSanctions wb_debarred dataset for the same coverage."""
+    if not _subscription_key():
+        return False
     if _CACHE["records"]:
         return True
-    data = await _common.http_get_json(_FEED_JSON, timeout=10.0)
+    headers = {
+        "Ocp-Apim-Subscription-Key": _subscription_key(),
+        "Accept": "application/json",
+    }
+    data = await _common.http_get_json(_FEED_JSON, timeout=10.0, headers=headers)
     return bool(data)

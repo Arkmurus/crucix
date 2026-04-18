@@ -44,7 +44,6 @@ Shape of a hit
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from typing import Any
@@ -56,9 +55,18 @@ logger = logging.getLogger("aria.sources.ofac_sdn")
 _SOURCE = "ofac_sdn"
 _AUTH = "anonymous"
 
-# Treasury's JSON feed — updated continuously as designations ship.
-_FEED_JSON = "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN_ENHANCED.JSON"
-# Fallback CSV endpoint if the JSON feed is unavailable
+# The enhanced JSON endpoint returns 200 with 0 bytes as of 2026-04-18
+# (likely a CDN issue on Treasury's side). The XML endpoint at
+# www.treasury.gov/ofac/downloads/sdn.xml is the documented stable feed
+# and returns the full ~28MB list. We parse that instead.
+#
+# Schema: <sdnList><sdnEntry><uid/><firstName/><lastName/><sdnType/>
+#   <programList><program/></programList>
+#   <akaList><aka><type/><firstName/><lastName/></aka></akaList>
+#   <addressList><address><city/><country/></address></addressList>
+# </sdnEntry></sdnList>
+_FEED_XML = "https://www.treasury.gov/ofac/downloads/sdn.xml"
+# Fallback CSV feed if the XML endpoint is unavailable
 _FEED_CSV = "https://www.treasury.gov/ofac/downloads/sdn.csv"
 
 _CACHE: dict[str, Any] = {"fetched_at": 0.0, "records": []}
@@ -67,95 +75,125 @@ _CACHE_TTL_S = 3 * 3600  # 3h — between the 6h OpenSanctions refresh and real-
 _CACHE_LOCK = asyncio.Lock()
 
 
+def _parse_xml(xml_text: str) -> list[dict]:
+    """Parse the OFAC XML SDN list into normalised records."""
+    try:
+        try:
+            from defusedxml import ElementTree as ET  # type: ignore
+        except ImportError:
+            from xml.etree import ElementTree as ET
+        root = ET.fromstring(xml_text)
+    except Exception as e:
+        logger.warning("[ofac_sdn] XML parse failed: %s", e)
+        return []
+
+    def _local(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+    records: list[dict] = []
+    for entry in root.iter():
+        if _local(entry.tag) != "sdnEntry":
+            continue
+
+        uid = ""
+        first = ""
+        last = ""
+        sdn_type = ""
+        title = ""
+        programs: list[str] = []
+        aliases: list[str] = []
+        addr_str = ""
+
+        for child in entry:
+            tag = _local(child.tag)
+            text = (child.text or "").strip()
+            if tag == "uid":
+                uid = text
+            elif tag == "firstName":
+                first = text
+            elif tag == "lastName":
+                last = text
+            elif tag == "sdnType":
+                sdn_type = text
+            elif tag == "title":
+                title = text
+            elif tag == "programList":
+                for p in child:
+                    if _local(p.tag) == "program" and (p.text or "").strip():
+                        programs.append(p.text.strip())
+            elif tag == "akaList":
+                for a in child:
+                    if _local(a.tag) != "aka":
+                        continue
+                    af = ""
+                    al = ""
+                    for sub in a:
+                        st = _local(sub.tag)
+                        sv = (sub.text or "").strip()
+                        if st == "firstName":
+                            af = sv
+                        elif st == "lastName":
+                            al = sv
+                    full = f"{af} {al}".strip()
+                    if full:
+                        aliases.append(full)
+            elif tag == "addressList" and not addr_str:
+                for addr in child:
+                    if _local(addr.tag) != "address":
+                        continue
+                    parts = []
+                    for sub in addr:
+                        st = _local(sub.tag)
+                        sv = (sub.text or "").strip()
+                        if st in ("city", "stateOrProvince", "country") and sv:
+                            parts.append(sv)
+                    if parts:
+                        addr_str = ", ".join(parts)
+                        break
+
+        primary_name = f"{first} {last}".strip() if last else first
+        if not primary_name:
+            continue
+
+        records.append({
+            "uid": uid,
+            "name": primary_name,
+            "aliases": aliases,
+            "list_type": "SDN",
+            "programs": programs,
+            "sdn_type": sdn_type,
+            "title": title,
+            "address": addr_str,
+            "designation_date": "",  # XML doesn't carry a designation date per entry
+            "citation_url": (
+                f"https://sanctionssearch.ofac.treas.gov/Details.aspx?id={uid}"
+                if uid else "https://sanctionssearch.ofac.treas.gov/"
+            ),
+        })
+    return records
+
+
 async def _load_records() -> list[dict]:
-    """Fetch and cache the SDN list. Returns a list of normalised records."""
+    """Fetch and cache the SDN list. Returns normalised records."""
     async with _CACHE_LOCK:
         now = time.time()
         if _CACHE["records"] and (now - _CACHE["fetched_at"] < _CACHE_TTL_S):
             return _CACHE["records"]
 
-        data = await _common.http_get_json(_FEED_JSON, timeout=25.0)
-        if not data:
-            logger.warning("[ofac_sdn] JSON feed unavailable; keeping stale cache (%d recs)",
-                           len(_CACHE["records"]))
+        xml_text = await _common.http_get_text(_FEED_XML, timeout=45.0)
+        if not xml_text:
+            logger.warning(
+                "[ofac_sdn] XML feed unavailable; keeping stale cache (%d recs)",
+                len(_CACHE["records"]),
+            )
             return _CACHE["records"]
 
-        # The enhanced JSON is keyed by UID. Each record has identity,
-        # addresses, akas, programs, designation_date, etc.
-        records: list[dict] = []
-        items = data if isinstance(data, list) else (data.get("sdnEntry") or data.get("publishInformation") or [])
-        if isinstance(items, dict):
-            items = list(items.values())
-
-        for rec in items:
-            if not isinstance(rec, dict):
-                continue
-            # Try the enhanced shape first
-            uid = rec.get("uid") or rec.get("id") or ""
-            primary_name = (
-                rec.get("sdnName")
-                or rec.get("primaryName")
-                or rec.get("name")
-                or ""
-            )
-            sdn_type = rec.get("sdnType") or rec.get("type") or ""
-            programs = rec.get("programs") or rec.get("sanctionsPrograms") or []
-            if isinstance(programs, dict):
-                programs = programs.get("program") or []
-            if isinstance(programs, str):
-                programs = [programs]
-
-            # Aliases / aka — multiple possible shapes
-            aliases: list[str] = []
-            aka = rec.get("aka") or rec.get("akaList") or rec.get("aliases") or []
-            if isinstance(aka, dict):
-                aka = aka.get("aka") or []
-            if isinstance(aka, list):
-                for a in aka:
-                    if isinstance(a, str):
-                        aliases.append(a)
-                    elif isinstance(a, dict):
-                        full = (
-                            a.get("lastName") or a.get("wholeName") or a.get("name")
-                            or ""
-                        )
-                        first = a.get("firstName") or ""
-                        if first:
-                            full = f"{first} {full}".strip()
-                        if full:
-                            aliases.append(full)
-
-            # Address / jurisdiction — first address only for the hit
-            addr_blocks = rec.get("addressList") or rec.get("addresses") or []
-            addr_str = ""
-            if isinstance(addr_blocks, dict):
-                addr_blocks = addr_blocks.get("address") or []
-            if isinstance(addr_blocks, list) and addr_blocks:
-                a0 = addr_blocks[0] if isinstance(addr_blocks[0], dict) else {}
-                parts = [a0.get("city"), a0.get("stateOrProvince"), a0.get("country")]
-                addr_str = ", ".join(p for p in parts if p)
-
-            designation = rec.get("designationDate") or rec.get("publishDate") or ""
-
-            records.append({
-                "uid": str(uid),
-                "name": primary_name,
-                "aliases": aliases,
-                "list_type": "SDN",
-                "programs": [str(p) for p in programs if p],
-                "sdn_type": sdn_type,
-                "address": addr_str,
-                "designation_date": str(designation),
-                "citation_url": (
-                    f"https://sanctionssearch.ofac.treas.gov/Details.aspx?id={uid}"
-                    if uid else "https://sanctionssearch.ofac.treas.gov/"
-                ),
-            })
-
-        _CACHE["records"] = records
-        _CACHE["fetched_at"] = now
-        logger.info("[ofac_sdn] cache refreshed (%d records)", len(records))
-        return records
+        records = _parse_xml(xml_text)
+        if records:
+            _CACHE["records"] = records
+            _CACHE["fetched_at"] = now
+            logger.info("[ofac_sdn] cache refreshed (%d records)", len(records))
+        return _CACHE["records"]
 
 
 async def lookup(
@@ -208,8 +246,8 @@ async def lookup(
 
 async def is_available() -> bool:
     """Health-check ping. Considered available if cache has records OR
-    the feed fetch succeeds."""
+    the XML feed fetch returns something XML-shaped."""
     if _CACHE["records"]:
         return True
-    data = await _common.http_get_json(_FEED_JSON, timeout=8.0)
-    return bool(data)
+    text = await _common.http_get_text(_FEED_XML, timeout=10.0)
+    return bool(text and "<sdnList" in text[:200])

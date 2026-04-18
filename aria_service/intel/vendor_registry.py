@@ -169,14 +169,20 @@ def _default_registry() -> list[dict]:
         },
         {
             "id": "worldbank_debarred", "name": "World Bank debarred firms",
-            "tier": "free", "status": "live",
+            "tier": "self_signup_free", "status": "evaluating",
             "coverage": ["sanctions", "adverse_media"],
             "monthly_cost_usd": 0.0,
+            "api_key_env_var": "WORLDBANK_SUBSCRIPTION_KEY",
             "signup_url": "https://projects.worldbank.org/en/projects-operations/procurement/debarred-firms",
+            "docs_url": "https://developer.worldbank.org/",
             "source_module": "aria_service.intel.sources.worldbank_debarred",
             "notes": "Cross-recognised by AfDB/AsDB/EBRD/IDB under MCEA 2010. "
-                     "Critical for MDB-financed defence-adjacent deals.",
-            "priority_to_buy": 0,
+                     "Critical for MDB-financed defence-adjacent deals. WB moved "
+                     "the API behind an Azure APIM subscription key in 2024 — "
+                     "register at developer.worldbank.org (free). Meanwhile, "
+                     "OpenSanctions dataset 'wb_debarred' carries the same "
+                     "coverage via aggregation, so the DD signal is not lost.",
+            "priority_to_buy": 2,
         },
         {
             "id": "opensanctions_free", "name": "OpenSanctions (free tier)",
