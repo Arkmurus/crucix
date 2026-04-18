@@ -762,16 +762,66 @@ app.include_router(aria_router)
 
 @app.get("/health")
 async def health():
+    """Public liveness + minimal autonomy state.
+
+    Deliberately exposes only boolean indicators — no task IDs, no run
+    history, no vendor credentials. The authed /api/aria/autonomous/
+    status endpoint is the rich view; this one is safe to publish on a
+    status page.
+    """
     llm = app.state.llm_provider
     llm_stats = {}
     if hasattr(llm, "get_stats"):
         llm_stats = llm.get_stats()
+
+    # Autonomy indicator — is the 24/7 loop actually running right
+    # now? Boolean only, plus the last-tick age so an observer can
+    # tell "enabled but stuck" from "enabled and ticking".
+    autonomous_ind = {
+        "enabled": False,
+        "running": False,
+        "dry_run": True,
+        "autonomy_level": 0,
+        "seconds_since_last_tick": None,
+        "tasks_loaded": 0,
+    }
+    try:
+        from .autonomous import engine as _eng, tasks as _tsk
+        status = _eng.get_engine_status()
+        autonomous_ind["enabled"] = bool(status.get("enabled"))
+        autonomous_ind["running"] = bool(status.get("running"))
+        autonomous_ind["dry_run"] = bool(status.get("dry_run"))
+        autonomous_ind["autonomy_level"] = int(status.get("autonomy_level", 0))
+        last_tick = status.get("last_tick_at")
+        if last_tick:
+            import time
+            autonomous_ind["seconds_since_last_tick"] = int(time.time() - last_tick)
+        try:
+            autonomous_ind["tasks_loaded"] = len(_tsk.get_loaded_tasks())
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # Health rollup — service is operational only if LLM is configured
+    # AND (autonomous is off OR autonomous is running healthily). A
+    # stuck autonomous loop is worse than off.
+    autonomous_healthy = (
+        not autonomous_ind["enabled"]  # off is fine for liveness purposes
+        or (
+            autonomous_ind["running"]
+            and (autonomous_ind["seconds_since_last_tick"] is None
+                 or autonomous_ind["seconds_since_last_tick"] < 180)
+        )
+    )
+
     return {
-        "status": "operational",
+        "status": "operational" if (llm and llm.is_configured and autonomous_healthy) else "degraded",
         "service": "aria",
         "llm_provider": llm.name if llm else "none",
         "llm_configured": bool(llm and llm.is_configured),
         "llm_fallback_stats": llm_stats,
+        "autonomous": autonomous_ind,
     }
 
 
