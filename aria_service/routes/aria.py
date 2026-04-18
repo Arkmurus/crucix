@@ -4480,6 +4480,30 @@ async def chat_ep(req: ChatRequest, request: Request):
         except Exception as e:
             _log.warning("honesty judge dispatch failed: %s: %s", type(e).__name__, e)
 
+        # ── RLAIF sampled quality evaluation (2026-04-18) ────────────
+        # Fire-and-forget: evaluator runs AFTER the response is returned
+        # to the user so latency stays flat. Sampling gate keeps cost
+        # bounded (default 10%). Feeds brain_hook with 4-dimension
+        # quality scores so weak grounding on specific domains pulls
+        # mastery down automatically.
+        try:
+            from ..intel import rlaif as _rlaif
+            if await _rlaif.should_evaluate():
+                import asyncio as _aio
+                async def _rlaif_bg():
+                    try:
+                        await _rlaif.evaluate(
+                            req.message,
+                            response_text,
+                            trace_id=trace_id,
+                            llm=llm,
+                        )
+                    except Exception as _e:
+                        _log.debug("[rlaif] bg eval failed: %s", _e)
+                _aio.create_task(_rlaif_bg())
+        except Exception as e:
+            _log.debug("[rlaif] dispatch failed: %s", e)
+
         return result
     finally:
         # Always finalise the trace so /trace doesn't show stuck
@@ -10754,6 +10778,54 @@ async def calibration_auto_tune_run_ep():
     try:
         from ..intel import calibration_auto_tune as _cat
         return await _cat.run_auto_tune()
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+# ── RLAIF — Reinforcement Learning from AI Feedback (2026-04-18) ─────────
+
+@router.get("/rlaif/stats")
+async def rlaif_stats_ep():
+    """Rolling averages on the sampled-percentage quality evaluator."""
+    try:
+        from ..intel import rlaif as _rlaif
+        return await _rlaif.stats()
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/rlaif/evaluate")
+async def rlaif_evaluate_ep(request: Request):
+    """Manually evaluate a (query, response) pair. Useful for validation
+    or replaying a flagged chat turn through the grader."""
+    try:
+        body = await request.json() or {}
+        query = (body.get("query") or "").strip()
+        response = (body.get("response") or "").strip()
+        if not query or not response:
+            return {"ok": False, "error": "query and response are required"}
+        llm = get_llm(request)
+        if llm is None or not getattr(llm, "is_configured", False):
+            return {"ok": False, "error": "LLM provider not configured"}
+        from ..intel import rlaif as _rlaif
+        # Manual calls bypass the sampling gate intentionally
+        import os as _os
+        prev = _os.environ.get("ARIA_RLAIF_ENABLED")
+        _os.environ["ARIA_RLAIF_ENABLED"] = "1"
+        try:
+            score = await _rlaif.evaluate(
+                query, response,
+                trace_id=body.get("trace_id", "manual"),
+                llm=llm,
+            )
+        finally:
+            if prev is None:
+                _os.environ.pop("ARIA_RLAIF_ENABLED", None)
+            else:
+                _os.environ["ARIA_RLAIF_ENABLED"] = prev
+        if score is None:
+            return {"ok": False, "error": "evaluator returned no score (check logs)"}
+        return {"ok": True, "score": score}
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 

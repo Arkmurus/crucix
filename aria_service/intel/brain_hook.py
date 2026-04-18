@@ -143,6 +143,9 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "sources_un_sc_sanctions":     ["compliance", "legal"],
     "sources_worldbank_debarred":  ["compliance", "legal", "procurement"],
     "sources_acled":               ["geopolitics", "osint"],
+    # RLAIF — Reinforcement Learning from AI Feedback (2026-04-18).
+    # Per-turn quality eval broadcasts to all four core dimensions.
+    "rlaif":                       ["general", "compliance", "osint"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
