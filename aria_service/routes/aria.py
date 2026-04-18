@@ -5744,6 +5744,11 @@ async def diagnostic_unwired_ep():
         "zoom_integration",                          # external API only
         "research_tasks",                            # task definitions, no logic
         "regional_bright_lines",                     # rule store, fires via DD
+        # Round 2 reclassification (2026-04-18 night) — data lookups
+        # called by corpus_manager / DD / web_search; the orchestrator
+        # absorbs the parent operation, no value in per-lookup signals.
+        "corpus_ingest", "corpus_registry",          # corpus helpers
+        "oem_registry",                              # OEM lookup table
     }
 
     registered = set(_bh._MODULE_TOPICS.keys())

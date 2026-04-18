@@ -305,7 +305,7 @@ def classify(query: str) -> QueryIntent:
     if chosen == Intent.GEOPOLITICAL and countries:
         confidence = min(1.0, confidence + 0.05)
 
-    return QueryIntent(
+    result = QueryIntent(
         raw_query=query,
         intent=chosen,
         confidence=round(confidence, 3),
@@ -315,6 +315,39 @@ def classify(query: str) -> QueryIntent:
         amounts=amounts,
         matched_keywords=matched[:5],
     )
+
+    # Brain signal — every classification teaches the predictor which
+    # intents the LLM saves work on (high-confidence regex matches) vs
+    # which fall through to the LLM (UNKNOWN / low confidence). Low-
+    # confidence classifications feed query_intent_unclear gap so we
+    # can grow the pattern library over time. Fire-and-forget.
+    try:
+        import asyncio as _aio
+        from . import brain_hook as _bh
+
+        async def _emit():
+            await _bh.absorb(
+                module="query_decomposer",
+                summary=(
+                    f"Intent={chosen.value} conf={confidence:.2f} "
+                    f"entities={len(entities)} countries={len(countries)}"
+                ),
+                detail=f"query={query[:200]!r} matched={matched[:3]}",
+                success=confidence >= 0.5,
+                gap_type=("query_intent_unclear" if chosen == Intent.UNKNOWN else None),
+                gap_detail=(f"No intent pattern matched: {query[:120]}"
+                            if chosen == Intent.UNKNOWN else None),
+            )
+
+        try:
+            loop = _aio.get_running_loop()
+            loop.create_task(_emit())
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
+
+    return result
 
 
 # ── Domain-aware query expansion ───────────────────────────────────────────

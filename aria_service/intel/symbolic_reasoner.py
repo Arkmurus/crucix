@@ -566,17 +566,56 @@ def reason(question: str) -> dict:
     if _DOC_REVIEW_RE.search(text):
         return {"confident": False, "source": "symbolic_reasoner", "skipped": "document_review_intent"}
 
+    fired_intent = ""
+    final_result = None
     for handler in _HANDLERS:
         try:
             result = handler(text)
             if result and result.get("confident"):
                 result["source"] = "symbolic_reasoner"
-                return result
+                fired_intent = result.get("intent", handler.__name__)
+                final_result = result
+                break
         except Exception as e:
             logger.warning("symbolic handler %s failed: %s", handler.__name__, e)
             continue
 
-    return {"confident": False, "source": "symbolic_reasoner"}
+    if final_result is None:
+        final_result = {"confident": False, "source": "symbolic_reasoner"}
+
+    # Brain signal — every confident symbolic resolution = LLM call
+    # saved + deterministic answer shipped. Tracks which intents the
+    # rules engine handles so the predictor can warn early on
+    # repeating failures.
+    try:
+        import asyncio as _aio
+        from . import brain_hook as _bh
+
+        async def _emit():
+            confident = bool(final_result.get("confident"))
+            await _bh.absorb(
+                module="symbolic_reasoner",
+                summary=(
+                    f"Symbolic reason: {'HIT' if confident else 'NO_RULE'} "
+                    f"intent={fired_intent or 'none'} "
+                    f"conf={final_result.get('confidence', 0):.2f}"
+                ),
+                detail=f"q={text[:200]!r}",
+                success=confident,
+                gap_type=("no_symbolic_rule" if not confident else None),
+                gap_detail=(f"No rule matched: {text[:120]}"
+                            if not confident else None),
+            )
+
+        try:
+            loop = _aio.get_running_loop()
+            loop.create_task(_emit())
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
+
+    return final_result
 
 
 def get_capability_surface() -> dict:
