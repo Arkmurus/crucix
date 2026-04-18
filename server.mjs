@@ -1956,6 +1956,30 @@ app.get('/api/aria/brain/alerts', requireAuth, (req, res) =>
     res.status(503).json({ alerts: [{ severity: 'critical', title: 'ARIA backend offline' }] });
   }}));
 
+// ── ARIA brain absorb — write-side of the brain (proxy to Python) ─────────
+// Past gap (verified live 2026-04-19 00:50): seenode-side modules
+// (brainAbsorb in learning_store.mjs, the email reader, waListener,
+// pattern_analyzer, opportunity_engine, etc.) post to ${ARIA_SERVICE_URL}
+// /api/aria/brain/absorb. ARIA_SERVICE_URL points at seenode itself
+// (intel.sursec.co.uk) so the request hits THIS server, not fly.io. The
+// /brain/stats route was proxied above but /brain/absorb wasn't — so
+// every signal returned 404, swallowed by the fire-and-forget catch.
+// Result: 50 backfilled emails → 0 brain signals counted.
+app.post('/api/aria/brain/absorb', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/brain/absorb', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Brain absorb unavailable — Python aria_service offline', skipped: true });
+  }}));
+
+// ── ARIA read-document — email body + attachment ingest (proxy to Python) ──
+// Same gap as /brain/absorb above: emailReader.mjs and waListener.mjs
+// post here for body ingest, but seenode had no proxy → 404 → emails
+// never indexed in ChromaDB. The `read` endpoint was proxied (see
+// line ~2397) but `read-document` was missed.
+app.post('/api/aria/read-document', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/read-document', { method: 'POST', fallback: async () => {
+    res.status(503).json({ error: 'Document ingest unavailable — Python aria_service offline' });
+  }}));
+
 app.get('/api/aria/student/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/student/stats', { fallback: async () => {
     res.status(503).json({ error: 'Mastery stats unavailable', mastery: {} });
