@@ -244,6 +244,84 @@ async def crawl_website(
     domain = urlparse(start_url).netloc
     logger.info(f"ARIA crawling website: {domain} (max {max_pages} pages)")
 
+    # ── Known-publisher API shortcut (2026-04-18) ────────────────────
+    # Past incident: /teach https://www.nature.com/... timed out at 3min
+    # because Nature's bot detection + heavy JS defeated even Lightpanda.
+    # But Nature (like arxiv, pubmed, springer, ieee, etc.) has a proper
+    # CrossRef / E-utilities / arxiv API that returns structured metadata
+    # in under 2 seconds. Try that first; fall through to scraping only
+    # if the publisher API fails or returns no content.
+    try:
+        from . import known_publisher_router as _kpr
+        if _kpr.is_known_publisher(start_url):
+            logger.info(f"ARIA: {domain} is a known publisher — using API route")
+            kpr_result = await _kpr.fetch(start_url)
+            if kpr_result.get("ok") and kpr_result.get("text_for_ingest"):
+                # Persist to RAG for future retrieval
+                try:
+                    from . import rag_store as _rag
+                    await _rag.ingest_document(
+                        kpr_result["text_for_ingest"],
+                        source=f"publisher_api:{kpr_result['source']}:{kpr_result.get('doi') or start_url}",
+                        source_type="article",
+                        title=kpr_result.get("title", "")[:200],
+                        url=kpr_result.get("url_canonical") or start_url,
+                        extra_metadata={
+                            "authors": kpr_result.get("authors", [])[:10],
+                            "doi": kpr_result.get("doi", ""),
+                            "publication_date": kpr_result.get("publication_date", ""),
+                            "citations": kpr_result.get("citations"),
+                            "publisher_adapter": kpr_result["source"],
+                        },
+                    )
+                except Exception as _e:
+                    logger.debug("publisher RAG ingest failed: %s", _e)
+
+                duration_ms = int((time.time() - t_start) * 1000)
+                facts = [{
+                    "topic": "publication_metadata",
+                    "confidence": "CONFIRMED",
+                    "content": f"{kpr_result.get('title','')} — {', '.join(kpr_result.get('authors',[])[:3])} ({kpr_result.get('publication_date','?')})",
+                }]
+                # Feed brain — this is a proper ingestion, not a failure
+                try:
+                    from . import brain_hook as _bh
+                    await _bh.absorb(
+                        module="knowledge_ingestor",
+                        summary=f"Publisher-API ingest via {kpr_result['source']}: {kpr_result.get('title','')[:80]}",
+                        entity_name=domain,
+                        success=True,
+                        confidence="CONFIRMED",
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "status": "complete",
+                    "domain": domain,
+                    "start_url": start_url,
+                    "pages_crawled": 1,
+                    "pages_read": 1,
+                    "facts_learned": len(facts),
+                    "hypotheses_generated": 0,
+                    "facts": facts,
+                    "pages": [{
+                        "url": kpr_result.get("url_canonical") or start_url,
+                        "title": kpr_result.get("title", ""),
+                        "source": f"publisher_api:{kpr_result['source']}",
+                    }],
+                    "duration_ms": duration_ms,
+                    "publisher_api_used": kpr_result["source"],
+                }
+            else:
+                logger.info(
+                    "Publisher adapter %s returned no content (%s) — "
+                    "falling through to scrape",
+                    kpr_result.get("source"), kpr_result.get("error"),
+                )
+    except Exception as _e:
+        logger.debug("publisher router pre-check failed: %s", _e)
+
     visited: set[str] = set()
     to_visit: list[tuple[float, str]] = [(100, start_url)]  # (priority, url)
     pages_read = 0
@@ -424,8 +502,28 @@ async def investigate(
 
     logger.info(f"ARIA investigating: '{topic}' (depth={depth}, {max_searches} search angles)")
 
-    # Step 1: Generate search angles using LLM
-    angle_prompt = f"""You are ARIA planning a deep intelligence investigation on: "{topic}"
+    # Step 1a: Try the query decomposer FIRST — pure regex, zero cost.
+    # When intent is clear (DD, compliance, tender, technical, etc.),
+    # domain-aware templates produce better queries than the LLM would,
+    # AND we skip one LLM round-trip entirely.
+    queries: list[str] = []
+    try:
+        from . import query_decomposer as _qd
+        intent = _qd.classify(topic)
+        if not _qd.should_fallback_to_llm(intent):
+            decomposed = _qd.decompose(intent, max_queries=max_searches)
+            if decomposed:
+                queries = decomposed
+                logger.info(
+                    "ARIA: query_decomposer handled intent=%s conf=%.2f → %d queries (LLM saved)",
+                    intent.intent.value, intent.confidence, len(queries),
+                )
+    except Exception as _e:
+        logger.debug("query_decomposer failed, falling through to LLM: %s", _e)
+
+    # Step 1b: If decomposer couldn't handle it, fall back to the LLM.
+    if not queries:
+        angle_prompt = f"""You are ARIA planning a deep intelligence investigation on: "{topic}"
 
 Generate {max_searches} distinct search queries that would cover ALL angles of this topic.
 Think like a senior defence analyst — cover:
@@ -442,26 +540,26 @@ Think like a senior defence analyst — cover:
 
 Return JSON: {{"queries": ["query1", "query2", ...]}}"""
 
-    try:
-        result = await llm.complete(
-            "ARIA — intelligence investigation planner.",
-            angle_prompt,
-            max_tokens=800,
-            timeout=30.0,
-        )
-        json_match = re.search(r"\{[\s\S]*\}", result.text)
-        if json_match:
-            queries = json.loads(json_match.group()).get("queries", [])
-        else:
-            queries = [topic]
-    except Exception:
-        queries = [
-            f"{topic} latest news 2026",
-            f"{topic} defence procurement",
-            f"{topic} military contract award",
-            f"{topic} export compliance",
-            f"{topic} competitive landscape",
-        ]
+        try:
+            result = await llm.complete(
+                "ARIA — intelligence investigation planner.",
+                angle_prompt,
+                max_tokens=800,
+                timeout=30.0,
+            )
+            json_match = re.search(r"\{[\s\S]*\}", result.text)
+            if json_match:
+                queries = json.loads(json_match.group()).get("queries", [])
+            else:
+                queries = [topic]
+        except Exception:
+            queries = [
+                f"{topic} latest news 2026",
+                f"{topic} defence procurement",
+                f"{topic} military contract award",
+                f"{topic} export compliance",
+                f"{topic} competitive landscape",
+            ]
 
     # Step 2: Search and read articles for each angle
     #

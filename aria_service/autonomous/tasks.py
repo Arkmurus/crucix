@@ -846,6 +846,10 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..intel import calibration_auto_tune
         return await calibration_auto_tune.run_auto_tune()
 
+    elif tool_kind == "source_uptime_ping":
+        from ..intel import source_uptime_monitor
+        return await source_uptime_monitor.run_daily_ping()
+
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}
 

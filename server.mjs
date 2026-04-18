@@ -2106,6 +2106,20 @@ app.get('/api/aria/critique/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/critique/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/critique/export', requireAuth, (req, res) =>
   ariaProxy(req, res, `/api/aria/critique/export${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+// Source uptime monitor (2026-04-18)
+app.get('/api/aria/sources/uptime', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/sources/uptime', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/sources/uptime/run', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/sources/uptime/run', { method: 'POST', timeoutMs: 300000, fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/sources/uptime/suspend', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/sources/uptime/suspend', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/sources/uptime/unsuspend', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/sources/uptime/unsuspend', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
+// Query decomposer + publisher router (2026-04-18)
+app.post('/api/aria/query/decompose', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/query/decompose', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/publisher/fetch', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/publisher/fetch', { method: 'POST', timeoutMs: 30000, fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/calibration/review', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/calibration/review', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/calibration/baseline', requireAuth, (req, res) =>

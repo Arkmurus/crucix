@@ -1515,3 +1515,30 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: []
     mem0_tags: [learning, calibration, autonomous]
+
+  - id: SOURCE-UPTIME-DAILY
+    name: Source uptime monitor — daily ping of registered sources
+    description: |
+      Daily 02:00 UTC — ping every source in web_atlas via HEAD/GET,
+      record status + latency. Auto-suspend sources that combine
+      reliability EMA < 0.3 AND 3+ consecutive ping failures. Recover
+      previously-suspended sources when both signals clear. Feeds
+      brain_hook on suspensions so self_metrics tracks source-drift
+      over time.
+
+      Addresses the gap ARIA self-identified on 2026-04-18: "No system
+      to detect when a trusted source degrades (goes offline, becomes
+      unreliable)." web_atlas tracks per-fetch reliability (live);
+      this adds proactive liveness so a broken source is flagged
+      BEFORE we try to cite it.
+    cron: "0 2 * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 300
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: source_uptime_ping
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, sources, autonomous]

@@ -149,6 +149,10 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     # Constitutional critique collector (2026-04-18) — builds the DPO
     # training dataset. Violations teach which clauses drift over time.
     "critique_collector":          ["general", "compliance", "legal"],
+    # Search + learning engine improvements (2026-04-18 late PM)
+    "query_decomposer":            ["general", "osint"],
+    "known_publisher_router":      ["osint", "general"],
+    "source_uptime_monitor":       ["osint", "general", "compliance"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.

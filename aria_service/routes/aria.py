@@ -10854,6 +10854,109 @@ async def rlaif_evaluate_ep(request: Request):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+# ── Source uptime monitor (2026-04-18) ──────────────────────────────────
+
+@router.get("/sources/uptime")
+async def sources_uptime_ep():
+    """Last daily-ping sweep summary + currently suspended sources."""
+    try:
+        from ..intel import source_uptime_monitor as _sum
+        return await _sum.health()
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/sources/uptime/run")
+async def sources_uptime_run_ep():
+    """Manually trigger an uptime ping sweep (outside the daily cron)."""
+    try:
+        from ..intel import source_uptime_monitor as _sum
+        return await _sum.run_daily_ping()
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/sources/uptime/suspend")
+async def sources_uptime_suspend_ep(request: Request):
+    """Manually suspend a source. Body: {source, reason}."""
+    try:
+        body = await request.json() or {}
+        src = (body.get("source") or "").strip()
+        reason = (body.get("reason") or "manual operator").strip()
+        if not src:
+            return {"ok": False, "error": "source field required"}
+        from ..intel import source_uptime_monitor as _sum
+        return await _sum.suspend(src, reason=reason)
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/sources/uptime/unsuspend")
+async def sources_uptime_unsuspend_ep(request: Request):
+    """Lift a source suspension. Body: {source}."""
+    try:
+        body = await request.json() or {}
+        src = (body.get("source") or "").strip()
+        if not src:
+            return {"ok": False, "error": "source field required"}
+        from ..intel import source_uptime_monitor as _sum
+        return await _sum.unsuspend(src)
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+# ── Query decomposer + known publisher router (debug surfaces) ──────────
+
+@router.post("/query/decompose")
+async def query_decompose_ep(request: Request):
+    """Inspect what query_decomposer would produce for a given query.
+    Useful for debugging + for operators to preview search strategy."""
+    try:
+        body = await request.json() or {}
+        q = (body.get("query") or "").strip()
+        if not q:
+            return {"ok": False, "error": "query field required"}
+        from ..intel import query_decomposer as _qd
+        intent = _qd.classify(q)
+        decomposed = _qd.decompose(intent)
+        return {
+            "ok": True,
+            "intent": intent.intent.value,
+            "confidence": intent.confidence,
+            "entities": intent.entities,
+            "countries": intent.countries,
+            "years": intent.years,
+            "matched_keywords": intent.matched_keywords,
+            "fallback_to_llm": _qd.should_fallback_to_llm(intent),
+            "queries": decomposed,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/publisher/fetch")
+async def publisher_fetch_ep(request: Request):
+    """Force a known-publisher API fetch for a URL. Body: {url}.
+    Useful for /teach on nature.com / arxiv / pubmed / etc. when you
+    want to bypass the crawler entirely."""
+    try:
+        body = await request.json() or {}
+        url = (body.get("url") or "").strip()
+        if not url:
+            return {"ok": False, "error": "url field required"}
+        from ..intel import known_publisher_router as _kpr
+        if not _kpr.is_known_publisher(url):
+            return {
+                "ok": False,
+                "error": "not a known publisher — use /api/aria/crawl instead",
+                "hint": "Supported: arxiv, nature, pubmed, doi.org, openalex, "
+                        "sciencedirect, springer, ieee, tandfonline, wiley, sagepub",
+            }
+        return await _kpr.fetch(url)
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
 # ── Constitutional critique collector (2026-04-18) ──────────────────────
 
 @router.get("/critique/stats")
