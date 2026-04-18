@@ -4504,6 +4504,30 @@ async def chat_ep(req: ChatRequest, request: Request):
         except Exception as e:
             _log.debug("[rlaif] dispatch failed: %s", e)
 
+        # ── Constitutional critique triple collection (2026-04-18) ──
+        # Builds the DPO training dataset for the Stage 2 fine-tuning
+        # roadmap (3-6 months out). Sampling lower than RLAIF (5%
+        # default) because each triple costs 2-3 LLM calls. Skips
+        # turns where guards already fired — no point double-paying
+        # for a correction we already produced.
+        try:
+            from ..intel import critique_collector as _crit
+            if await _crit.should_collect():
+                import asyncio as _aio
+                async def _crit_bg():
+                    try:
+                        await _crit.collect(
+                            req.message,
+                            response_text,
+                            trace_id=trace_id,
+                            llm=llm,
+                        )
+                    except Exception as _e:
+                        _log.debug("[critique] bg collect failed: %s", _e)
+                _aio.create_task(_crit_bg())
+        except Exception as e:
+            _log.debug("[critique] dispatch failed: %s", e)
+
         return result
     finally:
         # Always finalise the trace so /trace doesn't show stuck
@@ -10826,6 +10850,45 @@ async def rlaif_evaluate_ep(request: Request):
         if score is None:
             return {"ok": False, "error": "evaluator returned no score (check logs)"}
         return {"ok": True, "score": score}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+# ── Constitutional critique collector (2026-04-18) ──────────────────────
+
+@router.get("/critique/stats")
+async def critique_stats_ep():
+    """How much DPO training data have we accumulated? Per-clause
+    violation counts, recent triples, 'ready for training' flag."""
+    try:
+        from ..intel import critique_collector as _crit
+        return await _crit.stats()
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.get("/critique/export")
+async def critique_export_ep(
+    since_ts: int = 0,
+    limit: int = 1000,
+    only_clean: bool = False,
+    only_violations: bool = False,
+):
+    """Export the collected (original, critique, revision) triples as
+    JSONL. Used by the future fine-tuning pipeline. Filters:
+      since_ts — unix time cutoff
+      only_clean — only return no-violation triples (positive examples)
+      only_violations — only return triples WITH violations (DPO pairs)
+    """
+    try:
+        from ..intel import critique_collector as _crit
+        jsonl = await _crit.export_jsonl(
+            since_ts=since_ts,
+            limit=limit,
+            only_clean=only_clean,
+            only_violations=only_violations,
+        )
+        return Response(content=jsonl, media_type="application/x-jsonlines")
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 

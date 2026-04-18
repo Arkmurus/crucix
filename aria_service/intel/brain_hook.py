@@ -146,6 +146,9 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     # RLAIF — Reinforcement Learning from AI Feedback (2026-04-18).
     # Per-turn quality eval broadcasts to all four core dimensions.
     "rlaif":                       ["general", "compliance", "osint"],
+    # Constitutional critique collector (2026-04-18) — builds the DPO
+    # training dataset. Violations teach which clauses drift over time.
+    "critique_collector":          ["general", "compliance", "legal"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
