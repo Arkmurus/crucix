@@ -1034,15 +1034,14 @@ app.get('/api/health/cross', async (req, res) => {
   };
   try {
     const t0 = Date.now();
-    // Forward the shared-secret bearer token so the probe can reach
-    // Python's /api/aria/health (which is behind router-level auth).
-    // Without this, a fully-deployed pair with ARIA_API_TOKEN set would
-    // return 401 here and make cross-health look broken when it isn't.
-    const headers = { 'Accept': 'application/json' };
-    const tok = (process.env.ARIA_API_TOKEN || process.env.INT_TOKEN || '').trim();
-    if (tok) headers['Authorization'] = `Bearer ${tok}`;
-    const r = await fetch(`${flyUrl}/api/aria/health`, {
-      headers,
+    // Probe fly.io's PUBLIC /health (FastAPI app-level, no auth) —
+    // this is the right endpoint for a cross-server liveness check
+    // because it doesn't need a bearer token and exposes only the
+    // bare minimum ("is this service up? which LLM provider?").
+    // The richer /api/aria/health is auth-protected and should stay
+    // that way — if you want its body, call it directly with a token.
+    const r = await fetch(`${flyUrl}/health`, {
+      headers: { 'Accept': 'application/json' },
       signal: AbortSignal.timeout(6000),
     });
     out.fly.latency_ms = Date.now() - t0;
@@ -1050,8 +1049,10 @@ app.get('/api/health/cross', async (req, res) => {
     if (r.ok) {
       try {
         const body = await r.json();
-        out.fly.ok = body.status === 'healthy' || body.status === 'ok' || body.status === 'degraded';
-        out.fly.body = body;
+        out.fly.ok = body.status === 'operational' || body.status === 'ok' || body.status === 'healthy';
+        out.fly.service = body.service;
+        out.fly.llm_provider = body.llm_provider;
+        out.fly.llm_configured = body.llm_configured;
       } catch {
         out.fly.ok = true;
         out.fly.body_text = (await r.text()).slice(0, 400);
