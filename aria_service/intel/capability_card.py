@@ -281,6 +281,31 @@ async def build_card() -> dict:
     except Exception:
         pass
 
+    # Feed the brain — nightly card refreshes count as health signals
+    # so a persistent stream of refreshes confirms the observability
+    # stack is warm. Limitation count shapes the detail so self_metrics
+    # can chart limitations-over-time.
+    try:
+        from . import brain_hook as _bh
+        grades = card.get("capability_grades") or {}
+        high_count = sum(1 for g in grades.values() if g == "HIGH")
+        mod_count = sum(1 for g in grades.values() if g == "MODERATE")
+        low_count = sum(1 for g in grades.values() if g == "LOW")
+        limits = len(card.get("known_limitations") or [])
+        await _bh.absorb(
+            module="capability_card",
+            summary=(
+                f"Capability card v{card['version']} refreshed — "
+                f"HIGH={high_count} MODERATE={mod_count} LOW={low_count} "
+                f"limitations={limits}"
+            ),
+            detail=f"weakest_consistency={card.get('consistency', {}).get('weakest_domain')}",
+            success=True,
+            confidence="CONFIRMED",
+        )
+    except Exception:
+        pass
+
     return card
 
 

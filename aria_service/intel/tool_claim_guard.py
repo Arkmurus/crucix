@@ -254,6 +254,29 @@ async def guard(
             "[tool_claim_guard] %d tool-claim fabrication(s) rewritten (tool_used=None)",
             len(violations),
         )
+        # Feed the brain — pattern-tracking on tool-claim fabrications
+        # so the predictor learns which phrasings correlate with the
+        # LLM pretending to run a tool it doesn't have access to.
+        try:
+            from . import brain_hook as _bh
+            patterns = [v.get("pattern_type", "unknown") for v in violations]
+            await _bh.absorb(
+                module="tool_claim_guard",
+                summary=(
+                    f"{len(violations)} tool-claim fabrication(s) rewritten: "
+                    f"{', '.join(patterns[:4])}"
+                ),
+                detail="\n".join(
+                    f"  {v.get('pattern_type')}: {(v.get('match') or '')[:120]}"
+                    for v in violations[:3]
+                ),
+                success=False,
+                gap_type="knowledge_gap",
+                gap_detail=f"LLM claimed tool execution with no tool fired; patterns={patterns}",
+                confidence="CONFIRMED",
+            )
+        except Exception:
+            pass
 
     return out
 

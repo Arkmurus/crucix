@@ -255,6 +255,23 @@ async def run_auto_tune() -> dict:
         except Exception:
             pass
 
+        # Feed the brain so self_metrics tracks when we last tightened
+        # vs loosened confidence, and mastery_report surfaces the recent
+        # calibration direction alongside per-topic scores.
+        try:
+            from . import brain_hook as _bh
+            await _bh.absorb(
+                module="calibration_auto_tune",
+                summary=(
+                    f"Calibration threshold {'tightened' if is_overconfident else 'loosened'}: {reason}"
+                ),
+                detail=f"adjustments={adjustment_detail}",
+                success=True,  # a correct threshold move is a success even on overconfident path
+                confidence="CONFIRMED",
+            )
+        except Exception:
+            pass
+
         logger.warning(
             "[auto_tune] ADJUSTED %s: %s",
             "overconfident" if is_overconfident else "underconfident",

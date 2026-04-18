@@ -122,6 +122,27 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "style_learner":               ["general"],
     # Memory durability (2026-04-18)
     "memory_replication":          ["general", "compliance"],
+    # Fire-on-ARIA + anti-fabrication stack (2026-04-18) — all feed brain
+    # so the predictor can downgrade confidence on domains where guards
+    # keep triggering and self-metrics can track the learning loop.
+    "comprehension":               ["general", "compliance"],
+    "ground_truth_guard":          ["compliance", "osint", "legal"],
+    "tool_claim_guard":            ["general", "compliance"],
+    "consistency_suite":           ["general", "compliance", "procurement", "legal"],
+    "capability_card":             ["general", "compliance"],
+    "calibration_auto_tune":       ["general", "compliance"],
+    "vendor_registry":             ["compliance", "osint", "market_intel"],
+    "pending_actions":             ["general"],
+    "scratchpad":                  ["general"],
+    "extractors_structured":       ["osint", "general"],
+    "extractors_facts":            ["osint", "finance", "relationships"],
+    # Direct primary-source DD adapters (Track B, 2026-04-18)
+    "sources_sec_edgar":           ["finance", "compliance", "market_intel"],
+    "sources_ofac_sdn":            ["compliance", "legal"],
+    "sources_fcdo_sanctions":      ["compliance", "legal"],
+    "sources_un_sc_sanctions":     ["compliance", "legal"],
+    "sources_worldbank_debarred":  ["compliance", "legal", "procurement"],
+    "sources_acled":               ["geopolitics", "osint"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.

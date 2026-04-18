@@ -400,6 +400,31 @@ async def run_all(llm, limit: int | None = None) -> dict:
     except Exception:
         pass
 
+    # Feed the brain — success=overall >= 0.65 globally, topic attribution
+    # per domain so weak domains downgrade their mastery automatically.
+    try:
+        from . import brain_hook as _bh
+        passed_all = summary["tests_passed"] == summary["tests_run"] and summary["tests_run"] > 0
+        domains_touched = list(summary.get("by_domain", {}).keys())
+        await _bh.absorb(
+            module="consistency_suite",
+            summary=(
+                f"Consistency suite: {summary['tests_passed']}/{summary['tests_run']} passed "
+                f"(overall {summary['overall_score']:.2f}). "
+                f"Weakest: {summary.get('weakest_domain') or 'n/a'} "
+                f"at {summary.get('weakest_score', 0):.2f}"
+            ),
+            detail="\n".join(
+                f"  {d}: {score:.2f}"
+                for d, score in summary.get("by_domain", {}).items()
+            ),
+            success=passed_all,
+            extra_topics=domains_touched,
+            confidence="CONFIRMED",
+        )
+    except Exception as e:
+        logger.debug("[consistency] brain_hook feed failed: %s", e)
+
     return summary
 
 

@@ -353,5 +353,31 @@ async def verify(
             len(violations),
             (user_message or "")[:80],
         )
+        # Feed the brain — each unverifiable claim is a mini-fail that
+        # should push mastery down on whichever domain the claim
+        # targeted. If the guard keeps firing on 'jurisdiction' claims,
+        # the predictor learns to downgrade CONFIRMED tags on
+        # jurisdiction-heavy turns.
+        try:
+            from . import brain_hook as _bh
+            slots = [v.get("slot", "unknown") for v in violations]
+            await _bh.absorb(
+                module="ground_truth_guard",
+                summary=(
+                    f"{len(violations)} unverifiable claim(s) rewritten: "
+                    f"{', '.join(slots[:4])}"
+                ),
+                detail="\n".join(
+                    f"  {v.get('slot')}: '{(v.get('claim') or '')[:80]}' "
+                    f"(extract suggests: {v.get('extract_has_contradictory') or 'nothing'})"
+                    for v in violations[:3]
+                ),
+                success=False,
+                gap_type="knowledge_gap",
+                gap_detail=f"LLM asserted facts not grounded in extract; slots={slots}",
+                confidence="CONFIRMED",
+            )
+        except Exception:
+            pass
 
     return out
