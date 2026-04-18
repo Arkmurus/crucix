@@ -3266,6 +3266,68 @@ async def _execute_tool(intent: dict, llm) -> str:
             else:
                 search_section = "\n--- Parallel web search returned 0 results ---\n"
 
+            # Track C structured block — facts + tables + schema.org
+            # pulled by the zero-LLM extractors. These are authoritative
+            # typed data the LLM should prefer over prose inference.
+            _facts = r.get("facts") or {}
+            _tables = r.get("tables") or []
+            _schema_types = r.get("schema_org_types") or []
+            _meta = r.get("meta_structured") or {}
+
+            def _facts_summary(f: dict) -> str:
+                if not f:
+                    return "(not extracted)"
+                lines = []
+                if f.get("founded"):
+                    lines.append(f"  founded: {f['founded'][0].get('year','?')} (from: {f['founded'][0].get('raw','')[:80]!r})")
+                if f.get("headcount"):
+                    hc = f["headcount"][0]
+                    lines.append(f"  headcount: {hc.get('count','?')} (year {hc.get('year') or 'unknown'})")
+                if f.get("revenue"):
+                    for rv in f["revenue"][:3]:
+                        lines.append(f"  revenue: {rv.get('value','?')} {rv.get('currency','?')} in {rv.get('year','?')}")
+                if f.get("reg_numbers"):
+                    for rn in f["reg_numbers"][:4]:
+                        lines.append(f"  reg: {rn.get('jurisdiction','?')} {rn.get('number','')}")
+                if f.get("ceos"):
+                    lines.append(f"  leadership: {'; '.join(f['ceos'][:5])}")
+                if f.get("amounts"):
+                    lines.append(f"  currency amounts detected: {len(f['amounts'])} (top {f['amounts'][0].get('raw','') if f['amounts'] else ''})")
+                if f.get("dates"):
+                    iso_dates = [d['iso'] for d in f['dates'][:4] if d.get('iso')]
+                    if iso_dates:
+                        lines.append(f"  dates: {', '.join(iso_dates)}")
+                if f.get("entities"):
+                    top = [e['name'] for e in f['entities'][:5]]
+                    lines.append(f"  entities (by mention count): {', '.join(top)}")
+                return "\n".join(lines) or "(no structured facts extracted)"
+
+            def _tables_summary(ts: list) -> str:
+                if not ts:
+                    return "(no tables found)"
+                lines = []
+                for i, t in enumerate(ts[:5]):
+                    caption = t.get("caption") or f"table {i+1}"
+                    hdrs = t.get("headers", [])
+                    row_count = t.get("row_count", 0)
+                    sample_row = t.get("rows", [{}])[0] if t.get("rows") else {}
+                    if isinstance(sample_row, dict):
+                        sample = ", ".join(f"{k}={v}" for k, v in list(sample_row.items())[:3])[:200]
+                    else:
+                        sample = ", ".join(str(x) for x in sample_row[:3])[:200]
+                    lines.append(
+                        f"  [{caption}] {row_count} rows × {len(hdrs)} cols — "
+                        f"headers: {hdrs[:5]}\n    sample: {sample}"
+                    )
+                return "\n".join(lines)
+
+            _og_bits = []
+            if _meta.get("opengraph"):
+                og = _meta["opengraph"]
+                for k in ("type", "site_name", "locale"):
+                    if og.get(k):
+                        _og_bits.append(f"og:{k}={og[k]}")
+
             return (
                 f"\n\n[TOOL: extract_url_deep + web_search — verbatim content + OSINT pointers below]\n"
                 f"Root URL: {intent['url']}\n"
@@ -3274,9 +3336,16 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"Extracted in: {r.get('duration_ms', 0)}ms\n"
                 f"Title: {r.get('title','')}\n"
                 f"Description: {r.get('description','')}\n"
+                f"Schema.org types: {', '.join(_schema_types[:8]) or '(none detected)'}\n"
+                f"OpenGraph: {', '.join(_og_bits) or '(none)'}\n"
                 f"Social profiles: {', '.join(r.get('social', [])[:8]) or '(none across fetched pages)'}\n"
                 f"Emails: {', '.join(r.get('emails', [])[:5]) or '(none across fetched pages)'}\n"
                 f"Phones: {', '.join(r.get('phones', [])[:5]) or '(none across fetched pages)'}\n"
+                f"\n--- STRUCTURED FACTS (zero-LLM regex extraction — treat as "
+                f"CONFIRMED, cite verbatim) ---\n"
+                f"{_facts_summary(_facts)}\n"
+                f"\n--- TABLES DETECTED ---\n"
+                f"{_tables_summary(_tables)}\n"
                 f"\n--- Full extracted text (verbatim from the fetched pages, in order) ---\n"
                 f"{(r.get('text','') or '')[:12000]}\n"
                 f"--- End extracted text ---\n"

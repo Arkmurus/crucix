@@ -14,6 +14,15 @@ openpyxl>=3.1.0
 xlrd>=2.0.1  # legacy .xls (BIFF) fallback; openpyxl only reads .xlsx/.xlsm
 PyYAML>=6.0  # corpus_registry.yaml loader
 
+# ── HTML structured extraction (Track C, 2026-04-18) ─────────────────────
+# BeautifulSoup + lxml back the new extractors/structured.py module which
+# replaces per-page LLM extraction with pure-Python parsing of tables,
+# JSON-LD, microdata, OpenGraph, schema.org. Zero LLM cost on crawl.
+# lxml is the fast C parser; bs4 falls back to stdlib html.parser if it's
+# missing, but lxml is ~10x faster on large pages.
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
 # ── RAG store (chromadb persistent vector database, fully local) ──────────
 # Persistent retrieval-augmented generation backbone. Stores chunked
 # documents + facts in a local file-backed vector database. No vendor,

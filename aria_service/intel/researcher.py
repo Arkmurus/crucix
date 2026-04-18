@@ -1623,6 +1623,78 @@ async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) 
     # Cap the aggregated text to keep prompt budget sane
     full_text = "\n\n".join(aggregate_text_parts)[:24000]
 
+    # ── Track C: LLM-free structured + fact extraction (2026-04-18) ─
+    # Run the two zero-LLM extractors over the aggregated text so the
+    # caller gets typed structured data (tables, schema.org, amounts,
+    # dates, reg numbers, named executives) without a round-trip to
+    # DeepSeek/Claude. Every turn previously spent 2-5s of LLM time
+    # pattern-matching facts a regex could have handled — this closes
+    # that gap.
+    extractor_tables: list = []
+    extractor_json_ld: list = []
+    extractor_meta: dict = {}
+    extractor_schema_types: list = []
+    extractor_facts: dict = {}
+    try:
+        from .extractors import structured as _struct
+        from .extractors import facts as _facts
+        # structured.extract takes the raw HTML of the HOMEPAGE — the
+        # richest single page for tables + schema markup. Sub-pages'
+        # structured data is typically thinner.
+        if raw_html:
+            try:
+                s_out = _struct.extract(raw_html, base_url=url)
+                extractor_tables = s_out.get("tables", [])
+                extractor_json_ld = s_out.get("json_ld", [])
+                extractor_meta = {
+                    "opengraph": s_out.get("opengraph", {}),
+                    "twitter": s_out.get("twitter", {}),
+                    "meta": s_out.get("meta", {}),
+                }
+                extractor_schema_types = s_out.get("schema_org", [])
+            except Exception as _e:
+                logger.debug("structured extractor failed: %s", _e)
+        # facts.extract runs over the aggregated TEXT across all pages
+        # — more signal than single-page since /about/team/contact
+        # often each carry a different fragment of the company story.
+        try:
+            extractor_facts = _facts.extract(full_text, base_url=url)
+        except Exception as _e:
+            logger.debug("facts extractor failed: %s", _e)
+    except ImportError:
+        pass  # extractors package not deployed — graceful degrade
+
+    # ── Track C: auto-ingest to RAG so future turns don't re-crawl ──
+    # Behind ARIA_DEEP_EXTRACT_AUTO_INGEST env var (default ON). When
+    # enabled, every extract_url_deep call persists the aggregated text
+    # + extracted facts as a chunked document in the RAG store so next
+    # turn's question on the same entity retrieves from memory instead
+    # of firing another crawl.
+    _auto_ingest = (os.getenv("ARIA_DEEP_EXTRACT_AUTO_INGEST", "1") or "1").strip() != "0"
+    if _auto_ingest and full_text and len(full_text) > 300:
+        try:
+            from . import rag_store as _rag
+            from urllib.parse import urlparse as _up
+            host = _up(url).netloc.replace("www.", "") if url else "unknown"
+            await _rag.ingest_document(
+                full_text,
+                source=f"extract_url_deep:{host}",
+                source_type="crawl",
+                title=homepage.get("title", "")[:200],
+                url=url,
+                extra_metadata={
+                    "pages_fetched_count": len(pages_fetched),
+                    "schema_org": extractor_schema_types[:10],
+                    "has_tables": bool(extractor_tables),
+                    "fact_counts": {
+                        k: len(v) if isinstance(v, list) else 0
+                        for k, v in extractor_facts.items()
+                    },
+                },
+            )
+        except Exception as _e:
+            logger.debug("extract_url_deep RAG auto-ingest failed: %s", _e)
+
     return {
         "url": url,
         "extraction_ok": True,
@@ -1637,6 +1709,12 @@ async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) 
         "phones": sorted(aggregate_phones)[:20],
         "social": sorted(aggregate_social)[:20],
         "structured": aggregate_jsonld,
+        # Track C additions — structured + regex-extracted facts:
+        "tables": extractor_tables,
+        "json_ld": extractor_json_ld,
+        "meta_structured": extractor_meta,
+        "schema_org_types": extractor_schema_types,
+        "facts": extractor_facts,
         "duration_ms": int((time.time() - t0) * 1000),
     }
 
