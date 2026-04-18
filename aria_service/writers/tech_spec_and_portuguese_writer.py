@@ -184,6 +184,40 @@ Return JSON:
         data["platform"] = request.platform_type
         data["produced_by"] = "ARIA — Arkmurus Research Intelligence Agent"
         data["produced_at"] = datetime.now(timezone.utc).isoformat()
+
+        # Brain signal — tech specs reference STANAGs + ILS requirements +
+        # threat-level mapping; these are the most technical training pairs
+        # ARIA produces and feed mastery on the technical/procurement axes.
+        try:
+            import asyncio as _aio
+            from ..intel import brain_hook as _bh
+
+            n_sections = len(data.get("sections", []))
+            n_perf = len(data.get("performance_requirements", []))
+            stanags = sorted(set(request.specific_stanags or []))[:5]
+
+            async def _emit():
+                await _bh.absorb(
+                    module="tech_spec_writer",
+                    summary=(
+                        f"Tech spec: {request.platform_type} — {n_sections} sections, "
+                        f"{n_perf} performance reqs, STANAGs={stanags}"
+                    ),
+                    detail=str(data.get("acceptance_criteria", ""))[:1500],
+                    entity_name=request.platform_type[:120],
+                    success=True,
+                    extra_topics=["technical", "procurement"],
+                    confidence="CONFIRMED",
+                )
+
+            try:
+                loop = _aio.get_running_loop()
+                loop.create_task(_emit())
+            except RuntimeError:
+                pass
+        except Exception:
+            pass
+
         return data
 
 
@@ -379,4 +413,34 @@ Return JSON:
         data = json.loads(raw)
         data["produced_by"] = "ARIA — Arkmurus Research Intelligence Agent"
         data["produced_at"] = datetime.now(timezone.utc).isoformat()
+
+        # Brain signal — Portuguese-language legal docs are the Lusophone
+        # moat in action. Variant + jurisdiction + document_type uniquely
+        # identify the training pair; CPLP corpus mastery grows here.
+        try:
+            import asyncio as _aio
+            from ..intel import brain_hook as _bh
+
+            async def _emit():
+                await _bh.absorb(
+                    module="portuguese_legal_writer",
+                    summary=(
+                        f"Portuguese {request.document_type.value} ({request.variant.value}): "
+                        f"{request.subject[:80]} → {request.recipient_org[:60]}"
+                    ),
+                    detail=(data.get("english_summary") or "")[:1500],
+                    entity_name=request.recipient_org[:120],
+                    success=True,
+                    extra_topics=["legal", "compliance", "general"],
+                    confidence="CONFIRMED",
+                )
+
+            try:
+                loop = _aio.get_running_loop()
+                loop.create_task(_emit())
+            except RuntimeError:
+                pass
+        except Exception:
+            pass
+
         return data

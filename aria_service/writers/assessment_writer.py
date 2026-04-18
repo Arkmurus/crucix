@@ -396,7 +396,7 @@ Return JSON with this exact schema:
             for ah in data.get("alternative_hypotheses", [])
         ]
 
-        return IntelligenceAssessment(
+        assessment = IntelligenceAssessment(
             reference=ref,
             subject=request.subject,
             region=request.region,
@@ -411,6 +411,46 @@ Return JSON with this exact schema:
             outlook_90_days=data.get("outlook_90_days", ""),
             recommended_actions=data.get("recommended_actions", []),
         )
+
+        # Brain signal — assessment writer outputs are gold-tier training
+        # pairs (full IC-style assessments with key judgements, alternative
+        # hypotheses, source reliability tiers, intelligence gaps). Each
+        # finished assessment fires a high-weight signal so the
+        # training_export pipeline picks them up + mastery on the region
+        # gets credit. Fire-and-forget from sync context.
+        try:
+            import asyncio as _aio
+            from ..intel import brain_hook as _bh
+
+            high_conf_kjs = sum(
+                1 for kj in kjs if kj.confidence == ConfidenceLevel.HIGH
+            )
+
+            async def _emit():
+                await _bh.absorb(
+                    module="assessment_writer",
+                    summary=(
+                        f"Assessment {ref}: {request.subject[:80]} ({request.region}) — "
+                        f"{len(kjs)} key judgements ({high_conf_kjs} HIGH), "
+                        f"{len(ahs)} alt hypotheses, {len(data.get('intelligence_gaps', []))} gaps"
+                    ),
+                    detail=(assessment.bluf or "")[:1500],
+                    entity_name=request.subject[:120],
+                    success=True,
+                    extra_topics=["compliance", "geopolitics", "osint"],
+                    source_id=ref,
+                    confidence="CONFIRMED",
+                )
+
+            try:
+                loop = _aio.get_running_loop()
+                loop.create_task(_emit())
+            except RuntimeError:
+                pass
+        except Exception:
+            pass
+
+        return assessment
 
     # ── helpers ──────────────────────────────────────────────────────────────
 

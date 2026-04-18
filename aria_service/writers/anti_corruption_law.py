@@ -403,7 +403,7 @@ Return ONLY valid JSON matching the schema."""
             for g in data.get("adequate_procedures_gaps", [])
         ]
 
-        return ComplianceOpinion(
+        opinion = ComplianceOpinion(
             reference=ref,
             transaction=request.transaction_description,
             produced_at=datetime.now(timezone.utc).isoformat(),
@@ -422,6 +422,51 @@ Return ONLY valid JSON matching the schema."""
             conditions_to_proceed=data.get("conditions_to_proceed", []),
             go_no_go=data.get("go_no_go", "PROCEED WITH CONDITIONS"),
         )
+
+        # Brain signal — UKBA + FCPA compliance opinions are the highest-
+        # liability outputs ARIA produces (legal opinions on bribery
+        # exposure that the team may rely on for transaction GO/NO-GO).
+        # SAR-required + RED-risk findings feed capability_gap so the
+        # predictor can warn early on similar future transactions.
+        try:
+            import asyncio as _aio
+            from ..intel import brain_hook as _bh
+
+            verdict = opinion.go_no_go
+            risk = opinion.overall_risk.value if hasattr(opinion.overall_risk, "value") else str(opinion.overall_risk)
+            sar = opinion.sar_required
+            n_flags = len(opinion.red_flags_identified or [])
+            n_gaps = len(gaps)
+
+            async def _emit():
+                await _bh.absorb(
+                    module="anti_corruption_law",
+                    summary=(
+                        f"Compliance opinion {ref}: {verdict} (risk={risk}) — "
+                        f"{n_flags} red flags, {n_gaps} adequate-procedure gaps, SAR={sar}"
+                    ),
+                    detail=(opinion.legal_analysis or "")[:1500],
+                    entity_name=request.transaction_description[:120],
+                    success=True,
+                    gap_type=("compliance_red_or_sar"
+                              if (risk in ("RED", "HIGH", "CRITICAL") or sar) else None),
+                    gap_detail=(f"{verdict} on {request.transaction_description[:80]}: "
+                                f"{n_flags} red flags{', SAR required' if sar else ''}"
+                                if (risk in ("RED", "HIGH", "CRITICAL") or sar) else None),
+                    extra_topics=["compliance", "legal", "finance"],
+                    source_id=ref,
+                    confidence="CONFIRMED",
+                )
+
+            try:
+                loop = _aio.get_running_loop()
+                loop.create_task(_emit())
+            except RuntimeError:
+                pass
+        except Exception:
+            pass
+
+        return opinion
 
     def assess_adequate_procedures(
         self, organisation_name: str, context: str

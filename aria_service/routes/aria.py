@@ -4366,6 +4366,56 @@ async def chat_ep(req: ChatRequest, request: Request):
         except Exception as e:
             _log.debug("tool_claim_guard failed (non-fatal): %s", e)
 
+        # ── Propaganda guard (Clause 13, 2026-04-18 night) ──────────
+        # Post-LLM check for Clause 13(a) [no uncited current-events
+        # claim tagged CONFIRMED/PROBABLE] and Clause 13(b) [no
+        # propaganda-tier source elevated past ASSESSED]. Past incident
+        # 2026-04-09 — Vision International RFQ — the LLM injected
+        # "[CONFIRMED] Israeli airstrikes killed 112 in Lebanon today"
+        # with no source. signal_correlator catches this in CONTEXT,
+        # not at OUTPUT, so the tag could still leak. This guard adds
+        # the missing output-time enforcement: uncited current-event
+        # tags get [UNVERIFIED-CURRENT] appended, and any sentence
+        # citing a propaganda source (intelslava, RVvoenkor, mod_russia,
+        # tass, RT, Sputnik, etc.) gets the confidence tag downgraded
+        # to ASSESSED with the channel made explicit.
+        try:
+            from ..intel import propaganda_guard as _pg
+            pg_result = _pg.guard(response_text)
+            if not pg_result.get("unchanged"):
+                response_text = pg_result["rewritten"]
+                result["response"] = response_text
+                result["propaganda_guard"] = {
+                    "current_uncited":      pg_result["current_uncited"],
+                    "propaganda_downgrades": pg_result["propaganda_downgrades"],
+                    "tags_added":           pg_result["tags_added"],
+                }
+                _log.warning(
+                    "[propaganda_guard] Clause 13: %d uncited current-events, "
+                    "%d propaganda downgrades",
+                    pg_result["current_uncited"],
+                    pg_result["propaganda_downgrades"],
+                )
+                # Record propaganda downgrades in mistake_ledger so the
+                # predictor warns on similar future turns.
+                if pg_result["propaganda_downgrades"] >= 1:
+                    try:
+                        from ..intel import mistake_ledger as _ml
+                        await _ml.record(
+                            category="fabrication",
+                            task_type="chat",
+                            domain="clause_13",
+                            what=f"LLM cited TIER-D propaganda source with high-confidence tag",
+                            why=f"Tags downgraded: {pg_result['tags_added'][:3]}",
+                            fix="propaganda_guard rewrote tag to ASSESSED + named channel",
+                            what_class="propaganda_elevation",
+                            severity="HIGH",
+                        )
+                    except Exception:
+                        pass
+        except Exception as e:
+            _log.debug("propaganda_guard failed (non-fatal): %s", e)
+
         # ── Ground-truth guard (2026-04-18) ──────────────────────────
         # Past incident 2026-04-18 — CSG Group: user asked about
         # csg.com/en. extract_url ran and pulled the actual page text

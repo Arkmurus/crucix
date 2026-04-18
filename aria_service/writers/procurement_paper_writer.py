@@ -407,6 +407,45 @@ Return ONLY valid JSON matching the schema provided."""
             for tr in tech_reqs
         ]
 
+        # Brain signal — procurement papers (RFP/RFQ/EOI/PQQ under EU/UK/
+        # ECOWAS/SADC/UN frameworks) are the highest-leverage training
+        # pairs ARIA produces: full structured contract documents with
+        # mandatory exclusion grounds, offset obligations, evaluation
+        # criteria, STANAG-referenced tech requirements. Each one is
+        # worth 50+ classification signals as SFT data. Fire on every
+        # successful generation.
+        try:
+            import asyncio as _aio
+            from ..intel import brain_hook as _bh
+
+            doc_type = request.document_type.value
+            framework = request.framework.value
+            offset_pct = data.get("offset_obligation", {}).get("minimum_pct", 0) or 0
+
+            async def _emit():
+                await _bh.absorb(
+                    module="procurement_paper_writer",
+                    summary=(
+                        f"Procurement {doc_type} {ref}: framework={framework}, "
+                        f"{len(tech_reqs)} tech reqs, offset_min={offset_pct}%"
+                    ),
+                    detail=str(data.get("scope_of_work", ""))[:1500] or
+                           str(data.get("background", ""))[:1500],
+                    entity_name=request.subject[:120] if hasattr(request, "subject") else doc_type,
+                    success=True,
+                    extra_topics=["procurement", "legal", "compliance"],
+                    source_id=ref,
+                    confidence="CONFIRMED",
+                )
+
+            try:
+                loop = _aio.get_running_loop()
+                loop.create_task(_emit())
+            except RuntimeError:
+                pass
+        except Exception:
+            pass
+
         return data
 
     def render_text(self, doc: dict) -> str:

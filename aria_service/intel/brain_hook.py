@@ -89,6 +89,17 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "sipri_ingest":         ["market_intel", "procurement"],
     # Writer package (2026-04-17) — structured document production.
     "writer_orchestrator":  ["general", "legal", "compliance", "procurement"],
+    # Individual writers (2026-04-18 night) — each absorb fires on every
+    # finished document; these are gold-tier training pairs (full IC
+    # assessments, RFP/RFQ papers, UKBA/FCPA opinions, NATO tech specs,
+    # Portuguese legal docs).
+    "assessment_writer":         ["general", "compliance", "geopolitics", "osint"],
+    "procurement_paper_writer":  ["procurement", "legal", "compliance"],
+    "anti_corruption_law":       ["compliance", "legal", "finance"],
+    "tech_spec_writer":          ["technical", "procurement"],
+    "portuguese_legal_writer":   ["legal", "compliance", "general"],
+    # Output guard for Clause 13 — propaganda + uncited current events
+    "propaganda_guard":          ["compliance", "general"],
     # NAK / SERBAN / F3 learnings (2026-04-17) — six new capabilities closing
     # the gaps observed on the live KNDS / FK-3000 engagement.
     "virtual_office_registry":    ["compliance", "osint", "finance"],
@@ -276,6 +287,17 @@ _MODULE_WEIGHT: dict[str, float] = {
     "equipment_specs":      0.10,
     "sipri_ingest":         0.15,  # each ingest lands real historical data
     "writer_orchestrator":  0.25,  # each produced document is high-value work
+    # Individual writers — gold-tier training pairs. Compliance opinions
+    # and procurement papers carry the highest weight because they're
+    # legally-load-bearing documents the team may rely on for transaction
+    # GO/NO-GO. Tech specs + Portuguese letters land at 0.20 (high value
+    # but smaller blast radius).
+    "assessment_writer":         0.30,
+    "procurement_paper_writer":  0.30,
+    "anti_corruption_law":       0.30,
+    "tech_spec_writer":          0.20,
+    "portuguese_legal_writer":   0.20,
+    "propaganda_guard":          0.10,
     # NAK / SERBAN / F3 learnings (2026-04-17)
     # Weights bumped 2026-04-17 PM after calibration review flagged
     # UNDERCONFIDENT -16pp. These modules produce high-confidence
@@ -399,6 +421,29 @@ async def absorb(
     if not BRAIN_HOOK_ENABLED:
         return {"skipped": True, "reason": "ARIA_BRAIN_HOOK_ENABLED=0"}
 
+    # Circuit-breaker check — try to half-open if cooldown elapsed.
+    _maybe_close_breaker()
+
+    # If breaker is OPEN, drop the 3 expensive tiers but still record the
+    # signal counter in Redis. This protects chat latency without losing
+    # the stats trail. Drop is recorded against drops_total so we can see
+    # how many signals were sacrificed during the outage.
+    if _breaker_state["open"]:
+        _breaker_state["drops_total"] += 1
+        try:
+            await _record_signal(module, success=False)
+        except Exception:
+            pass
+        return {
+            "skipped": True,
+            "reason": "circuit_breaker_open",
+            "trip_reason": _breaker_state["last_trip_reason"],
+            "trips_total": _breaker_state["trips_total"],
+            "drops_total": _breaker_state["drops_total"],
+        }
+
+    _start_ms = time.time() * 1000
+
     result = {
         "mastery_ok": False,
         "knowledge_ok": False,
@@ -484,6 +529,15 @@ async def absorb(
     _core_ok = result["mastery_ok"] or result["knowledge_ok"]
     await _record_signal(module, success=_core_ok)
 
+    # ── 6. Latency tracking + circuit breaker ──
+    # If wall-clock exceeded the trip threshold, count toward the
+    # consecutive-high counter. _maybe_trip_breaker is idempotent and
+    # cheap (sorts a 50-item list), safe to call on every absorb.
+    _elapsed_ms = (time.time() * 1000) - _start_ms
+    _record_latency(_elapsed_ms)
+    _maybe_trip_breaker(reason=f"absorb({module})")
+    result["latency_ms"] = round(_elapsed_ms, 1)
+
     return result
 
 
@@ -501,6 +555,140 @@ async def absorb_silent(**kwargs) -> None:
 
 _STATS_KEY = "crucix:aria:brain_hook:stats"
 _ALERT_STALE_HOURS = 24  # alert if module hasn't sent a signal in 24h
+
+# ── Circuit breaker (2026-04-18 night) ──────────────────────────────────────
+# The brain hook is a single point through which 60+ modules signal. If
+# Redis goes slow, ChromaDB stalls, or any of the 4 learning tiers
+# degrades, every signal blocks for the worst-tier latency. Without a
+# circuit breaker, a Redis outage silently turns the brain into a tarpit
+# that adds seconds to every chat turn AND drops signals to neural_memory.
+#
+# This circuit breaker:
+#   1. Times every absorb() call's wall-clock duration.
+#   2. Maintains a rolling p95 latency over the last 50 calls.
+#   3. Tracks consecutive errors per tier (mastery / knowledge / neural).
+#   4. Trips OPEN when p95 > _LATENCY_TRIP_MS for 3 consecutive checks.
+#   5. While OPEN, absorb() logs to Redis-only (skip the 3 expensive tiers)
+#      so chat latency is protected — signal counters still increment.
+#   6. Half-opens every _COOLDOWN_S to test if downstream recovered.
+#
+# Past incident pattern this protects against: a Redis outage during
+# the 2026-04-13 LinkedIn ingest that caused chat turns to time out
+# at 60s because every brain_hook.absorb was blocking on the dead
+# Upstash connection. Better to drop signals loudly than block the user.
+_LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "1500"))
+_LATENCY_WINDOW = 50
+_TRIP_CONSECUTIVE = 3
+_COOLDOWN_S = 60
+_BREAKER_KEY = "crucix:aria:brain_hook:breaker"
+
+_recent_latencies_ms: list[float] = []
+_breaker_state = {
+    "open": False,
+    "tripped_at": 0.0,
+    "consecutive_high": 0,
+    "trips_total": 0,
+    "drops_total": 0,
+    "last_trip_reason": "",
+}
+
+
+def _record_latency(ms: float) -> None:
+    """Record one call latency in the rolling window."""
+    _recent_latencies_ms.append(ms)
+    if len(_recent_latencies_ms) > _LATENCY_WINDOW:
+        del _recent_latencies_ms[0:len(_recent_latencies_ms) - _LATENCY_WINDOW]
+
+
+def _p95_latency_ms() -> float:
+    if not _recent_latencies_ms:
+        return 0.0
+    sorted_l = sorted(_recent_latencies_ms)
+    idx = max(0, int(len(sorted_l) * 0.95) - 1)
+    return sorted_l[idx]
+
+
+def _maybe_trip_breaker(reason: str) -> None:
+    """Open the circuit if p95 has been over threshold _TRIP_CONSECUTIVE
+    times in a row. Idempotent — safe to call on every absorb."""
+    if _breaker_state["open"]:
+        return
+    p95 = _p95_latency_ms()
+    if p95 > _LATENCY_TRIP_MS:
+        _breaker_state["consecutive_high"] += 1
+        if _breaker_state["consecutive_high"] >= _TRIP_CONSECUTIVE:
+            _breaker_state["open"] = True
+            _breaker_state["tripped_at"] = time.time()
+            _breaker_state["trips_total"] += 1
+            _breaker_state["last_trip_reason"] = (
+                f"{reason} — p95={p95:.0f}ms over {_LATENCY_TRIP_MS}ms threshold"
+            )
+            logger.warning(
+                "[brain_hook] CIRCUIT TRIPPED — p95=%.0fms reason=%s. "
+                "Subsequent absorbs will skip 3 expensive tiers and log to "
+                "Redis only until cooldown elapses.",
+                p95, reason,
+            )
+            # Fire a pending_action so the team sees this in the daily
+            # briefing — fire-and-forget, don't let pending_actions
+            # itself add latency back to brain_hook.
+            try:
+                async def _alert():
+                    from . import pending_actions as _pa
+                    await _pa.record(
+                        promise="brain_hook circuit breaker tripped",
+                        reason=_breaker_state["last_trip_reason"],
+                        resolver_kind="operator_action",
+                        resolver_ref="check Redis/Chroma latency on dashboard",
+                        severity="HIGH",
+                        source="brain_hook.circuit_breaker",
+                        operator_prompt=(
+                            "Brain hook circuit breaker tripped — check "
+                            "Redis + ChromaDB latency. Signals are being "
+                            "logged to Redis only until p95 recovers."
+                        ),
+                    )
+                asyncio.get_event_loop().create_task(_alert())
+            except Exception:
+                pass
+    else:
+        _breaker_state["consecutive_high"] = 0
+
+
+def _maybe_close_breaker() -> None:
+    """Half-open the circuit after the cooldown so subsequent calls test
+    whether downstream has recovered. We don't gradually ramp — one
+    successful call below threshold closes it fully."""
+    if not _breaker_state["open"]:
+        return
+    if (time.time() - _breaker_state["tripped_at"]) < _COOLDOWN_S:
+        return
+    p95 = _p95_latency_ms()
+    if p95 < _LATENCY_TRIP_MS * 0.7:  # 30% headroom before reclosing
+        logger.info(
+            "[brain_hook] CIRCUIT CLOSED — p95 recovered to %.0fms (was over %dms)",
+            p95, _LATENCY_TRIP_MS,
+        )
+        _breaker_state["open"] = False
+        _breaker_state["consecutive_high"] = 0
+
+
+def get_breaker_state() -> dict:
+    """Return the current circuit breaker state — exposed via /api/aria/brain/stats."""
+    return {
+        "open": _breaker_state["open"],
+        "tripped_at": _breaker_state["tripped_at"] or None,
+        "trips_total": _breaker_state["trips_total"],
+        "drops_total": _breaker_state["drops_total"],
+        "last_trip_reason": _breaker_state["last_trip_reason"] or None,
+        "p95_latency_ms": round(_p95_latency_ms(), 1),
+        "p99_latency_ms": round(
+            sorted(_recent_latencies_ms)[-1] if _recent_latencies_ms else 0, 1
+        ),
+        "window_size": len(_recent_latencies_ms),
+        "trip_threshold_ms": _LATENCY_TRIP_MS,
+        "cooldown_s": _COOLDOWN_S,
+    }
 
 
 async def _record_signal(module: str, success: bool) -> None:
@@ -575,6 +763,16 @@ async def get_stats() -> dict:
     never_seen = all_known - set(modules.keys())
 
     g = stats.get("_global", {})
+    breaker = get_breaker_state()
+    # Composite health: degraded if breaker open OR stale modules exist
+    composite = "healthy"
+    if breaker["open"]:
+        composite = "circuit_open"
+    elif stale:
+        composite = "degraded"
+    elif not healthy:
+        composite = "cold"
+
     return {
         "total_signals": g.get("total", 0),
         "tracking_since": g.get("started_at"),
@@ -583,7 +781,8 @@ async def get_stats() -> dict:
         "stale_count": len(stale),
         "stale_modules": stale,
         "never_seen": sorted(never_seen),
-        "health": "degraded" if stale else ("cold" if not healthy else "healthy"),
+        "circuit_breaker": breaker,
+        "health": composite,
     }
 
 
