@@ -152,6 +152,12 @@ Sidebar.init('brain');
     <div id="engine-metrics" class="loading">Loading...</div>
   </div>
 
+  <!-- System Health — self-diagnostic traffic-light grid -->
+  <div class="card wide" id="system-health-panel">
+    <h2>System Health <span id="health-overall-badge" class="badge">—</span></h2>
+    <div id="system-health-metrics" class="loading">Loading...</div>
+  </div>
+
   <!-- Autonomy Surface — what ARIA did / what needs your touch -->
   <div class="card wide" id="autonomy-surface">
     <h2>Autonomy Surface</h2>
@@ -712,13 +718,66 @@ async function loadLearning() {
   el.classList.remove('loading');
 }
 
+async function loadSystemHealth() {
+  const d = await fetchJson('/diagnostic/details');
+  const badge = document.getElementById('health-overall-badge');
+  const el = document.getElementById('system-health-metrics');
+  if (!el) return;
+  if (!d || !d.overall) {
+    badge.textContent = 'UNKNOWN';
+    badge.className = 'badge badge-yellow';
+    el.innerHTML = '<span class="neutral">Diagnostic not yet run — fires every 15min</span>';
+    el.classList.remove('loading');
+    return;
+  }
+  // Overall badge
+  const overallColor = d.overall === 'GREEN' ? 'badge-green' :
+                       d.overall === 'AMBER' ? 'badge-yellow' : 'badge-red';
+  badge.textContent = d.overall;
+  badge.className = `badge ${overallColor}`;
+
+  // Summary line
+  const counts = d.counts || {pass: 0, warn: 0, fail: 0};
+  let html = `<div class="metric"><span class="label">Modules checked</span><span class="value">${d.modules_checked || 0}</span></div>`;
+  html += `<div class="metric"><span class="label">Pass / Warn / Fail</span><span class="value ${counts.fail ? 'bad' : counts.warn ? 'warn' : 'good'}">${counts.pass} / ${counts.warn} / ${counts.fail}</span></div>`;
+  if (d.critical_failures && d.critical_failures.length) {
+    html += `<div class="metric"><span class="label bad">Critical failures</span><span class="value bad">${d.critical_failures.join(', ')}</span></div>`;
+  }
+
+  // Per-module grid
+  if (d.modules && d.modules.length) {
+    html += '<div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px">';
+    for (const m of d.modules) {
+      const colour = m.worst_status === 'PASS' ? '#0d3117' :
+                     m.worst_status === 'WARN' ? '#3d2e00' : '#3d1418';
+      const tag = m.worst_status === 'PASS' ? '✓' : m.worst_status === 'WARN' ? '⚠' : '✗';
+      const critBadge = m.critical ? ' <span style="color:#f97583;font-size:0.75em">[CRIT]</span>' : '';
+      // First non-PASS check note for tooltip
+      const firstIssue = (m.checks || []).find(c => c.status !== 'PASS');
+      const issueNote = firstIssue ? `<div style="font-size:0.8em;color:#8b949e;margin-top:4px">${firstIssue.check}: ${firstIssue.note.slice(0,80)}</div>` : '';
+      html += `<div style="padding:8px;background:${colour};border-radius:6px">
+        <div><span style="font-weight:600">${tag} ${m.name}</span>${critBadge}</div>
+        ${issueNote}
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  if (d.generated_at) {
+    html += `<div style="margin-top:8px;font-size:0.75em;color:#8b949e">Refreshed ${new Date(d.generated_at).toLocaleTimeString()}${d._from_cache ? ' (cached)' : ''}</div>`;
+  }
+
+  el.innerHTML = html;
+  el.classList.remove('loading');
+}
+
 async function refreshAll() {
   document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
   await Promise.all([
     loadHealth(), loadMode(), loadEngine(), loadAdversarial(),
     loadBreakers(), loadPredictor(), loadAudit(), loadHeatmap(),
     loadDLQ(), loadMastery(), loadComposite(), loadCalibration(),
-    loadSurface(), loadLearning(),
+    loadSurface(), loadLearning(), loadSystemHealth(),
   ]);
 }
 

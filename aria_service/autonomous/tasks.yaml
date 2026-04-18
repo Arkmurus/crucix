@@ -1516,6 +1516,35 @@ tasks:
     escalate_if: []
     mem0_tags: [learning, calibration, autonomous]
 
+  - id: SELF-DIAGNOSTIC-15MIN
+    name: Self-diagnostic — ARIA checks her own wiring every 15 minutes
+    description: |
+      Every 15 minutes, walk every Fire-on-ARIA + anti-fab + DD module
+      and verify: (a) imports cleanly, (b) entry function exists,
+      (c) registered in brain_hook, (d) scheduled task in tasks.yaml
+      if applicable, (e) Node proxy exists if endpoint expected,
+      (f) env var set for credentialed modules, (g) upstream reachable
+      for source adapters.
+
+      On RED (any critical module broken), push a CRITICAL
+      pending_action so the operator is notified via the next daily
+      briefing and dashboard system-health panel flashes red.
+
+      Addresses the 2026-04-18 feedback: "we cannot keep finding
+      missing bits all the time — ARIA should be able to self-diagnose,
+      and the dashboard should fire malfunction alerts."
+    cron: "*/15 * * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 60
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: self_diagnostic
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, self_diagnostic, autonomous]
+
   - id: SOURCE-UPTIME-DAILY
     name: Source uptime monitor — daily ping of registered sources
     description: |

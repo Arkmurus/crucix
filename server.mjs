@@ -2124,6 +2124,11 @@ app.get('/api/aria/sources/seed/catalogue', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/sources/seed/catalogue', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/sources/seed/run', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/sources/seed/run', { method: 'POST', timeoutMs: 60000, fallback: async () => res.status(503).json(_brainFallback()) }));
+// Self-diagnostic (2026-04-18)
+app.get('/api/aria/diagnostic/details', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/diagnostic/details', { timeoutMs: 30000, fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/diagnostic/run', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/diagnostic/run', { method: 'POST', timeoutMs: 30000, fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/calibration/review', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/calibration/review', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/calibration/baseline', requireAuth, (req, res) =>

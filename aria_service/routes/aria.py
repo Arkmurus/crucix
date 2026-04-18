@@ -10905,6 +10905,46 @@ async def sources_uptime_unsuspend_ep(request: Request):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+# ── Self-diagnostic (2026-04-18) ────────────────────────────────────────
+
+@router.get("/diagnostic/details")
+async def diagnostic_details_ep():
+    """Full self-diagnostic report — per-module checks with notes.
+    Auth required. Dashboard uses this to render the traffic-light
+    grid. Regenerated every 15 minutes by SELF-DIAGNOSTIC-15MIN."""
+    try:
+        from ..intel import self_diagnostic as _sd
+        # Serve cached result if recent, else re-run
+        try:
+            from ..intel import redis_store as rs
+            latest = await rs.get_json("crucix:self_diagnostic:latest")
+            if latest:
+                import time as _t
+                from datetime import datetime as _dt
+                gen_at = latest.get("generated_at")
+                if gen_at:
+                    age_s = _t.time() - _dt.fromisoformat(gen_at.replace("Z", "+00:00")).timestamp()
+                    if age_s < 120:
+                        latest["_from_cache"] = True
+                        latest["_cache_age_s"] = int(age_s)
+                        return latest
+        except Exception:
+            pass
+        return await _sd.run_diagnostic()
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/diagnostic/run")
+async def diagnostic_run_ep():
+    """Force a fresh diagnostic run (bypasses cache)."""
+    try:
+        from ..intel import self_diagnostic as _sd
+        return await _sd.run_diagnostic_tick()
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
 # ── Defence source seed (2026-04-18) ────────────────────────────────────
 
 @router.get("/sources/seed/catalogue")

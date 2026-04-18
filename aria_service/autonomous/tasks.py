@@ -850,6 +850,10 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..intel import source_uptime_monitor
         return await source_uptime_monitor.run_daily_ping()
 
+    elif tool_kind == "self_diagnostic":
+        from ..intel import self_diagnostic
+        return await self_diagnostic.run_diagnostic_tick()
+
     else:
         return {"error": f"unknown direct tool: {tool_kind}"}
 

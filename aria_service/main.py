@@ -835,6 +835,24 @@ async def health():
         )
     )
 
+    # Self-diagnostic rollup (2026-04-18) — safe-to-publish summary of
+    # module wiring health. Detailed report at /api/aria/diagnostic/details
+    # behind auth. Read the cached result (refreshed every 15min by the
+    # autonomous task) so /health stays fast.
+    diagnostic_ind: dict = {"overall": "UNKNOWN"}
+    try:
+        from .intel import redis_store as rs
+        latest = await rs.get_json("crucix:self_diagnostic:latest")
+        if latest:
+            diagnostic_ind = {
+                "overall": latest.get("overall"),
+                "counts": latest.get("counts"),
+                "critical_failures": latest.get("critical_failures", []),
+                "generated_at": latest.get("generated_at"),
+            }
+    except Exception:
+        pass
+
     return {
         "status": "operational" if (llm and llm.is_configured and autonomous_healthy) else "degraded",
         "service": "aria",
@@ -842,7 +860,20 @@ async def health():
         "llm_configured": bool(llm and llm.is_configured),
         "llm_fallback_stats": llm_stats,
         "autonomous": autonomous_ind,
+        "diagnostic": diagnostic_ind,
     }
+
+
+@app.get("/diagnostic")
+async def public_diagnostic():
+    """Public diagnostic summary — binary PASS/FAIL per module cluster.
+    No per-check notes, no infra details. Safe to publish on status
+    page. Rich details at /api/aria/diagnostic/details (auth required)."""
+    try:
+        from .intel import self_diagnostic as _sd
+        return await _sd.run_diagnostic_summary()
+    except Exception as e:
+        return {"ok": False, "overall": "UNKNOWN", "error": str(e)[:200]}
 
 
 @app.post("/api/aria/zoom/webhook")

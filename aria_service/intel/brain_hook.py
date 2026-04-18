@@ -154,6 +154,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "known_publisher_router":      ["osint", "general"],
     "source_uptime_monitor":       ["osint", "general", "compliance"],
     "defence_source_seed":         ["osint", "general"],
+    # Self-diagnostic (2026-04-18) — ARIA's own health check
+    "self_diagnostic":             ["general", "compliance"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
