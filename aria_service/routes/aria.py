@@ -10243,6 +10243,158 @@ async def health_check_ep():
     }
 
 
+# ── Cross-server health + DD source parity (2026-04-18) ─────────────────
+# Past incident: ARIA's DD orchestrator couldn't reach any of the 52 Node
+# source adapters because they were on a different service and no one had
+# a panel showing cross-server parity. These endpoints make the drift
+# loud — if either server can't see the other, it shows up in /health/cross.
+
+@router.get("/health/cross")
+async def health_cross_ep():
+    """Cross-server health: can Python reach Node, and vice versa?
+
+    Returns: this server's uptime/status, Node-server status (via HTTP
+    probe of its /api/health), latency, and a parity summary — which
+    source adapters each side has wired.
+    """
+    import os
+    import time
+    try:
+        from ..intel import vendor_registry as _vr
+    except Exception:
+        _vr = None  # type: ignore
+
+    # This (Python) side status
+    py_status: dict = {"server": "fly.io-aria_service", "ok": True}
+    try:
+        from ..autonomous import engine as _eng
+        py_status["autonomous_engine"] = _eng.get_engine_status()
+    except Exception as e:
+        py_status["autonomous_engine_error"] = str(e)[:200]
+
+    # Vendor / source availability — the real parity signal
+    if _vr is not None:
+        try:
+            py_status["vendor_availability"] = await _vr.availability_ping()
+        except Exception as e:
+            py_status["vendor_availability_error"] = str(e)[:200]
+
+    # Probe Node side
+    node_url = (
+        os.getenv("ARIA_NODE_URL")
+        or os.getenv("SEENODE_URL")
+        or "https://web-qzregt3hvgvb.up-de-fra1-k8s-1.apps.run-on-seenode.com"
+    ).rstrip("/")
+    node_status: dict = {"server": "seenode-node", "url": node_url, "ok": False}
+    try:
+        import httpx
+        t0 = time.time()
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            r = await client.get(f"{node_url}/api/health")
+            latency_ms = int((time.time() - t0) * 1000)
+            node_status["latency_ms"] = latency_ms
+            node_status["http_status"] = r.status_code
+            if r.status_code < 400:
+                try:
+                    body = r.json()
+                    node_status["ok"] = bool(body.get("ok") or body.get("status") == "ok" or body.get("uptime") is not None)
+                    node_status["body"] = body
+                except Exception:
+                    node_status["ok"] = True
+                    node_status["body_text"] = r.text[:400]
+            else:
+                node_status["error"] = f"HTTP {r.status_code}"
+    except Exception as e:
+        node_status["error"] = f"{type(e).__name__}: {str(e)[:160]}"
+
+    # Parity: which side can answer each DD-source question?
+    parity: dict = {
+        "python_only_sources": [
+            "sec_edgar", "ofac_sdn", "uk_ofsi", "un_sc_sanctions",
+            "worldbank_debarred", "acled",
+        ],
+        "node_only_sources": [
+            # These live in apis/sources/ and are briefing-shaped on Node
+            "sipri_arms", "patents", "comtrade", "usaspending",
+            "worldbank_debarred_node_brief", "gdelt", "reliefweb",
+            "cloudflare_radar", "cisa_kev", "adsb", "opensky", "ships",
+        ],
+        "both_sources": [
+            # Same coverage surface on both sides (differ in shape)
+            "opensanctions", "companies_house", "acled_briefing_vs_lookup",
+        ],
+        "note": (
+            "Python sources are entity-lookup shaped (used by DD "
+            "orchestrator). Node sources are briefing shaped (used by "
+            "daily intel sweep). A source appearing on both sides does "
+            "NOT mean the DD pipeline can use the Node one — it means "
+            "each side has its own integration for different purposes."
+        ),
+    }
+
+    return {
+        "ok": py_status["ok"] and node_status["ok"],
+        "python": py_status,
+        "node": node_status,
+        "parity": parity,
+        "generated_at": _now_iso(),
+    }
+
+
+@router.get("/dd/sources")
+async def dd_sources_ep():
+    """Full inventory of DD-side sources with runtime availability.
+
+    This is the "what can DD actually use right now" panel. The vendor
+    registry knows about every vendor; this endpoint pings each source
+    to confirm credentials work + the upstream is reachable.
+    """
+    try:
+        from ..intel import vendor_registry as _vr
+        result = await _vr.availability_ping()
+        result["next_buy_recommendations"] = _vr.next_buy_recommendations(limit=5)
+        return result
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.get("/vendors")
+async def vendors_ep():
+    """Full vendor list (cheap — no network calls, just the registry)."""
+    try:
+        from ..intel import vendor_registry as _vr
+        vendors = _vr.load_vendors()
+        return {
+            "ok": True,
+            "total": len(vendors),
+            "live_count": len(_vr.live_vendors()),
+            "monthly_spend_usd": _vr.total_monthly_usd(),
+            "vendors": [
+                {
+                    "id": v.id, "name": v.name,
+                    "tier": v.tier, "status": v.status,
+                    "coverage": v.coverage,
+                    "monthly_cost_usd": v.monthly_cost_usd,
+                    "credentials_present": v.credentials_present,
+                    "signup_url": v.signup_url,
+                    "api_key_env_var": v.api_key_env_var,
+                    "aux_env_vars": v.aux_env_vars,
+                    "priority_to_buy": v.priority_to_buy,
+                    "notes": v.notes,
+                }
+                for v in vendors
+            ],
+            "next_buy_recommendations": _vr.next_buy_recommendations(limit=5),
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
 # ── Operating Modes (Week 1d) ────────────────────────────────────────────
 
 @router.get("/operating-mode")

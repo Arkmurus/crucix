@@ -1010,6 +1010,54 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Cross-server health — does Node see fly.io and vice versa?
+// Mirrors /api/aria/health/cross on the Python side. Added 2026-04-18
+// after the DD-depth audit found that the two servers had drifted apart
+// (each had sources the other didn't know about) without anyone noticing.
+// This endpoint makes the drift loud — if either side is down or not
+// seeing the other, it surfaces in one call.
+app.get('/api/health/cross', async (req, res) => {
+  const flyUrl = (process.env.ARIA_FLY_URL || 'https://aria-intel.fly.dev').replace(/\/$/, '');
+  const out = {
+    ok: false,
+    generated_at: new Date().toISOString(),
+    node: {
+      server: 'seenode-node',
+      ok: true,
+      uptime_s: Math.floor((Date.now() - startTime) / 1000),
+      last_sweep: lastSweepTime,
+      sources_ok: currentData?.meta?.sourcesOk || 0,
+      sources_failed: currentData?.meta?.sourcesFailed || 0,
+      sources_total: currentData?.meta?.sourcesQueried || 0,
+    },
+    fly: { server: 'fly.io-aria_service', url: flyUrl, ok: false },
+  };
+  try {
+    const t0 = Date.now();
+    const r = await fetch(`${flyUrl}/api/aria/health`, {
+      signal: AbortSignal.timeout(6000),
+    });
+    out.fly.latency_ms = Date.now() - t0;
+    out.fly.http_status = r.status;
+    if (r.ok) {
+      try {
+        const body = await r.json();
+        out.fly.ok = body.status === 'healthy' || body.status === 'ok' || body.status === 'degraded';
+        out.fly.body = body;
+      } catch {
+        out.fly.ok = true;
+        out.fly.body_text = (await r.text()).slice(0, 400);
+      }
+    } else {
+      out.fly.error = `HTTP ${r.status}`;
+    }
+  } catch (e) {
+    out.fly.error = `${e.name}: ${(e.message || '').slice(0, 160)}`;
+  }
+  out.ok = out.node.ok && out.fly.ok;
+  res.json(out);
+});
+
 app.get('/api/source-health', requireAuth, (req, res) => {
   const summary = getSourceHealthSummary();
   const degraded = summary.filter(s => s.reliability !== null && s.reliability < 80);
