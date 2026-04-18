@@ -2069,6 +2069,35 @@ app.post('/api/aria/autonomy/baseline', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/autonomy/baseline', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/autonomy/baseline', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/autonomy/baseline', { fallback: async () => res.status(503).json(_brainFallback()) }));
+
+// /aria-brain dashboard panels that were missing proxies (added 2026-04-18).
+// Past incident: the Autonomy Surface and Learning & Verification panels
+// showed "No data" because fetchJson('/autonomy/surface') and
+// fetchJson('/learning/stats') were hitting Express with no matching route
+// → 404 → null response → "No data" render. The Python endpoints exist
+// on fly.io; we just weren't routing to them.
+app.get('/api/aria/autonomy/surface', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/autonomy/surface', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/learning/stats', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/learning/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
+// Also expose the new Track C + "Fire on ARIA" panels so they can be
+// wired into the dashboard without another server.mjs change later.
+app.get('/api/aria/capability-card', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/capability-card${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/consistency/scores', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/consistency/scores', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/consistency/run', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/consistency/run', { method: 'POST', timeoutMs: 200000, fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/calibration/auto-tune', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/calibration/auto-tune', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/calibration/auto-tune/run', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/calibration/auto-tune/run', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/pending-actions', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/pending-actions', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/vendors', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/vendors', { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/dd/sources', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/dd/sources', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/calibration/review', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/calibration/review', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/calibration/baseline', requireAuth, (req, res) =>
