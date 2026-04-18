@@ -131,6 +131,34 @@ async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, 
                 await _asyncio.sleep(2)
 
     if not html:
+        # Primary fetch failed OR returned thin content. Try the
+        # professional-researcher fallback stack (PDF detection,
+        # Wayback Machine snapshot). This is the legitimate,
+        # publicly-citable fallback — NOT CAPTCHA bypass or other
+        # evasion techniques.
+        try:
+            from . import crawl_enhancements as _ce
+            pro = await _ce.fetch_with_fallbacks(
+                url, allow_pdf=True, allow_wayback=True,
+                respect_robots=True, timeout=timeout,
+            )
+            if pro.get("ok"):
+                logger.info(
+                    "[crawl] %s served via fallback chain (source=%s)",
+                    url[:80], pro.get("source"),
+                )
+                # Return text + any discovered links from the HTML variant
+                text = (pro.get("text") or "")[:8000]
+                if pro.get("html"):
+                    try:
+                        links = await _extract_links(url, pro["html"])
+                    except Exception:
+                        links = []
+                else:
+                    links = []
+                return text, links
+        except Exception as e:
+            logger.debug("[crawl] crawl_enhancements fallback failed: %s", e)
         return "", []
 
     # Check if the static HTML is a JS-rendered shell. If so, retry via

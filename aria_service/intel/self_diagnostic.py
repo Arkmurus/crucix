@@ -285,6 +285,14 @@ _MODULES: list[dict] = [
         "brain_registered": False,
         "critical": True,
     },
+    # Professional crawl enhancements (2026-04-18 evening)
+    {
+        "name": "crawl_enhancements",
+        "module": "aria_service.intel.crawl_enhancements",
+        "entry": "fetch_with_fallbacks",
+        "brain_registered": True,
+        "critical": False,
+    },
 ]
 
 

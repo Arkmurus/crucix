@@ -156,6 +156,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "defence_source_seed":         ["osint", "general"],
     # Self-diagnostic (2026-04-18) — ARIA's own health check
     "self_diagnostic":             ["general", "compliance"],
+    # Professional crawl enhancements (2026-04-18 evening)
+    "crawl_enhancements":          ["osint", "general"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
