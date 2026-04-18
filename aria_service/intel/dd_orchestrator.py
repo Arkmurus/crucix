@@ -2640,6 +2640,74 @@ async def orchestrate_dd(
                 report.layers_skipped.append("digital")
             report.digital.meta.status = LayerStatus.SKIPPED.value
 
+        # ── LAYER 5b: DECEPTION SCORING (Clause 16 — 2026-04-18 evening) ──
+        # Run the validated deception risk analyser over ANY counterparty
+        # free-text we have collected. Sources (in priority order):
+        #   1. target['counterparty_text'] / target['message_text'] / target['communication']
+        #      — the actual message from the counterparty if the caller passed it
+        #   2. target['capability_statement'] / target['narrative'] / target['description']
+        #      — pitch / proposal text for proposal-context scoring
+        #   3. digital.findings narratives — what we discovered in OSINT
+        # The score lands on report.deception so synthesis + verification
+        # can weight it and the bottom-line renderer can surface ELEVATED/HIGH.
+        # Past incident 2026-04-16 — ARIA shipped responses claiming
+        # "Deception Detection... protocols running" when the module was
+        # NEVER called from the runtime. This wires it for real.
+        try:
+            from . import deception_detection as _dd
+            _texts: list[tuple[str, str]] = []
+            for _key in ("counterparty_text", "message_text", "communication", "claim"):
+                _v = (target.get(_key) or "").strip()
+                if _v and len(_v) >= 50:
+                    _texts.append(("entity_claim", _v))
+            for _key in ("capability_statement", "narrative", "description", "proposal"):
+                _v = (target.get(_key) or "").strip()
+                if _v and len(_v) >= 50:
+                    _texts.append(("proposal", _v))
+            # Also pick up digital-layer findings narratives
+            for _f in (report.digital.findings or [])[:3]:
+                _narr = getattr(_f, "evidence_text", "") or getattr(_f, "summary", "") or ""
+                if _narr and len(_narr) >= 100:
+                    _texts.append(("business_communication", _narr))
+
+            if _texts:
+                analyser = _dd.ARIADeceptionAnalyser()
+                _max_score = 0.0
+                _max_tier = _dd.DeceptionRiskTier.LOW
+                _all_signals: list[str] = []
+                for _ctx, _text in _texts:
+                    score = await analyser.analyse_async(
+                        _text[:6000],
+                        context_type=_ctx,
+                        reference_entity=report.identity.entity_name or "",
+                    )
+                    if score.raw_score > _max_score:
+                        _max_score = score.raw_score
+                        _max_tier = score.tier
+                    _all_signals.extend(s.category for s in score.signals_detected)
+                # Attach to report (schema-tolerant — instance attribute)
+                try:
+                    report.deception = {
+                        "max_score": round(_max_score, 3),
+                        "tier": _max_tier.value,
+                        "texts_analysed": len(_texts),
+                        "signals": sorted(set(_all_signals))[:10],
+                        "requires_eDD": _max_tier in (
+                            _dd.DeceptionRiskTier.ELEVATED,
+                            _dd.DeceptionRiskTier.HIGH,
+                        ),
+                    }
+                except Exception:
+                    pass
+                if _max_tier in (_dd.DeceptionRiskTier.ELEVATED, _dd.DeceptionRiskTier.HIGH):
+                    logger.warning(
+                        "[dd_orchestrator] DECEPTION %s on %s: score=%.2f signals=%s",
+                        _max_tier.value, report.identity.entity_name or "?",
+                        _max_score, sorted(set(_all_signals))[:5],
+                    )
+        except Exception as _de:
+            logger.debug("[dd_orchestrator] deception scoring failed (non-fatal): %s", _de)
+
         # ── LAYER 3: VERIFICATION (runs over what the previous layers collected) ──
         layer_name = "verification"
         report.layers_run.append(layer_name)

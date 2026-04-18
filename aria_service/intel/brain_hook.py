@@ -157,6 +157,14 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "defence_source_seed":         ["osint", "general"],
     # Self-diagnostic (2026-04-18) — ARIA's own health check
     "self_diagnostic":             ["general", "compliance"],
+    # Multi-backend search engine (2026-04-18 evening) — wired into
+    # researcher.web_search as fallback chain so backend rotation is
+    # observable to brain.
+    "web_search":                  ["osint", "general"],
+    # Counterparty deception scoring (Clause 16, 2026-04-18 evening) —
+    # every analyse() call now feeds brain so DD pipeline learns from
+    # repeat patterns and the predictor can warn early.
+    "deception_detection":         ["compliance", "osint", "relationships"],
     # Professional crawl enhancements (2026-04-18 evening)
     "crawl_enhancements":          ["osint", "general"],
     # Playwright scraper package (2026-04-18 evening, clean-split from
@@ -271,6 +279,9 @@ _MODULE_WEIGHT: dict[str, float] = {
     "pdf_deep_ingest":             0.15,  # per-PDF learning signal
     "style_learner":               0.15,  # structural pattern extraction
     "memory_replication":          0.10,  # infra — low weight per run
+    # Multi-backend search + deception scoring (2026-04-18 evening)
+    "web_search":                  0.05,  # high frequency, low per-call weight
+    "deception_detection":         0.20,  # each scored analysis = real DD signal
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity

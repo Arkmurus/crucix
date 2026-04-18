@@ -373,7 +373,26 @@ async def search(
                 sum(1 for b in raw_results if not isinstance(b, Exception) and b),
                 sum(len(b) for b in raw_results if not isinstance(b, Exception)))
 
-    return results[:max_results]
+    final = results[:max_results]
+
+    # ── Brain hook: feed search outcomes to learning ──
+    try:
+        from . import brain_hook as _bh
+        backends_hit = sorted({r.source.split(":")[0] for r in final}) if final else []
+        await _bh.absorb(
+            module="web_search",
+            summary=f"web_search '{query[:80]}': {len(final)} results from {len(backends_hit)} backend(s) [{', '.join(backends_hit) or 'none'}]",
+            detail="; ".join(f"{r.title[:80]} → {r.url[:120]}" for r in final[:5]),
+            entity_name=query[:80],
+            success=bool(final),
+            gap_type=None if final else "search_zero_results",
+            gap_detail=None if final else f"All {len(backend_tasks)} backends returned 0 for {query[:120]}",
+            confidence="ASSESSED",
+        )
+    except Exception:
+        pass
+
+    return final
 
 
 async def search_news(query: str, *, max_results: int = 10, language: str = "en") -> list[SearchResult]:
@@ -395,7 +414,23 @@ async def search_news(query: str, *, max_results: int = 10, language: str = "en"
                 r.relevance_score = _score_relevance(r, query)
 
     results = sorted(seen.values(), key=lambda r: r.relevance_score, reverse=True)
-    return results[:max_results]
+    final = results[:max_results]
+
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="web_search",
+            summary=f"search_news '{query[:80]}': {len(final)} results",
+            detail="; ".join(f"{r.title[:80]}" for r in final[:5]),
+            entity_name=query[:80],
+            success=bool(final),
+            extra_topics=["osint"],
+            confidence="ASSESSED",
+        )
+    except Exception:
+        pass
+
+    return final
 
 
 async def search_entity(
@@ -432,7 +467,23 @@ async def search_entity(
             seen[key].relevance_score += 0.2  # found across multiple angles = more relevant
 
     results = sorted(seen.values(), key=lambda r: r.relevance_score, reverse=True)
-    return results[:max_results]
+    final = results[:max_results]
+
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="web_search",
+            summary=f"search_entity '{entity}' ({country or 'no country'}): {len(final)} results across {len(queries)} angles",
+            detail="; ".join(f"{r.title[:80]} ({r.url[:80]})" for r in final[:5]),
+            entity_name=entity,
+            success=bool(final),
+            extra_topics=["osint", "compliance"],
+            confidence="ASSESSED",
+        )
+    except Exception:
+        pass
+
+    return final
 
 
 # ── P6: Native-language query expansion ──────────────────────────────────
@@ -647,7 +698,23 @@ async def search_multilingual(
                 seen[key] = r
 
     results = sorted(seen.values(), key=lambda r: r.relevance_score, reverse=True)
-    return results[:max_results]
+    final = results[:max_results]
+
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="web_search",
+            summary=f"search_multilingual '{query[:60]}' [{','.join(languages)}]: {len(final)} results from {len(queries_by_lang)} variants",
+            detail="; ".join(f"[{r.language}] {r.title[:70]}" for r in final[:5]),
+            entity_name=query[:80],
+            success=bool(final),
+            extra_topics=["osint"] + [f"lang:{l}" for l in languages if l != "en"],
+            confidence="ASSESSED",
+        )
+    except Exception:
+        pass
+
+    return final
 
 
 # ── Stats and health ────────────────────────────────────────────────────────

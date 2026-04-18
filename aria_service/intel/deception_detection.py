@@ -386,6 +386,44 @@ class ARIADeceptionAnalyser:
     BASELINE_NEG = 0.020    # ~2% negation in honest communication
     BASELINE_HED = 0.015    # ~1.5% hedging in honest communication
 
+    async def analyse_async(
+        self,
+        text: str,
+        context_type: str = "general",
+        reference_entity: str = "",
+    ) -> DeceptionRiskScore:
+        """Async wrapper that runs the synchronous analyser, then feeds
+        the result to brain_hook so DD pipelines + the predictor learn
+        from repeat patterns. Use this from any async context (DD
+        orchestrator, chat path, autonomous tasks). The plain `analyse`
+        method remains available for synchronous callers (CLI, tests)."""
+        score = self.analyse(text, context_type=context_type, reference_entity=reference_entity)
+        try:
+            from . import brain_hook as _bh
+            top_signals = ", ".join(s.category for s in score.signals_detected[:3]) or "none"
+            await _bh.absorb(
+                module="deception_detection",
+                summary=(
+                    f"Deception score {score.percentage} {score.tier.value} "
+                    f"on {context_type}{f' for {reference_entity}' if reference_entity else ''} "
+                    f"({score.word_count}w): {top_signals}"
+                ),
+                detail=score.analyst_note or score.summary,
+                entity_name=reference_entity,
+                success=True,
+                gap_type=("counterparty_deception_high"
+                          if score.tier == DeceptionRiskTier.HIGH else None),
+                gap_detail=(
+                    f"HIGH deception risk on {reference_entity or context_type}: "
+                    f"{len(score.signals_detected)} signals — {top_signals}"
+                    if score.tier == DeceptionRiskTier.HIGH else None
+                ),
+                confidence="ASSESSED",
+            )
+        except Exception:
+            pass
+        return score
+
     def analyse(
         self,
         text: str,

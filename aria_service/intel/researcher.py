@@ -1093,20 +1093,20 @@ async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) ->
                 },
             )
             if resp.status_code != 200:
-                return {
-                    "ok": False, "query": query, "provider": "ddg",
-                    "results": [],
-                    "error": f"DuckDuckGo HTML returned HTTP {resp.status_code}",
-                    "duration_ms": int((time.time() - t0) * 1000),
-                }
+                logger.warning(
+                    "web_search DDG returned HTTP %d for %r — falling through to multi-backend",
+                    resp.status_code, query[:80],
+                )
+                return await _multi_backend_fallback(query, max_results, t0,
+                                                    reason=f"ddg_http_{resp.status_code}")
             html = resp.text
     except Exception as e:
-        return {
-            "ok": False, "query": query, "provider": "ddg",
-            "results": [],
-            "error": f"DuckDuckGo HTML fetch failed: {str(e)[:200]}",
-            "duration_ms": int((time.time() - t0) * 1000),
-        }
+        logger.warning(
+            "web_search DDG fetch failed for %r: %s — falling through to multi-backend",
+            query[:80], e,
+        )
+        return await _multi_backend_fallback(query, max_results, t0,
+                                            reason=f"ddg_exception:{str(e)[:80]}")
 
     # Parse the DDG HTML — each result is in a <a class="result__a"> with
     # the snippet in the next sibling. Use loose regexes (DDG markup is
@@ -1148,11 +1148,58 @@ async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) ->
         if actual_url and title:
             results.append({"title": title, "url": actual_url, "snippet": snippet})
 
+    if not results:
+        # DDG parsed clean but returned zero results — try the multi-
+        # backend search engine before giving up. Brave + SearXNG +
+        # Google News + Bing News in parallel beats a single-source zero.
+        logger.info(
+            "web_search DDG parsed zero results for %r — trying multi-backend",
+            query[:80],
+        )
+        return await _multi_backend_fallback(query, max_results, t0,
+                                            reason="ddg_zero_results")
+
     return {
         "ok": True, "query": query, "provider": "ddg",
         "results": results,
         "duration_ms": int((time.time() - t0) * 1000),
     }
+
+
+async def _multi_backend_fallback(
+    query: str, max_results: int, t0: float, *, reason: str = "",
+) -> dict:
+    """Last-resort multi-backend fallback for web_search.
+
+    Calls intel.web_search.search() which queries Brave + SearXNG +
+    Google News in parallel, deduplicates, and applies tier scoring.
+    Used when researcher.web_search's primary providers (Brave + DDG)
+    both fail or return empty. This is the wire that keeps the rich
+    multi-backend engine actually used in production.
+    """
+    try:
+        from . import web_search as _ws
+        results = await _ws.search(query, max_results=max_results, min_credibility=6)
+        return {
+            "ok": bool(results),
+            "query": query,
+            "provider": f"multi_backend (after {reason})" if reason else "multi_backend",
+            "results": [
+                {"title": r.title, "url": r.url, "snippet": r.snippet}
+                for r in results
+            ],
+            "duration_ms": int((time.time() - t0) * 1000),
+            "fallback_reason": reason,
+        }
+    except Exception as e:
+        logger.warning("multi_backend fallback failed for %r: %s", query[:80], e)
+        return {
+            "ok": False, "query": query,
+            "provider": f"multi_backend_failed (after {reason})",
+            "results": [],
+            "error": f"All providers exhausted. Last error: {str(e)[:200]}",
+            "duration_ms": int((time.time() - t0) * 1000),
+        }
 
 
 # ── Public: Deep multi-query research orchestrator (no LLM, no RAG) ─────────

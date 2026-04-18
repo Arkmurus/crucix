@@ -4216,6 +4216,37 @@ async def chat_ep(req: ChatRequest, request: Request):
                 exc_info=True,
             )
 
+        # ── Clause 15 inline citation injector (2026-04-18 evening) ──
+        # BEFORE response_verifier tags claims as UNVERIFIED, try to find
+        # the matching tool-context URL for each confidence-tagged claim
+        # and inject `[from <url>]` inline. Past metric: ARIA's grounding
+        # rate sat at 9% because the LLM didn't volunteer citations. This
+        # closes the loop: facts that match a URL in tool_context get
+        # cited automatically; facts that don't get flagged as UNVERIFIED
+        # by the next stage. Best-effort — only fires when we have URLs.
+        try:
+            from ..intel import response_verifier as _rv_inj
+            inj_result = _rv_inj.inject_inline_citations(
+                response_text=response_text,
+                tool_context=tool_context or "",
+            )
+            if not inj_result.get("unchanged"):
+                response_text = inj_result["rewritten"]
+                result["response"] = response_text
+                result["citation_injection"] = {
+                    "claims_total": inj_result["claims_total"],
+                    "claims_cited": inj_result["claims_cited"],
+                    "claims_uncitable": inj_result["claims_uncitable"],
+                }
+                _log.info(
+                    "[citation_injector] %d/%d claims auto-cited (%d uncitable)",
+                    inj_result["claims_cited"],
+                    inj_result["claims_total"],
+                    inj_result["claims_uncitable"],
+                )
+        except Exception as e:
+            _log.debug("citation_injector failed (non-fatal): %s", e)
+
         # ── Three-pass response verification (Week 3 — inline tags) ──
         # Post-processes the response to add [VERIFIED], [UNVERIFIED],
         # or [CONTRADICTED] tags on every factual claim with a confidence
@@ -5636,6 +5667,145 @@ async def brain_alerts_ep():
     """Modules that haven't sent a signal in 24h or have never signalled."""
     from ..intel import brain_hook
     return {"alerts": await brain_hook.get_stale_alerts()}
+
+
+# 43e. GET /api/aria/diagnostic/unwired — File-system audit of intel modules
+# vs brain_hook callers + classification (storage / dormant / should-wire).
+# This is the "missing wires" diagnostic — answers "what exists in code but
+# isn't feeding the brain?" without waiting 24h for stale-signal detection.
+@router.get("/diagnostic/unwired")
+async def diagnostic_unwired_ep():
+    """Walk aria_service/intel/*.py, classify each module as one of:
+      - learner-wired:  imports brain_hook AND calls absorb()
+      - learner-stale:  registered in _MODULE_TOPICS but no signal in 24h
+      - storage:        intentional non-learner (storage / routing / index)
+      - dormant:        legacy or read-only — no expected signal
+      - should-wire:    looks like an analysis module but has no absorb call
+    """
+    import os as _os
+    import re as _re
+    from pathlib import Path as _Path
+    from ..intel import brain_hook as _bh
+
+    intel_dir = _Path(__file__).parent.parent / "intel"
+    files = [p for p in intel_dir.glob("*.py")
+             if p.name not in ("__init__.py",)]
+
+    # Static classification map. Update this as modules are added.
+    STORAGE = {
+        "redis_store", "rag_store", "conversation_store", "knowledge",
+        "neural_memory", "student", "memory_router", "memory_diagnostics",
+        "reasoning_router", "reasoning_library", "semantic_search",
+        "intel_ledger", "training_data", "local_brain", "scratchpad",
+        "capability_gaps", "self_metrics", "trace_stream",
+        "chat_audit_log", "audit_log", "claim_ledger",
+        "counterparty_claim_ledger", "response_cache", "mem0",
+    }
+    DORMANT_OK = {
+        "analytic_principles", "ghost_detection_principles",
+        "contract_review_principles", "negotiation_principles",
+        "researcher_principles", "v3_prompts", "headless",
+        "country_taxonomy", "operating_modes", "user_quota",
+        "ua_rotation", "security", "security_protocol",
+        "team_engagement", "regional_compliance", "regional_navigation",
+        "report_builder", "stale_knowledge_alerts", "confidence_footer",
+        "calibration_review", "eval_runner", "feedback",
+        "ground_truth_loop",
+    }
+    GUARD_VALIDATOR = {
+        # Validators — they don't learn, they enforce. Brain reflection
+        # happens via mistake_ledger / pending_actions instead.
+        "circuit_breaker", "commitment_guard", "officeholder_guard",
+        "tool_claim_guard", "consistency_suite", "ground_truth_guard",
+        "response_verifier", "source_verifier", "dead_letter_queue",
+        "document_corrections", "correction_learner", "honesty_judge",
+        "deception_detection",  # has analyse_async wrapper which absorbs
+    }
+    UTILITY = {
+        # Utility / config / helper — no learning surface
+        "approach", "gtm_strategy", "contacts", "contact_intelligence",
+        "competitors", "proactive", "due_diligence_playbooks",
+        "dd_schema", "dd_case_library", "compliance_file",
+        "compliance_workflow", "international_law", "person_resolver",
+        "document_reader", "document_intelligence", "ocr",
+        "osint_knowledge", "procurement_knowledge",
+        "market_competitor_knowledge", "nato_standards",
+        "sipri_knowledge", "nsn_knowledge", "self_assess",
+        "self_improve",
+    }
+
+    registered = set(_bh._MODULE_TOPICS.keys())
+    stats = await _bh.get_stats()
+    seen_modules = set(stats.get("modules", {}).keys())
+    stale_modules = set(stats.get("stale_modules", []))
+
+    classification: dict[str, list[dict]] = {
+        "learner_wired_active": [],
+        "learner_wired_never_seen": [],
+        "learner_wired_stale_24h": [],
+        "storage": [],
+        "guard_validator": [],
+        "utility": [],
+        "dormant_documented": [],
+        "should_wire": [],
+    }
+
+    absorb_re = _re.compile(r"brain_hook[\s\.\(]+absorb|from\s+\.\s*import\s+brain_hook")
+    for f in sorted(files):
+        modname = f.stem
+        try:
+            content = f.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        calls_absorb = bool(absorb_re.search(content))
+        is_registered = modname in registered
+        m_stats = stats.get("modules", {}).get(modname, {})
+
+        entry = {
+            "module": modname,
+            "size_bytes": f.stat().st_size,
+            "registered_in_topics": is_registered,
+            "calls_absorb": calls_absorb,
+            "signals_seen": m_stats.get("total", 0),
+            "last_signal_ago_h": m_stats.get("last_signal_ago_h"),
+        }
+
+        if calls_absorb:
+            if modname in seen_modules and modname not in stale_modules:
+                classification["learner_wired_active"].append(entry)
+            elif modname in stale_modules:
+                classification["learner_wired_stale_24h"].append(entry)
+            else:
+                # Calls absorb but never seen — could be brand new or
+                # only fires on rare paths.
+                classification["learner_wired_never_seen"].append(entry)
+        elif modname in STORAGE:
+            classification["storage"].append(entry)
+        elif modname in GUARD_VALIDATOR:
+            classification["guard_validator"].append(entry)
+        elif modname in UTILITY:
+            classification["utility"].append(entry)
+        elif modname in DORMANT_OK:
+            classification["dormant_documented"].append(entry)
+        else:
+            # Not classified, doesn't call absorb — flag for review.
+            classification["should_wire"].append(entry)
+
+    summary = {k: len(v) for k, v in classification.items()}
+    return {
+        "summary": summary,
+        "total_intel_modules": sum(len(v) for v in classification.values()),
+        "registered_in_brain_topics": len(registered),
+        "modules_with_signals_ever": len(seen_modules),
+        "modules_stale_24h": len(stale_modules),
+        "by_classification": classification,
+        "advice": (
+            "should_wire = highest priority gap (write code paths that call brain_hook). "
+            "learner_wired_stale_24h = code is wired but the path has gone quiet (check task scheduling). "
+            "learner_wired_never_seen = freshly wired but never fired (verify caller). "
+            "storage / guard_validator / utility / dormant_documented = no brain signal expected."
+        ),
+    }
 
 
 # ── Semantic Search ──────────────────────────────────────────────────────────

@@ -342,16 +342,59 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         return await corpus_manager.run_weekly_crawl()
 
     elif tool_kind == "metacognitive_daily_check":
-        from ..metacognitive import engine as metacog
-        return await metacog.run_daily_check() if hasattr(metacog, "run_daily_check") else {"skipped": "not implemented"}
+        # Real cycle implementation lives in metacognitive.cycle, not engine.
+        # Past wiring bug 2026-04-18: this called engine.run_daily_check (no
+        # such function) and silently returned {"skipped": "not implemented"}
+        # so METACOG-DAILY task fired daily but did nothing for weeks.
+        from ..metacognitive import cycle as metacog_cycle
+        result = await metacog_cycle.daily_self_check(llm)
+        try:
+            from ..intel import brain_hook as _bh
+            await _bh.absorb(
+                module="self_assess",
+                summary=f"Metacog daily: {result.get('assessments_today', 0)} assessments, "
+                        f"avg_score={result.get('avg_score')}, "
+                        f"high_gaps={result.get('high_severity_gaps', 0)}",
+                success=True,
+                confidence="ASSESSED",
+            )
+        except Exception:
+            pass
+        return result
 
     elif tool_kind == "metacognitive_weekly_review":
-        from ..metacognitive import engine as metacog
-        return await metacog.run_weekly_review(llm) if hasattr(metacog, "run_weekly_review") else {"skipped": "not implemented"}
+        from ..metacognitive import cycle as metacog_cycle
+        result = await metacog_cycle.weekly_consciousness_review(llm)
+        try:
+            from ..intel import brain_hook as _bh
+            await _bh.absorb(
+                module="self_assess",
+                summary=f"Metacog weekly review: brier={result.get('overall_brier')}, "
+                        f"weak_domains={result.get('weakest_domains', [])[:3]}",
+                success=result.get("consciousness_report_ok", False),
+                extra_topics=["compliance"],
+                confidence="ASSESSED",
+            )
+        except Exception:
+            pass
+        return result
 
     elif tool_kind == "metacognitive_monthly_sprint":
-        from ..metacognitive import engine as metacog
-        return await metacog.run_monthly_sprint(llm) if hasattr(metacog, "run_monthly_sprint") else {"skipped": "not implemented"}
+        from ..metacognitive import cycle as metacog_cycle
+        result = await metacog_cycle.monthly_gap_closure_sprint(llm)
+        try:
+            from ..intel import brain_hook as _bh
+            await _bh.absorb(
+                module="self_assess",
+                summary=f"Metacog monthly sprint: gaps_addressed={result.get('gaps_addressed', 0)}, "
+                        f"code_proposals={result.get('code_proposals_generated', 0)}",
+                success=True,
+                extra_topics=["compliance"],
+                confidence="ASSESSED",
+            )
+        except Exception:
+            pass
+        return result
 
     elif tool_kind == "dd_watchlist_sweep":
         from ..intel import dd_orchestrator
