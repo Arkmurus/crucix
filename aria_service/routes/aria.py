@@ -10905,6 +10905,38 @@ async def sources_uptime_unsuspend_ep(request: Request):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+# ── Defence source seed (2026-04-18) ────────────────────────────────────
+
+@router.get("/sources/seed/catalogue")
+async def sources_seed_catalogue_ep():
+    """Read-only view of the curated defence source catalogue."""
+    try:
+        from ..intel import defence_source_seed as _dss
+        return {
+            "ok": True,
+            "catalogue": _dss.catalogue_summary(),
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/sources/seed/run")
+async def sources_seed_run_ep(request: Request):
+    """Manually fire the seed. Body: {force: bool}. By default skips
+    when web_atlas is already populated."""
+    try:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+        force = bool(body.get("force", False)) if isinstance(body, dict) else False
+        from ..intel import defence_source_seed as _dss
+        return await _dss.seed_web_atlas(skip_if_populated=not force)
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
 # ── Query decomposer + known publisher router (debug surfaces) ──────────
 
 @router.post("/query/decompose")

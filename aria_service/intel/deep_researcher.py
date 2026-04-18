@@ -694,6 +694,92 @@ Return JSON:
     duration = int((time.time() - t_start) * 1000)
     logger.info(f"Investigation complete: '{topic}' — {articles_read} articles, {total_facts} facts ({duration}ms)")
 
+    # ── Fact verification tagging (2026-04-18) ──────────────────────
+    # Per ARIA's 5-point plan: wire verified_intel into deep_research
+    # output. This is a CHEAP heuristic pass — no web search, no LLM —
+    # that downgrades confidence on unsupported claims and cross-checks
+    # against the verified_intel store for past contradictions.
+    verification_summary = {
+        "facts_total": len(all_facts),
+        "confirmed_kept": 0,
+        "downgraded_no_source": 0,
+        "downgraded_past_contradiction": 0,
+        "cross_fact_contradictions": 0,
+    }
+    try:
+        from . import verified_intel as _vi
+        # 1. Pull past-verified facts relevant to this topic (cheap Redis read)
+        past_facts = await _vi.get_relevant_verified_facts(topic, limit=20)
+        past_by_entity: dict[str, list[dict]] = {}
+        for pf in past_facts:
+            ent = (pf.get("entity_name") or "").lower().strip()
+            if ent:
+                past_by_entity.setdefault(ent, []).append(pf)
+
+        # 2. Cheap in-run contradiction detector — same topic, different
+        # asserted value → both get flagged UNCERTAIN
+        seen_topic_values: dict[str, list[int]] = {}
+        for idx, fact in enumerate(all_facts):
+            topic_key = (fact.get("topic") or "").lower().strip()
+            content = (fact.get("content") or "")[:300].lower()
+            if topic_key:
+                seen_topic_values.setdefault(topic_key, []).append(idx)
+
+        # 3. Apply downgrade rules
+        for idx, fact in enumerate(all_facts):
+            original = fact.get("confidence", "ASSESSED")
+            content = fact.get("content") or ""
+            topic_key = (fact.get("topic") or "").lower().strip()
+
+            # Rule A: if no citation marker in content, downgrade one tier
+            has_citation = any(m in content for m in (
+                "[from ", "[source:", "per http", "see http",
+                "[url:", "via http", "according to ", "stated in ",
+            ))
+            if not has_citation and original == "CONFIRMED":
+                fact["confidence"] = "PROBABLE"
+                fact["_verification_note"] = "no inline citation — auto-downgraded"
+                verification_summary["downgraded_no_source"] += 1
+
+            # Rule B: if multiple facts share the same topic in this run,
+            # both get flagged unless their content is near-identical
+            peers = seen_topic_values.get(topic_key, [])
+            if len(peers) >= 2 and idx in peers:
+                other_idx = [p for p in peers if p != idx][0]
+                other_content = (all_facts[other_idx].get("content") or "").lower()
+                this_content = content.lower()
+                # If they don't share substantial overlap, treat as contradiction
+                overlap_words = (
+                    set(this_content.split())
+                    & set(other_content.split())
+                )
+                if len(overlap_words) < 5:
+                    if fact.get("confidence") in ("CONFIRMED", "PROBABLE"):
+                        fact["confidence"] = "UNCERTAIN"
+                        fact["_verification_note"] = (
+                            "contradicts fact in same run on same topic"
+                        )
+                        verification_summary["cross_fact_contradictions"] += 1
+
+            # Rule C: cross-check against stored verified facts
+            for ent_key, past_list in past_by_entity.items():
+                if ent_key and ent_key in content.lower():
+                    for pf in past_list:
+                        pf_status = pf.get("verification_status", "")
+                        if pf_status == "CONTRADICTED":
+                            fact["confidence"] = "UNCERTAIN"
+                            fact["_verification_note"] = (
+                                f"entity '{ent_key}' has CONTRADICTED "
+                                f"past-verified facts in store"
+                            )
+                            verification_summary["downgraded_past_contradiction"] += 1
+                            break
+
+            if fact.get("confidence") == "CONFIRMED" and not fact.get("_verification_note"):
+                verification_summary["confirmed_kept"] += 1
+    except Exception as _ve:
+        logger.debug("verification tagger failed: %s", _ve)
+
     # ── Brain hook: feed investigation findings to learning ──
     try:
         from . import brain_hook
@@ -717,6 +803,7 @@ Return JSON:
         "hypotheses_generated": total_hyp,
         "facts": all_facts,
         "synthesis": synthesis,
+        "verification_summary": verification_summary,
         "duration_ms": duration,
     }
 

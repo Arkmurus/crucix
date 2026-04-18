@@ -583,6 +583,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Autonomous engine bootstrap failed (non-fatal): %s", e)
 
+    # ── Defence source seed → web_atlas (2026-04-18) ────────────────
+    # Bootstrap the curated Tier-1/1b/2 defence source catalogue into
+    # web_atlas if it hasn't been populated yet. Idempotent — safe to
+    # run on every startup. Seeding happens in background so it doesn't
+    # block the lifespan startup gate.
+    try:
+        from .intel import defence_source_seed
+        async def _seed_bg():
+            try:
+                result = await defence_source_seed.seed_web_atlas(
+                    skip_if_populated=True,
+                )
+                logger.info("Defence source seed: %s", result)
+            except Exception as _e:
+                logger.debug("Defence source seed bg failed: %s", _e)
+        import asyncio as _aio
+        _aio.create_task(_seed_bg())
+    except Exception as e:
+        logger.debug("Defence source seed dispatch failed (non-fatal): %s", e)
+
     # ── Knowledge seeding (background) ─────────────────────────────────
     # Seed the full knowledge corpus on startup. Runs after RAG store is
     # warm (25s delay). Idempotent — rag_store.ingest_document()

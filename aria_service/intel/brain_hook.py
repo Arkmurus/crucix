@@ -153,6 +153,7 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "query_decomposer":            ["general", "osint"],
     "known_publisher_router":      ["osint", "general"],
     "source_uptime_monitor":       ["osint", "general", "compliance"],
+    "defence_source_seed":         ["osint", "general"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
