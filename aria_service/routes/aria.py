@@ -3699,6 +3699,53 @@ async def chat_ep(req: ChatRequest, request: Request):
                     f"{tool_context}"
                 )
 
+            # ── Comprehension pre-pass (Clause 21, 2026-04-18) ───────
+            # Pure-regex analyse() + a prompt prefix injected into the
+            # SAME LLM call. NO second round-trip. Forces the LLM to
+            # restate its interpretation ("UNDERSTOOD AS:") at the top
+            # of the reply, surfaces ambiguity flags, raises the bar on
+            # high-stakes requests, and asks for clarification on the
+            # rare CRITICAL+UNCLEAR case. Also routes a pending_action
+            # when clarification is needed so the operator sees it in
+            # the daily briefing.
+            try:
+                from ..intel import comprehension as _comp
+                _comp_analysis = _comp.analyse(req.message)
+                if not _comp_analysis.is_trivial:
+                    _comp_prefix = _comp.build_prefix(_comp_analysis)
+                    if _comp_prefix:
+                        # Prepend (not append) — the prefix sets the
+                        # response contract BEFORE the LLM sees the
+                        # user's message + tool data. Order matters:
+                        # LLM reads the rules first, then the content.
+                        message_for_llm = (
+                            f"{_comp_prefix}\n\n"
+                            f"USER MESSAGE FOLLOWS:\n{message_for_llm}"
+                        )
+                    if _comp_analysis.need_clarification:
+                        # Record but do NOT block — the LLM will ask
+                        # its clarification question in the reply per
+                        # the prefix contract. This entry just makes
+                        # the event visible in the daily briefing.
+                        await _comp.request_clarification(
+                            _comp_analysis,
+                            user_id=getattr(req, "user_id", "") or "",
+                            chat_id=getattr(req, "chat_id", "") or "",
+                        )
+                        _log.info(
+                            "[comprehension] critical+uncertain — "
+                            "clarification requested, stakes=%s",
+                            _comp_analysis.detected_stakes[:3],
+                        )
+                    if _comp_analysis.ambiguity_flags:
+                        _log.debug(
+                            "[comprehension] %s complexity, ambiguity: %s",
+                            _comp_analysis.complexity.value,
+                            _comp_analysis.ambiguity_flags,
+                        )
+            except Exception as e:
+                _log.debug("[comprehension] pass failed (non-fatal): %s", e)
+
             # ── Response cache check (high-frequency stable queries) ──
             from ..intel import response_cache as _rc
             _cached = await _rc.get_cached(req.message, tool_context or "")
