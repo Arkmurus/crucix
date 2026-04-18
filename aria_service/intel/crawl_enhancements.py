@@ -461,6 +461,7 @@ async def fetch_with_fallbacks(
             if not policy.get("allowed", True):
                 result["source"] = "blocked_by_robots"
                 result["error"] = "disallowed by robots.txt"
+                _emit_crawl_signal(result)
                 return result
             # Politeness — sleep the crawl-delay if any
             delay = float(policy.get("crawl_delay", 0.0))
@@ -490,6 +491,7 @@ async def fetch_with_fallbacks(
         result["text"] = pdf_result.get("text", "")
         if pdf_result.get("error"):
             result["error"] = pdf_result["error"]
+        _emit_crawl_signal(result)
         return result
 
     # 4. Primary HTML fetch
@@ -569,7 +571,43 @@ async def fetch_with_fallbacks(
             logger.debug("Playwright fallback raised: %s", _e)
 
     result["error"] = primary_error or "fetch failed"
+    _emit_crawl_signal(result)
     return result
+
+
+def _emit_crawl_signal(result: dict) -> None:
+    """Fire-and-forget brain absorb for crawl_enhancements outcomes."""
+    try:
+        import asyncio as _aio
+        from . import brain_hook as _bh
+
+        async def _emit():
+            await _bh.absorb(
+                module="crawl_enhancements",
+                summary=(
+                    f"Crawl {result.get('source','?')} "
+                    f"({'ok' if result.get('ok') else 'fail'}): "
+                    f"{(result.get('url') or '')[:120]} "
+                    f"ct={result.get('content_type','?')[:40]}"
+                ),
+                detail=(result.get('error') or "")[:300],
+                entity_name=(result.get("final_url") or result.get("url") or "")[:120],
+                success=bool(result.get("ok")),
+                gap_type=(
+                    "blocked_by_robots" if result.get("source") == "blocked_by_robots"
+                    else "crawl_failed" if not result.get("ok") else None
+                ),
+                gap_detail=(result.get('error') or "")[:200] if not result.get("ok") else None,
+                confidence="ASSESSED",
+            )
+
+        try:
+            loop = _aio.get_running_loop()
+            loop.create_task(_emit())
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
 
 
 # ── Content-type-aware parsers for non-HTML endpoints ─────────────────────

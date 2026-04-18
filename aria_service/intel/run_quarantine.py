@@ -118,6 +118,25 @@ async def quarantine_run(
     }
     await _save(entries)
     logger.warning("Run %s quarantined: %s", run_id, reason[:120])
+
+    # Brain signal — quarantine = "this run was defective and must not be
+    # cited". Feed it as a HIGH-severity capability gap so the predictor
+    # can warn on similar future runs.
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="run_quarantine",
+            summary=f"Quarantined run {run_id}: {reason[:120]}",
+            detail=f"entity_was={entity_was!r} real_entity={real_entity!r} reason={reason}",
+            entity_name=real_entity or entity_was or "",
+            success=True,  # quarantining is a successful integrity action
+            gap_type="defective_dd_run",
+            gap_detail=f"run {run_id} blocked from being cited: {reason[:200]}",
+            confidence="CONFIRMED",
+        )
+    except Exception:
+        pass
+
     return {"ok": True, "run_id": run_id, "total_quarantined": len(entries)}
 
 

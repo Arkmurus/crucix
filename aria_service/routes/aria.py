@@ -5732,6 +5732,18 @@ async def diagnostic_unwired_ep():
         "market_competitor_knowledge", "nato_standards",
         "sipri_knowledge", "nsn_knowledge", "self_assess",
         "self_improve",
+        # Reclassified 2026-04-18 night — these are infra/observability
+        # /private helpers, NOT learning surfaces. Moved out of
+        # should_wire so the diagnostic surfaces only real gaps.
+        "_romanian_cui", "_sanctions_classify",     # private helpers
+        "cost_tracker",                              # observability
+        "autonomy_scorer", "autonomy_surface",       # composite metrics
+        "capability_manifest",                       # snapshot output
+        "active_challenge_engine",                   # superseded by predictor
+        "pmesii", "tech_classifier",                 # static taxonomies
+        "zoom_integration",                          # external API only
+        "research_tasks",                            # task definitions, no logic
+        "regional_bright_lines",                     # rule store, fires via DD
     }
 
     registered = set(_bh._MODULE_TOPICS.keys())

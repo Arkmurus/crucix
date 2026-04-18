@@ -350,6 +350,30 @@ async def run_weekly_crawl(tiers: list[str] | None = None) -> dict:
 
     logger.info("[corpus] Weekly crawl complete: %d indexed, %d unchanged, %d errors",
                 summary["total_indexed"], summary["total_unchanged"], summary["total_errors"])
+
+    # Brain signal — weekly crawl is one of the highest-value
+    # learning events: it refreshes the verified-source corpus.
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="corpus_manager",
+            summary=(
+                f"Weekly corpus crawl: {summary['total_indexed']} indexed, "
+                f"{summary['total_unchanged']} unchanged, {summary['total_errors']} errors "
+                f"across tiers={list(summary['tiers'].keys())}"
+            ),
+            detail=str(summary["tiers"])[:1500],
+            success=summary["total_errors"] < (summary["total_indexed"] + summary["total_unchanged"]),
+            gap_type=("corpus_crawl_high_error_rate"
+                      if summary["total_errors"] > summary["total_indexed"] else None),
+            gap_detail=(f"{summary['total_errors']} errors vs {summary['total_indexed']} indexed"
+                        if summary["total_errors"] > summary["total_indexed"] else None),
+            extra_topics=["compliance"],
+            confidence="CONFIRMED",
+        )
+    except Exception:
+        pass
+
     return summary
 
 

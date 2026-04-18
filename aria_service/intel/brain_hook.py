@@ -165,6 +165,39 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     # every analyse() call now feeds brain so DD pipeline learns from
     # repeat patterns and the predictor can warn early.
     "deception_detection":         ["compliance", "osint", "relationships"],
+    # Production unwired-diagnostic gap closure (2026-04-18 night).
+    # These modules existed and called brain via NO path; now each emits.
+    "pending_actions":             ["general", "compliance"],
+    "known_publisher_router":      ["osint", "general"],
+    "sanctions_claim_guard":       ["compliance", "legal"],
+    "run_quarantine":              ["compliance", "general"],
+    "companies_house":             ["compliance", "finance", "relationships"],
+    "comprehension":               ["general", "compliance"],
+    "query_decomposer":            ["general", "osint"],
+    "document_entity_bridge":      ["compliance", "legal", "osint"],
+    "entity_graph":                ["relationships", "osint"],
+    "vendor_registry":             ["compliance", "osint", "market_intel"],
+    # Tier B (regional knowledge — low weight per query, high frequency)
+    "knowledge_balkans":           ["market_intel", "procurement", "compliance"],
+    "knowledge_central_africa":    ["market_intel", "procurement", "compliance"],
+    "knowledge_gulf":              ["market_intel", "procurement", "compliance"],
+    "knowledge_latam_non_lusophone": ["market_intel", "procurement", "compliance"],
+    "knowledge_north_africa":      ["market_intel", "procurement", "compliance"],
+    "knowledge_south_se_asia":     ["market_intel", "procurement", "compliance"],
+    "knowledge_turkey_standalone": ["market_intel", "procurement", "compliance"],
+    "knowledge_west_africa":       ["market_intel", "procurement", "compliance"],
+    "gulf_oem_structure":          ["market_intel", "procurement", "relationships"],
+    "vision_2030_tracker":         ["market_intel", "procurement", "compliance"],
+    "political_risk_index":        ["geopolitics", "compliance", "market_intel"],
+    "baykar_export_pipeline":      ["market_intel", "competitor_intel", "procurement"],
+    # Tier C (crawl/corpus/reasoning)
+    "crawl_enhancements":          ["osint", "general"],
+    "corpus_manager":              ["general", "osint"],
+    "corpus_ingest":               ["general", "osint"],
+    "corpus_registry":             ["general", "osint"],
+    "symbolic_reasoner":           ["general"],
+    "oem_registry":                ["competitor_intel", "market_intel"],
+    "tech_classifier":             ["technical", "compliance"],
     # Professional crawl enhancements (2026-04-18 evening)
     "crawl_enhancements":          ["osint", "general"],
     # Playwright scraper package (2026-04-18 evening, clean-split from
@@ -282,6 +315,38 @@ _MODULE_WEIGHT: dict[str, float] = {
     # Multi-backend search + deception scoring (2026-04-18 evening)
     "web_search":                  0.05,  # high frequency, low per-call weight
     "deception_detection":         0.20,  # each scored analysis = real DD signal
+    # Production gap-closure batch (2026-04-18 night)
+    "pending_actions":             0.10,  # honest TODO ledger
+    "known_publisher_router":      0.10,  # API-route success/fail per publisher
+    "sanctions_claim_guard":       0.25,  # live primary check = high-value
+    "run_quarantine":              0.20,  # quarantining = explicit integrity action
+    "companies_house":             0.20,  # primary registry hit = solid signal
+    "comprehension":               0.10,  # per-turn intent extraction
+    "query_decomposer":            0.05,  # per-search classification
+    "document_entity_bridge":      0.15,  # entity binding = compliance signal
+    "entity_graph":                0.15,  # network mapping = relationships signal
+    "vendor_registry":             0.05,  # config/inventory — low weight
+    # Tier B regional knowledge — low per-query, accumulates with traffic
+    "knowledge_balkans":           0.05,
+    "knowledge_central_africa":    0.05,
+    "knowledge_gulf":              0.05,
+    "knowledge_latam_non_lusophone": 0.05,
+    "knowledge_north_africa":      0.05,
+    "knowledge_south_se_asia":     0.05,
+    "knowledge_turkey_standalone": 0.05,
+    "knowledge_west_africa":       0.05,
+    "gulf_oem_structure":          0.10,
+    "vision_2030_tracker":         0.10,
+    "political_risk_index":        0.15,
+    "baykar_export_pipeline":      0.15,
+    # Tier C
+    "crawl_enhancements":          0.05,
+    "corpus_manager":              0.10,
+    "corpus_ingest":               0.10,
+    "corpus_registry":             0.05,
+    "symbolic_reasoner":           0.10,
+    "oem_registry":                0.05,
+    "tech_classifier":             0.10,
     # Pre-existing callers (from integrity audit)
     "aria_peers":           0.10,  # competitor-landscape updates
     "mistake_ledger":       0.05,  # meta — records its own activity

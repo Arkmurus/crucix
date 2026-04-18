@@ -213,4 +213,28 @@ async def forecast(
             deduped.append(r)
     report["recommendations"] = deduped
 
+    # Brain signal — every forecast is a learning event. Mastery on the
+    # (task_type, domain) pair is calibrated by how well the forecast
+    # matched the eventual run outcome (the orchestrator absorbs the
+    # outcome separately). Predictor itself just emits the forecast.
+    try:
+        from . import brain_hook as _bh
+        weak_axes = ", ".join(f["axis"] for f in report["likely_failures"][:3]) or "none"
+        await _bh.absorb(
+            module="predictor",
+            summary=(
+                f"Forecast {tt}/{dom}: confidence={report['overall_confidence']:.2f}, "
+                f"weak_axes=[{weak_axes}], past_mistakes={len(report['past_mistakes'])}"
+            ),
+            detail=str(report["recommendations"][:5])[:1500],
+            entity_name=dom,
+            success=not report["degraded"],
+            gap_type=("predictor_degraded" if report["degraded"] else None),
+            gap_detail=("self_metrics or mistake_ledger unavailable"
+                        if report["degraded"] else None),
+            confidence="ASSESSED",
+        )
+    except Exception:
+        pass
+
     return report

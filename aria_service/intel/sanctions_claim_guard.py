@@ -193,6 +193,27 @@ async def live_primary_check(entity: str) -> dict[str, Any]:
             f"Cite the primary list (OFAC SDN / EU / OFSI / etc.) by "
             f"following the match's source URL."
         )
+
+    # Brain signal — every live primary check is a high-value compliance
+    # signal: HITs upgrade entity tracking; CLEANs are the audit trail
+    # that proves we checked.
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="sanctions_claim_guard",
+            summary=f"Live sanctions check: {entity} → {result['verdict']} "
+                    f"({len(result.get('matches', []))} matches)",
+            detail=result.get("citation_block", "")[:2000],
+            entity_name=entity,
+            success=result["ran_live"],
+            gap_type=("sanctions_hit" if result["verdict"] == "HIT" else None),
+            gap_detail=(f"HIT for {entity} via {result['source_tool']}"
+                        if result["verdict"] == "HIT" else None),
+            confidence="CONFIRMED" if result["ran_live"] else "ASSESSED",
+        )
+    except Exception:
+        pass
+
     return result
 
 

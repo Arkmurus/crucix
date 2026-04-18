@@ -927,6 +927,49 @@ def _sync_correlation_context(message: str) -> str:
                     parts.append(eq)
             except Exception as _ctx_err:
                 logger.debug("chat-context intel hook failed: %s", _ctx_err)
+
+            # ── Brain signal for regional knowledge (2026-04-18 night) ──
+            # Track which regional/static knowledge modules contributed
+            # to this turn's context. Aggregated single absorb per turn
+            # so brain learns which regions/topics get queried without
+            # editing every individual knowledge_*.py module.
+            try:
+                from .intel import brain_hook as _bh
+                # Map context-text fingerprint → module name. The headers
+                # of each knowledge module are unique enough to identify.
+                _module_fingerprints = {
+                    "GULF / MIDDLE EAST DEFENCE": "knowledge_gulf",
+                    "TURKEY DEFENCE LANDSCAPE": "knowledge_turkey_standalone",
+                    "WEST AFRICA DEFENCE": "knowledge_west_africa",
+                    "LATAM NON-LUSOPHONE": "knowledge_latam_non_lusophone",
+                    "NORTH AFRICA DEFENCE": "knowledge_north_africa",
+                    "SOUTH / SOUTH-EAST ASIA": "knowledge_south_se_asia",
+                    "CENTRAL AFRICA": "knowledge_central_africa",
+                    "BALKANS DEFENCE": "knowledge_balkans",
+                    "GULF OEM STRUCTURE": "gulf_oem_structure",
+                    "VISION 2030": "vision_2030_tracker",
+                    "BAYKAR EXPORT": "baykar_export_pipeline",
+                    "POLITICAL RISK INDEX": "political_risk_index",
+                    "CROSS-REGIONAL": "cross_regional_correlator",
+                    "[EQUIPMENT:": "equipment_specs",
+                }
+                _joined = "\n".join(parts)
+                _fired_modules: list[str] = []
+                for marker, modname in _module_fingerprints.items():
+                    if marker in _joined.upper() if marker.isupper() else marker in _joined:
+                        _fired_modules.append(modname)
+                # One absorb per fired module, fire-and-forget so we never
+                # add latency to the chat loop.
+                _msg_summary = message[:120] if message else ""
+                for _modname in _fired_modules:
+                    asyncio.create_task(_bh.absorb_silent(
+                        module=_modname,
+                        summary=f"Regional context fired on chat turn: {_msg_summary}",
+                        success=True,
+                        confidence="ASSESSED",
+                    ))
+            except Exception as _ctx_err:
+                logger.debug("regional-context brain signal failed: %s", _ctx_err)
             # Coverage confidence for mentioned countries
             import re
             _COUNTRY_NAMES = [

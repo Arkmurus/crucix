@@ -499,14 +499,34 @@ async def fetch(url: str) -> dict:
         }
 
     try:
-        return await fn(url)
+        result = await fn(url)
     except Exception as e:
         logger.warning("[publisher_router] %s adapter raised: %s", adapter_name, e)
-        return {
+        result = {
             **_empty(adapter_name, url),
             "ok": False,
             "error": f"{type(e).__name__}: {str(e)[:200]}",
         }
+
+    # Brain signal — every API-route success/failure teaches the predictor
+    # which publishers are reliable + which need scraping fallback.
+    try:
+        from . import brain_hook as _bh
+        title = result.get("title", "")[:80] if result.get("ok") else (result.get("error", "")[:80])
+        await _bh.absorb(
+            module="known_publisher_router",
+            summary=f"Publisher API {adapter_name} ({'ok' if result.get('ok') else 'fail'}): {title}",
+            detail=f"URL: {url[:200]} → ok={result.get('ok')} doi={result.get('doi','')}",
+            entity_name=result.get("doi", "") or url[:80],
+            success=bool(result.get("ok")),
+            gap_type=("publisher_adapter_failed" if not result.get("ok") else None),
+            gap_detail=(f"{adapter_name} adapter failed for {url[:120]}: {result.get('error','')[:120]}"
+                        if not result.get("ok") else None),
+            confidence="CONFIRMED" if result.get("ok") else "ASSESSED",
+        )
+    except Exception:
+        pass
+    return result
 
 
 def is_known_publisher(url: str) -> bool:

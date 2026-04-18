@@ -426,7 +426,7 @@ async def investigate_uk_entity(
     if status and status != "active":
         ghost_signals.append(f"COMPANY STATUS: {status} (not active)")
 
-    return {
+    investigation = {
         "found": True,
         "company_number": company_number,
         "profile": profile,
@@ -450,6 +450,34 @@ async def investigate_uk_entity(
             if ghost_signals else "No ghost detection signals from Companies House data"
         ),
     }
+
+    # Brain signal — every UK entity investigation is a primary-source
+    # compliance signal. Ghost-signal count feeds capability_gap so the
+    # predictor warns on similar formation-agent / shell-company patterns.
+    try:
+        from . import brain_hook as _bh
+        company_name_resolved = profile.get("company_name", "") or company_number
+        await _bh.absorb(
+            module="companies_house",
+            summary=(
+                f"Companies House investigation: {company_name_resolved} "
+                f"({company_number}) — {len(ghost_signals)} ghost signals, "
+                f"{len(current_officers)} directors, {len(current_psc)} PSC"
+            ),
+            detail="; ".join(ghost_signals[:6])[:1500] if ghost_signals else
+                   f"profile={profile.get('company_status','?')}, accounts={profile.get('accounts',{}).get('next_due','')}",
+            entity_name=company_name_resolved,
+            success=True,
+            gap_type=("shell_company_pattern" if len(ghost_signals) >= 3 else None),
+            gap_detail=(f"{len(ghost_signals)} ghost signals on {company_name_resolved}: "
+                        f"{', '.join(ghost_signals[:3])}"
+                        if len(ghost_signals) >= 3 else None),
+            confidence="CONFIRMED",
+        )
+    except Exception:
+        pass
+
+    return investigation
 
 
 def format_for_prompt(investigation: dict) -> str:

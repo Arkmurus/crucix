@@ -146,6 +146,25 @@ async def record(
     except Exception as e:
         logger.warning("[pending_actions] record failed: %s", e)
 
+    # Brain signal — every recorded promise is a self-honesty event.
+    # CRITICAL/HIGH severity feeds capability_gap so the predictor
+    # can warn on similar future promises (autonomy_off etc.).
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="pending_actions",
+            summary=f"Recorded {severity} promise via {resolver_kind} ({source}): {entry['promise'][:120]}",
+            detail=entry.get("operator_prompt", "") or entry["reason"],
+            success=True,
+            gap_type=("pure_promise_no_resolver"
+                      if resolver_kind == "pure_promise" else None),
+            gap_detail=(f"Promise has no resolver path: {entry['promise'][:120]}"
+                        if resolver_kind == "pure_promise" else None),
+            confidence="CONFIRMED",
+        )
+    except Exception:
+        pass
+
     return entry
 
 

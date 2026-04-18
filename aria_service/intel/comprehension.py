@@ -322,7 +322,7 @@ def analyse(message: str) -> ComprehensionAnalysis:
                 f"interpretation is not confident enough to proceed."
             )
 
-    return ComprehensionAnalysis(
+    result = ComprehensionAnalysis(
         original_message=message,
         language_signal=lang,
         complexity=complexity,
@@ -335,6 +335,35 @@ def analyse(message: str) -> ComprehensionAnalysis:
         need_clarification=need_clarification,
         clarification_reason=clarification_reason,
     )
+
+    # Brain signal — fire-and-forget from this sync function. Tracks
+    # how often comprehension fires CRITICAL+UNCLEAR (= clarification
+    # request) so the predictor can flag domains where users routinely
+    # under-specify.
+    try:
+        import asyncio as _aio
+        from . import brain_hook as _bh
+
+        async def _emit():
+            await _bh.absorb(
+                module="comprehension",
+                summary=f"Comprehension: complexity={complexity.value} confidence={confidence.value} "
+                        f"clarify={need_clarification} stakes={','.join(stakes[:3]) or 'none'}",
+                detail=clarification_reason or message[:200],
+                success=True,
+                gap_type=("clarification_required" if need_clarification else None),
+                gap_detail=clarification_reason if need_clarification else None,
+            )
+
+        try:
+            loop = _aio.get_running_loop()
+            loop.create_task(_emit())
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
+
+    return result
 
 
 def build_prefix(analysis: ComprehensionAnalysis) -> str:
