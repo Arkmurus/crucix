@@ -3768,6 +3768,32 @@ async def chat_ep(req: ChatRequest, request: Request):
                     f"{tool_context}"
                 )
 
+            # ── Scratchpad pre-pass (Clause 22 — Think Before Speak) ──
+            # Instructs the LLM to produce a <scratchpad>...</scratchpad>
+            # block before the user-visible response. Post-processor
+            # strips the scratchpad, persists it against trace_id for
+            # audit + future training-data mining. Single round-trip —
+            # scratchpad is produced in the SAME call as the answer, so
+            # latency/cost is flat vs the old single-pass path.
+            _scratchpad_applied = False
+            try:
+                from ..intel import scratchpad as _sp
+                _complexity_hint = ""
+                # Try to reuse comprehension complexity if we computed it
+                try:
+                    from ..intel import comprehension as _comp
+                    _ca = _comp.analyse(req.message)
+                    if not _ca.is_trivial:
+                        _complexity_hint = _ca.complexity.value
+                except Exception:
+                    pass
+                _sp_prefix = _sp.build_prefix(req.message, complexity=_complexity_hint)
+                if _sp_prefix:
+                    message_for_llm = f"{message_for_llm}{_sp_prefix}"
+                    _scratchpad_applied = True
+            except Exception as e:
+                _log.debug("[scratchpad] prefix build failed (non-fatal): %s", e)
+
             # ── Comprehension pre-pass (Clause 21, 2026-04-18) ───────
             # Pure-regex analyse() + a prompt prefix injected into the
             # SAME LLM call. NO second round-trip. Forces the LLM to
@@ -3892,6 +3918,46 @@ async def chat_ep(req: ChatRequest, request: Request):
         result["trace_id"] = trace_id
 
         response_text = (result or {}).get("response") or (result or {}).get("answer") or ""
+
+        # ── Scratchpad strip + persist (Clause 22, 2026-04-18) ──
+        # If we asked the LLM to produce a <scratchpad>, pull it out of
+        # the raw response BEFORE any downstream processing (verification
+        # gate, guards, cache). This prevents scratchpad prose from
+        # polluting claim-extraction by ground_truth_guard, and ensures
+        # the user never sees the reasoning block.
+        if _scratchpad_applied and response_text:
+            try:
+                from ..intel import scratchpad as _sp
+                _user_text, _sp_text = _sp.strip(response_text)
+                if _sp_text:
+                    # Scratchpad was present — store it, use stripped text
+                    await _sp.persist(
+                        _sp_text,
+                        trace_id=trace_id,
+                        user_message=req.message,
+                        user_facing_snippet=_user_text[:400],
+                    )
+                    response_text = _user_text
+                    result["response"] = _user_text
+                    result["scratchpad_applied"] = True
+                    _log.info(
+                        "[scratchpad] Clause 22 scratchpad captured "
+                        "(%d chars) for trace %s",
+                        len(_sp_text), trace_id,
+                    )
+                else:
+                    # LLM skipped the scratchpad — log it as a soft
+                    # signal but don't fail the turn. The predictor
+                    # can learn that this provider/model ignores the
+                    # scratchpad instruction and we can retrain.
+                    _log.debug(
+                        "[scratchpad] LLM skipped scratchpad on a "
+                        "non-trivial turn (trace=%s)", trace_id,
+                    )
+                    result["scratchpad_applied"] = False
+                    result["scratchpad_skipped_by_llm"] = True
+            except Exception as e:
+                _log.debug("[scratchpad] strip failed (non-fatal): %s", e)
 
         # ── Verification gate on CRITICAL chat outputs (2026-04-18) ──
         # When ARIA's reply is CRITICAL (NO-GO / RED / HARD_STOP / direct
@@ -10617,6 +10683,96 @@ async def vendors_ep():
 def _now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
+
+
+# ── Capability card (2026-04-18) ─────────────────────────────────────────
+
+@router.get("/capability-card")
+async def capability_card_ep(format: str = "markdown"):
+    """The public-facing capability card — what ARIA can, can't, and is
+    uncertain about, with evidence. Regulated defence clients cite this
+    in their own AI-reliance frameworks.
+
+    format=markdown (default) returns the rendered doc. format=json
+    returns the structured source. Auto-regenerated nightly by the
+    CAPABILITY-CARD-NIGHTLY autonomous task.
+    """
+    try:
+        from ..intel import capability_card as _cc
+        if format == "json":
+            return await _cc.render_json()
+        md = await _cc.render_markdown()
+        return Response(content=md, media_type="text/markdown")
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+# ── Consistency suite (2026-04-18) ───────────────────────────────────────
+
+@router.get("/consistency/scores")
+async def consistency_scores_ep():
+    """Last consistency run summary — overall score, per-domain, weakest."""
+    try:
+        from ..intel import consistency_suite as _cs
+        summary = await _cs.summary_for_dashboard()
+        return summary
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/consistency/run")
+async def consistency_run_ep(request: Request, limit: int | None = None):
+    """Manually fire the consistency suite. Used for validation + ad-hoc
+    checks. Also runs weekly via CONSISTENCY-WEEKLY autonomous task."""
+    try:
+        from ..intel import consistency_suite as _cs
+        llm = get_llm(request)
+        if llm is None or not getattr(llm, "is_configured", False):
+            return {"ok": False, "error": "LLM provider not configured"}
+        summary = await _cs.run_all(llm, limit=limit)
+        return {"ok": True, "summary": summary}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+# ── Calibration auto-tune (2026-04-18) ───────────────────────────────────
+
+@router.get("/calibration/auto-tune")
+async def calibration_auto_tune_state_ep():
+    """Current threshold deltas + recent adjustment history."""
+    try:
+        from ..intel import calibration_auto_tune as _cat
+        return await _cat.get_current_state()
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@router.post("/calibration/auto-tune/run")
+async def calibration_auto_tune_run_ep():
+    """Manually trigger auto-tune evaluation. Respects the cooldown —
+    returns the 'cooldown' reason if less than 6 days since last run."""
+    try:
+        from ..intel import calibration_auto_tune as _cat
+        return await _cat.run_auto_tune()
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+# ── Scratchpad audit (2026-04-18) ────────────────────────────────────────
+
+@router.get("/scratchpad/{trace_id}")
+async def scratchpad_for_trace_ep(trace_id: str):
+    """Retrieve the Clause 22 scratchpad recorded for a trace_id. Used
+    for post-hoc audit, training-data mining, operator debugging."""
+    try:
+        from ..intel import redis_store as rs
+        key = f"crucix:scratchpad:{trace_id}"
+        payload = await rs.get_json(key)
+        if not payload:
+            return {"ok": False, "error": "not_found", "trace_id": trace_id}
+        return {"ok": True, "scratchpad": payload}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
 # ── Operating Modes (Week 1d) ────────────────────────────────────────────

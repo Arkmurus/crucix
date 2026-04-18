@@ -870,19 +870,33 @@ async def mastery_to_prompt_addendum(message: str) -> str:
         return ""
 
     mastery = await _load_mastery()
+
+    # Apply calibration auto-tune offsets. When ARIA is consistently
+    # overconfident across runs, the auto-tune module raises these
+    # thresholds so more claims fall into the constrained tiers. When
+    # underconfident, it lowers them. Falls back to the raw constants
+    # if auto_tune is unavailable or Redis is offline.
+    try:
+        from . import calibration_auto_tune as _cat
+        _weak_th = await _cat.get_effective_threshold("weak", WEAK_THRESHOLD)
+        _crit_th = await _cat.get_effective_threshold("critical", 0.40)
+    except Exception:
+        _weak_th = WEAK_THRESHOLD
+        _crit_th = 0.40
+
     weak_relevant: list[tuple[str, float]] = []
     for t in topics:
         m = mastery.get(t, {})
         score = m.get("score", INITIAL_MASTERY)
         samples = m.get("samples", 0)
-        if score < WEAK_THRESHOLD and samples >= 2:
+        if score < _weak_th and samples >= 2:
             weak_relevant.append((t, score))
 
     if not weak_relevant:
         return ""
 
-    # Separate critical (<40%) from weak (40-55%) topics
-    _CRITICAL_THRESHOLD = 0.40
+    # Separate critical (<_crit_th) from weak (_crit_th..._weak_th) topics
+    _CRITICAL_THRESHOLD = _crit_th
     critical = [(t, s) for t, s in weak_relevant if s < _CRITICAL_THRESHOLD]
     weak_only = [(t, s) for t, s in weak_relevant if s >= _CRITICAL_THRESHOLD]
 
