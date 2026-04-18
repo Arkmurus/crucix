@@ -90,6 +90,14 @@ async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, 
     so the crawler captures titles + headings + paragraphs + lists + tables +
     contact info (emails/phones/addresses) + social links — not just blob text.
     Includes 1 retry with 2s delay on failure and rotates User-Agent strings.
+
+    Lightpanda fallback (2026-04-18): when static fetch returns thin content
+    (JS-rendered site — SPA shell), retry through Lightpanda headless
+    rendering. Past incident: /teach on synthesismanual.jbi.global
+    returned "0 pages / 0 facts" silently because the site redirects to a
+    Confluence SPA where static HTML is a JS shell. The fix tries static
+    first (cheap), detects JS-rendering via headless.is_thin_content, and
+    falls back to full render only when needed.
     """
     import asyncio as _asyncio
     from .security import sanitise_url
@@ -100,6 +108,7 @@ async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, 
         return "", []
 
     max_attempts = 2
+    html = ""
     for attempt in range(max_attempts):
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -114,25 +123,47 @@ async def _fetch_page_with_links(url: str, timeout: float = 15.0) -> tuple[str, 
                         continue
                     return "", []
                 html = resp.text
-
-            links = await _extract_links(url, html)
-            extracted = _extract_structured_html(html)
-            text = extracted.get("text", "")
-            if not text:
-                # Fallback to plain strip if structured extraction returned nothing
-                fallback = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
-                fallback = re.sub(r"<style[^>]*>.*?</style>", " ", fallback, flags=re.DOTALL | re.IGNORECASE)
-                fallback = re.sub(r"<[^>]+>", " ", fallback)
-                fallback = re.sub(r"&\w+;", " ", fallback)
-                text = re.sub(r"\s+", " ", fallback).strip()[:8000]
-
-            return text[:8000], links
+                break
 
         except Exception as e:
             logger.debug(f"Page fetch attempt {attempt+1} failed for {url}: {e}")
             if attempt < max_attempts - 1:
                 await _asyncio.sleep(2)
-    return "", []
+
+    if not html:
+        return "", []
+
+    # Check if the static HTML is a JS-rendered shell. If so, retry via
+    # Lightpanda (which is baked into the image at /usr/local/bin/lightpanda).
+    try:
+        from . import headless
+        if headless.is_thin_content(html) and headless.is_available():
+            logger.info(
+                "[crawl] %s returned thin content — falling back to Lightpanda",
+                url[:80],
+            )
+            rendered = await headless.fetch_rendered_html(url, timeout=45.0)
+            if rendered and len(rendered) > len(html):
+                html = rendered
+    except Exception as e:
+        logger.debug("[crawl] Lightpanda fallback failed for %s: %s", url[:80], e)
+
+    try:
+        links = await _extract_links(url, html)
+        extracted = _extract_structured_html(html)
+        text = extracted.get("text", "")
+        if not text:
+            # Fallback to plain strip if structured extraction returned nothing
+            fallback = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+            fallback = re.sub(r"<style[^>]*>.*?</style>", " ", fallback, flags=re.DOTALL | re.IGNORECASE)
+            fallback = re.sub(r"<[^>]+>", " ", fallback)
+            fallback = re.sub(r"&\w+;", " ", fallback)
+            text = re.sub(r"\s+", " ", fallback).strip()[:8000]
+
+        return text[:8000], links
+    except Exception as e:
+        logger.debug(f"Page extraction failed for {url}: {e}")
+        return "", []
 
 
 def _score_link_relevance(url: str, link_text: str = "") -> float:
