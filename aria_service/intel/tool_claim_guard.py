@@ -103,13 +103,42 @@ _TOOL_CLAIM_PATTERNS: list[tuple[re.Pattern, str]] = [
         r"(?:next\s+\w+s?\s+in\s+queue|queued\s+for\s+crawling|in\s+the\s+research\s+queue)[^.!?]*[.!?]",
         re.IGNORECASE,
     ), "false-queue-claim"),
+
+    # ── Bracket-form fabricated tool calls — LLM emits literal
+    # [TOOL: name] ... [/TOOL] / [TOOL: name] / [TOOL CALL: ...]
+    # blocks pretending to invoke a tool when no tool actually fired
+    # this turn. Past incident 2026-04-18 23:07 (brain stats query):
+    # ARIA emitted "[TOOL: deep_research]\nQuery: ...\n[/TOOL]" then
+    # carried on to fabricate the answer as if the tool had returned.
+    # Triple violation (Clauses 11/13/14). The bracket form was missed
+    # by the natural-language patterns above because it has no
+    # "I have begun..." prose around it.
+    (re.compile(
+        r"\[\s*TOOL\s*(?:CALL)?\s*[:=]\s*[\w_-]+[^\]]*\]"
+        r"(?:\s*[^\[]{0,800}\[\s*/\s*TOOL\s*\])?",
+        re.IGNORECASE | re.DOTALL,
+    ), "fabricated-tool-bracket"),
+
+    # Also catch the closing tag alone (defensive — sometimes the LLM
+    # emits only [/TOOL] when paired with prose elsewhere).
+    (re.compile(
+        r"\[\s*/\s*TOOL\s*\]",
+        re.IGNORECASE,
+    ), "fabricated-tool-bracket-close"),
 ]
 
 # Trigger words that indicate the response is REFERENCING tool execution.
 # Used as a pre-filter so we don't run the full regex set on short replies
 # that obviously don't mention tools.
+#
+# Also matches the literal "[TOOL" bracket so the bracket-form patterns
+# above aren't bypassed by the pre-filter. Without this, the 2026-04-18
+# 23:07 incident (LLM emitted [TOOL: deep_research] / [/TOOL] for a brain
+# stats query) would have been skipped because none of the verbal
+# trigger words appeared in the response.
 _QUICK_TRIGGER = re.compile(
-    r"\b(?:crawl|extract|scrape|fetch|research|investigat|spider|queue|stand\s+by|tool\s+is|initiated|executing)\b",
+    r"\b(?:crawl|extract|scrape|fetch|research|investigat|spider|queue|stand\s+by|tool\s+is|initiated|executing)\b"
+    r"|\[\s*(?:/\s*)?TOOL\s*[:\]=]",
     re.IGNORECASE,
 )
 

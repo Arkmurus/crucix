@@ -2331,6 +2331,63 @@ def _detect_tool_intent(message: str) -> dict | None:
             "_reason": "pipeline_command",
         }
 
+    # ── Meta-query intent — ARIA introspection on her own state ──
+    # Past incident 2026-04-18 23:07: user asked "pull your brain stats.
+    # What's the signal count and last signal time for the email_reader
+    # module? Then summarise the most recent 5 emails you absorbed."
+    # Without this intent, _detect_tool_intent returned None, the LLM
+    # had no real data, and fabricated both the tool execution
+    # ([TOOL: deep_research] block) AND the email summaries (synthesised
+    # from intel ledger signals). Triple violation (Clauses 11/13/14).
+    # This intent routes the question to a real meta-query handler that
+    # reads brain_hook.get_stats() + scans recent email_reader signals
+    # + (when seenode is reachable) pulls the live email-reader status.
+    _META_QUERY_RE = re.compile(
+        r"\b(?:"
+        r"brain\s+stats?|"
+        r"brain[\s_-]hook\s+stats?|"
+        r"signal\s+count|"
+        r"last\s+signal(?:\s+time)?|"
+        r"how\s+many\s+(?:signals?|emails?)\s+(?:have|did)\s+you\s+(?:absorb|read|see|process)|"
+        r"recent\s+emails?|"
+        r"emails?\s+(?:you\s+(?:read|absorbed|received|saw)|absorbed|received\s+today)|"
+        r"summari[sz]e\s+(?:the\s+)?(?:most\s+)?recent\s+\d*\s*emails?|"
+        r"what\s+have\s+you\s+(?:read|learned)\s+from\s+(?:my\s+)?(?:inbox|email)|"
+        r"(?:status|stats?)\s+(?:of|for)\s+(?:the\s+)?email[\s_]reader|"
+        r"email[\s_]reader\s+(?:module\s+)?(?:status|stats?|signal)"
+        r")\b",
+        re.IGNORECASE,
+    )
+    if _META_QUERY_RE.search(msg):
+        # Decide which slice to pull. Default to "everything" if both
+        # brain stats AND email questions are present.
+        wants_brain = bool(re.search(
+            r"brain\s+stats?|signal\s+count|last\s+signal|brain[\s_-]hook",
+            msg, re.IGNORECASE,
+        ))
+        wants_email = bool(re.search(
+            r"email|inbox|absorbed", msg, re.IGNORECASE,
+        ))
+        # Capture the module name if user asked about a specific module
+        mod_match = re.search(
+            r"\b(email_reader|deep_researcher|web_search|web_atlas|"
+            r"audit_log|deception_detection|search_doctrine|companies_house|"
+            r"sanctions_claim_guard|response_verifier|propaganda_guard|"
+            r"comprehension|predictor|pending_actions)\b",
+            msg, re.IGNORECASE,
+        )
+        # Capture "5 most recent" / "last 10" hints
+        n_match = re.search(r"\b(\d{1,3})\b", msg)
+        return {
+            "tool": "meta_query",
+            "wants_brain": wants_brain,
+            "wants_email": wants_email,
+            "module": mod_match.group(1).lower() if mod_match else None,
+            "limit": min(int(n_match.group(1)) if n_match else 5, 30),
+            "context": msg,
+            "_reason": "meta_query_introspection",
+        }
+
     # ── DD orchestrator intent — highest priority ──
     # "DD on X" / "due diligence on X" / "ark-dd on X" / "full DD on X"
     # short-circuits the rest of the intent detection because the
@@ -2902,6 +2959,157 @@ async def _execute_tool(intent: dict, llm) -> str:
             from ..intel import deal_pipeline as _dp
             summary = await _dp.generate_pipeline_summary()
             return f"\n\n[TOOL: pipeline_summary]\n{summary}\n\nPresent this pipeline summary to the user exactly as formatted."
+
+        # ── Meta-query — ARIA introspecting on her own state ──
+        # Pulls real brain stats + recent email_reader signals + (when
+        # reachable) live seenode email-reader status. Past 23:07
+        # incident: without this, the LLM fabricated a [TOOL: deep_research]
+        # block AND made-up email summaries from intel-ledger signals.
+        if tool == "meta_query":
+            from ..intel import brain_hook as _bh
+            from ..intel import redis_store as _rs
+            import os as _os
+
+            wants_brain = bool(intent.get("wants_brain"))
+            wants_email = bool(intent.get("wants_email"))
+            requested_module = intent.get("module")
+            limit = int(intent.get("limit") or 5)
+            parts = ["[TOOL: meta_query — ARIA introspection]", ""]
+
+            # ── 1. Brain hook stats slice ──
+            try:
+                stats = await _bh.get_stats()
+                parts.append("BRAIN HOOK STATS:")
+                parts.append(f"  total_signals_lifetime: {stats.get('total_signals', 0)}")
+                parts.append(f"  health: {stats.get('health', 'unknown')}")
+                cb = stats.get("circuit_breaker") or {}
+                if cb:
+                    parts.append(f"  circuit_breaker: open={cb.get('open')} "
+                                 f"p95_latency_ms={cb.get('p95_latency_ms')} "
+                                 f"trips={cb.get('trips_total', 0)} "
+                                 f"drops={cb.get('drops_total', 0)}")
+                parts.append("")
+
+                modules = stats.get("modules") or {}
+                if requested_module:
+                    m = modules.get(requested_module)
+                    if m:
+                        parts.append(f"MODULE: {requested_module}")
+                        parts.append(f"  total_signals: {m.get('total', 0)}")
+                        parts.append(f"  success: {m.get('success', 0)} | "
+                                     f"fail: {m.get('fail', 0)} | "
+                                     f"success_rate: {m.get('success_rate', 0)}")
+                        last_h = m.get("last_signal_ago_h")
+                        parts.append(f"  last_signal_ago_h: {last_h if last_h is not None else 'never'}")
+                        parts.append(f"  status: {m.get('status', 'unknown')}")
+                        parts.append("")
+                    else:
+                        parts.append(f"MODULE: {requested_module} — NEVER SEEN A SIGNAL")
+                        parts.append("")
+                elif wants_brain:
+                    # Top-10 most active modules
+                    top = sorted(
+                        modules.items(),
+                        key=lambda kv: kv[1].get("total", 0),
+                        reverse=True,
+                    )[:10]
+                    parts.append("TOP-10 ACTIVE MODULES:")
+                    for name, m in top:
+                        last_h = m.get("last_signal_ago_h")
+                        parts.append(
+                            f"  {name:30s} signals={m.get('total', 0):5d} "
+                            f"success={m.get('success_rate', 0):.2f} "
+                            f"last={last_h if last_h is not None else 'never'}h"
+                        )
+                    parts.append("")
+            except Exception as e:
+                parts.append(f"BRAIN STATS: failed to query — {e}")
+                parts.append("")
+
+            # ── 2. Email reader — pull from seenode if reachable, fall
+            # back to brain stats only when not. The seenode side stores
+            # Redis-tracked counters + last_uid; the Python side stores
+            # per-email signals via brain_hook.absorb(module='email_reader').
+            if wants_email:
+                # 2a. Try seenode status endpoint (the canonical source
+                # for email_reader operational state — last_uid, total
+                # processed, attachments, etc.).
+                seenode_url = _os.getenv("SEENODE_BASE_URL", "").rstrip("/")
+                seenode_token = _os.getenv("ARIA_INTERNAL_TOKEN", "")
+                seenode_status = None
+                if seenode_url and seenode_token:
+                    try:
+                        import httpx as _httpx
+                        async with _httpx.AsyncClient(timeout=8.0) as client:
+                            r = await client.get(
+                                f"{seenode_url}/api/email-reader/status",
+                                headers={"Authorization": f"Bearer {seenode_token}"},
+                            )
+                            if r.status_code == 200:
+                                seenode_status = r.json()
+                    except Exception as e:
+                        parts.append(f"  [seenode email-reader unreachable: {e}]")
+
+                if seenode_status:
+                    parts.append("EMAIL READER (seenode live status):")
+                    parts.append(f"  inbox: {seenode_status.get('inbox')}")
+                    parts.append(f"  emails_processed_lifetime: {seenode_status.get('emails_processed', 0)}")
+                    parts.append(f"  attachments_processed: {seenode_status.get('attachments_processed', 0)}")
+                    parts.append(f"  last_uid: {seenode_status.get('last_uid', 0)}")
+                    parts.append(f"  backfill_runs: {seenode_status.get('backfill_runs', 0)}")
+                    parts.append(f"  last_check: {seenode_status.get('last_check')}")
+                    parts.append(f"  strategy: {seenode_status.get('strategy', 'unknown')}")
+                    parts.append("")
+
+                # 2b. Recent email_reader brain signals — these are the
+                # actual emails that landed in the brain. Pulled from the
+                # brain stats counter so we report from absorbed reality,
+                # not LLM speculation.
+                em_stats = (await _bh.get_stats()).get("modules", {}).get("email_reader") or {}
+                if em_stats:
+                    parts.append("EMAIL READER (brain absorption):")
+                    parts.append(f"  total_emails_absorbed: {em_stats.get('total', 0)}")
+                    last_h = em_stats.get("last_signal_ago_h")
+                    parts.append(f"  last_email_absorbed_ago_h: {last_h if last_h is not None else 'never'}")
+                    parts.append(f"  success_rate: {em_stats.get('success_rate', 0)}")
+                    parts.append("")
+                else:
+                    parts.append("EMAIL READER (brain absorption): NO SIGNALS YET")
+                    parts.append("  Either the email reader has never fired, or seenode→Python "
+                                 "brain bridge is broken. Check /api/aria/diagnostic/unwired.")
+                    parts.append("")
+
+                # 2c. Try to surface RECENT email summaries from RAG
+                # (every email body gets ingested via /api/aria/read-document).
+                # Filter on source prefix `email:` and sort by recency.
+                try:
+                    from ..intel import rag_store as _rag
+                    if hasattr(_rag, "search_by_source_prefix"):
+                        recent = await _rag.search_by_source_prefix("email:", limit=limit)
+                    else:
+                        # Fallback: semantic search for email-tagged content
+                        recent = await _rag.query("email", k=limit, source_filter="email:")
+                    if recent:
+                        parts.append(f"MOST RECENT {len(recent)} EMAIL CONTENTS (from RAG):")
+                        for i, r in enumerate(recent, 1):
+                            src = r.get("source", "unknown") if isinstance(r, dict) else getattr(r, "source", "unknown")
+                            txt = r.get("text", "") if isinstance(r, dict) else getattr(r, "text", "")
+                            parts.append(f"  {i}. source={src} | content={txt[:200]}")
+                    else:
+                        parts.append("RAG EMAIL SEARCH: no email-tagged documents found.")
+                        parts.append("  This means /api/aria/read-document either wasn't called or used a different source tag.")
+                except Exception as e:
+                    parts.append(f"RAG EMAIL SEARCH: failed — {e}")
+                parts.append("")
+
+            parts.append("INSTRUCTIONS TO ASSISTANT:")
+            parts.append("  Report these stats to the user EXACTLY as shown.")
+            parts.append("  If a section says NEVER SEEN, NO SIGNALS, or unreachable —")
+            parts.append("  say so honestly. DO NOT fabricate email contents from intel")
+            parts.append("  ledger signals or any other source. DO NOT emit [TOOL: ...]")
+            parts.append("  blocks pretending to invoke other tools — this query has")
+            parts.append("  already produced the answer.")
+            return "\n".join(parts)
 
         if tool == "pre_meeting_briefing":
             entity = (intent.get("entity") or "").strip()
