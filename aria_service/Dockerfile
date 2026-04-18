@@ -66,6 +66,23 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 
 COPY aria_service/ ./aria_service/
 
+# ── Playwright Chromium install (2026-04-18) ──────────────────────────────
+# Install Chromium + dependencies for the scraper package
+# (aria_service/intel/scraper/*). This is the HEAVY browser fallback
+# beyond Lightpanda — used only for JS-heavy sites that Lightpanda
+# can't render AND aren't known publishers AND aren't covered by a
+# direct API. Adds ~400 MB to the image but unlocks the final 20% of
+# the crawl-capability audit (SEACE Peru, SSB Turkey, etc.).
+#
+# Memory: Chromium is ~300 MB resident per browser instance. We cap
+# concurrency at 2 via ARIA_PLAYWRIGHT_MAX_CONCURRENT so the 4 GB
+# fly.io machine has headroom.
+#
+# If this install ever blocks a deploy, set
+# ARIA_PLAYWRIGHT_DISABLED=1 on fly and the scraper package falls back
+# silently (crawl_enhancements detects ImportError and skips).
+RUN playwright install chromium --with-deps || echo "[playwright] install failed (non-fatal — scraper will be unavailable)"
+
 # NOTE: EasyOCR model weights are NOT pre-warmed at build time anymore.
 # Pre-warming with 4 languages forced ~600MB of PyTorch + model weights into
 # the build container, then caused OOM kills on small fly.io machines because

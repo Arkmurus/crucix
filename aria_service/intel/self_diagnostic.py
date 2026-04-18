@@ -301,6 +301,38 @@ _MODULES: list[dict] = [
         "brain_registered": True,
         "critical": False,
     },
+    # Playwright scraper stack (2026-04-18 evening, stealth-free)
+    {
+        "name": "scraper_playwright_engine",
+        "module": "aria_service.intel.scraper.playwright_engine",
+        "entry": "fetch",
+        "brain_registered": True,
+        "critical": False,
+        # is_available launches a browser — expensive, but this is a
+        # 15-min cron cadence so acceptable.
+        "smoke_is_available": True,
+    },
+    {
+        "name": "scraper_orchestrator",
+        "module": "aria_service.intel.scraper.orchestrator",
+        "entry": "fetch",
+        "brain_registered": True,
+        "critical": False,
+    },
+    {
+        "name": "scraper_procurement",
+        "module": "aria_service.intel.scraper.procurement_adapters",
+        "entry": "fetch_portal",
+        "brain_registered": True,
+        "critical": False,
+    },
+    {
+        "name": "scraper_generic",
+        "module": "aria_service.intel.scraper.generic_adapter",
+        "entry": "fetch",
+        "brain_registered": True,
+        "critical": False,
+    },
 ]
 
 

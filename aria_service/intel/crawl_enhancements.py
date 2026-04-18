@@ -541,8 +541,32 @@ async def fetch_with_fallbacks(
             except Exception:
                 result["text"] = re.sub(r"<[^>]+>", " ", result["html"])[:50000]
             return result
-        result["error"] = f"primary failed ({primary_error}), no Wayback snapshot"
-        return result
+
+    # 6. Playwright fallback — final attempt for JS-heavy sites that
+    # Lightpanda couldn't render AND Wayback doesn't have. Honest
+    # browser, no stealth — so if the site blocks us we report
+    # blocked=True rather than circumventing.
+    if primary_failed:
+        try:
+            from .scraper import orchestrator as _scraper
+            pw_result = await _scraper.fetch(url, timeout=timeout * 2)
+            if pw_result.get("ok"):
+                result["source"] = pw_result.get("adapter") or "playwright"
+                result["ok"] = True
+                result["html"] = pw_result.get("html", "")
+                result["text"] = pw_result.get("text", "")
+                result["status"] = pw_result.get("status", result["status"])
+                return result
+            if pw_result.get("blocked"):
+                result["error"] = (
+                    f"blocked by bot-detection: "
+                    f"{pw_result.get('block_reason','unknown')}"
+                )
+                return result
+        except ImportError:
+            logger.debug("Playwright scraper unavailable — skipping fallback")
+        except Exception as _e:
+            logger.debug("Playwright fallback raised: %s", _e)
 
     result["error"] = primary_error or "fetch failed"
     return result

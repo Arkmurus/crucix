@@ -1,0 +1,343 @@
+"""Clean Playwright engine — no stealth, honest user-agent, circuit breaker.
+
+Scope
+─────
+A browser-automation wrapper that sits alongside Lightpanda (light,
+fast, Zig-based, covers ~70% of JS-heavy sites) as a heavier fallback
+for sites Lightpanda can't render (complex React / Angular admin
+panels, multi-step procurement-portal forms, tab-heavy SPAs).
+
+What this does NOT do
+─────────────────────
+  - NO navigator.webdriver spoofing
+  - NO Canvas / WebGL / AudioContext fingerprint randomisation
+  - NO residential proxy rotation
+  - NO Cloudflare challenge waiting / CAPTCHA handling
+  - NO human-behaviour simulation (random delays, bezier mouse curves)
+
+We identify honestly as `ARIA-Research-Crawler`. If a site blocks us,
+we report `source=blocked_by_bot_detection` so the caller knows.
+That's the DD-defensible pattern — every ARK-DD report must be able
+to cite how the data was obtained.
+
+Public API
+──────────
+  async fetch(url, *, wait_for="load", timeout=45.0) -> ScrapeResult
+      Generic single-page fetch. Returns cleaned HTML + extracted text.
+
+  async fetch_with_selectors(url, selectors: dict) -> dict
+      For target-specific adapters. Returns a dict keyed by the
+      selectors provided, with matched element text.
+
+  async is_available() -> bool
+      Health check for self_diagnostic.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import re
+import time
+from dataclasses import dataclass, field
+from typing import Any
+
+logger = logging.getLogger("aria.scraper.playwright_engine")
+
+# ── Configuration ──────────────────────────────────────────────────────────
+
+_UA = "ARIA-Research-Crawler/1.0 (+research@arkmurus.com)"
+_DEFAULT_VIEWPORT = {"width": 1280, "height": 800}
+_DEFAULT_TIMEOUT_S = 45.0
+_DEFAULT_WAIT_FOR = "load"  # load | domcontentloaded | networkidle
+
+# Bound concurrency so we don't OOM the fly.io machine — Chromium is
+# ~300 MB resident per browser. At 4 GB total, 2 concurrent is the
+# safe ceiling (headroom for the rest of the service).
+_MAX_CONCURRENT_BROWSERS = int(os.getenv("ARIA_PLAYWRIGHT_MAX_CONCURRENT", "2"))
+_BROWSER_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def _semaphore() -> asyncio.Semaphore:
+    global _BROWSER_SEMAPHORE
+    if _BROWSER_SEMAPHORE is None:
+        _BROWSER_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_BROWSERS)
+    return _BROWSER_SEMAPHORE
+
+
+# ── Shapes ─────────────────────────────────────────────────────────────────
+
+@dataclass
+class ScrapeResult:
+    ok: bool
+    url: str
+    final_url: str = ""
+    status: int = 0
+    html: str = ""
+    text: str = ""
+    title: str = ""
+    error: str | None = None
+    duration_ms: int = 0
+    blocked: bool = False
+    block_reason: str = ""
+    browser: str = "chromium"
+
+
+# ── Block detection — honest reporting, not evasion ────────────────────────
+# We detect block pages so the caller can report them accurately.
+# We do NOT attempt to bypass them.
+
+_BLOCK_SIGNATURES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"Attention Required!.*Cloudflare", re.IGNORECASE | re.DOTALL),
+     "Cloudflare block"),
+    (re.compile(r"Please enable JavaScript and cookies to continue", re.IGNORECASE),
+     "Cloudflare JS challenge"),
+    (re.compile(r"DDoS protection by Cloudflare", re.IGNORECASE),
+     "Cloudflare DDoS page"),
+    (re.compile(r"challenge.cloudflare\.com|cdn-cgi/challenge-platform", re.IGNORECASE),
+     "Cloudflare challenge"),
+    (re.compile(r"DataDome|datadome\.co", re.IGNORECASE), "DataDome block"),
+    (re.compile(r"PerimeterX.*block|px-captcha", re.IGNORECASE), "PerimeterX block"),
+    (re.compile(r"Akamai.*bot manager", re.IGNORECASE), "Akamai Bot Manager block"),
+    (re.compile(r"Access Denied.*You don'?t have permission", re.IGNORECASE | re.DOTALL),
+     "generic 403 access denied"),
+    (re.compile(r"captcha|recaptcha|hcaptcha", re.IGNORECASE), "CAPTCHA page"),
+    (re.compile(r"Are you a robot\?|prove you'?re human", re.IGNORECASE), "bot-check page"),
+]
+
+
+def _detect_block(html: str, status: int) -> tuple[bool, str]:
+    """Return (is_blocked, reason). Honest detection — we report blocks,
+    we don't circumvent them."""
+    if status in (403, 429, 503) and len(html) < 5000:
+        # Small body + blocking status = likely a block page
+        for pattern, reason in _BLOCK_SIGNATURES:
+            if pattern.search(html):
+                return True, reason
+        return True, f"HTTP {status} with short body (likely block)"
+    for pattern, reason in _BLOCK_SIGNATURES:
+        if pattern.search(html[:10000]):
+            return True, reason
+    return False, ""
+
+
+# ── Browser lifecycle ──────────────────────────────────────────────────────
+
+async def _launch_browser():
+    """Launch Chromium. Headless, honest UA, no stealth patches.
+
+    Returns (playwright, browser, context, page) — caller is responsible
+    for cleanup via _cleanup_browser.
+    """
+    from playwright.async_api import async_playwright
+
+    playwright = await async_playwright().start()
+    browser = await playwright.chromium.launch(
+        headless=True,
+        args=[
+            # Minimal args — NO --disable-blink-features=AutomationControlled
+            # (that's a stealth patch). Leave Chrome defaults on.
+            "--no-sandbox",  # required for fly.io containerised run
+            "--disable-dev-shm-usage",  # prevents /dev/shm OOM
+        ],
+    )
+    context = await browser.new_context(
+        user_agent=_UA,
+        viewport=_DEFAULT_VIEWPORT,
+        locale="en-GB",
+        timezone_id="Europe/London",
+        # NOTE: we deliberately do NOT monkey-patch navigator.webdriver,
+        # WebGL, Canvas, or any other fingerprint signal. Playwright's
+        # default behaviour is fine.
+    )
+    page = await context.new_page()
+    # Clear timeouts so page.goto() respects our outer timeout
+    page.set_default_timeout(int(_DEFAULT_TIMEOUT_S * 1000))
+    return playwright, browser, context, page
+
+
+async def _cleanup_browser(playwright, browser, context, page) -> None:
+    """Best-effort cleanup — swallow all errors so the caller's flow
+    never depends on teardown succeeding."""
+    for coro, label in [
+        (page.close() if page else None, "page"),
+        (context.close() if context else None, "context"),
+        (browser.close() if browser else None, "browser"),
+        (playwright.stop() if playwright else None, "playwright"),
+    ]:
+        if coro is None:
+            continue
+        try:
+            await coro
+        except Exception as e:
+            logger.debug("[playwright] cleanup %s raised: %s", label, e)
+
+
+# ── Public API ─────────────────────────────────────────────────────────────
+
+async def fetch(
+    url: str,
+    *,
+    wait_for: str = _DEFAULT_WAIT_FOR,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+    extract_selectors: dict[str, str] | None = None,
+) -> ScrapeResult:
+    """Fetch a URL with a full Chromium browser. Bounded concurrency.
+
+    Args:
+        url: target URL
+        wait_for: one of 'load' | 'domcontentloaded' | 'networkidle'.
+            'networkidle' is the heaviest — waits until no network
+            activity for 500ms. Best for SPA shells.
+        timeout: hard ceiling on page.goto + wait-for, in seconds
+        extract_selectors: optional dict of {name: css_selector}. If
+            provided, returns the matched element text for each in
+            ScrapeResult._extracted (attached as attribute).
+
+    Returns ScrapeResult.
+    """
+    result = ScrapeResult(ok=False, url=url)
+    t0 = time.time()
+
+    async with _semaphore():
+        playwright = None
+        browser = None
+        context = None
+        page = None
+        try:
+            playwright, browser, context, page = await _launch_browser()
+
+            # Navigate
+            try:
+                response = await page.goto(
+                    url,
+                    wait_until=wait_for,
+                    timeout=int(timeout * 1000),
+                )
+            except Exception as e:
+                result.error = f"goto: {type(e).__name__}: {str(e)[:200]}"
+                return result
+
+            if response:
+                result.status = response.status
+                result.final_url = page.url
+
+            # Get HTML + block check
+            try:
+                html = await page.content()
+            except Exception as e:
+                result.error = f"content: {type(e).__name__}: {str(e)[:200]}"
+                return result
+
+            result.html = html
+            blocked, reason = _detect_block(html, result.status)
+            if blocked:
+                result.blocked = True
+                result.block_reason = reason
+                result.error = f"blocked: {reason}"
+                # Still return the HTML + status — caller can decide
+                # what to do with the block page.
+                return result
+
+            # Extract page title
+            try:
+                result.title = await page.title() or ""
+            except Exception:
+                pass
+
+            # Plain-text extraction via existing structured HTML helper
+            try:
+                from ..researcher import _extract_structured_html
+                extracted = _extract_structured_html(html)
+                result.text = extracted.get("text", "") or ""
+            except Exception:
+                # Fallback to naive tag strip
+                result.text = re.sub(r"<[^>]+>", " ", html)[:20000]
+
+            # Selector-based extraction if requested
+            if extract_selectors:
+                extracted_data: dict[str, Any] = {}
+                for name, selector in extract_selectors.items():
+                    try:
+                        element = await page.query_selector(selector)
+                        if element is None:
+                            extracted_data[name] = None
+                            continue
+                        text = await element.inner_text()
+                        extracted_data[name] = text.strip()
+                    except Exception as e:
+                        extracted_data[name] = None
+                        logger.debug(
+                            "[playwright] selector %s=%r failed: %s",
+                            name, selector, e,
+                        )
+                result._extracted = extracted_data  # type: ignore
+
+            result.ok = True
+            return result
+
+        except Exception as e:
+            result.error = f"{type(e).__name__}: {str(e)[:200]}"
+            return result
+        finally:
+            await _cleanup_browser(playwright, browser, context, page)
+            result.duration_ms = int((time.time() - t0) * 1000)
+
+
+async def fetch_with_selectors(
+    url: str,
+    selectors: dict[str, str],
+    *,
+    wait_for: str = _DEFAULT_WAIT_FOR,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> dict[str, Any]:
+    """Convenience wrapper for adapter use. Returns a dict keyed by
+    selector name with extracted text + meta about the fetch."""
+    result = await fetch(
+        url,
+        wait_for=wait_for,
+        timeout=timeout,
+        extract_selectors=selectors,
+    )
+    extracted = getattr(result, "_extracted", {}) or {}
+    return {
+        "ok": result.ok,
+        "url": result.url,
+        "final_url": result.final_url,
+        "status": result.status,
+        "title": result.title,
+        "extracted": extracted,
+        "blocked": result.blocked,
+        "block_reason": result.block_reason,
+        "error": result.error,
+        "duration_ms": result.duration_ms,
+    }
+
+
+# ── Health check ───────────────────────────────────────────────────────────
+
+async def is_available() -> bool:
+    """Can we spawn a Chromium? Confirms Playwright + browser binary
+    are installed. Does NOT make a network call — just launches +
+    immediately closes."""
+    playwright = None
+    browser = None
+    try:
+        from playwright.async_api import async_playwright
+        playwright = await async_playwright().start()
+        browser = await playwright.chromium.launch(
+            headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        await browser.close()
+        await playwright.stop()
+        return True
+    except Exception as e:
+        logger.debug("[playwright] is_available probe failed: %s", e)
+        try:
+            if browser:
+                await browser.close()
+            if playwright:
+                await playwright.stop()
+        except Exception:
+            pass
+        return False

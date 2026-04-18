@@ -159,6 +159,12 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "self_diagnostic":             ["general", "compliance"],
     # Professional crawl enhancements (2026-04-18 evening)
     "crawl_enhancements":          ["osint", "general"],
+    # Playwright scraper package (2026-04-18 evening, clean-split from
+    # ARIA_Playwright_Package.zip — stealth stripped).
+    "scraper_playwright_engine":   ["osint", "general"],
+    "scraper_orchestrator":        ["osint", "general"],
+    "scraper_procurement":         ["osint", "procurement", "market_intel"],
+    "scraper_generic":             ["osint", "general"],
     # Pre-existing callers exposed by 2026-04-15 integrity audit — these
     # modules were signalling brain but never registered, so their
     # observations filed under "general" with no topical grounding.
