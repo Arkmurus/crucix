@@ -401,6 +401,44 @@ def build_from_walk_result(
                         source="opensanctions",
                     ))
 
+    # Brain signal — graph construction is a discrete relationships
+    # signal: number of nodes + edges + risk-flagged nodes feeds the
+    # mastery rollup on relationships/osint topics. Fire-and-forget
+    # from this sync function.
+    try:
+        import asyncio as _aio
+        from . import brain_hook as _bh
+
+        _risk_count = sum(
+            1 for n in graph.nodes.values()
+            if n.risk_level in ("amber", "red", "hard_stop")
+        )
+
+        async def _emit():
+            await _bh.absorb(
+                module="entity_graph",
+                summary=(
+                    f"Graph built for {seed_name}: {len(graph.nodes)} nodes, "
+                    f"{len(graph.edges)} edges, {_risk_count} risk-flagged"
+                ),
+                detail=f"seed_jurisdiction={seed_jurisdiction} seed_type={seed_type}",
+                entity_name=seed_name,
+                success=len(graph.nodes) > 1,
+                gap_type=("entity_graph_singleton"
+                          if len(graph.nodes) <= 1 else None),
+                gap_detail=("walk_result returned no network — only seed node"
+                            if len(graph.nodes) <= 1 else None),
+                confidence="ASSESSED",
+            )
+
+        try:
+            loop = _aio.get_running_loop()
+            loop.create_task(_emit())
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
+
     return graph
 
 

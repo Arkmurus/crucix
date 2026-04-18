@@ -395,6 +395,40 @@ def bridge_from_message(message: str, entity_hint: str = "") -> dict[str, Any] |
         extracted.get("jurisdiction_iso2") or "?",
         extracted.get("registration_number") or "?",
     )
+
+    # Brain signal — pronoun-to-entity bridging is a high-value
+    # comprehension signal. Tracks how often the bridge resolves
+    # underspecified references, plus jurisdiction inference quality.
+    try:
+        import asyncio as _aio
+        from . import brain_hook as _bh
+
+        async def _emit():
+            await _bh.absorb(
+                module="document_entity_bridge",
+                summary=(
+                    f"Pronoun '{entity_hint}' → '{extracted['name']}' "
+                    f"jurisdiction={extracted.get('jurisdiction_iso2','?')} "
+                    f"reg={extracted.get('registration_number','?')}"
+                ),
+                detail=str({k: v for k, v in extracted.items() if k != "directors"})[:1500],
+                entity_name=extracted["name"],
+                success=True,
+                gap_type=("entity_no_jurisdiction"
+                          if not extracted.get("jurisdiction_iso2") else None),
+                gap_detail=(f"Could not infer jurisdiction for '{extracted['name']}'"
+                            if not extracted.get("jurisdiction_iso2") else None),
+                confidence="ASSESSED",
+            )
+
+        try:
+            loop = _aio.get_running_loop()
+            loop.create_task(_emit())
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
+
     return extracted
 
 

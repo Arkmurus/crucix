@@ -506,10 +506,36 @@ async def availability_ping() -> dict:
         results.append(entry)
 
     live_count = sum(1 for r in results if r.get("available") is True)
-    return {
+    summary = {
         "total_vendors": len(results),
         "live_count": live_count,
         "credentials_set_count": sum(1 for r in results if r.get("credentials_present")),
         "monthly_spend_usd": total_monthly_usd(),
         "vendors": results,
     }
+
+    # Brain signal — vendor health is a compliance/integrity check.
+    # Sub-50% live count = capability gap; daily briefing should
+    # surface which sources are dark.
+    try:
+        from . import brain_hook as _bh
+        live_pct = (live_count / len(results)) if results else 0.0
+        dark = [r["id"] for r in results if r.get("available") is False][:8]
+        await _bh.absorb(
+            module="vendor_registry",
+            summary=(
+                f"Vendor health: {live_count}/{len(results)} live "
+                f"({live_pct:.0%}), monthly spend ${summary['monthly_spend_usd']:.2f}"
+            ),
+            detail=f"dark vendors: {dark}" if dark else "all vendors green",
+            success=live_pct >= 0.5,
+            gap_type=("vendor_outage" if live_pct < 0.5 else None),
+            gap_detail=(f"Only {live_count}/{len(results)} vendors live — dark: {dark}"
+                        if live_pct < 0.5 else None),
+            extra_topics=["compliance"],
+            confidence="CONFIRMED",
+        )
+    except Exception:
+        pass
+
+    return summary
