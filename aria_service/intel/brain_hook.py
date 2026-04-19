@@ -671,6 +671,27 @@ def _maybe_close_breaker() -> None:
         )
         _breaker_state["open"] = False
         _breaker_state["consecutive_high"] = 0
+        # Auto-resolve the pending_actions entry that was raised when the
+        # breaker tripped. Otherwise stale HIGH alerts accumulate (saw 2
+        # in production 2026-04-19 referencing 12s p95 long after p95 had
+        # recovered to 26ms).
+        try:
+            async def _auto_resolve():
+                from . import pending_actions as _pa
+                opens = await _pa.list_open(limit=20)
+                for entry in opens:
+                    if entry.get("source") == "brain_hook.circuit_breaker":
+                        await _pa.mark_satisfied(
+                            entry.get("action_id", ""),
+                            note=(
+                                f"Auto-resolved: brain p95 recovered to "
+                                f"{p95:.0f}ms (was over {_LATENCY_TRIP_MS}ms "
+                                f"at trip)."
+                            ),
+                        )
+            asyncio.get_event_loop().create_task(_auto_resolve())
+        except Exception:
+            pass
 
 
 def get_breaker_state() -> dict:
