@@ -1295,6 +1295,28 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
     record["duration_ms"] = int((time.time() - t0) * 1000)
     await record_run(record)
 
+    # ── Failed-run dedupe rollback ────────────────────────────────────────
+    # If the run errored OR returned an invalid/skipped marker, drop the
+    # dedupe slot so the next scheduled fire (or a manual run-now) can
+    # retry. Without this a single transient outage burns the daily slot.
+    try:
+        is_invalid = False
+        if record.get("status") == "error":
+            is_invalid = True
+        else:
+            preview = record.get("response_preview") or ""
+            if any(m in preview for m in ("SKIPPED — ", "invalid_reason", "blocked\":")):
+                is_invalid = True
+        if is_invalid:
+            from . import safety as _sf
+            await _sf.clear_dedupe(task.id, "")
+            logger.info(
+                "[autonomous] dedupe slot cleared for %s after invalid/error run "
+                "(next scheduled fire can retry)", task.id,
+            )
+    except Exception as e:
+        logger.debug("dedupe clear (non-fatal): %s", e)
+
     # ── Post-execution hooks (non-fatal — run only on success) ────────────
     if record.get("status") == "ok":
         # For chat-path tasks `response_text` is a local with the full

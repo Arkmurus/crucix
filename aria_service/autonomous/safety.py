@@ -264,6 +264,28 @@ async def check_and_mark_dedupe(task_id: str, entity: str) -> bool:
         return True
 
 
+async def clear_dedupe(task_id: str, entity: str = "") -> None:
+    """Drop the dedupe marker for a task+entity. Called after a failed
+    or invalid run so the next scheduled fire can retry — without this
+    a transient outage (LLM cooldown, dispatch error) would lock the
+    task out for the full DEDUPE_WINDOW_SECONDS (currently 23h).
+
+    Discovered live 2026-04-19: today's adversarial + constitution +
+    every dispatch-bug task burned their daily slot on a failed run.
+    Manual run-now also blocked. Without this clear, the only recourse
+    was waiting for the TTL or flushing redis.
+    """
+    if not task_id:
+        return
+    key = _DEDUPE_KEY_FMT.format(
+        task_id=task_id, entity_hash=_entity_hash(entity),
+    )
+    try:
+        await rs.delete(key)
+    except Exception as e:
+        logger.debug("[autonomous safety] clear_dedupe failed (non-fatal): %s", e)
+
+
 # ── Public: pause / resume ─────────────────────────────────────────────────
 
 async def is_engine_paused() -> bool:
