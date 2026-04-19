@@ -19,6 +19,7 @@ HOW IT WORKS:
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -274,17 +275,54 @@ async def crawl_and_index(url: str, tier: str = "C") -> dict:
     """Fetch a URL, extract text, and index into RAG store.
 
     Returns {indexed: bool, chunks: int, error: str}.
+
+    Past gap (production 2026-04-19): trafilatura.fetch_url uses urllib
+    with a `python-requests/X.Y` User-Agent that almost every defence /
+    government / IGO source blocks (CloudFront/Akamai/Cloudflare anti-bot
+    rules). Result: weekly crawl reported 0/0/42 across all tiers,
+    nothing indexed. Replace fetch with httpx + browser UA + redirect
+    following + retry. Keep trafilatura for extraction — it's strong at
+    that — but feed it pre-fetched bytes via `extract(html_bytes)`.
     """
     try:
         import trafilatura
-    except ImportError:
-        return {"indexed": False, "chunks": 0, "error": "trafilatura not installed"}
+        import httpx
+    except ImportError as e:
+        return {"indexed": False, "chunks": 0, "error": f"missing dep: {e}"}
 
+    BROWSER_UA = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/121.0.0.0 Safari/537.36"
+    )
     try:
-        downloaded = trafilatura.fetch_url(url)
+        downloaded = None
+        last_err = None
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=httpx.Timeout(20.0, connect=10.0),
+            headers={
+                "User-Agent": BROWSER_UA,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-GB,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+            },
+        ) as client:
+            for attempt in range(2):
+                try:
+                    r = await client.get(url)
+                    if 200 <= r.status_code < 300 and r.content:
+                        downloaded = r.content
+                        break
+                    last_err = f"HTTP {r.status_code}"
+                except (httpx.TimeoutException, httpx.HTTPError) as e:
+                    last_err = type(e).__name__
+                if attempt == 0:
+                    await asyncio.sleep(1.5)
         if not downloaded:
-            return {"indexed": False, "chunks": 0, "error": "fetch failed"}
+            return {"indexed": False, "chunks": 0, "error": f"fetch failed: {last_err or 'unknown'}"}
 
+        # Trafilatura accepts bytes directly — no need for a second fetch.
         text = trafilatura.extract(downloaded, include_links=True, include_tables=True)
         if not text or len(text.strip()) < 100:
             return {"indexed": False, "chunks": 0, "error": "extraction empty"}

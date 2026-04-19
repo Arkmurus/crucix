@@ -9602,6 +9602,29 @@ async def self_mistakes_verify_ep(start: int = 0, count: int = 500):
     )
 
 
+@router.post("/self/mistakes/invalidate")
+async def self_mistakes_invalidate_ep(req: Request):
+    """Soft-invalidate mistakes (predictor will skip them; chain stays
+    intact for forensic audit). Body: {mistake_ids: [...], reason: "..."}.
+    Used to remove false positives from LLM-degraded runs that would
+    otherwise corrupt the predictor's confidence forecasts."""
+    from ..intel import mistake_ledger
+    body = await req.json()
+    mistake_ids = body.get("mistake_ids") or []
+    reason = body.get("reason") or "manual invalidation"
+    if not isinstance(mistake_ids, list) or not all(isinstance(m, str) for m in mistake_ids):
+        return {"error": "mistake_ids must be a list of strings"}
+    return await mistake_ledger.invalidate(mistake_ids, reason=reason[:300])
+
+
+@router.get("/self/mistakes/invalidated")
+async def self_mistakes_invalidated_ep():
+    """List currently-invalidated mistakes with their reason."""
+    from ..intel import mistake_ledger
+    items = await mistake_ledger.list_invalidated()
+    return {"count": len(items), "items": items}
+
+
 # ── State of ARIA — daily self-assessment ────────────────────────────────
 
 @router.get("/self/assess")

@@ -71,6 +71,11 @@ _KEY_HEAD_HASH = "crucix:mistake_ledger:head_hash"
 _KEY_BY_SIG = "crucix:mistake_ledger:by_sig:{sig}"
 _KEY_BY_ID = "crucix:mistake_ledger:by_id:{mid}"
 _KEY_PREVENTED_TOTAL = "crucix:mistake_ledger:prevented_total"
+# Invalidation lives in a SEPARATE store so the immutable hash chain
+# stays untouched. lookup_similar/recent filter against this set; the
+# original entries remain in the chain for forensic traceability.
+_KEY_INVALIDATED = "crucix:mistake_ledger:invalidated"
+_KEY_INVALIDATION_REASON = "crucix:mistake_ledger:invalidation_reason:{mid}"
 _GENESIS = "0" * 64
 
 
@@ -190,6 +195,7 @@ async def lookup_similar(
     *,
     what_class: str = "",
     limit: int = 5,
+    include_invalidated: bool = False,
 ) -> list[dict]:
     """Return recent mistakes matching the (task_type, domain) pair,
     optionally narrowed by what_class. This is the function the predictor
@@ -197,10 +203,15 @@ async def lookup_similar(
 
     If what_class is omitted, returns mistakes across all classes for
     that task/domain — useful when the predictor wants the full picture.
+
+    By default invalidated mistakes are filtered out (the predictor
+    must NOT act on them — they were marked false positives manually).
+    Pass include_invalidated=True for forensic queries.
     """
     from . import redis_store as rs
     results: list[dict] = []
     seen_ids: set[str] = set()
+    invalidated = await _invalidated_set() if not include_invalidated else set()
 
     # If what_class provided, direct signature lookup. Otherwise, pull all
     # entries and filter — expensive but bounded by the soft retention cap.
@@ -212,6 +223,8 @@ async def lookup_similar(
             if mid_clean in seen_ids:
                 continue
             seen_ids.add(mid_clean)
+            if mid_clean in invalidated:
+                continue
             entry = await rs.get_json(_KEY_BY_ID.format(mid=mid_clean))
             if entry:
                 results.append(entry)
@@ -234,6 +247,8 @@ async def lookup_similar(
             continue
         if e.get("mistake_id") in seen_ids:
             continue
+        if e.get("mistake_id") in invalidated:
+            continue
         seen_ids.add(e.get("mistake_id"))
         results.append(e)
         if len(results) >= limit:
@@ -241,9 +256,15 @@ async def lookup_similar(
     return results
 
 
-async def recent(limit: int = 50, category: Optional[str] = None) -> list[dict]:
+async def recent(
+    limit: int = 50,
+    category: Optional[str] = None,
+    *,
+    include_invalidated: bool = False,
+) -> list[dict]:
     from . import redis_store as rs
     raw = await rs.lrange(_KEY_LOG, 0, max(limit * 3, 50))
+    invalidated = await _invalidated_set() if not include_invalidated else set()
     out: list[dict] = []
     for r in raw:
         try:
@@ -252,9 +273,94 @@ async def recent(limit: int = 50, category: Optional[str] = None) -> list[dict]:
             continue
         if category and e.get("category") != category:
             continue
+        if not include_invalidated and e.get("mistake_id") in invalidated:
+            continue
         out.append(e)
         if len(out) >= limit:
             break
+    return out
+
+
+# ── Soft invalidation (poisoned entries from LLM-degraded runs) ────────────
+#
+# The hash chain is intentionally immutable for tamper-evidence. To
+# remove the predictor-corrupting effect of false-positive entries
+# (e.g. the 11 from 2026-04-19 06:00 adversarial that fired with two
+# providers billing-cooled), we mark them invalidated in a separate
+# Redis SET. lookup_similar / recent filter them out by default; the
+# chain itself is untouched and remains auditable.
+
+async def _invalidated_set() -> set[str]:
+    from . import redis_store as rs
+    try:
+        members = await rs.smembers(_KEY_INVALIDATED)
+        return {m.decode() if isinstance(m, bytes) else m for m in (members or set())}
+    except Exception:
+        return set()
+
+
+async def is_invalidated(mistake_id: str) -> bool:
+    from . import redis_store as rs
+    try:
+        return bool(await rs.sismember(_KEY_INVALIDATED, mistake_id))
+    except Exception:
+        return False
+
+
+async def invalidate(mistake_ids: list[str], reason: str = "") -> dict:
+    """Mark mistakes as invalidated. They remain in the hash chain
+    (forensic record) but are filtered from lookup_similar / recent
+    so the predictor doesn't act on them.
+
+    Returns counts. Idempotent — re-invalidating is a no-op.
+    """
+    from . import redis_store as rs
+    if not mistake_ids:
+        return {"requested": 0, "invalidated": 0, "skipped": 0}
+    requested = len(mistake_ids)
+    invalidated_count = 0
+    skipped = 0
+    ts = datetime.now(timezone.utc).isoformat()
+    payload = {"reason": reason, "invalidated_at": ts}
+    for mid in mistake_ids:
+        try:
+            entry = await rs.get_json(_KEY_BY_ID.format(mid=mid))
+            if not entry:
+                skipped += 1
+                continue
+            await rs.sadd(_KEY_INVALIDATED, mid)
+            await rs.set_json(_KEY_INVALIDATION_REASON.format(mid=mid), payload, ex=365 * 86400)
+            invalidated_count += 1
+        except Exception as e:
+            logger.warning("mistake_ledger.invalidate(%s) failed: %s", mid, e)
+            skipped += 1
+    logger.warning(
+        "mistake_ledger: invalidated %d/%d entries — reason=%r",
+        invalidated_count, requested, reason[:120],
+    )
+    return {"requested": requested, "invalidated": invalidated_count, "skipped": skipped}
+
+
+async def list_invalidated() -> list[dict]:
+    """Return invalidated entries with their reason. Forensic view."""
+    from . import redis_store as rs
+    invalidated = await _invalidated_set()
+    out = []
+    for mid in invalidated:
+        entry = await rs.get_json(_KEY_BY_ID.format(mid=mid))
+        reason = await rs.get_json(_KEY_INVALIDATION_REASON.format(mid=mid))
+        if entry:
+            out.append({
+                "mistake_id": mid,
+                "ts": entry.get("ts"),
+                "category": entry.get("category"),
+                "task_type": entry.get("task_type"),
+                "domain": entry.get("domain"),
+                "what": entry.get("what", "")[:120],
+                "source_ref": entry.get("source_ref", ""),
+                "invalidated_at": (reason or {}).get("invalidated_at"),
+                "reason": (reason or {}).get("reason"),
+            })
     return out
 
 
