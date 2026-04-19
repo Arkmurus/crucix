@@ -96,15 +96,17 @@ PORTALS: list[dict] = [
     },
     {
         "id": "dsp_mod",
-        "name": "Defence Sourcing Portal — UK MoD (Bravo Solution)",
-        "url": "https://www.defencesourcing.mod.uk",
+        "name": "Defence Contracts Portal — UK MoD (Bravo Solution eSourcing)",
+        "url": "https://contracts.mod.uk",
         "method": "manual_required",
         "broker_rationale": "UK MoD above-threshold workflow (ITT, PQQ, clarifications)",
         "manual_steps": (
-            "1. Log in at https://www.defencesourcing.mod.uk as Arkmurus.\n"
+            "1. Log in at https://contracts.mod.uk/esop/ogc-host/public/mod/web/login.html "
+            "as Arkmurus.\n"
             "2. My Organisation → shows registration status + DUNS + categories.\n"
-            "3. If no login exists, registration is free at the same URL — "
-            "requires DUNS number and UK company identity."
+            "3. If no login exists, registration is free via the supplier "
+            "self-registration link on the login page — requires DUNS "
+            "number and UK company identity."
         ),
     },
     {

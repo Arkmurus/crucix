@@ -457,24 +457,31 @@ the country-market tender portals ARIA monitors for intelligence.
 Broker positioning here is active bidder / framework participant,
 not external observer.
 
-DEFENCE SOURCING PORTAL (DSP) — UK MoD actual workflow
+DEFENCE CONTRACTS PORTAL (DCP / "DSP") — UK MoD actual workflow
 
-URL: https://www.defencesourcing.mod.uk
+URL (login):    https://contracts.mod.uk/esop/ogc-host/public/mod/web/login.html
+URL (base):     https://contracts.mod.uk
+Platform:       Bravo Solution eSourcing, hosted under the OGC/MoD domain
 Coverage: UK Ministry of Defence commercial workflow — ITTs, PQQs,
 bidder Q&A, submissions. Contracts Finder shows the public notice;
-DSP is where the tender is actually run. Any above-threshold MoD
-procurement (GBP 139,688 for services / supplies; higher for works)
-lives here once a supplier is past the notice stage.
+the Defence Contracts Portal is where the tender is actually run. Any
+above-threshold MoD procurement (GBP 139,688 for services / supplies;
+higher for works) lives here once a supplier is past the notice stage.
 
-Registration: free, requires a DUNS number and UK company identity.
+Registration: free, via supplier self-registration from the login page.
+Requires a DUNS number and UK company identity.
+
 Filters relevant to Arkmurus: Land, Air, Maritime, Weapons,
 Information, Strategic Enablers. Opportunity feeds can be saved
 against keywords.
 
 ARIA RULE: any brief on a UK MoD tender MUST check BOTH Contracts
-Finder (discovery) AND DSP (live status, closing date, clarification
-log). Missing DSP is a common reason for "we didn't see the tender"
-failures.
+Finder (discovery) AND contracts.mod.uk (live status, closing date,
+clarification log). Missing the MoD portal is a common reason for
+"we didn't see the tender" failures.
+
+NOTE: the earlier "defencesourcing.mod.uk" URL was incorrect — the
+actual portal lives at contracts.mod.uk. Corrected 2026-04-19.
 
 NSPA eSOURCING — NATO Support and Procurement Agency
 
