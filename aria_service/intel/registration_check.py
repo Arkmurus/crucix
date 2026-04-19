@@ -84,14 +84,23 @@ PORTALS: list[dict] = [
         "name": "NSPA SRBPS — NATO Support and Procurement Agency",
         "url": "https://www.nspa.nato.int",
         "method": "manual_required",
+        "in_progress": True,  # operator is actively registering 2026-04-19
         "broker_rationale": "NATO-wide sustainment + multinational consolidation",
+        "workflow_note": (
+            "Registration for Arkmurus is IN PROGRESS as of 2026-04-19 — "
+            "this takes time (supplier-profile creation, capability-code "
+            "declarations, CAGE linkage verification). Operator will "
+            "revert with final registration details once complete. "
+            "Until then, do NOT advise clients that Arkmurus is "
+            "NSPA-registered."
+        ),
         "manual_steps": (
-            "1. SRBPS supplier directory is NOT public. Log in at "
-            "https://eportal.nspa.nato.int/ as Arkmurus.\n"
-            "2. Supplier Profile tab shows registration status, "
-            "declared capability codes, and CAGE linkage.\n"
-            "3. If no profile exists, start registration via SRBPS "
-            "self-service (CAGE prerequisite already satisfied)."
+            "Status is IN_PROGRESS — nothing to verify until registration "
+            "completes. When it does, confirm by:\n"
+            "1. Log in at https://eportal.nspa.nato.int/ as Arkmurus.\n"
+            "2. Supplier Profile tab shows registration status, declared "
+            "capability codes, and CAGE linkage.\n"
+            "3. Send the confirmation to ARIA so the fact can be stored."
         ),
     },
     {
@@ -288,7 +297,13 @@ async def check_portal(portal_id: str, company_name: str | None = None) -> dict:
         base["note"] = ("Notice board — no vendor registration required. "
                         "Saved-search alerts only.")
     elif portal["method"] == "manual_required":
-        base["status"] = "MANUAL_REQUIRED"
+        # If operator has flagged this portal as actively in-progress,
+        # surface that state instead of MANUAL_REQUIRED so ARIA stops
+        # repeatedly asking the operator to check it.
+        if portal.get("in_progress"):
+            base["status"] = "REGISTRATION_IN_PROGRESS"
+        else:
+            base["status"] = "MANUAL_REQUIRED"
         base["confidence"] = 0.0
         base["manual_steps"] = portal["manual_steps"]
     elif portal["method"] == "site_search":
@@ -345,6 +360,7 @@ async def check_all(
         "likely_registered": [r for r in normalised if r.get("status") == "LIKELY_REGISTERED"],
         "likely_not_registered": [r for r in normalised if r.get("status") == "LIKELY_NOT_REGISTERED"],
         "manual_required": [r for r in normalised if r.get("status") == "MANUAL_REQUIRED"],
+        "registration_in_progress": [r for r in normalised if r.get("status") == "REGISTRATION_IN_PROGRESS"],
         "automated_unknown": [r for r in normalised if r.get("status") == "AUTOMATED_UNKNOWN"],
         "not_applicable": [r for r in normalised if r.get("status") == "NOT_APPLICABLE"],
         "errors": [r for r in normalised if r.get("status") in ("CHECK_ERROR", "UNKNOWN_METHOD")],
@@ -418,6 +434,7 @@ def render_markdown(payload: dict) -> str:
     lines.append(
         f"- **Likely registered:** {counts.get('likely_registered', 0)}\n"
         f"- **Likely NOT registered:** {counts.get('likely_not_registered', 0)}\n"
+        f"- **Registration in progress:** {counts.get('registration_in_progress', 0)}\n"
         f"- **Manual check required:** {counts.get('manual_required', 0)}\n"
         f"- **Automated unknown:** {counts.get('automated_unknown', 0)}\n"
         f"- **Not applicable (notice boards):** {counts.get('not_applicable', 0)}"
