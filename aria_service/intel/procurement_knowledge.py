@@ -159,15 +159,32 @@ NAICS codes for defence:
   332994: Small arms
   325920: Explosives
 
+REGISTRATION REALITY -- FOREIGN ENTITIES
+  SAM.gov registration for a non-US entity requires:
+    1. UEI (Unique Entity Identifier) -- issued by SAM during registration
+    2. NATO Commercial and Government Entity (NCAGE) code -- obtained from
+       the supporting country's CAGE authority (UK: the MoD DE&S CAGE team)
+       BEFORE SAM registration can be completed
+    3. Notarised signature on the Entity Administrator letter
+  Realistic end-to-end timeline: 4-6 weeks. Do NOT quote 1-2 weeks to
+  anyone -- that is the US-domestic registration timeline.
+
+ARKMURUS-SPECIFIC NOTE:
+  Arkmurus already holds a NATO CAGE code. SAM.gov registration for
+  Arkmurus does NOT require the CAGE-acquisition step and can proceed
+  on the shorter UEI-only timeline (2-3 weeks typical). Operator should
+  confirm current CAGE validity before starting SAM registration.
+
 DSCA Foreign Military Sales awards: appear on SAM.gov with recipient country.
 Search: "Foreign Military Sales" + country name for relevant awards.
 USASpending.gov: companion site showing actual payments against contracts.
 
-CONTRACTS FINDER -- UK Government
+CONTRACTS FINDER -- UK Government (shop window)
 
 URL: https://www.contractsfinder.service.gov.uk
 Coverage: UK public sector procurement above 10,000 GBP.
-UK MoD contracts: all appear here that are not classified.
+UK MoD contracts: all non-classified above-threshold appear here as
+notices. However, CF is the publication surface, not the workflow.
 FCDO Security programmes: Conflict Stability and Security Fund (CSSF)
 contracts appear here -- often Africa-facing security assistance.
 ARIA filters by: buyer "Ministry of Defence", keyword search.
@@ -177,7 +194,9 @@ UNGM -- UN Global Marketplace
 URL: https://www.ungm.org
 Coverage: UN system procurement worldwide.
 Security: UNDP, UNOPS, UNPOL, DPKO supply chain tenders appear.
-Registration: vendors must register to bid -- free, takes 1-2 weeks.
+Registration: vendors must register to bid -- free, takes 1-2 weeks
+for Level 1 (most vendors); higher levels (UNPD Level 2) require
+audited financials and take longer.
 ARIA: UNGM is underutilised. Significant volume of
 security-related procurement for peacekeeping missions in Africa.
 
@@ -187,6 +206,14 @@ URL: https://www.afdb.org/en/projects-and-operations/procurement
 Coverage: AfDB-financed procurement in African nations.
 Includes: maritime security, border management, some equipment.
 STEP system: Standard Electronic Procurement System.
+
+DACON -- Database of Consultants:
+  For advisory / services roles (not goods procurement) register on
+  AfDB DACON as a consulting firm. This is the correct route for
+  Arkmurus-style market-access, regulatory, and capability advisory
+  mandates tied to AfDB-financed programmes. DACON registration
+  sits alongside, not inside, the main STEP tender portal.
+
 ARIA: AfDB procurement in security and maritime is live and growing.
 Angola, Mozambique, Senegal, Nigeria all active borrowers.
 """
@@ -420,6 +447,68 @@ ARIA applies these signals to predict procurement before it is published:
 """
 
 
+UK_NATO_BROKER_PORTALS = """
+╔══════════════════════════════════════════════════════════════════════╗
+║  ARIA — UK MoD + NATO BROKER-REGISTER PORTALS                         ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+These are the portals where Arkmurus ITSELF registers — distinct from
+the country-market tender portals ARIA monitors for intelligence.
+Broker positioning here is active bidder / framework participant,
+not external observer.
+
+DEFENCE SOURCING PORTAL (DSP) — UK MoD actual workflow
+
+URL: https://www.defencesourcing.mod.uk
+Coverage: UK Ministry of Defence commercial workflow — ITTs, PQQs,
+bidder Q&A, submissions. Contracts Finder shows the public notice;
+DSP is where the tender is actually run. Any above-threshold MoD
+procurement (GBP 139,688 for services / supplies; higher for works)
+lives here once a supplier is past the notice stage.
+
+Registration: free, requires a DUNS number and UK company identity.
+Filters relevant to Arkmurus: Land, Air, Maritime, Weapons,
+Information, Strategic Enablers. Opportunity feeds can be saved
+against keywords.
+
+ARIA RULE: any brief on a UK MoD tender MUST check BOTH Contracts
+Finder (discovery) AND DSP (live status, closing date, clarification
+log). Missing DSP is a common reason for "we didn't see the tender"
+failures.
+
+NSPA eSOURCING — NATO Support and Procurement Agency
+
+URL: https://www.nspa.nato.int  (eProcurement portal linked from site)
+Coverage: NATO-wide procurement on behalf of Allied nations and NATO
+commands. Covers support, sustainment, fuel, munitions framework,
+ISR services, medical, engineering.
+
+Registration: via NSPA SRBPS (Source Selection Registration and
+Bidding Preparation System). Requires a NATO Commercial and Government
+Entity (NCAGE / CAGE) code for the supplier and eligibility from the
+supplier's host nation.
+
+ARKMURUS ELIGIBILITY: Arkmurus already holds a UK CAGE code, so the
+NSPA registration prerequisite is satisfied. Operator still needs to
+complete the SRBPS supplier profile + declare capability codes.
+
+ARIA POSITIONING: NSPA is the right register for NATO-framework
+sustainment, multinational consolidation buys, and allied-partner
+capability programmes. Broker angle — intelligence + market-access
+for NSPA-awarded primes seeking local partners in Arkmurus-reach
+regions (Lusophone Africa, Gulf, West Africa, Balkans).
+
+CAGE / NCAGE — REUSE ACROSS FRAMEWORKS
+
+One CAGE code unlocks: NSPA, NATO framework contracts, SAM.gov (as
+NCAGE replaces the CAGE-acquisition step in SAM registration),
+several European MoD supplier databases. Because Arkmurus holds a
+CAGE, the "4–6 weeks to register as a foreign entity" standard
+timeline does NOT apply to Arkmurus — factor this into any briefing
+that cites foreign-entity registration lead times.
+"""
+
+
 # =============================================================================
 # SECTION REGISTRY
 # =============================================================================
@@ -438,6 +527,20 @@ PROCUREMENT_SECTIONS: dict[str, dict] = {
         "tags": [
             "procurement", "TED", "SAM.gov", "contracts-finder",
             "UNGM", "AfDB", "CPV-codes", "award-notice",
+            "UEI", "NCAGE", "CAGE", "arkmurus-cage",
+            "DACON", "afdb-dacon", "consultant-registration",
+        ],
+        "domain": "procurement",
+    },
+    "uk_nato_broker_portals": {
+        "content": UK_NATO_BROKER_PORTALS,
+        "tags": [
+            "DSP", "defence-sourcing-portal", "defencesourcing",
+            "uk-mod-portal", "uk-mod-tender",
+            "NSPA", "nspa-esourcing", "nato-procurement", "nato-framework",
+            "CAGE", "NCAGE", "arkmurus-cage", "cage-reuse",
+            "broker-register", "broker-portal",
+            "SRBPS",
         ],
         "domain": "procurement",
     },
@@ -547,10 +650,12 @@ def get_procurement_context(query: str) -> str:
     ]
     for _score, entry in top:
         parts.append(f"--- {entry['id'].replace('_', ' ').upper()} ---")
-        # Truncate to first ~3000 chars to keep prompt size manageable
+        # Truncate to first ~5000 chars to keep prompt size manageable
+        # (sections were growing past the old 3000-char cap and losing
+        # their tail content — DACON, AfDB detail, offset annexes).
         content = entry["content"].strip()
-        if len(content) > 3000:
-            content = content[:3000] + "\n[... truncated ...]"
+        if len(content) > 5000:
+            content = content[:5000] + "\n[... truncated ...]"
         parts.append(content)
         parts.append("")
 
