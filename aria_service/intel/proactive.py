@@ -54,6 +54,8 @@ ALERT_QUEUE_KEY = "crucix:aria:proactive:alerts"
 ANOMALY_BASELINE_KEY = "crucix:aria:proactive:anomaly_baseline"
 GAP_TRACKER_KEY = "crucix:aria:proactive:gap_tracker"
 LAST_BRIEFING_KEY = "crucix:aria:proactive:last_briefing"
+LAST_MASTERY_PREP_KEY = "crucix:aria:proactive:last_mastery_prep"
+MASTERY_PREP_INTERVAL_S = 6 * 3600
 
 
 # ── Alert queue ─────────────────────────────────────────────────────────────
@@ -211,8 +213,20 @@ async def detect_knowledge_gaps(question: str) -> None:
 # ── Behaviour 3: Mastery-driven preparation ────────────────────────────────
 
 async def prepare_weak_topics(llm=None) -> int:
-    """Look at student mastery, find the weakest topics, trigger reading."""
+    """Look at student mastery, find the weakest topics, trigger reading.
+
+    Caller (`_proactive_loop`) ticks hourly so `daily_briefing_check` can fire
+    near 06:00 UTC, but the mastery-prep alert claims a 6h cadence. Without an
+    internal guard we'd push it every hour — which is what was spamming WA at
+    01:42→08:42. Self-rate-limit using Redis so the cadence survives restarts.
+    """
     try:
+        now = time.time()
+        last = await rs.get_json(LAST_MASTERY_PREP_KEY) or {}
+        last_ts = last.get("ts", 0)
+        if now - last_ts < MASTERY_PREP_INTERVAL_S:
+            return 0
+
         mastery_report = await student.get_mastery_report()
         weak = mastery_report.get("weak_topics", [])
         if not weak:
@@ -229,6 +243,12 @@ async def prepare_weak_topics(llm=None) -> int:
             ),
             "metadata": {"weak_topics": weak},
         })
+
+        await rs.set_json(
+            LAST_MASTERY_PREP_KEY,
+            {"ts": now, "weak": weak},
+            ex=14 * 86400,
+        )
 
         # Actual reading session is triggered separately by the student loop
         return len(weak)
