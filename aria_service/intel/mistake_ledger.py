@@ -291,20 +291,21 @@ async def recent(
 # chain itself is untouched and remains auditable.
 
 async def _invalidated_set() -> set[str]:
+    """Read the invalidated-ids JSON list and return as a set for O(1)
+    membership tests. redis_store has no native set primitives, so we
+    persist as a JSON array."""
     from . import redis_store as rs
     try:
-        members = await rs.smembers(_KEY_INVALIDATED)
-        return {m.decode() if isinstance(m, bytes) else m for m in (members or set())}
+        ids = await rs.get_json(_KEY_INVALIDATED) or []
+        if not isinstance(ids, list):
+            return set()
+        return set(ids)
     except Exception:
         return set()
 
 
 async def is_invalidated(mistake_id: str) -> bool:
-    from . import redis_store as rs
-    try:
-        return bool(await rs.sismember(_KEY_INVALIDATED, mistake_id))
-    except Exception:
-        return False
+    return mistake_id in (await _invalidated_set())
 
 
 async def invalidate(mistake_ids: list[str], reason: str = "") -> dict:
@@ -322,18 +323,26 @@ async def invalidate(mistake_ids: list[str], reason: str = "") -> dict:
     skipped = 0
     ts = datetime.now(timezone.utc).isoformat()
     payload = {"reason": reason, "invalidated_at": ts}
+    # Read-modify-write pattern. Race-prone in theory; in practice
+    # invalidations are operator-driven one-shots, so contention is nil.
+    current = await _invalidated_set()
     for mid in mistake_ids:
         try:
             entry = await rs.get_json(_KEY_BY_ID.format(mid=mid))
             if not entry:
                 skipped += 1
                 continue
-            await rs.sadd(_KEY_INVALIDATED, mid)
+            if mid not in current:
+                current.add(mid)
             await rs.set_json(_KEY_INVALIDATION_REASON.format(mid=mid), payload, ex=365 * 86400)
             invalidated_count += 1
         except Exception as e:
             logger.warning("mistake_ledger.invalidate(%s) failed: %s", mid, e)
             skipped += 1
+    try:
+        await rs.set_json(_KEY_INVALIDATED, sorted(current), ex=365 * 86400)
+    except Exception as e:
+        logger.warning("mistake_ledger: persist invalidated set failed: %s", e)
     logger.warning(
         "mistake_ledger: invalidated %d/%d entries — reason=%r",
         invalidated_count, requested, reason[:120],
