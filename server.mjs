@@ -27,7 +27,7 @@ import { fetchUNSecurityCouncil, fetchCentralBanks, fetchThinkTanks, fetchTradeF
 import { fetchOpenSanctions } from './apis/sources/opensanctions.mjs';
 
 // === Self-Learning & Self-Update System ===
-import { getLearningStats, getOutcomes, recordAlertOutcome, getSourceHistory, getSourcesToReview, getPatterns, getOpportunities, getExplorerFindings, getUpdateLog, recordSourceSweep, initLearningStore } from './lib/self/learning_store.mjs';
+import { getLearningStats, getOutcomes, recordAlertOutcome, getSourceHistory, getSourcesToReview, getPatterns, getOpportunities, getExplorerFindings, getUpdateLog, recordSourceSweep, initLearningStore, getBrainAbsorbStats } from './lib/self/learning_store.mjs';
 import { detectOpportunities, formatOpportunitiesForTelegram } from './lib/self/opportunity_engine.mjs';
 import { analyzePatterns, formatPatternsForTelegram } from './lib/self/pattern_analyzer.mjs';
 import { runExploration, exploreQuery, formatExplorerFindingsForTelegram } from './lib/self/web_explorer.mjs';
@@ -1008,6 +1008,14 @@ app.get('/api/health', (req, res) => {
     refreshIntervalMinutes: config.refreshIntervalMinutes,
     language: currentLanguage,
   });
+});
+
+// Brain absorb diagnostic — surfaces the resolved BRAIN_URL, token presence,
+// and per-module success/fail counters so the operator can see in real time
+// whether the seenode→fly bridge is actually working. Added 2026-04-19 after
+// 380+ emails processed but only 1 absorbed showed the failure was silent.
+app.get('/api/brain-absorb/diag', requireAuth, (req, res) => {
+  res.json(getBrainAbsorbStats());
 });
 
 // Cross-server health — does Node see fly.io and vice versa?
