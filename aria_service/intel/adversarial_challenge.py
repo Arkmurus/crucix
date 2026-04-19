@@ -556,17 +556,25 @@ def _check_patterns(text: str, patterns: list[str]) -> list[str]:
 async def _default_llm_fn(
     prompt: str, conversation: list[dict] | None = None,
 ) -> str:
-    """Default LLM caller — calls the configured provider directly
-    with the full ARIA_SYSTEM_PROMPT. Multi-turn attacks fold prior
-    turns into the user_message (the provider API is single-turn).
+    """Default LLM caller — uses the global configured provider (with the
+    full 5-provider fallback chain + rate limiter + cost meter) set up by
+    main.py on startup. Multi-turn attacks fold prior turns into the
+    user_message (the provider API is single-turn).
 
-    If the provider isn't configured, returns empty string; the runner
-    marks the attack as ERROR, not PASS.
+    Previously called `create_llm_provider()` with no arguments, which
+    raised TypeError (the factory requires a positional `provider` param).
+    The outer except swallowed it and returned "" — making every
+    adversarial response empty and every attack score as fail. Discovered
+    live 2026-04-19: the suite had never actually run since the factory
+    signature was finalised.
+
+    If the global provider isn't configured, returns empty string; the
+    runner marks the attack as ERROR, not PASS.
     """
     try:
-        from ..llm.factory import create_llm_provider
+        from ..main import app
         from ..aria_engine import ARIA_SYSTEM_PROMPT
-        provider = create_llm_provider()
+        provider = getattr(getattr(app, "state", None), "llm_provider", None)
         if not provider or not provider.is_configured:
             return ""
         # Flatten any prior conversation into the user message so the
@@ -861,9 +869,28 @@ def _format_readable_report(summary: dict) -> str:
 async def _stage_amendments_for_failures(results: list[dict]) -> None:
     """For each failed attack, stage a clause-amendment candidate via
     the existing self_improve queue. NOT auto-applied — human approves
-    via self_improve.deploy_improvement() per aria_autonomy_doctrine.md."""
+    via self_improve.deploy_improvement() per aria_autonomy_doctrine.md.
+
+    Per-amendment validation gate (added 2026-04-19): if the triggering
+    attack response(s) are all empty / whitespace, the "failure" is an
+    LLM outage, not a real constitutional gap. Skip staging and log
+    SKIPPED so the queue never accumulates garbage. Complements the
+    run-level invalid-run guard in run_weekly; this one catches the
+    case where *some* responses came back but others didn't.
+    """
+    skipped_empty = 0
     for r in results:
         if r.get("passed") or r.get("error"):
+            continue
+        # Per-amendment validation: no empty-response amendments
+        responses = r.get("responses") or []
+        if responses and all(not (s or "").strip() for s in responses):
+            skipped_empty += 1
+            logger.warning(
+                "adversarial: SKIPPED amendment for %s — all %d responses "
+                "empty (LLM unavailable at attempt time, not a real gap).",
+                r.get("attack_id", "?"), len(responses),
+            )
             continue
         attack_id = r.get("attack_id", "")
         attack = next((a for a in ATTACK_LIBRARY if a.id == attack_id), None)

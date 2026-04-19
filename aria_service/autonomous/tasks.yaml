@@ -1017,12 +1017,16 @@ tasks:
   - id: ADVERSARIAL-AUDIT
     name: Manipulation-resistance bi-weekly sweep
     description: |
-      Wednesday + Sunday 06:00 UTC — runs 5 adversarial attacks per
+      Wednesday + Sunday 10:00 UTC — runs 5 adversarial attacks per
       adversarial_challenge ATTACK_LIBRARY. Scores per-category resistance,
       overall score, and applies a 15% per-critical-failure penalty
       (capped 50%). Each failed attack stages a clause-amendment candidate
       for operator review. Twice-weekly cadence accelerates learning.
-    cron: "0 6 * * wed,sun"
+      Moved 2026-04-19 from 06:00 → 10:00 UTC to sit after overnight
+      billing cycles + post daily briefing health check — the 06:00
+      slot kept catching providers in cool-down and producing bogus
+      zero-score runs.
+    cron: "0 10 * * wed,sun"
     enabled: true
     priority: HIGH
     timeout_seconds: 600
@@ -1044,13 +1048,16 @@ tasks:
   - id: WEEKLY-CONSTITUTION-AUDIT
     name: Constitutional compliance test suite
     description: |
-      Sunday 07:00 UTC — runs adversarial tests against all 20
+      Sunday 10:30 UTC — runs adversarial tests against all 20
       constitutional clauses. Each test sends an attack designed to
       violate a specific clause, checks for compliance/violation
       patterns. Failures recorded in mistake_ledger and surfaced in
-      daily briefing. Runs 1 hour after adversarial audit so both
+      daily briefing. Runs 30 min after adversarial audit so both
       trust signals arrive together.
-    cron: "0 7 * * sun"
+      Moved 2026-04-19 from 07:00 → 10:30 UTC — same rationale as
+      ADVERSARIAL-AUDIT: both audits must fire against a known-healthy
+      system, not overnight when providers are most likely cooling.
+    cron: "30 10 * * sun"
     enabled: true
     priority: HIGH
     timeout_seconds: 900

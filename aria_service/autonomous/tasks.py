@@ -329,6 +329,57 @@ async def get_recent_runs(limit: int = 20) -> list[dict[str, Any]]:
     return out
 
 
+# ── Audit-readiness gate ──────────────────────────────────────────────────
+
+def _audit_readiness_gate(tool_kind: str, *, min_active: int = 2) -> dict:
+    """Pre-fire health check for the trust-measurement audits (adversarial,
+    constitution). These produce constitutional signal — running them on a
+    degraded LLM stack poisons the historical baseline AND the amendments
+    queue (see 04-19 incident: 06:00 UTC adversarial fired against two
+    billing-cooled providers, scored 0/11, queued 11 garbage amendments).
+
+    Gate: require at least `min_active` providers in the global fallback
+    chain that are NOT currently in cool-down. If the gate fails, return
+    a structured 'skipped' marker so the run is recorded as deferred,
+    not as a fail.
+    """
+    import time as _time
+    from ..main import app as _app
+    llm = getattr(getattr(_app, "state", None), "llm_provider", None)
+    if not llm or not getattr(llm, "is_configured", False):
+        return {
+            "ok": False,
+            "reason": "no_llm_configured",
+            "readable": (
+                f"⚠ {tool_kind} SKIPPED — no LLM provider configured. "
+                f"Set the API keys then re-fire."
+            ),
+        }
+    stats = llm.get_stats() if hasattr(llm, "get_stats") else {}
+    now = _time.time()
+    active = []
+    cooling = []
+    for name, s in stats.items():
+        if not isinstance(s, dict):
+            continue
+        if "cooldown_until" not in s:
+            continue
+        if s.get("cooldown_until", 0) <= now and s.get("status") != "cooling_down":
+            active.append(name)
+        else:
+            cooling.append(f"{name}({s.get('last_kind','?')})")
+    if len(active) < min_active:
+        msg = (
+            f"⚠ {tool_kind} SKIPPED — only {len(active)} active provider(s); "
+            f"need {min_active}. Cooling: {', '.join(cooling) or 'none'}. "
+            f"Active: {', '.join(active) or 'none'}. Will retry on next "
+            f"scheduled fire."
+        )
+        return {"ok": False, "reason": "insufficient_active_providers",
+                "active": active, "cooling": cooling, "readable": msg}
+    return {"ok": True, "active": active, "cooling": cooling}
+
+
 # ── Direct tool execution (non-chat tools) ────────────────────────────────
 
 async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
@@ -655,6 +706,9 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         # 4 categories. Failures stage clause-amendment candidates.
         # Returns readable_report for WhatsApp delivery (not raw JSON).
         from ..intel import adversarial_challenge as _ac
+        gate = _audit_readiness_gate("adversarial_weekly", min_active=2)
+        if not gate["ok"]:
+            return gate["readable"]
         report = await _ac.run_weekly()
         readable = report.get("readable_report", str(report))
         return readable
@@ -664,6 +718,9 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         # Failures feed mistake_ledger + brain_hook via structured report.
         import os as _os
         from ..tests.test_constitution import ARIAConstitutionTestRunner
+        gate = _audit_readiness_gate("constitution_test", min_active=2)
+        if not gate["ok"]:
+            return gate["readable"]
         api_key = _os.getenv("ANTHROPIC_API_KEY", "")
         if not api_key:
             return {"error": "ANTHROPIC_API_KEY not set — cannot run constitution tests"}
@@ -707,7 +764,7 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         import yaml as _yaml
         from ..intel import researcher as _res
         from ..intel import brain_hook as _bh
-        from ..llm.factory import create_llm_provider
+        from ..main import app as _app
         registry_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "intel", "corpus_registry.yaml",
@@ -735,7 +792,11 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         # Pick top 5
         to_ingest = candidates[:5]
         results = []
-        llm = create_llm_provider()
+        # Use the globally-configured fallback chain, not a no-arg
+        # factory call (which raises TypeError — factory needs
+        # provider: str). Same bug pattern as the one fixed in
+        # adversarial_challenge._default_llm_fn on 2026-04-19.
+        llm = getattr(getattr(_app, "state", None), "llm_provider", None)
         for src in to_ingest:
             url = src["url"]
             try:
