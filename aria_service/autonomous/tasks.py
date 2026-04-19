@@ -1086,7 +1086,27 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "adversarial_weekly",
                            "constitution_test",
                            "corpus_ingest",
-                           "narrative_scan"):
+                           "narrative_scan",
+                           # 04-17/18 marathon — handlers exist in
+                           # _execute_direct_tool but were never added to this
+                           # dispatch tuple. Result on production 04-19: every
+                           # task using these errored "unsupported tool kind"
+                           # and the entire 24/7 learning loop reported zeros.
+                           "procurement_calendar",
+                           "competitor_tracker",
+                           "oem_contact_graph",
+                           "chain_correlator",
+                           "training_export",
+                           "knowledge_spider",
+                           "metacognitive_journal",
+                           "research_engine",
+                           "style_learner",
+                           "memory_replication",
+                           "consistency_suite",
+                           "capability_card_refresh",
+                           "calibration_auto_tune",
+                           "source_uptime_ping",
+                           "self_diagnostic"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             try:
