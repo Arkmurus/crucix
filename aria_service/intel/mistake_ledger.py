@@ -325,16 +325,19 @@ async def invalidate(mistake_ids: list[str], reason: str = "") -> dict:
     payload = {"reason": reason, "invalidated_at": ts}
     # Read-modify-write pattern. Race-prone in theory; in practice
     # invalidations are operator-driven one-shots, so contention is nil.
+    # Don't gate on _KEY_BY_ID existence — older entries (pre 2026-Q1)
+    # may not have been mirrored to by_id but DO live in _KEY_LOG, and
+    # the filter operates on the log entries in lookup_similar/recent.
     current = await _invalidated_set()
     for mid in mistake_ids:
         try:
-            entry = await rs.get_json(_KEY_BY_ID.format(mid=mid))
-            if not entry:
-                skipped += 1
-                continue
             if mid not in current:
                 current.add(mid)
-            await rs.set_json(_KEY_INVALIDATION_REASON.format(mid=mid), payload, ex=365 * 86400)
+            await rs.set_json(
+                _KEY_INVALIDATION_REASON.format(mid=mid),
+                payload,
+                ex=365 * 86400,
+            )
             invalidated_count += 1
         except Exception as e:
             logger.warning("mistake_ledger.invalidate(%s) failed: %s", mid, e)
@@ -351,25 +354,39 @@ async def invalidate(mistake_ids: list[str], reason: str = "") -> dict:
 
 
 async def list_invalidated() -> list[dict]:
-    """Return invalidated entries with their reason. Forensic view."""
+    """Return invalidated entries with their reason. Forensic view.
+    Falls back to scanning _KEY_LOG when _KEY_BY_ID is missing (older
+    entries weren't mirrored to by_id)."""
     from . import redis_store as rs
     invalidated = await _invalidated_set()
     out = []
+    # Build a quick by_id lookup from the log so older entries surface
+    log_by_id: dict[str, dict] = {}
+    try:
+        raw = await rs.lrange(_KEY_LOG, 0, 1000)
+        for r in raw:
+            try:
+                e = json.loads(r) if isinstance(r, str) else r
+                if e.get("mistake_id"):
+                    log_by_id[e["mistake_id"]] = e
+            except Exception:
+                continue
+    except Exception:
+        pass
     for mid in invalidated:
-        entry = await rs.get_json(_KEY_BY_ID.format(mid=mid))
+        entry = await rs.get_json(_KEY_BY_ID.format(mid=mid)) or log_by_id.get(mid)
         reason = await rs.get_json(_KEY_INVALIDATION_REASON.format(mid=mid))
-        if entry:
-            out.append({
-                "mistake_id": mid,
-                "ts": entry.get("ts"),
-                "category": entry.get("category"),
-                "task_type": entry.get("task_type"),
-                "domain": entry.get("domain"),
-                "what": entry.get("what", "")[:120],
-                "source_ref": entry.get("source_ref", ""),
-                "invalidated_at": (reason or {}).get("invalidated_at"),
-                "reason": (reason or {}).get("reason"),
-            })
+        out.append({
+            "mistake_id": mid,
+            "ts": (entry or {}).get("ts"),
+            "category": (entry or {}).get("category"),
+            "task_type": (entry or {}).get("task_type"),
+            "domain": (entry or {}).get("domain"),
+            "what": ((entry or {}).get("what", "") or "")[:120],
+            "source_ref": (entry or {}).get("source_ref", ""),
+            "invalidated_at": (reason or {}).get("invalidated_at"),
+            "reason": (reason or {}).get("reason"),
+        })
     return out
 
 
