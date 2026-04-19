@@ -112,15 +112,24 @@ PORTALS: list[dict] = [
     {
         "id": "afdb_dacon",
         "name": "AfDB DACON — African Development Bank Consultants DB",
-        "url": "https://www.afdb.org/en/projects-and-operations/procurement",
+        "url": "https://clientconnection.afdb.org",
         "method": "manual_required",
         "broker_rationale": "Advisory / consulting role on AfDB-financed programmes",
+        "workflow_note": (
+            "Primarily DOWNLOAD-based: AfDB publishes consultancy assignment "
+            "TORs (Terms of Reference) as downloadable documents; Arkmurus "
+            "downloads, prepares proposals offline, uploads response. ARIA "
+            "must remind operator on internal proposal deadlines, not rely "
+            "on the portal's event log alone."
+        ),
         "manual_steps": (
             "1. Log in at https://clientconnection.afdb.org (Client Connection).\n"
             "2. DACON module → Consultant Profile page shows registration "
             "status + declared disciplines.\n"
             "3. If no profile exists, register via DACON self-service. "
-            "Separate from the STEP tender portal — both may be needed."
+            "Separate from the STEP tender portal — both may be needed.\n"
+            "4. Expect most active engagement via downloaded TOR packs + "
+            "offline proposal preparation; the portal itself is lightweight."
         ),
     },
     {
@@ -293,6 +302,11 @@ async def check_portal(portal_id: str, company_name: str | None = None) -> dict:
         base["status"] = "UNKNOWN_METHOD"
         base["confidence"] = 0.0
 
+    # Pass through any optional operational notes declared on the portal
+    # (e.g. workflow_note for download-driven portals like AfDB DACON).
+    if portal.get("workflow_note"):
+        base["workflow_note"] = portal["workflow_note"]
+
     base["duration_ms"] = int((time.time() - t0) * 1000)
     return base
 
@@ -425,6 +439,9 @@ def render_markdown(payload: dict) -> str:
                 title = (e.get("title") or "").strip()
                 url2 = e.get("url") or ""
                 lines.append(f"  - [{title[:120]}]({url2})")
+        if r.get("workflow_note"):
+            lines.append("")
+            lines.append(f"**Workflow:** {r['workflow_note']}")
         if r.get("manual_steps"):
             lines.append("")
             lines.append("Manual verification steps:")

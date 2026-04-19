@@ -208,11 +208,19 @@ Includes: maritime security, border management, some equipment.
 STEP system: Standard Electronic Procurement System.
 
 DACON -- Database of Consultants:
+  Login: https://clientconnection.afdb.org (Client Connection)
   For advisory / services roles (not goods procurement) register on
   AfDB DACON as a consulting firm. This is the correct route for
   Arkmurus-style market-access, regulatory, and capability advisory
   mandates tied to AfDB-financed programmes. DACON registration
   sits alongside, not inside, the main STEP tender portal.
+
+  WORKFLOW -- primarily DOWNLOAD-based:
+    AfDB publishes consultancy Terms of Reference as downloadable
+    documents. Firms download the TOR, prepare proposals offline,
+    and upload the completed submission. ARIA RULE on any DACON
+    opportunity: track the internal proposal-pack deadline as the
+    real deadline -- the portal's event log alone is not enough.
 
 ARIA: AfDB procurement in security and maritime is live and growing.
 Angola, Mozambique, Senegal, Nigeria all active borrowers.
