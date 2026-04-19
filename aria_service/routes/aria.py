@@ -7069,6 +7069,59 @@ If no data exists for a section, note it as "No updates — monitoring continues
     }
 
 
+# 48d. GET/POST /api/aria/registrations/check — Arkmurus portal-registration status
+@router.get("/registrations/portals")
+async def registrations_portals_ep():
+    """List portals the registration checker knows about (no network)."""
+    from ..intel import registration_check as rc
+    return {"portals": rc.list_portals()}
+
+
+@router.post("/registrations/check")
+async def registrations_check_ep(request: Request):
+    """Run portal-registration checks for Arkmurus.
+
+    Input (all optional):
+      {
+        "company_name": str  - defaults to ARKMURUS_LEGAL_NAME env or 'Arkmurus Group Ltd'
+        "portal_id":    str  - check a single portal only; omit to check all
+        "format":       'markdown' | 'json'  - default 'json'
+        "persist":      bool - default True; writes a knowledge fact
+      }
+
+    Automated checks use site-restricted search (zero credentials) for
+    UNGM + SAM.gov. NSPA, DSP, AfDB DACON are login-gated — the response
+    flags them as MANUAL_REQUIRED with per-portal verification steps.
+    """
+    body = await request.json() if request.method == "POST" else {}
+    company_name = (body.get("company_name") or "").strip() or None
+    portal_id = (body.get("portal_id") or "").strip() or None
+    fmt = (body.get("format") or "json").strip().lower()
+    persist = bool(body.get("persist", True))
+
+    from ..intel import registration_check as rc
+
+    if portal_id:
+        payload = await rc.check_portal(portal_id, company_name)
+        if fmt == "markdown":
+            # Wrap single result to reuse the renderer.
+            wrap = {
+                "ok": True,
+                "company_name": payload.get("company_name"),
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "portals": [payload],
+                "counts": {payload.get("status", "UNKNOWN").lower(): 1},
+                "duration_ms": payload.get("duration_ms", 0),
+            }
+            return Response(content=rc.render_markdown(wrap), media_type="text/markdown")
+        return payload
+
+    payload = await rc.check_all(company_name, persist=persist)
+    if fmt == "markdown":
+        return Response(content=rc.render_markdown(payload), media_type="text/markdown")
+    return payload
+
+
 # 48c. POST /api/aria/meeting-notes/process — Extract structured actions from pasted notes
 @router.post("/meeting-notes/process")
 async def meeting_notes_process_ep(request: Request):
