@@ -384,7 +384,12 @@ async def search(
             summary=f"web_search '{query[:80]}': {len(final)} results from {len(backends_hit)} backend(s) [{', '.join(backends_hit) or 'none'}]",
             detail="; ".join(f"{r.title[:80]} → {r.url[:120]}" for r in final[:5]),
             entity_name=query[:80],
-            success=bool(final),
+            # Backend execution succeeded as long as we returned without
+            # raising. Zero results is a valid outcome (rare query, long
+            # tail, niche entity) — not a backend failure. Conflating the
+            # two produced a 26% "success rate" on prod which masked real
+            # failures and triggered noise alerts.
+            success=True,
             gap_type=None if final else "search_zero_results",
             gap_detail=None if final else f"All {len(backend_tasks)} backends returned 0 for {query[:120]}",
             confidence="ASSESSED",

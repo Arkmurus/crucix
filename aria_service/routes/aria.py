@@ -10933,6 +10933,36 @@ async def adversarial_amendments_ep():
     return {"queue_depth": len(queue), "amendments": queue}
 
 
+@router.post("/adversarial/amendments/clear")
+async def adversarial_amendments_clear_ep(staged_within_seconds: int | None = None):
+    """Drop pending amendments. Used to purge false amendments staged from
+    LLM-degraded runs (the run_weekly invalid-run guard prevents new ones,
+    but existing entries from before the guard need a one-shot clear).
+
+    Pass `staged_within_seconds=N` to drop only amendments newer than N
+    seconds ago (e.g. 86400 for last 24h). Omit to clear the entire queue.
+    Returns counts."""
+    from datetime import datetime as _dt, timezone as _tz
+    from ..intel import redis_store as rs
+    key = "aria:adversarial:amendments_queue"
+    queue = await rs.get_json(key) or []
+    before = len(queue)
+    if staged_within_seconds is None:
+        kept: list = []
+    else:
+        cutoff = _dt.now(_tz.utc).timestamp() - staged_within_seconds
+        kept = []
+        for note in queue:
+            try:
+                staged = _dt.fromisoformat(note.get("staged_at", "").replace("Z", "+00:00"))
+                if staged.timestamp() < cutoff:
+                    kept.append(note)
+            except Exception:
+                kept.append(note)
+    await rs.set_json(key, kept, ex=90 * 86400)
+    return {"removed": before - len(kept), "remaining": len(kept), "before": before}
+
+
 @router.get("/metrics/grounded_rate")
 async def metrics_grounded_rate_ep(days: int = 14):
     """Return the grounded-rate baseline + a time-series over the last

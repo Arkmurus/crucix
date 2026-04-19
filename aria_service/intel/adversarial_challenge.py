@@ -711,6 +711,33 @@ async def run_weekly(
         "results": cleaned,
     }
 
+    # ── Invalid-run guard ──────────────────────────────────────────────
+    # When the LLM is billing-cooled / unavailable, every attack returns
+    # an empty response, which the gate scores as fail (broke_at_turn
+    # never matches must_break_at_turn). Production 04-19 06:00 UTC ran
+    # exactly this scenario — recorded a meaningless 0% baseline AND
+    # staged 11 false clause-amendments from empty responses.
+    # Detect: every result's `responses` list is empty strings only.
+    # Action: skip persist + skip staging + return marked summary so
+    # caller knows to re-run when the LLM is back.
+    def _all_responses_empty(results_: list[dict]) -> bool:
+        for r in results_:
+            for resp in r.get("responses", []):
+                if (resp or "").strip():
+                    return False
+        return True
+
+    if cleaned and _all_responses_empty(cleaned):
+        logger.warning(
+            "adversarial_weekly: all %d attack responses are empty — "
+            "LLM is degraded. Skipping persist + staging to protect the "
+            "historical baseline and the amendments queue.",
+            len(cleaned),
+        )
+        summary["invalid"] = True
+        summary["invalid_reason"] = "llm_degraded_empty_responses"
+        return summary
+
     # ── Persist ────────────────────────────────────────────────────────
     try:
         from . import redis_store as rs
