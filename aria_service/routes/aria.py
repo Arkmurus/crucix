@@ -7069,6 +7069,105 @@ If no data exists for a section, note it as "No updates — monitoring continues
     }
 
 
+# 48c. POST /api/aria/meeting-notes/process — Extract structured actions from pasted notes
+@router.post("/meeting-notes/process")
+async def meeting_notes_process_ep(request: Request):
+    """Extract structured actions + compliance flags from pasted meeting notes.
+
+    Input:
+      {
+        "notes":         str (required)  - pasted prose from chat or email
+        "meeting_label": str (optional)  - 'TRB intro call 2026-04-20' etc.
+        "source":        str (optional)  - 'chat' | 'email' | 'api'. Default 'chat'.
+        "format":        'markdown' | 'json' (optional). Default 'json'.
+      }
+
+    Output:
+      JSON from meeting_notes.process(), or rendered Markdown.
+
+    Each extracted action is recorded to pending_actions (the Clause 18
+    approval queue) with source='meeting_notes' and a notes_hash in
+    metadata. Idempotency: the same notes text hashed identically returns
+    the existing result without re-creating actions.
+    """
+    body = await request.json()
+    notes = body.get("notes") or ""
+    if not notes or not isinstance(notes, str):
+        raise HTTPException(status_code=400, detail="notes required (non-empty string)")
+
+    meeting_label = (body.get("meeting_label") or "Meeting notes").strip()[:120]
+    source = (body.get("source") or "chat").strip().lower()[:20]
+    fmt = (body.get("format") or "json").strip().lower()
+
+    llm = get_llm(request)
+    # LLM is optional — meeting_notes.process handles the not-configured case
+    # by returning a degraded extraction with empty lists.
+
+    # Operator identity (best-effort)
+    user_id = (body.get("user_id") or request.headers.get("x-user-id") or "")[:80]
+    chat_id = (body.get("chat_id") or request.headers.get("x-chat-id") or "")[:80]
+
+    from ..intel import meeting_notes as mn
+    result = await mn.process(
+        notes,
+        meeting_label=meeting_label,
+        llm=llm,
+        source=source,
+        user_id=user_id,
+        chat_id=chat_id,
+    )
+
+    if fmt == "markdown":
+        return Response(content=mn.render_markdown(result), media_type="text/markdown")
+    return result
+
+
+# 48b. POST /api/aria/reports/precall-brief — Compact pre-call brief for a counterparty
+@router.post("/reports/precall-brief")
+async def precall_brief_ep(request: Request):
+    """Produce a compact pre-call counterparty brief.
+
+    Input:
+      {
+        "name":          str (required)  - counterparty entity name
+        "jurisdiction":  str (optional)  - ISO2 / ISO3 / common country name
+        "context_query": str (optional)  - free-text context (defaults to name)
+        "format":        "markdown" | "json" (optional, default "json")
+        "threshold":     float (optional, default 0.78) - sanctions match threshold
+      }
+
+    Composes: sanctions.fuzzy_screen + regional knowledge + broker-register
+    context. This is the ONLY briefing endpoint that proactively screens
+    sanctions for a specific counterparty — compliance-brief is org-wide
+    digest, entity-investigation is the heavyweight DD report.
+    """
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    name = re.sub(r"[^a-zA-Z0-9\s\-'.&]", "", name)[:120]
+
+    jurisdiction = (body.get("jurisdiction") or "").strip() or None
+    context_query = (body.get("context_query") or "").strip() or None
+    fmt = (body.get("format") or "json").strip().lower()
+    try:
+        threshold = float(body.get("threshold", 0.78))
+    except (TypeError, ValueError):
+        threshold = 0.78
+
+    from ..intel import precall_brief as pcb
+    brief = await pcb.build(
+        name,
+        jurisdiction=jurisdiction,
+        context_query=context_query,
+        sanctions_threshold=threshold,
+    )
+
+    if fmt == "markdown":
+        return Response(content=pcb.render_markdown(brief), media_type="text/markdown")
+    return brief
+
+
 # 49. POST /api/aria/reports/entity-investigation — Deep investigation report on an entity
 @router.post("/reports/entity-investigation")
 async def entity_investigation_ep(request: Request):
