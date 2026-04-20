@@ -2425,6 +2425,15 @@ def _detect_tool_intent(message: str) -> dict | None:
     # Find URLs / domains
     url_match = _URL_RE.search(msg)
     url = url_match.group(0) if url_match else None
+    if url:
+        # Strip trailing sentence punctuation that the URL regex greedily
+        # captures. `_URL_RE` stops at whitespace / angle-brackets only,
+        # so "https://example.com," (user typed a comma right after the
+        # URL in prose) comes back with the comma attached and every
+        # downstream fetch fails with a DNS error. Live incident
+        # 2026-04-20 08:18 UTC — GSA URL included a trailing comma,
+        # deep_research could not extract anything from the primary URL.
+        url = url.rstrip(",.;:!?\")]}>'\u00bb\u201d")
     if not url:
         dom = _DOMAIN_RE.search(msg)
         if dom:

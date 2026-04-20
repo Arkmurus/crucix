@@ -493,6 +493,31 @@ def test_intent_detector_handles_generic_placeholder_with_url():
     assert "modirum" in intent3["entity"].lower()
 
 
+def test_intent_detector_strips_url_trailing_punctuation():
+    """Live incident 2026-04-20 08:18 UTC — user typed a URL followed by
+    a comma in prose: 'Aria, ... https://www.globalsecuralliance.com, a
+    prominent security entity ...'. _URL_RE greedily captured the comma
+    as part of the URL and every downstream fetch failed with a DNS
+    error ('www.globalsecuralliance.com,' is not a valid hostname).
+    Fix: strip trailing sentence punctuation after the URL regex match."""
+    from aria_service.routes.aria import _detect_tool_intent
+    for suffix in [",", ".", ";", ":", "!", "?", ")", '"']:
+        msg = (
+            f"Aria, investigate https://example.com{suffix} a prominent "
+            "company with offices across countries."
+        )
+        i = _detect_tool_intent(msg)
+        assert i is not None
+        assert i.get("url") == "https://example.com", (
+            f"URL not stripped for suffix {suffix!r}: {i.get('url')!r}"
+        )
+    # Nested: multiple trailing chars
+    i2 = _detect_tool_intent("Aria, investigate https://example.com,?")
+    assert i2.get("url") == "https://example.com", (
+        f"multi-suffix URL not stripped: {i2.get('url')!r}"
+    )
+
+
 def test_intent_detector_rejects_conversational_entity_noise():
     """Past incident 2026-04-20 — GSA / Global Secur Alliance: user asked
     'Aria, Arkmurus, we are part of https://www.globalsecuralliance.com,
