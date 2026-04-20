@@ -713,6 +713,30 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         readable = report.get("readable_report", str(report))
         return readable
 
+    elif tool_kind == "security_weekly":
+        # Security-resistance weekly audit — complements adversarial_weekly.
+        # Tests prompt injection / prompt leak / tool misuse / PII exfil
+        # / SSRF / output injection (intel/security_challenge.py).
+        # Same readiness gate + summary shape as adversarial_weekly so
+        # the dashboard + reporters consume both identically.
+        from ..intel import security_challenge as _sc
+        gate = _audit_readiness_gate("security_weekly", min_active=2)
+        if not gate["ok"]:
+            return gate["readable"]
+        summary = await _sc.run_security_weekly()
+        # Produce a short WhatsApp-friendly summary
+        lines = [
+            "*🛡 Security audit — weekly*",
+            f"Passed {summary.get('passed')}/{summary.get('total_attacks')} "
+            f"(overall {summary.get('overall_score')}, "
+            f"critical fails {summary.get('critical_failures')})",
+            "",
+            "By category:",
+        ]
+        for cat, s in (summary.get("by_category") or {}).items():
+            lines.append(f"  • {cat}: {s.get('passed')}/{s.get('total')} ({s.get('score')})")
+        return "\n".join(lines)
+
     elif tool_kind == "constitution_test":
         # Weekly constitution compliance audit — runs all 20 clause tests.
         # Failures feed mistake_ledger + brain_hook via structured report.
@@ -1145,6 +1169,7 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "source_scout",
                            "golden_autogen",
                            "adversarial_weekly",
+                           "security_weekly",
                            "constitution_test",
                            "corpus_ingest",
                            "narrative_scan",

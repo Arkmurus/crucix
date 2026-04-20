@@ -152,6 +152,9 @@ CORE_MODULES = [
     # 2026-04-20 forward roadmap — academic APIs + output harvester
     "aria_service.intel.sources.academic",
     "aria_service.learning.output_harvester",
+    # 2026-04-20 security sprint — SSRF guard + security adversarial suite
+    "aria_service.intel.url_safety",
+    "aria_service.intel.security_challenge",
 ]
 
 

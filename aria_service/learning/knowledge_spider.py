@@ -232,7 +232,15 @@ def _normalise_url(url: str) -> str | None:
 
 
 async def _fetch(url: str, client: httpx.AsyncClient) -> str | None:
-    """Fetch a URL, return extracted plain text (or None)."""
+    """Fetch a URL, return extracted plain text (or None). SSRF guard
+    runs before the HTTP call — see intel/url_safety.py for the
+    blocked-destination list (loopback, RFC1918, fly-private, internal
+    TLDs, credential URLs)."""
+    from ..intel.url_safety import is_safe_url
+    ok, reason = is_safe_url(url)
+    if not ok:
+        logger.warning("[spider] refusing unsafe URL fetch: %s (%s)", url, reason)
+        return None
     try:
         resp = await client.get(
             url,

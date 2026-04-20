@@ -1607,6 +1607,20 @@ async def extract_url_deep(url: str, max_pages: int = 5, timeout: float = 15.0) 
     showing every URL that contributed to the result.
     """
     t0 = time.time()
+    # SSRF guard — refuse loopback / RFC1918 / fly-private / internal TLDs
+    # before any fetch. See intel/url_safety.py. Applied here at the
+    # top-level deep-extraction entry so one guard covers the homepage,
+    # the re-fetch for raw HTML (line ~1627), and the derived
+    # internal-link crawl later.
+    from .url_safety import is_safe_url as _safe_url
+    _ok, _reason = _safe_url(url)
+    if not _ok:
+        logger.warning("extract_url_deep blocked unsafe URL %r: %s", url, _reason)
+        return {
+            "ok": False, "url": url, "error": f"blocked_unsafe_url:{_reason}",
+            "pages_fetched": [], "deep_mode": True,
+        }
+
     # Step 1: fetch the homepage and extract structured content
     homepage = await extract_url_text(url, timeout=timeout)
     if not homepage.get("extraction_ok"):
@@ -1795,6 +1809,15 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
     url = sanitise_url(url)
     if not url:
         return {"url": url, "extraction_ok": False, "error": "invalid url", "text": ""}
+
+    # SSRF guard — see url_safety.py. Applied AFTER sanitise_url
+    # (which handles URL-encoding / normalisation) and BEFORE any fetch.
+    from .url_safety import is_safe_url as _safe_url
+    _ok, _reason = _safe_url(url)
+    if not _ok:
+        logger.warning("extract_url_text blocked unsafe URL %r: %s", url, _reason)
+        return {"url": url, "extraction_ok": False,
+                "error": f"blocked_unsafe_url:{_reason}", "text": ""}
 
     t0 = time.time()
     html = ""

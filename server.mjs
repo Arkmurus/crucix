@@ -2963,8 +2963,37 @@ app.post('/api/auth/register', async (req, res) => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email address' });
     if (!password || password.length < 8)  return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
-    if (findUserByEmail(email)) return res.status(409).json({ error: 'Email already registered' });
-    if (findUserByUsername(username)) return res.status(409).json({ error: 'Username already taken' });
+    // Anti-enumeration: return the SAME response whether the email/username
+    // exists or not, so an attacker can't probe for account existence via
+    // HTTP status code. Pre-2026-04-20 this returned 409 with a distinct
+    // message on duplicates. Now the server silently no-ops on collision
+    // but sends a "someone tried to register with your email" notification
+    // (when SMTP is configured) so the legitimate owner gets a signal.
+    // Adds a synthetic delay to match the real-register timing budget.
+    const emailExists = !!findUserByEmail(email);
+    const usernameExists = !!findUserByUsername(username);
+    if (emailExists || usernameExists) {
+      console.log(`[Auth] Register attempt for existing ${emailExists ? 'email' : 'username'}: ${email} / ${username} — responding with generic success to prevent enumeration`);
+      // Optional: if SMTP is configured and the email exists, email the
+      // legitimate owner. This is the security-best-practice flow.
+      if (emailExists && process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+        try {
+          const { sendEmail } = await import('./lib/auth/email.mjs');
+          await sendEmail(email, 'Someone tried to register with your email',
+            `Someone just tried to create a new Arkmurus account using your email address. ` +
+            `You already have an account — if this was you, use the login or password-reset ` +
+            `flow instead. If it wasn't you, no action is needed; no new account was created.`
+          ).catch(() => {});
+        } catch {}
+      }
+      // Synthetic jitter to blunt timing side-channels
+      await new Promise(r => setTimeout(r, 80 + Math.random() * 60));
+      return res.json({
+        message: 'Account created. Your registration is awaiting admin approval — you will be notified once activated.',
+        needsVerification: false,
+        email,
+      });
+    }
 
     const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
 

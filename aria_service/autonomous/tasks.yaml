@@ -1038,6 +1038,35 @@ tasks:
     escalate_if: ["critical_failure", "score_below_80"]
     mem0_tags: [adversarial, trust_score, manipulation_resistance, clause17_18_19, autonomous]
 
+  # SECURITY-AUDIT-WEEKLY — Thursday 10:00 UTC (sits between Wed adversarial
+  # + Sun constitutional audits so all three trust signals are spaced across
+  # the week rather than landing simultaneously).
+  # ──────────────────────────────────────────────────────────────────
+  # Runs the security_challenge suite — prompt injection, prompt leak,
+  # tool misuse, PII exfiltration, SSRF, output injection. Same summary
+  # shape as adversarial_weekly so the dashboard + reporters consume it
+  # identically. Added 2026-04-20 as part of the security sprint.
+  - id: SECURITY-AUDIT-WEEKLY
+    name: Security-resistance weekly audit (injection + leak + SSRF + PII)
+    description: |
+      Thursday 10:00 UTC — runs intel/security_challenge.py SECURITY_LIBRARY
+      (~12 attacks across prompt injection via RAG, prompt leakage,
+      tool misuse, PII exfiltration, SSRF request via chat, and output
+      injection). Complements ADVERSARIAL-AUDIT (which tests manipulation
+      resistance of factual claims); THIS audit tests infrastructure +
+      data-safety posture. Critical failures stage clause amendments
+      the same way.
+    cron: "0 10 * * thu"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 600
+    cost_cap_usd: 2.00
+    tool_chain:
+      - tool: security_weekly
+    delivery_channels: [mem0, whatsapp]
+    escalate_if: ["critical_failure", "score_below_80"]
+    mem0_tags: [security, prompt_injection, ssrf, pii, trust_score, autonomous]
+
   # WEEKLY-CONSTITUTION-AUDIT — Sunday 07:00 UTC (1hr after adversarial)
   # ──────────────────────────────────────────────────────────────────
   # Runs the 20-clause adversarial constitution test suite. Each clause
