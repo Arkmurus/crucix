@@ -390,6 +390,45 @@ async def list_invalidated() -> list[dict]:
     return out
 
 
+async def _get_entry_healing(mistake_id: str) -> Optional[dict]:
+    """Read a mistake entry by id. If the by_id mirror is missing (older
+    pre-Q1-2026 entries or Redis-evicted mirrors), fall back to scanning
+    _KEY_LOG and *heal the mirror* by writing by_id back. Subsequent reads
+    then hit the fast by_id path directly.
+
+    Audit 2026-04-19 surfaced 11 entries present in _KEY_LOG but absent
+    from _KEY_BY_ID — without this fallback mark_prevented() reported
+    "not found" and the predictor's prevented_count never incremented
+    for the oldest (and most informative) mistakes.
+    """
+    from . import redis_store as rs
+    entry = await rs.get_json(_KEY_BY_ID.format(mid=mistake_id))
+    if entry:
+        return entry
+    # Log-scan fallback
+    try:
+        raw = await rs.lrange(_KEY_LOG, 0, 1000)
+    except Exception:
+        return None
+    for r in raw:
+        try:
+            e = json.loads(r) if isinstance(r, str) else r
+        except Exception:
+            continue
+        if e.get("mistake_id") == mistake_id:
+            # Heal — persist to by_id so next lookup is fast
+            try:
+                await rs.set_json(_KEY_BY_ID.format(mid=mistake_id), e)
+                logger.info(
+                    "mistake_ledger: healed missing by_id mirror for %s (found in log)",
+                    mistake_id,
+                )
+            except Exception as heal_err:
+                logger.debug("mistake_ledger: heal-write failed for %s: %s", mistake_id, heal_err)
+            return e
+    return None
+
+
 async def mark_prevented(mistake_id: str, prevented_by: str, context: str = "") -> dict:
     """When the predictor surfaces a past mistake and the new task avoids
     it, increment the prevented_count. This is the single most important
@@ -399,7 +438,7 @@ async def mark_prevented(mistake_id: str, prevented_by: str, context: str = "") 
     signal so the rollup can report 'mistakes prevented this week'.
     """
     from . import redis_store as rs
-    entry = await rs.get_json(_KEY_BY_ID.format(mid=mistake_id))
+    entry = await _get_entry_healing(mistake_id)
     if not entry:
         return {"ok": False, "reason": "mistake_id not found"}
     entry["prevented_count"] = int(entry.get("prevented_count", 0)) + 1

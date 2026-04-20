@@ -41,15 +41,16 @@ logger = logging.getLogger("aria.web_search")
 # ── Configuration ───────────────────────────────────────────────────────────
 
 BRAVE_API_KEY = (os.getenv("BRAVE_SEARCH_API_KEY") or os.getenv("BRAVE_API_KEY") or "").strip()
-SEARXNG_INSTANCES = [
-    # Updated 2026-04-17 — previous instances (searx.be, search.mdosch.de,
-    # paulgo.io) returning 403/429. Replaced with instances from searx.space
-    # that have JSON API enabled. Re-check quarterly at https://searx.space/
-    "https://search.sapti.me",
-    "https://searxng.world",
-    "https://search.bus-hit.me",
-    "https://searx.tiekoetter.com",
-    "https://search.ononoki.org",
+SEARXNG_INSTANCES: list[str] = [
+    # Removed 2026-04-20 — all 5 previously-listed public instances
+    # (search.sapti.me, searxng.world, search.bus-hit.me, searx.tiekoetter.com,
+    # search.ononoki.org) were sitting in circuit_breaker.open permanently,
+    # polluting the open-circuit-breakers metric. Per the 2026-04-19 audit
+    # triage: Brave is primary and the academic-API direct integrations
+    # (Semantic Scholar / OpenAlex / CrossRef) capture the fallback value.
+    # SearXNG self-host is deferred; re-populate this list or gate the
+    # backend behind an env flag if it ever comes back. `_search_searxng`
+    # returns [] safely when this list is empty.
 ]
 REQUEST_TIMEOUT = 12.0
 MAX_RESULTS_PER_BACKEND = 15

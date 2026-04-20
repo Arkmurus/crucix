@@ -1716,7 +1716,11 @@ def test_adversarial_weekly_task_enabled_and_wired():
         "trust-measurement backbone; a platform without it cannot "
         "know its own manipulation resistance"
     )
-    assert task.cron == "0 6 * * wed,sun"
+    # Cron moved from 06:00 → 10:00 UTC so the LLM readiness gate has
+    # a full working-hours window to see ≥2 active providers before the
+    # run fires (2026-04-19 audit fix — the 06:00 run caught all 3 providers
+    # billing-cooled overnight and recorded a false 0% baseline).
+    assert task.cron == "0 10 * * wed,sun"
     assert task.cost_cap_usd >= 1.0
     assert "adversarial_weekly" in str(task.tool_chain)
 
