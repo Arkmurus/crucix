@@ -145,6 +145,10 @@ CORE_MODULES = [
     "aria_service.intel.golden_autogen",
     # Adversarial challenge engine — manipulation resistance
     "aria_service.intel.adversarial_challenge",
+    # 2026-04-20 audit follow-ups — modules that used to be missing
+    "aria_service.intel.mem0_notebook",
+    "aria_service.integrations",
+    "aria_service.integrations.airtable_sync",
 ]
 
 
