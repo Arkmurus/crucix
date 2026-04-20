@@ -172,21 +172,66 @@ def _build_opportunity_name(
     product: Optional[str],
     prime: Optional[str],
     url: Optional[str],
+    alert_text: str = "",
 ) -> str:
-    parts: list[str] = []
-    if country:
-        parts.append(country)
+    """Build a distinguishing Pipeline name. Priority order:
+      1. "<country> — <product>"    when both known (strongest signal)
+      2. "<country> — <prime>"       when country + prime but no product
+      3. "<country> — <short descriptor from title>"   when no prime/product
+         but we have some alert text (prevents same-country alerts from
+         colliding on a single Pipeline row — live incident 2026-04-20
+         when two Mozambique signals both named "Mozambique")
+      4. "<prime> — <product>"      when country unknown
+      5. URL host fallback / "Unnamed intel lead"
+    """
+    prime_title = prime.title() if prime else ""
+    if country and product:
+        return f"{country} — {product}"[:280]
+    if country and prime:
+        return f"{country} — {prime_title}"[:280]
+    if product and prime:
+        return f"{prime_title} {product}"[:280]
     if product:
-        parts.append(product)
-    if prime and not product:
-        parts.append(prime.title())
-    if not parts:
-        # Fall back to URL-host extraction or "Unnamed"
-        if url:
-            host = re.sub(r"^https?://(www\.)?", "", url).split("/", 1)[0]
-            parts.append(host)
-    base = " — ".join(parts) if parts else "Unnamed intel lead"
-    return base[:280]
+        return product[:280]
+    if prime:
+        return f"{prime_title} lead"[:280]
+    # No prime/product — try to tease a short descriptor out of the
+    # alert text so country-only names don't collide.
+    if country:
+        descriptor = _title_descriptor(alert_text, country)
+        if descriptor:
+            return f"{country} — {descriptor}"[:280]
+        return f"{country} — intel signal"[:280]
+    # No country either — URL host / "Unnamed"
+    if url:
+        host = re.sub(r"^https?://(www\.)?", "", url).split("/", 1)[0]
+        return host[:280]
+    return "Unnamed intel lead"
+
+
+def _title_descriptor(alert_text: str, country: str) -> str:
+    """Best-effort short descriptor from the alert title/text that ISN'T
+    just the country name repeated. Used only when prime + product are
+    both unknown. Never raises."""
+    if not alert_text:
+        return ""
+    # Take first sentence (up to first . ! ? or newline)
+    first = re.split(r"[.!?\n]", alert_text, maxsplit=1)[0].strip()
+    # Strip the bit before the first colon if there is one ("Lusophone
+    # Africa: Mozambique looks to China..." → "Mozambique looks to China...")
+    if ":" in first and len(first.split(":", 1)[1].strip()) >= 8:
+        first = first.split(":", 1)[1].strip()
+    # Remove the country name so we don't end up with
+    # "Mozambique — Mozambique looks to ..." — redundant
+    first = re.sub(
+        rf"^\s*{re.escape(country)}\s+", "", first, flags=re.IGNORECASE,
+    ).strip()
+    # Hard cap — opportunity names should be readable on a glance
+    first = first[:80].rstrip(" .,;:-")
+    # Guard against the descriptor being just the country name
+    if first.lower() == country.lower():
+        return ""
+    return first
 
 
 def _build_markdown_brief(
@@ -268,7 +313,7 @@ async def convert(
         except Exception as e:
             logger.debug("prime_sub_map lookup failed: %s", e)
 
-    opp_name = _build_opportunity_name(country, product, prime, url)
+    opp_name = _build_opportunity_name(country, product, prime, url, alert_text=text)
     brief = _build_markdown_brief(
         opp_name=opp_name,
         prime=prime, product=product, country=country,

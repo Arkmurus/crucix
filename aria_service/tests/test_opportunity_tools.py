@@ -138,6 +138,33 @@ def test_opportunity_convert_builds_readable_brief():
     assert "Arkmurus-credible sub-contractor angles" in md
 
 
+def test_opportunity_convert_distinct_names_on_country_only():
+    """Regression 2026-04-20 live: two different Mozambique alerts both
+    produced opportunity_name='Mozambique' when no prime/product was
+    detected. Pipeline rows collided on the name. Fix: use a title
+    descriptor from the alert text as the secondary discriminator."""
+    from aria_service.intel import opportunity_converter as oc
+    os.environ["AIRTABLE_SYNC_ENABLED"] = "0"
+    try:
+        r1 = asyncio.run(oc.convert({
+            "title": "Lusophone Africa: Great Lakes Security Sanctioning Rwanda",
+            "text":  "Rwanda sanctions risk undermining Mozambique stability",
+            "url":   "https://example.com/rwanda",
+        }, country_hint="Mozambique"))
+        r2 = asyncio.run(oc.convert({
+            "title": "Lusophone Africa: Mozambique looks to China for industrial boost",
+            "text":  "Chinese industrial investment",
+            "url":   "https://example.com/china",
+        }, country_hint="Mozambique"))
+    finally:
+        os.environ.pop("AIRTABLE_SYNC_ENABLED", None)
+    assert r1["opportunity_name"] != r2["opportunity_name"], (
+        f"Same name for different alerts: {r1['opportunity_name']!r} vs {r2['opportunity_name']!r}"
+    )
+    assert "Mozambique" in r1["opportunity_name"]
+    assert "Mozambique" in r2["opportunity_name"]
+
+
 def test_opportunity_convert_empty_returns_error():
     from aria_service.intel import opportunity_converter as oc
     r = asyncio.run(oc.convert(""))
