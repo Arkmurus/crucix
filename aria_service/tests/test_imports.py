@@ -493,6 +493,65 @@ def test_intent_detector_handles_generic_placeholder_with_url():
     assert "modirum" in intent3["entity"].lower()
 
 
+def test_intent_detector_rejects_conversational_entity_noise():
+    """Past incident 2026-04-20 — GSA / Global Secur Alliance: user asked
+    'Aria, Arkmurus, we are part of https://www.globalsecuralliance.com,
+    a prominent security entity with offices across different countries
+    and cities, some of which have wide networks. Research the companies
+    involved in GSA, so you can map out how we can utilise this network
+    to achieve more.'
+
+    The verb strip removed 'research' but left the whole chatty framing
+    ('Arkmurus, we are part of ... some of which ...') as the entity.
+    Brave matched 'Arkmurus' (the first capitalised word) and returned
+    Arkmurus self-data — the tool call was wasted on a garbage query.
+    Fix: a conversational-noise detector falls back to the URL hostname
+    when the extracted entity has multi-clause prose markers, too many
+    commas, or is too long."""
+    from aria_service.routes.aria import _detect_tool_intent
+
+    intent = _detect_tool_intent(
+        "Aria, Arkmurus, we are part of https://www.globalsecuralliance.com, "
+        "a prominent security entity with offices across different countries "
+        "and cities, some of which have wide networks. Research the companies "
+        "involved in GSA, so you can map out how we can utilise this network "
+        "to achieve more."
+    )
+    assert intent is not None, "failed to detect investigate intent"
+    assert intent["tool"] == "deep_research"
+    entity = intent["entity"].lower()
+    # The entity must be derived from the URL host, NOT the conversational text.
+    assert "globalsecur" in entity or "global secur" in entity, (
+        f"entity must come from URL hostname; got: {intent['entity']!r}"
+    )
+    # Must NOT contain the prior entity "Arkmurus" (which was the bug).
+    assert "arkmurus" not in entity, (
+        f"entity incorrectly contains 'arkmurus' from conversational prose: {intent['entity']!r}"
+    )
+    # Must NOT contain conversational filler.
+    assert "we are" not in entity
+    assert "prominent" not in entity
+    assert "some of which" not in entity
+
+    # Other conversational-noise shapes that previously leaked through:
+    for polluted in [
+        "Aria, investigate https://example.com, a company which we have partnered with since 2022",
+        "Aria, research https://acme.io, a prominent security firm with offices in 5 countries",
+        "Aria, look into Widget Co at https://widget-co.com, it is a company that we are trying to evaluate",
+    ]:
+        i = _detect_tool_intent(polluted)
+        assert i is not None, f"failed to route: {polluted!r}"
+        assert i["tool"] == "deep_research"
+        ent = i["entity"].lower()
+        # All should fall back to hostname-derived terms
+        assert any(k in ent for k in ("example", "acme", "widget")), (
+            f"entity for {polluted!r} not hostname-derived: {i['entity']!r}"
+        )
+        # None should contain conversational filler
+        assert "we have" not in ent
+        assert "prominent" not in ent
+
+
 def test_intent_detector_handles_noun_form_investigation():
     """Past incident 2026-04-09 19:38 — DUMA Engineering second probe:
     user said 'Aria, investigation https://duma-engineering.com?' (noun

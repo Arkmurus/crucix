@@ -2624,12 +2624,74 @@ def _detect_tool_intent(message: str) -> dict | None:
             "the entity", "this people", "the people", "people",
             "this business", "the business",
         }
-        if entity.lower().strip() in _GENERIC_PLACEHOLDERS or len(entity.strip()) < 3:
+
+        # Past incident 2026-04-20 — GSA / Global Secur Alliance: user
+        # said "Aria, Arkmurus, we are part of <URL>, a prominent security
+        # entity with offices across different countries and cities, some
+        # of which have wide networks. Research the companies involved in
+        # GSA". The verb regex stripped "research" but the rest of the
+        # chatty framing ("Arkmurus, we are part of ... prominent entity
+        # with offices ... some of which ...") survived and ended up as
+        # the entity. Brave saw the first capitalised term ("Arkmurus")
+        # and returned Arkmurus self-data instead of GSA data — an entire
+        # tool call wasted on a garbage query. The fix: detect
+        # conversational-noise entities (too long, multiple clauses,
+        # filler phrases) and fall back to the URL hostname, same as the
+        # GENERIC_PLACEHOLDERS branch above. Clause 19 (search doctrine):
+        # targeted queries, not raw chat text.
+        def _looks_conversational(s: str) -> bool:
+            if not s:
+                return True
+            low = " " + s.lower() + " "
+            # Multi-clause markers common in English prose but rare in
+            # legitimate entity names (Corp/Ltd names don't have these).
+            _NOISE_PHRASES = (
+                " we are ", " we have ", " we do ", " we're ",
+                " which have ", " which are ", " some of which ",
+                " so you ", " so we ", " so i ",
+                " that we ", " that you ", " that i ",
+                " such as ", " part of ",
+                " is a ", " is an ",
+                " you can ", " can you ",
+                # Descriptor prose: "a prominent X", "a leading X" etc.
+                # Real names don't start with "a prominent" — that's a
+                # company description, not the name itself.
+                " prominent ", " leading ", " renowned ",
+                " well-known ", " well known ",
+                " established ", " premier ",
+                # Location / structure descriptors
+                " with offices ", " based in ", " headquartered ",
+                " founded in ", " operating in ", " active in ",
+                " specialised in ", " specialized in ",
+                " listed on ", " headquartered in ",
+            )
+            if any(p in low for p in _NOISE_PHRASES):
+                return True
+            # Very long = almost certainly multiple sentences or clauses.
+            # Real entity names are <= ~60 chars (even "International
+            # Business Machines Corporation" is 45).
+            if len(s) > 80:
+                return True
+            # ≥ 2 commas = list/prose, not a clean name.
+            if s.count(",") >= 2:
+                return True
+            # > 10 words = likely a sentence, not a name.
+            if len(s.split()) > 10:
+                return True
+            return False
+
+        entity_needs_fallback = (
+            entity.lower().strip() in _GENERIC_PLACEHOLDERS
+            or len(entity.strip()) < 3
+            or _looks_conversational(entity)
+        )
+        if entity_needs_fallback:
             try:
                 from urllib.parse import urlparse as _up
                 host = _up(url).netloc.lower().replace("www.", "")
                 # Use the second-level domain as the entity name
-                # (e.g. duma-engineering.com → duma-engineering)
+                # (e.g. duma-engineering.com → duma-engineering,
+                # globalsecuralliance.com → globalsecuralliance).
                 entity = host.split(".")[0] if host else url
                 # Replace hyphens with spaces for nicer search queries
                 entity = entity.replace("-", " ").replace("_", " ").strip()
