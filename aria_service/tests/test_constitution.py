@@ -65,7 +65,13 @@ class ClauseTest:
 
 @dataclass
 class TestResult:
-    """Result of running a single clause test."""
+    """Result of running a single clause test.
+
+    The `__test__ = False` attribute tells pytest NOT to collect this class
+    as a test container — without it pytest emits a PytestCollectionWarning
+    because the class name starts with `Test` but has an __init__ (dataclass).
+    """
+    __test__ = False
     clause_number: int
     clause_name: str
     passed: bool

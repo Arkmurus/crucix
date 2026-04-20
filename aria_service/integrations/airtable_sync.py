@@ -1,39 +1,51 @@
 """Airtable one-way sync — pending_actions -> ARKMURUS / Task Register.
 
-Hook wiring
-───────────
-Calls `sync_record()` fire-and-forget from pending_actions on every
-record / mark_satisfied / mark_cancelled. Upsert by Action ID so retries
-are idempotent and the same action_id never creates a duplicate row.
+Wiring
+──────
+pending_actions.record() / _mark_status() call sync_record(entry)
+fire-and-forget. The upsert key is the Action ID, so retries and status
+transitions update the same row rather than duplicating it.
 
-Configuration
-─────────────
-  AIRTABLE_PAT        — Personal Access Token. Required; integration
-                        is a silent no-op if missing (keeps local dev
-                        from hard-failing).
-  AIRTABLE_BASE_ID    — default "appq2TB9F6NRxAB8f" (ARKMURUS).
-  AIRTABLE_TASK_TABLE — default "Task Register". Can be flipped to
-                        "Housekeeping" or any other existing table.
-  AIRTABLE_SYNC_ENABLED — "0" disables the sync entirely (killswitch
-                        for when Airtable is rate-limited / unreachable).
+Configuration (all via env vars / fly secrets)
+──────────────────────────────────────────────
+  AIRTABLE_PAT          Personal Access Token. Required. The sync is a
+                        silent no-op if missing so local dev doesn't
+                        hard-fail. Scopes needed: data.records:read,
+                        data.records:write, schema.bases:read (plus
+                        schema.bases:write only if ever auto-creating
+                        tables — the runtime path doesn't need it).
+  AIRTABLE_BASE_ID      Default "appq2TB9F6NRxAB8f" (ARKMURUS base).
+  AIRTABLE_TASK_TABLE   Default "Task Register". Can be repointed at
+                        any existing table without code changes.
+  AIRTABLE_FIELD_MAP    "full"   (default) — 11-field Task Register
+                                 schema, PATCH-upsert on Action ID.
+                        "compact" — 2-field What/Notes shape, used
+                                 when pointing at an existing 3-column
+                                 table like Housekeeping. POSTs a new
+                                 row per call (no upsert; the primary
+                                 key is packed inside the Notes blob).
+  AIRTABLE_SYNC_ENABLED "0" disables the whole sync (killswitch for
+                        when Airtable is rate-limiting or unreachable).
 
-Table schema expected (see schema setup note at bottom of file):
-  Action ID         : singleLineText (primary)
-  Promise           : multilineText
-  Severity          : singleSelect (LOW/MEDIUM/HIGH/CRITICAL)
-  Resolver Kind     : singleSelect
-  Resolver Ref      : singleLineText
-  Reason            : multilineText
-  Status            : singleSelect (open/satisfied/cancelled)
-  Source            : singleLineText
-  Operator Prompt   : multilineText
-  Recorded          : dateTime (ISO)
-  Satisfied At      : dateTime (ISO, may be empty)
+Task Register schema (full mode)
+────────────────────────────────
+  Action ID         singleLineText   (primary, upsert key)
+  Promise           multilineText
+  Severity          singleSelect     LOW / MEDIUM / HIGH / CRITICAL
+  Resolver Kind     singleSelect     autonomous_task / operator_action /
+                                     background_job / pure_promise
+  Resolver Ref      singleLineText
+  Reason            multilineText
+  Status            singleSelect     open / satisfied / cancelled
+  Source            singleLineText
+  Operator Prompt   multilineText
+  Recorded          dateTime (ISO UTC)
+  Satisfied At      dateTime (ISO UTC, may be empty)
 
-If the table doesn't exist yet, every call logs a warning and returns.
-Once the table is created (either manually in the Airtable UI or via the
-meta API with a PAT that has schema.bases:write scope), sync starts
-working automatically — no code change or redeploy needed.
+If the target table doesn't exist, sync_record returns
+{"ok": False, "reason": "table_not_found"} and logs a WARNING — callers
+never see an exception. The fix is either (a) create the table, or
+(b) set AIRTABLE_TASK_TABLE to an existing one + AIRTABLE_FIELD_MAP=compact.
 """
 from __future__ import annotations
 
@@ -228,15 +240,19 @@ async def sync_record(entry: dict) -> dict[str, Any]:
         )
         return {"ok": False, "reason": f"http_{resp.status_code}",
                 "http_status": resp.status_code, "body": resp.text[:200]}
-    return {"ok": True, "reason": "upserted", "http_status": resp.status_code}
+    reason = "created" if mode == _MODE_COMPACT else "upserted"
+    return {"ok": True, "reason": reason, "http_status": resp.status_code}
 
 
 async def sync_status_change(action_id: str, new_status: str,
                              satisfied_at: str | None = None,
                              satisfied_note: str = "") -> dict[str, Any]:
-    """Thin wrapper for mark_satisfied/mark_cancelled paths — keeps the
-    fields update small (no need to re-send the whole entry)."""
-    entry = {"action_id": action_id, "status": new_status}
+    """Minimal status-change variant for ad-hoc / operator use. Production
+    callers should prefer `sync_record(full_entry)` — it carries the
+    `promise` field that compact mode needs for the What column, and full
+    mode doesn't care either way. This wrapper exists for cases where the
+    caller genuinely only has the id + new status (e.g. scripts)."""
+    entry: dict[str, Any] = {"action_id": action_id, "status": new_status}
     if satisfied_at:
         entry["satisfied_at"] = satisfied_at
     if satisfied_note:
