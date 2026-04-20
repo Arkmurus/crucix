@@ -227,14 +227,13 @@ async def _mark_status(action_id: str, new_status: str, note: str) -> dict:
     await rs.set_json(key, entry)
     await rs.incr(_KEY_STATS + f":{new_status}")
     logger.info("[pending_actions] %s → %s (%s)", action_id, new_status, note[:60])
-    # Mirror the status change to Airtable (same contract as record()).
+    # Mirror the status change to Airtable — pass the FULL entry so that
+    # compact-mode (What/Notes Housekeeping target) still has the promise
+    # text available for the What field. Full-mode treats it as a normal
+    # upsert on Action ID.
     try:
         from ..integrations import airtable_sync as _as
-        await _as.sync_status_change(
-            action_id, new_status,
-            satisfied_at=entry["satisfied_at"],
-            satisfied_note=(note or "")[:300],
-        )
+        await _as.sync_record(entry)
     except Exception as e:
         logger.debug("pending_actions airtable status-change sync failed: %s", e)
     return {"ok": True, "entry": entry}

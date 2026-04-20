@@ -51,6 +51,15 @@ _DEFAULT_TABLE = "Task Register"
 _API_ROOT = "https://api.airtable.com/v0"
 _HTTP_TIMEOUT = 12.0
 
+# Field-map modes — some target tables don't have the full 11-field schema.
+# "full"    : the 11-field Task Register schema (default)
+# "compact" : two-field What/Notes schema — used when we're pointing at
+#             Housekeeping (What / Notes / Attachments) because the PAT
+#             lacked schema.bases:write scope at the time of rollout and
+#             we couldn't create the dedicated Task Register table.
+_MODE_FULL = "full"
+_MODE_COMPACT = "compact"
+
 
 def _is_enabled() -> tuple[bool, str]:
     """Returns (enabled, reason). Reason is empty if enabled."""
@@ -74,11 +83,64 @@ def _table_url() -> str:
     return f"{_API_ROOT}/{base}/{quote(table, safe='')}"
 
 
+def _field_map_mode() -> str:
+    """Which schema are we targeting? AIRTABLE_FIELD_MAP=compact flips
+    to the 2-field Housekeeping shape (What + Notes)."""
+    m = (os.getenv("AIRTABLE_FIELD_MAP", "") or "").strip().lower()
+    if m in (_MODE_COMPACT, "housekeeping"):
+        return _MODE_COMPACT
+    return _MODE_FULL
+
+
+def _compact_notes_block(entry: dict) -> str:
+    """Pack the 9 secondary fields (everything except the primary promise
+    string) into a single human-readable block for the Housekeeping.Notes
+    field. Field order is stable so Airtable's diff view is readable."""
+    lines: list[str] = []
+    kv = [
+        ("Action ID",       entry.get("action_id")),
+        ("Severity",        entry.get("severity")),
+        ("Status",          entry.get("status")),
+        ("Resolver Kind",   entry.get("resolver_kind")),
+        ("Resolver Ref",    entry.get("resolver_ref")),
+        ("Source",          entry.get("source")),
+        ("Recorded",        entry.get("ts")),
+        ("Satisfied At",    entry.get("satisfied_at")),
+    ]
+    for k, v in kv:
+        if v:
+            lines.append(f"{k}: {v}")
+    if entry.get("reason"):
+        lines.append("")
+        lines.append(f"Reason: {entry['reason']}")
+    if entry.get("operator_prompt"):
+        lines.append("")
+        lines.append(f"Operator Prompt: {entry['operator_prompt']}")
+    return "\n".join(lines)
+
+
 def _entry_to_fields(entry: dict) -> dict[str, Any]:
-    """Map a pending_actions entry onto the Task Register schema.
+    """Map a pending_actions entry onto the target table schema.
+
+    Full mode (AIRTABLE_FIELD_MAP=full, default): 11 fields, one per
+    pending_actions key. Requires the Task Register table to exist.
+
+    Compact mode (AIRTABLE_FIELD_MAP=compact): 2 fields — Promise →
+    What, and everything else → Notes as a formatted multi-line block.
+    Used when the target is Housekeeping or any existing 3-column table.
     Any field absent from the entry is just omitted (Airtable leaves
     the cell unchanged)."""
-    out: dict[str, Any] = {}
+    if _field_map_mode() == _MODE_COMPACT:
+        out: dict[str, Any] = {}
+        if entry.get("promise"):
+            out["What"] = entry["promise"]
+        notes = _compact_notes_block(entry)
+        if notes:
+            out["Notes"] = notes
+        return out
+
+    # full-mode 11-field map
+    out = {}
     if entry.get("action_id"):
         out["Action ID"] = entry["action_id"]
     if entry.get("promise"):
@@ -123,15 +185,29 @@ async def sync_record(entry: dict) -> dict[str, Any]:
         return {"ok": False, "reason": "empty_fields"}
 
     url = _table_url()
-    # Airtable's upsert contract: PATCH with performUpsert.fieldsToMergeOn
-    # matches on the specified key column and creates-if-missing.
-    payload = {
-        "performUpsert": {"fieldsToMergeOn": ["Action ID"]},
-        "records": [{"fields": fields}],
-    }
+    mode = _field_map_mode()
+    if mode == _MODE_COMPACT:
+        # Compact mode has no dedicated "Action ID" column to upsert on —
+        # Action ID is packed inside the Notes blob. So we POST a fresh
+        # row each call. Status changes become separate rows rather than
+        # overwrites; operator sees the progression. Acceptable because
+        # compact mode is a temporary fallback until the Task Register
+        # table exists with the full schema.
+        payload: dict[str, Any] = {"records": [{"fields": fields}]}
+        method = "POST"
+    else:
+        # Full mode — upsert by Action ID so retries are idempotent.
+        payload = {
+            "performUpsert": {"fieldsToMergeOn": ["Action ID"]},
+            "records": [{"fields": fields}],
+        }
+        method = "PATCH"
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-            resp = await client.patch(url, headers=_headers(), json=payload)
+            if method == "POST":
+                resp = await client.post(url, headers=_headers(), json=payload)
+            else:
+                resp = await client.patch(url, headers=_headers(), json=payload)
     except Exception as e:
         logger.warning("airtable sync network error for %s: %s", action_id, e)
         return {"ok": False, "reason": f"net:{type(e).__name__}"}
