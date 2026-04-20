@@ -41,6 +41,18 @@
 
   <div id="msg-bar" style="display:none"></div>
 
+  <!-- Ops utilities: one-click alerter tests (added 2026-04-20) -->
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
+    <button type="button" id="btn-test-telegram" class="action-btn"
+            style="border-color:rgba(0,136,204,0.35); color:#81d4fa;">
+      <i class="bi bi-telegram"></i> Test Telegram alerter
+    </button>
+    <button type="button" id="btn-test-email" class="action-btn"
+            style="border-color:rgba(56,142,60,0.35); color:#a5d6a7;">
+      <i class="bi bi-envelope"></i> Test Email alerter
+    </button>
+  </div>
+
   <div class="tab-btns" id="tab-btns">
     <button class="tab-btn active" data-tab="all">All Users <span class="sc-badge sc-badge-muted" id="cnt-all">0</span></button>
     <button class="tab-btn" data-tab="pending">Pending <span class="sc-badge sc-badge-orange" id="cnt-pending">0</span></button>
@@ -66,6 +78,90 @@ document.getElementById('tab-btns').addEventListener('click', function(e) {
   btn.classList.add('active');
   document.getElementById('tab-'+name).classList.add('active');
   if (name === 'audit') loadAudit();
+});
+
+// ── Ops utility buttons ──────────────────────────────────────────
+// One-click round-trip tests for the Telegram and SMTP alerters. The
+// endpoints hit themselves trigger a real send to the configured
+// channel, so a successful click = verified end-to-end.
+function showMsg(kind, text) {
+  var bar = document.getElementById('msg-bar');
+  if (!bar) return;
+  var color = kind === 'ok' ? '#86efac'
+            : kind === 'err' ? '#fca5a5'
+            : '#ce93d8';
+  var bg = kind === 'ok' ? 'rgba(34,197,94,0.1)'
+         : kind === 'err' ? 'rgba(239,68,68,0.1)'
+         : 'rgba(145,59,255,0.1)';
+  bar.style.cssText = 'display:block;padding:10px 14px;border-radius:8px;'
+    + 'background:' + bg + ';color:' + color + ';margin-bottom:12px;font-size:13px;';
+  bar.textContent = text;
+  setTimeout(function(){ bar.style.display = 'none'; }, 6000);
+}
+
+document.getElementById('btn-test-telegram').addEventListener('click', async function() {
+  var b = this;
+  b.disabled = true;
+  var originalHtml = b.innerHTML;
+  b.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending…';
+  try {
+    var r = await fetch('/api/admin/test-telegram', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + localStorage.getItem('crucix_token'),
+        'Content-Type': 'application/json',
+      },
+    });
+    var d = await r.json().catch(function(){ return { error: 'invalid response' }; });
+    if (r.ok && d.sent) {
+      showMsg('ok', '✓ Telegram alerter OK — message sent at ' + (d.sent_at || 'now') + '. Check your Telegram.');
+    } else if (d.configured === false) {
+      showMsg('err', '✗ Not configured — TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set on the server. See env-check: ' + JSON.stringify(d.env_check || {}));
+    } else {
+      showMsg('err', '✗ Telegram send failed: ' + (d.error || d.reason || r.status));
+    }
+  } catch (err) {
+    showMsg('err', '✗ Network error: ' + err.message);
+  } finally {
+    b.disabled = false;
+    b.innerHTML = originalHtml;
+  }
+});
+
+document.getElementById('btn-test-email').addEventListener('click', async function() {
+  var to = prompt('Send test email to which address?', '');
+  if (!to) return;
+  var b = this;
+  b.disabled = true;
+  var originalHtml = b.innerHTML;
+  b.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending…';
+  try {
+    var r = await fetch('/api/admin/test-email', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + localStorage.getItem('crucix_token'),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ to: to }),
+    });
+    var d = await r.json().catch(function(){ return {}; });
+    if (r.ok) {
+      var adminOk = d.adminEmail && d.adminEmail.messageId;
+      var userOk  = d.testEmail  && d.testEmail.messageId;
+      if (adminOk || userOk) {
+        showMsg('ok', '✓ Email alerter reachable. Admin: ' + (adminOk ? 'sent' : 'failed') + ', Test: ' + (userOk ? 'sent' : 'failed'));
+      } else {
+        showMsg('err', '✗ Email alerter returned OK but nothing sent. Check SMTP config: ' + JSON.stringify(d.smtpConfig || {}));
+      }
+    } else {
+      showMsg('err', '✗ Email test failed: ' + r.status);
+    }
+  } catch (err) {
+    showMsg('err', '✗ Network error: ' + err.message);
+  } finally {
+    b.disabled = false;
+    b.innerHTML = originalHtml;
+  }
 });
 
 function showMsg(msg, type='success') {
