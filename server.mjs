@@ -3328,6 +3328,44 @@ app.post('/api/admin/test-email', requireAdmin, async (req, res) => {
   });
 });
 
+// ── Admin Telegram test — verify alerter is configured + reaches chat ───────
+// Mirrors /api/admin/test-email. Sends a sync test message to the
+// configured admin Telegram channel. Useful for first-boot verification
+// and whenever you rotate the bot token or chat id.
+app.post('/api/admin/test-telegram', requireAdmin, async (req, res) => {
+  if (!telegramAlerter?.isConfigured) {
+    return res.status(503).json({
+      configured: false,
+      reason: 'TELEGRAM_BOT_TOKEN and/or TELEGRAM_CHAT_ID are not set.',
+      env_check: {
+        TELEGRAM_BOT_TOKEN: !!process.env.TELEGRAM_BOT_TOKEN,
+        TELEGRAM_CHAT_ID:   !!process.env.TELEGRAM_CHAT_ID,
+      },
+    });
+  }
+  const msg =
+    `🧪 *Arkmurus Telegram alerter test*\n\n` +
+    `Fired by admin at ${new Date().toISOString()}. ` +
+    `If you see this message, the pipeline is live — the same route ` +
+    `fires for new-user-registration alerts, intel digests, and ` +
+    `critical security-audit failures.`;
+  try {
+    await telegramAlerter.sendMessage(msg);
+    return res.json({
+      configured: true,
+      sent: true,
+      sent_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    return res.status(502).json({
+      configured: true,
+      sent: false,
+      error: err?.message || String(err),
+    });
+  }
+});
+
+
 // ── Admin User Management Routes ──────────────────────────────────────────────
 
 app.get('/api/admin/users', requireAdmin, (req, res) => {
