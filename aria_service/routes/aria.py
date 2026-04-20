@@ -12188,6 +12188,7 @@ async def learning_stats_ep():
         "metacog_journal":   {},
         "research_engine":   {},
         "verification_gate": {},
+        "output_harvester":  {},
         "quarantine":        {"count": 0, "items": []},
         "bright_lines":      {"total_24h": 0, "by_code": {}},
         "sanctions_propagation": {"oems_tracked": 0},
@@ -12229,6 +12230,14 @@ async def learning_stats_ep():
         out["verification_gate"] = await verification_gate.get_stats()
     except Exception as e:
         _log.debug("learning/stats verification failed: %s", e)
+
+    # Output harvester — scoring distribution + (when enabled) write counts.
+    # Dry-run-by-default since 2026-04-20; first 2 weeks are calibration.
+    try:
+        from ..learning import output_harvester
+        out["output_harvester"] = await output_harvester.stats()
+    except Exception as e:
+        _log.debug("learning/stats harvester failed: %s", e)
 
     # Quarantine list (seed + operator-added)
     try:
