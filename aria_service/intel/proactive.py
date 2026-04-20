@@ -56,6 +56,9 @@ GAP_TRACKER_KEY = "crucix:aria:proactive:gap_tracker"
 LAST_BRIEFING_KEY = "crucix:aria:proactive:last_briefing"
 LAST_MASTERY_PREP_KEY = "crucix:aria:proactive:last_mastery_prep"
 MASTERY_PREP_INTERVAL_S = 6 * 3600
+READING_QUEUE_KEY = "crucix:aria:proactive:reading_queue"
+READING_DEDUPE_KEY = "crucix:aria:proactive:reading_dedupe:{topic}"
+READING_DEDUPE_TTL_S = 6 * 3600
 
 
 # ── Alert queue ─────────────────────────────────────────────────────────────
@@ -255,6 +258,89 @@ async def prepare_weak_topics(llm=None) -> int:
     except Exception as e:
         logger.warning("prepare_weak_topics failed: %s", e)
         return 0
+
+
+# ── Reading-session queue (called by ecosystem_reassess) ──────────────────
+#
+# ecosystem_reassess's mastery-drift branch expects `queue_reading_session`
+# to enqueue a topic for the student/research loops to pick up. Before
+# 2026-04-20 this function didn't exist; the `hasattr()` gate in
+# core_develop silently skipped the whole drift-reading pipeline, so
+# regressing topics were flagged but never actually studied.
+#
+# Implementation:
+#   - dedupe per topic for 6h (prevents ecosystem_reassess from enqueueing
+#     the same topic every hour it runs)
+#   - push onto a Redis list that the existing student/reading loops
+#     already consume (they look for topics to study)
+#   - also record a pending_action so the operator briefing surfaces
+#     that ARIA is auto-studying X
+
+async def queue_reading_session(
+    topic: str,
+    *,
+    reason: str = "mastery_drift",
+    severity: str = "MEDIUM",
+) -> dict:
+    """Enqueue a reading session for `topic`. Dedup'd per-topic for 6h
+    so ecosystem_reassess's hourly runs don't flood the queue. Returns
+    {"queued": bool, "reason": str, "topic": str}."""
+    topic = (topic or "").strip()
+    if not topic:
+        return {"queued": False, "reason": "empty_topic", "topic": ""}
+    # Dedup gate
+    dkey = READING_DEDUPE_KEY.format(topic=topic.lower().replace(" ", "_")[:80])
+    try:
+        if await rs.get(dkey):
+            return {"queued": False, "reason": "dedup_6h", "topic": topic}
+    except Exception:
+        pass
+    entry = {
+        "topic": topic,
+        "reason": reason,
+        "severity": severity,
+        "queued_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        import json as _json
+        await rs.lpush(READING_QUEUE_KEY, _json.dumps(entry, default=str))
+        await rs.ltrim(READING_QUEUE_KEY, 0, 199)
+        await rs.set(dkey, "1", ex=READING_DEDUPE_TTL_S)
+    except Exception as e:
+        logger.warning("queue_reading_session persist failed: %s", e)
+        return {"queued": False, "reason": f"persist_failed:{e}", "topic": topic}
+    # Record to pending_actions so operator briefing surfaces it
+    try:
+        from . import pending_actions
+        await pending_actions.record(
+            promise=f"Study weak topic: {topic}",
+            reason=f"Queued by {reason} — ARIA will fold this into the next reading cycle.",
+            resolver_kind="autonomous_task",
+            resolver_ref="STUDENT-READING-CYCLE",
+            severity=severity,
+            source="ecosystem_reassess",
+        )
+    except Exception:
+        pass  # pending_actions is advisory; don't block the queue write
+    return {"queued": True, "reason": "ok", "topic": topic}
+
+
+async def get_reading_queue(limit: int = 50) -> list[dict]:
+    """Return pending reading sessions, newest first. Used by the student
+    loop to pick up topics flagged by ecosystem_reassess."""
+    import json as _json
+    try:
+        raw = await rs.lrange(READING_QUEUE_KEY, 0, max(0, limit - 1))
+    except Exception as e:
+        logger.debug("get_reading_queue read failed: %s", e)
+        return []
+    out: list[dict] = []
+    for r in raw or []:
+        try:
+            out.append(_json.loads(r) if isinstance(r, str) else r)
+        except Exception:
+            continue
+    return out
 
 
 # ── Behaviour 4: Daily intelligence briefing ───────────────────────────────

@@ -29,7 +29,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only --app aria-intel -t "${{ secrets.FLY_API_TOKEN }}"
+      # --wait-timeout 900 (15 min) — default 300s kept marking successful
+      # deploys as "failure" because flyctl exited non-zero while fly waited
+      # for machines to pass healthchecks on the new image. The release was
+      # actually complete (visible in `fly releases list`), but the CI step
+      # reported failure, polluting deploy-history visibility. Raise the
+      # wait bound to cover slow first-boot (HuggingFace model download,
+      # lifespan init, semantic-index warmup). Fixed 2026-04-20.
+      - run: flyctl deploy --remote-only --app aria-intel --wait-timeout 900 -t "${{ secrets.FLY_API_TOKEN }}"
       - if: github.event_name == 'workflow_dispatch'
         run: |
           echo "::warning::Manual deploy bypass — reason: ${{ github.event.inputs.reason }}"

@@ -146,6 +146,15 @@ async def record(
     except Exception as e:
         logger.warning("[pending_actions] record failed: %s", e)
 
+    # Airtable mirror — operator-visible Task Register. Fire-and-forget;
+    # silent no-op if AIRTABLE_PAT isn't set (local dev, or the table
+    # hasn't been created yet). See integrations/airtable_sync.py docstring.
+    try:
+        from ..integrations import airtable_sync as _as
+        await _as.sync_record(entry)
+    except Exception as e:
+        logger.debug("pending_actions airtable sync failed: %s", e)
+
     # Brain signal — every recorded promise is a self-honesty event.
     # CRITICAL/HIGH severity feeds capability_gap so the predictor
     # can warn on similar future promises (autonomy_off etc.).
@@ -218,6 +227,16 @@ async def _mark_status(action_id: str, new_status: str, note: str) -> dict:
     await rs.set_json(key, entry)
     await rs.incr(_KEY_STATS + f":{new_status}")
     logger.info("[pending_actions] %s → %s (%s)", action_id, new_status, note[:60])
+    # Mirror the status change to Airtable (same contract as record()).
+    try:
+        from ..integrations import airtable_sync as _as
+        await _as.sync_status_change(
+            action_id, new_status,
+            satisfied_at=entry["satisfied_at"],
+            satisfied_note=(note or "")[:300],
+        )
+    except Exception as e:
+        logger.debug("pending_actions airtable status-change sync failed: %s", e)
     return {"ok": True, "entry": entry}
 
 

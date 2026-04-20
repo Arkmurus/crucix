@@ -217,6 +217,40 @@ def test_spider_user_agent_is_ascii() -> None:
     knowledge_spider._USER_AGENT.encode("ascii")  # raises if unicode leaks back in
 
 
+def test_deferred_feature_gate_contracts() -> None:
+    """Four more hasattr-gated calls from the 2026-04-20 sweep that required
+    real feature-work (not just shims) to implement. Added 2026-04-20."""
+    from aria_service.intel import proactive, capability_manifest, mem0_notebook
+    import inspect
+    assert hasattr(proactive, "queue_reading_session"), "ecosystem_reassess target"
+    assert inspect.iscoroutinefunction(proactive.queue_reading_session)
+    assert hasattr(capability_manifest, "weekly_diff"), "core_develop meta-review"
+    assert inspect.iscoroutinefunction(capability_manifest.weekly_diff)
+    assert hasattr(mem0_notebook, "search"), "cited_artifact_verifier fallback"
+
+
+def test_airtable_sync_module_present() -> None:
+    """The pending_actions → Airtable mirror exists and is resilient to
+    missing credentials (silent no-op when AIRTABLE_PAT unset)."""
+    import os
+    from aria_service.integrations import airtable_sync
+    import inspect
+    assert inspect.iscoroutinefunction(airtable_sync.sync_record)
+    assert inspect.iscoroutinefunction(airtable_sync.sync_status_change)
+    # With no PAT it must not raise — silent disable is the contract
+    saved = os.environ.pop("AIRTABLE_PAT", None)
+    try:
+        import asyncio
+        result = asyncio.run(airtable_sync.sync_record(
+            {"action_id": "test123", "promise": "x", "severity": "LOW"}
+        ))
+        assert result["ok"] is False
+        assert result["reason"] == "disabled:no_pat"
+    finally:
+        if saved:
+            os.environ["AIRTABLE_PAT"] = saved
+
+
 def test_ecosystem_reassess_gate_contracts() -> None:
     """ecosystem_reassess reads self_metrics.recent_drift and
     capability_gaps.recent — both were missing pre-2026-04-20 and

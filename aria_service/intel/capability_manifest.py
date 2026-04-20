@@ -214,6 +214,54 @@ async def latest() -> dict | None:
     return await rs.get_json(_KEY_LATEST)
 
 
+async def weekly_diff(days: int = 7) -> dict:
+    """Return a capability diff between the latest manifest and the one
+    ~`days` days old. Used by core_develop's weekly review; pre-2026-04-20
+    this function didn't exist and the `hasattr()` gate silently skipped
+    the capability-change panel of the meta-review.
+
+    Picks the history entry whose `generated_at` is closest to `days` days
+    ago (falls back to the oldest entry if history is shallow). Returns
+    the same shape as `diff(old, new)` plus `compared_gap_days`."""
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    new = await latest()
+    if not new:
+        return {"baseline": True, "added": {}, "removed": {},
+                "corpus_tier_drift": {}, "content_hash_changed": False,
+                "compared_gap_days": None}
+    # Read ~2×days of history so there's something to pick from
+    hist = await history(limit=max(days * 2, 20))
+    if not hist:
+        d = diff(None, new)
+        d["compared_gap_days"] = None
+        return d
+    target_ts = _dt.now(_tz.utc) - _td(days=days)
+    # Pick the entry whose generated_at is closest to target (prefer older)
+    def _parse(ts: str) -> _dt | None:
+        if not ts:
+            return None
+        try:
+            return _dt.fromisoformat(str(ts).replace("Z", "+00:00"))
+        except Exception:
+            return None
+    candidates = [(h, _parse(h.get("generated_at", ""))) for h in hist]
+    candidates = [(h, t) for h, t in candidates if t is not None]
+    if not candidates:
+        old = hist[-1]
+    else:
+        # Nearest to target; if all newer than target, take the oldest
+        candidates.sort(key=lambda ht: abs((ht[1] - target_ts).total_seconds()))
+        old = candidates[0][0]
+    d = diff(old, new)
+    old_ts = _parse(old.get("generated_at", ""))
+    new_ts = _parse(new.get("generated_at", ""))
+    if old_ts and new_ts:
+        d["compared_gap_days"] = round((new_ts - old_ts).total_seconds() / 86400.0, 1)
+    else:
+        d["compared_gap_days"] = None
+    return d
+
+
 async def history(limit: int = 10) -> list[dict]:
     from . import redis_store as rs
     raw = await rs.lrange(_KEY_HISTORY, 0, max(0, limit - 1))
