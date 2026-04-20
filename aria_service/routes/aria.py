@@ -2355,6 +2355,37 @@ def _detect_tool_intent(message: str) -> dict | None:
             "_reason": "pipeline_command",
         }
 
+    # ── Opportunity-conversion intent ──
+    # "/opportunity <alert-text-or-URL>" or "convert this to a pipeline"
+    # or "push this to pipeline". Takes free-text intel (often pasted
+    # from a WhatsApp digest) and produces:
+    #   - structured brief (prime / product / country fingerprint)
+    #   - ranked sub-contractor angles from prime_sub_map
+    #   - Airtable Pipeline row (Stage=IDENTIFIED) for operator enrichment
+    # Added 2026-04-20 as part of the BD-workflow tooling sprint.
+    _stripped = msg.strip()
+    _lower = _stripped.lower()
+    _OPP_INTENT = any((
+        _lower.startswith("/opportunity"),
+        _lower.startswith("/opp "),
+        "convert this to" in _lower and ("pipeline" in _lower or "opportunity" in _lower),
+        "push this to" in _lower and "pipeline" in _lower,
+        "pipeline entry" in _lower and ("this" in _lower or "above" in _lower),
+    ))
+    if _OPP_INTENT:
+        # Strip the command prefix so the alert text is what gets analysed
+        alert_text = _stripped
+        for prefix in ("/opportunity", "/opp"):
+            if _lower.startswith(prefix):
+                alert_text = _stripped[len(prefix):].strip(" :-")
+                break
+        return {
+            "tool": "opportunity_convert",
+            "alert": alert_text or _stripped,
+            "context": msg,
+            "_reason": "opportunity_conversion_command",
+        }
+
     # ── Meta-query intent — ARIA introspection on her own state ──
     # Past incident 2026-04-18 23:07: user asked "pull your brain stats.
     # What's the signal count and last signal time for the email_reader
@@ -3054,6 +3085,42 @@ async def _execute_tool(intent: dict, llm) -> str:
             from ..intel import deal_pipeline as _dp
             summary = await _dp.generate_pipeline_summary()
             return f"\n\n[TOOL: pipeline_summary]\n{summary}\n\nPresent this pipeline summary to the user exactly as formatted."
+
+        if tool == "opportunity_convert":
+            # Take free-text alert / URL, produce structured brief, push
+            # to Airtable Pipeline. No LLM call — pure pattern match +
+            # prime_sub_map lookup + Airtable POST. See
+            # intel/opportunity_converter.py for the field map.
+            from ..intel import opportunity_converter as _oc
+            alert_text = intent.get("alert") or intent.get("context") or ""
+            result = await _oc.convert(alert_text, push_to_airtable=True)
+            if not result.get("ok"):
+                return (
+                    "\n\n[TOOL: opportunity_convert — FAILED]\n"
+                    f"Reason: {result.get('reason','unknown')}\n"
+                    "No Airtable row was created. Try pasting the full alert "
+                    "text with prime + product + country visible, or run "
+                    "`/investigate <entity>` to get deep DD first."
+                )
+            airtable = result.get("airtable") or {}
+            tail = ""
+            if airtable.get("ok"):
+                tail = (
+                    f"\n\n✅ **Airtable Pipeline row created** "
+                    f"(Stage=IDENTIFIED, id={airtable.get('record_id','?')}). "
+                    "Open the base to set Sector / Our Role / Deal Value."
+                )
+            else:
+                tail = (
+                    f"\n\n⚠ Airtable push did not succeed: "
+                    f"{airtable.get('reason','unknown')}. The brief above is still valid; "
+                    "check AIRTABLE_PAT + table permissions."
+                )
+            return (
+                "\n\n[TOOL: opportunity_convert]\n"
+                + result.get("brief_markdown", "(no brief)")
+                + tail
+            )
 
         # ── Meta-query — ARIA introspecting on her own state ──
         # Pulls real brain stats + recent email_reader signals + (when

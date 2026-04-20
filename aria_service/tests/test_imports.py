@@ -155,6 +155,10 @@ CORE_MODULES = [
     # 2026-04-20 security sprint — SSRF guard + security adversarial suite
     "aria_service.intel.url_safety",
     "aria_service.intel.security_challenge",
+    # 2026-04-20 BD-workflow tooling — prime-sub map + opportunity converter
+    "aria_service.intel.prime_sub_map",
+    "aria_service.intel.opportunity_converter",
+    "aria_service.integrations.airtable_pipeline",
 ]
 
 
