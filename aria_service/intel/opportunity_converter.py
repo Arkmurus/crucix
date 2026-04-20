@@ -292,7 +292,10 @@ async def convert(
             airtable_result = await airtable_pipeline.create_opportunity(
                 opp_name,
                 notes="\n".join(p for p in notes_parts if p is not None),
-                stage="IDENTIFIED",
+                # Intentionally NOT setting stage — Pipeline.Stage is a
+                # singleSelect with operator-curated options; our PAT
+                # can't create new ones. Operator sets Stage in the UI
+                # from the existing dropdown (IDENTIFIED / QUALIFIED / etc).
             )
         except Exception as e:
             logger.warning("airtable_pipeline.create_opportunity failed: %s", e)

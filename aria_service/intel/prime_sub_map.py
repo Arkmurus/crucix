@@ -516,6 +516,41 @@ def _normalise_product(product: str) -> str:
     return (product or "").strip().lower()
 
 
+def _product_matches(query: str, family_name: str) -> bool:
+    """Fuzzy match a product query (e.g. "P-8A") against a family name
+    (e.g. "P-8 Poseidon"). Handles minor variant suffixes (A/B/C) and
+    acronym-only queries. Pre-2026-04-20 the match was a plain
+    `q in name` substring, which returned False for "P-8A" vs
+    "P-8 Poseidon" and caused the caller to fall through to ALL
+    product families (pulling Chinook sub-contractors into a P-8 query).
+    """
+    q = query.strip().lower()
+    n = family_name.strip().lower()
+    if not q or not n:
+        return False
+    if q in n:
+        return True
+    # Token-level: does the first token of name appear in query, or
+    # vice versa? Catches "P-8A" ↔ "P-8 Poseidon".
+    n_tokens = n.replace("-", " ").replace("/", " ").split()
+    q_tokens = q.replace("-", " ").replace("/", " ").split()
+    if not n_tokens or not q_tokens:
+        return False
+    # Exact first-token match (after normalising hyphens)
+    if n_tokens[0] == q_tokens[0]:
+        return True
+    # Stem match: "p8a" and "p8" collapse to "p8"
+    def _stem(s: str) -> str:
+        s2 = "".join(c for c in s if c.isalnum()).lower()
+        # Strip trailing single letter variant (a / b / c)
+        if len(s2) > 2 and s2[-1].isalpha() and s2[-2].isdigit():
+            return s2[:-1]
+        return s2
+    if _stem(q_tokens[0]) == _stem(n_tokens[0]) and len(_stem(q_tokens[0])) >= 2:
+        return True
+    return False
+
+
 def lookup(prime: str, product: str = "") -> dict[str, Any]:
     """Resolve a prime (and optionally a product family) to its
     structured record. Returns:
@@ -535,11 +570,7 @@ def lookup(prime: str, product: str = "") -> dict[str, Any]:
     if not product:
         matched = sorted(families.keys())
     else:
-        q = _normalise_product(product)
-        matched = [
-            name for name in families
-            if q in name.lower() or any(q in word for word in name.lower().split())
-        ]
+        matched = [name for name in families if _product_matches(product, name)]
         if not matched:
             matched = sorted(families.keys())   # fall back to "all"
     return {
@@ -581,11 +612,9 @@ def arkmurus_opportunities(prime: str, product: str = "") -> list[dict[str, Any]
     data = _PRIMES[key]
     families = data["product_families"]
     if product:
-        q = _normalise_product(product)
-        target_families = [
-            name for name in families
-            if q in name.lower() or any(q in word for word in name.lower().split())
-        ] or list(families.keys())
+        target_families = [name for name in families if _product_matches(product, name)]
+        if not target_families:
+            target_families = list(families.keys())
     else:
         target_families = list(families.keys())
     out: list[dict[str, Any]] = []

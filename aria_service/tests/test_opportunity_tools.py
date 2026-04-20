@@ -50,6 +50,24 @@ def test_prime_sub_map_alias_resolution():
         assert r["prime_key"] == "lockheed_martin"
 
 
+def test_prime_sub_map_variant_suffix_matches_family():
+    """Regression 2026-04-20 live test: product='P-8A' fell through to
+    ALL Boeing families (including Chinook) because the old substring
+    match didn't handle the trailing variant letter. Chinook-supplier
+    'Leonardo Helicopters (AgustaWestland)' leaked into the P-8A
+    opportunities table. Fixed via stem-based matching in
+    _product_matches."""
+    from aria_service.intel import prime_sub_map
+    opps = prime_sub_map.arkmurus_opportunities("boeing", "P-8A")
+    suppliers = {o["sub_contractor"].lower() for o in opps}
+    assert not any("agustawestland" in s or "chinook" in s for s in suppliers), (
+        f"Chinook-only supplier leaked into P-8A opportunities: {suppliers}"
+    )
+    # And the real P-8 suppliers MUST still be there
+    assert any("ultra" in s for s in suppliers)
+    assert any("terma" in s for s in suppliers)
+
+
 def test_prime_sub_map_unknown_prime_returns_not_mapped():
     from aria_service.intel import prime_sub_map
     r = prime_sub_map.lookup("NotARealPrime Defence Corp")

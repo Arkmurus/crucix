@@ -82,7 +82,7 @@ async def create_opportunity(
     sector: str = "",
     our_role: str = "",
     category: str = "",
-    stage: str = "IDENTIFIED",
+    stage: str = "",
     next_action: str = "",
     deal_value: float | None = None,
     date_added: str | None = None,
@@ -91,11 +91,15 @@ async def create_opportunity(
     {"ok": bool, "reason": str, "record_id": str?}.
 
     Defaults chosen for BD-alert converted leads:
-      - stage=IDENTIFIED (nothing else can be confirmed from an alert)
-      - date_added=today UTC
-      - our_role and sector left blank so the operator can set them in
-        the existing Airtable select menus (typing unknown values
-        via API hits Airtable's strict singleSelect constraint)
+      - stage / our_role / sector / category left BLANK so the
+        operator picks from the existing singleSelect options (the
+        PAT scope we have cannot CREATE new options, only SELECT
+        existing ones; sending an option name not on the list
+        causes a 422 INVALID_MULTIPLE_CHOICE_OPTIONS). Live incident
+        2026-04-20: sent stage="IDENTIFIED" to a schema without that
+        option and Airtable rejected the whole row.
+      - date_added = today UTC
+      - Caller can still pass exact option strings if known good.
     """
     ok, why = _is_enabled()
     if not ok:
