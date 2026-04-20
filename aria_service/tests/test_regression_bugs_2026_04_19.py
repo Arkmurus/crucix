@@ -201,6 +201,22 @@ def test_spider_ingest_contract() -> None:
     assert inspect.iscoroutinefunction(rag_store.add_chunk)
 
 
+def test_spider_user_agent_is_ascii() -> None:
+    """HTTP headers must be ASCII. Pre-2026-04-20 the spider's UA string
+    had an em-dash (—, U+2014) which made every single fetch raise
+    UnicodeEncodeError inside httpx, swallowed by _fetch's except clause,
+    returning None — so the spider logged fetched=0 even though the
+    seed-collection and queue processing were working. Two bugs in one:
+    the Unicode char AND the overly-broad exception handler.
+
+    The fix added an import-time tripwire that aborts module load if the
+    UA is non-ASCII; this test asserts the tripwire still fires so nobody
+    accidentally removes the guard."""
+    from aria_service.learning import knowledge_spider
+    # UA must encode cleanly as ASCII
+    knowledge_spider._USER_AGENT.encode("ascii")  # raises if unicode leaks back in
+
+
 def test_ecosystem_reassess_gate_contracts() -> None:
     """ecosystem_reassess reads self_metrics.recent_drift and
     capability_gaps.recent — both were missing pre-2026-04-20 and

@@ -52,7 +52,25 @@ _WALL_BUDGET_SEC          = 180.0   # 3 min per run
 _MAX_TEXT_PER_CHUNK       = 30_000  # characters — bumped 2026-04-18 from 10k;
                                      # 10k truncated real articles mid-paragraph
 
-_USER_AGENT = "ARIA-Spider/1.0 (+https://arkmurus.com/aria — autonomous research)"
+# IMPORTANT: keep this ASCII-only. HTTP headers must be ASCII, and httpx
+# raises UnicodeEncodeError on the first fetch if any non-ASCII char sneaks
+# in here. Pre-2026-04-20 this string had an em-dash (—, U+2014) which made
+# every single fetch fail silently — the exception was swallowed by the
+# outer try/except in _fetch() and the spider reported fetched=0 even
+# though it was receiving seeds and processing the queue.
+_USER_AGENT = "ARIA-Spider/1.0 (+https://arkmurus.com/aria - autonomous research)"
+
+# Import-time tripwire — fail loudly if anyone adds a non-ASCII char back
+# into the UA string. Silent-fetch failures on a mispaste are not acceptable;
+# the bug cost two weeks of zeroed spider stats (2026-04-06 → 2026-04-20).
+try:
+    _USER_AGENT.encode("ascii")
+except UnicodeEncodeError as _uae:
+    raise RuntimeError(
+        f"knowledge_spider._USER_AGENT must be ASCII-only — httpx rejects "
+        f"non-ASCII HTTP headers. Offending char at position {_uae.start}: "
+        f"{_USER_AGENT[_uae.start]!r}"
+    ) from _uae
 
 # Domains we NEVER spider (privacy / rate-limit / value-zero)
 _DOMAIN_BLOCKLIST: frozenset[str] = frozenset({
@@ -246,8 +264,21 @@ async def _fetch(url: str, client: httpx.AsyncClient) -> str | None:
             text = _TAG_RE.sub(" ", html)
             text = _WS_RE.sub(" ", text).strip()
             return text[:_MAX_TEXT_PER_CHUNK]
+    except UnicodeEncodeError as exc:
+        # Promoted to ERROR because this is always a code bug (non-ASCII
+        # header char) not a transient network / remote issue. The pre-
+        # 2026-04-20 em-dash-in-UA incident went undetected for weeks
+        # because this was at DEBUG level.
+        logger.error("fetch failed with UnicodeEncodeError for %s: %s", url, exc)
+    except httpx.HTTPError as exc:
+        # Expected network-layer failures (timeout, connect error, TLS etc.)
+        # — these are noisy (remote servers go down, rate-limit, etc.) so
+        # keep at DEBUG to avoid drowning real signal.
+        logger.debug("fetch http error for %s: %s", url, exc)
     except Exception as exc:
-        logger.debug("fetch failed for %s: %s", url, exc)
+        # Anything else is unexpected; log at WARNING so it surfaces.
+        logger.warning("fetch failed (unexpected) for %s: %s: %s",
+                       url, type(exc).__name__, exc)
     return None
 
 
