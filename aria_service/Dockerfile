@@ -31,22 +31,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # SQLite for chromadb persistent backend (modern version)
     sqlite3 \
     libsqlite3-dev \
-    # Chromium runtime deps for Playwright (slim image is missing these;
-    # `playwright install --with-deps` apt-install was partially failing
-    # silently → chromium binary never landed on disk → scraper unavailable)
-    libnss3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
 # ── RAG store mount point ──────────────────────────────────────────────────
@@ -98,15 +82,16 @@ COPY aria_service/ ./aria_service/
 # If this install ever blocks a deploy, set
 # ARIA_PLAYWRIGHT_DISABLED=1 on fly and the scraper package falls back
 # silently (crawl_enhancements detects ImportError and skips).
-# Runtime apt-deps are installed explicitly above (libnss3, libatk*, libcups2,
-# libxkbcommon0, libxcomposite1, libxdamage1, libxfixes3, libxrandr2, libgbm1,
-# libpango-1.0-0, libcairo2, libasound2). That means `playwright install`
-# only downloads the chromium binary — no `--with-deps` apt-install step
-# that could partially fail. No silent `|| echo` fallback either: if this
-# breaks, the build fails loudly and we fix it, rather than shipping an
-# image with a missing chromium binary and the scraper silently unavailable.
-# To intentionally skip Playwright: set ARIA_PLAYWRIGHT_DISABLED=1 at runtime.
-RUN playwright install chromium
+# Use `--with-deps` so Playwright's own upstream-maintained apt-package
+# list is used (it tracks Debian trixie vs bookworm package renames like
+# libasound2 → libasound2t64; hard-coding the list here drifted and broke
+# a 2026-04-20 deploy). CRITICAL: no silent `|| echo` fallback — the pre-
+# 2026-04-20 version had that, and when `--with-deps` partially failed
+# on a base-OS upgrade the image shipped without chromium for weeks and
+# the scraper was silently unavailable. If this step fails, the build
+# fails loudly and we fix it. To intentionally skip Playwright: set
+# ARIA_PLAYWRIGHT_DISABLED=1 at runtime.
+RUN playwright install --with-deps chromium
 
 # NOTE: EasyOCR model weights are NOT pre-warmed at build time anymore.
 # Pre-warming with 4 languages forced ~600MB of PyTorch + model weights into
