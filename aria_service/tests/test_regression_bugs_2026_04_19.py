@@ -201,6 +201,19 @@ def test_spider_ingest_contract() -> None:
     assert inspect.iscoroutinefunction(rag_store.add_chunk)
 
 
+def test_ecosystem_reassess_gate_contracts() -> None:
+    """ecosystem_reassess reads self_metrics.recent_drift and
+    capability_gaps.recent — both were missing pre-2026-04-20 and
+    silently degraded the hourly reassess into a no-op for two of
+    its four signal sources."""
+    from aria_service.intel import self_metrics, capability_gaps
+    import inspect
+    assert hasattr(self_metrics, "recent_drift")
+    assert inspect.iscoroutinefunction(self_metrics.recent_drift)
+    assert hasattr(capability_gaps, "recent")
+    assert inspect.iscoroutinefunction(capability_gaps.recent)
+
+
 def test_learning_module_gate_contracts() -> None:
     """Every hasattr() gate in learning/* modules must resolve True.
     Enumerates the gates discovered in the 2026-04-20 audit to prevent

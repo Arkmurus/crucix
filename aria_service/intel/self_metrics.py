@@ -266,6 +266,38 @@ async def rollup(
     }
 
 
+async def recent_drift(
+    days: int = 7,
+    threshold_pp: float = 10.0,
+    axis: Optional[str] = None,
+) -> dict:
+    """Return {domain: delta_pp} for domains whose score dropped at
+    least `threshold_pp` percentage points over the trailing `days`
+    compared with the prior equal-length window. Positive deltas are
+    excluded (only regressions surface).
+
+    Used by ecosystem_reassess to trigger mastery-drift reading
+    sessions. Before 2026-04-20 this didn't exist; ecosystem_reassess's
+    `hasattr(self_metrics, "recent_drift")` gate silently skipped the
+    mastery-drift branch and no reading sessions ever got queued.
+    """
+    roll = await rollup(window_days=days, axis=axis)
+    drift: dict[str, float] = {}
+    threshold_frac = threshold_pp / 100.0
+    for c in roll.get("cells", []):
+        delta = c.get("delta")
+        if delta is None:
+            continue
+        if delta < 0 and abs(delta) >= threshold_frac:
+            key = str(c.get("domain") or "unknown")
+            # Keep the worst drop if the same domain appears across axes
+            prev = drift.get(key)
+            pp = round(delta * 100.0, 1)
+            if prev is None or pp < prev:
+                drift[key] = pp
+    return drift
+
+
 async def strengths_and_weaknesses(window_days: int = 7, top_n: int = 5) -> dict:
     """Pick the top strengths (high score, stable/up) and top weaknesses
     (low score OR down-trending) for the briefing."""

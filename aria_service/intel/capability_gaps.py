@@ -167,6 +167,12 @@ async def recent_gaps(limit: int = 50) -> list[dict]:
     return await get_gaps(resolved=False, limit=limit)
 
 
+async def recent(limit: int = 50) -> list[dict]:
+    """Same as `recent_gaps` — ecosystem_reassess uses the shorter
+    name. Added 2026-04-20 to close the same silent-skip gap."""
+    return await get_gaps(resolved=False, limit=limit)
+
+
 async def get_gap_summary() -> dict:
     """Return counts by type, most common unresolved, and latest gaps."""
     raw_entries = await rs.lrange(KEY, 0, MAX_GAPS - 1)
