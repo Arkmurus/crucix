@@ -643,6 +643,50 @@ async def get_stats() -> dict:
         return {"available": False, "error": str(e), "path": RAG_PATH}
 
 
+async def recent_chunks(limit: int = 200) -> list[dict]:
+    """Return recently-ingested chunks, newest first, as
+    [{"text", "metadata"}] dicts.
+
+    Used by knowledge_spider._collect_seeds() to harvest URLs mentioned
+    in fresh corpus material. Before 2026-04-20 this function didn't
+    exist; the spider's `hasattr(rag_store, "recent_chunks")` gate
+    silently skipped this seed source for weeks and
+    knowledge_spider.fetches_24h stayed 0.
+
+    ChromaDB has no native order-by-ingestion; we sample up to 2000
+    chunks and sort locally on metadata.ingested_at. Chunks without a
+    timestamp fall to the end (treated as oldest).
+    """
+    if not await _ensure_async():
+        return []
+    try:
+        import asyncio as _aio
+        sample_size = max(limit * 5, 1000)
+        sample = await _aio.to_thread(
+            _documents_collection.get,
+            limit=min(sample_size, 5000),
+            include=["documents", "metadatas"],
+        )
+        docs = sample.get("documents") or []
+        metas = sample.get("metadatas") or []
+        rows: list[dict] = []
+        for doc, meta in zip(docs, metas):
+            if not doc:
+                continue
+            rows.append({
+                "text": doc,
+                "metadata": meta if isinstance(meta, dict) else {},
+            })
+        rows.sort(
+            key=lambda r: r["metadata"].get("ingested_at") or "",
+            reverse=True,
+        )
+        return rows[:limit]
+    except Exception as e:
+        logger.debug("recent_chunks failed: %s", e)
+        return []
+
+
 async def list_sources(limit: int = 50) -> dict:
     """Return a summary of unique sources in the RAG store grouped by type."""
     if not await _ensure_async():

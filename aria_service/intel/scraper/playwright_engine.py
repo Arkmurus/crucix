@@ -347,14 +347,19 @@ async def is_available() -> bool:
         return False
 
     try:
-        # Driver-spinup itself is the next failure mode after a clean
-        # import — bound it tightly. Real launches take 10-30s; driver
-        # init is <2s on healthy systems.
+        # Driver-spinup bound. On warm machines this is sub-2s; on fly.io
+        # cold-cache first boot it routinely hits 15-25s while node
+        # decompresses driver bundles from /usr/local/lib. Previously
+        # capped at 5s — 2026-04-20 audit found this flipped
+        # chromium_available=False for the first ~30s of every deploy
+        # even though chromium was correctly installed. Real launches
+        # (fetch calls) have their own 45-120s timeouts; this readiness
+        # check only needs to confirm the driver *can* start eventually.
         playwright = await _aio.wait_for(
-            async_playwright().start(), timeout=5.0,
+            async_playwright().start(), timeout=30.0,
         )
     except _aio.TimeoutError:
-        logger.warning("[playwright] is_available: driver spinup > 5s — install may be broken")
+        logger.warning("[playwright] is_available: driver spinup > 30s — install may be broken")
         return False
     except Exception as e:
         logger.debug("[playwright] is_available: driver init failed: %s", e)

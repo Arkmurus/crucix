@@ -152,6 +152,46 @@ def test_autonomous_dispatch_parity() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# 2b. knowledge_spider seed sources must exist on their upstream modules.
+#     Before 2026-04-20, rag_store.recent_chunks and verified_intel.
+#     recent_facts didn't exist. The spider's hasattr() gate silently
+#     skipped those sources and knowledge_spider.fetches_24h stayed 0
+#     for weeks. These tests assert the contract the spider depends on.
+# ═══════════════════════════════════════════════════════════════════════
+
+def test_rag_store_exposes_recent_chunks() -> None:
+    from aria_service.intel import rag_store
+    import inspect
+    assert hasattr(rag_store, "recent_chunks"), (
+        "rag_store.recent_chunks() must exist — knowledge_spider's seed "
+        "collector gates on hasattr() and silently skips this source if "
+        "it's missing. That was the 2026-04-20 bug."
+    )
+    assert inspect.iscoroutinefunction(rag_store.recent_chunks)
+
+
+def test_verified_intel_exposes_recent_facts() -> None:
+    from aria_service.intel import verified_intel
+    import inspect
+    assert hasattr(verified_intel, "recent_facts"), (
+        "verified_intel.recent_facts() must exist — knowledge_spider's "
+        "seed collector gates on hasattr() and silently skips this "
+        "source if it's missing. That was the 2026-04-20 bug."
+    )
+    assert inspect.iscoroutinefunction(verified_intel.recent_facts)
+
+
+def test_spider_seed_source_contract() -> None:
+    """End-to-end contract: every seed source the spider checks with
+    hasattr() must actually exist on its module."""
+    from aria_service.intel import chat_audit_log, rag_store, verified_intel
+    # These method names must match knowledge_spider._collect_seeds() gates.
+    assert hasattr(chat_audit_log, "get_recent")
+    assert hasattr(rag_store, "recent_chunks")
+    assert hasattr(verified_intel, "recent_facts")
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # 3. adversarial_challenge.run_weekly must short-circuit with
 #    summary["invalid"]=True when every attack response is empty, and
 #    must NOT persist a baseline or stage amendments.

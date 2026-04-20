@@ -1642,6 +1642,58 @@ async def get_relevant_verified_facts(message: str, limit: int = 5) -> list[dict
     return [f for _, f in scored[:limit]]
 
 
+async def recent_facts(limit: int = 100) -> list[dict]:
+    """Return recently-verified facts with flattened URL fields.
+
+    Each dict contains:
+      - claim        : verified statement
+      - entity_name  : subject
+      - content      : alias for claim (spider compat)
+      - source_url   : first source URL (if any)
+      - source_urls  : all source URLs joined by space
+      - created_at   : ISO timestamp
+
+    Used by knowledge_spider._collect_seeds() — each source URL becomes
+    a spider seed at depth 0. Before 2026-04-20 this function didn't
+    exist; the spider's `hasattr(vi, "recent_facts")` gate silently
+    skipped this source for weeks. Combined with the missing
+    rag_store.recent_chunks() this meant 2/3 spider seed sources were
+    permanently dark and knowledge_spider.fetches_24h stayed 0.
+    """
+    from . import redis_store as rs
+    facts_raw = await rs.get_json("crucix:verified_intel:facts") or []
+    if not isinstance(facts_raw, list):
+        return []
+    # Sort newest-first on verified_at || created_at
+    def _key(f: dict) -> str:
+        return f.get("verified_at") or f.get("created_at") or ""
+    try:
+        facts_raw = sorted(facts_raw, key=_key, reverse=True)
+    except Exception:
+        pass
+    out: list[dict] = []
+    for f in facts_raw[:limit]:
+        if not isinstance(f, dict):
+            continue
+        sources = f.get("sources") or []
+        urls: list[str] = []
+        for s in sources:
+            if isinstance(s, dict) and s.get("url"):
+                urls.append(str(s["url"]))
+        claim = f.get("claim", "")
+        out.append({
+            "claim": claim,
+            "entity_name": f.get("entity_name", ""),
+            "content": claim,                 # spider compat
+            "source_url": urls[0] if urls else "",
+            "source_urls": " ".join(urls),
+            "verification_status": f.get("verification_status", ""),
+            "created_at": f.get("created_at", ""),
+            "verified_at": f.get("verified_at", ""),
+        })
+    return out
+
+
 async def get_verification_summary() -> dict:
     """Aggregate verification stats for dashboard metrics."""
     from . import redis_store as rs
