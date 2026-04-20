@@ -218,6 +218,48 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
     return []
 
 
+# ── Backend: Academic APIs (Semantic Scholar + OpenAlex + CrossRef) ─────────
+
+async def _search_academic(
+    query: str,
+    max_results: int = 10,
+    language: str = "en",
+) -> list[SearchResult]:
+    """Tier-2 fan-out across three academic registries. Not Tier-1
+    (those are official gov / IGO) but stronger signal than general-web
+    press for technical, research, compliance, and programme-history
+    questions. Added 2026-04-20 to fill the gap left by the dropped
+    SearXNG backend.
+
+    `language` is currently ignored — academic APIs default to English
+    and translation-aware search is out of scope for this integration.
+    """
+    # Academic endpoints return mostly English results; skip quietly for
+    # non-English queries so they don't dilute the Brave multilingual path.
+    if language and language not in ("en", "english"):
+        return []
+    from .sources import academic as _ac
+    try:
+        raw = await _ac.search_all(query, max_results_per_api=max_results)
+    except Exception as exc:
+        logger.debug("_search_academic fan-out failed: %s", exc)
+        return []
+    out: list[SearchResult] = []
+    for r in raw:
+        # Convert the dict shape academic.py returns into the dataclass
+        # web_search uses internally. credibility_tier is set by the
+        # adapter (tier 2 for all academic sources).
+        out.append(SearchResult(
+            title=r.get("title", ""),
+            url=r.get("url", ""),
+            snippet=r.get("snippet", ""),
+            source=r.get("source", "academic"),
+            credibility_tier=int(r.get("credibility_tier", 2)),
+            language=r.get("language", "en"),
+        ))
+    return out
+
+
 # ── Backend: Google News RSS (free, news-focused) ───────────────────────────
 
 async def _search_google_news(query: str, max_results: int = 10, language: str = "en") -> list[SearchResult]:
@@ -318,6 +360,7 @@ async def search(
         _search_brave(query, MAX_RESULTS_PER_BACKEND, language),
         _search_searxng(query, MAX_RESULTS_PER_BACKEND, language),
         _search_google_news(query, MAX_RESULTS_PER_BACKEND, language),
+        _search_academic(query, MAX_RESULTS_PER_BACKEND, language),
     ]
 
     raw_results = await asyncio.gather(*backend_tasks, return_exceptions=True)

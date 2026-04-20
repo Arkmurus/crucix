@@ -149,6 +149,9 @@ CORE_MODULES = [
     "aria_service.intel.mem0_notebook",
     "aria_service.integrations",
     "aria_service.integrations.airtable_sync",
+    # 2026-04-20 forward roadmap — academic APIs + output harvester
+    "aria_service.intel.sources.academic",
+    "aria_service.learning.output_harvester",
 ]
 
 

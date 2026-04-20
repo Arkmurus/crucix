@@ -2487,6 +2487,26 @@ async def aria_chat(
     except Exception:
         pass
 
+    # Output harvester — scores every turn (dry-run by default so no
+    # data is written). Once ARIA_OUTPUT_HARVEST_ENABLED=1, passing
+    # turns (score >= 0.75) append to /data/aria_training/.
+    try:
+        from .learning import output_harvester as _oh
+        _oh_task = asyncio.create_task(
+            _oh.harvest(
+                message,
+                response_text,
+                meta={
+                    "session_id": session_id or "",
+                    "source": "cloud_llm",
+                    "has_tool_context": bool(tool_context),
+                },
+            )
+        )
+        _oh_task.add_done_callback(_bg_done("output_harvester.harvest"))
+    except Exception:
+        pass
+
     return {
         "response": response_text,
         "session_id": session_id,
@@ -2805,6 +2825,27 @@ async def aria_chat_stream(
             _cd.extract_learning_suggestions(response_text, session_id)
         )
         _ls_task.add_done_callback(_bg_done("core_develop.extract_learning_suggestions"))
+    except Exception:
+        pass
+
+    # Output harvester — streaming path. Same dry-run-by-default
+    # behaviour as the non-streaming branch above. `message` in this
+    # scope is the original user message; response_text is the final
+    # concatenated LLM output.
+    try:
+        from .learning import output_harvester as _oh
+        _oh_task = asyncio.create_task(
+            _oh.harvest(
+                message,
+                response_text,
+                meta={
+                    "session_id": session_id or "",
+                    "source": "cloud_llm_stream",
+                    "has_tool_context": bool(tool_context),
+                },
+            )
+        )
+        _oh_task.add_done_callback(_bg_done("output_harvester.harvest"))
     except Exception:
         pass
 
