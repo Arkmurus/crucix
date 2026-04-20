@@ -191,6 +191,41 @@ def test_spider_seed_source_contract() -> None:
     assert hasattr(verified_intel, "recent_facts")
 
 
+def test_spider_ingest_contract() -> None:
+    """The spider writes fetched URLs back into RAG via
+    `rag_store.add_chunk`. That function must exist — before
+    2026-04-20 it didn't and every spider ingest silently no-op'd."""
+    from aria_service.intel import rag_store
+    import inspect
+    assert hasattr(rag_store, "add_chunk")
+    assert inspect.iscoroutinefunction(rag_store.add_chunk)
+
+
+def test_learning_module_gate_contracts() -> None:
+    """Every hasattr() gate in learning/* modules must resolve True.
+    Enumerates the gates discovered in the 2026-04-20 audit to prevent
+    another silent-skip bug class."""
+    from aria_service.intel import (
+        chat_audit_log,
+        rag_store,
+        verified_intel,
+        mistake_ledger,
+        capability_gaps,
+        adversarial_challenge,
+    )
+    # learning/metacognitive_journal.py
+    assert hasattr(chat_audit_log, "get_recent"), "metacog_journal seed"
+    assert hasattr(adversarial_challenge, "stats"), "metacog_journal adversarial"
+    assert hasattr(mistake_ledger, "recent"), "metacog_journal mistakes"
+    assert hasattr(capability_gaps, "recent_gaps"), "metacog_journal gaps"
+    # learning/training_export.py
+    assert hasattr(adversarial_challenge, "recent_runs"), "training_export adversarial"
+    # learning/knowledge_spider.py
+    assert hasattr(rag_store, "recent_chunks"), "spider seed"
+    assert hasattr(verified_intel, "recent_facts"), "spider seed"
+    assert hasattr(rag_store, "add_chunk"), "spider ingest"
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # 3. adversarial_challenge.run_weekly must short-circuit with
 #    summary["invalid"]=True when every attack response is empty, and

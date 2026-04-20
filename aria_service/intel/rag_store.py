@@ -643,6 +643,38 @@ async def get_stats() -> dict:
         return {"available": False, "error": str(e), "path": RAG_PATH}
 
 
+async def add_chunk(
+    text: str,
+    *,
+    metadata: dict | None = None,
+) -> dict:
+    """Thin shim over `ingest_document` — knowledge_spider (and any
+    other caller) uses this cleaner two-arg shape. Metadata keys are
+    flattened into `ingest_document`'s named parameters where they map
+    (source, url) and otherwise passed through as `extra_metadata`.
+
+    Before 2026-04-20 this didn't exist; the spider's
+    `hasattr(rag_store, "add_chunk")` gate silently skipped every
+    ingest attempt. Even if the spider had found URLs to fetch, none
+    of the discovered content would have reached the RAG store.
+    """
+    m = dict(metadata or {})
+    source = str(m.pop("source", "") or "spider")
+    url = str(m.pop("url", "") or "")
+    source_type = str(m.pop("source_type", "") or "crawl")
+    title = str(m.pop("title", "") or "")
+    market = str(m.pop("market", "") or "")
+    return await ingest_document(
+        text,
+        source=source,
+        source_type=source_type,
+        title=title,
+        url=url,
+        market=market,
+        extra_metadata=m or None,
+    )
+
+
 async def recent_chunks(limit: int = 200) -> list[dict]:
     """Return recently-ingested chunks, newest first, as
     [{"text", "metadata"}] dicts.

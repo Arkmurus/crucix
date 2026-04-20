@@ -159,6 +159,14 @@ async def get_gaps(resolved: bool = False, limit: int = 50) -> list[dict]:
     return filtered[:limit]
 
 
+async def recent_gaps(limit: int = 50) -> list[dict]:
+    """Thin alias for `get_gaps(resolved=False, limit=limit)` —
+    metacognitive_journal gates on `hasattr(cg, "recent_gaps")` and
+    silently skipped this seed source for weeks (added 2026-04-20).
+    """
+    return await get_gaps(resolved=False, limit=limit)
+
+
 async def get_gap_summary() -> dict:
     """Return counts by type, most common unresolved, and latest gaps."""
     raw_entries = await rs.lrange(KEY, 0, MAX_GAPS - 1)

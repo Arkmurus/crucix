@@ -1024,6 +1024,23 @@ async def regression_replay(
             "result": result}
 
 
+async def recent_runs(limit: int = 10) -> list[dict]:
+    """Return the N most recent adversarial runs (newest first) as
+    lightweight summary dicts — run_at, overall_score, passed,
+    failed, critical_failures, by_category.
+
+    Used by learning.training_export to fold adversarial outcomes into
+    fine-tune capture. Before 2026-04-20 this function didn't exist;
+    training_export's `hasattr(ac, "recent_runs")` gate silently
+    skipped adversarial signal for weeks.
+    """
+    from . import redis_store as rs
+    runs = await rs.get_json(_K_RUNS) or []
+    if not isinstance(runs, list):
+        return []
+    return runs[:limit]
+
+
 async def stats() -> dict:
     """Return the last run + 4-week trend + pending amendments."""
     from . import redis_store as rs
