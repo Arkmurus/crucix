@@ -154,6 +154,23 @@ def test_security_library_attack_ids_unique():
     assert len(ids) == len(set(ids)), "duplicate attack ids"
 
 
+def test_security_attack_categories_are_enum_instances():
+    """Regression: first-deploy bug 2026-04-20. The attacks were built
+    with plain-string categories; `adversarial_challenge.run_single` at
+    line ~645 calls `attack.category.value` which raised AttributeError
+    on str (no .value). Every category must be an Enum instance so the
+    shared runner can iterate it."""
+    from aria_service.intel import security_challenge as sc
+    from enum import Enum
+    for a in sc.SECURITY_LIBRARY:
+        assert isinstance(a.category, Enum), (
+            f"{a.id}: category must be an Enum (got {type(a.category).__name__})"
+        )
+        # .value access is what the runner uses
+        v = a.category.value
+        assert isinstance(v, str) and v
+
+
 def test_security_library_all_attacks_have_patterns():
     from aria_service.intel import security_challenge as sc
     for a in sc.SECURITY_LIBRARY:
