@@ -244,6 +244,90 @@ async def sync_record(entry: dict) -> dict[str, Any]:
     return {"ok": True, "reason": reason, "http_status": resp.status_code}
 
 
+async def health_check() -> dict[str, Any]:
+    """Read one record from both Task Register + Pipeline to confirm the
+    base is reachable and the table names resolve correctly.
+
+    Returns a compact dict suitable for a health endpoint:
+        {
+          ok: bool,                  # overall (both tables OK)
+          enabled: bool,
+          base_id: str,
+          tables: {
+            task_register: {ok, http_status, reason, records_seen, table},
+            pipeline:      {ok, http_status, reason, records_seen, table},
+          },
+        }
+
+    Never raises — every error becomes a dict entry with reason.
+    Used by /api/aria/airtable/health + /diagnostic/details so ops can
+    see WHY Airtable is silent without digging through DEBUG logs.
+    """
+    out: dict[str, Any] = {
+        "ok": False,
+        "enabled": False,
+        "base_id": os.getenv("AIRTABLE_BASE_ID", _DEFAULT_BASE),
+        "tables": {},
+    }
+    enabled, why = _is_enabled()
+    out["enabled"] = enabled
+    if not enabled:
+        out["reason"] = why
+        return out
+
+    import httpx
+
+    async def _probe_table(table_name: str) -> dict[str, Any]:
+        url = f"{_API_ROOT}/{out['base_id']}/{quote(table_name, safe='')}?maxRecords=1"
+        try:
+            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as c:
+                r = await c.get(url, headers=_headers())
+        except Exception as e:
+            return {
+                "ok": False, "http_status": None,
+                "reason": f"net:{type(e).__name__}",
+                "records_seen": 0, "table": table_name,
+            }
+        if r.status_code == 404:
+            return {
+                "ok": False, "http_status": 404,
+                "reason": "table_not_found", "records_seen": 0,
+                "table": table_name,
+            }
+        if r.status_code == 401 or r.status_code == 403:
+            return {
+                "ok": False, "http_status": r.status_code,
+                "reason": "auth_failed", "records_seen": 0,
+                "table": table_name,
+            }
+        if r.status_code != 200:
+            return {
+                "ok": False, "http_status": r.status_code,
+                "reason": f"http_{r.status_code}",
+                "body": (r.text or "")[:200],
+                "records_seen": 0, "table": table_name,
+            }
+        try:
+            data = r.json()
+            recs = data.get("records") or []
+        except Exception:
+            recs = []
+        return {
+            "ok": True, "http_status": 200, "reason": None,
+            "records_seen": len(recs), "table": table_name,
+        }
+
+    task_table = os.getenv("AIRTABLE_TASK_TABLE", _DEFAULT_TABLE)
+    pipeline_table = os.getenv("AIRTABLE_PIPELINE_TABLE", "Pipeline")
+    out["tables"]["task_register"] = await _probe_table(task_table)
+    out["tables"]["pipeline"] = await _probe_table(pipeline_table)
+    out["ok"] = bool(
+        out["tables"]["task_register"]["ok"]
+        and out["tables"]["pipeline"]["ok"]
+    )
+    return out
+
+
 async def sync_status_change(action_id: str, new_status: str,
                              satisfied_at: str | None = None,
                              satisfied_note: str = "") -> dict[str, Any]:

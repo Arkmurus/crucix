@@ -798,6 +798,18 @@ async def research_brave_answer_spend_ep():
     return await brave_answers.get_month_spend()
 
 
+# ── Airtable health — reads 1 row from Task Register + Pipeline ──
+# Added 2026-04-21 after ops couldn't tell why Airtable rows were
+# silently missing — pending_actions.airtable_sync failures were
+# logger.debug only. This endpoint surfaces live reachability + table
+# resolution + auth scope so "fix the airtable" triages in 1 call.
+@router.get("/airtable/health")
+async def airtable_health_ep():
+    """Live Airtable reachability + table-name resolution probe."""
+    from ..integrations import airtable_sync as _as
+    return await _as.health_check()
+
+
 # ── Link investigator: recursive URL tree walk + fact fusion ──
 class LinkInvestigateRequest(BaseModel):
     seed_url: str
@@ -5674,8 +5686,13 @@ async def read_document_ep(request: Request):
             raise HTTPException(status_code=400, detail="Could not extract text from binary document")
         content = extracted
 
-    if not content or len(content) < 30:
-        raise HTTPException(status_code=400, detail="content required (min 30 chars)")
+    # Floor lowered 30→20 on 2026-04-21 to match the client-side floor in
+    # emailReader.mjs (raised 200→20 in 4fb47ff) and rag_store.ingest_document
+    # (also 20). Inconsistent floors created a silent 20-29 char dead zone
+    # where short emails ("Confirmed, see you Tuesday — John") were dropped
+    # here with a 400 response that callers swallowed to WARN.
+    if not content or len(content) < 20:
+        raise HTTPException(status_code=400, detail="content required (min 20 chars)")
     llm = get_llm(request)
     result = await read_document(llm, content, filename, source, context)
     # Surface the extracted text so callers (WA listener, email reader) can
@@ -5915,8 +5932,9 @@ async def corpus_ingest_ep(request: Request):
         except _ci.ExtractError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-    if not text or len(text.strip()) < 30:
-        raise HTTPException(status_code=400, detail="no usable text (min 30 chars)")
+    # Floor 30→20 for consistency with /read-document (same fix 2026-04-21).
+    if not text or len(text.strip()) < 20:
+        raise HTTPException(status_code=400, detail="no usable text (min 20 chars)")
 
     from ..intel import corpus_ingest as _ci
     try:

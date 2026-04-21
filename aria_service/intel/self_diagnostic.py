@@ -333,6 +333,20 @@ _MODULES: list[dict] = [
         "brain_registered": True,
         "critical": False,
     },
+    # Airtable integration — added 2026-04-21. Probes module import,
+    # health_check entry point, AIRTABLE_PAT env, and the live health
+    # endpoint (which in turn reads one row from both Task Register +
+    # Pipeline). Before this, Airtable drops were logger.debug only,
+    # so ops had no visibility into why rows were missing.
+    {
+        "name": "airtable_sync",
+        "module": "aria_service.integrations.airtable_sync",
+        "entry": "health_check",
+        "env_var": "AIRTABLE_PAT",
+        "endpoint": "/api/aria/airtable/health",
+        "endpoint_unauth_ok_codes": (401,),
+        "critical": False,
+    },
 ]
 
 

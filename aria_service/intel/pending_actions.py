@@ -149,11 +149,28 @@ async def record(
     # Airtable mirror — operator-visible Task Register. Fire-and-forget;
     # silent no-op if AIRTABLE_PAT isn't set (local dev, or the table
     # hasn't been created yet). See integrations/airtable_sync.py docstring.
+    #
+    # 2026-04-21: loglevel raised debug→warning for real failures. Ops
+    # flagged "fix the airtable" because silent drops at logger.debug
+    # made it impossible to see why rows were missing. sync_record
+    # returns a dict with ok/reason; surface the reason explicitly when
+    # it's a real failure (not "disabled" / "no_action_id" which are
+    # expected no-op returns). The bare-except fallback stays debug
+    # since it would only fire on a codebase bug, not an ops issue.
     try:
         from ..integrations import airtable_sync as _as
-        await _as.sync_record(entry)
+        _at_result = await _as.sync_record(entry)
+        if isinstance(_at_result, dict) and not _at_result.get("ok"):
+            _reason = _at_result.get("reason") or "unknown"
+            if not str(_reason).startswith(("disabled:", "no_action_id", "empty_fields")):
+                logger.warning(
+                    "airtable sync DROPPED action=%s reason=%s http=%s",
+                    (entry or {}).get("action_id", "?"),
+                    _reason,
+                    _at_result.get("http_status") or "-",
+                )
     except Exception as e:
-        logger.debug("pending_actions airtable sync failed: %s", e)
+        logger.warning("pending_actions airtable sync raised: %s", e)
 
     # Brain signal — every recorded promise is a self-honesty event.
     # CRITICAL/HIGH severity feeds capability_gap so the predictor
@@ -231,11 +248,19 @@ async def _mark_status(action_id: str, new_status: str, note: str) -> dict:
     # compact-mode (What/Notes Housekeeping target) still has the promise
     # text available for the What field. Full-mode treats it as a normal
     # upsert on Action ID.
+    # 2026-04-21: loglevel lifted from debug to warning for real drops.
     try:
         from ..integrations import airtable_sync as _as
-        await _as.sync_record(entry)
+        _at_result = await _as.sync_record(entry)
+        if isinstance(_at_result, dict) and not _at_result.get("ok"):
+            _reason = _at_result.get("reason") or "unknown"
+            if not str(_reason).startswith(("disabled:", "no_action_id", "empty_fields")):
+                logger.warning(
+                    "airtable status-change sync DROPPED action=%s reason=%s http=%s",
+                    action_id, _reason, _at_result.get("http_status") or "-",
+                )
     except Exception as e:
-        logger.debug("pending_actions airtable status-change sync failed: %s", e)
+        logger.warning("pending_actions airtable status-change raised: %s", e)
     return {"ok": True, "entry": entry}
 
 
