@@ -336,7 +336,13 @@ export async function fullBriefing() {
     }
   };
 
-  console.error(`[Crucix] Sweep complete in ${totalMs}ms — ${output.crucix.sourcesOk}/${sources.length} sources returned data`);
+  // Name the failing sources — "48/49 returned data" without names was a silent skip
+  // that hid URL rot (RFI feed moved, ANGOP bot-blocked) for weeks.
+  const failedNames = sources
+    .filter(s => s.status !== 'ok')
+    .map(s => `${s.name || 'unknown'}${s.error ? `(${String(s.error).slice(0, 60)})` : ''}`);
+  const failureSuffix = failedNames.length ? ` · failed: ${failedNames.join(', ')}` : '';
+  console.error(`[Crucix] Sweep complete in ${totalMs}ms — ${output.crucix.sourcesOk}/${sources.length} sources returned data${failureSuffix}`);
   console.error(`[Crucix] Dashboard: ${sortedUpdates.length} deduped updates (${confirmedCount} cross-confirmed), ${sortedSignals.length} signals`);
   return output;
 }

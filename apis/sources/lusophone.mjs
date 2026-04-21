@@ -23,8 +23,11 @@ const SOURCES = [
     weight: 'high',
   },
   {
+    // RFI restructured their RSS paths — old /pt/feeds/rss returns 404.
+    // The africa-specific path /pt/áfrica/rss (url-encoded) matches the
+    // source's intent and returns a live Portuguese-language Africa feed.
     name:   'RFI Portuguese Africa',
-    url:    'https://www.rfi.fr/pt/feeds/rss',
+    url:    'https://www.rfi.fr/pt/%C3%A1frica/rss',
     type:   'rss',
     region: 'Lusophone Africa',
     weight: 'high',
@@ -116,10 +119,13 @@ const SOURCES = [
     region: 'Africa',
     weight: 'medium',
   },
-  // Angola Agência Angola Press
+  // ANGOP's public RSS (rss.rss / /rss / /rss/) returns 404 or 503 under all
+  // UAs and proxies — the site actively blocks non-browser clients. Route the
+  // source through Google News PT Angola search, which indexes ANGOP + other
+  // Angolan outlets and serves RSS reliably from a Portuguese-language locale.
   {
     name:   'Agência Angola Press',
-    url:    'https://www.angop.ao/rss.rss',
+    url:    'https://news.google.com/rss/search?q=Angola+Angop&hl=pt-PT&gl=PT&ceid=PT:pt-150',
     type:   'rss',
     region: 'Angola',
     weight: 'high',
@@ -286,7 +292,10 @@ async function fetchSource(src) {
   ];
   const _ua = _UAS[Math.floor(Math.random() * _UAS.length)];
 
-  // Try direct fetch first
+  // Track last upstream status so a "blocked" warning can distinguish
+  // 404 (feed moved) from 403/503 (real blocking) from network errors.
+  const attempts = [];
+
   try {
     const res = await fetch(src.url, {
       headers: {
@@ -295,18 +304,21 @@ async function fetchSource(src) {
         'Accept-Language': 'pt-PT,pt;q=0.9,en;q=0.5',
       },
       signal: AbortSignal.timeout(10000),
+      redirect: 'follow',
     });
+    attempts.push(`direct=${res.status}`);
     if (res.ok) {
       const xml = await res.text();
       const items = parseRSS(xml);
       if (items.length > 0) return items;
     }
-  } catch (e) {}
+  } catch (e) { attempts.push(`direct=err(${(e && e.message || 'unknown').slice(0, 40)})`); }
 
   // Fallback: rss2json proxy (bypasses Render IP blocks)
   try {
     const proxyUrl = 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(src.url);
     const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
+    attempts.push(`rss2json=${res.status}`);
     if (res.ok) {
       const data = await res.json();
       if (data.status === 'ok' && data.items?.length > 0) {
@@ -318,13 +330,14 @@ async function fetchSource(src) {
         }));
       }
     }
-  } catch (e) {}
+  } catch (e) { attempts.push(`rss2json=err`); }
 
   // Third proxy: allorigins.win
   try {
     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(src.url)}`, {
       signal: AbortSignal.timeout(12000),
     });
+    attempts.push(`allorigins=${res.status}`);
     if (res.ok) {
       const data = await res.json();
       if (data.contents) {
@@ -332,7 +345,7 @@ async function fetchSource(src) {
         if (items.length > 0) return items;
       }
     }
-  } catch {}
+  } catch { attempts.push(`allorigins=err`); }
 
   // Fourth proxy: corsproxy.io
   try {
@@ -340,14 +353,15 @@ async function fetchSource(src) {
       headers: { 'User-Agent': _ua },
       signal: AbortSignal.timeout(12000),
     });
+    attempts.push(`corsproxy=${res.status}`);
     if (res.ok) {
       const xml = await res.text();
       const items = parseRSS(xml);
       if (items.length > 0) return items;
     }
-  } catch {}
+  } catch { attempts.push(`corsproxy=err`); }
 
-  console.warn(`[Lusophone] ${src.name} failed: all attempts blocked`);
+  console.warn(`[Lusophone] ${src.name} failed: ${attempts.join(' ')}`);
   return [];
 }
 
