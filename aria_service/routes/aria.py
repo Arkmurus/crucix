@@ -2518,6 +2518,23 @@ def _detect_tool_intent(message: str) -> dict | None:
         r")\b",
         re.IGNORECASE,
     )
+    # Airtable-health intent — user asks "is airtable working / healthy / synced".
+    # Routes to a dedicated handler that calls airtable_sync.health_check()
+    # and surfaces real status (table reachability, row counts, auth state)
+    # so ARIA answers from live data instead of "no tool block confirms this".
+    # Added 2026-04-21 after operator asked ARIA "is Airtable sync healthy?"
+    # and she correctly refused to fabricate because no tool block ran.
+    if re.search(
+        r"\b(is\s+)?airtable\s+(sync\s+)?(healthy|working|ok|status|live|"
+        r"synced|operational|up|reachable|connected)\b",
+        msg, re.IGNORECASE,
+    ) or re.search(
+        r"\bstatus\s+of\s+(task\s+register|pipeline)\s+(table|airtable)",
+        msg, re.IGNORECASE,
+    ):
+        return {"tool": "airtable_health", "context": msg,
+                "_reason": "airtable_health_query"}
+
     if _META_QUERY_RE.search(msg):
         # Decide which slice to pull. Default to "everything" if both
         # brain stats AND email questions are present.
@@ -3274,6 +3291,49 @@ async def _execute_tool(intent: dict, llm) -> str:
             )
 
         # ── Meta-query — ARIA introspecting on her own state ──
+        # ── Airtable health — live reachability of Task Register + Pipeline ──
+        # Added 2026-04-21. Without this, ARIA had no way to answer "is
+        # Airtable healthy?" truthfully — she would refuse to guess, per
+        # Clause 11. Now the health_check() result is injected into the
+        # tool block so she narrates from real data.
+        if tool == "airtable_health":
+            from ..integrations import airtable_sync as _as
+            try:
+                health = await _as.health_check()
+            except Exception as e:
+                return (
+                    "[TOOL: airtable_health — probe raised]\n"
+                    f"Error: {type(e).__name__}: {e}\n"
+                    "Report to user that the probe itself failed. Do NOT claim "
+                    "Airtable is OK or broken without data."
+                )
+            parts = ["[TOOL: airtable_health — live probe]", ""]
+            parts.append(f"enabled: {health.get('enabled')}")
+            parts.append(f"base_id: {health.get('base_id')}")
+            parts.append(f"overall_ok: {health.get('ok')}")
+            parts.append("")
+            for tname, t in (health.get("tables") or {}).items():
+                if not t:
+                    parts.append(f"  {tname}: no data")
+                    continue
+                parts.append(
+                    f"  {tname}: ok={t.get('ok')} "
+                    f"http={t.get('http_status')} "
+                    f"reason={t.get('reason') or '-'} "
+                    f"records_seen={t.get('records_seen')} "
+                    f"table_name=\"{t.get('table')}\""
+                )
+            parts.append("")
+            parts.append(
+                "INSTRUCTIONS: Narrate the live status above in one paragraph. "
+                "If overall_ok=true, say Airtable is operational with both tables "
+                "reachable. If any table shows ok=false, report the reason "
+                "verbatim (table_not_found / auth_failed / rate_limited / etc.) "
+                "and tell the user what to check. Do NOT hedge with 'no tool "
+                "confirmed a sync' — this IS the tool block."
+            )
+            return "\n".join(parts)
+
         # ── Brave Answers — single-call AI answer with memory-first ──
         # Factual Q&A fast-path. Memory-first check hits RAG for $0 on
         # paraphrased repeats; on miss, paid API call + 3-tier absorption
@@ -3599,12 +3659,19 @@ async def _execute_tool(intent: dict, llm) -> str:
                     briefing_parts.append(f"  - [{l['stage']}] {l.get('buyer', '?')}: {l.get('requirement', '?')[:80]} (${l.get('estimated_value_usd', 0):,.0f})")
                 briefing_parts.append("")
 
-            # 2. Knowledge base facts
-            kb_facts = _kb.search_knowledge(entity)
-            if kb_facts:
-                briefing_parts.append(f"VERIFIED KNOWLEDGE ({len(kb_facts)} facts):")
-                for f in kb_facts[:10]:
-                    briefing_parts.append(f"  - [{f.get('confidence', 'ASSESSED')}] {f.get('text', '')[:150]}")
+            # 2. Knowledge base facts.
+            # 2026-04-21: search_knowledge returns a pre-formatted STRING
+            # (designed for direct prompt injection), not a list of dicts.
+            # Iterating it as if it were a list caused every character to
+            # hit `.get("confidence")` → `'str' object has no attribute
+            # 'get'`. ARIA's self-diagnostic at 11:11 flagged this exact
+            # failure on a Modirum Gespi brief. The fix is to use the
+            # string verbatim — it's already human-readable and confidence-
+            # tagged by search_knowledge.
+            kb_text = _kb.search_knowledge(entity)
+            if isinstance(kb_text, str) and kb_text.strip():
+                briefing_parts.append("VERIFIED KNOWLEDGE:")
+                briefing_parts.append(kb_text.strip()[:3000])
                 briefing_parts.append("")
 
             # 3. RAG context
