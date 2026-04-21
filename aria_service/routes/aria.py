@@ -3233,7 +3233,22 @@ async def _execute_tool(intent: dict, llm) -> str:
                 stats = await _bh.get_stats()
                 parts.append("BRAIN HOOK STATS:")
                 parts.append(f"  total_signals_lifetime: {stats.get('total_signals', 0)}")
-                parts.append(f"  health: {stats.get('health', 'unknown')}")
+                # health field is a COMPOSITE — "degraded" here means "some
+                # modules haven't fired in >24h", NOT "memory is broken".
+                # Explicitly print the components so ARIA narrates the real
+                # meaning instead of parroting a scary-sounding summary.
+                health = stats.get("health", "unknown")
+                healthy_count = int(stats.get("healthy_count") or 0)
+                stale_count = int(stats.get("stale_count") or 0)
+                stale_modules = stats.get("stale_modules") or []
+                never_seen = stats.get("never_seen") or []
+                parts.append(f"  health: {health} "
+                             f"(healthy_modules={healthy_count}, "
+                             f"stale_modules={stale_count}, "
+                             f"never_seen={len(never_seen)})")
+                if stale_modules:
+                    parts.append(f"  stale (no signal >24h): {', '.join(stale_modules[:10])}"
+                                 + (" ..." if len(stale_modules) > 10 else ""))
                 cb = stats.get("circuit_breaker") or {}
                 if cb:
                     parts.append(f"  circuit_breaker: open={cb.get('open')} "
@@ -3426,6 +3441,18 @@ async def _execute_tool(intent: dict, llm) -> str:
             parts.append("  provider — do NOT call this degraded, broken, or unhealthy.")
             parts.append("  A cooling provider with resilient=False IS a real outage;")
             parts.append("  in that case report it honestly as a service incident.")
+            parts.append("  BRAIN HOOK STATS semantics — do NOT misread 'degraded':")
+            parts.append("    - health='degraded' means SOME MODULES have not fired a")
+            parts.append("      signal in >24h (listed in 'stale'). It does NOT mean")
+            parts.append("      memory is broken, unhealthy, or degraded.")
+            parts.append("    - Permanent memory is intact so long as RAG / knowledge /")
+            parts.append("      intel_ledger are reachable (separate sections above).")
+            parts.append("    - Report stale modules by NAME, e.g. 'modules X, Y haven't")
+            parts.append("      fired recently — this is expected for event-driven")
+            parts.append("      modules'. Do NOT say 'memory is degraded'.")
+            parts.append("    - Only use the word 'degraded' for the overall system if")
+            parts.append("      the circuit_breaker is open or rag/knowledge/ledger is")
+            parts.append("      unreachable — neither of which is shown here.")
             return "\n".join(parts)
 
         if tool == "pre_meeting_briefing":
