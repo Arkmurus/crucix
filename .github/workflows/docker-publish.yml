@@ -60,7 +60,13 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          # 2026-04-21: dropped linux/arm64. Both consumers (seenode and
+          # fly.io LHR) run on x86-64 and we have no arm64 consumer today.
+          # Dual-arch builds took 15-25 min on cold cache, blocking seenode
+          # pickup of new images exactly when changes are urgent. Single
+          # amd64 is ~3 min warm, ~8 min cold. Restore arm64 only if a
+          # consumer that actually needs it appears.
+          platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
