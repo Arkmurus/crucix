@@ -3353,20 +3353,26 @@ async def _execute_tool(intent: dict, llm) -> str:
                 # actual public API (not .query — past handler bug fixed
                 # 2026-04-19 after ARIA reported "rag_store has no
                 # attribute query" via her own meta_query introspection).
+                #
+                # 2026-04-21: post-filter-only approach was UNSOUND. With
+                # ~32k RAG chunks total and only tens tagged as emails, the
+                # top-20 by similarity to "email message subject from" will
+                # often contain zero emails — other chunks score higher on
+                # those generic words. Result: 42 verified email chunks in
+                # RAG, but meta_query reported "0 email-tagged chunks", and
+                # ARIA narrated "email pipeline broken" to the user when it
+                # wasn't. Fix: pass source_type="email" as a WHERE filter
+                # so chromadb returns only emails, then rank by similarity.
                 try:
                     from ..intel import rag_store as _rag
-                    # Wide query — we want anything tagged as email,
-                    # regardless of content. Search by topic-typical
-                    # keywords; post-filter by source.
-                    raw_hits = await _rag.search(
-                        "email message subject from",
-                        top_k=max(limit * 4, 20),  # over-fetch then filter
-                    )
-                    email_hits = [
-                        h for h in (raw_hits or [])
-                        if str(h.get("source", "")).startswith("email")
-                        or str(h.get("source_type", "")).startswith("email")
-                    ][:limit]
+                    # source_type filter restricts the search to email
+                    # chunks; rank by similarity to typical query text.
+                    email_hits = (await _rag.search(
+                        "email subject from message",
+                        top_k=max(limit * 2, 10),
+                        source_type="email",
+                    )) or []
+                    email_hits = email_hits[:limit]
                     if email_hits:
                         parts.append(f"MOST RECENT {len(email_hits)} EMAIL-TAGGED RAG CHUNKS:")
                         for i, r in enumerate(email_hits, 1):
