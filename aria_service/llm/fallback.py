@@ -233,6 +233,38 @@ class FallbackProvider(LLMProvider):
             for name, s in self._stats.items()
         }
 
+    def get_health(self) -> dict:
+        """Chain-level health summary.
+
+        Consumers should prefer this over raw get_stats() when deciding
+        "is the LLM layer working?". A cooling provider is the chain
+        working AS DESIGNED — the right signal is whether ≥1 provider
+        is available to serve the next request.
+        """
+        now = time.time()
+        active: list[str] = []
+        cooling: list[dict] = []
+        for p in self.providers:
+            s = self._stats.get(p.name, {})
+            cd = s.get("cooldown_until", 0)
+            if cd > now:
+                cooling.append({
+                    "name": p.name,
+                    "reason": s.get("last_kind") or "unknown",
+                    "seconds_remaining": int(cd - now),
+                })
+            else:
+                active.append(p.name)
+        chain_order = [p.name for p in self.providers]
+        return {
+            "active_providers": active,
+            "cooling_providers": cooling,
+            "resilient": len(active) > 0,
+            "primary_active": bool(active and chain_order and active[0] == chain_order[0]),
+            "serving_provider": active[0] if active else None,
+            "chain_order": chain_order,
+        }
+
 
 def create_fallback_chain(
     primary_provider: str,

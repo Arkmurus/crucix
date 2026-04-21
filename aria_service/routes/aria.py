@@ -3293,6 +3293,37 @@ async def _execute_tool(intent: dict, llm) -> str:
                     )
                 parts.append("")
 
+            # ── 3. LLM fallback-chain health ──
+            # Without this, when Anthropic is on hard cooldown (billing or
+            # auth), ARIA — served by DeepSeek at that moment — had no way
+            # to know which provider was serving her and would hallucinate
+            # "brain degraded" from module gaps. She now sees the chain
+            # state in her own context and can report it accurately.
+            try:
+                if llm is not None and hasattr(llm, "get_health"):
+                    lh = llm.get_health()
+                    parts.append("LLM FALLBACK CHAIN (currently serving you):")
+                    parts.append(f"  serving_provider: {lh.get('serving_provider') or 'none'}")
+                    parts.append(f"  active_providers: {lh.get('active_providers') or []}")
+                    parts.append(f"  resilient: {lh.get('resilient')}")
+                    cooling = lh.get("cooling_providers") or []
+                    if cooling:
+                        for cp in cooling:
+                            secs = int(cp.get("seconds_remaining") or 0)
+                            parts.append(
+                                f"  cooling: {cp.get('name')} "
+                                f"(reason={cp.get('reason')}, {secs}s remaining)"
+                            )
+                        parts.append(
+                            "  NOTE: a cooling provider is the chain working AS DESIGNED — "
+                            "a fallback provider took over and the request succeeded. "
+                            "This is NOT a brain outage or a broken module."
+                        )
+                    parts.append("")
+            except Exception as e:
+                parts.append(f"LLM FALLBACK CHAIN: probe failed — {type(e).__name__}: {e}")
+                parts.append("")
+
             parts.append("INSTRUCTIONS TO ASSISTANT:")
             parts.append("  Report these stats to the user EXACTLY as shown.")
             parts.append("  If a section says NEVER SEEN, NO SIGNALS, or unreachable —")
@@ -3300,6 +3331,11 @@ async def _execute_tool(intent: dict, llm) -> str:
             parts.append("  ledger signals or any other source. DO NOT emit [TOOL: ...]")
             parts.append("  blocks pretending to invoke other tools — this query has")
             parts.append("  already produced the answer.")
+            parts.append("  If LLM FALLBACK CHAIN shows resilient=True with a cooling")
+            parts.append("  provider, describe ARIA as OPERATING NORMALLY via the active")
+            parts.append("  provider — do NOT call this degraded, broken, or unhealthy.")
+            parts.append("  A cooling provider with resilient=False IS a real outage;")
+            parts.append("  in that case report it honestly as a service incident.")
             return "\n".join(parts)
 
         if tool == "pre_meeting_briefing":

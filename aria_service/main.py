@@ -791,8 +791,15 @@ async def health():
     """
     llm = app.state.llm_provider
     llm_stats = {}
+    llm_chain: dict = {}
     if hasattr(llm, "get_stats"):
         llm_stats = llm.get_stats()
+    if hasattr(llm, "get_health"):
+        # Chain-level summary — "resilient" is the load-bearing signal;
+        # raw per-provider stats stay in llm_fallback_stats for operators.
+        # A cooling provider is the fallback chain WORKING — status should
+        # only flip to degraded when no provider can serve.
+        llm_chain = llm.get_health()
 
     # Autonomy indicator — is the 24/7 loop actually running right
     # now? Boolean only, plus the last-tick age so an observer can
@@ -853,11 +860,17 @@ async def health():
     except Exception:
         pass
 
+    # Top-level status: "operational" iff the chain can serve a request
+    # (≥1 non-cooling provider) AND the autonomous loop isn't stuck. A
+    # cooling primary with a live fallback is NOT degraded — the chain
+    # is doing its job.
+    chain_resilient = llm_chain.get("resilient") if llm_chain else bool(llm and llm.is_configured)
     return {
-        "status": "operational" if (llm and llm.is_configured and autonomous_healthy) else "degraded",
+        "status": "operational" if (chain_resilient and autonomous_healthy) else "degraded",
         "service": "aria",
         "llm_provider": llm.name if llm else "none",
         "llm_configured": bool(llm and llm.is_configured),
+        "llm_chain": llm_chain,
         "llm_fallback_stats": llm_stats,
         "autonomous": autonomous_ind,
         "diagnostic": diagnostic_ind,

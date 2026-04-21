@@ -424,7 +424,21 @@ async def _resilience_floor() -> dict[str, Any]:
     # ── Resilience count ──
     # How many independent fallback paths are available RIGHT NOW?
     # Active providers + local_brain (always +1 if ready).
+    #
+    # A cooling provider is NOT a resilience loss — the fallback chain is
+    # exactly designed to route around it. So we deliberately count only
+    # `providers_active` (which excludes cooling) and leave `providers_cooling`
+    # as operator-visible detail, not a verdict input.
     out["resilience_count"] = out["providers_active"] + (1 if out["local_brain_ready"] else 0)
+
+    # Load-bearing "am I broken" signal. Used by /health, meta_query, and
+    # any consumer that needs a boolean "can ARIA serve the next request?".
+    # Stays True when Anthropic (or any N-1 providers) is on hard cooldown
+    # so long as at least one other provider is still active.
+    out["chain_resilient"] = out["providers_active"] >= 1
+    out["chain_fallback_engaged"] = (
+        out["providers_cooling"] > 0 and out["providers_active"] >= 1
+    )
 
     # Verdict ladder
     if out["resilience_count"] >= 3:
