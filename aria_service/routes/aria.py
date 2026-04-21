@@ -2468,6 +2468,65 @@ def _detect_tool_intent(message: str) -> dict | None:
             "_reason": "pipeline_command",
         }
 
+    # ── Ticket intent ──
+    # Two triggers:
+    #   (a) explicit slash command: "/ticket <body>" or "/raise <body>"
+    #   (b) natural-language ask: "file a ticket for X", "raise a ticket
+    #       about Y", "log this as a bug", "open an issue for Z"
+    # The tool executor routes to tickets.raise_ticket() which writes to
+    # GitHub (primary) + Airtable (mirror). Constitution clause 22 forbids
+    # ARIA from fabricating ticket IDs — this intent is the ONLY path that
+    # can produce a real one.
+    _ticket_lower = msg.strip().lower()
+    _TICKET_SLASH = (
+        _ticket_lower.startswith("/ticket")
+        or _ticket_lower.startswith("/raise ")
+    )
+    _TICKET_NLU_RE = re.compile(
+        r"\b(?:"
+        r"(?:file|raise|open|log|create)\s+(?:an?\s+)?(?:ticket|issue|bug(?:\s+report)?)"
+        r"|log\s+this\s+as\s+(?:an?\s+)?(?:bug|issue|ticket)"
+        r"|track\s+this\s+(?:as\s+)?(?:an?\s+)?(?:bug|issue|ticket)"
+        r")\b",
+        re.IGNORECASE,
+    )
+    _TICKET_LIST_RE = re.compile(
+        r"\b(?:"
+        r"(?:list|show|what|which|any)\s+(?:are\s+)?(?:the\s+)?(?:open\s+)?tickets?"
+        r"|what(?:'s|\s+is)\s+in\s+the\s+ticket\s+queue"
+        r"|ticket\s+queue"
+        r")\b",
+        re.IGNORECASE,
+    )
+    if _ticket_lower.startswith("/tickets") or _TICKET_LIST_RE.search(msg):
+        return {
+            "tool": "list_tickets",
+            "context": msg,
+            "_reason": "list_tickets",
+        }
+    if _TICKET_SLASH or _TICKET_NLU_RE.search(msg):
+        body = msg.strip()
+        for prefix in ("/ticket", "/raise"):
+            if body.lower().startswith(prefix):
+                body = body[len(prefix):].strip(" :-")
+                break
+        # Infer severity from obvious keywords. Default MEDIUM.
+        sev = "MEDIUM"
+        low = body.lower()
+        if any(k in low for k in ("critical", "urgent", "p0", "outage", "down")):
+            sev = "CRITICAL"
+        elif any(k in low for k in ("high", "severe", "p1", "blocker")):
+            sev = "HIGH"
+        elif any(k in low for k in ("minor", "nice to have", "p3", "cosmetic", "low priority")):
+            sev = "LOW"
+        return {
+            "tool": "raise_ticket",
+            "body": body or msg.strip(),
+            "severity": sev,
+            "context": msg,
+            "_reason": "ticket_intent",
+        }
+
     # ── Opportunity-conversion intent ──
     # "/opportunity <alert-text-or-URL>" or "convert this to a pipeline"
     # or "push this to pipeline". Takes free-text intel (often pasted
@@ -3270,6 +3329,112 @@ async def _execute_tool(intent: dict, llm) -> str:
             from ..intel import deal_pipeline as _dp
             summary = await _dp.generate_pipeline_summary()
             return f"\n\n[TOOL: pipeline_summary]\n{summary}\n\nPresent this pipeline summary to the user exactly as formatted."
+
+        # ── Ticket raise — user asked ARIA to file a dev ticket ──
+        # Calls tickets.raise_ticket() which writes to GitHub Issues (primary)
+        # + Airtable "Dev Tickets" (mirror, if configured). Constitution
+        # clause 22 forbids fabricating ticket IDs — the authoritative ID
+        # comes from the tool block below. If this block is missing from
+        # the reply context, ARIA MUST NOT invent one.
+        if tool == "raise_ticket":
+            from ..intel import tickets as _tk
+            body = (intent.get("body") or intent.get("context") or "").strip()
+            if not body:
+                return (
+                    "[TOOL: raise_ticket — REFUSED]\n"
+                    "Reason: no description provided. Ask the user what the "
+                    "problem is, what they observed, and (optionally) what "
+                    "they think the fix might be. Do NOT file an empty ticket."
+                )
+            # Derive a short title from the first line / first 12 words.
+            first_line = body.splitlines()[0].strip() if body else ""
+            title = first_line[:100] if first_line else body[:100]
+            severity = intent.get("severity") or "MEDIUM"
+            try:
+                result = await _tk.raise_ticket(
+                    title=title or "ARIA ticket",
+                    symptom=body,
+                    context=intent.get("context", "")[:2000],
+                    severity=severity,
+                    category="other",
+                    source="chat:raise_ticket_intent",
+                )
+            except Exception as e:
+                return (
+                    "[TOOL: raise_ticket — probe raised]\n"
+                    f"Error: {type(e).__name__}: {e}\n"
+                    "Tell the user the ticket was NOT filed and describe the "
+                    "issue so they can file manually. Do NOT invent a ticket ID."
+                )
+            if not result.get("ok"):
+                gh_reason = (result.get("github") or {}).get("reason", "unknown")
+                at_reason = (result.get("airtable") or {}).get("reason", "unknown")
+                return (
+                    "[TOOL: raise_ticket — FAILED on all surfaces]\n"
+                    f"GitHub: {gh_reason}. Airtable: {at_reason}.\n"
+                    "Tell the user the ticket was NOT filed and ask whether "
+                    "they want to file it manually. Do NOT invent a ticket ID. "
+                    "Describe the issue plainly so it can be copy-pasted into "
+                    "GitHub Issues directly."
+                )
+            ticket_id = result["ticket_id"]
+            gh_url = (result.get("github") or {}).get("url", "")
+            at_ok = (result.get("airtable") or {}).get("ok", False)
+            mirror_note = ""
+            if at_ok:
+                mirror_note = " Mirrored to Airtable Dev Tickets table."
+            elif (result.get("airtable") or {}).get("skipped"):
+                mirror_note = ""
+            else:
+                at_reason = (result.get("airtable") or {}).get("reason", "unknown")
+                mirror_note = f" (Airtable mirror failed: {at_reason}.)"
+            return (
+                f"\n\n[TOOL: raise_ticket]\n"
+                f"Ticket filed: **{ticket_id}** ({severity})\n"
+                f"Title: {title}\n"
+                f"URL: {gh_url or '(Airtable-only — no public URL)'}\n"
+                f"{mirror_note}\n\n"
+                f"Confirm to the user that you filed ticket {ticket_id} with severity {severity}. "
+                f"Quote the ticket ID and URL EXACTLY as shown. Do NOT invent an alternate ID. "
+                f"This is the only permitted form under constitution clause 22."
+            )
+
+        # ── Ticket list — show open tickets ARIA has filed ──
+        if tool == "list_tickets":
+            from ..intel import tickets as _tk
+            try:
+                result = await _tk.list_open_tickets(limit=20)
+            except Exception as e:
+                return (
+                    "[TOOL: list_tickets — probe raised]\n"
+                    f"Error: {type(e).__name__}: {e}"
+                )
+            if not result.get("ok"):
+                reason = result.get("reason", "unknown")
+                return (
+                    "[TOOL: list_tickets — UNAVAILABLE]\n"
+                    f"GitHub surface unavailable: {reason}.\n"
+                    "Tell the user the ticket queue could not be read. "
+                    "Do NOT invent ticket IDs or fabricate a list."
+                )
+            tickets_list = result.get("tickets", [])
+            if not tickets_list:
+                return (
+                    "\n\n[TOOL: list_tickets]\n"
+                    "No open ARIA-raised tickets.\n\n"
+                    "Tell the user the queue is empty. Do not invent entries."
+                )
+            lines = [f"\n\n[TOOL: list_tickets] ({len(tickets_list)} open)"]
+            for t in tickets_list[:20]:
+                sev = next(
+                    (l.replace("severity-", "").upper() for l in t.get("labels", []) if l.startswith("severity-")),
+                    "?",
+                )
+                lines.append(f"- **{t['ticket_id']}** [{sev}] {t['title']}\n  {t['url']}")
+            lines.append(
+                "\nQuote ticket IDs EXACTLY as shown (GH-<n>). Constitution clause 22 applies."
+            )
+            return "\n".join(lines)
 
         if tool == "opportunity_convert":
             # Take free-text alert / URL, produce structured brief, push
@@ -12917,3 +13082,41 @@ async def writers_capabilities_ep():
         "stanag_references": list(STANAG_REFERENCES.keys()),
         "compliance_principles": sorted(ADEQUATE_PROCEDURES_PRINCIPLES.keys()),
     }
+
+
+# ── Ticket system ────────────────────────────────────────────────────────────
+# ARIA's durable ticket surface. See aria_service/intel/tickets.py for design
+# notes. Endpoints are used by: (a) the WhatsApp /ticket slash command,
+# (b) ARIA's own chat flow via _execute_tool when she detects an issue worth
+# escalating, (c) operators / developers inspecting the open-ticket queue.
+
+class RaiseTicketRequest(BaseModel):
+    title: str
+    symptom: str
+    context: str = ""
+    severity: str = "MEDIUM"    # CRITICAL / HIGH / MEDIUM / LOW
+    category: str = "other"     # infra / pipeline / code / data / llm / prompt / ux / other
+    suggested_fix: Optional[str] = None
+    source: Optional[str] = None  # free-form: "whatsapp:group:Antonio", "autonomous_task:X", etc.
+
+
+@router.post("/tickets/raise")
+async def raise_ticket_ep(req: RaiseTicketRequest) -> dict:
+    """Raise a durable ticket. Returns authoritative ticket_id ARIA may cite."""
+    from ..intel import tickets
+    return await tickets.raise_ticket(
+        title=req.title,
+        symptom=req.symptom,
+        context=req.context,
+        severity=req.severity,
+        category=req.category,
+        suggested_fix=req.suggested_fix,
+        source=req.source,
+    )
+
+
+@router.get("/tickets/list")
+async def list_tickets_ep(limit: int = 20) -> dict:
+    """List open tickets (for ARIA's dedup + for operator inspection)."""
+    from ..intel import tickets
+    return await tickets.list_open_tickets(limit=limit)
