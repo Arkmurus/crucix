@@ -1033,7 +1033,24 @@ async def web_search(query: str, max_results: int = 8, timeout: float = 15.0) ->
             "ok": False, "query": "", "provider": "none", "results": [],
             "error": "empty query", "duration_ms": 0,
         }
-    query = query.strip()[:300]  # cap query length
+    # Cap at 200 chars (not 300). Brave's ~400-char hard limit returns
+    # HTTP 422; Semantic Scholar tolerates more but 429s under load.
+    # 200 chars is the safe ceiling — beyond that the query is almost
+    # certainly a hypothesis leak from upstream. Log upstream leaks so
+    # we can chase the root cause instead of silently truncating.
+    # Added 2026-04-21 after operator flagged the same class of bug as
+    # "generate digest → deep_research with whole prompt as entity".
+    raw_len = len(query.strip())
+    query = query.strip()
+    if raw_len > 200:
+        logger.warning(
+            "web_search upstream leak — query was %d chars, truncating to 200 "
+            "at word boundary. Caller should have pre-chunked: %r",
+            raw_len, query[:60],
+        )
+        # Word-boundary truncation — don't slice mid-token and create garbage
+        truncated = query[:200].rsplit(" ", 1)[0] if " " in query[:200] else query[:200]
+        query = truncated
 
     # ── Provider 1: Brave Search API ──────────────────────────────────
     brave_key = (os.getenv("BRAVE_SEARCH_API_KEY") or "").strip()

@@ -509,6 +509,69 @@ async def get_crawl_progress(domain: str) -> dict:
         return {"status": "error", "error": str(e), "domain": domain}
 
 
+# ── Query chunker — prevents upstream hypothesis leaks hitting search APIs ──
+
+
+def _chunk_long_query(query: str, max_chars: int = 200) -> list[str]:
+    """Split a potentially-long research query into ≤max_chars sub-queries.
+
+    Why: the LLM query-planner occasionally emits a full-sentence hypothesis
+    as a single query. Brave Search API returns HTTP 422 past ~400 chars;
+    Semantic Scholar tolerates more but 429s under load on long strings.
+    Downstream caps truncate, which is worse than splitting because a
+    truncated sentence loses the distinguishing keywords at the tail.
+
+    Strategy (no LLM, pure heuristic — fast and deterministic):
+      1. If already ≤ max_chars, return [query] unchanged.
+      2. Split on natural delimiters that imply parallel clauses:
+         ", " / " and " / " including " / " with " / " between " /
+         " — " / " or " / ";" — preferring earlier delimiters first.
+      3. Keep only segments ≥10 chars and ≤ max_chars; dedupe.
+      4. If splits yield <2 usable segments, fall back to a word-boundary
+         truncation at max_chars (single segment, still obeys the limit).
+      5. Cap at 5 sub-queries — beyond that diminishing returns.
+    """
+    q = (query or "").strip()
+    if len(q) <= max_chars:
+        return [q] if q else []
+
+    # Natural-clause delimiters, ordered by preference. Earlier splits
+    # usually yield more coherent sub-queries than later ones.
+    for delim in (", ", " including ", " and ", " with ", " between ",
+                  " — ", " - ", " or ", "; "):
+        if delim in q:
+            parts = [p.strip(" .,:;-?!\"'\n") for p in q.split(delim)]
+            usable = [
+                p[:max_chars] for p in parts
+                if p and len(p) >= 10 and len(p) <= max_chars * 2
+            ]
+            # For fragments that exceed max_chars after split, truncate
+            # at word boundary rather than dropping them — they still
+            # carry useful keywords.
+            out: list[str] = []
+            seen: set[str] = set()
+            for p in usable:
+                if len(p) > max_chars:
+                    cut = p[:max_chars]
+                    if " " in cut:
+                        cut = cut.rsplit(" ", 1)[0]
+                    p = cut
+                k = p.lower()
+                if p and k not in seen:
+                    seen.add(k)
+                    out.append(p)
+                if len(out) >= 5:
+                    break
+            if len(out) >= 2:
+                return out
+
+    # Fall-through: no delimiter split worked. Truncate at word boundary.
+    cut = q[:max_chars]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return [cut] if cut else []
+
+
 # ── Public: Deep investigation on a topic ────────────────────────────────────
 
 async def investigate(
@@ -610,8 +673,29 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
 
     # Collect article jobs from all search queries first (web_search itself
     # is fast — the bottleneck is the per-article LLM analysis below).
+    # 2026-04-21: chunk long hypotheses into ≤200-char sub-queries BEFORE
+    # hitting web_search. Brave returns HTTP 422 past ~400 chars, Semantic
+    # Scholar 429s under load on long strings. The LLM query-planner
+    # occasionally emits a full sentence as a single query — _chunk_long_query
+    # splits on natural delimiters (", " / " and " / " including " / " with ")
+    # so a hypothesis like "Angola artillery modernisation including CAESAR
+    # howitzer and NATO 155mm procurement with Nexter and Rheinmetall" becomes
+    # 3-5 focused searches instead of one 422-triggering string.
+    expanded_queries: list[str] = []
+    for q in queries[:max_searches]:
+        expanded_queries.extend(_chunk_long_query(q))
+    # Dedupe while preserving order, keep only max_searches after expansion
+    seen: set[str] = set()
+    dedup: list[str] = []
+    for q in expanded_queries:
+        k = q.lower().strip()
+        if k and k not in seen:
+            seen.add(k)
+            dedup.append(q)
+    queries_to_run = dedup[:max_searches]
+
     article_jobs: list[tuple[str, dict]] = []  # (query, article)
-    for query in queries[:max_searches]:
+    for query in queries_to_run:
         try:
             results = await _web_search(query)
         except Exception as _e:
