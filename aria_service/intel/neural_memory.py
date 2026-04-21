@@ -105,19 +105,20 @@ async def _persist() -> None:
     try:
         _meta["total_neurons"] = len(_neurons)
         _meta["total_edges"] = sum(len(v) for v in _edges.values())
-        # Use pipeline for atomic writes if Redis is available
+        # No TTL — neural memory is permanent. Activation decay still
+        # applies (that's learning, not forgetting), but neurons never
+        # expire from Redis. Was 90d TTL before 2026-04-21.
         if rs._client:
             import json as _json
             pipe = rs._client.pipeline()
-            ttl = 90 * 86400
-            pipe.set(NEURONS_KEY, _json.dumps(dict(_neurons)), ex=ttl)
-            pipe.set(EDGES_KEY, _json.dumps(dict(_edges)), ex=ttl)
-            pipe.set(NEURAL_META_KEY, _json.dumps(_meta), ex=ttl)
+            pipe.set(NEURONS_KEY, _json.dumps(dict(_neurons)))
+            pipe.set(EDGES_KEY, _json.dumps(dict(_edges)))
+            pipe.set(NEURAL_META_KEY, _json.dumps(_meta))
             await pipe.execute()
         else:
-            await rs.set_json(NEURONS_KEY, dict(_neurons), ex=90 * 86400)
-            await rs.set_json(EDGES_KEY, dict(_edges), ex=90 * 86400)
-            await rs.set_json(NEURAL_META_KEY, _meta, ex=90 * 86400)
+            await rs.set_json(NEURONS_KEY, dict(_neurons))
+            await rs.set_json(EDGES_KEY, dict(_edges))
+            await rs.set_json(NEURAL_META_KEY, _meta)
     except Exception as e:
         logger.warning("Neural memory persist failed: %s", e)
 
@@ -642,26 +643,18 @@ async def get_neural_context(message: str) -> str:
 
 
 async def consolidate() -> dict:
-    """Nightly memory consolidation — prune weak, strengthen strong."""
+    """Nightly memory consolidation — strengthen strong, abstract schemas.
+
+    Weak-neuron pruning was removed 2026-04-21: operator asked for forever
+    memory. Neurons still decay in activation (making them less retrievable
+    under query) but are never deleted — they're recoverable if new evidence
+    reactivates them.
+    """
     now = time.time()
     seven_days_ago = now - 7 * 86400
     neurons_before = len(_neurons)
     edges_before = sum(len(v) for v in _edges.values())
-
-    # ── 1. Prune weak neurons ────────────────────────────────────────────
-    pruned_ids: list[str] = []
-    for nid, n in list(_neurons.items()):
-        age_days = (now - n.get("created_at", now)) / 86400
-        if (n["activation"] < 0.1
-                and n.get("access_count", 0) < 2
-                and age_days > 7):
-            pruned_ids.append(nid)
-
-    for nid in pruned_ids:
-        del _neurons[nid]
-        _edges.pop(nid, None)
-        for other_edges in _edges.values():
-            other_edges.pop(nid, None)
+    pruned_ids: list[str] = []  # kept for return-shape compatibility
 
     # ── 2. Strengthen frequently-accessed neurons ────────────────────────
     strengthened = 0
@@ -895,10 +888,8 @@ async def log_conflict(conflict: dict) -> None:
     try:
         conflicts = await rs.get_json(CONFLICT_KEY) or []
         conflicts.append(conflict)
-        # Keep last 100 conflicts
-        if len(conflicts) > 100:
-            conflicts = conflicts[-100:]
-        await rs.set_json(CONFLICT_KEY, conflicts, ex=90 * 86400)
+        # Permanent retention — was last-100 cap + 90d TTL before 2026-04-21.
+        await rs.set_json(CONFLICT_KEY, conflicts)
         logger.warning(
             "[conflict] %s: existing=%s new=%s — flagged for review",
             conflict.get("entity"),
@@ -922,7 +913,7 @@ async def resolve_conflict(entity: str) -> bool:
         before = len(conflicts)
         conflicts = [c for c in conflicts if c.get("entity", "").lower() != entity.lower()]
         if len(conflicts) < before:
-            await rs.set_json(CONFLICT_KEY, conflicts, ex=90 * 86400)
+            await rs.set_json(CONFLICT_KEY, conflicts)
             return True
         return False
     except Exception:

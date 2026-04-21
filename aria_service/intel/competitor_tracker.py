@@ -45,8 +45,8 @@ logger = logging.getLogger("aria.competitor_tracker")
 
 REGISTRY_KEY = "crucix:aria:competitor_tracker:registry"
 ACTIVITIES_KEY = "crucix:aria:competitor_tracker:activities"
-ACTIVITY_RETENTION_DAYS = 730
-MAX_ACTIVITIES = 5000
+ACTIVITY_RETENTION_DAYS = 36500  # 100 years — permanent; was 730d before 2026-04-21
+MAX_ACTIVITIES = 500_000
 
 ACTIVITY_TYPES = (
     "tender_win",        # awarded a contract

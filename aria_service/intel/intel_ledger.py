@@ -1,6 +1,11 @@
 """
-Intelligence Ledger — 30-day rolling signal store.
+Intelligence Ledger — permanent signal store.
 Ported from lib/aria/intel_ledger.mjs.
+
+Retention: previously 30-day rolling, now permanent (100-year retention
+sentinel + 1M-signal cap). Operator explicitly asked for forever memory.
+Redis keys carry no TTL; eviction is governed by `maxmemory-policy` at
+the Redis layer (must be `noeviction` for true forever semantics).
 """
 from __future__ import annotations
 
@@ -14,8 +19,8 @@ from . import redis_store as rs
 logger = logging.getLogger("aria.intel.ledger")
 
 KEY = "crucix:intel_ledger"
-MAX_SIGNALS = 10000
-RETENTION_DAYS = 30
+MAX_SIGNALS = 1_000_000
+RETENTION_DAYS = 36500  # 100 years — effectively permanent
 
 _cache: dict | None = None
 
@@ -103,7 +108,7 @@ async def add_signal(payload: dict) -> str:
 
     Accepts a dict with at least 'summary' or 'title'. Used by the
     autonomous delivery pipeline to push brain_lead signals from
-    completed tasks into the rolling 30-day ledger.
+    completed tasks into the permanent ledger.
     """
     db = await _load()
     text = payload.get("summary") or payload.get("title") or ""
@@ -400,7 +405,7 @@ def query_ledger(query: str) -> str:
     if not top:
         return ""
 
-    lines = [f"\n[INTELLIGENCE LEDGER — recent signals ({len(_cache['signals'])} total, 30d, recency-weighted)]"]
+    lines = [f"\n[INTELLIGENCE LEDGER — recent signals ({len(_cache['signals'])} total, permanent, recency-weighted)]"]
     for score, s in top:
         age = ""
         if s.get("ts"):

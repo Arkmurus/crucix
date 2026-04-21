@@ -50,13 +50,13 @@ logger = logging.getLogger("aria.chain_correlator")
 # ── Tunables ──────────────────────────────────────────────────────────────
 
 SHIFT_LOOKBACK_DAYS = 90          # fresh shifts to pull from ledger
-SHIFT_RETENTION_DAYS = 365        # how long we keep a shift for projection
+SHIFT_RETENTION_DAYS = 36500      # 100 years — permanent; was 365d before 2026-04-21
 WINDOW_OPEN_MONTHS = 12           # procurement window opens 12mo after shift
 WINDOW_CLOSE_MONTHS = 18          # procurement window closes 18mo after shift
 ACTIVATION_LEAD_MONTHS = 9        # start engaging at shift + 9mo
 CLOSE_LOOKBACK_MONTHS = 24        # when closing chains, how far back to look
-MAX_SHIFTS = 500
-MAX_CONFIRMED = 1000
+MAX_SHIFTS = 100_000
+MAX_CONFIRMED = 100_000
 MIN_SEVERITY = 0.35               # below this we don't even store the shift
 ACTIVATION_NUDGE_WINDOW_DAYS = 30 # surface nudges within ±30d of due date
 

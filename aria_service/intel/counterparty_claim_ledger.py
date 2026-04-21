@@ -187,7 +187,7 @@ class ARIACounterpartyClaimLedger:
     """
 
     REDIS_KEY_PREFIX = "aria:claim_ledger"
-    CLAIM_TTL_DAYS = 90
+    CLAIM_TTL_DAYS = 36500  # 100 years — permanent; was 90d rolling before 2026-04-21
 
     def __init__(self, redis_client=None, notify_fn=None):
         self.redis = redis_client

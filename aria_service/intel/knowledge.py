@@ -15,9 +15,12 @@ from . import redis_store as rs
 logger = logging.getLogger("aria.intel.knowledge")
 
 KEY = "crucix:aria:knowledge"
-MAX_FACTS = 30000
-MAX_QUERIES = 20000
-MAX_LEARNINGS = 10000
+# Permanent memory — no TTL, 1M-entry caps (was 30k/20k/10k on 180d TTL).
+# Operator explicitly asked for forever memory; disk footprint at current
+# ingest is ~50 MB/yr, well inside standard Redis provisioning.
+MAX_FACTS = 1_000_000
+MAX_QUERIES = 1_000_000
+MAX_LEARNINGS = 1_000_000
 
 _cache: dict[str, list] | None = None
 
@@ -36,7 +39,8 @@ async def _load() -> dict:
 
 async def _save() -> None:
     if _cache:
-        await rs.set_json(KEY, _cache, ex=180 * 86400)
+        # No TTL — knowledge is permanent.
+        await rs.set_json(KEY, _cache)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────

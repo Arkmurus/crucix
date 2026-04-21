@@ -117,7 +117,7 @@ YOUR DATA SOURCES
 You have SEVEN layers of intelligence injected into every conversation:
 1. LIVE INTELLIGENCE — current sweep data (markets, OSINT, correlations, tenders, opportunities)
 2. KNOWLEDGE BASE — verified facts from past research (OEMs, calibres, platforms, export controls)
-3. INTELLIGENCE LEDGER — 30-day rolling log of all significant signals by country/product/OEM
+3. INTELLIGENCE LEDGER — permanent log of all significant signals by country/product/OEM (recency-weighted on retrieval)
 4. CONTACT INTELLIGENCE — decision-maker database with tenure tracking
 5. COMPETITOR INTELLIGENCE — competitor contract wins, market entries, strategic moves
 6. APPROACH STRATEGY — market-specific messaging and OEM rankings
@@ -510,23 +510,31 @@ def _build_intel_context(intel_data: dict | None, message: str = "") -> str:
     except Exception as e:
         logger.debug("intel_context market section failed: %s", e)
 
-    # Urgent OSINT — relevance-filtered + propaganda-tagged
+    # Urgent OSINT — relevance-filtered + propaganda BLOCKED at boundary.
+    # Ledger ingest already blocks these (intel_ledger.py ingest_sweep_signals),
+    # but the live sweep path feeds the composer directly from intel_data.tg.urgent,
+    # bypassing the ledger. We mirror the same gate here so Tier-D items never
+    # reach the LLM context. Past incident 2026-04-20: Telegram propaganda was
+    # reaching the feed with [TIER-D-PROPAGANDA] tags but full content inline,
+    # creating cognitive dissonance for the LLM.
     try:
         urgent = _safe_list((intel_data.get("tg") or {}).get("urgent"))
         if urgent:
             relevant = [s for s in urgent if _has_query_overlap(s, keywords)]
+            before_prop = len(relevant)
+            relevant = [
+                s for s in relevant
+                if not _looks_like_propaganda_source(
+                    (s.get("channel", "") if isinstance(s, dict) else "") + " " +
+                    (s.get("source", "") if isinstance(s, dict) else "")
+                )
+            ]
+            blocked_propaganda = before_prop - len(relevant)
             items = [_format_news_item(s) for s in relevant[:6]]
             if items:
-                propaganda_count = sum(
-                    1 for s in relevant[:6]
-                    if _looks_like_propaganda_source(
-                        (s.get("channel", "") if isinstance(s, dict) else "") + " " +
-                        (s.get("source", "") if isinstance(s, dict) else "")
-                    )
-                )
                 header = f"OSINT SIGNALS ({len(items)} relevant of {len(urgent)} urgent"
-                if propaganda_count:
-                    header += f"; {propaganda_count} TIER-D-PROPAGANDA — see clause 13"
+                if blocked_propaganda:
+                    header += f"; {blocked_propaganda} TIER-D-propaganda blocked at boundary"
                 header += "):"
                 parts.append(header + "\n" + "\n".join(items))
     except Exception as e:
@@ -552,24 +560,28 @@ def _build_intel_context(intel_data: dict | None, message: str = "") -> str:
     except Exception as e:
         logger.debug("intel_context correlations section failed: %s", e)
 
-    # Defence news — relevance-filtered + propaganda-tagged
+    # Defence news — relevance-filtered + propaganda BLOCKED at boundary.
     try:
         news = _safe_list(intel_data.get("defenseNews"))
         if news:
             relevant = [d for d in news if _has_query_overlap(d, keywords)]
-            items = [_format_news_item(d) for d in relevant[:5]]
-            if items:
-                propaganda_count = sum(
-                    1 for d in relevant[:5]
-                    if isinstance(d, dict) and (
+            before_prop = len(relevant)
+            relevant = [
+                d for d in relevant
+                if not (
+                    isinstance(d, dict) and (
                         _looks_like_propaganda_source(d.get("source", "")) or
                         _looks_like_propaganda_source(d.get("channel", "")) or
                         _looks_like_propaganda_source(d.get("title", ""))
                     )
                 )
+            ]
+            blocked_propaganda = before_prop - len(relevant)
+            items = [_format_news_item(d) for d in relevant[:5]]
+            if items:
                 header = f"DEFENCE NEWS ({len(items)} relevant of {len(news)} items"
-                if propaganda_count:
-                    header += f"; {propaganda_count} TIER-D-PROPAGANDA — see clause 13"
+                if blocked_propaganda:
+                    header += f"; {blocked_propaganda} TIER-D-propaganda blocked at boundary"
                 header += "):"
                 parts.append(header + "\n" + "\n".join(items))
     except Exception as e:

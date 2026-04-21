@@ -39,7 +39,7 @@ STAGES = ["DETECTED", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST", "DO
 OPEN_STAGES = {"DETECTED", "QUALIFIED", "PROPOSAL", "NEGOTIATION"}
 CLOSED_STAGES = {"WON", "LOST", "DORMANT"}
 DORMANT_DAYS = 21  # auto-mark dormant after this many days without activity
-CLOSED_TTL_DAYS = 90  # keep closed deals for 90 days then archive
+CLOSED_TTL_DAYS = 36500  # 100 years — permanent; was 90d before 2026-04-21
 
 # ── Target markets for auto-detection ─────────────────────────────────────────
 TARGET_MARKETS = {

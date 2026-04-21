@@ -1373,16 +1373,16 @@ class ARIAVerificationEngine:
                 stats["refreshed"] += 1
                 # Tag for re-verification on next averify_and_store call
                 data["last_checked"] = datetime.now(timezone.utc).isoformat()
-                await rs.set_json(key, data, ex=max(
-                    FACT_TTL_DAYS.get(fact_type, 90), 30) * 86400 * 2)
+                # Permanent storage — FACT_TTL_DAYS now governs staleness flagging only (2026-04-21).
+                await rs.set_json(key, data)
         await _arecord_audit("verified_fact_refreshed", stats_ref=stats)
         return stats
 
     async def _astore_fact(self, fact: "VerifiedFact") -> None:
         from . import redis_store as rs
         key = f"aria:verified_facts:{fact.fact_type.value}:{fact.fact_id}"
-        ttl = max(FACT_TTL_DAYS.get(fact.fact_type, 90), 30) * 86400 * 2
-        await rs.set_json(key, fact.to_dict(), ex=ttl)
+        # Permanent storage — FACT_TTL_DAYS now governs staleness flagging only (2026-04-21).
+        await rs.set_json(key, fact.to_dict())
 
     async def _aload_fact(self, fact_id: str) -> Optional["VerifiedFact"]:
         from . import redis_store as rs
@@ -1467,10 +1467,10 @@ class ARIAVerificationEngine:
             key = (
                 f"aria:verified_facts:{fact.fact_type.value}:{fact.fact_id}"
             )
+            # Permanent storage — FACT_TTL_DAYS now governs staleness flagging only (2026-04-21).
             self.redis.set(
                 key,
                 json.dumps(fact.to_dict()),
-                ex=max(FACT_TTL_DAYS.get(fact.fact_type, 90), 30) * 86400 * 2,
             )
         except Exception as e:
             logger.error(f"Fact store failed: {e}")

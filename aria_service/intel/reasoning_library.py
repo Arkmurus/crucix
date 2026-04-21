@@ -78,7 +78,7 @@ MAX_CASES = 50_000
 # neutralisation in _recency_multiplier and the correction-filter in
 # record_response, this should stop the over-eager replay.
 DEFAULT_MATCH_THRESHOLD = 0.85
-RETENTION_DAYS = 180
+RETENTION_DAYS = 36500  # 100 years — permanent; was 180d before 2026-04-21
 TTL_SECONDS = RETENTION_DAYS * 86400
 
 # A normalised question must have at least this many salient tokens before

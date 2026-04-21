@@ -35,8 +35,11 @@ logger = logging.getLogger("aria.chat_audit")
 _K_LOG = "crucix:chat_audit:log"
 _K_HEAD = "crucix:chat_audit:head_hash"
 _K_BY_SESSION = "crucix:chat_audit:by_session:{sid}"
-_MAX_ENTRIES = 10_000
-_TTL_DAYS = 90
+# Permanent audit trail — was 10k entries / 90d TTL before 2026-04-21.
+# Compliance-grade audit logs must not self-delete; HMAC chain integrity
+# also degrades if entries vanish from the tail.
+_MAX_ENTRIES = 10_000_000
+_TTL_DAYS = 36500  # 100 years
 
 _SIGNING_KEY = (os.getenv("ARIA_AUDIT_SIGNING_KEY") or "dev-unsigned").encode()
 _GENESIS_HASH = "0" * 64

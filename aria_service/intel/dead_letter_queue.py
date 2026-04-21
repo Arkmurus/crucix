@@ -24,8 +24,8 @@ logger = logging.getLogger("aria.dlq")
 
 _K_QUEUE = "crucix:dlq:queue"
 _K_STATS = "crucix:dlq:stats"
-_MAX_ENTRIES = 500
-_TTL_DAYS = 30
+_MAX_ENTRIES = 100_000
+_TTL_DAYS = 36500  # 100 years — permanent; was 30d before 2026-04-21
 
 # Tasks that require immediate escalation when delivery fails
 COMPLIANCE_TASKS = {
