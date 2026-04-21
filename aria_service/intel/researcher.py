@@ -2017,23 +2017,39 @@ async def read_document(
     # retrieves relevant chunks via the RAG context layer.
     try:
         from . import rag_store
-        # Detect source type from filename / source string
+        # Detect source type from filename / source string. Emails get a
+        # dedicated `email` source_type so ARIA's RAG EMAIL SEARCH can filter
+        # on them — previously they were tagged "document" and ARIA's live
+        # diagnostic reported "0 email-tagged chunks found" despite 22 email
+        # brain_absorb signals (2026-04-21 incident).
         ext = (filename.rsplit(".", 1)[-1] or "").lower()
-        source_type = (
-            "pdf" if "pdf" in source.lower() or ext == "pdf"
-            else "docx" if ext in ("docx", "doc")
-            else "spreadsheet" if ext in ("xlsx", "xls", "csv")
-            else "document"
-        )
-        await rag_store.ingest_document(
+        src_lower = source.lower()
+        if src_lower.startswith("email:") or "email" in filename.lower():
+            source_type = "email"
+        elif "pdf" in src_lower or ext == "pdf":
+            source_type = "pdf"
+        elif ext in ("docx", "doc"):
+            source_type = "docx"
+        elif ext in ("xlsx", "xls", "csv"):
+            source_type = "spreadsheet"
+        else:
+            source_type = "document"
+
+        rag_result = await rag_store.ingest_document(
             text=content,
             source=f"document:{source}:{filename}",
             source_type=source_type,
             title=filename,
-            extra_metadata={"context": (context or "")[:300]},
+            extra_metadata={"context": (context or "")[:300], "is_email": source_type == "email"},
         )
+        if not rag_result.get("ingested"):
+            logger.warning(
+                "RAG ingest skipped for %s (source=%s, len=%d): %s",
+                filename, source_type, len(content or ""),
+                rag_result.get("reason") or rag_result.get("error") or "unknown",
+            )
     except Exception as e:
-        logger.debug("RAG ingest from read_document failed: %s", e)
+        logger.warning("RAG ingest from read_document failed: %s", e, exc_info=True)
 
     # For long documents, process in chunks
     chunks = []

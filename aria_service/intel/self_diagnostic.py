@@ -444,11 +444,18 @@ def _check_env_var(var: str) -> tuple[str, str]:
 
 
 async def _check_smoke(mod: Any) -> tuple[str, str]:
-    """Source adapters expose an `is_available` coroutine."""
+    """Source adapters expose an `is_available` coroutine.
+
+    Timeout bumped 15→30s on 2026-04-21: ofac_sdn (treasury.gov sdn.xml GET
+    up to 10s), fcdo_sanctions (Azure blob up to 8s), scraper_playwright_engine
+    (browser cold-start up to 30s). Under fly.io network jitter + concurrent
+    smoke checks (8-way semaphore), these were falsely flipping to FAIL. A
+    genuine outage still fails within 30s so the diagnostic stays useful.
+    """
     if mod is None or not hasattr(mod, "is_available"):
         return ("WARN", "no is_available() exposed")
     try:
-        ok = await asyncio.wait_for(mod.is_available(), timeout=15.0)
+        ok = await asyncio.wait_for(mod.is_available(), timeout=30.0)
         return (
             "PASS" if ok else "WARN",
             "upstream reachable" if ok else "upstream unreachable (may need credentials)",

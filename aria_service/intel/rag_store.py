@@ -204,12 +204,21 @@ def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OV
     """Split text into overlapping chunks aligned on sentence boundaries
     where possible. Each chunk is ~chunk_size chars, with `overlap` chars
     of context bleed between consecutive chunks.
+
+    Short non-empty inputs (>=20 chars) return a single chunk — previously
+    anything below MIN_CHUNK_SIZE (100 chars) was dropped, which meant short
+    emails ("Confirmed, see you Tuesday.") vanished from RAG entirely.
+    Incident 2026-04-21: 0 email-tagged RAG chunks despite 22 absorb signals.
     """
     if not text:
         return []
     text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return []
     if len(text) <= chunk_size:
-        return [text] if len(text) >= MIN_CHUNK_SIZE else []
+        # Keep anything non-trivially sized — even short emails / one-liner
+        # notes belong in RAG so they're searchable later.
+        return [text] if len(text) >= 20 else []
 
     chunks: list[str] = []
     pos = 0
@@ -269,7 +278,10 @@ async def ingest_document(
     """
     if not await _ensure_async():
         return {"ingested": False, "error": "rag_store_unavailable"}
-    if not text or len(text.strip()) < MIN_CHUNK_SIZE:
+    # Floor lowered from MIN_CHUNK_SIZE (100) to 20 chars — short emails like
+    # "Confirmed — see you Tuesday. — John" must still land in RAG so ARIA can
+    # recall them later. Incident 2026-04-21: 0 email-tagged RAG chunks.
+    if not text or len(text.strip()) < 20:
         return {"ingested": False, "reason": "text_too_short"}
 
     chunks = _chunk_text(text)
