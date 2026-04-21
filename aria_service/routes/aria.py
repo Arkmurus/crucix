@@ -1554,6 +1554,57 @@ _TIME_SENSITIVE_KW = re.compile(
     r"in\s+the\s+last\s+\d+\s+(?:days?|weeks?|months?))\b",
     re.IGNORECASE,
 )
+
+# Internal-composition detector — added 2026-04-21. Prompts asking ARIA to
+# COMPOSE a digest / briefing / report / summary are internal tasks that
+# belong on the pure-LLM path (which already has sweep + intel_ledger +
+# memory context injected by aria_engine). They should never fire
+# deep_research — the web_search angles would be searching for the prompt
+# itself, not facts.
+_COMPOSE_VERB_RE = re.compile(
+    r"\b(generate|produce|create|compose|draft|prepare|"
+    r"give\s+me|send\s+me|write\s+me|build\s+me)\b",
+    re.IGNORECASE,
+)
+_COMPOSE_NOUN_RE = re.compile(
+    r"\b(digest|briefing|brief|summary|report|recap|bulletin|"
+    r"intelligence\s+(?:digest|briefing|report|update)|"
+    r"morning\s+(?:digest|brief|update)|"
+    r"daily\s+(?:digest|brief|update))\b",
+    re.IGNORECASE,
+)
+_FORMAT_DIRECTIVE_RE = re.compile(
+    r"\b(format\s+for|max\s+\d+\s+lines?|in\s+table\s+form|"
+    r"bullet\s+points?|numbered\s+list|telegram|whatsapp)\b",
+    re.IGNORECASE,
+)
+_NUMBERED_SECTION_RE = re.compile(r"^\s*\d+\.\s+", re.MULTILINE)
+
+
+def _looks_like_internal_composition(msg: str) -> bool:
+    """Detect 'compose me a digest' prompts that must NOT route to deep_research.
+
+    Triggers when the message shows at least TWO of:
+      - compose verb (generate/produce/create/…)
+      - composition noun (digest/briefing/report/…)
+      - multi-section instruction (≥2 numbered sections)
+      - format directive (format for Telegram, max N lines)
+
+    Two-of-four keeps the false-positive rate down: a single "write me
+    an update" with no structure is ambiguous and should still flow to
+    the normal classifier. A prompt with sections AND a format
+    directive is unmistakably an internal composition task.
+    """
+    signals = 0
+    if _COMPOSE_VERB_RE.search(msg):
+        signals += 1
+    if _COMPOSE_NOUN_RE.search(msg):
+        signals += 1
+    if len(_NUMBERED_SECTION_RE.findall(msg)) >= 2:
+        signals += 1
+    if _FORMAT_DIRECTIVE_RE.search(msg):
+        signals += 1
+    return signals >= 2
 # Known weapon systems - matched against tech_classifier's database
 _WEAPON_DESIGNATION_RE = re.compile(
     r"\b(F[\-/]?\d{1,3}|Su[\-/]?\d{1,3}|MiG[\-/]?\d{1,3}|MQ[\-/]?\d|TB\d|"
@@ -2851,6 +2902,21 @@ def _detect_tool_intent(message: str) -> dict | None:
     # proposal). Each one is conservative — requires the corresponding
     # keyword PLUS a discriminator (market/country/entity) so we don't
     # fire deep_research on every chat with a stray temporal word.
+
+    # 8.5 — Internal-composition guard (added 2026-04-21 after logs showed
+    # "Generate today's Arkmurus morning intelligence digest" misrouting
+    # to deep_research, firing 4 parallel web_search angles with the
+    # entire prompt-with-sections as the entity — 4× Brave 402s + 4× DDG
+    # noise, DeepSeek then had to compose from semantic garbage.
+    #
+    # Multi-section instructions asking ARIA to GENERATE a digest /
+    # briefing / summary / report are internal composition tasks. They
+    # already have full sweep + memory + intel_ledger context injected
+    # by aria_engine; the pure-LLM path (return None) handles them
+    # correctly. The procurement/time-sensitive classifiers below were
+    # never meant to catch these.
+    if _looks_like_internal_composition(msg):
+        return None
 
     # 9. Procurement / tender / RFQ — fires deep_research scoped to the
     # procurement question. Requires the procurement keyword AND either a

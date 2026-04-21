@@ -39,6 +39,7 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "network_walker":       ["relationships", "compliance", "osint"],
     "entity_graph":         ["relationships", "osint"],
     "deep_researcher":      ["osint", "market_intel", "geopolitics"],
+    "brave_answers":        ["osint", "market_intel", "general"],
     "person_resolver":      ["relationships", "osint"],
     "competitors":          ["competitor_intel", "market_intel"],
     "gtm_strategy":         ["market_intel", "procurement"],

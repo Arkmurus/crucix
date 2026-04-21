@@ -1350,6 +1350,36 @@ async def deep_research(
         entity[:80], primary_url[:120] if primary_url else "", max_queries, max_extracts,
     )
 
+    # ── Step 0: FREE memory-first recall from prior Brave Answers ──────
+    # Added 2026-04-21. Every Brave Answers call writes to rag_store with
+    # source_type="brave_answer" (see intel/brave_answers.py). A semantic
+    # lookup here surfaces prior answers about this entity into the
+    # current investigation without a paid API call. Over time ARIA's
+    # Brave corpus becomes a free acceleration layer — the super-AI
+    # "remembers everything" doctrine: pay once, recall forever.
+    #
+    # Non-fatal: if rag_store is unreachable or empty, deep_research
+    # continues with the normal flow unchanged.
+    prior_brave_knowledge: list[dict] = []
+    try:
+        from . import rag_store as _rag
+        _prior = await _rag.search(entity, top_k=3, source_type="brave_answer")
+        for h in (_prior or []):
+            if float(h.get("similarity") or 0.0) >= 0.70:
+                prior_brave_knowledge.append({
+                    "text": h.get("text", ""),
+                    "similarity": h.get("similarity"),
+                    "ingested_at": h.get("ingested_at"),
+                    "source_id": h.get("source"),
+                })
+        if prior_brave_knowledge:
+            logger.info(
+                "deep_research memory-first hit: %d prior Brave Answers for entity=%r",
+                len(prior_brave_knowledge), entity[:60],
+            )
+    except Exception as e:
+        logger.debug("deep_research memory-first RAG lookup failed: %s", e)
+
     # ── Step 1: build a small set of search angles ────────────────────
     # Each angle surfaces a different facet of the OSINT surface. Order
     # matters — earlier queries are more important if we have to truncate.
@@ -1502,6 +1532,7 @@ async def deep_research(
         "snippets_top": all_snippets[:10],  # was 15 — context-budget cut
         "extracted_pages": extracted_pages,
         "extracted_count": len(extracted_pages),
+        "prior_brave_knowledge": prior_brave_knowledge,
         "duration_ms": total_elapsed_ms,
         "budget_ms": int(overall_budget * 1000),
     }

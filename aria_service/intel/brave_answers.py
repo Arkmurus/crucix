@@ -10,9 +10,18 @@ Pricing (as of 2026-04): $4 per 1k requests + $5 per 1M prompt tokens.
 Each call retrieves ~8k tokens of search context, so ~$0.04/call.
 A $10/mo budget fits ~250 calls/mo — track spend in Redis so the cap
 becomes a soft gate rather than an end-of-month billing surprise.
+
+Memory doctrine (2026-04-21): every successful Brave answer is absorbed
+into all three memory tiers (brain_hook → mastery + knowledge + neural,
+rag_store for semantic recall, intel_ledger for permanent event log).
+Next time a semantically-close question is asked, the memory-first path
+returns the cached answer for $0 — the paid API is only called when
+memory is empty. Paying $0.04 buys a permanent entry, not a one-shot
+reply.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import time
@@ -24,6 +33,12 @@ import httpx
 from . import redis_store as rs
 
 logger = logging.getLogger("aria.brave_answers")
+
+# Memory-first similarity threshold. chromadb cosine similarity ranges 0-1;
+# an identical query scores 1.0, a paraphrase ~0.85-0.95, a merely related
+# question ~0.6-0.8. 0.80 is the conservative cutoff that catches paraphrases
+# without returning off-topic hits. Tune via env if needed.
+_MEMORY_HIT_THRESHOLD = float(os.getenv("BRAVE_ANSWERS_MEMORY_HIT_THRESHOLD", "0.80"))
 
 _ENDPOINT = "https://api.search.brave.com/res/v1/chat/completions"
 _MODEL = "brave"  # response reports back "brave-pro" but request must say "brave"
@@ -86,15 +101,135 @@ async def _record_spend(cost: float) -> None:
         logger.warning("brave_answers spend record failed (non-fatal): %s", e)
 
 
-async def ask(query: str, *, timeout: float = 25.0) -> dict[str, Any]:
-    """Ask Brave's Answers API a question. Returns:
+async def _memory_lookup(query: str) -> dict[str, Any] | None:
+    """Semantic RAG search over prior brave_answer chunks.
 
-        { ok: bool, answer: str, model: str, usage: {...},
-          cost_usd: float, query: str, error?: str, duration_ms: int,
-          spend_after: {spend_usd, call_count, budget_usd, remaining_usd, at_cap} }
+    Returns a cached-answer dict when a sufficiently similar past
+    Brave answer exists; None when we should call the API. The threshold
+    is conservative to avoid serving wrong answers — a paraphrase of a
+    known question hits memory, an unrelated query does not.
+    """
+    try:
+        from . import rag_store as _rag
+        hits = await _rag.search(query, top_k=3, source_type="brave_answer")
+    except Exception as e:
+        logger.debug("memory-first RAG lookup failed (non-fatal): %s", e)
+        return None
+    if not hits:
+        return None
+    top = hits[0]
+    similarity = float(top.get("similarity") or 0.0)
+    if similarity < _MEMORY_HIT_THRESHOLD:
+        return None
+    text = (top.get("text") or "").strip()
+    if not text:
+        return None
+    # Strip the "Question: ...\n\nAnswer: " prefix we write at ingest time
+    # so callers see the bare answer.
+    answer = text
+    if text.startswith("Question:") and "\n\nAnswer:" in text:
+        answer = text.split("\n\nAnswer:", 1)[1].strip()
+    return {
+        "answer": answer,
+        "similarity": round(similarity, 4),
+        "ingested_at": top.get("ingested_at"),
+        "source_id": top.get("source"),
+    }
 
-    Spend is tracked in Redis per-month. When spend ≥ budget, this
-    function refuses to call and returns ok=False with error='budget_cap'
+
+async def _absorb(query: str, api_result: dict[str, Any]) -> None:
+    """Write a successful Brave answer to all three memory tiers.
+
+    1. brain_hook.absorb → cascades into mastery + knowledge + neural
+    2. rag_store.ingest_document → powers memory-first on next ask
+    3. intel_ledger.add_signal → permanent event log
+
+    All three are wrapped in try/except because:
+      - absorption must never break the caller's response
+      - these stores may be slow (ChromaDB embeddings); we log and move on
+    """
+    answer = (api_result.get("answer") or "").strip()
+    if not answer:
+        return
+
+    qhash = hashlib.sha256(query.encode("utf-8")).hexdigest()[:16]
+    source_id = f"brave_answers:{qhash}"
+
+    # Tier 1 — brain_hook (mastery + knowledge + neural in one call)
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb(
+            module="brave_answers",
+            summary=f"Q: {query[:160]}",
+            detail=answer[:3000],
+            success=True,
+            source_id=source_id,
+            confidence="ASSESSED",
+        )
+    except Exception as e:
+        logger.warning("brave_answers brain_hook absorb failed: %s", e)
+
+    # Tier 2 — rag_store (semantic search enables memory-first next time)
+    try:
+        from . import rag_store as _rag
+        usage = api_result.get("usage") or {}
+        await _rag.ingest_document(
+            f"Question: {query}\n\nAnswer: {answer}",
+            source=source_id,
+            source_type="brave_answer",
+            title=query[:200],
+            url="",
+            extra_metadata={
+                "query": query[:500],
+                "model": api_result.get("model") or "brave",
+                "cost_usd": float(api_result.get("cost_usd") or 0.0),
+                "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+                "completion_tokens": int(usage.get("completion_tokens") or 0),
+            },
+        )
+    except Exception as e:
+        logger.warning("brave_answers rag_store ingest failed: %s", e)
+
+    # Tier 3 — intel_ledger (permanent event log)
+    try:
+        from . import intel_ledger as _il
+        await _il.add_signal({
+            "title": f"Brave Answer: {query[:120]}",
+            "summary": answer[:500],
+            "source": "brave_answers",
+            "type": "answer",
+            "severity": "info",
+            "tags": ["brave_answers", "factual_qa"],
+        })
+    except Exception as e:
+        logger.warning("brave_answers intel_ledger add_signal failed: %s", e)
+
+
+async def ask(
+    query: str,
+    *,
+    memory_first: bool = True,
+    timeout: float = 25.0,
+) -> dict[str, Any]:
+    """Ask Brave's Answers API — with memory-first check and absorption.
+
+    Flow:
+      1. If memory_first=True, search RAG for prior Brave answers with
+         semantic similarity ≥ _MEMORY_HIT_THRESHOLD. Hit → return cached
+         answer for $0. Miss → fall through.
+      2. Call the paid API (after spend-cap check).
+      3. On success, absorb into brain_hook + rag_store + intel_ledger
+         so next identical/paraphrased query hits memory.
+
+    Returns:
+        { ok, query, answer, model, source,
+          cost_usd, duration_ms, usage?, spend_after?, error? }
+
+        `source` is "memory" when served from RAG, "brave_api" on a
+        paid call, "none" on failure. Callers who want to force a fresh
+        API call can pass memory_first=False.
+
+    When monthly spend ≥ budget, returns ok=False with error='budget_cap'
     so callers can fall back to web_search instead of blowing the cap.
     """
     t0 = time.time()
@@ -102,14 +237,33 @@ async def ask(query: str, *, timeout: float = 25.0) -> dict[str, Any]:
     if not query:
         return {"ok": False, "error": "empty query", "duration_ms": 0}
 
+    # ── 1. Memory-first — free recall from prior Brave answers ──────────
+    if memory_first:
+        cached = await _memory_lookup(query)
+        if cached is not None:
+            return {
+                "ok": True,
+                "query": query,
+                "answer": cached["answer"],
+                "model": "memory",
+                "source": "memory",
+                "cost_usd": 0.0,
+                "duration_ms": int((time.time() - t0) * 1000),
+                "memory_hit": {
+                    "similarity": cached["similarity"],
+                    "ingested_at": cached["ingested_at"],
+                    "source_id": cached["source_id"],
+                },
+            }
+
+    # ── 2. Paid API call ────────────────────────────────────────────────
     key = (os.getenv("BRAVE_ANSWERS_API_KEY") or "").strip()
     if not key:
         return {
             "ok": False, "error": "BRAVE_ANSWERS_API_KEY not set",
-            "query": query, "duration_ms": 0,
+            "query": query, "source": "none", "duration_ms": 0,
         }
 
-    # Soft cap — if we've already burned the monthly budget, refuse.
     spend = await get_month_spend()
     if spend["at_cap"]:
         logger.warning(
@@ -118,7 +272,7 @@ async def ask(query: str, *, timeout: float = 25.0) -> dict[str, Any]:
         )
         return {
             "ok": False, "error": "budget_cap",
-            "query": query, "spend": spend, "duration_ms": 0,
+            "query": query, "spend": spend, "source": "none", "duration_ms": 0,
         }
 
     try:
@@ -137,14 +291,15 @@ async def ask(query: str, *, timeout: float = 25.0) -> dict[str, Any]:
             )
     except httpx.TimeoutException:
         return {
-            "ok": False, "error": "timeout", "query": query,
+            "ok": False, "error": "timeout", "query": query, "source": "none",
             "duration_ms": int((time.time() - t0) * 1000),
         }
     except Exception as e:
         logger.exception("brave_answers request failed")
         return {
             "ok": False, "error": f"{type(e).__name__}: {e}",
-            "query": query, "duration_ms": int((time.time() - t0) * 1000),
+            "query": query, "source": "none",
+            "duration_ms": int((time.time() - t0) * 1000),
         }
 
     dur_ms = int((time.time() - t0) * 1000)
@@ -154,7 +309,7 @@ async def ask(query: str, *, timeout: float = 25.0) -> dict[str, Any]:
             r.status_code, query[:80], r.text[:200],
         )
         return {
-            "ok": False, "error": f"http_{r.status_code}",
+            "ok": False, "error": f"http_{r.status_code}", "source": "none",
             "status_body": r.text[:400], "query": query, "duration_ms": dur_ms,
         }
 
@@ -169,13 +324,20 @@ async def ask(query: str, *, timeout: float = 25.0) -> dict[str, Any]:
     await _record_spend(cost)
     spend_after = await get_month_spend()
 
-    return {
+    result = {
         "ok": bool(answer),
         "query": query,
         "answer": answer,
         "model": data.get("model") or _MODEL,
+        "source": "brave_api",
         "usage": usage,
         "cost_usd": round(cost, 6),
         "duration_ms": dur_ms,
         "spend_after": spend_after,
     }
+
+    # ── 3. Absorb into memory so the $0.04 buys permanent recall ────────
+    if result["ok"]:
+        await _absorb(query, result)
+
+    return result
