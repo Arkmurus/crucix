@@ -214,15 +214,38 @@ async def sync_record(entry: dict) -> dict[str, Any]:
             "records": [{"fields": fields}],
         }
         method = "PATCH"
-    try:
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-            if method == "POST":
-                resp = await client.post(url, headers=_headers(), json=payload)
-            else:
-                resp = await client.patch(url, headers=_headers(), json=payload)
-    except Exception as e:
-        logger.warning("airtable sync network error for %s: %s", action_id, e)
-        return {"ok": False, "reason": f"net:{type(e).__name__}"}
+    # Airtable enforces 5 requests/second per base. Under bursty autonomous
+    # task churn (70+ tasks firing pending_actions.record) we can hit 429
+    # and silently drop writes. Two retries with exponential backoff cover
+    # the common case; persistent 429 surfaces as a WARN so operator can
+    # tune task cadence.
+    import asyncio as _aio
+    resp = None
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+                if method == "POST":
+                    resp = await client.post(url, headers=_headers(), json=payload)
+                else:
+                    resp = await client.patch(url, headers=_headers(), json=payload)
+        except Exception as e:
+            logger.warning("airtable sync network error for %s: %s", action_id, e)
+            return {"ok": False, "reason": f"net:{type(e).__name__}"}
+        if resp.status_code != 429:
+            break
+        # 429 → back off and retry; respect Retry-After header if present
+        retry_after = resp.headers.get("Retry-After")
+        wait_s = float(retry_after) if (retry_after or "").replace(".", "", 1).isdigit() else 0.5 * (2 ** attempt)
+        logger.debug("airtable 429 for %s — retry %d/2 in %.1fs", action_id, attempt + 1, wait_s)
+        await _aio.sleep(wait_s)
+    if resp is not None and resp.status_code == 429:
+        logger.warning(
+            "airtable sync RATE-LIMITED after 3 attempts for %s — "
+            "consider reducing autonomous task concurrency or enabling "
+            "AIRTABLE_SYNC_ENABLED=0 as a temporary killswitch",
+            action_id,
+        )
+        return {"ok": False, "reason": "rate_limited", "http_status": 429}
     if resp.status_code == 404:
         logger.warning(
             "airtable sync 404 for %s — table %r in base %r not found. "
