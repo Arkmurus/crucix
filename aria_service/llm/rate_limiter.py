@@ -269,3 +269,14 @@ class RateLimitedProvider(LLMProvider):
                 "background_waiting": self._background_waiting,
             },
         }
+
+    def get_health(self) -> dict:
+        """Delegate to the wrapped provider's chain health.
+
+        Without this pass-through, /health and meta_query see an empty
+        llm_chain because hasattr(wrapped, "get_health") is False — the
+        rate-limit wrapper hides the FallbackProvider's chain view.
+        """
+        if hasattr(self._inner, "get_health"):
+            return self._inner.get_health()
+        return {}
