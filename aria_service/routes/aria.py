@@ -774,6 +774,30 @@ async def research_cleanup_stale_ep(max_age_seconds: int = 900):
     return await research_tasks.cleanup_stale_tasks(max_age_seconds)
 
 
+# ── Brave Answers — single-call AI answer with citations ──────────────────
+# Separate product from Web Search. Pricey (~$0.04/call against the $10/mo
+# cap), so exposed explicitly rather than auto-invoked from every web_search.
+# Integration into deep_research's flow is a follow-up once the helper is
+# validated live.
+@router.get("/research/brave-answer")
+async def research_brave_answer_ep(q: str):
+    """Ask Brave Answers (AI-generated answer + citations).
+
+    Refuses to call when the monthly spend cap is reached — returns
+    ok=False with error='budget_cap' so callers can fall back to the
+    cheaper web_search path.
+    """
+    from ..intel import brave_answers
+    return await brave_answers.ask(q)
+
+
+@router.get("/research/brave-answer/spend")
+async def research_brave_answer_spend_ep():
+    """Month-to-date Brave Answers spend + call count against the cap."""
+    from ..intel import brave_answers
+    return await brave_answers.get_month_spend()
+
+
 # ── Link investigator: recursive URL tree walk + fact fusion ──
 class LinkInvestigateRequest(BaseModel):
     seed_url: str
