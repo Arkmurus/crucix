@@ -34,11 +34,14 @@ from . import redis_store as rs
 
 logger = logging.getLogger("aria.brave_answers")
 
-# Memory-first similarity threshold. chromadb cosine similarity ranges 0-1;
-# an identical query scores 1.0, a paraphrase ~0.85-0.95, a merely related
-# question ~0.6-0.8. 0.80 is the conservative cutoff that catches paraphrases
-# without returning off-topic hits. Tune via env if needed.
-_MEMORY_HIT_THRESHOLD = float(os.getenv("BRAVE_ANSWERS_MEMORY_HIT_THRESHOLD", "0.80"))
+# Memory-first similarity threshold. Calibrated empirically 2026-04-21:
+# an EXACT-same-query repeat hits similarity ~0.75 (not 1.0) because the
+# chunk text is "Question: <q>\nAnswer: <long answer>" and the answer
+# dilutes the query-match embedding. A paraphrase of a known question
+# lands ~0.65-0.80, an unrelated question ~0.3-0.6. 0.70 is the balanced
+# cutoff — exact repeats and near-paraphrases hit memory, genuinely new
+# questions fall through to the paid API. Tune via env.
+_MEMORY_HIT_THRESHOLD = float(os.getenv("BRAVE_ANSWERS_MEMORY_HIT_THRESHOLD", "0.70"))
 
 _ENDPOINT = "https://api.search.brave.com/res/v1/chat/completions"
 _MODEL = "brave"  # response reports back "brave-pro" but request must say "brave"
@@ -101,39 +104,68 @@ async def _record_spend(cost: float) -> None:
         logger.warning("brave_answers spend record failed (non-fatal): %s", e)
 
 
+def _normalise(s: str) -> str:
+    """Case-fold + collapse whitespace/punctuation for exact-match compare."""
+    import re as _re
+    return _re.sub(r"\s+", " ", _re.sub(r"[^\w\s]", " ", (s or "").lower())).strip()
+
+
 async def _memory_lookup(query: str) -> dict[str, Any] | None:
     """Semantic RAG search over prior brave_answer chunks.
 
     Returns a cached-answer dict when a sufficiently similar past
-    Brave answer exists; None when we should call the API. The threshold
-    is conservative to avoid serving wrong answers — a paraphrase of a
-    known question hits memory, an unrelated query does not.
+    Brave answer exists; None when we should call the API.
+
+    Two-tier hit logic:
+      1. If ANY returned chunk's `title` matches the query exactly after
+         normalisation → hit, regardless of similarity score. A user
+         asking the same question verbatim must always hit memory, even
+         when the long answer text drags similarity below threshold.
+      2. Else if top-hit similarity ≥ _MEMORY_HIT_THRESHOLD → hit on
+         that chunk. Paraphrases land here.
+      3. Else return None → fall through to paid API.
     """
     try:
         from . import rag_store as _rag
-        hits = await _rag.search(query, top_k=3, source_type="brave_answer")
+        hits = await _rag.search(query, top_k=5, source_type="brave_answer")
     except Exception as e:
         logger.debug("memory-first RAG lookup failed (non-fatal): %s", e)
         return None
     if not hits:
         return None
-    top = hits[0]
-    similarity = float(top.get("similarity") or 0.0)
-    if similarity < _MEMORY_HIT_THRESHOLD:
+
+    q_norm = _normalise(query)
+    chosen = None
+
+    # Tier 1: exact-title match — defeats the answer-dilution problem.
+    for h in hits:
+        if _normalise(h.get("title") or "") == q_norm:
+            chosen = h
+            break
+
+    # Tier 2: semantic threshold on top hit.
+    if chosen is None:
+        top = hits[0]
+        if float(top.get("similarity") or 0.0) >= _MEMORY_HIT_THRESHOLD:
+            chosen = top
+
+    if chosen is None:
         return None
-    text = (top.get("text") or "").strip()
+
+    text = (chosen.get("text") or "").strip()
     if not text:
         return None
     # Strip the "Question: ...\n\nAnswer: " prefix we write at ingest time
-    # so callers see the bare answer.
+    # so callers see the bare answer. Chunks that start mid-answer (from
+    # a long answer split across chunks) keep their raw text.
     answer = text
     if text.startswith("Question:") and "\n\nAnswer:" in text:
         answer = text.split("\n\nAnswer:", 1)[1].strip()
     return {
         "answer": answer,
-        "similarity": round(similarity, 4),
-        "ingested_at": top.get("ingested_at"),
-        "source_id": top.get("source"),
+        "similarity": round(float(chosen.get("similarity") or 0.0), 4),
+        "ingested_at": chosen.get("ingested_at"),
+        "source_id": chosen.get("source"),
     }
 
 
