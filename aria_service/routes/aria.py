@@ -1580,6 +1580,24 @@ _FORMAT_DIRECTIVE_RE = re.compile(
 )
 _NUMBERED_SECTION_RE = re.compile(r"^\s*\d+\.\s+", re.MULTILINE)
 
+# Brave Answers fast-path triggers (added 2026-04-21). The trigger matches
+# messages that START with a question word + linking verb, so prose with
+# embedded "what is" ("tell me about what is happening in angola") doesn't
+# false-fire. The exclude pattern keeps heavier specialised paths (DD,
+# compliance, composition, meta_query) on their existing routes.
+_BRAVE_QA_TRIGGER_RE = re.compile(
+    r"^\s*(aria[,\s]+|please\s+|kindly\s+|can\s+you\s+|could\s+you\s+)*"
+    r"(what|who|when|where|why|how\s+(?:many|much|long|old|big|tall|far))\s+"
+    r"(is|are|was|were|did|does|do|has|have|had)\b",
+    re.IGNORECASE,
+)
+_BRAVE_QA_EXCLUDE_RE = re.compile(
+    r"\b(dd|due\s+diligence|investigate|screen|sanction|compliance|"
+    r"memory\s+status|brain\s+stats|your\s+(?:memory|status|email|brain)|"
+    r"meta[\s_-]?query|fuzzy\s+sanctions?)\b",
+    re.IGNORECASE,
+)
+
 
 def _looks_like_internal_composition(msg: str) -> bool:
     """Detect 'compose me a digest' prompts that must NOT route to deep_research.
@@ -2577,6 +2595,37 @@ def _detect_tool_intent(message: str) -> dict | None:
             "_reason": "officeholder_question",
         }
 
+    # ── 0b. Brave Answers fast-path — plain factual question (added 2026-04-21) ──
+    # When a user asks a simple factual question ("what is X", "who is Y",
+    # "when did Z") that isn't already routed by the specialised classifiers
+    # above (meta_query / officeholder), try Brave Answers first. It is
+    # grounded in a fresh web index AND memory-first, so repeat questions
+    # hit RAG for $0. This is the "pay once, remember forever" path —
+    # ARIA learns from each paid call, and identical/paraphrased repeats
+    # run at ~70ms for no cost.
+    #
+    # Conservative shape: must start with a question word + linking verb
+    # (what is, who was, when did, etc.), be under 250 chars, and NOT
+    # contain keywords that belong to the heavier specialised tools (DD,
+    # compliance, sanctions screen, internal composition, meta_query).
+    # Those paths stay on their current routes; only generic factual
+    # lookups divert to Brave.
+    if (
+        _BRAVE_QA_TRIGGER_RE.search(msg)
+        and not _BRAVE_QA_EXCLUDE_RE.search(msg)
+        and len(msg) < 250
+    ):
+        q_clean = re.sub(
+            r"^\s*(aria[,\s]+|please\s+|kindly\s+|can\s+you\s+|could\s+you\s+)+",
+            "", msg, flags=re.IGNORECASE,
+        ).strip(" .,:;-?!\"'\n")
+        return {
+            "tool": "brave_answer",
+            "query": q_clean[:200],
+            "context": msg,
+            "_reason": "factual_qa",
+        }
+
     # ── 0a. OEM batch research — user wants a crawl across "the OEMs" with
     # no specific URL. Past incident 2026-04-18 (Baykar): the user said
     # "crawl the known OEM websites, extract everything each one does"
@@ -3213,6 +3262,62 @@ async def _execute_tool(intent: dict, llm) -> str:
             )
 
         # ── Meta-query — ARIA introspecting on her own state ──
+        # ── Brave Answers — single-call AI answer with memory-first ──
+        # Factual Q&A fast-path. Memory-first check hits RAG for $0 on
+        # paraphrased repeats; on miss, paid API call + 3-tier absorption
+        # so the next identical question is free. Added 2026-04-21 to
+        # realise the "pay once, remember forever" super-AI doctrine.
+        if tool == "brave_answer":
+            from ..intel import brave_answers as _ba
+            query = (intent.get("query") or intent.get("context") or "").strip()
+            if not query:
+                return (
+                    "[TOOL: brave_answer — no query]\n\n"
+                    "The router detected a factual-QA intent but the query was "
+                    "empty. Answer directly from memory / training instead."
+                )
+            result = await _ba.ask(query, memory_first=True)
+            if not result.get("ok"):
+                err = result.get("error", "unknown")
+                return (
+                    f"[TOOL: brave_answer — unavailable ({err})]\n\n"
+                    "Answer directly from memory / training. If the question "
+                    "is time-sensitive (current holders, recent events, live "
+                    "figures), flag uncertainty honestly."
+                )
+            answer = (result.get("answer") or "").strip()
+            source = result.get("source", "unknown")
+            cost = float(result.get("cost_usd") or 0.0)
+            parts = [f"[TOOL: brave_answer — source={source} cost=${cost:.4f}]"]
+            if source == "memory":
+                mh = result.get("memory_hit") or {}
+                parts.append(
+                    f"Recalled from prior Brave Answer "
+                    f"(ingested {mh.get('ingested_at', '?')}, "
+                    f"similarity={mh.get('similarity', '?')}). No API cost."
+                )
+            else:
+                spend = result.get("spend_after") or {}
+                if spend:
+                    parts.append(
+                        f"MTD Brave Answers spend: ${spend.get('spend_usd', 0):.4f} "
+                        f"of ${spend.get('budget_usd', 0):.2f} "
+                        f"({spend.get('call_count', 0)} calls)."
+                    )
+            parts.append("")
+            parts.append("ANSWER (grounded in Brave's indexed search):")
+            parts.append(answer)
+            parts.append("")
+            parts.append(
+                "INSTRUCTIONS: Present this ANSWER to the user in your own "
+                "voice — clean, direct, no 'TOOL' framing. Do NOT hedge with "
+                "'I am not certain' unless the content itself is date-"
+                "sensitive and specific dates matter (who is currently X → "
+                "hedge if the answer lists dates more than 6 months old). "
+                "Do NOT emit further [TOOL: ...] blocks — the answer is here."
+            )
+            return "\n".join(parts)
+
         # Pulls real brain stats + recent email_reader signals + (when
         # reachable) live seenode email-reader status. Past 23:07
         # incident: without this, the LLM fabricated a [TOOL: deep_research]
