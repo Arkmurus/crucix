@@ -1606,7 +1606,15 @@ _BRAVE_QA_TRIGGER_RE = re.compile(
 _BRAVE_QA_EXCLUDE_RE = re.compile(
     r"\b(dd|due\s+diligence|investigate|screen|sanction|compliance|"
     r"memory\s+status|brain\s+stats|your\s+(?:memory|status|email|brain)|"
-    r"meta[\s_-]?query|fuzzy\s+sanctions?)\b",
+    r"meta[\s_-]?query|fuzzy\s+sanctions?|"
+    # 2026-04-21: email-recall questions ("what was in my email") must
+    # NOT route to Brave Answers — they belong in meta_query where the
+    # RAG email-search actually runs. Brave would return a generic
+    # "no email content available" cached answer and ARIA narrates it
+    # as if emails are missing.
+    r"(?:my|the|test|recent|last)\s+(?:email|inbox|message)|"
+    r"email\s+(?:content|body|text)|"
+    r"(?:quote|show\s+me)\s+(?:the\s+)?email)\b",
     re.IGNORECASE,
 )
 
@@ -2514,7 +2522,16 @@ def _detect_tool_intent(message: str) -> dict | None:
         r"summari[sz]e\s+(?:the\s+)?(?:most\s+)?recent\s+\d*\s*emails?|"
         r"what\s+have\s+you\s+(?:read|learned)\s+from\s+(?:my\s+)?(?:inbox|email)|"
         r"(?:status|stats?)\s+(?:of|for)\s+(?:the\s+)?email[\s_]reader|"
-        r"email[\s_]reader\s+(?:module\s+)?(?:status|stats?|signal)"
+        r"email[\s_]reader\s+(?:module\s+)?(?:status|stats?|signal)|"
+        # 2026-04-21: specific-email recall. Operator's WhatsApp test
+        # "what was in my test email" was misrouted to brave_answer (factual
+        # QA) because "what was" fired the Brave classifier first. These
+        # patterns divert email-content questions to meta_query where the
+        # RAG source_type="email" search actually runs.
+        r"(?:what|which)\s+(?:was|is|were)\s+(?:in\s+)?(?:my|the|that|this)\s+(?:test\s+|recent\s+|last\s+)?(?:email|inbox|message|e-mail)|"
+        r"quote\s+(?:the\s+)?(?:email|content|body|message)|"
+        r"(?:show|give)\s+me\s+(?:the\s+)?(?:email|inbox)\s+(?:content|body|text)|"
+        r"(?:content|body|text)\s+of\s+(?:the\s+|my\s+)?(?:email|inbox|message)"
         r")\b",
         re.IGNORECASE,
     )

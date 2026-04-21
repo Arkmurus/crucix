@@ -102,3 +102,48 @@ def test_investigate_excluded_from_brave():
     from aria_service.routes.aria import _BRAVE_QA_EXCLUDE_RE
     msg = "what is the verdict — should we investigate this company"
     assert _BRAVE_QA_EXCLUDE_RE.search(msg)
+
+
+# ── 2026-04-21 incident — email recall must NOT route to Brave ──
+
+def test_what_was_in_test_email_excluded_from_brave():
+    """Operator's WhatsApp query: 'what was in the test email I sent you today'
+    was misrouted to brave_answer, which returned a cached 'no email content'
+    answer and ARIA narrated that instead of running the RAG email search."""
+    from aria_service.routes.aria import _BRAVE_QA_EXCLUDE_RE
+    msg = "what was in the test email I sent you today"
+    assert _BRAVE_QA_EXCLUDE_RE.search(msg)
+
+
+def test_what_did_my_email_say_excluded():
+    from aria_service.routes.aria import _BRAVE_QA_EXCLUDE_RE
+    for msg in [
+        "what was in my email",
+        "what was in my recent email",
+        "what was in the last email from Serban",
+        "quote the email content",
+        "show me the email body",
+    ]:
+        assert _BRAVE_QA_EXCLUDE_RE.search(msg), f"should be excluded: {msg!r}"
+
+
+def test_email_recall_routes_to_meta_query():
+    """These same queries should FIRE meta_query instead. The regex is
+    defined inside _detect_tool_intent (function-local), so test the
+    extended pattern we added here by recompiling the same shape."""
+    import re
+    meta_pattern = re.compile(
+        r"\b(?:"
+        r"(?:what|which)\s+(?:was|is|were)\s+(?:in\s+)?(?:my|the|that|this)\s+(?:test\s+|recent\s+|last\s+)?(?:email|inbox|message|e-mail)|"
+        r"quote\s+(?:the\s+)?(?:email|content|body|message)|"
+        r"(?:show|give)\s+me\s+(?:the\s+)?(?:email|inbox)\s+(?:content|body|text)"
+        r")\b",
+        re.IGNORECASE,
+    )
+    for msg in [
+        "what was in the test email",
+        "what was in my email",
+        "quote the email content",
+        "show me the email content",
+    ]:
+        assert meta_pattern.search(msg), f"meta_query should catch: {msg!r}"
