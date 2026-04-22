@@ -2806,6 +2806,36 @@ async def aria_chat_stream(
     except Exception:
         pass
 
+    # Capability-gap signals — mirror of the aria_chat() hooks at
+    # aria_engine.py:~2400. These populate `capability_gaps` (the "what
+    # ARIA didn't know that she should have known" register) and were
+    # stream-side missing, so every WhatsApp turn that failed to retrieve
+    # context or hit a FETCH FAILED marker produced zero learning signal.
+    try:
+        from .metacognitive import gaps as _metacog_gaps
+        if _metacog_gaps.is_enabled() if hasattr(_metacog_gaps, 'is_enabled') else True:
+            _ctx_len = len(context) if context else 0
+            if _ctx_len < 50 and len(message) > 100:
+                _mm_task = asyncio.create_task(
+                    _metacog_gaps.log_memory_miss(
+                        query=message[:300],
+                        expected_category=_detect_metacog_domain(message),
+                        retrieved_count=0,
+                    )
+                )
+                _mm_task.add_done_callback(_bg_done("metacog.log_memory_miss"))
+            if "[TOOL:" in message and "FAILED" in message:
+                _rf_task = asyncio.create_task(
+                    _metacog_gaps.log_research_failure(
+                        search_query=message[:300],
+                        expected_tier="TIER_B",
+                        results_count=0,
+                    )
+                )
+                _rf_task.add_done_callback(_bg_done("metacog.log_research_failure"))
+    except Exception as e:
+        logger.debug("Operational gap signal hooks failed (non-fatal, stream): %s", e)
+
     try:
         compare_task = asyncio.create_task(student.compare_local_silently(message, response_text))
         compare_task.add_done_callback(_bg_done("student.compare"))
