@@ -368,6 +368,16 @@ async def _extract_concepts_llm(text: str, llm) -> list[tuple[str, str]]:
             if not concept or len(concept) < 2:
                 continue
             if category not in VALID_CATEGORIES:
+                # Surface the remap so a drifting LLM vocabulary (e.g. a new
+                # category like "technology_tier" emerging from defence
+                # white-papers) doesn't silently lose its signal. Before
+                # this log, every new category was collapsed into "general"
+                # with no audit trail — the neuron was created but its
+                # intended tier was lost.
+                logger.info(
+                    "[neural_memory] LLM returned unknown category %r for concept %r; remapping to 'general'",
+                    category, concept[:60],
+                )
                 category = "general"
             pairs.append((concept, category))
         return pairs

@@ -1369,6 +1369,29 @@ _ESCALATION_ELIGIBLE_TOOLS = frozenset({
     "dd_watchlist_sweep", "corpus_weekly_crawl",
 })
 
+# Guard against whitelist drift. Before this, a new tool added to
+# tasks.yaml that wasn't in the frozensets silently skipped auto-escalation
+# / knowledge-feed paths. This set tracks tool names we've already warned
+# about so we log the drift once per tool per process, not per task run.
+_WARNED_UNKNOWN_TOOLS: set[str] = set()
+
+
+def _warn_once_unknown_tool(tool: str, path: str) -> None:
+    """Log a one-shot warning the first time we see a tool name that
+    isn't in the eligibility whitelist for `path`. Prevents silent
+    whitelist drift when tasks.yaml gains new tool types."""
+    if not tool:
+        return
+    key = f"{path}:{tool}"
+    if key in _WARNED_UNKNOWN_TOOLS:
+        return
+    _WARNED_UNKNOWN_TOOLS.add(key)
+    logger.warning(
+        "[autonomous] tool %r not in %s whitelist; task skipped — "
+        "add to whitelist if this tool should trigger the path",
+        tool, path,
+    )
+
 _RISK_PATTERNS = re.compile(
     r"\b(RED|HARD[_\s]?STOP|HIGH[_\s]?RISK|SANCTIONED|BLOCKED|DESIGNATED|"
     r"DENIED[_\s]?PARTY|BLACKLISTED|EMBARGO|SDN|OFAC[_\s]?HIT)\b",
@@ -1403,6 +1426,10 @@ async def _auto_escalate_to_watchlist(
         for kw in ("proc", "research", "intel", "scan", "monitor", "watchlist", "osint")
     )
     if not eligible_tool and not eligible_id:
+        # Whitelist-drift canary: if a tool was declared but isn't in the
+        # whitelist AND the id doesn't hint, the path silently skips.
+        # Warn once per tool so a new tasks.yaml entry doesn't dark.
+        _warn_once_unknown_tool(first_tool or tool_used, "ESCALATION")
         return
 
     # Look for risk signals
@@ -1502,6 +1529,8 @@ async def _feed_knowledge(task: Task, response_text: str) -> None:
         for kw in ("proc", "research", "intel", "scan", "monitor", "osint")
     )
     if not eligible_tool and not eligible_id:
+        # Same whitelist-drift canary as _auto_escalate_to_watchlist.
+        _warn_once_unknown_tool(first_tool, "KNOWLEDGE")
         return
 
     from ..intel import knowledge

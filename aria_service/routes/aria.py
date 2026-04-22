@@ -10454,6 +10454,17 @@ async def self_mistakes_verify_ep(start: int = 0, count: int = 500):
     )
 
 
+@router.post("/self/mistakes/reindex")
+async def self_mistakes_reindex_ep():
+    """Repair divergence between _KEY_LOG and _KEY_BY_ID on the mistake
+    ledger. The existing heal-on-read in `mark_prevented` only fixes
+    entries that pass through that specific codepath; entries never
+    touched via prevent signals stay unhealed. This full scan catches
+    them. Idempotent, safe to run as a daily task."""
+    from ..intel import mistake_ledger
+    return await mistake_ledger.reindex_all()
+
+
 @router.post("/self/mistakes/invalidate")
 async def self_mistakes_invalidate_ep(req: Request):
     """Soft-invalidate mistakes (predictor will skip them; chain stays

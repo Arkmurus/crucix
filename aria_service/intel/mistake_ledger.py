@@ -519,3 +519,64 @@ async def verify_chain(start: int = 0, count: int = 500) -> dict:
                            "reason": "chain break"})
         expected_prev = e.get("entry_hash", "")
     return {"verified": not broken, "checked": len(entries), "broken": broken[:20]}
+
+
+async def reindex_all(batch_size: int = 1000) -> dict:
+    """Scan `_KEY_LOG` and ensure every entry has a matching `_KEY_BY_ID`
+    mirror. Heals Mode-A divergence (log has entry, by_id missing) that
+    the existing on-read heal in `_get_entry_healing` only covers for
+    entries passing through `mark_prevented`.
+
+    Why this is needed: `record()` writes four separate Redis keys
+    without a MULTI/EXEC wrapper. A crash or network blip between the
+    lpush and the final set_json leaves the entry in _KEY_LOG without a
+    by_id mirror. The 2026-04-19 audit found 11 such entries on disk.
+    Heal-on-read fixes them lazily, but entries that never get a prevent
+    signal stay unhealed indefinitely.
+
+    Idempotent — re-running against an already-consistent ledger is a
+    no-op (set_json is an upsert over the same payload). Safe to run
+    offline, from a route endpoint, or as a daily background task.
+
+    Returns: {scanned, healed, errors, summary}.
+    """
+    from . import redis_store as rs
+    scanned = healed = errors = 0
+    offset = 0
+
+    while True:
+        raw_batch = await rs.lrange(_KEY_LOG, offset, offset + batch_size - 1)
+        if not raw_batch:
+            break
+        for r in raw_batch:
+            scanned += 1
+            try:
+                entry = json.loads(r) if isinstance(r, str) else r
+                mid = entry.get("mistake_id") if isinstance(entry, dict) else None
+                if not mid:
+                    continue
+                existing = await rs.get_json(_KEY_BY_ID.format(mid=mid))
+                if existing is not None:
+                    continue
+                await rs.set_json(_KEY_BY_ID.format(mid=mid), entry)
+                healed += 1
+                logger.info("mistake_ledger reindex: healed %s", mid)
+            except Exception as exc:
+                errors += 1
+                logger.warning(
+                    "mistake_ledger reindex: error on entry offset=%d: %s",
+                    offset + (scanned - offset - 1), exc,
+                )
+        offset += batch_size
+
+    summary = (
+        f"{healed} entries healed out of {scanned} scanned "
+        f"({errors} errors)"
+    )
+    logger.info("mistake_ledger reindex_all complete: %s", summary)
+    return {
+        "scanned": scanned,
+        "healed": healed,
+        "errors": errors,
+        "summary": summary,
+    }
