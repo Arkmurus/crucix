@@ -152,6 +152,12 @@ Sidebar.init('brain');
     <div id="engine-metrics" class="loading">Loading...</div>
   </div>
 
+  <!-- LLM Cost — month-to-date spend + per-provider/feature/model breakdown -->
+  <div class="card wide" id="llm-cost-panel">
+    <h2>LLM Cost (Month-to-Date) <span id="llm-cost-badge" class="badge">—</span></h2>
+    <div id="llm-cost-metrics" class="loading">Loading...</div>
+  </div>
+
   <!-- System Health — self-diagnostic traffic-light grid -->
   <div class="card wide" id="system-health-panel">
     <h2>System Health <span id="health-overall-badge" class="badge">—</span></h2>
@@ -718,6 +724,93 @@ async function loadLearning() {
   el.classList.remove('loading');
 }
 
+async function loadLlmCost() {
+  const d = await fetchJson('/cost/monthly');
+  const el = document.getElementById('llm-cost-metrics');
+  const badge = document.getElementById('llm-cost-badge');
+  if (!el || !badge) return;
+  if (!d || d.error) {
+    badge.textContent = 'NO DATA';
+    badge.className = 'badge badge-yellow';
+    el.innerHTML = '<span class="neutral">No cost data yet — populates after first LLM call this month</span>';
+    el.classList.remove('loading');
+    return;
+  }
+
+  const spent = d.total_cost_usd || 0;
+  const cap = d.cap_usd || 0;
+  const util = d.utilisation_pct || 0;
+  // Traffic-light: green <50%, yellow 50-80%, red >80%. Matches the
+  // warning thresholds emitted by cost_tracker._emit_threshold_warnings.
+  const utilCls = util >= 80 ? 'bad' : util >= 50 ? 'warn' : 'good';
+  const badgeCls = util >= 80 ? 'badge-red' : util >= 50 ? 'badge-yellow' : 'badge-green';
+  badge.textContent = `$${spent.toFixed(2)} / $${cap.toFixed(2)}`;
+  badge.className = `badge ${badgeCls}`;
+
+  const projected = d.projected_monthly_usd || 0;
+  const projCls = projected > cap ? 'bad' : projected > cap * 0.8 ? 'warn' : 'good';
+
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">';
+  html += metricRow('Spent this month', `$${spent.toFixed(4)}`, utilCls);
+  html += metricRow('Cap', `$${cap.toFixed(2)}`, 'neutral');
+  html += metricRow('Remaining', `$${(d.remaining_usd || 0).toFixed(4)}`, utilCls);
+  html += metricRow('Utilisation', `${util.toFixed(1)}%`, utilCls);
+  html += metricRow('Projected month-end', `$${projected.toFixed(2)}`, projCls);
+  html += metricRow('Total calls', d.total_calls || 0, 'neutral');
+  if (d.warn_only) {
+    html += metricRow('Mode', 'WARN-ONLY (cap will not block)', 'warn');
+  }
+  html += '</div>';
+
+  // Per-provider — this is the view that answers "which API is burning money?"
+  const byProv = d.by_provider || {};
+  const provRows = Object.entries(byProv).sort((a,b) => (b[1].cost_usd||0) - (a[1].cost_usd||0));
+  if (provRows.length) {
+    html += '<div style="margin-top:12px"><div style="font-size:0.85em;color:#8b949e;margin-bottom:4px">By Provider</div>';
+    html += '<table><tr><th>Provider</th><th>Calls</th><th>Tokens</th><th>Cost</th><th>Share</th></tr>';
+    for (const [name, row] of provRows) {
+      const share = spent > 0 ? (row.cost_usd / spent * 100) : 0;
+      const cls = share >= 50 ? 'warn' : 'neutral';
+      html += `<tr><td>${name}</td><td>${row.calls}</td><td>${(row.tokens||0).toLocaleString()}</td><td class="${cls}">$${(row.cost_usd||0).toFixed(4)}</td><td>${share.toFixed(1)}%</td></tr>`;
+    }
+    html += '</table></div>';
+  }
+
+  // Per-feature — answers "which ARIA feature is burning money?"
+  const byFeat = d.by_feature || {};
+  const featRows = Object.entries(byFeat).sort((a,b) => (b[1].cost_usd||0) - (a[1].cost_usd||0)).slice(0, 10);
+  if (featRows.length) {
+    html += '<div style="margin-top:12px"><div style="font-size:0.85em;color:#8b949e;margin-bottom:4px">By Feature (top 10)</div>';
+    html += '<table><tr><th>Feature</th><th>Calls</th><th>Tokens</th><th>Cost</th></tr>';
+    for (const [name, row] of featRows) {
+      html += `<tr><td>${name}</td><td>${row.calls}</td><td>${(row.tokens||0).toLocaleString()}</td><td>$${(row.cost_usd||0).toFixed(4)}</td></tr>`;
+    }
+    html += '</table></div>';
+  }
+
+  // Top individual calls — answers "which specific request was unusually expensive?"
+  const topCalls = d.top_calls || [];
+  if (topCalls.length) {
+    html += '<div style="margin-top:12px"><div style="font-size:0.85em;color:#8b949e;margin-bottom:4px">Top 10 most expensive calls</div>';
+    html += '<table><tr><th>Time</th><th>Feature</th><th>Model</th><th>Tokens</th><th>Cost</th></tr>';
+    for (const c of topCalls.slice(0, 10)) {
+      const when = c.ts ? new Date(c.ts * 1000).toLocaleString() : '--';
+      html += `<tr><td style="font-size:0.75em">${when}</td><td>${c.feature||'?'}</td><td>${c.model||'?'}</td><td>${(c.total_tokens||0).toLocaleString()}</td><td>$${(c.cost_usd||0).toFixed(4)}</td></tr>`;
+    }
+    html += '</table></div>';
+  }
+
+  html += `<div style="margin-top:10px;font-size:0.75em;color:#6e7681">`;
+  html += `Month ${d.month || '--'} · `;
+  html += `<a href="/api/aria/cost/monthly" style="color:#58a6ff">/cost/monthly</a> · `;
+  html += `<a href="/api/aria/cost/cumulative" style="color:#58a6ff">/cost/cumulative</a> · `;
+  html += `<a href="/api/aria/cost/recent" style="color:#58a6ff">/cost/recent</a>`;
+  html += `</div>`;
+
+  el.innerHTML = html;
+  el.classList.remove('loading');
+}
+
 async function loadSystemHealth() {
   const d = await fetchJson('/diagnostic/details');
   const badge = document.getElementById('health-overall-badge');
@@ -777,7 +870,7 @@ async function refreshAll() {
     loadHealth(), loadMode(), loadEngine(), loadAdversarial(),
     loadBreakers(), loadPredictor(), loadAudit(), loadHeatmap(),
     loadDLQ(), loadMastery(), loadComposite(), loadCalibration(),
-    loadSurface(), loadLearning(), loadSystemHealth(),
+    loadSurface(), loadLearning(), loadSystemHealth(), loadLlmCost(),
   ]);
 }
 
