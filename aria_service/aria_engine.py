@@ -2902,6 +2902,28 @@ async def aria_chat_stream(
     except Exception:
         pass
 
+    # Stream-side OUTPUT GUARD observation (log-only, no rewrite).
+    # The five output guards (officeholder / commitment / tool_claim /
+    # propaganda / ground_truth) run only in /chat, never on streaming,
+    # so Clauses 13/17/20 enforcement has been skipped on WhatsApp
+    # since streaming went live. Full rewrite-over-SSE needs client
+    # work; this observer records the violation rate so we can scope
+    # the rewrite UX against real numbers. See
+    # memory/stream_bypass_pattern.md.
+    try:
+        from .intel import stream_guard_observer as _sgo
+        _obs_task = asyncio.create_task(
+            _sgo.observe(
+                session_id=session_id,
+                user_message=message,
+                response_text=response_text,
+                tool_context=None,  # not currently threaded into the stream fn
+            )
+        )
+        _obs_task.add_done_callback(_bg_done("stream_guard_observer.observe"))
+    except Exception as e:
+        logger.debug("stream_guard_observer scheduling failed (non-fatal): %s", e)
+
     # Output harvester — streaming path. Same dry-run-by-default
     # behaviour as the non-streaming branch above. `message` in this
     # scope is the original user message; response_text is the final

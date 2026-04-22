@@ -12665,6 +12665,16 @@ async def chat_audit_verify_ep(sample: int = 100):
     return await cal.verify_chain(sample)
 
 
+@router.get("/stream-guards/stats")
+async def stream_guards_stats_ep():
+    """Observation-only stats for the 5 output guards on the streaming
+    chat path. /chat/stream bypasses all guards (they run only in /chat);
+    this surface shows the violation rate so the rewrite-UX scope can be
+    set against real numbers. See memory/stream_bypass_pattern.md."""
+    from ..intel import stream_guard_observer as sgo
+    return await sgo.get_stats()
+
+
 # ── Composite Autonomy Scorer (Week 4) ───────────────────────────────────
 
 @router.get("/autonomy/composite")
