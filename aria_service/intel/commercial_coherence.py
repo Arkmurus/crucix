@@ -811,6 +811,63 @@ def _assess_offset_claims(target: dict, identity_iso2: str) -> tuple[list[dict],
     return issues, deduction
 
 
+def _anomaly_title(a: dict, fallback: str) -> str:
+    """Short, human-readable title for a flat anomaly dict.
+
+    Payment and offset anomalies don't carry a stand-alone sentence, so
+    build one from their structured fields. Corporate anomalies already
+    ship a ``detail`` sentence — use its first clause as the title.
+    """
+    kind = a.get("kind") or a.get("issue") or ""
+    market = a.get("market", "")
+    regime = a.get("regime", "")
+    if kind == "advance_payment_above_red_flag_threshold":
+        return (
+            f"Advance payment {a.get('claimed','?')} exceeds "
+            f"{market} red-flag threshold (norm {a.get('norm_range','?')})"
+        )
+    if kind == "advance_payment_above_market_norm":
+        return (
+            f"Advance payment {a.get('claimed','?')} above {market} market "
+            f"norm ({a.get('norm_range','?')})"
+        )
+    if kind == "jurisdiction_specific_red_flag":
+        return f"{market} red flag — {a.get('claimed','')}"
+    if kind == "performance_bond_waiver_request":
+        return f"{market} — request to waive mandatory performance bond"
+    if kind == "performance_bond_absent_but_mandatory":
+        return f"{market} — mandatory performance bond not mentioned"
+    if kind == "licence_chain_gap":
+        return a.get("detail", "Licence-chain step not acknowledged")
+    if a.get("issue"):
+        # Offset issues
+        return f"{regime}: {a['issue'].replace('_', ' ')}"
+    if a.get("detail"):
+        # Corporate anomalies carry a full sentence — take first clause
+        det = a["detail"]
+        first = det.split(".")[0]
+        return first[:160] + ("…" if len(first) > 160 else "")
+    return fallback
+
+
+def _anomaly_detail(a: dict) -> str:
+    """Detail string — prefer the anomaly's own ``detail`` sentence; else
+    synthesise one from structured fields (never dump the raw dict)."""
+    if a.get("detail"):
+        return str(a["detail"])
+    kind = a.get("kind") or a.get("issue") or "anomaly"
+    parts = [kind.replace("_", " ")]
+    if a.get("market"):
+        parts.append(f"market={a['market']}")
+    if a.get("regime"):
+        parts.append(f"regime={a['regime']}")
+    if a.get("claimed") is not None:
+        parts.append(f"claimed={a['claimed']}")
+    if a.get("norm_range"):
+        parts.append(f"norm={a['norm_range']}")
+    return " · ".join(parts)
+
+
 def _classify_tier(score: float) -> str:
     if score >= 0.80:
         return "GREEN"
@@ -905,8 +962,8 @@ async def assess_commercial_coherence(
             sev = a.get("severity", "amber")
             section.findings.append(Finding(
                 severity=sev,
-                title=severity_title.get(sev, "Layer 5c observation"),
-                detail=a.get("detail") or str(a),
+                title=_anomaly_title(a, severity_title.get(sev, "Layer 5c observation")),
+                detail=_anomaly_detail(a),
                 source="commercial_coherence",
                 confidence="ASSESSED",
             ))

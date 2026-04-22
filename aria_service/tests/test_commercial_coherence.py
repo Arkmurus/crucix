@@ -20,6 +20,8 @@ from aria_service.intel.commercial_coherence import (
     _classify_tier,
     _match_licence_chain_shape,
     _infer_payment_market,
+    _anomaly_title,
+    _anomaly_detail,
 )
 from aria_service.intel.dd_schema import (
     ARKDDReport,
@@ -729,6 +731,91 @@ class TestInference(unittest.TestCase):
     def test_match_licence_chain_no_match(self):
         # Insufficient context — should return None
         self.assertIsNone(_match_licence_chain_shape({}, "ZW"))
+
+
+# =============================================================================
+# RENDERING HELPERS — findings must never dump raw dicts
+# =============================================================================
+
+class TestFindingRendering(unittest.TestCase):
+
+    def test_payment_anomaly_title_is_human_readable(self):
+        a = {
+            "market": "Angola (SIMPORTEX)",
+            "kind": "advance_payment_above_red_flag_threshold",
+            "claimed": "70%",
+            "norm_range": "30-40%",
+            "severity": "red",
+        }
+        title = _anomaly_title(a, "fallback")
+        self.assertNotIn("{", title, "title leaked a raw dict")
+        self.assertIn("70%", title)
+        self.assertIn("Angola", title)
+
+    def test_payment_anomaly_detail_never_leaks_raw_dict(self):
+        a = {
+            "market": "Angola (SIMPORTEX)",
+            "kind": "advance_payment_above_red_flag_threshold",
+            "claimed": "70%",
+            "norm_range": "30-40%",
+            "severity": "red",
+        }
+        detail = _anomaly_detail(a)
+        self.assertNotIn("{", detail)
+        self.assertIn("70%", detail)
+
+    def test_jurisdiction_specific_title(self):
+        a = {
+            "market": "Angola (SIMPORTEX)",
+            "kind": "jurisdiction_specific_red_flag",
+            "claimed": "USD cash payment request",
+            "norm_range": "not accepted",
+            "severity": "red",
+        }
+        title = _anomaly_title(a, "fallback")
+        self.assertIn("USD cash", title)
+        self.assertNotIn("{", title)
+
+    def test_offset_issue_title_uses_regime(self):
+        a = {
+            "regime": "Tawazun Economic Programme",
+            "issue": "offset_exemption_claimed_despite_threshold_met",
+            "detail": "Counterparty claims offset exemption…",
+        }
+        title = _anomaly_title(a, "fallback")
+        self.assertIn("Tawazun", title)
+        self.assertNotIn("{", title)
+
+    def test_corporate_anomaly_uses_own_detail(self):
+        a = {
+            "kind": "sector_mismatch",
+            "severity": "red",
+            "detail": "Entity's declared activity (cleaning) is inconsistent with defence deal. Classic fronting pattern.",
+        }
+        title = _anomaly_title(a, "fallback")
+        self.assertTrue(
+            any(k in title for k in ("fronting", "cleaning", "inconsistent", "activity")),
+            f"Corporate title didn't surface a detail word: {title!r}",
+        )
+
+    def test_findings_no_raw_dict_leakage_integration(self):
+        # End-to-end: run a full coherence pass and confirm EVERY finding
+        # detail string is a human sentence, never a raw dict dump.
+        report = _make_report(iso2="AO", entity_name="Render Check")
+        target = {
+            "name": "Render Check",
+            "delivery_country": "AO",
+            "transaction_value_usd": 12_000_000,
+            "counterparty_text": (
+                "We require a 70% advance payment in USD cash. We also "
+                "confirm full offset compliance for this deal."
+            ) * 2,
+        }
+        _run(assess_commercial_coherence(target, report))
+        self.assertTrue(report.commercial_coherence.findings)
+        for f in report.commercial_coherence.findings:
+            self.assertNotIn("{'", f.detail, f"Finding detail leaks raw dict: {f.detail!r}")
+            self.assertNotIn("'market':", f.detail, f"Finding detail leaks raw dict: {f.detail!r}")
 
 
 if __name__ == "__main__":

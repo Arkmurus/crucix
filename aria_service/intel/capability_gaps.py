@@ -49,6 +49,9 @@ VALID_GAP_TYPES = frozenset({
     "operational:research_failure",
     "operational:confidence_failure",
     "operational:output_rejection",
+    # Layer 5c commercial coherence (2026-04-22) — structural deal flags
+    # surfaced by commercial_coherence.assess_commercial_coherence().
+    "commercial_coherence_elevated",
 })
 
 
