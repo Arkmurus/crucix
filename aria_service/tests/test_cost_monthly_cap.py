@@ -118,6 +118,45 @@ def test_get_month_spend_reflects_cap_utilisation(monkeypatch):
     assert status["remaining_usd"] == pytest.approx(5.5, rel=1e-3)
 
 
+def test_breakdown_falls_back_to_index_when_rollup_empty():
+    """Regression guard for the 2026-04-22 fix: dashboards were showing
+    'NO DATA' even though the 90-day index held $30 of historical calls,
+    because the monthly rollup key hadn't been populated yet. The breakdown
+    must reconstruct from the index when the rollup is missing."""
+    import json as _json
+    import time as _time
+    # Seed the 90-day index directly, bypassing record_call so the monthly
+    # rollup stays empty — this mirrors the state on a fresh deploy.
+    now_ts = _time.time()
+    rs._mem_store[cost_tracker.COST_INDEX_KEY] = _json.dumps([
+        {
+            "id": "call_abc",
+            "ts": now_ts,
+            "model": "claude-sonnet-4-6",
+            "feature": "chat",
+            "total_tokens": 1000,
+            "cost_usd": 5.0,
+            "success": True,
+        },
+        {
+            "id": "call_def",
+            "ts": now_ts,
+            "model": "deepseek-chat",
+            "feature": "research_task",
+            "total_tokens": 2000,
+            "cost_usd": 2.0,
+            "success": True,
+        },
+    ])
+    bd = _run(cost_tracker.get_month_breakdown())
+    assert bd.get("_source") == "index_fallback"
+    assert bd["total_cost_usd"] == pytest.approx(7.0)
+    assert bd["total_calls"] == 2
+    # Provider derived from model name when the index record lacks one.
+    assert "anthropic" in bd["by_provider"]
+    assert "deepseek" in bd["by_provider"]
+
+
 def test_breakdown_segments_by_provider_feature_model():
     # Two providers, two features, two models — every bucket should show up.
     _run(cost_tracker.record_call(

@@ -403,6 +403,12 @@ async def _refresh_month_cache(force: bool = False) -> float:
     try:
         roll = await rs.get_json(f"{COST_MONTH_PREFIX}{month}") or {}
         total = float(roll.get("total_cost_usd") or 0.0)
+        # Fallback: if the monthly rollup hasn't been populated yet (fresh
+        # deploy, eviction), use the index-derived total so the cap
+        # accounts for spend that predates the rollup.
+        if total == 0.0:
+            index_roll = await _breakdown_from_index(month)
+            total = float(index_roll.get("total_cost_usd") or 0.0)
     except Exception:
         total = float(_month_cache.get("total") or 0.0)
     # Month rollover: reset warning latches for the new month.
@@ -449,16 +455,116 @@ async def assert_monthly_cap() -> None:
     raise MonthlyCostCapExceeded(spent=spent, cap=cap, month=month)
 
 
+def _provider_from_model(model: str) -> str:
+    """Derive a provider label from a model name when the index record
+    doesn't carry one (pre-monthly-rollup entries). Covers the providers
+    actually wired into ARIA's factory; unknowns fall back to 'unknown'."""
+    m = (model or "").lower()
+    if m.startswith("claude"):
+        return "anthropic"
+    if m.startswith("deepseek"):
+        return "deepseek"
+    if m.startswith(("gpt-", "o1-", "o3-")):
+        return "openai"
+    if m.startswith(("gemini", "gemma")):
+        return "google"
+    if m.startswith(("llama", "mixtral", "qwen")):
+        return "groq"
+    if m.startswith(("mistral", "codestral")):
+        return "mistral"
+    if m.startswith("ollama") or m in {"llama3.1:8b", "llama3.1:70b"}:
+        return "ollama"
+    return "unknown"
+
+
+async def _breakdown_from_index(target_month: str) -> dict:
+    """Reconstruct a monthly breakdown from the 90-day per-call index.
+    Used as a fallback when the monthly rollup key is empty — i.e. on a
+    fresh deployment, after Redis key eviction, or for back-calculating
+    spend that predates this rollup code landing."""
+    try:
+        index = await rs.get_json(COST_INDEX_KEY) or []
+    except Exception:
+        index = []
+    total = 0.0
+    calls = 0
+    tokens = 0
+    first_ts = None
+    last_ts = None
+    by_provider: dict[str, dict] = {}
+    by_feature: dict[str, dict] = {}
+    by_model: dict[str, dict] = {}
+    all_calls: list[dict] = []
+    for e in index:
+        ts = float(e.get("ts") or 0.0)
+        if not ts:
+            continue
+        if datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m") != target_month:
+            continue
+        cost = float(e.get("cost_usd") or 0.0)
+        tk = int(e.get("total_tokens") or 0)
+        model = e.get("model") or "unknown"
+        feat = e.get("feature") or "uncategorized"
+        provider = e.get("provider") or _provider_from_model(model)
+        total += cost
+        calls += 1
+        tokens += tk
+        first_ts = ts if first_ts is None or ts < first_ts else first_ts
+        last_ts = ts if last_ts is None or ts > last_ts else last_ts
+        for bucket, key in (
+            (by_provider, provider),
+            (by_feature, feat),
+            (by_model, model),
+        ):
+            cell = bucket.get(key) or {"calls": 0, "tokens": 0, "cost_usd": 0.0}
+            cell["calls"] += 1
+            cell["tokens"] += tk
+            cell["cost_usd"] = round(cell["cost_usd"] + cost, 6)
+            bucket[key] = cell
+        all_calls.append({
+            "id": e.get("id"),
+            "ts": ts,
+            "model": model,
+            "provider": provider,
+            "feature": feat,
+            "total_tokens": tk,
+            "cost_usd": cost,
+        })
+    all_calls.sort(key=lambda r: r.get("cost_usd", 0.0), reverse=True)
+    return {
+        "month": target_month,
+        "total_cost_usd": round(total, 6),
+        "total_calls": calls,
+        "total_tokens": tokens,
+        "first_ts": first_ts,
+        "last_ts": last_ts,
+        "by_provider": by_provider,
+        "by_feature": by_feature,
+        "by_model": by_model,
+        "top_calls": all_calls[:20],
+        "_source": "index_fallback",
+    }
+
+
 async def get_month_breakdown(month: str | None = None) -> dict:
     """Full breakdown for the requested month (defaults to current).
     Exposes per-provider, per-feature, per-model totals plus the 20 most
     expensive individual calls — the diagnostic the operator reaches for
-    when asking 'where did the money go?'."""
+    when asking 'where did the money go?'.
+
+    Falls back to reconstructing from the 90-day per-call index when the
+    monthly rollup key is empty (fresh deploy, eviction, pre-rollup
+    historical data). The fallback covers everything the index retains
+    (~1000 most recent calls / up to 90 days)."""
     target = month or _current_month_key()
     try:
         roll = await rs.get_json(f"{COST_MONTH_PREFIX}{target}") or {}
     except Exception as e:
         return {"error": str(e), "month": target}
+    # No rollup yet — reconstruct from the index so historical spend shows
+    # up immediately rather than waiting for the next LLM call to bootstrap.
+    if not roll or int(roll.get("total_calls") or 0) == 0:
+        roll = await _breakdown_from_index(target)
     cap = _monthly_cap_usd()
     spent = float(roll.get("total_cost_usd") or 0.0)
     # Project end-of-month based on elapsed fraction of the current month.
@@ -487,6 +593,7 @@ async def get_month_breakdown(month: str | None = None) -> dict:
         "by_model": roll.get("by_model", {}),
         "top_calls": roll.get("top_calls", []),
         "warn_only": _warn_only(),
+        "_source": roll.get("_source", "rollup"),
     }
 
 
