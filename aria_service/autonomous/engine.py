@@ -302,6 +302,18 @@ async def _engine_loop(llm) -> None:
                     task_id, task.cron, is_dry_run(),
                 )
                 _fire_count += 1
+                # Persist a rolling 24h counter so /autonomy/surface can
+                # report real fires. Before this, the in-process counter
+                # was never synced to Redis, so the dashboard always read
+                # 0 and reset on every deploy. The 25h expire renews on
+                # each incr — counter decays naturally once the engine
+                # goes a full day without firing.
+                try:
+                    from ..intel import redis_store as rs
+                    await rs.incr("crucix:autonomous:fires_24h")
+                    await rs.expire("crucix:autonomous:fires_24h", 90_000)
+                except Exception as _e:
+                    logger.debug("fires_24h counter incr failed: %s", _e)
 
                 # Run the task. execute_task() handles its own
                 # try/except + run history persistence — we just have

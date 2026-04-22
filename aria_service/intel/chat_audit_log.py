@@ -35,6 +35,7 @@ logger = logging.getLogger("aria.chat_audit")
 _K_LOG = "crucix:chat_audit:log"
 _K_HEAD = "crucix:chat_audit:head_hash"
 _K_BY_SESSION = "crucix:chat_audit:by_session:{sid}"
+_K_ENTRIES_24H = "crucix:chat_audit:entries_24h"
 # Permanent audit trail — was 10k entries / 90d TTL before 2026-04-21.
 # Compliance-grade audit logs must not self-delete; HMAC chain integrity
 # also degrades if entries vanish from the tail.
@@ -131,6 +132,16 @@ async def record_chat(
     await rs.ltrim(sid_key, 0, 100)
     await rs.expire(sid_key, _TTL_DAYS * 86400)
 
+    # Rolling 24h counter — autonomy_surface reads this as
+    # `chat_turns_served`. The lifetime log retains entries forever, but
+    # the dashboard needs a bounded window. 25h expire gives natural
+    # decay without per-event timestamp bookkeeping.
+    try:
+        await rs.incr(_K_ENTRIES_24H)
+        await rs.expire(_K_ENTRIES_24H, 90_000)
+    except Exception as e:
+        logger.debug("entries_24h counter incr failed: %s", e)
+
     return entry
 
 
@@ -146,8 +157,14 @@ async def get_stats() -> dict:
     from . import redis_store as rs
     total = await rs.llen(_K_LOG)
     head = await rs.get(_K_HEAD)
+    entries_24h_raw = await rs.get(_K_ENTRIES_24H)
+    try:
+        entries_24h = int(entries_24h_raw) if entries_24h_raw is not None else 0
+    except (TypeError, ValueError):
+        entries_24h = 0
     return {
         "total_entries": total or 0,
+        "entries_24h": entries_24h,
         "head_hash": head or _GENESIS_HASH,
         "ttl_days": _TTL_DAYS,
         "max_entries": _MAX_ENTRIES,
