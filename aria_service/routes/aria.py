@@ -1101,6 +1101,25 @@ async def cost_call_get_ep(call_id: str):
     return rec
 
 
+@router.get("/cost/monthly")
+async def cost_monthly_ep(month: str | None = None):
+    """Month-to-date LLM spend + full breakdown.
+
+    Diagnostic endpoint for the monthly cap. Shows per-provider, per-feature,
+    per-model totals plus the 20 most expensive individual calls — the view
+    you reach for when asking 'where did the money go?'.
+
+    Month format: YYYY-MM (e.g. 2026-04). Defaults to current month.
+    """
+    return await cost_tracker.get_month_breakdown(month=month)
+
+
+@router.get("/cost/monthly/status")
+async def cost_monthly_status_ep():
+    """Quick gauge: how much of the monthly LLM cap is used."""
+    return await cost_tracker.get_month_spend()
+
+
 # ── Trace stream: joined view across cost / verification / feedback ──────
 @router.get("/trace/recent")
 async def trace_recent_ep(

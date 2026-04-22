@@ -79,6 +79,17 @@ class MeteredProvider(LLMProvider):
         except Exception as e:
             logger.debug("MeteredProvider record dispatch failed: %s", e)
 
+    async def _enforce_monthly_cap(self) -> None:
+        """Hard stop if month-to-date LLM spend has hit ARIA_MONTHLY_CAP_USD.
+        Lazy import keeps metered.py free of any cost_tracker import cycles."""
+        try:
+            from ..intel import cost_tracker
+        except Exception:
+            return
+        # Let MonthlyCostCapExceeded propagate — callers expect a RuntimeError
+        # subclass so chat/streaming endpoints can surface a useful message.
+        await cost_tracker.assert_monthly_cap()
+
     async def complete(
         self,
         system_prompt: str,
@@ -87,6 +98,7 @@ class MeteredProvider(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 60.0,
     ) -> LLMResult:
+        await self._enforce_monthly_cap()
         started = time.time()
         success = True
         error = ""
@@ -116,6 +128,7 @@ class MeteredProvider(LLMProvider):
         on_done=None,
     ):
         """Metered streaming — yields chunks, records cost after stream ends."""
+        await self._enforce_monthly_cap()
         started = time.time()
         final_result = None
 

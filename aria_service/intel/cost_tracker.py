@@ -49,14 +49,30 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import os
 import time
 import uuid
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Any
 
 from . import redis_store as rs
 
 logger = logging.getLogger("aria.cost")
+
+
+class MonthlyCostCapExceeded(RuntimeError):
+    """Raised when a metered LLM call would exceed the monthly USD cap."""
+
+    def __init__(self, spent: float, cap: float, month: str):
+        self.spent = spent
+        self.cap = cap
+        self.month = month
+        super().__init__(
+            f"Monthly LLM cost cap ${cap:.2f} exceeded for {month} "
+            f"(spent ${spent:.4f}). Raise ARIA_MONTHLY_CAP_USD or set "
+            f"ARIA_MONTHLY_CAP_WARN_ONLY=1 to continue."
+        )
 
 # ── Pricing table (USD per 1M tokens) ──────────────────────────────────────
 # Standard rates as of late 2025 — update when providers change them.
@@ -103,9 +119,41 @@ DEFAULT_PRICING = (0.27, 1.10)
 COST_INDEX_KEY = "crucix:aria:cost:index"
 COST_RECORD_PREFIX = "crucix:aria:cost:record:"
 COST_AGG_KEY = "crucix:aria:cost:aggregate"
+COST_MONTH_PREFIX = "crucix:aria:cost:month:"   # + YYYY-MM
 COST_TTL = 90 * 86400  # 90 days of per-call detail
+COST_MONTH_TTL = 400 * 86400  # keep ~13 months of monthly rollups
 
 _INDEX_CAP = 1000  # last N call summaries kept in the index
+
+# ── Monthly cap config ─────────────────────────────────────────────────────
+# Hard ceiling on monthly LLM spend across ALL providers. Set at import
+# time from env; callers re-read env on every check so a runtime override
+# (operator flipping an env var) takes effect without a restart.
+DEFAULT_MONTHLY_CAP_USD = 100.0
+
+
+def _monthly_cap_usd() -> float:
+    try:
+        return float(os.getenv("ARIA_MONTHLY_CAP_USD", str(DEFAULT_MONTHLY_CAP_USD)))
+    except (TypeError, ValueError):
+        return DEFAULT_MONTHLY_CAP_USD
+
+
+def _warn_only() -> bool:
+    return os.getenv("ARIA_MONTHLY_CAP_WARN_ONLY", "0").strip().lower() in ("1", "true", "yes")
+
+
+def _current_month_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+# In-process mirror of the month-to-date total so pre-call checks don't
+# require a Redis round-trip. Refreshed from Redis when stale or the
+# calendar month rolls over.
+_month_cache: dict[str, Any] = {"month": "", "total": 0.0, "loaded_at": 0.0}
+_MONTH_CACHE_TTL_S = 30.0  # re-sync from Redis at least this often
+# Warning threshold latches so we emit each alert at most once per month.
+_warned_thresholds: set[str] = set()
 
 
 # ── Feature attribution via contextvar ─────────────────────────────────────
@@ -254,9 +302,192 @@ async def record_call(
             feat_agg["errors"] += 1
         agg[feat] = feat_agg
         await rs.set_json(COST_AGG_KEY, agg, ex=COST_TTL)
+        # Calendar-month rollup (independent of 90-day detail TTL).
+        await _update_month_rollup(record)
     except Exception as e:
         logger.warning("cost_tracker.record_call persist failed: %s", e)
     return record
+
+
+# ── Monthly rollup + cap enforcement ───────────────────────────────────────
+
+async def _update_month_rollup(record: dict) -> None:
+    """Add one call to the current month's aggregate + refresh the in-process
+    cache. Safe to call inside the record_call try/except — its failure must
+    never prevent the rest of the record from persisting."""
+    month = _current_month_key()
+    key = f"{COST_MONTH_PREFIX}{month}"
+    try:
+        roll = await rs.get_json(key) or {
+            "month": month,
+            "total_cost_usd": 0.0,
+            "total_calls": 0,
+            "total_tokens": 0,
+            "first_ts": record["ts"],
+            "last_ts": record["ts"],
+            "by_provider": {},
+            "by_feature": {},
+            "by_model": {},
+            "top_calls": [],
+        }
+        cost = float(record.get("cost_usd") or 0.0)
+        roll["total_cost_usd"] = round(roll["total_cost_usd"] + cost, 6)
+        roll["total_calls"] += 1
+        roll["total_tokens"] += int(record.get("total_tokens") or 0)
+        roll["last_ts"] = record["ts"]
+
+        for bucket_key, val in (
+            ("by_provider", record.get("provider") or "unknown"),
+            ("by_feature", record.get("feature") or "uncategorized"),
+            ("by_model", record.get("model") or "unknown"),
+        ):
+            bucket = roll[bucket_key]
+            cell = bucket.get(val) or {"calls": 0, "tokens": 0, "cost_usd": 0.0}
+            cell["calls"] += 1
+            cell["tokens"] += int(record.get("total_tokens") or 0)
+            cell["cost_usd"] = round(cell["cost_usd"] + cost, 6)
+            bucket[val] = cell
+
+        # Keep the 20 most expensive individual calls for debugging bloat.
+        top = roll["top_calls"]
+        top.append({
+            "id": record["id"],
+            "ts": record["ts"],
+            "model": record.get("model", ""),
+            "provider": record.get("provider", ""),
+            "feature": record.get("feature", ""),
+            "total_tokens": record.get("total_tokens", 0),
+            "cost_usd": cost,
+        })
+        top.sort(key=lambda r: r.get("cost_usd", 0.0), reverse=True)
+        roll["top_calls"] = top[:20]
+
+        await rs.set_json(key, roll, ex=COST_MONTH_TTL)
+
+        # Refresh in-process cache + evaluate warning thresholds.
+        _month_cache["month"] = month
+        _month_cache["total"] = roll["total_cost_usd"]
+        _month_cache["loaded_at"] = time.time()
+        _emit_threshold_warnings(roll["total_cost_usd"], _monthly_cap_usd(), month)
+    except Exception as e:
+        logger.warning("cost_tracker._update_month_rollup failed: %s", e)
+
+
+def _emit_threshold_warnings(spent: float, cap: float, month: str) -> None:
+    """Log-only warnings at 50% and 80% of the monthly cap. Latched per-month
+    so operators aren't spammed; the `_warned_thresholds` set resets when
+    the calendar month rolls over (see _refresh_month_cache)."""
+    if cap <= 0:
+        return
+    util = spent / cap
+    for pct, label in ((0.80, "80"), (0.50, "50")):
+        tag = f"{month}:{label}"
+        if util >= pct and tag not in _warned_thresholds:
+            _warned_thresholds.add(tag)
+            logger.warning(
+                "ARIA monthly LLM spend at %.0f%% of cap — spent $%.4f of $%.2f (%s)",
+                util * 100, spent, cap, month,
+            )
+            return  # only fire the highest-matching threshold per call
+
+
+async def _refresh_month_cache(force: bool = False) -> float:
+    """Pull the current month's total from Redis into the in-process cache.
+    Cheap — one key read. Returns the current month total (0.0 if no data)."""
+    month = _current_month_key()
+    now = time.time()
+    if (not force
+            and _month_cache["month"] == month
+            and (now - float(_month_cache.get("loaded_at") or 0.0)) < _MONTH_CACHE_TTL_S):
+        return float(_month_cache["total"])
+    try:
+        roll = await rs.get_json(f"{COST_MONTH_PREFIX}{month}") or {}
+        total = float(roll.get("total_cost_usd") or 0.0)
+    except Exception:
+        total = float(_month_cache.get("total") or 0.0)
+    # Month rollover: reset warning latches for the new month.
+    if _month_cache["month"] != month:
+        _warned_thresholds.clear()
+    _month_cache["month"] = month
+    _month_cache["total"] = total
+    _month_cache["loaded_at"] = now
+    return total
+
+
+async def get_month_spend() -> dict:
+    """Month-to-date LLM spend + cap utilisation."""
+    spent = await _refresh_month_cache()
+    cap = _monthly_cap_usd()
+    return {
+        "month": _current_month_key(),
+        "spent_usd": round(spent, 6),
+        "cap_usd": cap,
+        "remaining_usd": round(max(0.0, cap - spent), 6),
+        "utilisation_pct": round((spent / cap * 100) if cap > 0 else 0.0, 2),
+        "warn_only": _warn_only(),
+    }
+
+
+async def assert_monthly_cap() -> None:
+    """Raise MonthlyCostCapExceeded if month-to-date spend is at/over the cap.
+    Called by MeteredProvider before every LLM request. Honours
+    ARIA_MONTHLY_CAP_WARN_ONLY=1 for investigation mode."""
+    cap = _monthly_cap_usd()
+    if cap <= 0:
+        return
+    spent = await _refresh_month_cache()
+    if spent < cap:
+        return
+    month = _current_month_key()
+    if _warn_only():
+        logger.error(
+            "ARIA monthly LLM cap $%.2f would block call — allowed because "
+            "ARIA_MONTHLY_CAP_WARN_ONLY=1 (spent $%.4f in %s)",
+            cap, spent, month,
+        )
+        return
+    raise MonthlyCostCapExceeded(spent=spent, cap=cap, month=month)
+
+
+async def get_month_breakdown(month: str | None = None) -> dict:
+    """Full breakdown for the requested month (defaults to current).
+    Exposes per-provider, per-feature, per-model totals plus the 20 most
+    expensive individual calls — the diagnostic the operator reaches for
+    when asking 'where did the money go?'."""
+    target = month or _current_month_key()
+    try:
+        roll = await rs.get_json(f"{COST_MONTH_PREFIX}{target}") or {}
+    except Exception as e:
+        return {"error": str(e), "month": target}
+    cap = _monthly_cap_usd()
+    spent = float(roll.get("total_cost_usd") or 0.0)
+    # Project end-of-month based on elapsed fraction of the current month.
+    projected = spent
+    if target == _current_month_key():
+        now = datetime.now(timezone.utc)
+        # Day-of-month / days-in-month is a good-enough linear projection;
+        # the user only needs a ballpark of whether they'll hit the cap.
+        first_ts = float(roll.get("first_ts") or now.timestamp())
+        elapsed_s = max(1.0, now.timestamp() - first_ts)
+        # 30 days as a flat month proxy — operators read this as a gauge.
+        projected = round(spent * (30 * 86400) / elapsed_s, 4) if spent > 0 else 0.0
+    return {
+        "month": target,
+        "total_cost_usd": round(spent, 6),
+        "total_calls": int(roll.get("total_calls") or 0),
+        "total_tokens": int(roll.get("total_tokens") or 0),
+        "cap_usd": cap,
+        "remaining_usd": round(max(0.0, cap - spent), 6),
+        "utilisation_pct": round((spent / cap * 100) if cap > 0 else 0.0, 2),
+        "projected_monthly_usd": projected,
+        "first_call_ts": roll.get("first_ts"),
+        "last_call_ts": roll.get("last_ts"),
+        "by_provider": roll.get("by_provider", {}),
+        "by_feature": roll.get("by_feature", {}),
+        "by_model": roll.get("by_model", {}),
+        "top_calls": roll.get("top_calls", []),
+        "warn_only": _warn_only(),
+    }
 
 
 # ── Reporting ──────────────────────────────────────────────────────────────
