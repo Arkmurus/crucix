@@ -383,6 +383,31 @@ async def _store_operational_gap(gap: dict) -> dict:
         "corrective_action": gap.get("suggested_fix", {}).get("approach", ""),
     }))
 
+    # Bridge-write into the aria-level capability_gaps store so
+    # `ecosystem_reassess` (which reads ONLY via capability_gaps.recent())
+    # can surface these operational signals into its reassessment queue.
+    # Without this bridge, memory-miss + research-failure signals from
+    # aria_chat_stream land in the metacog store and never reach the
+    # reassess queue — the 24/7 learning loop's "what to study next"
+    # source was effectively blind to live streaming traffic.
+    try:
+        from ..intel import capability_gaps as _cg
+        detail_text = (
+            gap.get("query")
+            or gap.get("search_query")
+            or gap.get("missing_knowledge")
+            or gap.get("human_correction")
+            or ""
+        )
+        await _cg.record_gap(
+            gap_type=f"operational:{gap_type.lower()}",
+            detail=detail_text[:500],
+            source="metacognitive_gaps",
+            message_context=(gap.get("expected_category") or gap.get("expected_tier") or ""),
+        )
+    except Exception as _bridge_err:
+        logger.debug("capability_gaps bridge write failed: %s", _bridge_err)
+
     # Increment per-type counter (24h TTL so stale gaps don't accumulate)
     counter_key = _OPERATIONAL_COUNTER_KEY.format(gap_type=gap_type)
     count = await rs.incr(counter_key)

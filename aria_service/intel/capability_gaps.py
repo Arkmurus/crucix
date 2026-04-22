@@ -40,6 +40,15 @@ VALID_GAP_TYPES = frozenset({
     "paraphrase_violation",            # chat post-processor: verbatim ≥200
     "adversarial_critical_failure",    # adversarial_challenge: CRITICAL fail
     "mistake",                         # generic bridge from mistake_ledger
+    # Operational-signal bridges from metacognitive/gaps.py (2026-04-22).
+    # Before this bridge, ecosystem_reassess read only capability_gaps.recent()
+    # and never saw live memory-miss / research-failure signals from the
+    # streaming chat path — the 24/7 learning loop was effectively blind
+    # to production WhatsApp traffic.
+    "operational:memory_miss",
+    "operational:research_failure",
+    "operational:confidence_failure",
+    "operational:output_rejection",
 })
 
 

@@ -126,7 +126,16 @@ async def run() -> dict:
             recent = await mistake_ledger.recent(limit=200)
             counts: dict[str, int] = {}
             for m in recent or []:
-                t = (m.get("topic") or "").strip().lower()
+                # mistake_ledger.record() persists `what_class` (e.g.
+                # "tool_fabrication", "propaganda_elevation", "gtg_jurisdiction")
+                # and `domain` (e.g. "clause_20"). It does NOT persist `topic`.
+                # Reading `topic` silently rejected every record, so pattern
+                # detection never fired. Alias to the real fields; fall back
+                # to `topic` for any legacy or externally-populated rows.
+                t = (
+                    (m.get("what_class") or m.get("domain") or m.get("topic") or "")
+                    .strip().lower()
+                )
                 if not t:
                     continue
                 counts[t] = counts.get(t, 0) + 1
@@ -148,7 +157,14 @@ async def run() -> dict:
         if hasattr(capability_gaps, "recent"):
             gaps = await capability_gaps.recent(limit=50)
             for g in gaps or []:
-                kind = (g.get("kind") or "").strip() or "capability_gap"
+                # capability_gaps.record_gap() persists `type`, not `kind`.
+                # Reading `kind` silently fell back to the default so every
+                # gap was re-keyed as the generic "capability_gap", losing
+                # the specific type signal.
+                kind = (
+                    (g.get("type") or g.get("kind") or "").strip()
+                    or "capability_gap"
+                )
                 queue.append({
                     "key": f"capability:{kind}:{g.get('detail','')[:40]}",
                     "kind": "capability_gap",

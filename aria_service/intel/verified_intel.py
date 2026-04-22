@@ -1383,6 +1383,16 @@ class ARIAVerificationEngine:
         key = f"aria:verified_facts:{fact.fact_type.value}:{fact.fact_id}"
         # Permanent storage — FACT_TTL_DAYS now governs staleness flagging only (2026-04-21).
         await rs.set_json(key, fact.to_dict())
+        # Also publish into the shared list that the chat-context + dashboard
+        # + knowledge_spider readers pull from. Before this, every verified
+        # fact was stored to its own key but `crucix:verified_intel:facts`
+        # (the list 3 readers consume) was NEVER written to, so
+        # recent_facts() / get_relevant_verified_facts() / get_verification_summary()
+        # always returned []. Bounded to the last 1000 to cap memory.
+        try:
+            await _publish_fact_to_shared_list(fact.to_dict())
+        except Exception as _pub_err:
+            logger.debug("verified_intel shared-list publish failed: %s", _pub_err)
 
     async def _aload_fact(self, fact_id: str) -> Optional["VerifiedFact"]:
         from . import redis_store as rs
@@ -1468,6 +1478,16 @@ class ARIAVerificationEngine:
                 f"aria:verified_facts:{fact.fact_type.value}:{fact.fact_id}"
             )
             # Permanent storage — FACT_TTL_DAYS now governs staleness flagging only (2026-04-21).
+            # See _astore_fact for the same shared-list publish rationale.
+            try:
+                import asyncio as _asyncio_sf
+                _loop = _asyncio_sf.get_event_loop()
+                if _loop.is_running():
+                    _asyncio_sf.ensure_future(
+                        _publish_fact_to_shared_list(fact.to_dict())
+                    )
+            except Exception:
+                pass  # sync path is rarely hit in production
             self.redis.set(
                 key,
                 json.dumps(fact.to_dict()),
@@ -1619,6 +1639,36 @@ if __name__ == "__main__":
     classifier = SourceTierClassifier()
 
 # ── Chat context integration (wired 2026-04-17) ──────────────────────────
+
+_SHARED_FACTS_KEY = "crucix:verified_intel:facts"
+_SHARED_FACTS_CAP = 1000
+
+
+async def _publish_fact_to_shared_list(fact_dict: dict) -> None:
+    """Append a verified-fact dict to the shared list that chat context,
+    recent_facts() and get_verification_summary() read from. Before this
+    bridge existed (added 2026-04-22), every fact was written only to its
+    own `aria:verified_facts:{type}:{id}` key and the shared list was
+    never populated, so the three public readers always returned []
+    silently — same shape as the chat_audit/stream bypass fixed in af8ad84."""
+    from . import redis_store as rs
+    try:
+        current = await rs.get_json(_SHARED_FACTS_KEY) or []
+        if not isinstance(current, list):
+            current = []
+        # De-dupe on fact_id so refreshes/updates don't duplicate the list
+        fact_id = fact_dict.get("fact_id") or ""
+        if fact_id:
+            current = [f for f in current
+                       if isinstance(f, dict) and f.get("fact_id") != fact_id]
+        # Newest first, capped
+        current.insert(0, fact_dict)
+        if len(current) > _SHARED_FACTS_CAP:
+            current = current[:_SHARED_FACTS_CAP]
+        await rs.set_json(_SHARED_FACTS_KEY, current)
+    except Exception as e:
+        logger.debug("shared-list publish failed: %s", e)
+
 
 async def get_relevant_verified_facts(message: str, limit: int = 5) -> list[dict]:
     """Query verified facts relevant to a chat message. Returns facts
