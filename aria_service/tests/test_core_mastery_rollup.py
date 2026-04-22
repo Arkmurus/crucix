@@ -33,18 +33,27 @@ def _with_mastery(monkeypatch, mastery_state: dict):
     return student
 
 
-def test_core_mastery_tags_constant_has_nine_tags():
+def test_core_mastery_tags_are_capability_only_global():
     from aria_service.intel import student
 
-    assert len(student.CORE_MASTERY_TAGS) == 9
-    # The operator-confirmed set — any rename is a capability regression
-    # and must be done with explicit operator approval.
+    # 6 languages of major non-English defence markets + 4 cross-cutting
+    # capability areas. Rebalanced 2026-04-22 away from the 2026-04-20
+    # list to match aria_global_positioning.md — no region-specific
+    # tags in the load-bearing core. Any rename is a capability
+    # regression and must be done with explicit operator approval.
     expected = {
-        "lang:pt", "lang:ar", "lang:fr",
-        "angola_procurement", "uk_compliance", "uk_export_control",
-        "sanctions", "nato_standards", "strategic_geography",
+        "lang:pt", "lang:ar", "lang:fr", "lang:es", "lang:ru", "lang:zh",
+        "sanctions", "nato_standards", "strategic_geography", "export_control",
     }
     assert set(student.CORE_MASTERY_TAGS) == expected
+    assert len(student.CORE_MASTERY_TAGS) == 10
+
+    # Guardrail: no region-specific tags slipped back in.
+    for tag in student.CORE_MASTERY_TAGS:
+        assert not tag.startswith(("angola_", "uk_", "us_", "eu_", "nigeria_", "saudi_")), (
+            f"region-specific tag {tag!r} in CORE_MASTERY_TAGS — regional "
+            "coverage lives in the heatmap and COVERAGE_DOMAINS, not here"
+        )
 
 
 def test_load_mastery_scaffolds_core_tags(monkeypatch):

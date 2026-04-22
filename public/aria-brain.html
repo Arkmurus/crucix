@@ -228,10 +228,11 @@ async function loadHealth() {
 
   const q = d.quality || {};
   const coreWeak = q.core_weak_topics || [];
-  const coreWeakLabel = coreWeak.length ? `${coreWeak.length}/9 weak` : 'all ≥ 55%';
+  const coreTotal = Object.keys(q.core_mastery_breakdown || {}).length || 10;
+  const coreWeakLabel = coreWeak.length ? `${coreWeak.length}/${coreTotal} weak` : `all ≥ 55%`;
   document.getElementById('quality-metrics').innerHTML =
     metricRow('Mastery Overall', pct(q.mastery_overall), scoreClass(q.mastery_overall, 0.8, 0.55)) +
-    metricRow('Core Mastery (9 load-bearing)', pct(q.core_mastery), scoreClass(q.core_mastery, 0.7, 0.55)) +
+    metricRow(`Core Mastery (${coreTotal} load-bearing)`, pct(q.core_mastery), scoreClass(q.core_mastery, 0.7, 0.55)) +
     metricRow('Mastery Weighted (by samples)', pct(q.mastery_weighted), 'neutral') +
     metricRow('Grounded Rate', pct(q.grounded_rate), scoreClass(q.grounded_rate)) +
     metricRow('Adversarial Score', pct(q.adversarial_score), scoreClass(q.adversarial_score, 0.8, 0.5)) +

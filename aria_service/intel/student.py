@@ -114,15 +114,20 @@ TOPICS = [
     "competitor_intel", "legal", "general",
 ]
 
-# Load-bearing capability tags (operator-set 2026-04-20, confirmed 2026-04-22).
-# These are ARIA's global-coverage mastery cells; any work that touches
-# mastery scoring / weak-topic picking / reading-session queueing must
-# preserve them. A topic that silently falls out of scope is a capability
-# regression. See memory aria_core_mastery_topics.md for provenance.
+# Load-bearing capability tags — capability-only, region-agnostic.
+# Operator rebalanced 2026-04-22 to match the global-positioning doctrine
+# (aria_global_positioning.md): ARIA is a GLOBAL defence broking advisor,
+# so no single-region tags like angola_procurement or uk_compliance
+# belong in the load-bearing core — regional coverage lives in the
+# heatmap and source_validator.COVERAGE_DOMAINS instead.
+# Any work that touches mastery scoring / weak-topic picking / reading-
+# session queueing must preserve this list. A tag that silently falls
+# out of scope is a capability regression.
 CORE_MASTERY_TAGS = [
-    "lang:pt", "lang:ar", "lang:fr",
-    "angola_procurement", "uk_compliance", "uk_export_control",
-    "sanctions", "nato_standards", "strategic_geography",
+    # Languages of the major non-English defence markets
+    "lang:pt", "lang:ar", "lang:fr", "lang:es", "lang:ru", "lang:zh",
+    # Cross-cutting capability areas that apply in every region
+    "sanctions", "nato_standards", "strategic_geography", "export_control",
 ]
 
 # Topic detection patterns — used to tag every interaction with a topic.
