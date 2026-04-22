@@ -82,31 +82,57 @@ _CONFIDENCE_FOOTER_RE = re.compile(
 # Collection — pull recent high-quality replies
 # ═══════════════════════════════════════════════════════════════════════
 
+_last_collection_diag: dict[str, Any] = {}
+
+
 async def _collect_gold_replies(lookback_hours: int) -> list[dict[str, Any]]:
     """Return recent ARIA replies that are safe to learn style from.
-    Filters: honesty_verdict == grounded AND len > 200 chars AND
+    Filters: grounded verification verdict AND len > 200 chars AND
     no quarantine-citation marker in text."""
     out: list[dict[str, Any]] = []
     since = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
+    # Per-filter counts so 0 exemplars on the dashboard can be explained.
+    filtered = {
+        "total_entries": 0,
+        "not_dict": 0,
+        "too_short": 0,
+        "not_grounded": 0,
+        "quarantined": 0,
+        "before_window": 0,
+        "kept": 0,
+    }
     try:
         from ..intel import chat_audit_log as cal
         if not hasattr(cal, "get_recent"):
+            _last_collection_diag.update({"error": "chat_audit_log.get_recent missing"})
+            logger.warning("[style_learner] chat_audit_log.get_recent missing")
             return out
         entries = await cal.get_recent(limit=200)
     except Exception as exc:
-        logger.debug("chat_audit load failed: %s", exc)
+        _last_collection_diag.update({"error": f"{type(exc).__name__}: {exc}"})
+        logger.warning("[style_learner] chat_audit load failed: %s", exc)
         return out
 
+    filtered["total_entries"] = len(entries or [])
     for e in entries or []:
         if not isinstance(e, dict):
+            filtered["not_dict"] += 1
             continue
         reply = e.get("response") or e.get("reply") or ""
         if not reply or len(reply) < 200:
+            filtered["too_short"] += 1
             continue
-        verdict = (e.get("honesty_verdict") or "").lower()
+        # chat_audit_log.record_chat writes `verification_status`; older
+        # code wrote `honesty_verdict`. Accept either so the filter
+        # doesn't silently reject every entry when the field is renamed.
+        verdict = (
+            (e.get("verification_status") or e.get("honesty_verdict") or "").lower()
+        )
         if verdict != "grounded":
+            filtered["not_grounded"] += 1
             continue
         if "CITATION-QUARANTINED" in reply:
+            filtered["quarantined"] += 1
             continue
         # Timestamp filter — tolerant
         ts = e.get("timestamp") or e.get("ts") or ""
@@ -120,13 +146,22 @@ async def _collect_gold_replies(lookback_hours: int) -> list[dict[str, Any]]:
         except Exception:
             dt = datetime.now(timezone.utc)
         if dt < since:
+            filtered["before_window"] += 1
             continue
+        filtered["kept"] += 1
         out.append({
             "reply": reply,
             "user": e.get("user_message") or e.get("message") or "",
             "timestamp": dt.isoformat(),
             "trace_id": (e.get("trace_id") or "")[:16],
         })
+    _last_collection_diag.clear()
+    _last_collection_diag.update({"error": None, "filtered": filtered})
+    if filtered["kept"] == 0 and filtered["total_entries"] > 0:
+        logger.warning(
+            "[style_learner] %d entries scanned but 0 kept — filtered: %s",
+            filtered["total_entries"], filtered,
+        )
     return out[:_MAX_REPLIES_PER_RUN]
 
 
@@ -365,6 +400,7 @@ async def get_stats() -> dict[str, Any]:
         "total_exemplars":     stats.get("total_exemplars", sum(by_topic.values())),
         "by_topic":            by_topic,
         "last_run":            stats.get("last_run", ""),
+        "last_collection_diag": dict(_last_collection_diag),
     }
 
 

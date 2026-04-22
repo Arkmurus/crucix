@@ -2780,6 +2780,14 @@ async def orchestrate_dd(
                     llm, exclude_name=getattr(llm, "_last_used_name", "") or ""
                 )
                 secondary_narrative = ""
+                if sec_provider is None:
+                    # CRITICAL-grade DD output but no independent secondary
+                    # — count it so /verification/stats surfaces the gap
+                    # instead of silently reading 0/0/0.
+                    try:
+                        await _vg.record_skipped("no_secondary_provider")
+                    except Exception:
+                        pass
                 if sec_provider is not None:
                     try:
                         _t_sec_start = time.time()
@@ -2795,7 +2803,16 @@ async def orchestrate_dd(
                             "[dd_orchestrator] verification secondary pass on %s — %.1fs",
                             sec_provider.name, time.time() - _t_sec_start,
                         )
+                        if not secondary_narrative:
+                            try:
+                                await _vg.record_skipped("secondary_empty")
+                            except Exception:
+                                pass
                     except Exception as _sec_err:
+                        try:
+                            await _vg.record_skipped("secondary_call_failed")
+                        except Exception:
+                            pass
                         logger.warning(
                             "[dd_orchestrator] verification secondary pass failed: %s",
                             _sec_err,

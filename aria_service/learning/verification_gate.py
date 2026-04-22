@@ -516,6 +516,30 @@ async def double_via_fallback(
 # Stats accessors
 # ═══════════════════════════════════════════════════════════════════════
 
+async def record_skipped(reason: str) -> None:
+    """Log that a CRITICAL output wanted verification but couldn't get it.
+    Reasons: 'no_secondary_provider', 'secondary_call_failed',
+    'secondary_empty'. Exposed on /verification/stats so three zeros on
+    the dashboard can be distinguished from 'wanted to verify N times
+    but secondary is broken N times'."""
+    try:
+        from ..intel import redis_store as rs
+        stats = await rs.get_json(_REDIS_STATS_KEY) or {
+            "verified": 0, "unverified": 0, "blocking": 0, "warn": 0,
+        }
+        stats["skipped_total"] = stats.get("skipped_total", 0) + 1
+        by_reason = stats.get("skipped_by_reason") or {}
+        by_reason[reason] = by_reason.get(reason, 0) + 1
+        stats["skipped_by_reason"] = by_reason
+        await rs.set_json(_REDIS_STATS_KEY, stats, ex=86400)
+        logger.warning(
+            "[verification_gate] skipped — %s (total_skipped=%d)",
+            reason, stats["skipped_total"],
+        )
+    except Exception as exc:
+        logger.debug("record_skipped failed: %s", exc)
+
+
 async def get_stats() -> dict[str, Any]:
     from ..intel import redis_store as rs
     try:
@@ -526,13 +550,16 @@ async def get_stats() -> dict[str, Any]:
         recent = []
     verified = stats.get("verified", 0)
     unverified = stats.get("unverified", 0)
-    total = verified + unverified
-    rate = (verified / total) if total > 0 else None
+    skipped = stats.get("skipped_total", 0)
+    total_attempts = verified + unverified + skipped
+    rate = (verified / total_attempts) if total_attempts > 0 else None
     return {
         "verified_24h": verified,
         "unverified_24h": unverified,
         "blocking_disagreements_24h": stats.get("blocking", 0),
         "warn_disagreements_24h": stats.get("warn", 0),
+        "skipped_24h": skipped,
+        "skipped_by_reason_24h": stats.get("skipped_by_reason", {}),
         "verification_rate": round(rate, 3) if rate is not None else None,
         "recent": recent[-10:] if isinstance(recent, list) else [],
     }

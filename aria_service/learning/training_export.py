@@ -53,6 +53,30 @@ _EXCLUDE_TAGS = (
 # Collection helpers — each returns list[dict] of {user, assistant, meta}
 # ═══════════════════════════════════════════════════════════════════════
 
+# Per-source diagnostics for the most recent run. Populated by each
+# collector so run_daily_export can surface "why did this source return
+# 0?" to the dashboard instead of silently emitting {"written": 0}.
+# Before this, 45 spider ingests + 0 training examples gave no signal
+# that (for example) the writer audit path was missing.
+_last_collection_diag: dict[str, dict[str, Any]] = {}
+
+
+def _set_diag(source: str, count: int,
+              error: str | None = None,
+              reason: str | None = None) -> None:
+    _last_collection_diag[source] = {
+        "count": count,
+        "error": error,
+        "reason": reason,
+    }
+    if error:
+        logger.warning("[training_export] %s: %s", source, error)
+    elif reason and count == 0:
+        logger.warning("[training_export] %s: 0 collected (%s)", source, reason)
+    else:
+        logger.info("[training_export] %s: %d collected", source, count)
+
+
 async def _collect_chat_turns(days: int) -> list[dict[str, Any]]:
     """High-grounded chat turns from the audit log."""
     out: list[dict[str, Any]] = []
@@ -92,8 +116,10 @@ async def _collect_chat_turns(days: int) -> list[dict[str, Any]]:
                     "trace_id": e.get("trace_id"),
                 },
             })
+        _set_diag("chat_turns", len(out),
+                  reason=None if out else "no_grounded_chat_turns_in_window")
     except Exception as exc:
-        logger.debug("chat-turn collection failed: %s", exc)
+        _set_diag("chat_turns", 0, error=f"{type(exc).__name__}: {exc}")
     return out
 
 
@@ -142,8 +168,10 @@ async def _collect_dd_reports(days: int) -> list[dict[str, Any]]:
                     "risk": body.get("risk_classification", ""),
                 },
             })
+        _set_diag("dd_reports", len(out),
+                  reason=None if out else "no_qualifying_dd_reports_in_window")
     except Exception as exc:
-        logger.debug("DD report collection failed: %s", exc)
+        _set_diag("dd_reports", 0, error=f"{type(exc).__name__}: {exc}")
     return out
 
 
@@ -154,6 +182,7 @@ async def _collect_writer_outputs(days: int) -> list[dict[str, Any]]:
         audit_path = Path(os.getenv("ARIA_WRITER_AUDIT_PATH",
                                      "/data/aria_writer_audit.jsonl"))
         if not audit_path.exists():
+            _set_diag("writers", 0, reason=f"audit_path_missing:{audit_path}")
             return out
         cutoff = datetime.now(timezone.utc).timestamp() - (days * 86400)
         for line in audit_path.read_text(encoding="utf-8").splitlines()[-2000:]:
@@ -186,8 +215,10 @@ async def _collect_writer_outputs(days: int) -> list[dict[str, Any]]:
                     "word_count": wc,
                 },
             })
+        _set_diag("writers", len(out),
+                  reason=None if out else "no_qualifying_writer_outputs_in_window")
     except Exception as exc:
-        logger.debug("writer-output collection failed: %s", exc)
+        _set_diag("writers", 0, error=f"{type(exc).__name__}: {exc}")
     return out
 
 
@@ -199,6 +230,7 @@ async def _collect_adversarial_passes(days: int) -> list[dict[str, Any]]:
         if hasattr(ac, "recent_runs"):
             runs = await ac.recent_runs(limit=50)
         else:
+            _set_diag("adversarial", 0, reason="recent_runs_not_available")
             return out
         for run in runs or []:
             if not isinstance(run, dict) or not run.get("passed"):
@@ -219,8 +251,10 @@ async def _collect_adversarial_passes(days: int) -> list[dict[str, Any]]:
                     "attack_id": attack,
                 },
             })
+        _set_diag("adversarial", len(out),
+                  reason=None if out else "no_passed_attacks_in_window")
     except Exception as exc:
-        logger.debug("adversarial-pass collection failed: %s", exc)
+        _set_diag("adversarial", 0, error=f"{type(exc).__name__}: {exc}")
     return out
 
 
@@ -306,11 +340,16 @@ async def run_daily_export(days_lookback: int = 1) -> dict[str, Any]:
         "[learning] exported %d training examples to %s (total corpus: %d)",
         written, out_file, manifest["total_examples"],
     )
+    # Persist per-source diagnostics on the manifest so the dashboard
+    # can surface "why did this source return 0?" without rerunning.
+    manifest["last_run_diagnostics"] = _last_collection_diag.copy()
+    _save_manifest(manifest)
     return {
         "written": written,
         "by_source": {k: v for k, v in manifest["by_source"].items()},
         "total_examples": manifest["total_examples"],
         "file": str(out_file),
+        "diagnostics": _last_collection_diag.copy(),
     }
 
 
@@ -351,5 +390,7 @@ def summary() -> dict[str, Any]:
         "total_examples": m.get("total_examples", 0),
         "by_source": m.get("by_source", {}),
         "last_export": m.get("last_export_utc", ""),
+        "last_export_count": m.get("last_export_count", 0),
+        "last_run_diagnostics": m.get("last_run_diagnostics", {}),
         "daily_files": len(m.get("files", {})),
     }

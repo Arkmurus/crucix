@@ -4915,6 +4915,12 @@ async def chat_ep(req: ChatRequest, request: Request):
             _severity = _vg.classify_severity(response_text)
             if _severity == "CRITICAL" and llm is not None and response_text:
                 _sec_provider = _vg.pick_secondary_provider(llm)
+                if _sec_provider is None:
+                    # CRITICAL output but no independent secondary available
+                    # (fallback chain has only one healthy provider). Count
+                    # it so /verification/stats reveals the real gap —
+                    # otherwise the dashboard reads 0/0/0 and looks healthy.
+                    await _vg.record_skipped("no_secondary_provider")
                 if _sec_provider is not None:
                     try:
                         _sec_r = await _sec_provider.complete(
@@ -4931,6 +4937,8 @@ async def chat_ep(req: ChatRequest, request: Request):
                             timeout=40.0,
                         )
                         _sec_text = getattr(_sec_r, "text", "") or ""
+                        if not _sec_text:
+                            await _vg.record_skipped("secondary_empty")
                         if _sec_text:
                             _vres = await _vg.verify(
                                 response_text, _sec_text,
@@ -4960,6 +4968,10 @@ async def chat_ep(req: ChatRequest, request: Request):
                                 )
                             result["response"] = response_text
                     except Exception as _vg_inner:
+                        try:
+                            await _vg.record_skipped("secondary_call_failed")
+                        except Exception:
+                            pass
                         _log.debug("verification gate chat pass failed: %s", _vg_inner)
         except Exception as _vg_err:
             _log.debug("verification gate (chat) failed (non-fatal): %s", _vg_err)
