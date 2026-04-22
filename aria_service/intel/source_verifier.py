@@ -517,6 +517,11 @@ async def get_verification_stats() -> dict:
             "by_verdict": by_verdict,
             "recent_24h": recent_24h,
             "rolling_grounded_rate": rolling_rate,
+            # Alias for callers that read "avg_grounded_rate" (/health,
+            # autonomy_scorer, operating_modes, autonomous/tasks). Both
+            # keys point to the same value so neither reader sees None
+            # when the computation succeeds.
+            "avg_grounded_rate": rolling_rate,
             "rate_sample_size": rate_n,
         }
     except Exception as e:

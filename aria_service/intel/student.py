@@ -114,6 +114,17 @@ TOPICS = [
     "competitor_intel", "legal", "general",
 ]
 
+# Load-bearing capability tags (operator-set 2026-04-20, confirmed 2026-04-22).
+# These are ARIA's global-coverage mastery cells; any work that touches
+# mastery scoring / weak-topic picking / reading-session queueing must
+# preserve them. A topic that silently falls out of scope is a capability
+# regression. See memory aria_core_mastery_topics.md for provenance.
+CORE_MASTERY_TAGS = [
+    "lang:pt", "lang:ar", "lang:fr",
+    "angola_procurement", "uk_compliance", "uk_export_control",
+    "sanctions", "nato_standards", "strategic_geography",
+]
+
 # Topic detection patterns — used to tag every interaction with a topic.
 # Enriched from mastery_prompt_builder.py's domain keyword taxonomy.
 _TOPIC_PATTERNS: list[tuple[str, re.Pattern]] = [
@@ -217,6 +228,15 @@ async def _load_mastery() -> dict:
                           for t in TOPICS}
     # Make sure all topics exist (in case TOPICS list grew)
     for t in TOPICS:
+        if t not in _mastery_cache:
+            _mastery_cache[t] = {"score": INITIAL_MASTERY, "samples": 0,
+                                 "correct": 0, "wrong": 0, "last_practiced": 0}
+    # Scaffold the 9 core-mastery tags so they are always visible in the
+    # report — even with zero samples — instead of being invisibly absent.
+    # Before this, tags only existed if something happened to update them,
+    # which let the overall mastery rollup sit at 96% while load-bearing
+    # capability cells were silently empty.
+    for t in CORE_MASTERY_TAGS:
         if t not in _mastery_cache:
             _mastery_cache[t] = {"score": INITIAL_MASTERY, "samples": 0,
                                  "correct": 0, "wrong": 0, "last_practiced": 0}
@@ -326,8 +346,27 @@ async def get_mastery_report() -> dict:
         sum(m.get("score", 0) * m.get("samples", 0) for m in mastery.values())
         / max(total_samples, 1)
     ) if total_samples > 0 else INITIAL_MASTERY
+
+    # Core-mastery rollup — unweighted mean over the 9 load-bearing tags,
+    # independent of sample count. This prevents the sample-weighted
+    # `overall` from hiding weak core cells that have been starved of
+    # practice. Headline mastery is the minimum of the two so the
+    # dashboard cannot read higher than the weakest rollup.
+    core_scores = [mastery[t].get("score", INITIAL_MASTERY)
+                   for t in CORE_MASTERY_TAGS if t in mastery]
+    core_mastery = (sum(core_scores) / len(core_scores)) if core_scores else INITIAL_MASTERY
+    headline_mastery = min(overall, core_mastery)
+    core_weak = [t for t in CORE_MASTERY_TAGS
+                 if mastery.get(t, {}).get("score", 0) < WEAK_THRESHOLD]
     return {
         "overall_mastery": round(overall, 3),
+        "core_mastery": round(core_mastery, 3),
+        "headline_mastery": round(headline_mastery, 3),
+        "core_mastery_breakdown": {
+            t: round(mastery.get(t, {}).get("score", INITIAL_MASTERY), 3)
+            for t in CORE_MASTERY_TAGS
+        },
+        "core_weak_topics": core_weak,
         "total_samples": total_samples,
         "topics": {
             t: {

@@ -226,12 +226,18 @@ async function loadHealth() {
     metricRow('RAG Store', d.infra?.rag ? 'Available' : 'DOWN', d.infra?.rag ? 'good' : 'bad') +
     metricRow('Open Breakers', d.circuit_breakers?.open || 0, d.circuit_breakers?.open > 0 ? 'warn' : 'good');
 
+  const q = d.quality || {};
+  const coreWeak = q.core_weak_topics || [];
+  const coreWeakLabel = coreWeak.length ? `${coreWeak.length}/9 weak` : 'all ≥ 55%';
   document.getElementById('quality-metrics').innerHTML =
-    metricRow('Mastery Overall', pct(d.quality?.mastery_overall), scoreClass(d.quality?.mastery_overall, 0.8, 0.55)) +
-    metricRow('Grounded Rate', pct(d.quality?.grounded_rate), scoreClass(d.quality?.grounded_rate)) +
-    metricRow('Adversarial Score', pct(d.quality?.adversarial_score), scoreClass(d.quality?.adversarial_score, 0.8, 0.5)) +
-    metricRow('Predictor Blocks (24h)', d.quality?.predictor_blocks_24h || 0, d.quality?.predictor_blocks_24h > 3 ? 'bad' : 'good') +
-    metricRow('Weak Topics', (d.quality?.weak_topics || []).join(', ') || 'None', d.quality?.weak_topics?.length ? 'warn' : 'good');
+    metricRow('Mastery Overall', pct(q.mastery_overall), scoreClass(q.mastery_overall, 0.8, 0.55)) +
+    metricRow('Core Mastery (9 load-bearing)', pct(q.core_mastery), scoreClass(q.core_mastery, 0.7, 0.55)) +
+    metricRow('Mastery Weighted (by samples)', pct(q.mastery_weighted), 'neutral') +
+    metricRow('Grounded Rate', pct(q.grounded_rate), scoreClass(q.grounded_rate)) +
+    metricRow('Adversarial Score', pct(q.adversarial_score), scoreClass(q.adversarial_score, 0.8, 0.5)) +
+    metricRow('Predictor Blocks (24h)', q.predictor_blocks_24h || 0, q.predictor_blocks_24h > 3 ? 'bad' : 'good') +
+    metricRow('Core-Weak Tags', coreWeakLabel + (coreWeak.length ? ' — ' + coreWeak.join(', ') : ''), coreWeak.length ? 'warn' : 'good') +
+    metricRow('Weak Topics (all)', (q.weak_topics || []).join(', ') || 'None', q.weak_topics?.length ? 'warn' : 'good');
 }
 
 async function loadMode() {

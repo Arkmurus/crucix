@@ -86,13 +86,21 @@ async def compute_composite() -> dict:
     }
     details: dict[str, Any] = {}
 
-    # 1. Mastery (30%)
+    # 1. Mastery (30%) — use headline_mastery (min of weighted-overall and
+    # core-mastery mean) so the autonomy gate cannot be pulled up by
+    # high-sample easy topics while the 9 load-bearing capability cells
+    # are starved. Falls back to overall_mastery if the key is missing
+    # (e.g. older report payloads in transit).
     try:
         from . import student
         report = await student.get_mastery_report()
-        signals["mastery"] = report.get("overall_mastery", 0.5)
+        signals["mastery"] = report.get(
+            "headline_mastery", report.get("overall_mastery", 0.5)
+        )
         details["mastery_topics"] = len(report.get("topics", {}))
         details["weak_topics"] = report.get("weak_topics", [])
+        details["core_mastery"] = report.get("core_mastery")
+        details["core_weak_topics"] = report.get("core_weak_topics", [])
     except Exception as e:
         logger.debug("autonomy scorer: mastery failed: %s", e)
 

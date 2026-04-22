@@ -11925,9 +11925,17 @@ async def health_check_ep():
     mastery = {}
     try:
         report = await student.get_mastery_report()
-        # Key is "overall_mastery" not "overall_score"
-        mastery = {"overall": report.get("overall_mastery", 0),
-                    "weak_topics": report.get("weak_topics", [])}
+        # Headline is min(weighted_overall, core_mean) so the dashboard
+        # cannot read higher than the 9 load-bearing capability cells.
+        # See student.CORE_MASTERY_TAGS for the set.
+        mastery = {
+            "overall": report.get("headline_mastery", report.get("overall_mastery", 0)),
+            "weighted": report.get("overall_mastery", 0),
+            "core": report.get("core_mastery", 0),
+            "core_breakdown": report.get("core_mastery_breakdown", {}),
+            "core_weak_topics": report.get("core_weak_topics", []),
+            "weak_topics": report.get("weak_topics", []),
+        }
     except Exception:
         pass
 
@@ -11967,6 +11975,10 @@ async def health_check_ep():
         "infra": {"redis": redis_ok, "rag": rag_ok},
         "quality": {
             "mastery_overall": mastery.get("overall"),
+            "mastery_weighted": mastery.get("weighted"),
+            "core_mastery": mastery.get("core"),
+            "core_mastery_breakdown": mastery.get("core_breakdown", {}),
+            "core_weak_topics": mastery.get("core_weak_topics", []),
             "weak_topics": mastery.get("weak_topics", []),
             "grounded_rate": grounded,
             "adversarial_score": adversarial,
