@@ -90,6 +90,13 @@ async def _collect_chat_turns(days: int) -> list[dict[str, Any]]:
         if hasattr(cal, "get_recent"):
             entries = await cal.get_recent(limit=500)
         else:
+            _set_diag("chat_turns", 0, reason="chat_audit_log.get_recent_missing")
+            return out
+        if not entries:
+            # Distinguish "audit log empty" from "all filtered out". If the
+            # audit log itself has no entries, upstream /chat/stream is
+            # bypassing record_chat — a different bug than a tight filter.
+            _set_diag("chat_turns", 0, reason="chat_audit_log_empty_for_window")
             return out
         for e in entries or []:
             if not isinstance(e, dict):
@@ -97,7 +104,13 @@ async def _collect_chat_turns(days: int) -> list[dict[str, Any]]:
             user_msg = e.get("user_message") or e.get("message") or ""
             aria_reply = e.get("response") or e.get("reply") or ""
             grounded = (e.get("grounded_rate", 0) or 0) >= 0.40
-            verdict = (e.get("honesty_verdict") or "").lower()
+            # chat_audit_log.record_chat writes `verification_status`; older
+            # code wrote `honesty_verdict`. Accept either (same treatment as
+            # style_learner `c0418c5`) so a field rename doesn't silently
+            # reject every entry.
+            verdict = (
+                (e.get("verification_status") or e.get("honesty_verdict") or "").lower()
+            )
             if not grounded or verdict != "grounded":
                 continue
             if not user_msg or not aria_reply:
@@ -262,8 +275,14 @@ async def _collect_adversarial_passes(days: int) -> list[dict[str, Any]]:
 # Main export
 # ═══════════════════════════════════════════════════════════════════════
 
-async def run_daily_export(days_lookback: int = 1) -> dict[str, Any]:
+async def run_daily_export(days_lookback: int = 7) -> dict[str, Any]:
     """Daily scheduled export. Writes one JSONL file per day.
+
+    Default lookback is 7 days, not 1: the previous 1-day default silently
+    missed every DD report more than 24h old, producing 0 training examples
+    even when `dd/reports` had 13+ valid reports in the index. 7 days tolerates
+    weekend gaps + occasional quiet days without over-ingesting old content
+    (de-dupe by hash handles that anyway).
 
     Returns a summary suitable for mem0 / brain_hook absorption.
     """

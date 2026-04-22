@@ -2813,10 +2813,40 @@ async def aria_chat_stream(
         if topics:
             mastery_task = asyncio.create_task(student.update_mastery(topics, correct=True, weight=0.15))
             mastery_task.add_done_callback(_bg_done("student.mastery"))
+            regions = student.detect_regions(f"{message} {response_text}")
+            regional_task = asyncio.create_task(
+                student.update_regional_mastery(topics, regions, correct=True, weight=0.15)
+            )
+            regional_task.add_done_callback(_bg_done("student.regional_mastery"))
         gap_task = asyncio.create_task(proactive.detect_knowledge_gaps(message))
         gap_task.add_done_callback(_bg_done("proactive.gaps"))
     except Exception:
         pass
+
+    # CHAT AUDIT TRAIL — mirror of the aria_chat() hook. Before this,
+    # the streaming path (the default for WhatsApp) bypassed the audit
+    # log entirely: chat_audit_log.total_entries stayed at 0 since
+    # genesis despite live traffic. Commercial regulated-enterprise
+    # claim "provable due diligence on every response" requires this
+    # fire on both streaming and non-streaming paths.
+    try:
+        from .intel import chat_audit_log as _cal
+        from .intel import operating_modes as _om
+        _mastery_report = await student.get_mastery_report()
+        _audit_task = asyncio.create_task(
+            _cal.record_chat(
+                session_id=session_id or "",
+                user_message=message,
+                response_text=response_text,
+                mastery_overall=_mastery_report.get("overall_score", 0.0),
+                mastery_weak_topics=_mastery_report.get("weak_topics", []),
+                operating_mode=(await _om.get_mode()).name,
+                tool_context=tool_context if tool_context else None,
+            )
+        )
+        _audit_task.add_done_callback(_bg_done("chat_audit_log.record_chat"))
+    except Exception as e:
+        logger.debug("Chat audit trail hook failed (non-fatal, stream): %s", e)
 
     try:
         from .metacognitive import engine as _metacog_engine

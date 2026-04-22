@@ -112,11 +112,22 @@ async def record_chat(
         "tools_used": list((tool_context or {}).get("tools_called", {}).keys())[:10],
     }
 
-    # Sign and chain
+    # Sign and chain (over hash-only body — preserves compliance stance)
     signature, chain_hash = _sign(entry, prev_hash)
     entry["signature"] = signature
     entry["chain_hash"] = chain_hash
     entry["prev_hash"] = prev_hash
+
+    # Optional raw-text capture for training-corpus collectors.
+    # Default OFF — audit remains hash-only for privacy.
+    # When ARIA_CHAT_TRAIN_CAPTURE_TEXT=1, append raw user_message and
+    # response to the entry AFTER signing so the HMAC body is unchanged
+    # and `verify_chain` (which checks prev_hash→chain_hash linking only)
+    # still passes. Collectors in `learning/training_export.py` read these
+    # fields; they are absent when capture is disabled.
+    if (os.getenv("ARIA_CHAT_TRAIN_CAPTURE_TEXT") or "").strip().lower() in ("1", "true", "yes"):
+        entry["user_message"] = (user_message or "")[:4000]
+        entry["response"] = (response_text or "")[:20000]
 
     # Persist
     await rs.lpush(_K_LOG, json.dumps(entry, default=str))
