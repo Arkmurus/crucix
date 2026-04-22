@@ -1753,6 +1753,21 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
                 candidates.append("HARD_STOP")
                 break
 
+    # Commercial coherence contribution (2026-04-22, Layer 5c)
+    # HIGH + sector_mismatch (fronting pattern) → RED.
+    # HIGH alone → AMBER-DARK. ELEVATED → AMBER-LIGHT. GREEN → neutral.
+    _cc_tier_for_risk = (report.commercial_coherence.tier or "GREEN").upper()
+    _cc_has_sector_mismatch = any(
+        a.get("kind") == "sector_mismatch"
+        for a in (report.commercial_coherence.anomalies or [])
+    )
+    if _cc_tier_for_risk == "HIGH" and _cc_has_sector_mismatch:
+        candidates.append("RED")
+    elif _cc_tier_for_risk == "HIGH":
+        candidates.append("AMBER-DARK")
+    elif _cc_tier_for_risk == "ELEVATED":
+        candidates.append("AMBER-LIGHT")
+
     if candidates:
         worst = max(candidates, key=lambda c: severity_rank.get(c, 0))
     else:
@@ -2012,6 +2027,29 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
         hypotheses["H2_enhanced"]["support"] += 2
         hypotheses["H1_legit"]["against"] += 1
 
+    # ── ACH-ext-7: Commercial coherence (Layer 5c, 2026-04-22) ──
+    # A HIGH tier (score < 0.55) means the deal structure itself is
+    # incoherent — strong signal for H2 enhanced-DD, and if combined with
+    # other red signals pushes H3 (shell/fronting). ELEVATED is a soft
+    # signal. GREEN is neutral.
+    _cc_section = report.commercial_coherence
+    _cc_tier = (_cc_section.tier or "GREEN").upper()
+    if _cc_tier == "HIGH":
+        hypotheses["H2_enhanced"]["support"] += 3
+        hypotheses["H3_shell"]["support"] += 2
+        hypotheses["H1_legit"]["against"] += 2
+    elif _cc_tier == "ELEVATED":
+        hypotheses["H2_enhanced"]["support"] += 1
+        hypotheses["H1_legit"]["against"] += 1
+    # Sector mismatch (non-defence SIC claiming defence deal) — classic
+    # fronting pattern. Treat as a hard H3 signal on its own.
+    if any(
+        a.get("kind") == "sector_mismatch"
+        for a in (_cc_section.anomalies or [])
+    ):
+        hypotheses["H3_shell"]["support"] += 3
+        hypotheses["H1_legit"]["against"] += 3
+
     # ── Determine winner ──
     report.synthesis.ach_matrix = {
         "hypotheses": hypotheses,
@@ -2064,7 +2102,10 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
 
     # ── 6e. Key findings — pull the highest-severity items across sections ──
     all_findings: list[Finding] = []
-    for section in (report.identity, report.network, report.verification, report.compliance, report.digital):
+    for section in (
+        report.identity, report.network, report.verification,
+        report.compliance, report.digital, report.commercial_coherence,
+    ):
         for f in getattr(section, "findings", []) or []:
             all_findings.append(f)
     severity_order = {"hard_stop": 0, "red": 1, "amber": 2, "info": 3}
@@ -2072,7 +2113,10 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
     report.synthesis.key_findings = all_findings[:10]
 
     # ── 6f. Residual unknowns = all data_gaps combined ──
-    for section in (report.identity, report.network, report.verification, report.compliance, report.digital):
+    for section in (
+        report.identity, report.network, report.verification,
+        report.compliance, report.digital, report.commercial_coherence,
+    ):
         for g in getattr(section, "data_gaps", []) or []:
             if g not in report.synthesis.residual_unknowns:
                 report.synthesis.residual_unknowns.append(g)
@@ -2166,10 +2210,35 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
             "Apply regular sanctions-list re-screen on contract renewal",
         ]
 
+    # ── Layer 5c tag on the BLUF (2026-04-22) ──
+    # When commercial coherence is ELEVATED or HIGH, surface it in the
+    # headline so operators see the structural concern next to the
+    # sanctions/ghost-score/risk verdict — not buried in the body.
+    _cc_section = report.commercial_coherence
+    _cc_tier = (_cc_section.tier or "GREEN").upper()
+    if _cc_tier in ("ELEVATED", "HIGH") and _cc_section.meta.status not in (
+        LayerStatus.SKIPPED.value, LayerStatus.ERROR.value,
+    ):
+        _icon = "🟠" if _cc_tier == "ELEVATED" else "🔴"
+        _n_issues = (
+            len(_cc_section.anomalies) + len(_cc_section.licence_chain_gaps)
+            + len(_cc_section.jurisdiction_flags)
+        )
+        _tag = (
+            f"\n\n{_icon} Commercial coherence {_cc_tier} "
+            f"(score {_cc_section.coherence_score:.2f}) — {_n_issues} issue(s) "
+            f"flagged in Layer 5c. See Commercial Coherence section."
+        )
+        if report.bottom_line and _tag not in report.bottom_line:
+            report.bottom_line = report.bottom_line + _tag
+
     report.confidence_tag = report.verification.confidence_floor or "ASSESSED"
     # Aggregate all data_gaps into the top-level summary so consumers
     # can surface them without walking the whole report tree.
-    for section in (report.identity, report.network, report.verification, report.compliance, report.digital):
+    for section in (
+        report.identity, report.network, report.verification,
+        report.compliance, report.digital, report.commercial_coherence,
+    ):
         for g in getattr(section, "data_gaps", []) or []:
             if g not in report.data_gaps_summary:
                 report.data_gaps_summary.append(g)
@@ -2640,6 +2709,49 @@ async def orchestrate_dd(
                 report.layers_skipped.append("digital")
             report.digital.meta.status = LayerStatus.SKIPPED.value
 
+        # ── LAYER 5c: COMMERCIAL COHERENCE ASSESSMENT (2026-04-22) ──
+        # Assesses corporate / commercial / legal coherence of the deal
+        # structure against jurisdiction norms. Observer, never a gate.
+        # Its anomalies feed Layer 5b deception scoring below, and its
+        # coherence score feeds Layer 6 synthesis via the findings it
+        # emits. Enabled by default; can be disabled with
+        # ARIA_LAYER_5C_ENABLED=0 for emergency bypass.
+        #
+        # See aria_service/intel/commercial_coherence.py + the reference
+        # framework doc (Downloads/aria_global_legal_framework.html).
+        _coherence_text = ""
+        if os.getenv("ARIA_LAYER_5C_ENABLED", "1") != "0" and not hard_stop:
+            layer_name = "commercial_coherence"
+            report.layers_run.append(layer_name)
+            try:
+                from . import commercial_coherence as _cc
+                _section = await asyncio.wait_for(
+                    _cc.assess_commercial_coherence(target, report),
+                    timeout=10,  # pure data-driven — no network calls
+                )
+                _coherence_text = _cc.anomaly_text_for_deception(_section)
+                if _section.tier != "GREEN":
+                    logger.info(
+                        "[dd_orchestrator] Layer 5c %s on %s: score=%.2f, "
+                        "%d anomalies, %d licence-chain gaps",
+                        _section.tier,
+                        report.identity.entity_name or "?",
+                        _section.coherence_score,
+                        len(_section.anomalies),
+                        len(_section.licence_chain_gaps),
+                    )
+            except asyncio.TimeoutError:
+                report.commercial_coherence.meta.status = LayerStatus.ERROR.value
+                report.commercial_coherence.meta.error = "timeout after 10s"
+            except Exception as _cc_err:
+                report.commercial_coherence.meta.status = LayerStatus.ERROR.value
+                report.commercial_coherence.meta.error = str(_cc_err)[:200]
+                logger.warning("[dd_orchestrator] Layer 5c failed (non-fatal): %s", _cc_err)
+        else:
+            if "commercial_coherence" not in report.layers_skipped:
+                report.layers_skipped.append("commercial_coherence")
+            report.commercial_coherence.meta.status = LayerStatus.SKIPPED.value
+
         # ── LAYER 5b: DECEPTION SCORING (Clause 16 — 2026-04-18 evening) ──
         # Run the validated deception risk analyser over ANY counterparty
         # free-text we have collected. Sources (in priority order):
@@ -2648,6 +2760,9 @@ async def orchestrate_dd(
         #   2. target['capability_statement'] / target['narrative'] / target['description']
         #      — pitch / proposal text for proposal-context scoring
         #   3. digital.findings narratives — what we discovered in OSINT
+        #   4. Layer 5c commercial coherence anomalies (2026-04-22) — so the
+        #      deception analyser sees structural incoherence alongside the
+        #      counterparty's own words.
         # The score lands on report.deception so synthesis + verification
         # can weight it and the bottom-line renderer can surface ELEVATED/HIGH.
         # Past incident 2026-04-16 — ARIA shipped responses claiming
@@ -2669,6 +2784,10 @@ async def orchestrate_dd(
                 _narr = getattr(_f, "evidence_text", "") or getattr(_f, "summary", "") or ""
                 if _narr and len(_narr) >= 100:
                     _texts.append(("business_communication", _narr))
+            # Layer 5c anomalies — treated as business_communication so the
+            # deception analyser weights them against business baselines.
+            if _coherence_text and len(_coherence_text) >= 50:
+                _texts.append(("business_communication", _coherence_text))
 
             if _texts:
                 analyser = _dd.ARIADeceptionAnalyser()
@@ -2851,12 +2970,13 @@ async def orchestrate_dd(
 
     report.total_duration_ms = int((time.time() - t_run_start) * 1000)
     report.layer_costs_usd = {
-        "identity":     report.identity.meta.cost_usd,
-        "network":      report.network.meta.cost_usd,
-        "verification": report.verification.meta.cost_usd,
-        "compliance":   report.compliance.meta.cost_usd,
-        "digital":      report.digital.meta.cost_usd,
-        "synthesis":    report.synthesis.meta.cost_usd,
+        "identity":             report.identity.meta.cost_usd,
+        "network":              report.network.meta.cost_usd,
+        "verification":         report.verification.meta.cost_usd,
+        "compliance":           report.compliance.meta.cost_usd,
+        "digital":              report.digital.meta.cost_usd,
+        "commercial_coherence": report.commercial_coherence.meta.cost_usd,
+        "synthesis":            report.synthesis.meta.cost_usd,
     }
     report.total_cost_usd = sum(report.layer_costs_usd.values())
 
@@ -2879,6 +2999,14 @@ async def orchestrate_dd(
             _dd_detail_parts.append(f"Network: {'; '.join(getattr(f, 'title', '')[:100] for f in report.network.findings[:5])}")
         if report.digital.findings:
             _dd_detail_parts.append(f"Digital: {'; '.join(getattr(f, 'title', '')[:100] for f in report.digital.findings[:5])}")
+        _cc_for_brain = report.commercial_coherence
+        if (_cc_for_brain.tier or "GREEN").upper() != "GREEN":
+            _dd_detail_parts.append(
+                f"Coherence: {_cc_for_brain.tier} "
+                f"(score {_cc_for_brain.coherence_score:.2f}, "
+                f"{len(_cc_for_brain.anomalies)} anomalies, "
+                f"{len(_cc_for_brain.licence_chain_gaps)} licence-chain gaps)"
+            )
         if report.data_gaps_summary:
             _dd_detail_parts.append(f"Data gaps: {', '.join(report.data_gaps_summary[:5])}")
         await brain_hook.absorb(

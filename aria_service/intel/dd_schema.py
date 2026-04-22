@@ -179,6 +179,35 @@ class DigitalSection:
 
 
 @dataclass
+class CommercialCoherenceSection:
+    """Layer 5c — is the commercial/legal structure coherent for the deal?
+
+    Assesses three questions that no other layer asks:
+      1. Corporate coherence — does the corporate structure fit the claimed
+         activity and deal size?
+      2. Commercial terms coherence — are payment ratios, bonds, liability
+         caps consistent with market norms for this sector/jurisdiction?
+      3. Legal framework coherence — does the counterparty acknowledge the
+         full licence chain their deal actually requires?
+
+    Populated by commercial_coherence.assess_commercial_coherence() and
+    consumed by deception scoring + Layer 6 synthesis + BLUF assembly.
+    """
+    meta: SectionMeta = field(default_factory=SectionMeta)
+    coherence_score: float = 1.0              # 0.0 (incoherent) → 1.0 (clean)
+    tier: str = "GREEN"                       # GREEN | ELEVATED | HIGH
+    anomalies: list[dict] = field(default_factory=list)              # {kind, severity, detail}
+    jurisdiction_flags: list[str] = field(default_factory=list)      # jurisdiction-specific structural flags
+    licence_chain_gaps: list[dict] = field(default_factory=list)     # {deal_shape, missing_step, authority}
+    payment_anomalies: list[dict] = field(default_factory=list)      # {market, claimed, norm_range, severity}
+    corporate_anomalies: list[dict] = field(default_factory=list)    # {kind, severity, detail}
+    offset_issues: list[dict] = field(default_factory=list)          # {regime, issue, detail}
+    assessment_summary: str = ""
+    findings: list[Finding] = field(default_factory=list)
+    data_gaps: list[str] = field(default_factory=list)
+
+
+@dataclass
 class SynthesisSection:
     """Layer 6 — what does it all mean?"""
     meta: SectionMeta = field(default_factory=SectionMeta)
@@ -225,6 +254,7 @@ class ARKDDReport:
     verification: VerificationSection = field(default_factory=VerificationSection)
     compliance: ComplianceSection = field(default_factory=ComplianceSection)
     digital: DigitalSection = field(default_factory=DigitalSection)
+    commercial_coherence: CommercialCoherenceSection = field(default_factory=CommercialCoherenceSection)
     synthesis: SynthesisSection = field(default_factory=SynthesisSection)
 
     # Output headline (BLUF)
@@ -394,6 +424,50 @@ class ARKDDReport:
                     if _lt.get('tree_id'):
                         lines.append(f"  → full tree: /api/aria/research/link-tree/{_lt['tree_id']}")
             for f in self.digital.findings[:5 if concise else 20]:
+                lines.append(f"  • [{f.severity}] {f.title}")
+            lines.append("")
+
+        # 5c. Commercial coherence (only render if the layer actually ran)
+        if self.commercial_coherence.meta.status not in (
+            LayerStatus.SKIPPED.value, ""
+        ) and (
+            self.commercial_coherence.anomalies
+            or self.commercial_coherence.licence_chain_gaps
+            or self.commercial_coherence.payment_anomalies
+            or self.commercial_coherence.corporate_anomalies
+            or self.commercial_coherence.offset_issues
+            or self.commercial_coherence.coherence_score < 1.0
+        ):
+            lines.append(_sec_header("🧾", "Commercial Coherence", self.commercial_coherence.meta))
+            lines.append(
+                f"Coherence score: {self.commercial_coherence.coherence_score:.2f} "
+                f"({self.commercial_coherence.tier})"
+            )
+            if self.commercial_coherence.assessment_summary:
+                lines.append(self.commercial_coherence.assessment_summary)
+            if self.commercial_coherence.licence_chain_gaps:
+                lines.append(f"Licence chain gaps: {len(self.commercial_coherence.licence_chain_gaps)}")
+                for g in self.commercial_coherence.licence_chain_gaps[:3 if concise else 8]:
+                    _step = g.get("missing_step", "step")
+                    _auth = g.get("authority", "")
+                    lines.append(f"  • {_step}{f' — {_auth}' if _auth else ''}")
+            if self.commercial_coherence.payment_anomalies:
+                for p in self.commercial_coherence.payment_anomalies[:3 if concise else 8]:
+                    lines.append(
+                        f"  • Payment anomaly ({p.get('market','?')}): "
+                        f"{p.get('kind','?')} — claimed {p.get('claimed','?')}, "
+                        f"norm {p.get('norm_range','?')}"
+                    )
+            if self.commercial_coherence.corporate_anomalies:
+                for c in self.commercial_coherence.corporate_anomalies[:3 if concise else 8]:
+                    lines.append(f"  • Corporate: {c.get('detail', c.get('kind','anomaly'))}")
+            if self.commercial_coherence.offset_issues:
+                for o in self.commercial_coherence.offset_issues[:3 if concise else 8]:
+                    lines.append(f"  • Offset ({o.get('regime','?')}): {o.get('issue','')}")
+            if self.commercial_coherence.jurisdiction_flags:
+                for j in self.commercial_coherence.jurisdiction_flags[:3 if concise else 8]:
+                    lines.append(f"  • Jurisdiction: {j}")
+            for f in self.commercial_coherence.findings[:5 if concise else 20]:
                 lines.append(f"  • [{f.severity}] {f.title}")
             lines.append("")
 
