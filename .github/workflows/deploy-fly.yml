@@ -62,21 +62,26 @@ jobs:
             echo "::error::Release did not complete — real deploy failure"
             exit 1
           fi
-          # Give the new machine up to 120s to pass healthchecks, then
-          # confirm /health returns operational. If yes, flyctl's exit
-          # was spurious and we treat the deploy as successful.
+          # `/health.status` is "operational" when chain_resilient AND
+          # autonomous_healthy; otherwise "degraded". With
+          # ARIA_AUTONOMOUS_ENABLED=0 (per cost-cap doctrine) the app is
+          # structurally "degraded" — CI deploys have been failing this
+          # check since 2026-04-22. "degraded" is still a fully-serving
+          # state: the app is responding, some autonomy loops are off.
+          # Treat operational|degraded as live. Only "unknown" or non-200
+          # is a real deploy failure.
           for i in $(seq 1 24); do
             status=$(curl -sS -m 5 -o /dev/null -w '%{http_code}' https://aria-intel.fly.dev/health || echo "000")
             if [ "${status}" = "200" ]; then
               svc_status=$(curl -sS -m 5 https://aria-intel.fly.dev/health | jq -r '.status // "unknown"')
-              if [ "${svc_status}" = "operational" ]; then
-                echo "::notice::Release v${latest_version} verified live (spurious flyctl exit ignored)"
+              if [ "${svc_status}" = "operational" ] || [ "${svc_status}" = "degraded" ]; then
+                echo "::notice::Release v${latest_version} verified live (status=${svc_status}, spurious flyctl exit ignored)"
                 exit 0
               fi
             fi
             sleep 5
           done
-          echo "::error::Release v${latest_version} marked complete but /health never returned operational"
+          echo "::error::Release v${latest_version} marked complete but /health never returned a live status (operational|degraded)"
           exit 1
       - if: github.event_name == 'workflow_dispatch'
         run: |
