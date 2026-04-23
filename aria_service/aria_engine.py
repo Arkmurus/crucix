@@ -2473,7 +2473,7 @@ async def aria_chat(
                 mastery_overall=_mastery_report.get("overall_score", 0.0),
                 mastery_weak_topics=_mastery_report.get("weak_topics", []),
                 operating_mode=(await _om.get_mode()).name,
-                tool_context=tool_context if tool_context else None,
+                tool_context=None,
             )
         )
         _audit_task.add_done_callback(_bg_done("chat_audit_log.record_chat"))
@@ -2513,7 +2513,7 @@ async def aria_chat(
                 meta={
                     "session_id": session_id or "",
                     "source": "cloud_llm",
-                    "has_tool_context": bool(tool_context),
+                    "has_tool_context": False,
                 },
             )
         )
@@ -2871,7 +2871,7 @@ async def aria_chat_stream(
                 mastery_overall=_mastery_report.get("overall_score", 0.0),
                 mastery_weak_topics=_mastery_report.get("weak_topics", []),
                 operating_mode=(await _om.get_mode()).name,
-                tool_context=tool_context if tool_context else None,
+                tool_context=None,
             )
         )
         _audit_task.add_done_callback(_bg_done("chat_audit_log.record_chat"))
@@ -2937,7 +2937,7 @@ async def aria_chat_stream(
                 meta={
                     "session_id": session_id or "",
                     "source": "cloud_llm_stream",
-                    "has_tool_context": bool(tool_context),
+                    "has_tool_context": False,
                 },
             )
         )

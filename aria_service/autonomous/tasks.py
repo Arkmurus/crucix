@@ -935,7 +935,7 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
 
     elif tool_kind == "training_export":
         from ..learning import training_export
-        return await training_export.run_daily_export(days_lookback=1)
+        return await training_export.run_daily_export(days_lookback=7)
 
     elif tool_kind == "knowledge_spider":
         from ..learning import knowledge_spider
