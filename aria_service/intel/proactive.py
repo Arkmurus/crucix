@@ -389,7 +389,8 @@ async def daily_briefing_check(intel_data: dict | None) -> bool:
         # Add student state
         try:
             mastery = await student.get_mastery_report()
-            briefing_parts.append(f"*ARIA mastery*: {int(mastery.get('overall_mastery', 0) * 100)}% overall")
+            headline = mastery.get('headline_mastery', mastery.get('overall_mastery', 0))
+            briefing_parts.append(f"*ARIA mastery*: {int(headline * 100)}% (min of weighted + core)")
         except Exception:
             pass
 
