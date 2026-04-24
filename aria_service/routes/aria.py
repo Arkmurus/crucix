@@ -1645,6 +1645,24 @@ _BRAVE_QA_EXCLUDE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 2026-04-24: self-introspection guard. Brave Answers will happily summarise
+# random forum threads about fictional WhatsApp gateways ("OpenClaw") when
+# asked "why isn't my listener working" — Clause 12 fabrication. Block these
+# specifically; the LLM without Brave context tends to honestly admit it
+# doesn't have grounded knowledge of its own infra rather than invent details.
+# Brave Answers stays available for everything external (the pay-once-
+# remember-forever pattern still applies); this only fires on questions
+# that are clearly about the operator's own deployment.
+_BRAVE_QA_SELF_INFRA_RE = re.compile(
+    r"(?:why|what'?s)\s+(?:is|are|isn'?t|aren'?t|won'?t|can'?t|doesn'?t|"
+    r"wrong\s+with|broken\s+(?:in|with))\s+"
+    r"(?:my|our|this|the|you|aria|baileys|"
+    r"(?:wa|whatsapp)[\s_-]?(?:listener|gateway|bridge)?|"
+    r"(?:fly|seenode|backend|brain|chat|stream|sweep|deploy(?:ment)?|"
+    r"stack|infra(?:structure)?|service|process|gateway|listener))\b",
+    re.IGNORECASE,
+)
+
 
 def _looks_like_internal_composition(msg: str) -> bool:
     """Detect 'compose me a digest' prompts that must NOT route to deep_research.
@@ -2745,6 +2763,7 @@ def _detect_tool_intent(message: str) -> dict | None:
     if (
         _BRAVE_QA_TRIGGER_RE.search(msg)
         and not _BRAVE_QA_EXCLUDE_RE.search(msg)
+        and not _BRAVE_QA_SELF_INFRA_RE.search(msg)
         and len(msg) < 250
     ):
         q_clean = re.sub(

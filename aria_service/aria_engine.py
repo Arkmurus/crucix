@@ -542,7 +542,15 @@ def _build_intel_context(intel_data: dict | None, message: str = "") -> str:
     except Exception as e:
         logger.debug("intel_context urgent section failed: %s", e)
 
-    # Correlations — relevance-filtered
+    # Correlations — top 5 by totalScore (already sorted in lib/intel/correlate.mjs:180).
+    # 2026-04-24: relevance filter removed. Correlations are pre-curated regional
+    # summaries (≥2 signals/region, score-ranked), not raw signals — they're the
+    # answer to "what's hot right now". Filtering them by per-question keyword
+    # overlap dropped critical regions whose first-signal text didn't lexically
+    # match the user's phrasing (past incident: "summarise today's intel sweep"
+    # missed East/Central Africa entirely because keywords like "sweep, intel,
+    # critical, regional" overlapped no signal text). Top-5 cap keeps context bloat
+    # bounded; the corrs list is already filtered to ≥2-signal regions upstream.
     try:
         corrs = _safe_list(intel_data.get("correlations"))
         if corrs:
@@ -553,10 +561,7 @@ def _build_intel_context(intel_data: dict | None, message: str = "") -> str:
                 first_text = ""
                 if top_sigs and isinstance(top_sigs[0], dict):
                     first_text = (top_sigs[0].get("text", "") or "")[:150]
-                # Build a synthetic match-string for relevance check
-                match_str = f"{c.get('region','')} {first_text}"
-                if not keywords or any(kw in match_str.lower() for kw in keywords):
-                    items.append(f"- {c.get('region','')} [{c.get('severity','')}]: {first_text}")
+                items.append(f"- {c.get('region','')} [{c.get('severity','')}]: {first_text}")
             if items:
                 parts.append(f"REGIONAL CORRELATIONS:\n" + "\n".join(items))
     except Exception as e:
