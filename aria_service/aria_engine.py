@@ -1021,6 +1021,46 @@ def _sync_correlation_context(message: str) -> str:
         return ""
 
 
+# 2026-04-24: Self-introspection retrieval guard. Mirrors
+# `_BRAVE_QA_SELF_INFRA_RE` in routes/aria.py — keep in sync if extended
+# there. Triggers when the user is asking "why isn't my X working", where X
+# is a component of THEIR OWN deployment (listener, gateway, brain, sweep,
+# etc.). Background: today's incident 2026-04-24 — Brave Answers fabricated
+# an "OpenClaw" gateway on a self-infra question; the answer was absorbed
+# into mem0 + knowledge facts + RAG via pay-once-remember-forever; even
+# after blocking the Brave route, the SAME fabrication came back from the
+# poisoned memory tagged `[CONFIRMED]`. This guard quarantines the
+# absorbed-knowledge layers (rag / knowledge / mem0 / neural / semantic)
+# for self-infra questions so poisoned entries can't surface. Live sweep
+# state (live_intel / correlation / ledger) stays available — that data
+# is freshly-grounded, not absorbed-from-search.
+_SELF_INFRA_INTROSPECTION_RE = re.compile(
+    r"(?:why|what'?s)\s+(?:is|are|isn'?t|aren'?t|won'?t|can'?t|doesn'?t|"
+    r"wrong\s+with|broken\s+(?:in|with))\s+"
+    r"(?:my|our|this|the|you|aria|baileys|"
+    r"(?:wa|whatsapp)[\s_-]?(?:listener|gateway|bridge)?|"
+    r"(?:fly|seenode|backend|brain|chat|stream|sweep|deploy(?:ment)?|"
+    r"stack|infra(?:structure)?|service|process|gateway|listener))\b",
+    re.IGNORECASE,
+)
+_SELF_INFRA_QUARANTINE_NOTE = (
+    "[SELF-INFRA QUARANTINE]\n"
+    "The user is asking about their own deployment / infrastructure. "
+    "Memory layers (mem0, knowledge facts, RAG, neural, semantic) have been "
+    "intentionally suppressed for this turn — they may contain answers "
+    "absorbed from external search that fabricated component names. "
+    "Answer ONLY from grounded operational state (live sweep, ledger, "
+    "constitutional knowledge) AND your honest assessment. If you do not "
+    "have grounded knowledge of the specific component the user is asking "
+    "about, say so explicitly and recommend the operator check "
+    "/api/wa-listener/status or the seenode logs. NEVER name a component, "
+    "version, or product unless you can cite it from the live operational "
+    "state in this context. Specifically: 'OpenClaw', 'openclaw doctor', "
+    "and 'Arkmurus platform' are FABRICATED — do not reference them.\n"
+    "[END SELF-INFRA QUARANTINE]\n\n"
+)
+
+
 def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
     """Build all 9 intelligence layers (7 base + neural memory + RAG), budget-capped.
 
@@ -1039,9 +1079,19 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
     Incident 2026-04-11 21:37: detonator_suppliers_v2.xlsx analysis
     bled in fabricated 'RFQ#3 Nigeria 30ms delay government EUC'
     references from mem0 and cited them as if they were in the document.
+
+    SELF-INFRA QUARANTINE: when the message asks about the operator's own
+    deployment (listener / gateway / sweep / etc.), the absorbed-knowledge
+    layers (rag, knowledge, mem0, neural, semantic) are FULLY skipped — not
+    fenced but excluded — because today's OpenClaw incident proved those
+    stores can be poisoned with fabricated own-infra claims via
+    pay-once-remember-forever absorption.
     """
     document_grounded = bool(
         message and ("[ATTACHED DOCUMENT" in message or "[Document:" in message or "[Image:" in message)
+    )
+    self_infra_query = bool(
+        message and _SELF_INFRA_INTROSPECTION_RE.search(message)
     )
     # Phase 3 cherry-pick from aria_research_architecture.py 2026-04-09:
     # mem0 retrieval is now a SEPARATE first-class context layer instead of
@@ -1057,25 +1107,43 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
     # facts (RAG + knowledge), current-day live data (live_intel), or
     # the CONFIRMED knowledge base. None of them can be mistaken for
     # the attached document's content.
-    primary_layers = [
-        ("rag",         lambda: _sync_rag_context(message)),
-        ("knowledge",   lambda: search_knowledge(message)),
-        ("live_intel",  lambda: _build_intel_context(intel_data, message)),
-        ("correlation", lambda: _sync_correlation_context(message)),
-    ]
-    # Layers that carry cross-session recall / narrative memory. In
-    # document-grounded mode they are quarantined behind a fence line
-    # so the LLM does not blend them into attached-document claims.
-    recall_layers = [
-        ("mem0",        lambda: _mem0_retrieve(message)),
-        ("ledger",      lambda: query_ledger(message)),
-        ("contacts",    lambda: get_contact_context(message)),
-        ("competitors", lambda: get_competitor_context(message)),
-        ("approach",    lambda: get_approach_context(message)),
-        ("gtm",         lambda: get_gtm_context(message)),
-        ("neural",      lambda: _sync_neural_context(message)),
-        ("semantic",    lambda: get_semantic_context(message)),
-    ]
+    if self_infra_query:
+        # Skip all absorbed-knowledge layers. Keep only freshly-grounded
+        # operational state (live_intel + correlation) on the primary side
+        # and operational recall (ledger, contacts, competitors, approach,
+        # gtm) on the recall side. mem0/rag/knowledge/neural/semantic are
+        # excluded entirely.
+        primary_layers = [
+            ("live_intel",  lambda: _build_intel_context(intel_data, message)),
+            ("correlation", lambda: _sync_correlation_context(message)),
+        ]
+        recall_layers = [
+            ("ledger",      lambda: query_ledger(message)),
+            ("contacts",    lambda: get_contact_context(message)),
+            ("competitors", lambda: get_competitor_context(message)),
+            ("approach",    lambda: get_approach_context(message)),
+            ("gtm",         lambda: get_gtm_context(message)),
+        ]
+    else:
+        primary_layers = [
+            ("rag",         lambda: _sync_rag_context(message)),
+            ("knowledge",   lambda: search_knowledge(message)),
+            ("live_intel",  lambda: _build_intel_context(intel_data, message)),
+            ("correlation", lambda: _sync_correlation_context(message)),
+        ]
+        # Layers that carry cross-session recall / narrative memory. In
+        # document-grounded mode they are quarantined behind a fence line
+        # so the LLM does not blend them into attached-document claims.
+        recall_layers = [
+            ("mem0",        lambda: _mem0_retrieve(message)),
+            ("ledger",      lambda: query_ledger(message)),
+            ("contacts",    lambda: get_contact_context(message)),
+            ("competitors", lambda: get_competitor_context(message)),
+            ("approach",    lambda: get_approach_context(message)),
+            ("gtm",         lambda: get_gtm_context(message)),
+            ("neural",      lambda: _sync_neural_context(message)),
+            ("semantic",    lambda: get_semantic_context(message)),
+        ]
 
     # ── PARALLEL FETCH: run all layer functions concurrently ──────────
     # 2026-04-12: was serial (each layer waited for the previous one).
@@ -1103,6 +1171,11 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
 
     # ── ASSEMBLE in priority order (primary first, recall second) ──
     total = ""
+
+    # Self-infra quarantine note — leads the context so the LLM treats it
+    # as the dominant directive even before any retrieval-layer content lands.
+    if self_infra_query:
+        total += _SELF_INFRA_QUARANTINE_NOTE
 
     # 1) Primary layers — always safe, added in defined order
     for name, _ in primary_layers:
