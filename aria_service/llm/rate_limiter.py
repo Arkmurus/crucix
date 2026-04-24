@@ -128,6 +128,17 @@ class RateLimitedProvider(LLMProvider):
     def is_configured(self) -> bool:
         return self._inner.is_configured
 
+    def __getattr__(self, item):
+        # Forward any attribute the inner provider has but we don't.
+        # Without this, wrapper-layer callers that walk
+        # `llm.providers` / `llm._stats` (e.g. verification_gate's
+        # pick_secondary_provider) silently see None and give up —
+        # which is why verification_gate was logging
+        # `skipped_reason=no_secondary_provider` despite 3 active
+        # providers on the fallback chain. Mirrors the existing
+        # MeteredProvider.__getattr__ pattern.
+        return getattr(self._inner, item)
+
     def priority(self, p: Priority) -> _PriorityContext:
         """Context manager: `with llm.priority(Priority.BACKGROUND):`"""
         return _PriorityContext(self, p)
