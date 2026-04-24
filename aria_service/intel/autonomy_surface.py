@@ -70,14 +70,17 @@ async def _auto_allowed_summary() -> dict[str, Any]:
         logger.debug("chat_audit: %s", e)
 
     # ── Corpus ingests (best-effort) ──
+    # Previously read `crucix:corpus:ingests_24h` — a key nothing ever
+    # writes; the counter stayed at 0 since genesis despite
+    # knowledge_spider happily ingesting (49 ingests in the last 24h on
+    # 2026-04-24). The spider publishes its counters via
+    # knowledge_spider.get_stats() which returns `ingests_24h`.
     try:
-        from . import redis_store as rs
-        ingests = await rs.get("crucix:corpus:ingests_24h")
-        if ingests is not None:
-            try:
-                out["corpus_ingests"] = int(ingests)
-            except (TypeError, ValueError):
-                pass
+        from ..learning import knowledge_spider as _ks
+        if hasattr(_ks, "get_stats"):
+            spider_stats = await _ks.get_stats()
+            if isinstance(spider_stats, dict):
+                out["corpus_ingests"] = int(spider_stats.get("ingests_24h", 0) or 0)
     except Exception as e:
         logger.debug("corpus_ingests: %s", e)
 
