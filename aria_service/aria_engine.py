@@ -1922,6 +1922,69 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     return ARIA_SYSTEM_PROMPT + "\n\n" + "\n\n".join(addendum_parts)
 
 
+# ── Chat audit helper ────────────────────────────────────────────────────────
+
+async def _verify_and_record_chat(
+    *,
+    session_id: str,
+    user_message: str,
+    response_text: str,
+    tool_context: str | None,
+    mastery_overall: float,
+    mastery_weak_topics: list[str],
+    operating_mode: str,
+) -> None:
+    """Compute verification signals then persist one chat audit entry.
+
+    Runs response_verifier on the final text to produce grounded_rate +
+    verification_status, then writes the chat_audit_log entry with those
+    fields populated. Previously the audit entry was written with
+    `verification_status="unknown"`, which caused `training_export.chat_turns`
+    to reject every entry (filter requires `grounded_rate >= 0.40` AND
+    `verification_status == "grounded"`) — the learning pipeline's chat
+    source was starved end-to-end.
+
+    Non-blocking: caller wraps in asyncio.create_task. Any verifier
+    failure falls back to the prior default so the audit entry still
+    lands with `unknown` status rather than being lost.
+    """
+    from .intel import response_verifier as _rv, chat_audit_log as _cal
+    grounded_rate: float | None = None
+    verification_status = "unknown"
+    try:
+        rv = await _rv.verify_and_tag_response(
+            response_text=response_text,
+            tool_context=tool_context or "",
+            session_id=session_id,
+        )
+        checked = int(rv.get("claims_checked") or 0)
+        if checked > 0:
+            v = int(rv.get("verified") or 0)
+            u = int(rv.get("unverified") or 0)
+            c = int(rv.get("contradicted") or 0)
+            denom = max(1, v + u + c)
+            grounded_rate = round(v / denom, 3)
+            # 0.40 threshold matches training_export filter so the audit
+            # entry's verdict is consistent with what the filter accepts.
+            verification_status = "grounded" if grounded_rate >= 0.40 else "unverified"
+    except Exception as e:
+        logger.debug("inline response_verifier failed (non-fatal): %s", e)
+    try:
+        await _cal.record_chat(
+            session_id=session_id,
+            user_message=user_message,
+            response_text=response_text,
+            mastery_overall=mastery_overall,
+            mastery_weak_topics=mastery_weak_topics,
+            operating_mode=operating_mode,
+            tool_context=tool_context,
+            grounded_rate=grounded_rate,
+            verification_status=verification_status,
+        )
+    except Exception as e:
+        logger.debug("record_chat failed (non-fatal): %s", e)
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 async def aria_chat(
@@ -2462,18 +2525,17 @@ async def aria_chat(
     # Every chat output is recorded for auditability. This is what makes
     # ARIA a commercial product for regulated enterprises.
     try:
-        from .intel import chat_audit_log as _cal
         from .intel import operating_modes as _om
         _mastery_report = await student.get_mastery_report()
         _audit_task = asyncio.create_task(
-            _cal.record_chat(
+            _verify_and_record_chat(
                 session_id=session_id or "",
                 user_message=message,
                 response_text=response_text,
+                tool_context=None,
                 mastery_overall=_mastery_report.get("overall_score", 0.0),
                 mastery_weak_topics=_mastery_report.get("weak_topics", []),
                 operating_mode=(await _om.get_mode()).name,
-                tool_context=None,
             )
         )
         _audit_task.add_done_callback(_bg_done("chat_audit_log.record_chat"))
@@ -2860,18 +2922,17 @@ async def aria_chat_stream(
     # claim "provable due diligence on every response" requires this
     # fire on both streaming and non-streaming paths.
     try:
-        from .intel import chat_audit_log as _cal
         from .intel import operating_modes as _om
         _mastery_report = await student.get_mastery_report()
         _audit_task = asyncio.create_task(
-            _cal.record_chat(
+            _verify_and_record_chat(
                 session_id=session_id or "",
                 user_message=message,
                 response_text=response_text,
+                tool_context=None,
                 mastery_overall=_mastery_report.get("overall_score", 0.0),
                 mastery_weak_topics=_mastery_report.get("weak_topics", []),
                 operating_mode=(await _om.get_mode()).name,
-                tool_context=None,
             )
         )
         _audit_task.add_done_callback(_bg_done("chat_audit_log.record_chat"))
