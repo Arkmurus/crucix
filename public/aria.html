@@ -180,7 +180,15 @@
     }
     .send-btn.ready { background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff; box-shadow: 0 2px 12px rgba(124,58,237,0.4); }
     .send-btn.ready:hover { box-shadow: 0 2px 18px rgba(124,58,237,0.55); transform: translateY(-1px); }
+    .send-btn.stop { background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fff; cursor: pointer; opacity: 1; }
+    .send-btn.stop:hover { box-shadow: 0 2px 14px rgba(220,38,38,0.5); }
     .send-btn:disabled { opacity: .3; cursor: not-allowed; }
+    .regen-btn {
+      background: transparent; border: 1px solid rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.45); padding: 3px 9px; border-radius: 6px;
+      font-size: 11px; cursor: pointer; margin-left: 8px;
+    }
+    .regen-btn:hover { color: #fff; border-color: rgba(124,58,237,0.5); }
 
     @media (max-width: 640px) {
       .chat-feed, .input-wrap { max-width: 100%; }
@@ -283,12 +291,34 @@ function resize() {
   ta.style.height = 'auto';
   ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
   var has = ta.value.trim().length > 0;
-  sendBtn.disabled = !has || sending;
-  sendBtn.className = (has && !sending) ? 'send-btn ready' : 'send-btn';
+  if (sending) {
+    // While streaming, button becomes a Stop control — never disabled so the
+    // user can always abort.
+    sendBtn.disabled = false;
+    sendBtn.className = 'send-btn stop';
+    sendBtn.innerHTML = '<i class="bi bi-stop-fill"></i>';
+    sendBtn.title = 'Stop generation';
+  } else {
+    sendBtn.disabled = !has;
+    sendBtn.className = has ? 'send-btn ready' : 'send-btn';
+    sendBtn.innerHTML = '<i class="bi bi-arrow-up"></i>';
+    sendBtn.title = 'Send';
+  }
 }
 
-// ── Send button ──
-sendBtn.addEventListener('click', function() { if (!sendBtn.disabled) send(ta.value.trim()); });
+// ── Send / Stop button (AbortController drives the Stop path) ──
+// `streamAbort` is the single in-flight controller; set at send() entry,
+// cleared in its finally block.
+var streamAbort = null;
+var lastUserMessage = '';
+
+sendBtn.addEventListener('click', function() {
+  if (sending && streamAbort) {
+    try { streamAbort.abort(); } catch (e) { /* already aborted */ }
+    return;
+  }
+  if (!sendBtn.disabled) send(ta.value.trim());
+});
 
 // ── Markdown renderer ──
 function md(text) {
@@ -377,12 +407,17 @@ function showThinking() {
 function removeThinking() { var t = document.getElementById('thk'); if (t) t.remove(); }
 
 // ── Send message (SSE streaming) ──
-async function send(text) {
+async function send(text, opts) {
+  opts = opts || {};
   if (!text || sending) return;
   sending = true;
-  ta.value = ''; ta.style.height = 'auto'; resize();
+  lastUserMessage = text;
+  if (!opts.keepInput) {
+    ta.value = ''; ta.style.height = 'auto';
+  }
+  resize();
 
-  addUser(text);
+  if (!opts.skipUserBubble) addUser(text);
 
   // Think mode still uses the blocking endpoint (structured output)
   if (thinkMode) {
@@ -432,12 +467,14 @@ async function send(text) {
   var fullText = '';
   var toolUsed = '';
 
+  streamAbort = new AbortController();
   try {
     var token = localStorage.getItem('crucix_token') || '';
     var resp = await fetch('/api/aria/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
       body: JSON.stringify({ message: text, session_id: SID, auto_tools: true }),
+      signal: streamAbort.signal,
     });
 
     if (!resp.ok) {
@@ -500,10 +537,37 @@ async function send(text) {
     }
 
   } catch (err) {
-    streamBody.innerHTML = md('Connection error — please try again.');
-    streamBadge.remove();
-    console.error('[ARIA stream]', err);
+    // AbortError is expected when the user presses Stop — keep whatever
+    // partial text streamed in so far and mark it, don't show an error.
+    if (err && (err.name === 'AbortError' || /abort/i.test(err.message || ''))) {
+      if (streamBody && !fullText) {
+        streamBody.innerHTML = md('_(stopped by user)_');
+      } else if (streamBody) {
+        streamBody.innerHTML = md(fullText + '\n\n_(stopped by user)_');
+      }
+      if (streamBadge) streamBadge.remove();
+    } else {
+      streamBody.innerHTML = md('Connection error — please try again.');
+      streamBadge.remove();
+      console.error('[ARIA stream]', err);
+    }
   } finally {
+    streamAbort = null;
+    // Attach a Regenerate button to the final ARIA message so the user
+    // can retry without retyping. Only offered when we have something
+    // to regenerate from.
+    if (ariaDiv && lastUserMessage) {
+      var regenBtn = document.createElement('button');
+      regenBtn.className = 'regen-btn';
+      regenBtn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Regenerate';
+      regenBtn.onclick = function() {
+        // Remove this stale assistant bubble and replay the last user turn.
+        if (ariaDiv && ariaDiv.parentNode) ariaDiv.parentNode.removeChild(ariaDiv);
+        send(lastUserMessage, { skipUserBubble: true });
+      };
+      var actionsWrap = ariaDiv.querySelector('.msg-actions');
+      if (actionsWrap) actionsWrap.appendChild(regenBtn);
+    }
     // Clean up IDs so next message doesn't collide
     if (streamBody) streamBody.removeAttribute('id');
     if (streamBadge) streamBadge.removeAttribute('id');
