@@ -10,7 +10,11 @@ export async function briefing() {
   const FEEDS = [
     { name: 'ISS Africa',  url: 'https://news.google.com/rss/search?q=%22ISS+Africa%22+security+peace+defence&hl=en&gl=US&ceid=US:en' },
     { name: 'BICC',        url: 'https://news.google.com/rss/search?q=BICC+arms+trade+africa+conflict+weapons&hl=en&gl=US&ceid=US:en' },
-    { name: 'GRIP',        url: 'https://news.google.com/rss/search?q=GRIP+arms+trade+africa+%22Group+de+recherche%22&hl=en&gl=BE&ceid=BE:fr' },
+    // Typo fix 2026-04-24: query had `"Group de recherche"` (missing "pe");
+    // the real organisation is "Groupe de recherche et d'information sur
+    // la paix et la sécurité". Literal-phrase Google News search matched
+    // nothing, so this source returned 0 items every sweep.
+    { name: 'GRIP',        url: 'https://news.google.com/rss/search?q=%22Groupe+de+recherche%22+GRIP+arms+africa&hl=en&gl=BE&ceid=BE:fr' },
     { name: 'AU PSC',      url: 'https://news.google.com/rss/search?q=%22African+Union%22+%22Peace+and+Security+Council%22&hl=en&gl=US&ceid=US:en' },
   ];
 

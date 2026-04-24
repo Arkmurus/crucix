@@ -36,6 +36,29 @@ const CRITICAL_SECTORS = [
   'security', 'agriculture', 'finance', 'social', 'health',
 ];
 
+// Infer a PRIORITY_COUNTRIES key from a free-text title. The RSS-news
+// fallback path returns per-item titles with no country field, so without
+// this every item was tagged 'AF' → filtered out → the whole source
+// silently returned 0 projects.
+// Longest name first so "São Tomé and Príncipe" matches before "São Tomé",
+// "Côte d'Ivoire" before "Ivoire", and "Congo (DRC)" before "Congo".
+const _COUNTRY_NAME_LOOKUP = Object.entries(PRIORITY_COUNTRIES)
+  .map(([iso, name]) => ({ iso, name }))
+  .sort((a, b) => b.name.length - a.name.length);
+
+function _inferCountry(title) {
+  if (!title) return '';
+  const t = title.toLowerCase();
+  for (const { iso, name } of _COUNTRY_NAME_LOOKUP) {
+    // Match country name OR the iso code in word-boundary context
+    // (prevents "GH" inside "ghana" from firing on unrelated text).
+    const nameMatch = t.includes(name.toLowerCase());
+    const isoRe = new RegExp(`\\b${iso}\\b`, 'i');
+    if (nameMatch || isoRe.test(title)) return iso;
+  }
+  return '';
+}
+
 async function fetchAfDBProjects() {
   // ORDS API and OpenData portal consistently unreachable from cloud IPs — removed.
   // Primary: Google News RSS (reliably works from cloud IPs)
@@ -71,15 +94,18 @@ async function fetchAfDBProjects() {
         }
       }
       if (items.length > 0) {
-        return items.slice(0, 10).map(i => ({
-          project_name:  i.title,
-          country:       'AF',
-          country_name:  'Africa (Multi-country)',
-          sector:        'news',
-          status:        'active',
-          ua_amount:     0,
-          approval_date: i.pubDate,
-        }));
+        return items.slice(0, 10).map(i => {
+          const iso = _inferCountry(i.title);
+          return {
+            project_name:  i.title,
+            country:       iso || 'AF',
+            country_name:  iso ? PRIORITY_COUNTRIES[iso] : 'Africa (Multi-country)',
+            sector:        'news',
+            status:        'active',
+            ua_amount:     0,
+            approval_date: i.pubDate,
+          };
+        });
       }
     } catch {}
   }
@@ -104,10 +130,18 @@ async function fetchAfDBProjects() {
         }
         if (items.length > 0) {
           console.log(`[AfDB] allorigins proxy: ${items.length} items`);
-          return items.slice(0, 10).map(i => ({
-            project_name: i.title, country: 'AF', country_name: 'Africa (Multi-country)',
-            sector: 'news', status: 'active', ua_amount: 0, approval_date: i.pubDate,
-          }));
+          return items.slice(0, 10).map(i => {
+            const iso = _inferCountry(i.title);
+            return {
+              project_name:  i.title,
+              country:       iso || 'AF',
+              country_name:  iso ? PRIORITY_COUNTRIES[iso] : 'Africa (Multi-country)',
+              sector:        'news',
+              status:        'active',
+              ua_amount:     0,
+              approval_date: i.pubDate,
+            };
+          });
         }
       }
     }
