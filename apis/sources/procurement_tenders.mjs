@@ -178,24 +178,31 @@ async function fetchEUTED() {
 }
 
 // ── DefenceWeb Africa: direct RSS + Google News ───────────────────────────────
-// defenceweb.co.za is the primary Africa defence news source; fetch directly first
+// defenceweb.co.za is the primary Africa defence news source; fetch directly first.
+// Previously these 3 feeds were fetched serially — any one slow feed (with 3
+// internal fallback attempts per fetch) could blow the 30s hard cap, and the
+// outer withTimeout then discarded everything already accumulated. Parallel
+// allSettled bounds the wall time to max(per-feed timeout) instead of sum.
 async function fetchDefenceWeb() {
   const feeds = [
     'https://www.defenceweb.co.za/feed/',
     'https://www.defenceweb.co.za/category/industry/tenders/feed/',
     'https://www.defenceweb.co.za/category/joint/joint-procurement/feed/',
   ];
+  const results = await Promise.allSettled(
+    feeds.map(url => fetchRSS(url, 'DefenceWeb Africa'))
+  );
   const items = [];
-  for (const feedUrl of feeds) {
-    const fetched = await fetchRSS(feedUrl, 'DefenceWeb Africa');
-    items.push(...fetched);
-    if (items.length >= 20) break;
+  for (const r of results) {
+    if (r.status === 'fulfilled' && Array.isArray(r.value)) items.push(...r.value);
   }
-  // Also try Google News if direct feeds fail
+  // Fall back to Google News only when every direct feed returned empty.
   if (items.length === 0) {
     const gnUrl = `https://news.google.com/rss/search?q=site:defenceweb.co.za+contract+OR+tender+OR+procurement&hl=en-US&gl=ZA&ceid=ZA:en`;
-    const gnItems = await fetchRSS(gnUrl, 'DefenceWeb Africa');
-    items.push(...gnItems);
+    try {
+      const gnItems = await fetchRSS(gnUrl, 'DefenceWeb Africa');
+      if (Array.isArray(gnItems)) items.push(...gnItems);
+    } catch {}
   }
   console.log(`[Procurement] DefenceWeb: ${items.length} items`);
   return items.slice(0, 15);
@@ -341,7 +348,12 @@ function withTimeout(label, promiseFactory, ms = 30000) {
 // Lusophone Africa moat — without it the BD Brain has no visibility into
 // Angolan/Mozambican procurement until 7+ days after announcement.
 async function fetchLusophoneProcurement() {
-  const items = [];
+  // 14 serial fetches (8 PT + 2 BR + 4 direct feeds) were blowing the
+  // 30s outer cap on most sweeps because each fetchRSS has up to 3
+  // internal fallback attempts. Wall-clock was sum-of-all-latencies.
+  // Now parallel allSettled: wall-clock is max(per-fetch), and any
+  // slow individual fetch no longer prevents accumulation of the
+  // faster ones.
 
   // 1. Direct Portuguese-language Google News (PT-BR + PT-PT + Lusophone Africa)
   const ptQueries = [
@@ -358,49 +370,54 @@ async function fetchLusophoneProcurement() {
     // CPLP defence cooperation
     'CPLP cooperação defesa militar',
   ];
-
-  for (const q of ptQueries) {
-    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=pt-PT&gl=PT&ceid=PT:pt`;
-    try {
-      const fetched = await fetchRSS(url, 'Lusophone (PT)');
-      items.push(...fetched);
-      if (items.length >= 30) break;
-    } catch {}
-  }
-
-  // 2. Brazilian PT-BR sources for CPLP context
   const brQueries = [
     'Brasil exportação defesa Angola OR Moçambique',
     'Brasil cooperação militar CPLP',
   ];
-  for (const q of brQueries) {
-    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=pt-BR&gl=BR&ceid=BR:pt`;
-    try {
-      const fetched = await fetchRSS(url, 'Lusophone (BR)');
-      items.push(...fetched);
-    } catch {}
-  }
-
-  // 3. Direct RSS from key Lusophone defence/news sources
-  // (these were previously included in the Python researcher.py but blocked by
-  // ARIA's English-only Google News fallback)
   const directFeeds = [
     { url: 'https://clubofmozambique.com/feed/', name: 'Club of Mozambique' },
     { url: 'https://www.angop.ao/rss', name: 'ANGOP (Angola)' },
     { url: 'https://noticias.sapo.cv/feed', name: 'Cabo Verde / Sapo' },
     { url: 'https://www.dn.pt/rss', name: 'Diário de Notícias (PT)' },
   ];
-  for (const f of directFeeds) {
-    try {
-      const fetched = await fetchRSS(f.url, f.name);
-      // Filter: only items mentioning defence/security/military terms
-      const filtered = fetched.filter(i => {
-        const text = `${i.title} ${i.description}`.toLowerCase();
-        return /(defesa|defense|militar|military|forças armadas|exército|marinha|armas|"contrato"|aquisição|tender|licitação)/i.test(text);
-      });
-      items.push(...filtered);
-    } catch {}
-  }
+
+  // Build all 14 fetch promises. Direct feeds carry a `filter` flag so
+  // we can skip non-defence news in the merge step.
+  const tasks = [
+    ...ptQueries.map(q => ({
+      kind: 'rss',
+      label: 'Lusophone (PT)',
+      url: `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=pt-PT&gl=PT&ceid=PT:pt`,
+      filter: false,
+    })),
+    ...brQueries.map(q => ({
+      kind: 'rss',
+      label: 'Lusophone (BR)',
+      url: `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=pt-BR&gl=BR&ceid=BR:pt`,
+      filter: false,
+    })),
+    ...directFeeds.map(f => ({
+      kind: 'rss',
+      label: f.name,
+      url: f.url,
+      filter: true,
+    })),
+  ];
+
+  const DEFENCE_FILTER = /(defesa|defense|militar|military|forças armadas|exército|marinha|armas|"contrato"|aquisição|tender|licitação)/i;
+  const results = await Promise.allSettled(
+    tasks.map(t => fetchRSS(t.url, t.label))
+  );
+
+  const items = [];
+  results.forEach((r, i) => {
+    if (r.status !== 'fulfilled' || !Array.isArray(r.value)) return;
+    const source = tasks[i];
+    const fetched = source.filter
+      ? r.value.filter(it => DEFENCE_FILTER.test(`${it.title || ''} ${it.description || ''}`))
+      : r.value;
+    items.push(...fetched);
+  });
 
   // Dedup
   const seen = new Set();
