@@ -533,6 +533,33 @@ _DOC_REVIEW_RE = re.compile(
     r"pdf|attachment|file|paper|report|email|message|note)s?\b",
     re.IGNORECASE | re.DOTALL,
 )
+# 2026-04-24: workflow commands ("run DD", "screen this company") reached the
+# export handler and pattern-matched stray verbs + country names from the
+# pasted entity name (e.g. "Serban Industries SRL, Str. Drid..."). These are
+# commands to execute a downstream pipeline, not questions the rules engine
+# can answer — skip cleanly so the routing layer hands them to the DD flow.
+_WORKFLOW_CMD_RE = re.compile(
+    r"\b(?:run|do|start|perform|execute|conduct|please\s+run)\s+"
+    r"(?:a\s+|the\s+)?(?:full\s+|complete\s+|quick\s+)?"
+    r"(?:due[\s-]?diligence|dd)\b|"
+    r"\b(?:screen|vet|investigate|background[\s-]?check)\s+"
+    r"(?:this\s+|that\s+|the\s+)?"
+    r"(?:company|entity|person|individual|org(?:anisation|anization)?|counterpart(?:y|ies)|"
+    r"supplier|buyer|customer|vendor|contact)\b|"
+    r"\bfind\s+(?:info|information|details|intel|everything)\s+(?:on|about)\b",
+    re.IGNORECASE,
+)
+# 2026-04-24: multiparty / end-use structures (origin → buyer → end user)
+# aren't modelled by the two-party UK→X export handler. Without this guard
+# the handler picks one country from the chain and produces a misleading
+# answer. Skip and let the LLM answer — this is a legitimate reasoning gap.
+_MULTIPARTY_RE = re.compile(
+    r"\bend[\s-]?user(?:s)?\b|\bend[\s-]?use\b|"
+    r"\bre[\s-]?export(?:ing|ed|s)?\b|"
+    r"\btrans[\s-]?ship(?:ment|ping|ped)?\b|"
+    r"\btransit\s+(?:country|via|through)\b",
+    re.IGNORECASE,
+)
 # Anything longer than this is treated as "probably contains pasted content,
 # not a clean question" and the symbolic reasoner skips entirely. Real export
 # questions are short — "can we export X to Y" is ~30 chars.
@@ -565,6 +592,10 @@ def reason(question: str) -> dict:
         return {"confident": False, "source": "symbolic_reasoner", "skipped": "input_too_long"}
     if _DOC_REVIEW_RE.search(text):
         return {"confident": False, "source": "symbolic_reasoner", "skipped": "document_review_intent"}
+    if _WORKFLOW_CMD_RE.search(text):
+        return {"confident": False, "source": "symbolic_reasoner", "skipped": "workflow_command"}
+    if _MULTIPARTY_RE.search(text):
+        return {"confident": False, "source": "symbolic_reasoner", "skipped": "multiparty_structure"}
 
     fired_intent = ""
     final_result = None

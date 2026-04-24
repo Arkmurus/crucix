@@ -17,7 +17,9 @@ import os as _os
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request
+import json
+
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
@@ -920,14 +922,40 @@ async def zoom_webhook_ep(request: Request):
 
 
 @app.post("/api/aria/ingest", dependencies=[Depends(require_aria_token)])
-async def ingest_sweep(data: dict):
+async def ingest_sweep(request: Request):
     """Receive sweep data from Node.js server to update intel layers + neural network.
 
     Auth-protected: writes to persistent intel/neural state, so this endpoint
     must NOT be reachable without the bearer token. Mounted on `app` directly
     rather than via `aria_router` for historical reasons, so the token check
     is wired in explicitly here instead of inheriting it from the router.
+
+    Body parse is manual rather than `data: dict` so validation failures log
+    the offending payload (first 200 bytes) instead of returning an opaque
+    FastAPI 422. Past symptom: a single 422 appeared in the log with no way
+    to tell whether it was malformed JSON, a non-dict top-level, or a shape
+    mismatch from the WhatsApp mirror (which posts WA-shaped payloads here).
     """
+    try:
+        raw = await request.body()
+    except Exception as e:
+        logger.warning("ingest: body read failed: %s", e)
+        raise HTTPException(status_code=400, detail="body_read_failed")
+
+    try:
+        data = json.loads(raw) if raw else {}
+    except Exception as e:
+        preview = (raw[:200] if raw else b"").decode("utf-8", errors="replace")
+        logger.warning("ingest: JSON parse failed (%s). Body first 200b: %r", e, preview)
+        raise HTTPException(status_code=400, detail="invalid_json")
+
+    if not isinstance(data, dict):
+        logger.warning(
+            "ingest: expected dict body, got %s. Preview: %r",
+            type(data).__name__, str(data)[:200],
+        )
+        raise HTTPException(status_code=400, detail="expected_dict_body")
+
     app.state.current_data = data
     ledger_count = await intel_ledger.ingest_sweep_signals(data)
     comp_count = await competitors.scan_for_moves(data)

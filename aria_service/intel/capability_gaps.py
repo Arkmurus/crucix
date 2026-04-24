@@ -52,6 +52,12 @@ VALID_GAP_TYPES = frozenset({
     # Layer 5c commercial coherence (2026-04-22) — structural deal flags
     # surfaced by commercial_coherence.assess_commercial_coherence().
     "commercial_coherence_elevated",
+    # Symbolic reasoner miss (2026-04-24) — no handler matched a question
+    # that cleared the doc-review / workflow-command / multiparty guards.
+    # Emitted by symbolic_reasoner.reason() via brain_hook. Registering
+    # the type silences the "Unknown gap type" warning that fired on
+    # every miss.
+    "no_symbolic_rule",
 })
 
 
