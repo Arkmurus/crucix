@@ -110,6 +110,12 @@ Sidebar.init('brain');
     <div id="adversarial-metrics" class="loading">Loading...</div>
   </div>
 
+  <!-- Pending Amendments (operator triage) -->
+  <div class="card">
+    <h2>Pending Amendments — Operator Triage</h2>
+    <div id="amendments-queue" class="loading">Loading...</div>
+  </div>
+
   <!-- Circuit Breakers -->
   <div class="card">
     <h2>Circuit Breakers</h2>
@@ -306,6 +312,53 @@ async function loadBreakers() {
   });
   html += '</table>';
   document.getElementById('breaker-metrics').innerHTML = html;
+}
+
+async function loadAmendments() {
+  const d = await fetchJson('/adversarial/amendments');
+  const el = document.getElementById('amendments-queue');
+  if (!d) { el.innerHTML = '<span class="neutral">No data</span>'; return; }
+  const amendments = d.amendments || [];
+  if (!amendments.length) {
+    el.innerHTML = '<span class="good">No pending amendments — queue clean</span>';
+    return;
+  }
+  let html = metricRow('Queue depth', d.queue_depth || amendments.length,
+                       (d.queue_depth || 0) > 5 ? 'warn' : 'neutral');
+  html += '<div style="margin-top:8px;font-size:0.8em;color:#8b949e">'
+        + 'Operator triage: reject invalid amendments (reason required). '
+        + 'Accepting an amendment means deploying a clause change via '
+        + 'self_improve.deploy_improvement per aria_autonomy_doctrine.md.</div>';
+  html += '<table style="margin-top:8px"><tr><th>Attack</th><th>Clauses</th><th>Staged</th><th>Action</th></tr>';
+  amendments.forEach(a => {
+    const attack = (a.attack_id || '?') + '<br/><span style="font-size:0.75em;color:#8b949e">'
+                 + (a.attack_name || '') + '</span>';
+    const clauses = (a.anchor_clauses || []).join(', ');
+    const staged = (a.staged_at || '').slice(0, 16).replace('T', ' ');
+    const safeAttackId = (a.attack_id || '').replace(/[^A-Za-z0-9_.-]/g, '');
+    const action = `<button onclick="rejectAmendment('${safeAttackId}')" `
+                 + `style="background:#6e2c2c;color:#fff;border:0;padding:3px 8px;`
+                 + `border-radius:3px;cursor:pointer;font-size:0.8em">Reject</button>`;
+    html += `<tr><td>${attack}</td><td>${clauses}</td><td>${staged}</td><td>${action}</td></tr>`;
+  });
+  html += '</table>';
+  el.innerHTML = html;
+}
+
+async function rejectAmendment(attackId) {
+  if (!attackId) return;
+  const reason = prompt(`Reason for rejecting ${attackId}?\n(Required — will be logged for audit.)`);
+  if (!reason || !reason.trim()) return;
+  // API.post lives in js/app.js; it handles bearer auth via localStorage.
+  const resp = await API.post(
+    '/api/aria/adversarial/amendments/reject',
+    { attack_id: attackId, reason: reason.trim() },
+  );
+  if (!resp || !resp.ok) {
+    alert('Reject failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'));
+    return;
+  }
+  await loadAmendments();
 }
 
 async function loadLayer5c() {
@@ -915,8 +968,8 @@ async function refreshAll() {
   document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
   await Promise.all([
     loadHealth(), loadMode(), loadEngine(), loadAdversarial(),
-    loadBreakers(), loadLayer5c(), loadPredictor(), loadAudit(),
-    loadHeatmap(), loadDLQ(), loadMastery(), loadComposite(),
+    loadAmendments(), loadBreakers(), loadLayer5c(), loadPredictor(),
+    loadAudit(), loadHeatmap(), loadDLQ(), loadMastery(), loadComposite(),
     loadCalibration(), loadSurface(), loadLearning(), loadSystemHealth(),
     loadLlmCost(),
   ]);

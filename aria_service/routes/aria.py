@@ -11837,6 +11837,66 @@ async def adversarial_amendments_ep():
     return {"queue_depth": len(queue), "amendments": queue}
 
 
+@router.post("/adversarial/amendments/reject")
+async def adversarial_amendments_reject_ep(req: Request):
+    """Reject a single staged amendment by attack_id with an explicit
+    reason. Moves it from aria:adversarial:amendments_queue to
+    aria:adversarial:rejected_amendments so the audit trail survives.
+    Use this during operator triage instead of the blunt clear-all.
+
+    Body: {"attack_id": "<id>", "reason": "<operator note>"}
+    """
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+    attack_id = (body.get("attack_id") or "").strip()
+    reason = (body.get("reason") or "").strip()
+    if not attack_id:
+        raise HTTPException(status_code=400, detail="attack_id required")
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason required — operator must note why the amendment is rejected")
+    from ..intel import redis_store as rs
+    from datetime import datetime as _dt, timezone as _tz
+    key_queue = "aria:adversarial:amendments_queue"
+    key_rejected = "aria:adversarial:rejected_amendments"
+    queue = await rs.get_json(key_queue) or []
+    note = next((n for n in queue if isinstance(n, dict) and n.get("attack_id") == attack_id), None)
+    if note is None:
+        raise HTTPException(status_code=404, detail=f"no pending amendment for attack_id={attack_id}")
+    rejection = dict(note)
+    rejection["rejected_at"] = _dt.now(_tz.utc).isoformat()
+    rejection["rejection_reason"] = reason[:500]
+    rejected = await rs.get_json(key_rejected) or []
+    rejected.insert(0, rejection)
+    await rs.set_json(key_rejected, rejected[:500], ex=365 * 86400)
+    await rs.set_json(
+        key_queue,
+        [n for n in queue if not (isinstance(n, dict) and n.get("attack_id") == attack_id)],
+        ex=90 * 86400,
+    )
+    return {
+        "ok": True,
+        "attack_id": attack_id,
+        "queue_depth_now": len(queue) - 1,
+        "rejected_count": len(rejected) + 1,
+    }
+
+
+@router.get("/adversarial/amendments/rejected")
+async def adversarial_amendments_rejected_ep(limit: int = 100):
+    """Audit surface: amendments the operator has rejected, with reason.
+    Retained 365 days."""
+    from ..intel import redis_store as rs
+    rejected = await rs.get_json("aria:adversarial:rejected_amendments") or []
+    return {
+        "count": len(rejected),
+        "rejected": rejected[: max(1, min(limit, 500))],
+    }
+
+
 @router.post("/adversarial/amendments/clear")
 async def adversarial_amendments_clear_ep(staged_within_seconds: int | None = None):
     """Drop pending amendments. Used to purge false amendments staged from
