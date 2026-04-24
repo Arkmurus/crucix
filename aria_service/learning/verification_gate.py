@@ -657,8 +657,14 @@ async def get_stats() -> dict[str, Any]:
     verified = stats.get("verified", 0)
     unverified = stats.get("unverified", 0)
     skipped = stats.get("skipped_total", 0)
-    total_attempts = verified + unverified + skipped
-    rate = (verified / total_attempts) if total_attempts > 0 else None
+    # 2026-04-25: skipped attempts (no_secondary_provider, llm_unavailable,
+    # etc.) shouldn't count as failures — they're "didn't run" events. Only
+    # divide by attempts that actually completed verification. Returns None
+    # when no real verifications have run, so the dashboard shows "—" not
+    # "0%" — past behaviour was misleading: 1 skip + 0 completions
+    # produced "0% verification rate" implying everything failed.
+    completed = verified + unverified
+    rate = (verified / completed) if completed > 0 else None
     return {
         "verified_24h": verified,
         "unverified_24h": unverified,
