@@ -2270,9 +2270,20 @@ async def _persist_report(report: ARKDDReport) -> None:
     the intel_ledger + write a notebook entry to mem0 (async, non-blocking)."""
     try:
         from . import redis_store as rs
+        # Persist the full serialised report plus a pre-rendered markdown
+        # copy. training_export.dd_reports reads `rendered` for the
+        # fine-tune capture payload — without it the collector always
+        # short-circuits at the word-count guard. Keeping it at write
+        # time avoids having to reconstruct DDReport from a plain dict
+        # on the read side.
+        _body = report.as_dict()
+        try:
+            _body["rendered"] = report.render_markdown(concise=False)
+        except Exception as _rm_err:
+            logger.debug("render_markdown failed during persist: %s", _rm_err)
         await rs.set_json(
             REPORT_REDIS_KEY.format(run_id=report.run_id),
-            report.as_dict(),
+            _body,
             ex=REPORT_TTL_SECONDS,
         )
         try:
