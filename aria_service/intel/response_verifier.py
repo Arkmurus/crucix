@@ -95,14 +95,38 @@ async def verify_and_tag_response(
 
     try:
         from . import verified_intel as _vi
+        from . import redis_store as rs
+
+        # Pre-fetch the verified_intel corpus once per response instead
+        # of once per claim. Without this, response_verifier issued up to
+        # 15 identical Redis GETs on `crucix:verified_intel:facts` per
+        # chat reply — 300-700ms of wasted round-trip latency added by
+        # the new per-reply invocation from commit 1bcdc70. Score each
+        # claim against the in-memory snapshot locally.
+        facts_raw = await rs.get_json("crucix:verified_intel:facts") or []
+
+        def _score_claim_locally(claim_clean: str) -> list[dict]:
+            terms = {t for t in claim_clean.lower().split() if len(t) > 3}
+            if not terms or not facts_raw:
+                return []
+            scored: list[tuple[int, dict]] = []
+            for fact in facts_raw:
+                claim = (fact.get("claim") or "").lower()
+                entity = (fact.get("entity_name") or "").lower()
+                combined = f"{claim} {entity}"
+                overlap = sum(1 for t in terms if t in combined)
+                if overlap > 0:
+                    scored.append((overlap, fact))
+            scored.sort(key=lambda x: -x[0])
+            return [f for _, f in scored[:3]]
 
         for claim_text in claims[:15]:  # cap at 15 claims per response
             claim_clean = claim_text.strip()
             if len(claim_clean) < 15:
                 continue
 
-            # Search for matching verified facts
-            matches = await _vi.get_relevant_verified_facts(claim_clean, limit=3)
+            # Local scoring — no Redis round-trip per claim
+            matches = _score_claim_locally(claim_clean)
 
             if not matches:
                 # No verified facts found — check if tool_context has sources
