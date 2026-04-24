@@ -5747,7 +5747,9 @@ async def think_ep(req: ThinkRequest, request: Request):
         raise HTTPException(status_code=400, detail="question required")
     llm = get_llm(request)
     intel = get_intel_data(request)
-    result = await aria_think(req.question, req.context, llm, intel)
+    # Attribute /think LLM calls so they don't land in `uncategorized`.
+    with cost_tracker.feature("think"):
+        result = await aria_think(req.question, req.context, llm, intel)
     return result
 
 
@@ -9904,9 +9906,11 @@ async def contract_self_review_ep(req: ContractSelfReviewRequest, request: Reque
     """Run a self-audit on ARIA's contract review draft against the document."""
     from ..intel import contract_intelligence
     llm = get_llm(request)
-    result = await contract_intelligence.self_review_contract(
-        req.document_text, req.draft_review, llm,
-    )
+    # Attribute the self-review LLM call; otherwise it leaks into uncategorized.
+    with cost_tracker.feature("contract_review"):
+        result = await contract_intelligence.self_review_contract(
+            req.document_text, req.draft_review, llm,
+        )
     return result
 
 
