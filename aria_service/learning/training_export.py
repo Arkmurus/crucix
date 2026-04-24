@@ -236,34 +236,68 @@ async def _collect_writer_outputs(days: int) -> list[dict[str, Any]]:
 
 
 async def _collect_adversarial_passes(days: int) -> list[dict[str, Any]]:
-    """Passed adversarial attacks — ARIA's defensive responses as examples."""
+    """Passed adversarial attacks — ARIA's defensive responses as examples.
+
+    `adversarial_challenge.recent_runs` returns aggregate-run records
+    (one per full suite execution). Individual attack results are inside
+    `run["results"]`, each carrying `{attack_id, passed, responses[], ...}`.
+    The attack prompt text isn't persisted in the run record — look it up
+    from ATTACK_LIBRARY by attack_id. Before 2026-04-24 this function
+    iterated `run` directly and read non-existent `attack_prompt` /
+    `response` keys, so every iteration was filtered by the empty-turn
+    guard and zero examples ever landed in training.
+    """
     out: list[dict[str, Any]] = []
     try:
         from ..intel import adversarial_challenge as ac
-        if hasattr(ac, "recent_runs"):
-            runs = await ac.recent_runs(limit=50)
-        else:
+        if not hasattr(ac, "recent_runs"):
             _set_diag("adversarial", 0, reason="recent_runs_not_available")
             return out
+        runs = await ac.recent_runs(limit=50)
+        library_by_id = {a.id: a for a in getattr(ac, "ATTACK_LIBRARY", [])}
+        cutoff = datetime.now(timezone.utc).timestamp() - (days * 86400)
         for run in runs or []:
-            if not isinstance(run, dict) or not run.get("passed"):
+            if not isinstance(run, dict):
                 continue
-            attack = run.get("attack_id") or ""
-            user_turn = run.get("attack_prompt") or ""
-            aria_reply = run.get("response") or ""
-            if not user_turn or not aria_reply:
+            # Window filter — adversarial runs are weekly, so a 7-day
+            # window should almost always catch the most recent one.
+            try:
+                run_ts = datetime.fromisoformat(
+                    (run.get("run_at") or "").replace("Z", "+00:00")
+                ).timestamp()
+            except Exception:
+                run_ts = 0.0
+            if run_ts and run_ts < cutoff:
                 continue
-            wc = len(aria_reply.split())
-            if wc < _MIN_WORD_COUNT:
-                continue
-            out.append({
-                "user": user_turn[:3000],
-                "assistant": aria_reply[:16000],
-                "meta": {
-                    "source": "adversarial_pass",
-                    "attack_id": attack,
-                },
-            })
+            for result in run.get("results") or []:
+                if not isinstance(result, dict) or not result.get("passed"):
+                    continue
+                attack_id = result.get("attack_id") or ""
+                attack = library_by_id.get(attack_id)
+                # Concatenate all turns in the scenario as the user prompt —
+                # for multi-turn drift attacks (C_GRADUAL), the full arc is
+                # the training signal, not just the final turn.
+                turns = list(attack.turns) if attack and attack.turns else []
+                user_turn = "\n\n".join(t for t in turns if t)
+                # Pick the final response — that's the defensive reply the
+                # model should learn. Earlier turns may be tee-up prose.
+                responses = result.get("responses") or []
+                aria_reply = (responses[-1] if responses else "") or ""
+                if not user_turn or not aria_reply:
+                    continue
+                wc = len(aria_reply.split())
+                if wc < _MIN_WORD_COUNT:
+                    continue
+                out.append({
+                    "user": user_turn[:3000],
+                    "assistant": aria_reply[:16000],
+                    "meta": {
+                        "source": "adversarial_pass",
+                        "attack_id": attack_id,
+                        "severity": result.get("severity") or "",
+                        "category": result.get("category") or "",
+                    },
+                })
         _set_diag("adversarial", len(out),
                   reason=None if out else "no_passed_attacks_in_window")
     except Exception as exc:
