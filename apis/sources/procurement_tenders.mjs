@@ -243,8 +243,16 @@ async function fetchUNProcurement() {
 
 // ── World Bank procurement notices — Africa region ────────────────────────────
 async function fetchWorldBankProcurement() {
-  // WB search API for procurement notices in Africa
-  const url = 'https://search.worldbank.org/api/v2/procnotices?format=json&rows=25&regioncode_exact=AFR&fq=notice_type%3A%22REQUEST+FOR+BIDS%22+OR+notice_type%3A%22REQUEST+FOR+PROPOSALS%22+OR+notice_type%3A%22INVITATION+FOR+BIDS%22';
+  // WB search API for procurement notices in Africa. Two drifts the old
+  // query did not survive:
+  //   1. Schema rename — `countryshortname` → `project_ctry_name`;
+  //      `notice_title` no longer present; use `project_name` +
+  //      `bid_description` as descriptors.
+  //   2. Notice-type filter excluded "Contract Award" which is the
+  //      most common (and load-bearing for BD signal). Dropped the `fq`
+  //      and let the Africa + keyword filter do the work client-side —
+  //      robust against future WB notice-type renames.
+  const url = 'https://search.worldbank.org/api/v2/procnotices?format=json&rows=50&regioncode_exact=AFR';
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Crucix/1.0', 'Accept': 'application/json' },
@@ -253,30 +261,41 @@ async function fetchWorldBankProcurement() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
-    // WB API returns nested: data.procnotices.rows[]
-    const container = data.procnotices || data;
-    const rows = Array.isArray(container.rows) ? container.rows
-               : Array.isArray(container)      ? container
-               : Object.values(container).find(Array.isArray) || [];
+    // WB API returns { rows: <count>, procnotices: [...] } at the top
+    // level (NOT `data.procnotices.rows`). Defensive fall-through covers
+    // both layouts in case they revert.
+    const rows = Array.isArray(data.procnotices) ? data.procnotices
+               : Array.isArray(data.procnotices?.rows) ? data.procnotices.rows
+               : Array.isArray(data.rows) ? data.rows
+               : Object.values(data).find(Array.isArray) || [];
 
-    const PRIORITY = ['angola', 'mozambique', 'guinea-bissau', 'cape verde', 'guinea', 'senegal', 'mali', 'niger', 'burkina faso', 'nigeria', 'ethiopia', 'somalia', 'congo', 'ghana', 'côte d\'ivoire', 'cote d\'ivoire'];
+    const PRIORITY = [
+      'angola', 'mozambique', 'guinea-bissau', 'cape verde', 'guinea',
+      'senegal', 'mali', 'niger', 'burkina faso', 'nigeria', 'ethiopia',
+      'somalia', 'congo', 'ghana', "côte d'ivoire", "cote d'ivoire",
+    ];
 
     const items = rows
       .filter(n => {
-        const country = (n.countryshortname || n.country_name || '').toLowerCase();
-        const desc    = (n.project_name || n.notice_title || '').toLowerCase();
-        return PRIORITY.some(p => country.includes(p)) || DEFENSE_KW.some(kw => desc.includes(kw));
+        const country = (n.project_ctry_name || n.countryshortname || n.country_name || '').toLowerCase();
+        const descriptors = `${n.project_name || ''} ${n.bid_description || ''} ${n.notice_title || ''}`.toLowerCase();
+        return PRIORITY.some(p => country.includes(p)) || DEFENSE_KW.some(kw => descriptors.includes(kw));
       })
       .slice(0, 10)
-      .map(n => ({
-        source:      'World Bank',
-        title:       `[${n.countryshortname || n.country_name || 'Africa'}] ${n.project_name || n.notice_title || 'Procurement Notice'}`.slice(0, 200),
-        description: `${n.notice_type || 'Notice'} · Deadline: ${n.contact_deadline || n.deadline || 'TBD'}`,
-        url:         n.project_url || 'https://projects.worldbank.org/en/projects-operations/procurement',
-        pubDate:     n.contact_deadline || '',
-      }));
+      .map(n => {
+        const ctry = n.project_ctry_name || n.countryshortname || n.country_name || 'Africa';
+        const name = n.project_name || n.bid_description || n.notice_title || 'Procurement Notice';
+        const deadline = n.contact_deadline || n.bid_deadline_date || n.deadline || '';
+        return {
+          source:      'World Bank',
+          title:       `[${ctry}] ${name}`.slice(0, 200),
+          description: `${n.notice_type || 'Notice'}${deadline ? ` · Deadline: ${deadline}` : ''}`,
+          url:         n.project_url || n.bid_reference_url || 'https://projects.worldbank.org/en/projects-operations/procurement',
+          pubDate:     n.noticedate || deadline || '',
+        };
+      });
 
-    console.log(`[Procurement] World Bank: ${items.length} Africa notices`);
+    console.log(`[Procurement] World Bank: ${items.length} Africa notices (from ${rows.length} scanned)`);
     return items;
   } catch (e) {
     console.warn(`[Procurement] World Bank failed: ${e.message}`);
