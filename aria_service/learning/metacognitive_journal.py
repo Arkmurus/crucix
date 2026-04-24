@@ -45,7 +45,11 @@ async def _collect_successes(since: datetime) -> list[str]:
     """Things that went right in the lookback window."""
     out: list[str] = []
 
-    # Chat turns with grounded verdict
+    # Chat turns with grounded verdict. chat_audit_log.record_chat now
+    # writes `verification_status`; legacy entries used `honesty_verdict`.
+    # Accept either so the journal's success collector doesn't stay at 0
+    # after the field rename (same compatibility fix style_learner took
+    # in c0418c5).
     try:
         from ..intel import chat_audit_log as cal
         if hasattr(cal, "get_recent"):
@@ -53,7 +57,12 @@ async def _collect_successes(since: datetime) -> list[str]:
                 if not isinstance(e, dict):
                     continue
                 if _is_after(e.get("timestamp") or e.get("ts"), since):
-                    if (e.get("honesty_verdict") or "").lower() == "grounded":
+                    verdict = (
+                        e.get("verification_status")
+                        or e.get("honesty_verdict")
+                        or ""
+                    ).lower()
+                    if verdict == "grounded":
                         trace = (e.get("trace_id") or "?")[:10]
                         out.append(f"grounded chat turn ({trace})")
     except Exception as exc:
@@ -141,7 +150,8 @@ async def _collect_failures(since: datetime) -> list[str]:
     except Exception as exc:
         logger.debug("failure.mistake_ledger failed: %s", exc)
 
-    # Ungrounded chat turns
+    # Ungrounded chat turns — same field-drift accommodation as the
+    # success collector above.
     try:
         from ..intel import chat_audit_log as cal
         if hasattr(cal, "get_recent"):
@@ -150,7 +160,11 @@ async def _collect_failures(since: datetime) -> list[str]:
                     continue
                 if not _is_after(e.get("timestamp") or e.get("ts"), since):
                     continue
-                verdict = (e.get("honesty_verdict") or "").lower()
+                verdict = (
+                    e.get("verification_status")
+                    or e.get("honesty_verdict")
+                    or ""
+                ).lower()
                 if verdict in ("ungrounded", "partially_grounded", "unverified"):
                     out.append(
                         f"chat turn {verdict}: "
