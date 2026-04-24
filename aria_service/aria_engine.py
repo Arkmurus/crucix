@@ -2028,7 +2028,17 @@ async def _verify_and_record_chat(
     """
     from .intel import response_verifier as _rv, chat_audit_log as _cal
     grounded_rate: float | None = None
-    verification_status = "unknown"
+    # 2026-04-25: distinguish "verifier hasn't run yet / errored" (the
+    # legacy default `unknown`) from "verifier ran but the response had
+    # no claims to verify" (refusals, social greetings, general-knowledge
+    # responses). The dashboard previously showed all three as `unknown`,
+    # which made it impossible to tell whether verification was wired or
+    # just inherently inapplicable to most responses. New `no_claims`
+    # status surfaces the latter — operator can now see at a glance
+    # whether 43 unknown entries means "wiring broke" or "43 refusals
+    # nobody could verify". Training filter still excludes both, but the
+    # diagnostic is honest now.
+    verification_status = "verifier_not_run"
     try:
         rv = await _rv.verify_and_tag_response(
             response_text=response_text,
@@ -2045,6 +2055,11 @@ async def _verify_and_record_chat(
             # 0.40 threshold matches training_export filter so the audit
             # entry's verdict is consistent with what the filter accepts.
             verification_status = "grounded" if grounded_rate >= 0.40 else "unverified"
+        else:
+            # Verifier ran cleanly but found no extractable claims —
+            # response is a refusal, greeting, or unmarked general-knowledge
+            # text. NOT a wiring failure.
+            verification_status = "no_claims"
     except Exception as e:
         logger.debug("inline response_verifier failed (non-fatal): %s", e)
     try:
