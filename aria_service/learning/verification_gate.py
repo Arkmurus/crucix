@@ -520,6 +520,103 @@ async def double_via_fallback(
 # Stats accessors
 # ═══════════════════════════════════════════════════════════════════════
 
+async def observe_critical_response(
+    response_text: str,
+    user_message: str,
+    llm: Any,
+    *,
+    source: str = "chat",
+) -> dict[str, Any]:
+    """Run the full CRITICAL verification flow and record the outcome.
+
+    Shared by /chat (non-stream) and /chat/stream so the gate fires on
+    every WA reply, not just the non-stream path. The stream path
+    cannot rewrite a response after emission, so the caller decides
+    what to do with the returned verdict (append a warning in a
+    follow-up meta event, flag for operator review, etc.).
+
+    Returns (never raises — always logs stats on the way):
+      {
+        "fired":     bool,     # True iff we ran verify()
+        "severity":  str,      # CRITICAL / HIGH / NORMAL
+        "verdict":   str,      # CRITICAL_VERIFIED / CRITICAL_UNVERIFIED / SKIPPED / NOT_CRITICAL
+        "skipped_reason": str, # set only when verdict == "SKIPPED"
+        "secondary_provider": str,
+        "disagreement": dict,  # populated on CRITICAL_UNVERIFIED
+      }
+
+    Non-CRITICAL outputs short-circuit with `fired=False,
+    verdict="NOT_CRITICAL"` — no LLM call, no cost, no dashboard skew.
+    """
+    out: dict[str, Any] = {
+        "fired": False,
+        "severity": "NORMAL",
+        "verdict": "NOT_CRITICAL",
+        "skipped_reason": "",
+        "secondary_provider": "",
+        "disagreement": {},
+    }
+    if not response_text or llm is None:
+        return out
+    try:
+        severity = classify_severity(response_text)
+    except Exception as exc:
+        logger.debug("classify_severity failed: %s", exc)
+        return out
+    out["severity"] = severity
+    if severity != "CRITICAL":
+        return out
+
+    secondary = pick_secondary_provider(llm)
+    if secondary is None:
+        await record_skipped("no_secondary_provider")
+        out["verdict"] = "SKIPPED"
+        out["skipped_reason"] = "no_secondary_provider"
+        return out
+
+    out["secondary_provider"] = getattr(secondary, "name", "") or ""
+    try:
+        r = await secondary.complete(
+            "You are ARIA reviewing a user question. Return your own "
+            "brief structured verdict on the question below. Include: "
+            "risk tier (RED/AMBER/GREEN), sanctions (HIT/CLEAN), "
+            "recommendation (HALT/PROCEED), confidence tag "
+            "[CONFIRMED/PROBABLE/ASSESSED/UNCERTAIN]. Keep it to 6-10 "
+            "lines. Be honest — if evidence is insufficient, say "
+            "UNCERTAIN.",
+            (user_message or "")[:3000],
+            max_tokens=350,
+            timeout=40.0,
+        )
+        sec_text = getattr(r, "text", "") or ""
+    except Exception as exc:
+        logger.debug("secondary call failed: %s", exc)
+        await record_skipped("secondary_call_failed")
+        out["verdict"] = "SKIPPED"
+        out["skipped_reason"] = "secondary_call_failed"
+        return out
+
+    if not sec_text:
+        await record_skipped("secondary_empty")
+        out["verdict"] = "SKIPPED"
+        out["skipped_reason"] = "secondary_empty"
+        return out
+
+    try:
+        vres = await verify(
+            response_text, sec_text,
+            metadata={"is_client_facing": False, "source": source},
+        )
+    except Exception as exc:
+        logger.debug("verify() failed: %s", exc)
+        return out
+
+    out["fired"] = True
+    out["verdict"] = vres.get("verdict") or ""
+    out["disagreement"] = vres.get("disagreement") or {}
+    return out
+
+
 async def record_skipped(reason: str) -> None:
     """Log that a CRITICAL output wanted verification but couldn't get it.
     Reasons: 'no_secondary_provider', 'secondary_call_failed',

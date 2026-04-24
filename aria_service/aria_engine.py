@@ -2985,6 +2985,30 @@ async def aria_chat_stream(
     except Exception as e:
         logger.debug("stream_guard_observer scheduling failed (non-fatal): %s", e)
 
+    # Verification-gate observation on the stream path — fire-and-forget.
+    # The gate runs inline on /chat (non-stream) and appends a
+    # [VERIFIED BY DISAGREEMENT] / [CRITICAL — PROVIDERS DISAGREE]
+    # footer. On /chat/stream the response is already emitted by the
+    # time we know the verdict, so we can't rewrite — but we can still
+    # record the verdict in stats so /verification/stats stops showing
+    # 0/0/0 on all-streaming traffic. If the verdict is
+    # CRITICAL_UNVERIFIED the operator can triage the session via the
+    # audit trail. Fixing real-time blocking on stream is a separate
+    # architectural call (SSE rewrite, see memory/stream_bypass_pattern.md).
+    try:
+        from .learning import verification_gate as _vg
+        _vg_task = asyncio.create_task(
+            _vg.observe_critical_response(
+                response_text=response_text,
+                user_message=message,
+                llm=llm,
+                source="chat_stream",
+            )
+        )
+        _vg_task.add_done_callback(_bg_done("verification_gate.observe_critical_response"))
+    except Exception as e:
+        logger.debug("verification_gate scheduling failed (non-fatal): %s", e)
+
     # Output harvester — streaming path. Same dry-run-by-default
     # behaviour as the non-streaming branch above. `message` in this
     # scope is the original user message; response_text is the final
