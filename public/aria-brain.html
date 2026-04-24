@@ -513,6 +513,10 @@ async function loadSurface() {
   html += metricRow('Approvals pending', pendTotal, pendTotal > 0 ? 'warn' : 'good');
   html += metricRow('Source validator',  drafts.source_validator_pending ?? 0, 'neutral');
   html += metricRow('Constitution',      drafts.constitution_pending ?? 0,     'neutral');
+  // Adversarial amendments live in a separate Redis namespace
+  // (aria:adversarial:amendments_queue) — surface here so the two
+  // queues can be reconciled at a glance.
+  html += metricRow('Adversarial amendments', drafts.adversarial_amendments_pending ?? 0, 'neutral');
   html += metricRow('Codegen',           drafts.codegen_pending ?? 0,          'neutral');
   html += metricRow('Golden autogen',    drafts.golden_pending ?? 0,           'neutral');
   html += metricRow('Ground truth',      drafts.ground_truth_pending ?? 0,     'neutral');

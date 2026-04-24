@@ -104,6 +104,7 @@ async def _drafts_awaiting() -> dict[str, Any]:
     out: dict[str, Any] = {
         "source_validator_pending": 0,
         "constitution_pending": 0,
+        "adversarial_amendments_pending": 0,
         "codegen_pending": 0,
         "golden_pending": 0,
         "ground_truth_pending": 0,
@@ -131,6 +132,21 @@ async def _drafts_awaiting() -> dict[str, Any]:
                 continue
     except Exception as e:
         logger.debug("drafts.pending: %s", e)
+
+    # ── Adversarial amendments queue ──
+    # Tracked under a different namespace (`aria:adversarial:amendments_queue`,
+    # LIST not counter). Surface it in the same drafts panel so a
+    # non-zero adversarial queue can't silently coexist with a zero
+    # constitution_pending count — the exact confusion the 2026-04-23
+    # session chased when the retired "12 pending" figure got compared
+    # against a healthy `/constitution/pending=0`.
+    try:
+        from . import redis_store as rs
+        amendments = await rs.get_json("aria:adversarial:amendments_queue") or []
+        if isinstance(amendments, list):
+            out["adversarial_amendments_pending"] = len(amendments)
+    except Exception as e:
+        logger.debug("drafts.adversarial_amendments: %s", e)
 
     # ── DD reports produced today ──
     # dd_orchestrator writes a LIST of dicts each with `generated_at`
@@ -189,6 +205,7 @@ async def _drafts_awaiting() -> dict[str, Any]:
     out["total_pending"] = (
         out["source_validator_pending"]
         + out["constitution_pending"]
+        + out["adversarial_amendments_pending"]
         + out["codegen_pending"]
         + out["golden_pending"]
         + out["ground_truth_pending"]
