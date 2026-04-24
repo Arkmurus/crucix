@@ -206,13 +206,34 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern]] = [
 
 
 def detect_topics(text: str) -> list[str]:
-    """Tag a question/response with one or more topic categories."""
+    """Tag a question/response with one or more topic categories.
+
+    Language tags (`lang:ru`, `lang:zh`, `lang:ar`) are emitted from
+    script-based heuristics — Cyrillic / CJK / Arabic Unicode ranges.
+    Before this, no code path ever wrote to a `lang:*` mastery tag, so
+    `lang:ru` and `lang:zh` sat at the 0.50 initial floor forever while
+    pt/fr/es/ar had been seeded by earlier calibration runs. Require a
+    minimum character count so short English copy doesn't accidentally
+    tag itself with a non-Latin language.
+    """
     if not text:
         return []
     matched = []
     for topic, pattern in _TOPIC_PATTERNS:
         if pattern.search(text):
             matched.append(topic)
+    # Language-script tags. Thresholds are deliberately conservative:
+    # 20+ chars of the target script means the text carries meaningful
+    # content in that language, not just a quoted word or name.
+    cyrillic = sum(1 for ch in text if "Ѐ" <= ch <= "ӿ")
+    cjk = sum(1 for ch in text if "一" <= ch <= "鿿")
+    arabic = sum(1 for ch in text if "؀" <= ch <= "ۿ")
+    if cyrillic >= 20:
+        matched.append("lang:ru")
+    if cjk >= 20:
+        matched.append("lang:zh")
+    if arabic >= 20:
+        matched.append("lang:ar")
     return matched or ["general"]
 
 

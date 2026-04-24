@@ -99,6 +99,21 @@ RESEARCH_FEEDS = [
 
     # ── Export Controls & Compliance ──────────────────────────────────────
     {"name": "BIS Federal Register", "url": "https://www.bis.doc.gov/index.php/component/rssfeed/feed/2-federal-register-notices?format=feed", "category": "export_controls"},
+
+    # ── Russian-language (for lang:ru mastery lift; sources chosen for
+    # language exposure, not as primary source-of-truth). Propaganda-tier
+    # content is handled separately via Clause 13 at claim-verification
+    # time; these sources are for ingesting Cyrillic script so the script
+    # detector in student.detect_topics() can emit `lang:ru` tags.
+    {"name": "TASS Defence (RU)", "url": "https://tass.ru/rss/v2.xml", "category": "russia_defence"},
+    {"name": "Kommersant Defence (RU)", "url": "https://www.kommersant.ru/RSS/news.xml", "category": "russia_industry"},
+
+    # ── Chinese-language (for lang:zh mastery lift; same caveats as ru).
+    # Taipei Times + SCMP are neutral-to-critical perspectives on PLA /
+    # Chinese defence industry; Global Times is state-aligned and gets
+    # flagged by the tier classifier at claim time.
+    {"name": "Global Times Military (ZH)", "url": "https://www.huanqiu.com/rss/mil.xml", "category": "china_defence"},
+    {"name": "SCMP China", "url": "https://www.scmp.com/rss/91/feed", "category": "china_analysis"},
 ]
 
 # ── ARIA's Research Interests — GLOBAL scope ─────────────────────────────────
