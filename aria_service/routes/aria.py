@@ -4931,19 +4931,24 @@ async def chat_ep(req: ChatRequest, request: Request):
                     await _vg.record_skipped("no_secondary_provider")
                 if _sec_provider is not None:
                     try:
-                        _sec_r = await _sec_provider.complete(
-                            "You are ARIA reviewing a user question. Return "
-                            "your own brief structured verdict on the question "
-                            "below. Include: risk tier (RED/AMBER/GREEN), "
-                            "sanctions (HIT/CLEAN), recommendation "
-                            "(HALT/PROCEED), confidence tag "
-                            "[CONFIRMED/PROBABLE/ASSESSED/UNCERTAIN]. "
-                            "Keep it to 6-10 lines. Be honest — if evidence "
-                            "is insufficient, say UNCERTAIN.",
-                            (req.message or "")[:3000],
-                            max_tokens=350,
-                            timeout=40.0,
-                        )
+                        # Tag the secondary-opinion call as `verification`
+                        # so it doesn't leak into uncategorized — the outer
+                        # `with cost_tracker.feature("chat")` block closed
+                        # before this verification stage ran.
+                        with cost_tracker.feature("verification"):
+                            _sec_r = await _sec_provider.complete(
+                                "You are ARIA reviewing a user question. Return "
+                                "your own brief structured verdict on the question "
+                                "below. Include: risk tier (RED/AMBER/GREEN), "
+                                "sanctions (HIT/CLEAN), recommendation "
+                                "(HALT/PROCEED), confidence tag "
+                                "[CONFIRMED/PROBABLE/ASSESSED/UNCERTAIN]. "
+                                "Keep it to 6-10 lines. Be honest — if evidence "
+                                "is insufficient, say UNCERTAIN.",
+                                (req.message or "")[:3000],
+                                max_tokens=350,
+                                timeout=40.0,
+                            )
                         _sec_text = getattr(_sec_r, "text", "") or ""
                         if not _sec_text:
                             await _vg.record_skipped("secondary_empty")

@@ -575,19 +575,24 @@ async def observe_critical_response(
         return out
 
     out["secondary_provider"] = getattr(secondary, "name", "") or ""
+    # Tag the secondary-opinion LLM call as `verification` so it doesn't
+    # leak into uncategorized. The `double_*` helpers in this module
+    # already carry the feature wrap, but observe_critical_response
+    # calls the secondary directly and was missing the context.
     try:
-        r = await secondary.complete(
-            "You are ARIA reviewing a user question. Return your own "
-            "brief structured verdict on the question below. Include: "
-            "risk tier (RED/AMBER/GREEN), sanctions (HIT/CLEAN), "
-            "recommendation (HALT/PROCEED), confidence tag "
-            "[CONFIRMED/PROBABLE/ASSESSED/UNCERTAIN]. Keep it to 6-10 "
-            "lines. Be honest — if evidence is insufficient, say "
-            "UNCERTAIN.",
-            (user_message or "")[:3000],
-            max_tokens=350,
-            timeout=40.0,
-        )
+        with cost_tracker.feature("verification"):
+            r = await secondary.complete(
+                "You are ARIA reviewing a user question. Return your own "
+                "brief structured verdict on the question below. Include: "
+                "risk tier (RED/AMBER/GREEN), sanctions (HIT/CLEAN), "
+                "recommendation (HALT/PROCEED), confidence tag "
+                "[CONFIRMED/PROBABLE/ASSESSED/UNCERTAIN]. Keep it to 6-10 "
+                "lines. Be honest — if evidence is insufficient, say "
+                "UNCERTAIN.",
+                (user_message or "")[:3000],
+                max_tokens=350,
+                timeout=40.0,
+            )
         sec_text = getattr(r, "text", "") or ""
     except Exception as exc:
         logger.debug("secondary call failed: %s", exc)
