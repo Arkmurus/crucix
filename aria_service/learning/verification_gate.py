@@ -45,6 +45,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from ..intel import cost_tracker
+
 logger = logging.getLogger("aria.learning.verification_gate")
 
 
@@ -409,20 +411,21 @@ async def double_opinion_llm(
     (primary_text, secondary_text). Caller wraps in verify()."""
     primary_text = ""
     secondary_text = ""
-    try:
-        r = await primary_llm.complete(
-            system_prompt, user_prompt, max_tokens=max_tokens, timeout=timeout,
-        )
-        primary_text = getattr(r, "text", "") or str(r)
-    except Exception as exc:
-        logger.warning("primary provider failed: %s", exc)
-    try:
-        r = await secondary_llm.complete(
-            system_prompt, user_prompt, max_tokens=max_tokens, timeout=timeout,
-        )
-        secondary_text = getattr(r, "text", "") or str(r)
-    except Exception as exc:
-        logger.warning("secondary provider failed: %s", exc)
+    with cost_tracker.feature("verification"):
+        try:
+            r = await primary_llm.complete(
+                system_prompt, user_prompt, max_tokens=max_tokens, timeout=timeout,
+            )
+            primary_text = getattr(r, "text", "") or str(r)
+        except Exception as exc:
+            logger.warning("primary provider failed: %s", exc)
+        try:
+            r = await secondary_llm.complete(
+                system_prompt, user_prompt, max_tokens=max_tokens, timeout=timeout,
+            )
+            secondary_text = getattr(r, "text", "") or str(r)
+        except Exception as exc:
+            logger.warning("secondary provider failed: %s", exc)
     return primary_text, secondary_text
 
 
@@ -482,32 +485,33 @@ async def double_via_fallback(
     # provider answers first. We capture its name from the LLMResult.
     primary_text = ""
     primary_name = ""
-    try:
-        r = await fallback_llm.complete(
-            system_prompt, user_prompt, max_tokens=max_tokens, timeout=timeout,
-        )
-        primary_text = getattr(r, "text", "") or ""
-        # LLMResult carries routed_via = "fallback:<provider_name>" from
-        # FallbackProvider.complete — parse the name out.
-        routed = getattr(r, "routed_via", "") or ""
-        if routed.startswith("fallback:"):
-            primary_name = routed.split(":", 1)[1]
-    except Exception as exc:
-        logger.warning("verification primary call failed: %s", exc)
-
-    # Secondary pass — explicit second provider
-    secondary_text = ""
-    secondary_name = ""
-    sec_provider = pick_secondary_provider(fallback_llm, exclude_name=primary_name)
-    if sec_provider is not None:
-        secondary_name = getattr(sec_provider, "name", "") or ""
+    with cost_tracker.feature("verification"):
         try:
-            r = await sec_provider.complete(
+            r = await fallback_llm.complete(
                 system_prompt, user_prompt, max_tokens=max_tokens, timeout=timeout,
             )
-            secondary_text = getattr(r, "text", "") or ""
+            primary_text = getattr(r, "text", "") or ""
+            # LLMResult carries routed_via = "fallback:<provider_name>" from
+            # FallbackProvider.complete — parse the name out.
+            routed = getattr(r, "routed_via", "") or ""
+            if routed.startswith("fallback:"):
+                primary_name = routed.split(":", 1)[1]
         except Exception as exc:
-            logger.warning("verification secondary call failed: %s", exc)
+            logger.warning("verification primary call failed: %s", exc)
+
+        # Secondary pass — explicit second provider
+        secondary_text = ""
+        secondary_name = ""
+        sec_provider = pick_secondary_provider(fallback_llm, exclude_name=primary_name)
+        if sec_provider is not None:
+            secondary_name = getattr(sec_provider, "name", "") or ""
+            try:
+                r = await sec_provider.complete(
+                    system_prompt, user_prompt, max_tokens=max_tokens, timeout=timeout,
+                )
+                secondary_text = getattr(r, "text", "") or ""
+            except Exception as exc:
+                logger.warning("verification secondary call failed: %s", exc)
 
     return primary_text, secondary_text, primary_name, secondary_name
 

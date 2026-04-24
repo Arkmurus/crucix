@@ -5663,53 +5663,63 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         )
 
     async def _event_generator():
-        # Status: tools finished, now streaming LLM
-        if tool_used:
-            yield f'data: {json.dumps({"type":"status","message":f"Tool: {tool_used} completed. Generating response..."})}\n\n'
-
-        # Import here to avoid top-level cycle and get the structured error type.
-        from ..llm.provider import ProviderError
-
+        # Attribute every LLM call inside the stream to "chat". The outer
+        # `with cost_tracker.feature("chat")` above only wrapped the tool
+        # detection phase — this generator runs LATER (when FastAPI starts
+        # consuming the StreamingResponse), so without this push the
+        # streamed LLM calls (the main spend on WhatsApp traffic) landed
+        # in the "uncategorized" bucket.
+        _cost_token = cost_tracker.set_feature("chat")
         try:
-            async for event in aria_chat_stream(message_for_llm, session_id, llm, intel):
-                yield f'data: {json.dumps(event)}\n\n'
-
-                # Inject tool_used into the done event
-                if event.get("type") == "done" and tool_used:
-                    # Already yielded — we'll inject via a separate metadata event
-                    pass
-
-            # If tool was used, send a supplementary metadata event
+            # Status: tools finished, now streaming LLM
             if tool_used:
-                yield f'data: {json.dumps({"type":"meta","tool_used":tool_used})}\n\n'
+                yield f'data: {json.dumps({"type":"status","message":f"Tool: {tool_used} completed. Generating response..."})}\n\n'
 
-        except ProviderError as pe:
-            # Structured upstream failure — render a short, user-safe message.
-            # Never leak the vendor URL or raw HTTP body to the client.
-            kind = getattr(pe, "kind", "other")
-            if kind == "billing":
-                msg = "⚠️ Primary model is out of credit and the fallback is unavailable. Ops has been notified."
-            elif kind == "auth":
-                msg = "⚠️ Model provider authentication failed. Ops has been notified."
-            elif kind == "rate_limit":
-                msg = "⚠️ Rate limited across providers — please retry in ~30s."
-            elif kind == "timeout":
-                msg = "⚠️ Upstream model timed out. Please retry; if it persists, switch to a shorter question."
-            else:
-                msg = "⚠️ Temporary model failure. Please retry in a minute."
-            _log.exception("ProviderError in SSE stream (kind=%s): %s", kind, pe)
+            # Import here to avoid top-level cycle and get the structured error type.
+            from ..llm.provider import ProviderError
+
             try:
-                yield f'data: {json.dumps({"type":"error","kind":kind,"message":msg})}\n\n'
-                yield f'data: {json.dumps({"type":"done"})}\n\n'
-            except Exception:
-                pass
-        except Exception as e:
-            _log.exception("Unhandled SSE stream error: %s", e)
-            try:
-                yield f'data: {json.dumps({"type":"error","kind":"internal","message":"⚠️ Internal error while streaming. Please retry."})}\n\n'
-                yield f'data: {json.dumps({"type":"done"})}\n\n'
-            except Exception:
-                pass
+                async for event in aria_chat_stream(message_for_llm, session_id, llm, intel):
+                    yield f'data: {json.dumps(event)}\n\n'
+
+                    # Inject tool_used into the done event
+                    if event.get("type") == "done" and tool_used:
+                        # Already yielded — we'll inject via a separate metadata event
+                        pass
+
+                # If tool was used, send a supplementary metadata event
+                if tool_used:
+                    yield f'data: {json.dumps({"type":"meta","tool_used":tool_used})}\n\n'
+
+            except ProviderError as pe:
+                # Structured upstream failure — render a short, user-safe message.
+                # Never leak the vendor URL or raw HTTP body to the client.
+                kind = getattr(pe, "kind", "other")
+                if kind == "billing":
+                    msg = "⚠️ Primary model is out of credit and the fallback is unavailable. Ops has been notified."
+                elif kind == "auth":
+                    msg = "⚠️ Model provider authentication failed. Ops has been notified."
+                elif kind == "rate_limit":
+                    msg = "⚠️ Rate limited across providers — please retry in ~30s."
+                elif kind == "timeout":
+                    msg = "⚠️ Upstream model timed out. Please retry; if it persists, switch to a shorter question."
+                else:
+                    msg = "⚠️ Temporary model failure. Please retry in a minute."
+                _log.exception("ProviderError in SSE stream (kind=%s): %s", kind, pe)
+                try:
+                    yield f'data: {json.dumps({"type":"error","kind":kind,"message":msg})}\n\n'
+                    yield f'data: {json.dumps({"type":"done"})}\n\n'
+                except Exception:
+                    pass
+            except Exception as e:
+                _log.exception("Unhandled SSE stream error: %s", e)
+                try:
+                    yield f'data: {json.dumps({"type":"error","kind":"internal","message":"⚠️ Internal error while streaming. Please retry."})}\n\n'
+                    yield f'data: {json.dumps({"type":"done"})}\n\n'
+                except Exception:
+                    pass
+        finally:
+            cost_tracker.reset_feature(_cost_token)
 
     return StreamingResponse(
         _event_generator(),
