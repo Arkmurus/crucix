@@ -68,34 +68,13 @@ LIBRARY_MIN_CONFIDENCE = 0.78
 LOCAL_BRAIN_MIN_CONFIDENCE = 0.65
 OLLAMA_MIN_CONFIDENCE = 0.60
 
-# 2026-04-25: Self-introspection bypass for the local reasoning chain.
-# Mirrors `_SELF_INFRA_INTROSPECTION_RE` in aria_engine.py and
-# `_BRAVE_QA_SELF_INFRA_RE` in routes/aria.py — keep all three in sync if
-# extended. Background: 2026-04-24 OpenClaw incident proved that
-# fabricated self-infra answers can be permanently absorbed into ANY of
-# the local reasoning sources (mem0, knowledge facts, RAG, AND the
-# reasoning library). After quarantining mem0/RAG/knowledge in
-# aria_engine._build_7_layer_context (94a94b6), the SAME fabrication
-# came back from the reasoning library cache (`Retrieved from ARIA's
-# reasoning library, used 3x`). The router runs BEFORE _build_7_layer_context,
-# so the layer-side guard never fires for cached answers.
-#
-# Fix: when the question is self-introspective, force escalation to the
-# cloud LLM (skip stages 1-4). The cloud path then runs through
-# _build_7_layer_context which has the absorbed-knowledge quarantine
-# AND the [SELF-INFRA QUARANTINE] note that names "OpenClaw" /
-# "openclaw doctor" / "Arkmurus platform" as forbidden tokens. Net cost:
-# self-infra questions always hit cloud — but they're rare (operator
-# troubleshooting, not routine) and accuracy matters more than cache hits.
-_SELF_INFRA_INTROSPECTION_RE = re.compile(
-    r"(?:why|what'?s)\s+(?:is|are|isn'?t|aren'?t|won'?t|can'?t|doesn'?t|"
-    r"wrong\s+with|broken\s+(?:in|with))\s+"
-    r"(?:my|our|this|the|you|aria|baileys|"
-    r"(?:wa|whatsapp)[\s_-]?(?:listener|gateway|bridge)?|"
-    r"(?:fly|seenode|backend|brain|chat|stream|sweep|deploy(?:ment)?|"
-    r"stack|infra(?:structure)?|service|process|gateway|listener))\b",
-    re.IGNORECASE,
-)
+# 2026-04-25: self-introspection detection moved to the shared
+# self_infra_detector module so the three layers (chat router, retrieval,
+# reasoning router) read from one canonical regex. Stage 0 bypass below
+# forces self-infra questions to escalate to cloud LLM, where the layer-
+# side quarantine in aria_engine._build_7_layer_context kicks in.
+from . import self_infra_detector as _sid
+_SELF_INFRA_INTROSPECTION_RE = _sid.SELF_INFRA_INTROSPECTION_RE
 
 
 # ── Stats tracking ──────────────────────────────────────────────────────────

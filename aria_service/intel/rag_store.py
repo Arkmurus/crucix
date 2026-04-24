@@ -773,6 +773,139 @@ async def list_sources(limit: int = 50) -> dict:
         return {"available": False, "error": str(e)}
 
 
+# ── Surgical purge by keyword ──────────────────────────────────────────────
+
+async def purge_by_keywords(
+    keywords: list[str],
+    *,
+    dry_run: bool = False,
+) -> dict:
+    """Remove every chunk in `aria_documents` and `aria_facts` whose stored
+    text contains any of the given keywords (case-insensitive substring).
+
+    Background: 2026-04-24 OpenClaw incident — ARIA's brain_hook absorbed
+    a fabricated brave_answer about a fictional "OpenClaw" gateway into
+    the RAG store via pay-once-remember-forever. After blocking surfacing
+    on self-infra questions, the chunks are still in chromadb and could
+    leak back into adjacent semantic searches. ChromaDB doesn't support
+    keyword-substring `where` filters server-side, so we materialise the
+    documents text + ids client-side, filter in Python, then delete by ID.
+
+    For 8813 documents / 32614 facts (typical fly volume size) this
+    materialisation runs in <2s.
+
+    Returns:
+        {scanned_docs, scanned_facts, removed_docs, removed_facts,
+         dry_run, keywords_used, removed_samples: [...]}
+    """
+    if not await _ensure_async():
+        return {
+            "available": False,
+            "reason": "rag_store_unavailable",
+            "scanned_docs": 0, "scanned_facts": 0,
+            "removed_docs": 0, "removed_facts": 0,
+            "dry_run": dry_run, "keywords_used": [],
+            "removed_samples": [],
+        }
+    if not keywords:
+        return {
+            "available": True,
+            "scanned_docs": 0, "scanned_facts": 0,
+            "removed_docs": 0, "removed_facts": 0,
+            "dry_run": dry_run, "keywords_used": [],
+            "removed_samples": [],
+        }
+    needles = [k.lower().strip() for k in keywords if k and k.strip()]
+    if not needles:
+        return {
+            "available": True,
+            "scanned_docs": 0, "scanned_facts": 0,
+            "removed_docs": 0, "removed_facts": 0,
+            "dry_run": dry_run, "keywords_used": [],
+            "removed_samples": [],
+        }
+
+    import asyncio as _aio
+
+    removed_samples: list[dict] = []
+    counts = {"scanned_docs": 0, "scanned_facts": 0,
+              "removed_docs": 0, "removed_facts": 0}
+
+    def _scan_collection(coll, label: str) -> tuple[int, list[str]]:
+        if coll is None:
+            return 0, []
+        # `get()` with no ids returns ALL entries. Include documents +
+        # metadatas + ids so we can filter and report.
+        try:
+            full = coll.get(include=["documents", "metadatas"])
+        except Exception as e:
+            logger.warning("rag_store.purge_by_keywords: %s.get failed: %s", label, e)
+            return 0, []
+        ids = full.get("ids") or []
+        docs = full.get("documents") or []
+        metas = full.get("metadatas") or []
+        n = len(ids)
+        to_delete: list[str] = []
+        for i, doc_id in enumerate(ids):
+            text_lower = (docs[i] if i < len(docs) else "") or ""
+            text_lower = text_lower.lower()
+            hit = next((nd for nd in needles if nd in text_lower), None)
+            if hit is None:
+                continue
+            to_delete.append(doc_id)
+            if len(removed_samples) < 25:
+                m = metas[i] if i < len(metas) else {}
+                removed_samples.append({
+                    "id": doc_id,
+                    "collection": label,
+                    "matched_keyword": hit,
+                    "source": (m.get("source", "") or "")[:120] if isinstance(m, dict) else "",
+                    "title": (m.get("title", "") or "")[:120] if isinstance(m, dict) else "",
+                    "preview": (docs[i] if i < len(docs) else "")[:160],
+                })
+        return n, to_delete
+
+    try:
+        scanned_docs, doc_ids_to_del = await _aio.to_thread(
+            _scan_collection, _documents_collection, "documents"
+        )
+        scanned_facts, fact_ids_to_del = await _aio.to_thread(
+            _scan_collection, _facts_collection, "facts"
+        )
+        counts["scanned_docs"] = scanned_docs
+        counts["scanned_facts"] = scanned_facts
+        counts["removed_docs"] = len(doc_ids_to_del)
+        counts["removed_facts"] = len(fact_ids_to_del)
+
+        if not dry_run:
+            if doc_ids_to_del and _documents_collection is not None:
+                await _aio.to_thread(_documents_collection.delete, ids=doc_ids_to_del)
+            if fact_ids_to_del and _facts_collection is not None:
+                await _aio.to_thread(_facts_collection.delete, ids=fact_ids_to_del)
+            logger.warning(
+                "rag_store.purge_by_keywords: removed %d docs + %d facts matching %s",
+                counts["removed_docs"], counts["removed_facts"], needles,
+            )
+    except Exception as e:
+        logger.warning("rag_store.purge_by_keywords failed: %s", e)
+        return {
+            "available": True,
+            "error": str(e),
+            **counts,
+            "dry_run": dry_run,
+            "keywords_used": needles,
+            "removed_samples": removed_samples,
+        }
+
+    return {
+        "available": True,
+        **counts,
+        "dry_run": dry_run,
+        "keywords_used": needles,
+        "removed_samples": removed_samples,
+    }
+
+
 # ── Backfill from existing knowledge base + ledger ─────────────────────────
 
 async def backfill_from_existing() -> dict:

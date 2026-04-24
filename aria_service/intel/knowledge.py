@@ -545,3 +545,84 @@ async def get_stats() -> dict:
         "totalQueries": len(db["queries"]),
         "totalLearnings": len(db["learnings"]),
     }
+
+
+async def purge_by_keywords(
+    keywords: list[str],
+    *,
+    dry_run: bool = False,
+    fields: tuple[str, ...] = ("topic", "content", "source", "source_url"),
+) -> dict:
+    """Remove every fact whose listed text fields contain any of the
+    given keywords (case-insensitive substring match). Used for surgical
+    cleanup when a fabricated answer was absorbed into the knowledge base
+    via the pay-once-remember-forever pattern.
+
+    Background: 2026-04-24 OpenClaw incident — Brave Answers fabricated a
+    fictional WhatsApp gateway product on a self-infra question; the
+    answer was absorbed via brain_hook into the knowledge facts store
+    (and mem0/RAG/reasoning_library) tagged [CONFIRMED]. There was no
+    keyword-purge tooling for facts — only intel_ledger had it. This
+    function fills the gap.
+
+    Match semantics: ANY keyword present in ANY of the listed fields
+    triggers removal. Case-insensitive substring. Pass `dry_run=True` to
+    preview before committing.
+
+    Returns:
+        {scanned, removed, dry_run, keywords_used, removed_samples: [...]}
+    """
+    if not keywords:
+        return {
+            "scanned": 0, "removed": 0, "dry_run": dry_run,
+            "keywords_used": [], "removed_samples": [],
+        }
+
+    needles = [k.lower().strip() for k in keywords if k and k.strip()]
+    if not needles:
+        return {
+            "scanned": 0, "removed": 0, "dry_run": dry_run,
+            "keywords_used": [], "removed_samples": [],
+        }
+
+    db = await _load()
+    facts = db.get("facts", [])
+    keep: list[dict] = []
+    removed_samples: list[dict] = []
+    n_removed = 0
+
+    for fact in facts:
+        if not isinstance(fact, dict):
+            keep.append(fact)
+            continue
+        haystack = " ".join(
+            str(fact.get(f, "") or "").lower() for f in fields
+        )
+        hit = next((n for n in needles if n in haystack), None)
+        if hit is None:
+            keep.append(fact)
+            continue
+        n_removed += 1
+        if len(removed_samples) < 25:
+            removed_samples.append({
+                "id": fact.get("id", ""),
+                "topic": (fact.get("topic", "") or "")[:120],
+                "source": (fact.get("source", "") or "")[:120],
+                "matched_keyword": hit,
+            })
+
+    if not dry_run and n_removed > 0:
+        db["facts"] = keep
+        await _save()
+        logger.warning(
+            "knowledge.purge_by_keywords: removed %d facts matching %s",
+            n_removed, needles,
+        )
+
+    return {
+        "scanned": len(facts),
+        "removed": n_removed,
+        "dry_run": dry_run,
+        "keywords_used": needles,
+        "removed_samples": removed_samples,
+    }

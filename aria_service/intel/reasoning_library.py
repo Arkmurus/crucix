@@ -822,6 +822,107 @@ async def purge_polluted_cases(*, dry_run: bool = False) -> dict:
     }
 
 
+async def purge_by_keywords(
+    keywords: list[str],
+    *,
+    dry_run: bool = False,
+) -> dict:
+    """Remove every cached case whose stored question or response contains
+    any of the given keywords (case-insensitive substring match). Mirrors
+    `purge_polluted_cases` but takes an explicit keyword list instead of
+    a content-shape classifier — used for surgical cleanup of fabricated
+    answers absorbed via the pay-once-remember-forever pattern.
+
+    Background: 2026-04-24 OpenClaw incident — even after blocking the
+    Brave route at the chat layer, the same fabrication came back from
+    the reasoning_library cache (`Retrieved from ARIA's reasoning library,
+    used 3x`). Stage 0 bypass in reasoning_router stops new self-infra
+    queries from hitting the cache, but existing poisoned entries are
+    still in `crucix:aria:reasoning_library:*` and could surface for
+    adjacent (non-self-infra) queries that happen to semantically match.
+
+    Returns:
+        {scanned, removed, dry_run, keywords_used, removed_samples: [...]}
+    """
+    if not keywords:
+        return {
+            "scanned": 0, "removed": 0, "dry_run": dry_run,
+            "keywords_used": [], "removed_samples": [],
+        }
+
+    needles = [k.lower().strip() for k in keywords if k and k.strip()]
+    if not needles:
+        return {
+            "scanned": 0, "removed": 0, "dry_run": dry_run,
+            "keywords_used": [], "removed_samples": [],
+        }
+
+    index = await _load_index()
+    if not index:
+        return {
+            "scanned": 0, "removed": 0, "dry_run": dry_run,
+            "keywords_used": needles, "removed_samples": [],
+        }
+
+    keep: list[dict] = []
+    removed_samples: list[dict] = []
+    n_removed = 0
+
+    for entry in index:
+        case_id = entry.get("id")
+        if not case_id:
+            keep.append(entry)
+            continue
+        case = await rs.get_json(_case_key(case_id))
+        if not case:
+            n_removed += 1
+            continue
+        question = (case.get("question") or "").lower()
+        response = (case.get("response") or "").lower()
+        haystack = question + " " + response
+        hit = next((n for n in needles if n in haystack), None)
+        if hit is None:
+            keep.append(entry)
+            continue
+        n_removed += 1
+        if len(removed_samples) < 25:
+            removed_samples.append({
+                "id": case_id,
+                "question_preview": (case.get("question") or "")[:120],
+                "matched_keyword": hit,
+                "access_count": case.get("access_count", 0),
+            })
+        if not dry_run:
+            try:
+                await rs.delete(_case_key(case_id))
+            except Exception as e:
+                logger.debug(
+                    "reasoning_library.purge_by_keywords: delete failed %s: %s",
+                    case_id, e,
+                )
+
+    if not dry_run and n_removed > 0:
+        _index_cache_set(keep)
+        await _save_index()
+        meta = await _load_meta()
+        meta["total_cases"] = len(keep)
+        meta["last_purge"] = time.time()
+        meta["last_purge_removed"] = n_removed
+        await _save_meta()
+        logger.warning(
+            "reasoning_library.purge_by_keywords: removed %d cases matching %s",
+            n_removed, needles,
+        )
+
+    return {
+        "scanned": len(index),
+        "removed": n_removed,
+        "dry_run": dry_run,
+        "keywords_used": needles,
+        "removed_samples": removed_samples,
+    }
+
+
 # ── Public API: outcome feedback ────────────────────────────────────────────
 
 async def record_outcome(case_id: str, positive: bool) -> dict:

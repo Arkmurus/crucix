@@ -422,6 +422,65 @@ async def absorb(
     if not BRAIN_HOOK_ENABLED:
         return {"skipped": True, "reason": "ARIA_BRAIN_HOOK_ENABLED=0"}
 
+    # ── 0. Absorption quality gate ──────────────────────────────────────
+    # 2026-04-25: refuse to absorb content that contains known fabricated
+    # tokens OR was generated in response to a self-introspection
+    # question. The 2026-04-24 OpenClaw incident proved that pay-once-
+    # remember-forever is a memory-poisoning vector when the underlying
+    # answer is a hallucination — Brave Answers fabricated a fictional
+    # WhatsApp gateway, brain_hook absorbed it as [CONFIRMED], and the
+    # poison persisted across blocking the Brave route, the retrieval-
+    # layer quarantine, and the reasoning-router bypass. Each guard
+    # blocked surfacing on self-infra questions but couldn't reach the
+    # already-absorbed entries.
+    #
+    # This gate stops absorption at the source for two cases:
+    #   (a) content explicitly contains a known fabricated component
+    #       token — blanket rejection
+    #   (b) absorption is sourced from a brave_answer / search summariser
+    #       AND the upstream user question was self-introspective —
+    #       refuse to cache an external-search answer about our own
+    #       infrastructure (the operator's own diagnostic tooling is the
+    #       authoritative source, not a Brave summary)
+    try:
+        from . import self_infra_detector as _sid
+        gate_text = " ".join(filter(None, [summary or "", detail or "", entity_name or ""]))
+        if _sid.contains_known_fabrication(gate_text):
+            logger.warning(
+                "brain_hook.absorb: REFUSED — content matches known fabricated token (module=%s)",
+                module,
+            )
+            return {
+                "skipped": True,
+                "reason": "absorption_gate_known_fabrication",
+                "module": module,
+            }
+        # Self-infra topic gate — fires when the absorbing module is
+        # search-derived (brave_answer, web_search, scraper-style) and
+        # the captured content is about our own infra. Heuristic on
+        # module-name + content; deliberately conservative so legitimate
+        # operational telemetry from internal modules (sweep, listener,
+        # autonomy_surface) is not affected.
+        _SEARCH_DERIVED_MODULES = {
+            "brave_answer", "brave_answers", "web_search",
+            "search_summariser", "search_summarizer", "external_search",
+        }
+        if module in _SEARCH_DERIVED_MODULES and _sid.is_self_infra_query(gate_text):
+            logger.warning(
+                "brain_hook.absorb: REFUSED — search-derived self-infra content "
+                "(module=%s entity=%s)",
+                module, entity_name,
+            )
+            return {
+                "skipped": True,
+                "reason": "absorption_gate_self_infra_search_derived",
+                "module": module,
+            }
+    except Exception as gate_err:
+        # Gate failure must not block legitimate absorption. Log and
+        # fall through — defence in depth at retrieval layers still holds.
+        logger.debug("brain_hook absorption gate check failed (non-fatal): %s", gate_err)
+
     # Circuit-breaker check — try to half-open if cooldown elapsed.
     _maybe_close_breaker()
 

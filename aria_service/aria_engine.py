@@ -1021,28 +1021,10 @@ def _sync_correlation_context(message: str) -> str:
         return ""
 
 
-# 2026-04-24: Self-introspection retrieval guard. Mirrors
-# `_BRAVE_QA_SELF_INFRA_RE` in routes/aria.py — keep in sync if extended
-# there. Triggers when the user is asking "why isn't my X working", where X
-# is a component of THEIR OWN deployment (listener, gateway, brain, sweep,
-# etc.). Background: today's incident 2026-04-24 — Brave Answers fabricated
-# an "OpenClaw" gateway on a self-infra question; the answer was absorbed
-# into mem0 + knowledge facts + RAG via pay-once-remember-forever; even
-# after blocking the Brave route, the SAME fabrication came back from the
-# poisoned memory tagged `[CONFIRMED]`. This guard quarantines the
-# absorbed-knowledge layers (rag / knowledge / mem0 / neural / semantic)
-# for self-infra questions so poisoned entries can't surface. Live sweep
-# state (live_intel / correlation / ledger) stays available — that data
-# is freshly-grounded, not absorbed-from-search.
-_SELF_INFRA_INTROSPECTION_RE = re.compile(
-    r"(?:why|what'?s)\s+(?:is|are|isn'?t|aren'?t|won'?t|can'?t|doesn'?t|"
-    r"wrong\s+with|broken\s+(?:in|with))\s+"
-    r"(?:my|our|this|the|you|aria|baileys|"
-    r"(?:wa|whatsapp)[\s_-]?(?:listener|gateway|bridge)?|"
-    r"(?:fly|seenode|backend|brain|chat|stream|sweep|deploy(?:ment)?|"
-    r"stack|infra(?:structure)?|service|process|gateway|listener))\b",
-    re.IGNORECASE,
-)
+# 2026-04-25: self-introspection detection moved to shared module so the
+# three layers (chat router, retrieval, reasoning router) all read from
+# one canonical regex. Extending the patterns now updates everywhere.
+from .intel.self_infra_detector import SELF_INFRA_INTROSPECTION_RE as _SELF_INFRA_INTROSPECTION_RE
 _SELF_INFRA_QUARANTINE_NOTE = (
     "[SELF-INFRA QUARANTINE]\n"
     "The user is asking about their own deployment / infrastructure. "

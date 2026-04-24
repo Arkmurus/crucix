@@ -1645,23 +1645,10 @@ _BRAVE_QA_EXCLUDE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# 2026-04-24: self-introspection guard. Brave Answers will happily summarise
-# random forum threads about fictional WhatsApp gateways ("OpenClaw") when
-# asked "why isn't my listener working" — Clause 12 fabrication. Block these
-# specifically; the LLM without Brave context tends to honestly admit it
-# doesn't have grounded knowledge of its own infra rather than invent details.
-# Brave Answers stays available for everything external (the pay-once-
-# remember-forever pattern still applies); this only fires on questions
-# that are clearly about the operator's own deployment.
-_BRAVE_QA_SELF_INFRA_RE = re.compile(
-    r"(?:why|what'?s)\s+(?:is|are|isn'?t|aren'?t|won'?t|can'?t|doesn'?t|"
-    r"wrong\s+with|broken\s+(?:in|with))\s+"
-    r"(?:my|our|this|the|you|aria|baileys|"
-    r"(?:wa|whatsapp)[\s_-]?(?:listener|gateway|bridge)?|"
-    r"(?:fly|seenode|backend|brain|chat|stream|sweep|deploy(?:ment)?|"
-    r"stack|infra(?:structure)?|service|process|gateway|listener))\b",
-    re.IGNORECASE,
-)
+# 2026-04-25: self-introspection detection moved to shared module
+# `aria_service/intel/self_infra_detector.py`. Imported below; alias kept
+# for compatibility with existing test references.
+from ..intel.self_infra_detector import SELF_INFRA_INTROSPECTION_RE as _BRAVE_QA_SELF_INFRA_RE
 
 
 def _looks_like_internal_composition(msg: str) -> bool:
@@ -6092,6 +6079,106 @@ async def purge_cases_ep(request: Request):
     dry_run = bool(body.get("dry_run", False))
     from ..intel import reasoning_library as _rl
     return await _rl.purge_polluted_cases(dry_run=dry_run)
+
+
+@router.post("/admin/purge-memory")
+async def purge_memory_ep(request: Request):
+    """Surgical keyword-purge across the absorbed-knowledge stores —
+    knowledge facts (Redis), reasoning library cases (Redis), and RAG
+    chunks (ChromaDB). Use when a fabricated answer was absorbed via
+    the pay-once-remember-forever pattern and needs to be removed from
+    every layer at once.
+
+    Background: 2026-04-24 OpenClaw incident — Brave Answers fabricated
+    a fictional WhatsApp gateway product on a self-infra question;
+    brain_hook absorbed the answer into mem0 + knowledge + RAG +
+    reasoning library, all tagged [CONFIRMED]. Even after blocking the
+    Brave route + adding retrieval-layer quarantine + reasoning-router
+    bypass, the existing entries were still in the stores. Only
+    intel_ledger had keyword-purge tooling; this endpoint covers the
+    other three.
+
+    Body:
+        {
+            "keywords": ["openclaw", "openclaw doctor", "arkmurus platform"],
+            "dry_run": true,            // default false
+            "stores": ["knowledge","reasoning_library","rag"]  // default all three
+        }
+
+    Returns a per-store summary:
+        {
+            "knowledge":         {scanned, removed, removed_samples: [...]},
+            "reasoning_library": {scanned, removed, removed_samples: [...]},
+            "rag":               {scanned_docs, scanned_facts,
+                                  removed_docs, removed_facts,
+                                  removed_samples: [...]},
+            "dry_run": <bool>,
+            "keywords_used": [...]
+        }
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    keywords = body.get("keywords") or []
+    if isinstance(keywords, str):
+        keywords = [keywords]
+    if not isinstance(keywords, list) or not keywords:
+        raise HTTPException(
+            status_code=400,
+            detail="Body must include non-empty 'keywords' list",
+        )
+    dry_run = bool(body.get("dry_run", False))
+
+    valid_stores = {"knowledge", "reasoning_library", "rag"}
+    requested = body.get("stores")
+    if requested is None:
+        stores = valid_stores
+    else:
+        if not isinstance(requested, list):
+            raise HTTPException(
+                status_code=400,
+                detail="'stores' must be a list when provided",
+            )
+        stores = {s for s in requested if s in valid_stores}
+        if not stores:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'stores' must contain at least one of {sorted(valid_stores)}",
+            )
+
+    out: dict[str, Any] = {
+        "dry_run": dry_run,
+        "keywords_used": [k for k in keywords if k and k.strip()],
+        "stores_requested": sorted(stores),
+    }
+
+    if "knowledge" in stores:
+        try:
+            from ..intel import knowledge as _kb
+            out["knowledge"] = await _kb.purge_by_keywords(keywords, dry_run=dry_run)
+        except Exception as e:
+            logger.warning("purge-memory: knowledge store failed: %s", e)
+            out["knowledge"] = {"error": f"{type(e).__name__}: {e}"}
+
+    if "reasoning_library" in stores:
+        try:
+            from ..intel import reasoning_library as _rl
+            out["reasoning_library"] = await _rl.purge_by_keywords(keywords, dry_run=dry_run)
+        except Exception as e:
+            logger.warning("purge-memory: reasoning_library failed: %s", e)
+            out["reasoning_library"] = {"error": f"{type(e).__name__}: {e}"}
+
+    if "rag" in stores:
+        try:
+            from ..intel import rag_store as _rs
+            out["rag"] = await _rs.purge_by_keywords(keywords, dry_run=dry_run)
+        except Exception as e:
+            logger.warning("purge-memory: rag_store failed: %s", e)
+            out["rag"] = {"error": f"{type(e).__name__}: {e}"}
+
+    return out
 
 
 @router.post("/admin/purge-signals")
