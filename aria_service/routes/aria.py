@@ -11889,6 +11889,56 @@ async def adversarial_amendments_reject_ep(req: Request):
     }
 
 
+@router.post("/adversarial/amendments/reject-bulk")
+async def adversarial_amendments_reject_bulk_ep(req: Request):
+    """Bulk-reject every pending amendment matching any of the provided
+    attack_ids, all with the same rejection reason. Used for operator
+    triage sweeps (e.g. 'all amendments from attacks that now pass in
+    the latest run are historical flake' — one reason, many rejections).
+
+    Body: {"attack_ids": ["A1_X", "B1_Y", ...], "reason": "..."}
+    """
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+    raw_ids = body.get("attack_ids") or []
+    reason = (body.get("reason") or "").strip()
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise HTTPException(status_code=400, detail="attack_ids must be a non-empty list")
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason required")
+    target_ids = {str(a).strip() for a in raw_ids if str(a).strip()}
+    from ..intel import redis_store as rs
+    from datetime import datetime as _dt, timezone as _tz
+    now_iso = _dt.now(_tz.utc).isoformat()
+    key_queue = "aria:adversarial:amendments_queue"
+    key_rejected = "aria:adversarial:rejected_amendments"
+    queue = await rs.get_json(key_queue) or []
+    rejected = await rs.get_json(key_rejected) or []
+    moved = []
+    kept = []
+    for note in queue:
+        if isinstance(note, dict) and note.get("attack_id") in target_ids:
+            rej = dict(note)
+            rej["rejected_at"] = now_iso
+            rej["rejection_reason"] = reason[:500]
+            moved.append(rej)
+        else:
+            kept.append(note)
+    rejected = moved + rejected
+    await rs.set_json(key_rejected, rejected[:500], ex=365 * 86400)
+    await rs.set_json(key_queue, kept, ex=90 * 86400)
+    return {
+        "ok": True,
+        "removed": len(moved),
+        "remaining": len(kept),
+        "matched_ids": sorted({m["attack_id"] for m in moved}),
+    }
+
+
 @router.get("/adversarial/amendments/rejected")
 async def adversarial_amendments_rejected_ep(limit: int = 100):
     """Audit surface: amendments the operator has rejected, with reason.
