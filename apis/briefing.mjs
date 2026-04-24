@@ -114,11 +114,33 @@ import { AUTO_SOURCES } from './auto_sources.mjs';
 const SOURCE_TIMEOUT_MS = 30_000; // 30s max per individual source
 
 export async function runSource(name, fn, ...args) {
-  // GAP 11: Skip suspended sources
+  // GAP 11: Skip suspended sources — with a probation probe so
+  // auto-recovery can actually fire.
+  //
+  // Previously this unconditionally short-circuited suspended sources.
+  // But the pruner's auto-recovery branch requires a `success=true`
+  // recordFetch, and recordFetch is only called after the fetch runs.
+  // So suspended sources were locked out forever — the "recover when
+  // reliability rises above 40%" path was unreachable.
+  //
+  // Solution: probe suspended sources on ~1 in 20 sweeps (every ~2.3h
+  // at 7-min sweep cadence). The probe runs the full fetch and records
+  // the result normally, so the existing recover logic can fire after
+  // 3 consecutive successes. No change to the suspension threshold.
   if (_isSuspended) {
     try {
       if (await _isSuspended(name)) {
-        return { name, status: 'suspended', durationMs: 0 };
+        const probe = Math.random() < 0.05; // 5% probation probe
+        if (!probe) {
+          console.warn(`[Source] ${name} skipped — auto-suspended. Probing on ~5% of sweeps; operator override: POST /api/admin/sources/${name}/enable`);
+          return {
+            name,
+            status: 'suspended',
+            durationMs: 0,
+            error: 'auto-suspended (<15% reliability / 20+ sweeps) — probing on ~5% of sweeps; use /api/admin/sources/<name>/enable to force-enable',
+          };
+        }
+        console.warn(`[Source] ${name} probation probe — running despite suspension to test recovery`);
       }
     } catch {}
   }
@@ -336,13 +358,20 @@ export async function fullBriefing() {
     }
   };
 
-  // Name the failing sources — "48/49 returned data" without names was a silent skip
-  // that hid URL rot (RFI feed moved, ANGOP bot-blocked) for weeks.
-  const failedNames = sources
-    .filter(s => s.status !== 'ok')
+  // Name the failing / suspended sources — "48/49 returned data" without names was
+  // a silent skip that hid URL rot (RFI feed moved, ANGOP bot-blocked) for weeks.
+  // Suspensions are split into their own group so the operator can tell a latched
+  // pruner decision from a live crash.
+  const erroredNames = sources
+    .filter(s => s.status === 'error' || s.status === 'timeout')
     .map(s => `${s.name || 'unknown'}${s.error ? `(${String(s.error).slice(0, 60)})` : ''}`);
-  const failureSuffix = failedNames.length ? ` · failed: ${failedNames.join(', ')}` : '';
-  console.error(`[Crucix] Sweep complete in ${totalMs}ms — ${output.crucix.sourcesOk}/${sources.length} sources returned data${failureSuffix}`);
+  const suspendedNames = sources
+    .filter(s => s.status === 'suspended')
+    .map(s => s.name || 'unknown');
+  const parts = [];
+  if (erroredNames.length)   parts.push(` · failed: ${erroredNames.join(', ')}`);
+  if (suspendedNames.length) parts.push(` · suspended: ${suspendedNames.join(', ')}`);
+  console.error(`[Crucix] Sweep complete in ${totalMs}ms — ${output.crucix.sourcesOk}/${sources.length} sources returned data${parts.join('')}`);
   console.error(`[Crucix] Dashboard: ${sortedUpdates.length} deduped updates (${confirmedCount} cross-confirmed), ${sortedSignals.length} signals`);
   return output;
 }
