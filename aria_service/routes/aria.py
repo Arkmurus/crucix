@@ -344,6 +344,14 @@ async def dd_reports_index_ep(limit: int = 50):
     return {"reports": await dd_orchestrator.list_reports(limit=limit)}
 
 
+@router.get("/dd/layer-5c/stats")
+async def dd_layer_5c_stats_ep(limit: int = 200):
+    """Layer 5c (commercial coherence) tier distribution + most-flagged
+    jurisdictions. Dashboard panel reads this; no new persistence path."""
+    from ..intel import commercial_coherence
+    return await commercial_coherence.layer_5c_stats(limit=limit)
+
+
 @router.get("/dd/watchlist")
 async def dd_watchlist_get_ep():
     from ..intel import dd_orchestrator

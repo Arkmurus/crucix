@@ -1037,3 +1037,76 @@ def anomaly_text_for_deception(section: CommercialCoherenceSection) -> str:
     for j in section.jurisdiction_flags[:3]:
         parts.append(f"- jurisdiction: {j[:280]}")
     return "\n".join(parts)
+
+
+async def layer_5c_stats(limit: int = 200) -> dict:
+    """Aggregate Layer 5c tier distribution across recent DD reports.
+
+    Scans the DD report index + body cache, reads
+    `body["commercial_coherence"]["tier"]` on each, returns:
+      {
+        "runs_scanned": int,
+        "by_tier": {"GREEN": n, "ELEVATED": n, "HIGH": n},
+        "top_flagged_jurisdictions": [(iso2, flagged_count), ...],
+        "latest_run_at": iso ts,
+      }
+
+    Dashboard-only surface — cheap aggregation that doesn't require a
+    new persistence path. Reports older than the REPORT_TTL (7 days)
+    fall out naturally as Redis evicts the body keys.
+    """
+    from . import redis_store as rs
+    from . import dd_orchestrator as _dd
+    try:
+        idx = await rs.get_json(getattr(_dd, "REPORT_INDEX_KEY", "crucix:dd:report_index")) or []
+    except Exception:
+        idx = []
+    items = idx if isinstance(idx, list) else (idx.get("items") if isinstance(idx, dict) else [])
+
+    by_tier: dict[str, int] = {"GREEN": 0, "ELEVATED": 0, "HIGH": 0}
+    flagged_by_jur: dict[str, int] = {}
+    runs_scanned = 0
+    latest_run_at = ""
+
+    for it in (items or [])[:limit]:
+        if not isinstance(it, dict):
+            continue
+        run_id = it.get("run_id") or ""
+        if not run_id:
+            continue
+        try:
+            body = await rs.get_json(f"crucix:dd:report:{run_id}")
+        except Exception:
+            continue
+        if not isinstance(body, dict):
+            continue
+        cc = body.get("commercial_coherence") or {}
+        tier = (cc.get("tier") or "").upper()
+        if tier not in by_tier:
+            # Accept the bucket if it's valid; otherwise skip. Layer 5c
+            # may have been disabled (ARIA_LAYER_5C_ENABLED=0) on
+            # historical runs and the section will be absent.
+            continue
+        by_tier[tier] += 1
+        runs_scanned += 1
+        # Only count non-GREEN jurisdictions as "flagged"; GREEN is
+        # the clean baseline and would otherwise dominate the chart.
+        if tier != "GREEN":
+            jur = ((body.get("identity") or {}).get("jurisdiction") or "").upper()
+            if jur:
+                flagged_by_jur[jur] = flagged_by_jur.get(jur, 0) + 1
+        gen_at = it.get("generated_at") or it.get("run_at") or ""
+        if gen_at and gen_at > latest_run_at:
+            latest_run_at = gen_at
+
+    top_flagged = sorted(
+        flagged_by_jur.items(), key=lambda kv: (-kv[1], kv[0])
+    )[:5]
+    return {
+        "runs_scanned": runs_scanned,
+        "by_tier": by_tier,
+        "top_flagged_jurisdictions": [
+            {"jurisdiction": j, "flagged": n} for j, n in top_flagged
+        ],
+        "latest_run_at": latest_run_at,
+    }

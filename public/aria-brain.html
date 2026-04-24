@@ -116,6 +116,12 @@ Sidebar.init('brain');
     <div id="breaker-metrics" class="loading">Loading...</div>
   </div>
 
+  <!-- Layer 5c Commercial Coherence -->
+  <div class="card">
+    <h2>Layer 5c Commercial Coherence</h2>
+    <div id="layer-5c-metrics" class="loading">Loading...</div>
+  </div>
+
   <!-- Predictor -->
   <div class="card">
     <h2>Predictor Gate</h2>
@@ -300,6 +306,36 @@ async function loadBreakers() {
   });
   html += '</table>';
   document.getElementById('breaker-metrics').innerHTML = html;
+}
+
+async function loadLayer5c() {
+  const d = await fetchJson('/dd/layer-5c/stats');
+  const el = document.getElementById('layer-5c-metrics');
+  if (!d) { el.innerHTML = '<span class="neutral">No data yet</span>'; return; }
+  const tiers = d.by_tier || {};
+  const scanned = d.runs_scanned || 0;
+  if (!scanned) {
+    el.innerHTML = '<span class="neutral">No Layer 5c runs yet — first DD with commercial_coherence will populate this panel</span>';
+    return;
+  }
+  const green = tiers.GREEN || 0;
+  const elevated = tiers.ELEVATED || 0;
+  const high = tiers.HIGH || 0;
+  let html = metricRow('Runs scanned', scanned, 'neutral')
+    + metricRow('GREEN (clean)', green, 'good')
+    + metricRow('ELEVATED', elevated, elevated > 0 ? 'warn' : 'good')
+    + metricRow('HIGH', high, high > 0 ? 'bad' : 'good')
+    + metricRow('Latest run', d.latest_run_at || '--', 'neutral');
+  const flagged = d.top_flagged_jurisdictions || [];
+  if (flagged.length) {
+    html += '<div style="margin-top:8px;font-weight:600;color:#d29922">Top flagged jurisdictions</div>';
+    html += '<table><tr><th>Jurisdiction</th><th>Flagged runs</th></tr>';
+    flagged.forEach(j => {
+      html += `<tr><td>${j.jurisdiction}</td><td class="warn">${j.flagged}</td></tr>`;
+    });
+    html += '</table>';
+  }
+  el.innerHTML = html;
 }
 
 async function loadPredictor() {
@@ -879,9 +915,10 @@ async function refreshAll() {
   document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
   await Promise.all([
     loadHealth(), loadMode(), loadEngine(), loadAdversarial(),
-    loadBreakers(), loadPredictor(), loadAudit(), loadHeatmap(),
-    loadDLQ(), loadMastery(), loadComposite(), loadCalibration(),
-    loadSurface(), loadLearning(), loadSystemHealth(), loadLlmCost(),
+    loadBreakers(), loadLayer5c(), loadPredictor(), loadAudit(),
+    loadHeatmap(), loadDLQ(), loadMastery(), loadComposite(),
+    loadCalibration(), loadSurface(), loadLearning(), loadSystemHealth(),
+    loadLlmCost(),
   ]);
 }
 
