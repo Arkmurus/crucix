@@ -48,12 +48,19 @@ const THRESHOLDS = {
   'CESIUM-134': { normal: 0.001, elevated: 0.01, unit: 'pCi/m3' },
 };
 
+// Per-call timeouts tightened from 25s → 10s. The sweep's outer hard cap
+// is 30s, and this briefing fires 4 Envirofacts calls; any serial delay
+// blew the cap and the whole EPA slot returned nothing. With 10s per call
+// run in parallel, 4 calls + a small headroom fit inside the 30s budget
+// even if every call stalls near its individual timeout.
+const EPA_CALL_TIMEOUT_MS = 10000;
+
 // Get recent RadNet analytical results (JSON)
 export async function getAnalyticalResults(opts = {}) {
   const { rows = 50, startRow = 0 } = opts;
   return safeFetch(
     `${RADNET_ANALYTICAL}/ROWS/${startRow}:${startRow + rows}/JSON`,
-    { timeout: 25000 }
+    { timeout: EPA_CALL_TIMEOUT_MS }
   );
 }
 
@@ -62,7 +69,7 @@ export async function getResultsByState(state, opts = {}) {
   const { rows = 25, startRow = 0 } = opts;
   return safeFetch(
     `${RADNET_ANALYTICAL}/ANA_STATE/${state}/ROWS/${startRow}:${startRow + rows}/JSON`,
-    { timeout: 25000 }
+    { timeout: EPA_CALL_TIMEOUT_MS }
   );
 }
 
@@ -72,7 +79,7 @@ export async function getResultsByAnalyte(analyte, opts = {}) {
   const encoded = encodeURIComponent(analyte);
   return safeFetch(
     `${RADNET_ANALYTICAL}/ANA_TYPE/${encoded}/ROWS/${startRow}:${startRow + rows}/JSON`,
-    { timeout: 25000 }
+    { timeout: EPA_CALL_TIMEOUT_MS }
   );
 }
 
@@ -123,39 +130,64 @@ function checkReading(reading) {
   return null;
 }
 
-// Briefing — get recent radiation readings from EPA network, flag anomalies
+// Briefing — get recent radiation readings from EPA network, flag anomalies.
+// Envirofacts is the single source of truth for US RadNet — there is no
+// alternative API. When it times out, the correct behaviour is graceful
+// degradation: return an empty-but-structured result so the sweep's EPA
+// slot isn't lost, rather than throwing and showing "CRITICAL" in the log.
 export async function briefing() {
   const readings = [];
   const signals = [];
+  const fetchErrors = [];
 
-  // Fetch recent analytical results (broad pull)
-  const recentData = await getAnalyticalResults({ rows: 100 });
-  const recentRecords = Array.isArray(recentData) ? recentData : [];
+  // Run the broad pull + the per-analyte pulls in PARALLEL via
+  // allSettled. Previously the broad pull was awaited first, so if it
+  // stalled near its timeout the analyte calls queued behind it and the
+  // whole briefing blew past the sweep's 30s hard cap.
+  const parallelResults = await Promise.allSettled([
+    getAnalyticalResults({ rows: 50 }).then(d => ({ kind: 'broad', records: Array.isArray(d) ? d : [] })),
+    getResultsByAnalyte('GROSS BETA',  { rows: 20 }).then(d => ({ kind: 'GROSS BETA',  records: Array.isArray(d) ? d : [] })),
+    getResultsByAnalyte('IODINE-131',  { rows: 20 }).then(d => ({ kind: 'IODINE-131',  records: Array.isArray(d) ? d : [] })),
+    getResultsByAnalyte('CESIUM-137',  { rows: 20 }).then(d => ({ kind: 'CESIUM-137',  records: Array.isArray(d) ? d : [] })),
+  ]);
 
-  // Compact all readings
-  const allReadings = recentRecords.map(compactReading);
-  readings.push(...allReadings);
-
-  // Also try to pull key analytes specifically
-  const analyteResults = await Promise.all(
-    ['GROSS BETA', 'IODINE-131', 'CESIUM-137'].map(async analyte => {
-      const data = await getResultsByAnalyte(analyte, { rows: 20 });
-      const records = Array.isArray(data) ? data : [];
-      return { analyte, records: records.map(compactReading) };
-    })
-  );
-
-  for (const { analyte, records } of analyteResults) {
-    // Add any records not already in our list
-    for (const r of records) {
-      if (!readings.some(existing =>
-        existing.location === r.location &&
-        existing.collectDate === r.collectDate &&
-        existing.analyte === r.analyte
-      )) {
-        readings.push(r);
+  for (const r of parallelResults) {
+    if (r.status === 'fulfilled') {
+      const { kind, records } = r.value;
+      for (const raw of records) {
+        const reading = compactReading(raw);
+        // Dedupe across the 4 parallel calls (same station/analyte/date
+        // shows up in both the broad pull and the analyte-specific pull).
+        const isDup = readings.some(existing =>
+          existing.location === reading.location &&
+          existing.collectDate === reading.collectDate &&
+          existing.analyte === reading.analyte
+        );
+        if (!isDup) readings.push(reading);
       }
+    } else {
+      fetchErrors.push(r.reason?.message || String(r.reason));
     }
+  }
+
+  // Graceful degradation: all 4 calls failed → return the empty slot
+  // with an explicit note rather than throwing. The sweep log already
+  // separately logged CRITICAL so the operator sees the incident; we
+  // just don't want to lose the EPA slot on the dashboard.
+  if (readings.length === 0 && fetchErrors.length === parallelResults.length) {
+    return {
+      source: 'EPA RadNet',
+      timestamp: new Date().toISOString(),
+      totalReadings: 0,
+      readings: [],
+      stateSummary: {},
+      signals: [`EPA Envirofacts unreachable (${fetchErrors[0]?.slice(0, 80)}) — no alternative public API for US RadNet. Skipped this sweep.`],
+      monitoredAnalytes: KEY_ANALYTES,
+      thresholds: THRESHOLDS,
+      degraded: true,
+      fetchErrors,
+      note: 'All 4 Envirofacts calls failed. Sweep continues; next attempt in 7 min.',
+    };
   }
 
   // Check all readings against thresholds
