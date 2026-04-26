@@ -70,7 +70,12 @@ jobs:
           # state: the app is responding, some autonomy loops are off.
           # Treat operational|degraded as live. Only "unknown" or non-200
           # is a real deploy failure.
-          for i in $(seq 1 24); do
+          # 2026-04-26 — bumped poll budget 24×5s=120s → 36×5s=180s.
+          # Cold-start RAG warm-up (sentence-transformer load + intl law
+          # corpus + export-control sections) takes 2–3 min; the previous
+          # 120s budget caused 4 spurious red CI runs across 2026-04-24/25
+          # for deploys that were actually live.
+          for i in $(seq 1 36); do
             status=$(curl -sS -m 5 -o /dev/null -w '%{http_code}' https://aria-intel.fly.dev/health || echo "000")
             if [ "${status}" = "200" ]; then
               svc_status=$(curl -sS -m 5 https://aria-intel.fly.dev/health | jq -r '.status // "unknown"')
