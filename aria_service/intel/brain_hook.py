@@ -483,6 +483,41 @@ async def absorb(
         # fall through — defence in depth at retrieval layers still holds.
         logger.debug("brain_hook absorption gate check failed (non-fatal): %s", gate_err)
 
+    # ── Opt-in quarantine queue ─────────────────────────────────────────
+    # Defence-in-depth tier between accept and reject. Off by default.
+    # Operator opts in via env var ARIA_ABSORPTION_QUARANTINE_MODULES (a
+    # comma-separated list of module names). Listed modules' absorptions
+    # are diverted to the quarantine queue for review instead of being
+    # written directly to permanent memory. Pending entries surface via
+    # /api/aria/admin/absorption-quarantine/list; operator promotes or
+    # rejects from there. Designed to be flippable instantly when a new
+    # poison vector is suspected — no redeploy needed.
+    try:
+        from . import absorption_quarantine as _aq
+        if _aq.is_quarantine_enabled_for(module):
+            topic_hint = ",".join(extra_topics or []) or None
+            qid = await _aq.enqueue(
+                module=module,
+                entity_name=entity_name,
+                summary=summary,
+                detail=detail,
+                topic=topic_hint,
+            )
+            logger.info(
+                "brain_hook.absorb: QUARANTINED %s (module=%s entity=%s) — operator review pending",
+                qid, module, entity_name,
+            )
+            await _record_gate_skip("absorption_quarantine_pending_review", module)
+            return {
+                "skipped": True,
+                "reason": "absorption_quarantine_pending_review",
+                "quarantine_id": qid,
+                "module": module,
+            }
+    except Exception as quarantine_err:
+        # Queue failure must not block legitimate absorption.
+        logger.debug("absorption_quarantine check failed (non-fatal): %s", quarantine_err)
+
     # Circuit-breaker check — try to half-open if cooldown elapsed.
     _maybe_close_breaker()
 
@@ -895,6 +930,16 @@ async def get_stats() -> dict:
         if isinstance(bucket, dict)
     }
 
+    # Absorption quarantine queue depth (opt-in via env var). Always
+    # present in the response but reports `enabled: false` when the
+    # ARIA_ABSORPTION_QUARANTINE_MODULES list is empty — operator gets
+    # a unified view of defense-in-depth state.
+    try:
+        from . import absorption_quarantine as _aq
+        quarantine_stats = await _aq.stats()
+    except Exception:
+        quarantine_stats = {"enabled": False, "pending": 0}
+
     return {
         "total_signals": g.get("total", 0),
         "tracking_since": g.get("started_at"),
@@ -904,6 +949,7 @@ async def get_stats() -> dict:
         "stale_modules": stale,
         "never_seen": sorted(never_seen),
         "absorb_skipped_by_reason": absorb_skipped_by_reason,
+        "absorption_quarantine": quarantine_stats,
         "circuit_breaker": breaker,
         "health": composite,
     }

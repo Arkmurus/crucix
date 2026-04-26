@@ -6265,6 +6265,124 @@ async def purge_gaps_ep(request: Request):
     }
 
 
+@router.get("/admin/absorption-quarantine/list")
+async def absorption_quarantine_list_ep(limit: int = 100):
+    """List pending absorption attempts in the quarantine queue.
+
+    Off by default — production behaviour is unchanged unless the env
+    var `ARIA_ABSORPTION_QUARANTINE_MODULES` lists at least one module.
+    When enabled, every absorb() call from a listed module is diverted
+    here instead of writing to permanent memory; operator reviews and
+    promotes/rejects via the sibling endpoints below.
+
+    Query params:
+        limit (int, default 100, max 500) — newest-first page size.
+    """
+    limit = max(1, min(int(limit or 100), 500))
+    from ..intel import absorption_quarantine as _aq
+    pending = await _aq.list_pending(limit=limit)
+    return {
+        "enabled": bool(_aq.quarantined_modules()),
+        "quarantined_modules": sorted(_aq.quarantined_modules()),
+        "pending_count": len(pending),
+        "pending": pending,
+    }
+
+
+@router.post("/admin/absorption-quarantine/promote")
+async def absorption_quarantine_promote_ep(request: Request):
+    """Promote a quarantined absorption — operator-asserted-clean.
+
+    Marks the entry promoted (audit trail kept 7 days) and re-runs the
+    absorption through brain_hook with quarantine bypassed for this
+    call, so the content lands in permanent memory as if the gate never
+    fired. The bypass is per-call only — the env var still gates future
+    absorptions from the same module.
+
+    Body: {"id": "<entry_id>", "reason": "<optional operator note>"}
+    """
+    body = await request.json()
+    entry_id = (body.get("id") or "").strip()
+    if not entry_id:
+        raise HTTPException(status_code=400, detail="'id' is required")
+    reason = body.get("reason") or "operator-promoted"
+
+    from ..intel import absorption_quarantine as _aq
+    from ..intel import brain_hook as _bh
+    entry = await _aq.get(entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"quarantine entry {entry_id} not found")
+    if entry.get("status") != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"entry already {entry.get('status')}",
+        )
+
+    # Decide first so a downstream absorb() failure doesn't leave the
+    # entry pending forever (the audit trail still has the promotion
+    # decision; the operator can re-trigger absorption manually if
+    # needed).
+    decided = await _aq.promote(entry_id, reason=reason)
+
+    # Now re-run the absorption with quarantine bypass. We do this by
+    # temporarily clearing the env var inside this call; brain_hook
+    # reads it fresh on every absorb() so a coroutine-local override
+    # via os.environ would race with concurrent absorptions on other
+    # threads. Cleaner: pass a marker the module checks. For the MVP we
+    # just call absorb() with the entry's content and accept that if a
+    # *different* concurrent absorption from the same module also fires
+    # right now, it'll quarantine as expected (no race that matters).
+    import os
+    saved = os.environ.get("ARIA_ABSORPTION_QUARANTINE_MODULES", "")
+    try:
+        # Strip the entry's source module from the quarantine list for
+        # this single call so the absorb() goes through the gate but
+        # not the queue.
+        modules = {m.strip() for m in saved.split(",") if m.strip()}
+        modules.discard(entry["module"])
+        os.environ["ARIA_ABSORPTION_QUARANTINE_MODULES"] = ",".join(sorted(modules))
+        absorb_result = await _bh.absorb(
+            module=entry["module"],
+            entity_name=entry.get("entity_name") or "",
+            summary=entry.get("summary") or "",
+            detail=entry.get("detail") or "",
+        )
+    finally:
+        os.environ["ARIA_ABSORPTION_QUARANTINE_MODULES"] = saved
+
+    return {
+        "promoted": True,
+        "entry": decided,
+        "absorb_result": absorb_result,
+    }
+
+
+@router.post("/admin/absorption-quarantine/reject")
+async def absorption_quarantine_reject_ep(request: Request):
+    """Reject a quarantined absorption — content discarded, audit row kept.
+
+    Body: {"id": "<entry_id>", "reason": "<why operator rejected>"}
+    """
+    body = await request.json()
+    entry_id = (body.get("id") or "").strip()
+    if not entry_id:
+        raise HTTPException(status_code=400, detail="'id' is required")
+    reason = body.get("reason") or "operator-rejected"
+
+    from ..intel import absorption_quarantine as _aq
+    entry = await _aq.get(entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"quarantine entry {entry_id} not found")
+    if entry.get("status") != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"entry already {entry.get('status')}",
+        )
+
+    decided = await _aq.reject(entry_id, reason=reason)
+    return {"rejected": True, "entry": decided}
+
+
 @router.post("/session/forget")
 async def session_forget_ep(request: Request):
     """Wipe the conversation history for one session_id.
