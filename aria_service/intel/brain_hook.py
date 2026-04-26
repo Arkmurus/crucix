@@ -450,6 +450,7 @@ async def absorb(
                 "brain_hook.absorb: REFUSED — content matches known fabricated token (module=%s)",
                 module,
             )
+            await _record_gate_skip("absorption_gate_known_fabrication", module)
             return {
                 "skipped": True,
                 "reason": "absorption_gate_known_fabrication",
@@ -471,6 +472,7 @@ async def absorb(
                 "(module=%s entity=%s)",
                 module, entity_name,
             )
+            await _record_gate_skip("absorption_gate_self_infra_search_derived", module)
             return {
                 "skipped": True,
                 "reason": "absorption_gate_self_infra_search_derived",
@@ -772,6 +774,28 @@ def get_breaker_state() -> dict:
     }
 
 
+async def _record_gate_skip(reason: str, module: str) -> None:
+    """Record an absorption-gate refusal in Redis under the global stats key.
+
+    Counters live alongside per-module signal stats in
+    `crucix:aria:brain_hook:stats` under the special `_gate_skips` key
+    (a dict of {reason: {total, by_module: {module: count}, last_at}}).
+    Surfaced via /api/aria/brain/stats so dashboards can show
+    poisoning-defense activity without scraping WARNING logs.
+    """
+    try:
+        from . import redis_store as rs
+        stats = await rs.get_json(_STATS_KEY) or {}
+        gate = stats.setdefault("_gate_skips", {})
+        bucket = gate.setdefault(reason, {"total": 0, "by_module": {}, "last_at": 0})
+        bucket["total"] += 1
+        bucket["by_module"][module] = bucket["by_module"].get(module, 0) + 1
+        bucket["last_at"] = time.time()
+        await rs.set_json(_STATS_KEY, stats, ex=30 * 86400)
+    except Exception:
+        pass  # gate-skip stats must never block absorb
+
+
 async def _record_signal(module: str, success: bool) -> None:
     """Record a signal in Redis for per-module tracking."""
     try:
@@ -854,6 +878,23 @@ async def get_stats() -> dict:
     elif not healthy:
         composite = "cold"
 
+    # Absorption-gate skip counters — populated by _record_gate_skip when
+    # the gate refuses fabricated tokens or search-derived self-infra
+    # content. Empty {} when no skips have ever fired (clean state).
+    gate_skips_raw = stats.get("_gate_skips", {}) or {}
+    absorb_skipped_by_reason = {
+        reason: {
+            "total": bucket.get("total", 0),
+            "by_module": bucket.get("by_module", {}),
+            "last_skipped_ago_h": (
+                round((now - bucket["last_at"]) / 3600, 1)
+                if bucket.get("last_at") else None
+            ),
+        }
+        for reason, bucket in gate_skips_raw.items()
+        if isinstance(bucket, dict)
+    }
+
     return {
         "total_signals": g.get("total", 0),
         "tracking_since": g.get("started_at"),
@@ -862,6 +903,7 @@ async def get_stats() -> dict:
         "stale_count": len(stale),
         "stale_modules": stale,
         "never_seen": sorted(never_seen),
+        "absorb_skipped_by_reason": absorb_skipped_by_reason,
         "circuit_breaker": breaker,
         "health": composite,
     }

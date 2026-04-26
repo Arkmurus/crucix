@@ -107,3 +107,87 @@ def test_gate_passes_external_search_for_external_topic(monkeypatch):
         # Downstream tier failure is acceptable — only the gate behaviour
         # matters here.
         pass
+
+
+def test_gate_skip_records_counter_for_dashboard(monkeypatch):
+    """When the gate refuses absorption, _record_gate_skip increments
+    a Redis counter so the dashboard can show poisoning-defense activity
+    without scraping WARNING logs.
+
+    Verifies the counter is incremented with the correct (reason, module)
+    pair for both gate cases."""
+    from aria_service.intel import brain_hook
+
+    monkeypatch.setattr(brain_hook, "BRAIN_HOOK_ENABLED", True)
+
+    captured = []
+
+    async def fake_record_gate_skip(reason, module):
+        captured.append((reason, module))
+
+    monkeypatch.setattr(brain_hook, "_record_gate_skip", fake_record_gate_skip)
+
+    async def run_known_fabrication():
+        return await brain_hook.absorb(
+            module="some_module",
+            summary="OpenClaw v2026.3.13 status check failed",
+            detail="ignored",
+        )
+
+    async def run_self_infra_search():
+        return await brain_hook.absorb(
+            module="brave_answer",
+            summary="Why isn't my WhatsApp listener delivering messages?",
+            detail="Generic gateway troubleshooting from web search.",
+        )
+
+    out1 = asyncio.run(run_known_fabrication())
+    out2 = asyncio.run(run_self_infra_search())
+
+    assert out1["reason"] == "absorption_gate_known_fabrication"
+    assert out2["reason"] == "absorption_gate_self_infra_search_derived"
+
+    assert ("absorption_gate_known_fabrication", "some_module") in captured
+    assert ("absorption_gate_self_infra_search_derived", "brave_answer") in captured
+
+
+def test_gate_skip_counter_surfaces_in_get_stats(monkeypatch):
+    """get_stats() must include `absorb_skipped_by_reason` derived from
+    the Redis _gate_skips bucket. Dashboard reads this field."""
+    import time as _t
+    from aria_service.intel import brain_hook
+
+    fake_redis_blob = {
+        "_global": {"total": 5, "started_at": _t.time() - 3600},
+        "_gate_skips": {
+            "absorption_gate_known_fabrication": {
+                "total": 2,
+                "by_module": {"brave_answer": 2},
+                "last_at": _t.time() - 1800,
+            },
+            "absorption_gate_self_infra_search_derived": {
+                "total": 1,
+                "by_module": {"brave_answer": 1},
+                "last_at": _t.time() - 600,
+            },
+        },
+    }
+
+    class FakeRedisStore:
+        @staticmethod
+        async def get_json(key):
+            return fake_redis_blob
+
+    # Replace the module-level redis_store import seen by get_stats.
+    import aria_service.intel.redis_store as rs_mod
+    monkeypatch.setattr(rs_mod, "get_json", FakeRedisStore.get_json, raising=True)
+
+    out = asyncio.run(brain_hook.get_stats())
+    skips = out.get("absorb_skipped_by_reason") or {}
+    assert "absorption_gate_known_fabrication" in skips
+    assert skips["absorption_gate_known_fabrication"]["total"] == 2
+    assert skips["absorption_gate_known_fabrication"]["by_module"]["brave_answer"] == 2
+    assert skips["absorption_gate_self_infra_search_derived"]["total"] == 1
+    # last_skipped_ago_h should be a positive number (~ 0.5 and ~ 0.17 hrs).
+    assert skips["absorption_gate_known_fabrication"]["last_skipped_ago_h"] is not None
+    assert skips["absorption_gate_known_fabrication"]["last_skipped_ago_h"] > 0
