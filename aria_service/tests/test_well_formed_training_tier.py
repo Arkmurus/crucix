@@ -193,7 +193,10 @@ def test_training_filter_diag_breaks_down_by_tier(monkeypatch):
     assert len(out) == 3
     diag = te._last_collection_diag.get("chat_turns")
     assert diag is not None
-    assert diag.get("kept_by_tier") == {"grounded": 1, "well_formed": 2}
+    # 2026-04-26: kept_by_tier gained an `upgraded` bucket for the
+    # cross-sweep accumulator. Existing entries without an accumulator
+    # row remain in their original tier.
+    assert diag.get("kept_by_tier") == {"grounded": 1, "well_formed": 2, "upgraded": 0}
 
 
 def test_training_filter_still_rejects_unverified(monkeypatch):

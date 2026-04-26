@@ -2060,8 +2060,9 @@ async def _verify_and_record_chat(
             verification_status = "no_claims"
     except Exception as e:
         logger.debug("inline response_verifier failed (non-fatal): %s", e)
+    audit_entry: dict | None = None
     try:
-        await _cal.record_chat(
+        audit_entry = await _cal.record_chat(
             session_id=session_id,
             user_message=user_message,
             response_text=response_text,
@@ -2074,6 +2075,29 @@ async def _verify_and_record_chat(
         )
     except Exception as e:
         logger.debug("record_chat failed (non-fatal): %s", e)
+
+    # 2026-04-26 angle (a): cross-sweep verification accumulator. When
+    # we recorded an audit entry as `well_formed` or `unverified` AND
+    # the response had at least one tier-marked claim, queue it for
+    # re-evaluation. Later sweeps that add corroborating sources to
+    # verified_intel will retroactively upgrade the entry to grounded
+    # via the periodic reconciler — without that, claims that were
+    # 1-source on first appearance stay below the grounded threshold
+    # forever and the training pipeline misses them.
+    if audit_entry and verification_status in ("well_formed", "unverified"):
+        try:
+            from .intel import response_verifier as _rv2
+            from .intel import verification_accumulator as _va
+            extracted_claims = _rv2._ENTITY_CLAIM_RE.findall(response_text or "")
+            if extracted_claims:
+                await _va.enqueue_for_reconcile(
+                    response_hash=audit_entry.get("response_hash") or "",
+                    claims=extracted_claims,
+                    original_status=verification_status,
+                    audit_timestamp=audit_entry.get("timestamp") or "",
+                )
+        except Exception as e:
+            logger.debug("verification_accumulator.enqueue failed (non-fatal): %s", e)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────

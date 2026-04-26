@@ -106,7 +106,18 @@ async def _collect_chat_turns(days: int) -> list[dict[str, Any]]:
             # bypassing record_chat — a different bug than a tight filter.
             _set_diag("chat_turns", 0, reason="chat_audit_log_empty_for_window")
             return out
-        kept_by_tier = {"grounded": 0, "well_formed": 0}
+        # 2026-04-26 angle (a): cross-sweep upgrades. The verification
+        # accumulator queue carries entries that were originally
+        # well_formed/unverified but whose claims have since gained
+        # 2+-source corroboration in verified_intel. We import lazily
+        # so a stale verification module doesn't block the rest of the
+        # collector.
+        try:
+            from ..intel import verification_accumulator as _va
+        except Exception:
+            _va = None
+
+        kept_by_tier = {"grounded": 0, "well_formed": 0, "upgraded": 0}
         for e in entries or []:
             if not isinstance(e, dict):
                 continue
@@ -120,6 +131,25 @@ async def _collect_chat_turns(days: int) -> list[dict[str, Any]]:
             verdict = (
                 (e.get("verification_status") or e.get("honesty_verdict") or "").lower()
             )
+            # Cross-sweep upgrade check: if the accumulator queue says
+            # this entry is now grounded (later sweeps added the missing
+            # corroboration), promote the verdict here. The audit log
+            # entry itself is HMAC-signed and immutable — the upgrade
+            # lives in the sidecar queue.
+            upgraded = False
+            if _va and verdict in ("well_formed", "unverified"):
+                rh = e.get("response_hash") or ""
+                if rh:
+                    try:
+                        queued = await _va.get_status(rh)
+                    except Exception:
+                        queued = None
+                    if queued and queued.get("current_status") == "grounded":
+                        verdict = "grounded"
+                        # Use the upgraded grounded_rate so meta is honest
+                        # about what tipped the entry into the bucket.
+                        grounded_rate = queued.get("upgraded_grounded_rate") or grounded_rate
+                        upgraded = True
             # 2026-04-26 angle (b): accept two training tiers.
             # - grounded:    claims actually verified (high quality), gated
             #                on grounded_rate >= 0.40 belt-and-braces in case
@@ -132,7 +162,7 @@ async def _collect_chat_turns(days: int) -> list[dict[str, Any]]:
             if verdict == "grounded":
                 if grounded_rate < 0.40:
                     continue
-                tier = "grounded"
+                tier = "upgraded" if upgraded else "grounded"
             elif verdict == "well_formed":
                 tier = "well_formed"
             else:
@@ -160,6 +190,7 @@ async def _collect_chat_turns(days: int) -> list[dict[str, Any]]:
             len(out),
             reason=None if out else "no_grounded_or_well_formed_chat_turns_in_window",
             kept_by_tier=kept_by_tier,
+            upgraded_examples=kept_by_tier.get("upgraded", 0),
         )
     except Exception as exc:
         _set_diag("chat_turns", 0, error=f"{type(exc).__name__}: {exc}")
@@ -350,6 +381,27 @@ async def run_daily_export(days_lookback: int = 7) -> dict[str, Any]:
 
     Returns a summary suitable for mem0 / brain_hook absorption.
     """
+    # 2026-04-26 angle (a): refresh cross-sweep upgrades before
+    # collecting. The accumulator has been queueing well_formed /
+    # unverified entries since each chat turn fired; running reconcile()
+    # here re-evaluates each pending claim against the current
+    # verified_intel snapshot. Any entry whose claims now have
+    # 2+-source corroboration is upgraded to `grounded` in the queue
+    # and gets picked up by _collect_chat_turns below as if it had
+    # originally graded grounded. Single-pass-per-export is sufficient
+    # cadence — daily export means daily reconcile.
+    try:
+        from ..intel import verification_accumulator as _va
+        recon = await _va.reconcile()
+        logger.info(
+            "[training_export] verification reconcile: scanned=%d upgraded=%d still_pending=%d",
+            recon.get("scanned", 0),
+            recon.get("upgraded", 0),
+            recon.get("still_pending", 0),
+        )
+    except Exception as exc:
+        logger.debug("verification_accumulator.reconcile failed (non-fatal): %s", exc)
+
     # Collect from every source in parallel-ish (await each)
     chat_turns = await _collect_chat_turns(days_lookback)
     dd_reports = await _collect_dd_reports(days_lookback)

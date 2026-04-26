@@ -940,6 +940,15 @@ async def get_stats() -> dict:
     except Exception:
         quarantine_stats = {"enabled": False, "pending": 0}
 
+    # Cross-sweep verification accumulator queue depth. Populated as
+    # well_formed / unverified chat turns are recorded; depth shrinks
+    # as the periodic reconciler upgrades entries to grounded.
+    try:
+        from . import verification_accumulator as _va
+        accumulator_stats = await _va.stats()
+    except Exception:
+        accumulator_stats = {"pending": 0, "upgraded": 0, "last_reconcile": {}}
+
     return {
         "total_signals": g.get("total", 0),
         "tracking_since": g.get("started_at"),
@@ -950,6 +959,7 @@ async def get_stats() -> dict:
         "never_seen": sorted(never_seen),
         "absorb_skipped_by_reason": absorb_skipped_by_reason,
         "absorption_quarantine": quarantine_stats,
+        "verification_accumulator": accumulator_stats,
         "circuit_breaker": breaker,
         "health": composite,
     }
