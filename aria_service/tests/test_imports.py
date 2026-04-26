@@ -159,6 +159,9 @@ CORE_MODULES = [
     "aria_service.intel.prime_sub_map",
     "aria_service.intel.opportunity_converter",
     "aria_service.integrations.airtable_pipeline",
+    # 2026-04-26 — compliance review specificity addendum (forces ARIA to
+    # demand attribute-specific gates on ML8/dual-use draft reviews)
+    "aria_service.intel.compliance_review_specificity",
 ]
 
 

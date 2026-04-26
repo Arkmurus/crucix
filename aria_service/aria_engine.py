@@ -1923,6 +1923,23 @@ async def _build_calibrated_system_prompt(message: str) -> str:
     except Exception as e:
         logger.debug("security_protocol injection failed (non-fatal): %s", e)
 
+    # Compliance-review specificity — fires when the user asks ARIA to
+    # review/clean a draft email/letter that touches export-control or
+    # dual-use compliance. Forces ARIA to demand specific document
+    # attributes (letterhead, signatory, seal, non-retransfer, deadline,
+    # KYC enumeration) instead of accepting vague "standard KYC package"
+    # / "preliminary identifying letter" gates as adequate. Past failure
+    # mode 2026-04-26: ARIA verdict "no material blind spots" on a
+    # C4 / Ukraine ML8 draft that was counterparty-stallable.
+    try:
+        from .intel import compliance_review_specificity
+        crs_ctx = compliance_review_specificity.get_compliance_review_specificity_context(message)
+        if crs_ctx:
+            addendum_parts.append(crs_ctx)
+            logger.info("[compliance_review_specificity] context injected (%d chars)", len(crs_ctx))
+    except Exception as e:
+        logger.debug("compliance_review_specificity injection failed (non-fatal): %s", e)
+
     # Document-grounded mode directive — fires when the user's message
     # contains an [ATTACHED DOCUMENT block. Tells the LLM in the
     # strongest terms that it must not blend recall memory with
