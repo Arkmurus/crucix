@@ -568,15 +568,41 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
     """
     from .researcher import _fetch_rss, _fetch_article_text, RESEARCH_FEEDS
 
-    # Pick feeds aligned with weak topics
+    # Pick feeds aligned with weak topics. Include CORE_MASTERY_TAGS in
+    # the weak-topic candidate pool — before 2026-04-26 only TOPICS was
+    # consulted, which silently excluded lang:* (RU/ZH/AR/PT/FR/ES) and
+    # the four cross-cutting capability tags (sanctions / nato_standards
+    # / strategic_geography / export_control). Result: TASS+Huanqiu RSS
+    # feeds added in `6014587` were fetched but always deprioritised at
+    # selection, so lang:ru and lang:zh stayed at the 0.50 floor.
     mastery = await _load_mastery()
+    weak_pool = list(TOPICS) + [t for t in CORE_MASTERY_TAGS if t not in TOPICS]
     weak_topics = sorted(
-        TOPICS, key=lambda t: mastery.get(t, {}).get("score", INITIAL_MASTERY)
-    )[:3]
+        weak_pool, key=lambda t: mastery.get(t, {}).get("score", INITIAL_MASTERY)
+    )[:5]
     logger.info("[student] reading session — focused on weak topics: %s", weak_topics)
 
     # Get fresh articles from a rotating set of feeds
-    feeds_pool = random.sample(RESEARCH_FEEDS, min(8, len(RESEARCH_FEEDS)))
+    # Boost: when lang:ru / lang:zh / lang:ar are weak, force at least
+    # one matching-language feed into the pool. Random sampling alone
+    # rarely picks them since lang feeds are 4 of ~30 entries.
+    weak_lang_to_category = {
+        "lang:ru": "russia_",
+        "lang:zh": "china_",
+        "lang:ar": "arabic_",
+    }
+    forced_feeds: list[dict] = []
+    for tag, cat_prefix in weak_lang_to_category.items():
+        if tag in weak_topics:
+            for f in RESEARCH_FEEDS:
+                if (f.get("category") or "").startswith(cat_prefix) and f not in forced_feeds:
+                    forced_feeds.append(f)
+                    break  # one per language is enough per session
+    remaining_slots = max(0, 8 - len(forced_feeds))
+    other_pool = [f for f in RESEARCH_FEEDS if f not in forced_feeds]
+    feeds_pool = forced_feeds + random.sample(
+        other_pool, min(remaining_slots, len(other_pool))
+    )
     articles_to_read = []
     for feed in feeds_pool:
         try:
@@ -590,12 +616,17 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         if len(articles_to_read) >= num_articles * 3:
             break
 
-    # Score each article by how well its title matches our weak topics
-    def _topic_match(text: str) -> int:
+    # Score each article by how well its title matches our weak topics.
+    # Match against title AND first 200 chars of the description/summary
+    # so non-Latin titles aren't penalised (TASS RSS titles are short
+    # plain Russian — running detect_topics on title alone yields fewer
+    # script chars than the 20-char threshold for lang:ru).
+    def _topic_match(art: dict) -> int:
+        text = (art.get("title") or "") + " " + (art.get("summary") or art.get("description") or "")[:200]
         topics_in_text = detect_topics(text)
         return sum(1 for t in topics_in_text if t in weak_topics)
 
-    articles_to_read.sort(key=lambda a: -_topic_match(a.get("title", "")))
+    articles_to_read.sort(key=lambda a: -_topic_match(a))
     selected = articles_to_read[:num_articles]
 
     studied = []
