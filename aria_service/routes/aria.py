@@ -6383,6 +6383,134 @@ async def absorption_quarantine_reject_ep(request: Request):
     return {"rejected": True, "entry": decided}
 
 
+# ── OEM contact graph endpoints (2026-04-26) ─────────────────────────────
+# The OEM_GRAPH_ENRICH_WEEKLY autonomous task is a scan-and-report stub
+# by design — populating the 60 anchor-role slots needs human-curated
+# data (DSEI/Eurosatory speaker lists, LinkedIn scrapes, conference
+# attendee lists). These endpoints let the operator feed that data
+# directly without writing to Redis by hand.
+
+@router.get("/oem/contacts")
+async def oem_contacts_list_ep(
+    oem: str | None = None,
+    role: str | None = None,
+    region: str | None = None,
+    filled_only: bool = False,
+):
+    """List OEM contacts. All filters optional. Pass `filled_only=true`
+    to hide the empty placeholder slots."""
+    from ..intel import oem_contact_graph as _oem
+    contacts = await _oem.get_oem_contacts(
+        oem=oem, role_filter=role, region=region, filled_only=filled_only,
+    )
+    return {
+        "count": len(contacts),
+        "filters": {"oem": oem, "role": role, "region": region, "filled_only": filled_only},
+        "contacts": contacts,
+    }
+
+
+@router.get("/oem/coverage")
+async def oem_coverage_ep():
+    """Coverage report: how many of each OEM's slots are filled vs
+    placeholder. Dashboard-friendly summary so operator can see at a
+    glance which OEMs are still 0/5."""
+    from ..intel import oem_contact_graph as _oem
+    contacts = await _oem.get_oem_contacts()
+    by_oem: dict[str, dict[str, int]] = {}
+    for c in contacts:
+        oem = c.get("oem") or "unknown"
+        bucket = by_oem.setdefault(oem, {"total": 0, "filled": 0})
+        bucket["total"] += 1
+        if c.get("name"):
+            bucket["filled"] += 1
+    total = len(contacts)
+    filled = sum(1 for c in contacts if c.get("name"))
+    return {
+        "total_slots": total,
+        "filled_slots": filled,
+        "coverage_pct": round(100 * filled / max(1, total), 1),
+        "by_oem": dict(sorted(
+            by_oem.items(),
+            key=lambda kv: (kv[1]["filled"], kv[0]),
+        )),
+    }
+
+
+@router.post("/oem/contacts/import")
+async def oem_contacts_import_ep(request: Request):
+    """Bulk-upsert OEM contacts. Each entry is dedup'd by
+    (oem, role_slot, name) — re-importing the same person is idempotent.
+
+    Body:
+        {
+            "contacts": [
+                {
+                    "oem": "Leonardo",
+                    "oem_country_hq": "IT",
+                    "role_slot": "VP International Sales",
+                    "name": "Mario Rossi",
+                    "linkedin_url": "https://...",
+                    "email": "m.rossi@leonardo.com",
+                    "region_focus": "AFRICA",
+                    "seniority": "VP",
+                    "source": "DSEI 2026 speaker list",
+                    "confidence": "HIGH",
+                    "notes": "Met at Mozambique panel"
+                },
+                ...
+            ]
+        }
+
+    Required per record: `oem`, `role_slot`, `name`. Everything else
+    is optional and falls back to sensible defaults (region_focus=GLOBAL,
+    seniority=HEAD, source=manual, confidence=MEDIUM).
+
+    Returns: {imported: <count>, ids: [...], skipped: [...]} where
+    `skipped` lists entries missing required fields.
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    contacts = body.get("contacts")
+    if not isinstance(contacts, list) or not contacts:
+        raise HTTPException(
+            status_code=400,
+            detail="Body must include non-empty 'contacts' list",
+        )
+
+    from ..intel import oem_contact_graph as _oem
+    imported_ids: list[str] = []
+    skipped: list[dict] = []
+    for i, raw in enumerate(contacts):
+        if not isinstance(raw, dict):
+            skipped.append({"index": i, "reason": "not an object"})
+            continue
+        if not raw.get("oem") or not raw.get("role_slot") or not raw.get("name"):
+            skipped.append({
+                "index": i,
+                "reason": "missing required field (oem / role_slot / name)",
+                "oem": raw.get("oem", ""),
+                "role_slot": raw.get("role_slot", ""),
+            })
+            continue
+        try:
+            cid = await _oem.add_contact(raw)
+            imported_ids.append(cid)
+        except Exception as e:
+            skipped.append({"index": i, "reason": f"{type(e).__name__}: {e}"})
+
+    return {
+        "imported": len(imported_ids),
+        "skipped": len(skipped),
+        "ids": imported_ids[:50],
+        "skipped_detail": skipped[:20],
+    }
+
+
 @router.post("/session/forget")
 async def session_forget_ep(request: Request):
     """Wipe the conversation history for one session_id.
