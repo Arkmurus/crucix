@@ -569,7 +569,9 @@ async def extract_structured(
         logger.debug("doc_intel: few-shot injection skipped (%s)", e)
 
     try:
-        result = await llm.complete(sysmsg, prompt, max_tokens=max_tokens, timeout=120.0)
+        from . import cost_tracker
+        with cost_tracker.feature("document_intelligence"):
+            result = await llm.complete(sysmsg, prompt, max_tokens=max_tokens, timeout=120.0)
     except Exception as e:
         logger.warning("doc_intel: LLM call failed for %s — %s", form_code, e)
         return None
@@ -586,7 +588,9 @@ async def extract_structured(
             f"{result.text[:8000]}"
         )
         try:
-            repaired = await llm.complete(_EXTRACT_SYSTEM, repair_prompt, max_tokens=max_tokens, timeout=60.0)
+            from . import cost_tracker as _ct
+            with _ct.feature("document_intelligence"):
+                repaired = await llm.complete(_EXTRACT_SYSTEM, repair_prompt, max_tokens=max_tokens, timeout=60.0)
             return json.loads(_strip_fences(repaired.text or ""))
         except Exception as e:
             logger.warning("doc_intel: repair pass failed for %s — %s", form_code, e)

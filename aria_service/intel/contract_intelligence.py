@@ -134,7 +134,9 @@ async def self_review_contract(
             f"windows will cover the rest. Do not hallucinate clauses you cannot see."
         )
         try:
-            result = await llm.complete(SELF_REVIEW_PROMPT, prompt, max_tokens=2000, timeout=60.0)
+            from . import cost_tracker
+            with cost_tracker.feature("contract_intelligence"):
+                result = await llm.complete(SELF_REVIEW_PROMPT, prompt, max_tokens=2000, timeout=60.0)
             text = (result.text or "").strip()
             if text:
                 header = f"── Self-review window {idx+1}/{len(chunks)} ──\n"

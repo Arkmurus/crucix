@@ -491,7 +491,9 @@ async def _classify_url_llm(url: str, context: str, llm) -> URLProposal:
         f'{{"proposed_tier":"...","confidence":0.85,"rationale":"...","risk_level":"LOW|MEDIUM|HIGH"}}'
     )
     try:
-        result = await llm.complete("You are a URL classifier.", prompt, max_tokens=300, timeout=15.0)
+        from . import cost_tracker
+        with cost_tracker.feature("corpus_manager"):
+            result = await llm.complete("You are a URL classifier.", prompt, max_tokens=300, timeout=15.0)
         raw = result.text.strip()
         if "```" in raw:
             raw = raw.split("```")[1].split("```")[0]

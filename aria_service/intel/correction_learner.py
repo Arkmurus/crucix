@@ -216,12 +216,20 @@ async def _extract_facts_via_llm(text: str, llm: Any) -> list[dict]:
     if not text or len(text.strip()) < 30:
         return []
     try:
-        result = await llm.complete(
-            _EXTRACTION_SYSTEM_PROMPT,
-            f"User correction text:\n\n{text[:4000]}",
-            max_tokens=_FACT_EXTRACTION_MAX_TOKENS,
-            timeout=_FACT_EXTRACTION_TIMEOUT_S,
-        )
+        # Self-attribute the LLM call. Caller in routes/aria.py
+        # dispatches us via asyncio.create_task AFTER the
+        # `with cost_tracker.feature("chat")` block has closed, so
+        # without this wrap the new task's contextvar defaults to
+        # "uncategorized" — uncategorized growth was the gating issue
+        # for the autonomy flip per the 2026-04-25 TODO.
+        from . import cost_tracker
+        with cost_tracker.feature("correction_learner"):
+            result = await llm.complete(
+                _EXTRACTION_SYSTEM_PROMPT,
+                f"User correction text:\n\n{text[:4000]}",
+                max_tokens=_FACT_EXTRACTION_MAX_TOKENS,
+                timeout=_FACT_EXTRACTION_TIMEOUT_S,
+            )
         # llm.complete returns either a string or an object with .text
         raw = result.text if hasattr(result, "text") else str(result)
     except Exception as e:

@@ -638,12 +638,17 @@ async def _extract_facts_llm(
     user = f"Query: {query_context}\n\nPage URL: {source_url}\n\nPage text:\n{sample}"
 
     try:
-        result = await llm.complete(
-            _LLM_EXTRACT_SYSTEM,
-            user,
-            max_tokens=1500,
-            timeout=45.0,
-        )
+        # Self-attribute so the cost meter doesn't bucket this under
+        # "uncategorized" when called from a context without an
+        # outer cost_tracker.feature() wrap.
+        from . import cost_tracker
+        with cost_tracker.feature("link_investigator"):
+            result = await llm.complete(
+                _LLM_EXTRACT_SYSTEM,
+                user,
+                max_tokens=1500,
+                timeout=45.0,
+            )
         raw = getattr(result, "text", "") or ""
         cost = _estimate_llm_cost(result)
     except Exception as e:

@@ -254,12 +254,20 @@ async def evaluate(
         )
         # LLMProvider.complete signature is (system_prompt, user_message, *, max_tokens, timeout)
         # and returns LLMResult with .text
-        llm_result = await llm.complete(
-            _EVAL_SYSTEM_PROMPT,
-            prompt,
-            max_tokens=500,
-            timeout=30.0,
-        )
+        # Self-attribute the LLM call to the rlaif feature bucket. The
+        # caller in routes/aria.py dispatches us via asyncio.create_task
+        # AFTER the `with cost_tracker.feature("chat")` block has closed,
+        # so the new task's contextvar would otherwise default to
+        # "uncategorized" and pollute that bucket. Wrapping locally
+        # makes us robust to whatever caller context fires us.
+        from . import cost_tracker
+        with cost_tracker.feature("rlaif"):
+            llm_result = await llm.complete(
+                _EVAL_SYSTEM_PROMPT,
+                prompt,
+                max_tokens=500,
+                timeout=30.0,
+            )
         raw = getattr(llm_result, "text", None) or ""
         if not raw:
             return None

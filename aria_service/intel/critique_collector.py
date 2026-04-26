@@ -263,12 +263,20 @@ async def collect(
             query=(query[:600] or "(empty)"),
             response=(response[:4000] or "(empty)"),
         )
-        llm_result = await llm.complete(
-            _CRITIQUE_SYSTEM_PROMPT,
-            prompt,
-            max_tokens=2000,
-            timeout=60.0,
-        )
+        # Self-attribute to the critique_collector feature bucket. The
+        # caller in routes/aria.py dispatches us via asyncio.create_task
+        # AFTER the `with cost_tracker.feature("chat")` block has closed,
+        # so without this wrap the new task's contextvar defaults to
+        # "uncategorized". Wrapping locally makes us robust regardless
+        # of caller context.
+        from . import cost_tracker
+        with cost_tracker.feature("critique_collector"):
+            llm_result = await llm.complete(
+                _CRITIQUE_SYSTEM_PROMPT,
+                prompt,
+                max_tokens=2000,
+                timeout=60.0,
+            )
         raw = getattr(llm_result, "text", None) or ""
         parsed = _parse_triple(raw)
         if parsed is None:
