@@ -63,12 +63,20 @@ _last_collection_diag: dict[str, dict[str, Any]] = {}
 
 def _set_diag(source: str, count: int,
               error: str | None = None,
-              reason: str | None = None) -> None:
-    _last_collection_diag[source] = {
+              reason: str | None = None,
+              **extra: Any) -> None:
+    entry: dict[str, Any] = {
         "count": count,
         "error": error,
         "reason": reason,
     }
+    # Caller-supplied diagnostic fields (e.g. kept_by_tier breakdown for
+    # chat_turns). Surfaced via training_export.last_run_diagnostics so
+    # the dashboard can show "5 grounded + 12 well_formed" instead of
+    # just "17 collected".
+    for k, v in extra.items():
+        entry[k] = v
+    _last_collection_diag[source] = entry
     if error:
         logger.warning("[training_export] %s: %s", source, error)
     elif reason and count == 0:
@@ -98,12 +106,13 @@ async def _collect_chat_turns(days: int) -> list[dict[str, Any]]:
             # bypassing record_chat — a different bug than a tight filter.
             _set_diag("chat_turns", 0, reason="chat_audit_log_empty_for_window")
             return out
+        kept_by_tier = {"grounded": 0, "well_formed": 0}
         for e in entries or []:
             if not isinstance(e, dict):
                 continue
             user_msg = e.get("user_message") or e.get("message") or ""
             aria_reply = e.get("response") or e.get("reply") or ""
-            grounded = (e.get("grounded_rate", 0) or 0) >= 0.40
+            grounded_rate = e.get("grounded_rate", 0) or 0
             # chat_audit_log.record_chat writes `verification_status`; older
             # code wrote `honesty_verdict`. Accept either (same treatment as
             # style_learner `c0418c5`) so a field rename doesn't silently
@@ -111,7 +120,22 @@ async def _collect_chat_turns(days: int) -> list[dict[str, Any]]:
             verdict = (
                 (e.get("verification_status") or e.get("honesty_verdict") or "").lower()
             )
-            if not grounded or verdict != "grounded":
+            # 2026-04-26 angle (b): accept two training tiers.
+            # - grounded:    claims actually verified (high quality), gated
+            #                on grounded_rate >= 0.40 belt-and-braces in case
+            #                the engine ever drifts.
+            # - well_formed: tier-marker discipline good but corroboration
+            #                thin (sweep signals are typically 1-source on
+            #                first appearance). Common case in production
+            #                — without accepting this the chat training
+            #                pipeline starves to 0 examples.
+            if verdict == "grounded":
+                if grounded_rate < 0.40:
+                    continue
+                tier = "grounded"
+            elif verdict == "well_formed":
+                tier = "well_formed"
+            else:
                 continue
             if not user_msg or not aria_reply:
                 continue
@@ -120,17 +144,23 @@ async def _collect_chat_turns(days: int) -> list[dict[str, Any]]:
                 continue
             if any(tag.lower() in aria_reply.lower() for tag in _EXCLUDE_TAGS):
                 continue
+            kept_by_tier[tier] += 1
             out.append({
                 "user": user_msg[:3000],
                 "assistant": aria_reply[:16000],
                 "meta": {
                     "source": "chat_audit",
-                    "grounded_rate": e.get("grounded_rate"),
+                    "grounded_rate": grounded_rate,
+                    "verification_tier": tier,
                     "trace_id": e.get("trace_id"),
                 },
             })
-        _set_diag("chat_turns", len(out),
-                  reason=None if out else "no_grounded_chat_turns_in_window")
+        _set_diag(
+            "chat_turns",
+            len(out),
+            reason=None if out else "no_grounded_or_well_formed_chat_turns_in_window",
+            kept_by_tier=kept_by_tier,
+        )
     except Exception as exc:
         _set_diag("chat_turns", 0, error=f"{type(exc).__name__}: {exc}")
     return out

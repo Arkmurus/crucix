@@ -2036,7 +2036,23 @@ async def _verify_and_record_chat(
             grounded_rate = round(v / denom, 3)
             # 0.40 threshold matches training_export filter so the audit
             # entry's verdict is consistent with what the filter accepts.
-            verification_status = "grounded" if grounded_rate >= 0.40 else "unverified"
+            if grounded_rate >= 0.40:
+                verification_status = "grounded"
+            elif checked >= 3:
+                # 2026-04-26 angle (b): substantive responses with proper
+                # tier-marker discipline (≥3 [CONFIRMED|PROBABLE|ASSESSED]
+                # claims extracted by response_verifier's _ENTITY_CLAIM_RE)
+                # but thin source corroboration get the new `well_formed`
+                # tier. This is the typical sweep-output shape — claims
+                # are honestly tagged, but signals are 1-source on first
+                # appearance so verifier's grounded_rate bottoms at 0/N.
+                # Without this tier the training pipeline starves: 0
+                # examples captured because every well-tagged response
+                # still falls under the `unverified` bucket. The training
+                # filter accepts both `grounded` and `well_formed` now.
+                verification_status = "well_formed"
+            else:
+                verification_status = "unverified"
         else:
             # Verifier ran cleanly but found no extractable claims —
             # response is a refusal, greeting, or unmarked general-knowledge
