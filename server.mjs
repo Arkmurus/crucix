@@ -2446,7 +2446,7 @@ app.post('/api/aria/knowledge/learn', requireAuth, async (req, res) => {
 
 // ARIA chat — Python service primary, local LLM fallback
 app.post('/api/aria/chat', requireAuth, async (req, res) => {
-  const { message, session_id } = req.body || {};
+  const { message, session_id, skip_aria_service } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
   const sid = session_id || `${req.user?.id || 'anon'}_${Date.now()}`;
 
@@ -2489,15 +2489,26 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
   //     because the OUTER waListener timeout was still 180s and fired first.
   //   round 5d (this):    aligned chain — waListener at 240s, server.mjs at
   //     300s with explicit headroom comment.
-  if (ARIA_SERVICE_URL) {
+  // 2026-04-26: skip_aria_service is set by the WhatsApp listener fallback
+  // when its streaming attempt already failed at the transport layer (fly.io
+  // unreachable / DNS / abort). Retrying the same fly.io path through /chat
+  // would just burn another 6 minutes for the same "fetch failed". Honor
+  // the hint and go straight to the local Node fallback.
+  if (ARIA_SERVICE_URL && !skip_aria_service) {
     try {
       const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
         method: 'POST',
         headers: _ariaHeaders(),
         body: JSON.stringify({ message, session_id: sid }),
-        // 2026-04-11 Hanwha: waListener research timeout bumped to 360s;
-        // this outer MUST exceed it. 420s = 7 minutes gives 60s headroom.
-        signal: AbortSignal.timeout(420000),
+        // 2026-04-26 (was 420s): /chat is reached by the WA listener as the
+        // FALLBACK after its streaming path already failed. The listener's
+        // outer abort fires at 360s — if we hold fly.io for 420s here, the
+        // listener aborts before we can fall through to ariaLocalChat, and
+        // the user gets "fetch failed" instead of the local degraded
+        // answer. 240s leaves ~120s headroom for ariaLocalChat to complete
+        // inside the listener's 360s budget. The streaming path keeps its
+        // own longer budget on /api/aria/chat/stream.
+        signal: AbortSignal.timeout(240000),
       });
       if (r.ok) {
         const data = await r.json();
@@ -2513,6 +2524,8 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
     } catch (e) {
       console.warn('[ARIA] Python service unreachable, trying brain/local:', e.message);
     }
+  } else if (skip_aria_service) {
+    console.warn('[ARIA] skip_aria_service=true — bypassing fly.io, going straight to local Node fallback');
   }
 
   // Try old Flask brain service
