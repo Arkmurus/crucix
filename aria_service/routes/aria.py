@@ -11266,10 +11266,18 @@ class _IngestBody(BaseModel):
     claims_extracted: int | None = None
 
 
-@router.post("/ingest")
+@router.post("/channel/ingest")
 async def ingest_ep(body: _IngestBody):
     """Silent ingestion endpoint — appends to intel ledger, no reply.
-    Used by the WhatsApp channel mirror for internal group messages."""
+    Used by the WhatsApp channel mirror for internal group messages.
+
+    2026-04-26: renamed from `/ingest` to `/channel/ingest` to stop
+    shadowing the sweep endpoint at main.py:`/api/aria/ingest`. The
+    router-mounted handler was registered first via include_router and
+    was catching all sweep payloads with its strict `_IngestBody`
+    schema, returning 422 because sweep payloads have no `text` field.
+    The sweep handler at main.py was dead code as a result.
+    """
     from ..intel import intel_ledger
     severity = "info"
     if body.deception_score and body.deception_score >= 0.50:
