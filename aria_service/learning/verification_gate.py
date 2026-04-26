@@ -654,26 +654,69 @@ async def get_stats() -> dict[str, Any]:
     except Exception:
         stats = {}
         recent = []
-    verified = stats.get("verified", 0)
-    unverified = stats.get("unverified", 0)
+    if not isinstance(recent, list):
+        recent = []
+
+    # 2026-04-26: pre-fix, this function read counters from a single
+    # Redis key (`stats_24h`) with `ex=86400` — a key-eviction TTL, NOT
+    # a rolling-window counter. Behaviour: after the last verification,
+    # the entire counter snapped to 0 exactly 24h later. Dashboard
+    # reported 0/0/0 even when `recent` plainly showed an entry at
+    # T-24.5h. Now we derive the 24h stats from the timestamped
+    # `recent` list (which has its own _MAX_RECENT-based eviction).
+    # The Redis stats counter is kept as a cumulative-since-last-prune
+    # convenience — useful for sub-24h periods, but no longer the
+    # source of truth for the dashboard's 24h numbers.
+    now_ts = time.time()
+    cutoff = now_ts - 86400
+    verified_24h = 0
+    unverified_24h = 0
+    blocking_24h = 0
+    warn_24h = 0
+    for entry in recent:
+        if not isinstance(entry, dict):
+            continue
+        at_str = entry.get("at") or ""
+        try:
+            entry_ts = datetime.fromisoformat(at_str.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            continue
+        if entry_ts < cutoff:
+            continue
+        verdict = entry.get("verdict")
+        severity = entry.get("severity")
+        if verdict == "CRITICAL_VERIFIED":
+            verified_24h += 1
+        elif verdict == "CRITICAL_UNVERIFIED":
+            unverified_24h += 1
+            if severity == "BLOCKING":
+                blocking_24h += 1
+            elif severity == "WARN":
+                warn_24h += 1
+
+    # `skipped` is still TTL-windowed because the skip events aren't
+    # carried in `recent` (they record a "didn't run" reason, not a
+    # verdict). Acceptable approximation — skipped is a rate signal,
+    # not a precise count.
     skipped = stats.get("skipped_total", 0)
+
     # 2026-04-25: skipped attempts (no_secondary_provider, llm_unavailable,
     # etc.) shouldn't count as failures — they're "didn't run" events. Only
     # divide by attempts that actually completed verification. Returns None
     # when no real verifications have run, so the dashboard shows "—" not
-    # "0%" — past behaviour was misleading: 1 skip + 0 completions
-    # produced "0% verification rate" implying everything failed.
-    completed = verified + unverified
-    rate = (verified / completed) if completed > 0 else None
+    # "0%".
+    completed = verified_24h + unverified_24h
+    rate = (verified_24h / completed) if completed > 0 else None
+
     return {
-        "verified_24h": verified,
-        "unverified_24h": unverified,
-        "blocking_disagreements_24h": stats.get("blocking", 0),
-        "warn_disagreements_24h": stats.get("warn", 0),
+        "verified_24h": verified_24h,
+        "unverified_24h": unverified_24h,
+        "blocking_disagreements_24h": blocking_24h,
+        "warn_disagreements_24h": warn_24h,
         "skipped_24h": skipped,
         "skipped_by_reason_24h": stats.get("skipped_by_reason", {}),
         "verification_rate": round(rate, 3) if rate is not None else None,
-        "recent": recent[-10:] if isinstance(recent, list) else [],
+        "recent": recent[-10:],
     }
 
 
