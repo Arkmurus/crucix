@@ -224,10 +224,19 @@ def _write(record: dict) -> tuple[bool, str]:
 
 
 async def _incr_stats(passed: bool, dry_run: bool) -> None:
-    """Best-effort Redis counter for the dashboard. Never raises."""
+    """Best-effort Redis counter for the dashboard. Never raises.
+
+    Uses keepttl on subsequent writes so the 14-day rolling window
+    actually rolls. The previous version called set_json with ex=14d on
+    every event, which reset the TTL each time -- under continuous
+    harvest traffic the counter never expired and `counters_rolling`
+    on the dashboard became a lifetime tally.
+    """
     try:
         from ..intel import redis_store as rs
-        stats = await rs.get_json(_REDIS_STATS_KEY) or {
+        existing = await rs.get_json(_REDIS_STATS_KEY)
+        is_fresh = not isinstance(existing, dict)
+        stats = existing if isinstance(existing, dict) else {
             "total_scored": 0,
             "total_passed": 0,
             "total_written": 0,
@@ -240,7 +249,10 @@ async def _incr_stats(passed: bool, dry_run: bool) -> None:
             stats["total_dry_skipped"] = int(stats.get("total_dry_skipped", 0)) + 1
         elif passed:
             stats["total_written"] = int(stats.get("total_written", 0)) + 1
-        await rs.set_json(_REDIS_STATS_KEY, stats, ex=14 * 86400)
+        if is_fresh:
+            await rs.set_json(_REDIS_STATS_KEY, stats, ex=14 * 86400)
+        else:
+            await rs.set_json(_REDIS_STATS_KEY, stats, keepttl=True)
     except Exception as e:
         logger.debug("output_harvester stats incr failed: %s", e)
 

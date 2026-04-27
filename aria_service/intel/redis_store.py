@@ -38,10 +38,25 @@ async def get(key: str) -> Optional[str]:
     return _mem_store.get(key)
 
 
-async def set(key: str, value: str, ex: int | None = None) -> None:
+async def set(key: str, value: str, ex: int | None = None,
+              keepttl: bool = False) -> None:
+    """Set a key. `ex` (seconds) sets a fresh TTL. `keepttl=True` preserves
+    the existing TTL across the update -- needed when a counter or rolling
+    aggregate is rewritten on every event but the rolling window must NOT
+    restart from zero each time. Cannot specify both.
+
+    Note: redis-py's `set` clears TTL by default unless either `ex` is
+    given or `keepttl=True` is set. Without this distinction, a write
+    pattern like `set_json(key, updated, ex=N)` resets the N-second
+    window every event under continuous traffic, turning what was meant
+    to be a rolling window into a lifetime tally.
+    """
     if _client:
         try:
-            await _client.set(key, value, ex=ex)
+            if keepttl and ex is None:
+                await _client.set(key, value, keepttl=True)
+            else:
+                await _client.set(key, value, ex=ex)
             return
         except Exception as e:
             logger.warning("Redis SET %s failed: %s", key, e)
@@ -70,8 +85,9 @@ async def get_json(key: str) -> Any:
     return None
 
 
-async def set_json(key: str, obj: Any, ex: int | None = None) -> None:
-    await set(key, json.dumps(obj, default=str), ex=ex)
+async def set_json(key: str, obj: Any, ex: int | None = None,
+                   keepttl: bool = False) -> None:
+    await set(key, json.dumps(obj, default=str), ex=ex, keepttl=keepttl)
 
 
 async def lpush(key: str, value: str) -> None:
