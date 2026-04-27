@@ -26,6 +26,7 @@ import httpx
 from ..llm.provider import LLMProvider, LLMResult
 from . import redis_store as rs
 from .knowledge import store_fact, search_knowledge
+from .llm_json import parse_llm_json
 from .researcher import (
     _fetch_article_text,
     _web_search,
@@ -638,10 +639,9 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
                 max_tokens=800,
                 timeout=30.0,
             )
-            json_match = re.search(r"\{[\s\S]*\}", result.text)
-            if json_match:
-                queries = json.loads(json_match.group()).get("queries", [])
-            else:
+            parsed_q = parse_llm_json(result.text, default={})
+            queries = parsed_q.get("queries", []) if isinstance(parsed_q, dict) else []
+            if not queries:
                 queries = [topic]
         except Exception:
             queries = [
@@ -797,9 +797,9 @@ Return JSON:
                 max_tokens=2000,
                 timeout=60.0,
             )
-            json_match = re.search(r"\{[\s\S]*\}", result.text)
-            if json_match:
-                synthesis = json.loads(json_match.group())
+            parsed = parse_llm_json(result.text)
+            if isinstance(parsed, dict):
+                synthesis = parsed
         except Exception as e:
             logger.warning(f"Synthesis failed: {e}")
 
@@ -996,10 +996,8 @@ Return JSON:
             max_tokens=3000,
             timeout=90.0,
         )
-        json_match = re.search(r"\{[\s\S]*\}", result.text)
-        if json_match:
-            parsed = json.loads(json_match.group())
-        else:
+        parsed = parse_llm_json(result.text)
+        if not isinstance(parsed, dict):
             return {"error": "Failed to parse scenarios"}
     except Exception as e:
         return {"error": str(e)}
@@ -1126,9 +1124,9 @@ Return JSON:
                 max_tokens=2000,
                 timeout=60.0,
             )
-            json_match = re.search(r"\{[\s\S]*\}", result.text)
-            if json_match:
-                profile = json.loads(json_match.group())
+            parsed_p = parse_llm_json(result.text)
+            if isinstance(parsed_p, dict):
+                profile = parsed_p
         except Exception as e:
             logger.warning(f"Profile synthesis failed: {e}")
 
@@ -1249,9 +1247,9 @@ Return JSON:
                 max_tokens=2000,
                 timeout=60.0,
             )
-            json_match = re.search(r"\{[\s\S]*\}", result.text)
-            if json_match:
-                report = json.loads(json_match.group())
+            parsed_r = parse_llm_json(result.text)
+            if isinstance(parsed_r, dict):
+                report = parsed_r
         except Exception as e:
             logger.warning(f"Person investigation synthesis failed: {e}")
 
@@ -1381,9 +1379,9 @@ Return JSON:
                 max_tokens=2000,
                 timeout=60.0,
             )
-            json_match = re.search(r"\{[\s\S]*\}", result.text)
-            if json_match:
-                report = json.loads(json_match.group())
+            parsed_r = parse_llm_json(result.text)
+            if isinstance(parsed_r, dict):
+                report = parsed_r
         except Exception as e:
             logger.warning(f"Company investigation synthesis failed: {e}")
 
@@ -1528,9 +1526,9 @@ Return JSON:
                 max_tokens=2500,
                 timeout=90.0,
             )
-            json_match = re.search(r"\{[\s\S]*\}", result.text)
-            if json_match:
-                network_map = json.loads(json_match.group())
+            parsed_n = parse_llm_json(result.text)
+            if isinstance(parsed_n, dict):
+                network_map = parsed_n
         except Exception as e:
             logger.warning(f"Network mapping synthesis failed: {e}")
 

@@ -31,6 +31,7 @@ from typing import Any, Optional
 
 from . import document_corrections as _corr
 from .knowledge import store_fact
+from .llm_json import parse_llm_json
 
 logger = logging.getLogger("aria.doc_intel")
 
@@ -576,25 +577,24 @@ async def extract_structured(
         logger.warning("doc_intel: LLM call failed for %s — %s", form_code, e)
         return None
 
-    raw = _strip_fences(result.text or "")
+    parsed = parse_llm_json(result.text or "")
+    if isinstance(parsed, dict):
+        return parsed
+    # Local repair cascade exhausted — try one LLM-based repair pass.
+    logger.info("doc_intel: JSON parse failed for %s, attempting repair", form_code)
+    repair_prompt = (
+        "Your previous response was not valid JSON. Re-emit ONLY the JSON object "
+        "(no fences, no commentary), strictly matching the schema:\n\n"
+        f"{result.text[:8000]}"
+    )
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        # Single repair pass — ask the model to fix the JSON.
-        logger.info("doc_intel: JSON parse failed for %s, attempting repair", form_code)
-        repair_prompt = (
-            "Your previous response was not valid JSON. Re-emit ONLY the JSON object "
-            "(no fences, no commentary), strictly matching the schema:\n\n"
-            f"{result.text[:8000]}"
-        )
-        try:
-            from . import cost_tracker as _ct
-            with _ct.feature("document_intelligence"):
-                repaired = await llm.complete(_EXTRACT_SYSTEM, repair_prompt, max_tokens=max_tokens, timeout=60.0)
-            return json.loads(_strip_fences(repaired.text or ""))
-        except Exception as e:
-            logger.warning("doc_intel: repair pass failed for %s — %s", form_code, e)
-            return None
+        from . import cost_tracker as _ct
+        with _ct.feature("document_intelligence"):
+            repaired = await llm.complete(_EXTRACT_SYSTEM, repair_prompt, max_tokens=max_tokens, timeout=60.0)
+        return parse_llm_json(repaired.text or "")
+    except Exception as e:
+        logger.warning("doc_intel: repair pass failed for %s — %s", form_code, e)
+        return None
 
 
 # ── RED-FLAG ANALYSIS ───────────────────────────────────────────────────────

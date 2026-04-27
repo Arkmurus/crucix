@@ -37,6 +37,7 @@ try:
 except ImportError:
     anthropic = None
 from aria_service.config import Settings
+from aria_service.intel.llm_json import parse_llm_json
 
 _settings = Settings()
 
@@ -536,11 +537,10 @@ Respond ONLY with JSON array. Example:
                 timeout=30,
             )
 
-            raw = response.content[0].text.strip()
-            # Strip markdown fences if present
-            raw = re.sub(r"```json\s*|\s*```", "", raw).strip()
-
-            data = json.loads(raw)
+            raw = response.content[0].text
+            data = parse_llm_json(raw, default=[])
+            if not isinstance(data, list):
+                data = []
             challenges = []
             for item in data:
                 if not isinstance(item, dict):
@@ -601,9 +601,9 @@ Return [] if no material unstated assumptions found."""
                 messages=[{"role": "user", "content": prompt}],
                 timeout=20,
             )
-            raw = re.sub(r"```json\s*|\s*```", "",
-                         response.content[0].text.strip()).strip()
-            items = json.loads(raw)
+            items = parse_llm_json(response.content[0].text, default=[])
+            if not isinstance(items, list):
+                items = []
             challenges = []
             for item in items:
                 if not isinstance(item, dict):

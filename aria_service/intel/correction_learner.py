@@ -62,6 +62,8 @@ import re
 import time
 from typing import Any
 
+from .llm_json import parse_llm_json
+
 logger = logging.getLogger("aria.correction_learner")
 
 # Feature flags
@@ -235,14 +237,8 @@ async def _extract_facts_via_llm(text: str, llm: Any) -> list[dict]:
     except Exception as e:
         logger.debug("correction fact extraction LLM call failed: %s", e)
         return []
-    # Pull JSON out of the response
-    json_match = re.search(r"\{[\s\S]*\}", raw)
-    if not json_match:
-        return []
-    try:
-        parsed = json.loads(json_match.group())
-    except Exception as e:
-        logger.debug("correction extraction JSON parse failed: %s", e)
+    parsed = parse_llm_json(raw)
+    if not isinstance(parsed, dict):
         return []
     facts = parsed.get("facts") or []
     if not isinstance(facts, list):

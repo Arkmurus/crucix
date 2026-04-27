@@ -44,10 +44,21 @@ def _strip_fences(s: str) -> str:
 
 
 def _extract_json_object(s: str) -> str | None:
-    """Greedy-match the outermost {...} block. Returns the substring or None
-    if the response doesn't contain a JSON object at all."""
-    m = re.search(r"\{[\s\S]*\}", s)
-    return m.group() if m else None
+    """Greedy-match the outermost JSON value -- {...} or [...]. Whichever
+    opener appears first wins, matched against its corresponding closer.
+    Returns the substring or None if no JSON shape is present.
+
+    active_challenge_engine and other LLM sites return top-level arrays;
+    the previous {-only regex silently dropped those into the default."""
+    obj = re.search(r"\{[\s\S]*\}", s)
+    arr = re.search(r"\[[\s\S]*\]", s)
+    if obj and arr:
+        return obj.group() if obj.start() <= arr.start() else arr.group()
+    if obj:
+        return obj.group()
+    if arr:
+        return arr.group()
+    return None
 
 
 def _escape_control_chars_in_strings(s: str) -> str:
@@ -203,7 +214,7 @@ def parse_llm_json(text: str, *, default: Any = None) -> Any:
     if not text:
         return default
     cleaned = _strip_fences(text)
-    candidate = _extract_json_object(cleaned) or (cleaned if "{" in cleaned else None)
+    candidate = _extract_json_object(cleaned) or (cleaned if ("{" in cleaned or "[" in cleaned) else None)
     if candidate is None:
         return default
 
