@@ -2121,6 +2121,87 @@ async def _verify_and_record_chat(
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
+# ── Per-call payload telemetry ─────────────────────────────────────────────
+# Top chat calls were running 67k input tokens with no per-component
+# attribution. This helper logs a structured breakdown so the operator can
+# grep `[chat_payload]` and find which slice (system / intel / history /
+# tool_context / raw_user) is doing the bloating. Char counts are exact;
+# the token estimate uses the cl100k 4-chars-per-token rule.
+_TELEM_TOOL_MARKER = "[I have already run the appropriate tool on your request"
+_TELEM_GROUP_MARKER = "[GROUP CONTEXT —"
+_TELEM_COMP_MARKER = "USER MESSAGE FOLLOWS:"
+_TELEM_SCRATCHPAD_MARKER = "PRIVATE SCRATCHPAD"
+
+
+def _decompose_message_for_telemetry(message: str) -> dict[str, int]:
+    """Split chat_ep's bundled message back into its components by char count."""
+    parts = {"raw_user": 0, "group_ctx": 0, "tool_ctx": 0,
+             "scratchpad": 0, "comprehension": 0}
+    if not message:
+        return parts
+    body = message
+    if _TELEM_COMP_MARKER in body:
+        _pre, _, body = body.partition(_TELEM_COMP_MARKER)
+        parts["comprehension"] = len(_pre) + len(_TELEM_COMP_MARKER)
+    if _TELEM_SCRATCHPAD_MARKER in body:
+        _body, _sep, _scratch = body.partition(_TELEM_SCRATCHPAD_MARKER)
+        parts["scratchpad"] = len(_sep) + len(_scratch)
+        body = _body
+    if _TELEM_TOOL_MARKER in body:
+        _body, _sep, _tool = body.partition(_TELEM_TOOL_MARKER)
+        parts["tool_ctx"] = len(_sep) + len(_tool)
+        body = _body
+    if _TELEM_GROUP_MARKER in body:
+        _body, _sep, _group = body.partition(_TELEM_GROUP_MARKER)
+        parts["group_ctx"] = len(_sep) + len(_group)
+        body = _body
+    parts["raw_user"] = len(body)
+    return parts
+
+
+def _log_chat_payload_telemetry(
+    *,
+    path: str,
+    session_id: str,
+    system_prompt: str,
+    user_prompt: str,
+    intel_context: str,
+    history: list,
+    raw_message: str,
+) -> None:
+    """Emit one INFO line per LLM call so we can attribute the 67k-token
+    bloat seen in /api/aria/cost/monthly top_calls. Greppable via
+    `[chat_payload]`."""
+    try:
+        comps = _decompose_message_for_telemetry(raw_message)
+        history_chars = sum(
+            len((m.get("content") or "")) for m in (history or [])
+        )
+        sys_chars = len(system_prompt or "")
+        intel_chars = len(intel_context or "")
+        prompt_chars = len(user_prompt or "")
+        total_chars = sys_chars + prompt_chars
+        payload = {
+            "path": path,
+            "session": (session_id or "")[:12],
+            "history_msgs": len(history or []),
+            "history_chars": history_chars,
+            "system_chars": sys_chars,
+            "intel_chars": intel_chars,
+            "raw_user_chars": comps["raw_user"],
+            "group_ctx_chars": comps["group_ctx"],
+            "tool_ctx_chars": comps["tool_ctx"],
+            "scratchpad_chars": comps["scratchpad"],
+            "comprehension_chars": comps["comprehension"],
+            "user_prompt_total_chars": prompt_chars,
+            "input_total_chars": total_chars,
+            "est_input_tokens": total_chars // 4,
+        }
+        logger.info("[chat_payload] %s", json.dumps(payload, separators=(",", ":")))
+    except Exception as e:
+        logger.debug("[chat_payload] telemetry failed: %s", e)
+
+
 async def aria_chat(
     message: str,
     session_id: str,
@@ -2414,6 +2495,11 @@ async def aria_chat(
     # DeepSeek timed out mid-generation.
     _llm_timeout = 100.0 if "[TOOL:" in message or "[I have already run" in message else 120.0
 
+    _log_chat_payload_telemetry(
+        path="chat", session_id=session_id,
+        system_prompt=system_prompt, user_prompt=user_prompt,
+        intel_context=context, history=history, raw_message=message,
+    )
     try:
         result = await llm.complete(system_prompt, user_prompt, max_tokens=4000, timeout=_llm_timeout)
         response_text = result.text
@@ -2907,6 +2993,11 @@ async def aria_chat_stream(
         nonlocal stream_result
         stream_result = result
 
+    _log_chat_payload_telemetry(
+        path="chat_stream", session_id=session_id,
+        system_prompt=system_prompt, user_prompt=user_prompt,
+        intel_context=context, history=history, raw_message=message,
+    )
     try:
         async for chunk in llm.stream(
             system_prompt, user_prompt,
