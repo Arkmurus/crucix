@@ -718,8 +718,48 @@ async def lifespan(app: FastAPI):
             ("sipri_knowledge",          "SIPRI + equipment",    "ingest_all_sections"),
             ("global_defence_knowledge", "Global defence intel", "ingest_all_sections"),
         ]
+
+        # F50 fix 2026-04-27: chromadb dedupes upserts by ID, but the
+        # sentence-transformer ENCODE still runs on every chunk every
+        # time. With ~660 chunks across 13 modules, that's ~5 minutes of
+        # CPU per cold boot — and it tripped the brain_hook circuit
+        # breaker at 21:35:05 (p95=2800ms). Skip per-module if the
+        # module's source file hash hasn't changed since the last
+        # successful seed.
+        import hashlib as _hashlib
+        from pathlib import Path as _Path
+        async def _module_hash(modname: str) -> str:
+            """Return md5 of the module's .py file, or '' if not found."""
+            try:
+                mod_path = _Path(__file__).parent / "intel" / f"{modname}.py"
+                if not mod_path.exists():
+                    return ""
+                h = _hashlib.md5()
+                h.update(mod_path.read_bytes())
+                return h.hexdigest()
+            except Exception:
+                return ""
+
         for modname, label, fn in modules:
             try:
+                # Hash-guard: skip the whole module if its source file
+                # hasn't changed since the last successful seed.
+                if not force:
+                    cur_hash = await _module_hash(modname)
+                    if cur_hash:
+                        seed_hash_key = f"crucix:knowledge_seed:hash:{modname}"
+                        try:
+                            stored = await _rs.get(seed_hash_key)
+                            if stored and str(stored) == cur_hash:
+                                summary[modname] = {"skipped": True, "reason": "hash_unchanged"}
+                                logger.info(
+                                    "[Knowledge Seed] %s: skipped (file unchanged since last seed)",
+                                    label,
+                                )
+                                continue
+                        except Exception as e:
+                            logger.debug("seed hash read failed for %s: %s", modname, e)
+
                 mod = __import__(f"aria_service.intel.{modname}", fromlist=[fn])
                 result = await getattr(mod, fn)()
                 summary[modname] = result
@@ -730,6 +770,19 @@ async def lifespan(app: FastAPI):
                     result.get("total_sections", 0),
                     result.get("total_chunks", 0),
                 )
+                # Stamp the hash on success so subsequent boots skip
+                # this module until the file changes (e.g. via a deploy
+                # that updates the law/procurement/etc. text content).
+                cur_hash = await _module_hash(modname)
+                if cur_hash:
+                    try:
+                        await _rs.set(
+                            f"crucix:knowledge_seed:hash:{modname}",
+                            cur_hash,
+                            ex=30 * 86400,  # 30 days
+                        )
+                    except Exception as e:
+                        logger.debug("seed hash write failed for %s: %s", modname, e)
             except Exception as e:
                 summary[modname] = {"error": str(e)}
                 logger.warning("[Knowledge Seed] %s ingestion failed (non-fatal): %s", label, e)
