@@ -103,16 +103,37 @@ async def _gather_consistency() -> dict:
 
 
 async def _gather_calibration() -> dict:
+    """Pull calibration baseline data for the card.
+
+    Previous version searched for `get_latest_summary` / `get_summary`
+    / `get_latest` / `summary` -- none of those exist on
+    calibration_review. The actual public surface is `get_baseline()`
+    (returns the persisted snapshot wrapped in {review, saved_at,
+    description}) and `run_calibration_review()` (recomputes fresh, but
+    it queries student/honesty/adversarial so isn't free). Card has
+    been empty on this section since shipped.
+    """
     try:
         from . import calibration_review
-        # calibration_review exposes various entry points — prefer
-        # get_latest or get_summary if available
-        for fn_name in ("get_latest_summary", "get_summary", "get_latest", "summary"):
-            fn = getattr(calibration_review, fn_name, None)
-            if fn:
-                res = await _safe_call(fn, {})
-                if res:
-                    return res
+        baseline = None
+        get_baseline = getattr(calibration_review, "get_baseline", None)
+        if callable(get_baseline):
+            baseline = await _safe_call(get_baseline, None)
+        if baseline and isinstance(baseline, dict):
+            review = baseline.get("review") or baseline
+            signals = review.get("signals") or {}
+            return {
+                "saved_at": baseline.get("saved_at"),
+                "overall_mastery": review.get("overall_mastery"),
+                "estimated_accuracy": review.get("estimated_accuracy"),
+                "calibration_delta": review.get("calibration_delta"),
+                "calibration_status": review.get("calibration_status"),
+                "honesty_accuracy": signals.get("honesty_accuracy"),
+                "adversarial_accuracy": signals.get("adversarial_accuracy"),
+                "mistake_rate": signals.get("mistake_rate"),
+                "recommendation": review.get("recommendation"),
+                "reviewed_at": review.get("reviewed_at"),
+            }
     except Exception:
         pass
     return {}
