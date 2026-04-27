@@ -234,29 +234,15 @@ async def _collect_novelties(since: datetime) -> list[str]:
     except Exception as exc:
         logger.debug("novelty.capability_gaps failed: %s", exc)
 
-    # Entity-name bridge triggers (new documents + new entity shapes)
-    try:
-        from ..intel import redis_store as rs
-        bridge_stats = await rs.get_json("crucix:learning:bridge_triggers")
-        if isinstance(bridge_stats, dict):
-            recent = bridge_stats.get("recent") or []
-            for r in recent[-10:]:
-                if _is_after(r.get("at"), since):
-                    out.append(f"document-entity bridge: {r.get('name', '?')}")
-    except Exception:
-        pass
-
-    # Sanctions-propagation first-hits on an OEM we haven't seen
-    try:
-        from ..intel import redis_store as rs
-        seen_oems = await rs.get_json("crucix:sanctions_prop:seen_oems") or {}
-        # No guarantee of a recent-events store; use the set and a 24h-first-time marker.
-        # If we never tracked first-seen times, just surface size changes.
-        # (This is a soft signal — good enough for the journal.)
-        count = len(seen_oems) if isinstance(seen_oems, dict) else 0
-        out.append(f"sanctions-propagation tracked OEMs: {count} known")
-    except Exception:
-        pass
+    # Removed 2026-04-27: two aspirational signal sources read from Redis
+    # keys that nothing ever wrote (`crucix:learning:bridge_triggers`,
+    # `crucix:sanctions_prop:seen_oems`) -- confirmed via repo-wide grep
+    # of both Python and Node code. The journal "saw" zero such signals
+    # since shipped, so removing the dead reads is a no-op behaviourally
+    # but stops the code from implying signal sources that don't exist.
+    # If document-entity bridge or sanctions propagation get wired up
+    # later, re-add the reads here against the actual key names the
+    # writers will use.
 
     return out
 
