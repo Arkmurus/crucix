@@ -75,11 +75,19 @@ async def _gather_mastery() -> dict:
     try:
         from . import student
         report = await student.get_mastery_report()
+        # `by_topic` was reading a non-existent key -- the actual field is
+        # `topics`. And the headline figure on every dashboard should be
+        # `headline_mastery` (= min(overall, core_mastery)) per the
+        # 2026-04-22 honest-rollup fix; using `overall_mastery` lets a
+        # well-practiced topic mask weak core cells.
         return {
-            "overall": report.get("overall_mastery", 0),
-            "by_topic": report.get("by_topic", {}),
+            "overall": report.get("headline_mastery")
+                or report.get("overall_mastery", 0),
+            "core_mastery": report.get("core_mastery"),
+            "by_topic": report.get("topics") or report.get("by_topic", {}),
             "weak_topics": report.get("weak_topics", []),
             "strong_topics": report.get("strong_topics", []),
+            "core_weak_topics": report.get("core_weak_topics", []),
         }
     except Exception as e:
         logger.debug("[capability_card] mastery fetch failed: %s", e)
