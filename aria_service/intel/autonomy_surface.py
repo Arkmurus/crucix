@@ -114,19 +114,37 @@ async def _drafts_awaiting() -> dict[str, Any]:
     }
 
     # ── Pending-approval queues ──
+    # The original design assumed each module wrote a `crucix:*:pending_count`
+    # counter key. None of the source modules actually do that -- they write
+    # LIST queues under `aria:<module>:pending`. The counter reads always
+    # returned None, so source_validator_pending / golden_pending have been
+    # stuck at 0 on every dashboard since the panel shipped. Read the real
+    # list keys instead, fall back to the legacy counter keys for any module
+    # that DOES write them.
     try:
         from . import redis_store as rs
-        # Generic pattern: each pending queue writes count to a known key
-        for key, field in (
+        list_sources = (
+            ("aria:source_validator:pending", "source_validator_pending"),
+            ("aria:golden_autogen:pending",   "golden_pending"),
+        )
+        for key, field in list_sources:
+            try:
+                items = await rs.get_json(key) or []
+                if isinstance(items, list):
+                    out[field] = len(items)
+            except Exception:
+                continue
+        counter_sources = (
             ("crucix:source_validator:pending_count", "source_validator_pending"),
             ("crucix:constitution:pending_count",     "constitution_pending"),
             ("crucix:codegen:pending_count",          "codegen_pending"),
             ("crucix:golden:pending_count",           "golden_pending"),
             ("crucix:ground_truth:pending_count",     "ground_truth_pending"),
-        ):
+        )
+        for key, field in counter_sources:
             try:
                 val = await rs.get(key)
-                if val is not None:
+                if val is not None and out.get(field, 0) == 0:
                     out[field] = int(val)
             except Exception:
                 continue
