@@ -111,7 +111,36 @@ def validate_url(url: str) -> tuple[bool, str]:
         if path_lower.endswith(ext):
             return False, f"Dangerous file type: {ext}"
 
+    # Reject URLs that require auth — they 302 to a login page and we end up
+    # ingesting login-page HTML as "article content". Live incident
+    # 2026-04-27: LinkedIn admin URLs got into the research queue, redirected
+    # to login, and 6 chunks of LinkedIn login HTML were written to RAG.
+    if _is_auth_required_url(hostname, path_lower):
+        return False, f"Auth-required URL (would redirect to login): {hostname}{path_lower[:50]}"
+
     return True, "OK"
+
+
+# Hosts + path prefixes that always require authentication. Fetching these
+# returns the login page (200 OK after redirect), which then gets ingested.
+_AUTH_REQUIRED_URL_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
+    ("linkedin.com", ("/comm/", "/admin", "/sales/", "/messaging/", "/feed/", "/in/me", "/notifications/")),
+    ("www.linkedin.com", ("/comm/", "/admin", "/sales/", "/messaging/", "/feed/", "/in/me", "/notifications/")),
+    ("facebook.com", ("/login", "/checkpoint")),
+    ("www.facebook.com", ("/login", "/checkpoint")),
+    ("twitter.com", ("/i/", "/messages")),
+    ("x.com", ("/i/", "/messages")),
+]
+
+
+def _is_auth_required_url(hostname: str, path_lower: str) -> bool:
+    """True when the URL is known to require auth and would redirect to a login page."""
+    for host_pat, path_prefixes in _AUTH_REQUIRED_URL_PATTERNS:
+        if hostname == host_pat or hostname.endswith("." + host_pat):
+            for prefix in path_prefixes:
+                if prefix in path_lower:
+                    return True
+    return False
 
 
 def sanitise_url(url: str) -> str | None:
