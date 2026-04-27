@@ -186,24 +186,31 @@ async def _gather_mistake_stats() -> dict:
         return {}
 
 
-async def _gather_capabilities() -> list[dict]:
-    """Pull declared capabilities from capability_manifest."""
+async def _gather_capabilities() -> dict:
+    """Pull declared capabilities from capability_manifest.
+
+    Previous version probed `list_capabilities` / `get_all` /
+    `all_capabilities` / `manifest` -- none of those names exist on
+    capability_manifest. Real surface is `latest()` (async, persisted
+    snapshot) and `derive()` (sync, recompute). Card has had an empty
+    `capabilities_declared` block since shipped.
+    """
     try:
         from . import capability_manifest
-        # Try the common entry points
-        for fn_name in ("list_capabilities", "get_all", "all_capabilities", "manifest"):
-            fn = getattr(capability_manifest, fn_name, None)
-            if fn:
-                res = await _safe_call(fn, [])
-                if res:
-                    return list(res) if isinstance(res, (list, tuple)) else []
-        # If the manifest is a module-level constant
-        manifest = getattr(capability_manifest, "CAPABILITIES", None)
-        if manifest:
-            return list(manifest)
+        latest_fn = getattr(capability_manifest, "latest", None)
+        if callable(latest_fn):
+            snapshot = await _safe_call(latest_fn, None)
+            if isinstance(snapshot, dict) and snapshot:
+                return snapshot
+        # Fresh derivation -- cheap (filesystem walk, no I/O), so safe
+        # to fall through if the persisted snapshot hasn't been written
+        # yet (e.g. on first card refresh after deploy).
+        derive_fn = getattr(capability_manifest, "derive", None)
+        if callable(derive_fn):
+            return derive_fn() or {}
     except Exception:
         pass
-    return []
+    return {}
 
 
 # ── Builder ────────────────────────────────────────────────────────────────
