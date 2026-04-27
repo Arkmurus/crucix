@@ -258,13 +258,30 @@ async def _mark_read(url: str) -> None:
 # ── Article Fetching ─────────────────────────────────────────────────────────
 
 async def _fetch_rss(url: str, timeout: float = 15.0) -> list[dict]:
-    """Fetch RSS feed and extract article titles + links."""
+    """Fetch RSS feed and extract article titles + links.
+
+    Per-feed circuit breaker (F14 fix, 2026-04-27): the live log shows
+    ~12 RSS sources returning 404/403/410 every research cycle (DSCA,
+    IISS, ChathamHouse, CSIS, RAND, AfricaConfidential, infodefensa,
+    huanqiu, etc.). Without a breaker, each cycle wastes a request on
+    every dead feed. After 5 consecutive failures the breaker opens for
+    1 hour; the operator can verify if the feed URL has moved during
+    that window.
+    """
+    from urllib.parse import urlparse as _up
+    from .circuit_breaker import get_breaker
+    host = (_up(url).hostname or url)[:80]
+    cb = get_breaker(f"rss:{host}", failure_threshold=5, cooldown_seconds=3600)
+    if cb.is_open():
+        return []
     articles = []
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
+                cb.record_failure()
                 return []
+            cb.record_success()
             text = resp.text
 
         items = re.findall(r"<item>(.*?)</item>", text, re.DOTALL)
@@ -292,6 +309,7 @@ async def _fetch_rss(url: str, timeout: float = 15.0) -> list[dict]:
                 articles.append({"title": t, "link": l, "description": d, "published": pub.group(1).strip() if pub else ""})
     except Exception as e:
         logger.debug(f"RSS fetch failed for {url}: {e}")
+        cb.record_failure()
     return articles
 
 

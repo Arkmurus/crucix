@@ -366,7 +366,14 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
             headers={"Content-Type": "application/json"},
         )
         if resp.status_code != 200:
-            logger.warning("[TED] API returned %d: %s", resp.status_code, resp.text[:300])
+            # Log a printable preview only — TED has been returning 404
+            # with gzipped/binary bodies that splattered mojibake across
+            # the live log (F13, 2026-04-27 18:29:50). isascii() filter
+            # keeps the preview readable; if the body is entirely binary
+            # we just report the byte count.
+            preview_raw = resp.text[:300]
+            preview = preview_raw if all(c.isprintable() or c in "\r\n\t" for c in preview_raw) else f"<binary, {len(resp.content)} bytes>"
+            logger.warning("[TED] API returned %d: %s", resp.status_code, preview)
             return tenders
 
         data = resp.json()
@@ -801,13 +808,40 @@ async def _crawl_afdb(client: httpx.AsyncClient, max_results: int = 20) -> list[
 # ── Portal 6: SEACE Peru ───────────────────────────────────────────────────
 # 2026-04-12: Peru's public procurement portal. Web scrape — no public API.
 
+def _build_seace_ssl_context():
+    """SEACE Peru's TLS endpoint negotiates a Diffie-Hellman key smaller
+    than Python 3.10+'s default minimum (2048 bits), causing every crawl
+    to fail with `[SSL: DH_KEY_TOO_SMALL] dh key too small` (F12 fix,
+    2026-04-27 18:29:51). Build a permissive context just for SEACE — do
+    NOT reuse it for any other host, and never apply globally.
+    """
+    import ssl
+    ctx = ssl.create_default_context()
+    try:
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
+    except ssl.SSLError:
+        # Some libssl builds reject SECLEVEL=1; fall back to ALL.
+        ctx.set_ciphers("ALL")
+    return ctx
+
+
 async def _crawl_seace_peru(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
-    """Crawl SEACE (Sistema Electrónico de Contrataciones del Estado) — Peru."""
+    """Crawl SEACE (Sistema Electrónico de Contrataciones del Estado) — Peru.
+
+    Uses a separate httpx client with a relaxed SSL context (see
+    _build_seace_ssl_context) because the SEACE server still negotiates
+    weak DH keys that fail the Python 3.10+ default.
+    """
     tenders: list[TenderAlert] = []
     try:
         # SEACE search page — filter for defence/security keywords
         url = "https://prodapp2.seace.gob.pe/seacebus-uiwd-pub/buscadorPublico/buscadorPublico.xhtml"
-        resp = await client.get(url, timeout=_HTTP_TIMEOUT, follow_redirects=True)
+        # Override the shared client's SSL context for this single host.
+        # The shared `client` arg is reused across all portals, so we open
+        # a dedicated client here rather than mutate the shared one.
+        ssl_ctx = _build_seace_ssl_context()
+        async with httpx.AsyncClient(verify=ssl_ctx, timeout=_HTTP_TIMEOUT, follow_redirects=True) as seace_client:
+            resp = await seace_client.get(url)
         if resp.status_code != 200:
             logger.warning("[SEACE Peru] Returned %d", resp.status_code)
             return tenders
