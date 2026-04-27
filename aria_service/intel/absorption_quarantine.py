@@ -142,9 +142,16 @@ async def reject(entry_id: str, reason: str | None = None) -> dict[str, Any] | N
 
 async def promote(entry_id: str, reason: str | None = None) -> dict[str, Any] | None:
     """Mark an entry promoted. The CALLER is responsible for actually
-    writing the content into permanent memory — typically by calling
-    brain_hook.absorb_after_review(). This module owns the queue, not
-    the absorption pipeline."""
+    writing the content into permanent memory -- typically the
+    `/admin/absorption-quarantine/promote` route, which re-runs
+    brain_hook.absorb() with the source module temporarily removed from
+    the quarantine list so the absorption goes through the gate but not
+    back into the queue.
+
+    (Earlier comments referenced `brain_hook.absorb_after_review()` --
+    that function never existed; the route at routes/aria.py:6292 is
+    the actual re-trigger path.)
+    """
     return await _decide(entry_id, "promoted", reason)
 
 
