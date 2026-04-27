@@ -52,6 +52,17 @@ async def lifespan(app: FastAPI):
     # Connect Redis
     await rs.connect(settings.redis_url)
 
+    # B1 fix 2026-04-27: install the error-ledger logging handler so
+    # WARNING+ aria.* logs auto-record into self_improve's error ledger.
+    # Previously self_improve.record_error was only wired to 2 sites in
+    # aria_engine.py, so the autonomous self-improvement cycle reported
+    # "0 errors" every cycle and had nothing to act on.
+    try:
+        from .intel import error_log_handler as _elh
+        _elh.install()
+    except Exception as e:
+        logger.warning("error-ledger handler install failed (non-fatal): %s", e)
+
     # Initialize all intel modules
     await knowledge.init()
     await intel_ledger.init()

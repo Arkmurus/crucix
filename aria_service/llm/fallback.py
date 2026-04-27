@@ -77,11 +77,28 @@ class FallbackProvider(LLMProvider):
 
         now = time.time()
         if kind in ("auth", "billing") or not retryable:
-            stats["cooldown_until"] = now + self._HARD_COOLDOWN_SECONDS
-            logger.error(
-                "Provider %s HARD cooldown (%s) for %ds: %s",
-                provider.name, kind, self._HARD_COOLDOWN_SECONDS, str(error)[:200],
-            )
+            # F29 fix 2026-04-27: when N parallel calls all hit the same
+            # billing/auth failure (live: 5 Anthropic POSTs in 196ms after
+            # cold-start ingest), each independently triggers this branch
+            # and emits an ERROR log. The cooldown is already set by the
+            # first to land — debounce the rest so we get one ERROR per
+            # cooldown event, not N. We still record the failure count so
+            # health metrics stay accurate.
+            existing_cooldown = stats.get("cooldown_until", 0)
+            new_cooldown = now + self._HARD_COOLDOWN_SECONDS
+            if existing_cooldown > now and (existing_cooldown - now) > self._HARD_COOLDOWN_SECONDS - 5:
+                # A peer call set the cooldown within the last 5 seconds.
+                # Don't re-set or re-log; the in-flight burst is racing.
+                logger.debug(
+                    "Provider %s HARD cooldown (%s) re-fired by burst peer; not re-logging",
+                    provider.name, kind,
+                )
+            else:
+                stats["cooldown_until"] = new_cooldown
+                logger.error(
+                    "Provider %s HARD cooldown (%s) for %ds: %s",
+                    provider.name, kind, self._HARD_COOLDOWN_SECONDS, str(error)[:200],
+                )
         elif kind == "rate_limit":
             stats["cooldown_until"] = now + self._SOFT_COOLDOWN_SECONDS
             logger.warning(
