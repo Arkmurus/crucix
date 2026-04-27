@@ -57,10 +57,16 @@ async def lifespan(app: FastAPI):
     # not standardized` from internal Node helpers. The warning is
     # cosmetic — Playwright still works — but adds 3-4 noise lines per
     # render. Set NODE_OPTIONS=--no-deprecation BEFORE any Node child
-    # is spawned to silence the lot. Scoped to fly.io aria_service env;
-    # local dev / Node tests in other repos unaffected.
-    if "NODE_OPTIONS" not in _os.environ:
-        _os.environ["NODE_OPTIONS"] = "--no-deprecation"
+    # is spawned to silence the lot.
+    #
+    # IMPORTANT: cannot reference module-level `_os` here. Python sees
+    # the `import os as _os` later in this function (rag_init_bg block)
+    # and treats `_os` as LOCAL for the whole function scope —
+    # referencing it before that assignment raises UnboundLocalError.
+    # That bug took prod down for 30s of restart-loop on commit
+    # 6c26e17 → fixed in this commit by using a fresh local alias.
+    import os as _f28_os
+    _f28_os.environ.setdefault("NODE_OPTIONS", "--no-deprecation")
 
     # B1 fix 2026-04-27: install the error-ledger logging handler so
     # WARNING+ aria.* logs auto-record into self_improve's error ledger.
