@@ -319,16 +319,25 @@ async def run_hourly_style_learn() -> dict[str, Any]:
 
     await _save_exemplars(exemplars)
 
-    # 24h stats
+    # 24h stats. Use keepttl on subsequent writes -- previous code passed
+    # ex=86400 on every hourly run, resetting the 24h window each time
+    # so the counter never expired and `replies_scanned_24h` /
+    # `exemplars_added_24h` accumulated as lifetime tallies. Same pattern
+    # as f981c0a (output_harvester).
     try:
         from ..intel import redis_store as rs
-        stats = await rs.get_json(_REDIS_STATS_KEY) or {}
+        existing = await rs.get_json(_REDIS_STATS_KEY)
+        is_fresh = not isinstance(existing, dict)
+        stats = existing if isinstance(existing, dict) else {}
         stats["replies_scanned"] = stats.get("replies_scanned", 0) + len(gold)
         stats["exemplars_added"] = stats.get("exemplars_added", 0) + added_count
         stats["by_topic"] = dict(topic_counts)
         stats["last_run"] = datetime.now(timezone.utc).isoformat()
         stats["total_exemplars"] = sum(len(v) for v in exemplars.values())
-        await rs.set_json(_REDIS_STATS_KEY, stats, ex=86400)
+        if is_fresh:
+            await rs.set_json(_REDIS_STATS_KEY, stats, ex=86400)
+        else:
+            await rs.set_json(_REDIS_STATS_KEY, stats, keepttl=True)
     except Exception:
         pass
 

@@ -165,14 +165,21 @@ async def run_daily_backup() -> dict[str, Any]:
     # Purge old backups (retention)
     removed = await _purge_old_backups()
 
-    # 24h stats
+    # 24h stats — keepttl on subsequent writes (same family fix as f981c0a).
+    # Daily backup runs would otherwise reset the 24h window every time
+    # and the counter would never decay.
     try:
-        stats = await rs.get_json("crucix:learning:memory_backup:stats_24h") or {}
+        existing = await rs.get_json("crucix:learning:memory_backup:stats_24h")
+        is_fresh = not isinstance(existing, dict)
+        stats = existing if isinstance(existing, dict) else {}
         stats["runs_24h"] = stats.get("runs_24h", 0) + 1
         stats["bytes_total_24h"] = stats.get("bytes_total_24h", 0) + size_bytes
         stats["keys_saved_24h"] = stats.get("keys_saved_24h", 0) + len(snapshot["keys"])
         stats["last_run_at"] = snapshot["created_at"]
-        await rs.set_json("crucix:learning:memory_backup:stats_24h", stats, ex=86400)
+        if is_fresh:
+            await rs.set_json("crucix:learning:memory_backup:stats_24h", stats, ex=86400)
+        else:
+            await rs.set_json("crucix:learning:memory_backup:stats_24h", stats, keepttl=True)
     except Exception:
         pass
 

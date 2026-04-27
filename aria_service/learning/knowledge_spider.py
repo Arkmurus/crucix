@@ -400,13 +400,21 @@ async def run_spider_tick() -> dict[str, Any]:
         "duration_s": round(time.monotonic() - t_start, 2),
     }
 
-    # 24h stat counter
+    # 24h stat counter — keepttl on subsequent writes so the 24h window
+    # actually rolls instead of restarting on every spider tick. Without
+    # this, /api/aria/autonomy/surface read `fetches_24h` / `ingests_24h`
+    # as lifetime tallies (same anti-pattern fixed in f981c0a).
     try:
         from ..intel import redis_store as rs
-        stats = await rs.get_json(_REDIS_STATS_KEY) or {"fetches": 0, "ingests": 0}
+        existing = await rs.get_json(_REDIS_STATS_KEY)
+        is_fresh = not isinstance(existing, dict)
+        stats = existing if isinstance(existing, dict) else {"fetches": 0, "ingests": 0}
         stats["fetches"] = stats.get("fetches", 0) + summary["fetched"]
         stats["ingests"] = stats.get("ingests", 0) + summary["ingested"]
-        await rs.set_json(_REDIS_STATS_KEY, stats, ex=86400)
+        if is_fresh:
+            await rs.set_json(_REDIS_STATS_KEY, stats, ex=86400)
+        else:
+            await rs.set_json(_REDIS_STATS_KEY, stats, keepttl=True)
     except Exception:
         pass
 

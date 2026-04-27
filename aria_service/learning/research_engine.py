@@ -277,14 +277,19 @@ async def run_research_tick() -> dict[str, Any]:
             "queued_for_spider": total_queued,
         })
 
-    # 24h stats
+    # 24h stats — keepttl on subsequent writes (same family fix as f981c0a).
     try:
         from ..intel import redis_store as rs
-        stats = await rs.get_json(_REDIS_STATS_KEY) or {"ticks": 0, "queries": 0, "urls_queued": 0}
+        existing = await rs.get_json(_REDIS_STATS_KEY)
+        is_fresh = not isinstance(existing, dict)
+        stats = existing if isinstance(existing, dict) else {"ticks": 0, "queries": 0, "urls_queued": 0}
         stats["ticks"] = stats.get("ticks", 0) + 1
         stats["queries"] = stats.get("queries", 0) + sum(r["queries_dispatched"] for r in results)
         stats["urls_queued"] = stats.get("urls_queued", 0) + sum(r["queued_for_spider"] for r in results)
-        await rs.set_json(_REDIS_STATS_KEY, stats, ex=86400)
+        if is_fresh:
+            await rs.set_json(_REDIS_STATS_KEY, stats, ex=86400)
+        else:
+            await rs.set_json(_REDIS_STATS_KEY, stats, keepttl=True)
     except Exception:
         pass
 
