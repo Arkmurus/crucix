@@ -710,10 +710,18 @@ async def student_health_ep():
             "embedder_available": library_stats.get("embedder_available", False),
         },
         "mastery": {
-            "overall": mastery.get("overall_mastery", 0),
+            # headline_mastery = min(overall, core) per the 0150187 honest-
+            # rollup doctrine -- dashboard must NOT read higher than the
+            # weakest core cell. Fallback to overall_mastery for backwards
+            # compat if a stale student.get_mastery_report ever returns
+            # the old shape.
+            "overall": mastery.get("headline_mastery")
+                or mastery.get("overall_mastery", 0),
+            "core_mastery": mastery.get("core_mastery"),
             "total_samples": mastery.get("total_samples", 0),
             "weak_count": len(mastery.get("weak_topics", [])),
             "strong_count": len(mastery.get("strong_topics", [])),
+            "core_weak_count": len(mastery.get("core_weak_topics", [])),
         },
     }
 
