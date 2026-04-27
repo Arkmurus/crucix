@@ -462,6 +462,12 @@ _KNOWN_PAYWALL_DOMAINS = (
     "www.tandfonline.com",
     "iopscience.iop.org",
     "journals.sagepub.com",
+    # F32 fix 2026-04-27: SSRN consistently 403s on direct fetch; the
+    # archive.is fallback then 429s. Live evidence: 20:14:43 wasted
+    # the full fetch chain on /sol3/papers.cfm + archive.is + wayback.
+    "papers.ssrn.com",
+    "www.ssrn.com",
+    "ssrn.com",
 )
 
 

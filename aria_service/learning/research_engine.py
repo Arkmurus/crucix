@@ -119,8 +119,15 @@ def _region_display_name(region_slug: str) -> str:
         "turkey":              "Türkiye",
         "south_asia":          "South Asia",
         "southeast_asia":      "Southeast Asia",
+        # F33 fix 2026-04-27: corpus_registry.yaml tags some sources
+        # `region: latam` (not the more specific latam_non_lusophone),
+        # so the heatmap surfaces "latam" as a weak-cell slug. Without
+        # this entry the fallback Title-cased it to "Latam" — Google News
+        # returned 0 results on every Latam-prefixed query in the live log.
+        "latam":               "Latin America",
         "latam_lusophone":     "Brazil",
         "latam_non_lusophone": "Latin America",
+        "spain_latam":         "Spain Latin America",
         "europe":              "Europe",
         "balkans":             "Balkans",
         "nato":                "NATO",

@@ -522,9 +522,27 @@ def _looks_like_entity_name(s: str) -> bool:
         return False
     if _DOMAIN_TOKEN_RE.search(s):
         return False
+    # F39 fix 2026-04-27: previous threshold (>1 stopword) let through
+    # 4-word fragments like "Iran nexus before engagement" and 6-word
+    # ones like "Iran is openly signalling it will". Word count alone
+    # can't distinguish "Bank of America Corp" (valid, 4 words, 1 stop)
+    # from "Iran of foreign policy" (fragment, 4 words, 1 stop) — but
+    # CASE can: real entity names are proper nouns (uppercase initial),
+    # fragments have lowercase common nouns mixed in.
     stopword_count = sum(1 for w in words if w.lower() in _ENTITY_STOPWORDS)
     if stopword_count > 1:
         return False
+    # Multi-word inputs: every non-stopword word must start with an
+    # uppercase letter or digit ("F-35", "T-90"). One lowercase non-
+    # stopword word means it's almost certainly a sentence fragment
+    # (Iran NEXUS before ENGAGEMENT — nexus / engagement are lowercase
+    # common nouns; Bank OF America CORP — of stopword, others all upper).
+    if len(words) > 1:
+        for w in words:
+            if w.lower() in _ENTITY_STOPWORDS:
+                continue
+            if not w[0].isupper() and not w[0].isdigit():
+                return False
     return True
 
 
