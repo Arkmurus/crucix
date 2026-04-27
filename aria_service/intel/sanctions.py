@@ -469,6 +469,65 @@ async def screen_with_relationships(name: str, *, threshold: float = 0.78,
                                            target_threshold=threshold)
 
 
+_ENTITY_STOPWORDS = frozenset({
+    "the", "of", "and", "or", "in", "on", "at", "to", "for", "with",
+    "by", "from", "as", "is", "was", "are", "were", "be", "been", "being",
+    "before", "after", "during", "since", "until", "while", "any", "all",
+    "current", "former", "new", "old", "this", "that", "these", "those",
+    "independently", "directly", "globally", "weekly", "daily", "monthly",
+    "summary", "update", "review", "analysis", "report", "intelligence",
+    "without", "with", "via", "without", "across", "between", "among",
+})
+
+# Domain-name-looking tokens (".gov", ".com", "site.gov", etc.) inside an
+# input is a strong signal it's a search query / URL fragment, not a name.
+_DOMAIN_TOKEN_RE = re.compile(r"\.(?:gov|com|org|net|edu|co|io|ai|mil)\b", re.IGNORECASE)
+
+
+def _looks_like_entity_name(s: str) -> bool:
+    """Reject inputs that don't look like an entity name before they
+    waste OpenSanctions API quota.
+
+    Live failure 2026-04-27 18:24:50: tasks.yaml passes search-query
+    strings as `entity:` to deep_research, which forwarded them here.
+    Strings like 'sanctions update OFAC SDN EU UN Security Council
+    embargo 2026' or 'Arkmurus weekly intelligence summary Angola
+    Mozambique...' generated 80+ /match POSTs each, all returning junk.
+
+    Heuristics — entity names are typically:
+      - 2-100 chars
+      - <= 7 words (covers 'Sheikh Hamad bin Khalifa Al Thani II'
+        and 'Krasnoyarsk Aluminum Smelter Open Joint-Stock Company';
+        rejects 'GAMI current leadership independently before any
+        formal outre')
+      - No commas, question marks, exclamations
+      - Don't end with a 4-digit year (search query smell)
+      - Contain at most 1 common English stop-word (entity names like
+        'Bank of America' have one; descriptions have many)
+    """
+    if not s or not isinstance(s, str):
+        return False
+    s = s.strip()
+    if len(s) < 2 or len(s) > 100:
+        return False
+    if "," in s or "?" in s or "!" in s:
+        return False
+    words = s.split()
+    if len(words) > 7:
+        return False
+    # Year token anywhere is a search-query smell. Real entity names
+    # rarely contain bare 4-digit years (model designators like 'Boeing
+    # 747' are 3 digits; 'AK-47' has the year embedded but no space).
+    if re.search(r"\b(19|20)\d{2}\b", s):
+        return False
+    if _DOMAIN_TOKEN_RE.search(s):
+        return False
+    stopword_count = sum(1 for w in words if w.lower() in _ENTITY_STOPWORDS)
+    if stopword_count > 1:
+        return False
+    return True
+
+
 async def screen_with_aliases(name: str, known_aliases: list[str] | None = None) -> dict:
     """Screen a primary name plus user-provided aliases. Combines results.
 
@@ -476,8 +535,24 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
     company name + former name) — passes each through the full fuzzy pipeline
     and returns the worst-case (highest-scoring) hit.
     """
+    # Reject inputs that aren't entity names — caller passed a search
+    # query / description by mistake. Returning early avoids hitting
+    # OpenSanctions for 80+ wasted calls per cycle (F1+F2 fix 2026-04-27).
+    if not _looks_like_entity_name(name):
+        logger.info(
+            "screen_with_aliases: rejecting non-entity input %r (looks like a search query, not a name)",
+            name[:80],
+        )
+        return {
+            "name": name,
+            "error": "not_entity_shaped",
+            "matches": [],
+            "blocked": False,
+            "top_score": 0,
+        }
+
     targets = [name] + (known_aliases or [])
-    targets = [t for t in targets if t and len(t.strip()) >= 2]
+    targets = [t for t in targets if t and len(t.strip()) >= 2 and _looks_like_entity_name(t)]
     if not targets:
         return {"error": "no valid names to screen"}
 
