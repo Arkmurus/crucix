@@ -956,11 +956,18 @@ the maximum number of facts the content supports."""
             max_tokens=3000,  # bumped from 1500 to fit ~15-20 facts
             timeout=90.0,
         )
-        _cleaned = re.sub(r"^```(?:json)?\s*", "", result.text.strip())
-        _cleaned = re.sub(r"\s*```$", "", _cleaned)
-        json_match = re.search(r"\{[\s\S]*\}", _cleaned)
-        if json_match:
-            return json.loads(json_match.group())
+        # Use the multi-strategy LLM JSON repair instead of plain json.loads.
+        # The al-monitor.com Iran-FM article observed 2026-04-27 fails every
+        # spider re-run with "Expecting ',' delimiter" because Claude inlines
+        # an unescaped quote from the article body into the JSON output. The
+        # plain parse silently returns None, the spider re-tries the same URL
+        # next pass, and the LLM call burns budget every cycle. Repair pipeline
+        # handles control-char escapes, unquoted keys, single quotes,
+        # truncation, and trailing commas before nuclear-stripping.
+        from .llm_json import parse_llm_json
+        parsed = parse_llm_json(result.text)
+        if parsed is not None:
+            return parsed
     except Exception as e:
         logger.warning(f"Article analysis failed: {e}")
     return None
