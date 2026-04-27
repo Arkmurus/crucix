@@ -403,35 +403,71 @@ async def list_judgments(
 
 
 async def get_honesty_stats() -> dict:
-    """Aggregate counts + rolling honesty score."""
+    """Aggregate counts + rolling honesty score.
+
+    Two bugs fixed in this version, same family as source_verifier
+    `baf34e1`:
+
+    1. `rolling_honesty_score` was averaged across the entire JUDGMENTS
+       index (typically days/weeks of entries). It was labeled "rolling"
+       but actually a lifetime metric.
+    2. Two consumers (autonomy_scorer.py:129, calibration_review.py:64)
+       read `avg_honesty_score` -- a key that didn't exist on the return
+       dict, so both saw None. autonomy_scorer's `grounded_rate` signal
+       has been blank, and calibration_review's `signals.honesty_accuracy`
+       has been None on every review.
+
+    Now: filter the average to entries within the 24h cutoff, expose
+    BOTH `rolling_honesty_score` (24h, name kept for backwards-compat)
+    AND `avg_honesty_score` (alias, the name consumers actually expect).
+    Lifetime number kept under `lifetime_honesty_score` for trend views.
+    """
     try:
         index = await rs.get_json(JUDGMENTS_KEY) or []
         n = len(index)
         if n == 0:
-            return {"total": 0}
+            return {"total": 0,
+                    "rolling_honesty_score": None,
+                    "avg_honesty_score": None,
+                    "lifetime_honesty_score": None}
         by_status: dict[str, int] = {}
-        score_sum = 0.0
-        score_n = 0
-        suspicious_n = 0
+        score_sum_24h = 0.0
+        score_n_24h = 0
+        score_sum_all = 0.0
+        score_n_all = 0
+        suspicious_n_24h = 0
         cutoff = time.time() - 86400
         recent_24h = 0
         for e in index:
             by_status[e.get("status") or "unknown"] = by_status.get(e.get("status") or "unknown", 0) + 1
-            if e.get("ts", 0) >= cutoff:
+            in_window = e.get("ts", 0) >= cutoff
+            if in_window:
                 recent_24h += 1
             s = e.get("honesty_score")
             if s is not None and e.get("status") == "ok":
-                score_sum += s
-                score_n += 1
-                if s < SUSPICIOUS_HONESTY_THRESHOLD:
-                    suspicious_n += 1
+                score_sum_all += s
+                score_n_all += 1
+                if in_window:
+                    score_sum_24h += s
+                    score_n_24h += 1
+                    if s < SUSPICIOUS_HONESTY_THRESHOLD:
+                        suspicious_n_24h += 1
+        rolling_24h = (
+            round(score_sum_24h / score_n_24h, 3) if score_n_24h > 0 else None
+        )
+        lifetime = (
+            round(score_sum_all / score_n_all, 3) if score_n_all > 0 else None
+        )
         return {
             "total": n,
             "by_status": by_status,
             "recent_24h": recent_24h,
-            "rolling_honesty_score": round(score_sum / score_n, 3) if score_n > 0 else None,
-            "scored_sample_size": score_n,
-            "suspicious_count": suspicious_n,
+            "rolling_honesty_score": rolling_24h,
+            "avg_honesty_score": rolling_24h,        # consumer-expected alias
+            "lifetime_honesty_score": lifetime,
+            "scored_sample_size": score_n_24h,
+            "lifetime_sample_size": score_n_all,
+            "suspicious_count": suspicious_n_24h,
         }
     except Exception as e:
         return {"error": str(e)}
