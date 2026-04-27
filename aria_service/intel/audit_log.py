@@ -462,10 +462,18 @@ async def stats() -> dict:
     from . import redis_store as rs
     chain = await get_chain(0, 1)
     last = chain[0] if chain else None
-    # Approximate total via LRANGE up to high cap (Redis LLEN would be cleaner;
-    # we don't have it wrapped — use a high-bound LRANGE for a safe upper count).
-    sample = await rs.lrange(_KEY_LOG, 0, 9999)
-    total = len(sample)
+    # Was: `lrange(0, 9999)` to count -- comment claimed llen wasn't
+    # wrapped, but rs.llen has existed since redis_store shipped.
+    # The lrange path pulled up to 10,000 entries from Redis just to
+    # take len() of them, AND silently capped the count at 9999 once
+    # the log grew past that. llen is O(1).
+    try:
+        total = await rs.llen(_KEY_LOG)
+    except Exception:
+        # Fall back to the lrange approach if llen errors (e.g. if the
+        # in-memory store doesn't fully support it). Cap at 9999 as before.
+        sample = await rs.lrange(_KEY_LOG, 0, 9999)
+        total = len(sample)
     head = await _read_head_hash()
     return {
         "total_entries": total,
