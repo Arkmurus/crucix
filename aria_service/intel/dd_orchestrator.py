@@ -1760,8 +1760,15 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
         candidates.append(report.synthesis.ghost_classification)
     if report.compliance.country_risk.get("headline_risk"):
         candidates.append(report.compliance.country_risk["headline_risk"])
-    # Any hard_stop finding anywhere?
-    for section in (report.identity, report.network, report.compliance):
+    # Any hard_stop finding anywhere? Includes digital, verification, and
+    # commercial_coherence -- the prior list of three layers missed
+    # hard-stops surfaced by Layer 5c (e.g. licence-chain gaps that
+    # constitute strict-liability offences in some jurisdictions) and
+    # by digital-layer OSINT findings (e.g. confirmed sanctions match
+    # surfaced by deep_research that didn't propagate up to identity).
+    for section in (report.identity, report.network, report.compliance,
+                    report.digital, report.verification,
+                    report.commercial_coherence):
         for f in getattr(section, "findings", []) or []:
             if getattr(f, "severity", "") == "hard_stop":
                 candidates.append("HARD_STOP")
@@ -1824,12 +1831,17 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
                 _missing.append("incorporation date")
             _gate_reasons.append(f"registry verification incomplete (missing: {', '.join(_missing)})")
 
-        # Too many data gaps?
+        # Too many data gaps? Fallback iteration includes
+        # commercial_coherence so a Layer 5c gap (e.g. unknown payment
+        # market, untraceable corporate substance) actually counts toward
+        # the manual-review trigger.
         _total_gaps = len(report.data_gaps_summary) if hasattr(report, "data_gaps_summary") else 0
         if not hasattr(report, "data_gaps_summary"):
             _total_gaps = sum(
                 len(getattr(s, "data_gaps", []) or [])
-                for s in (report.identity, report.network, report.verification, report.compliance, report.digital)
+                for s in (report.identity, report.network, report.verification,
+                          report.compliance, report.digital,
+                          report.commercial_coherence)
             )
         if _total_gaps >= 3:
             _needs_manual = True
