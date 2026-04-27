@@ -83,20 +83,32 @@ class CircuitBreaker:
                     self.name, self.consecutive_failures,
                 )
                 self.state = "OPEN"
-                # Signal brain — source reliability degraded
+                # Signal brain — source reliability degraded. Use the
+                # running loop directly; asyncio.get_event_loop() is
+                # deprecated in 3.10+ when no loop is running and may
+                # emit DeprecationWarning in 3.12+. record_failure is
+                # called from async contexts so a running loop should
+                # always be available; the RuntimeError fallback just
+                # quietly drops the brain signal in the unlikely sync
+                # path (no production caller hits it today).
                 try:
                     import asyncio
                     from . import brain_hook as _bh
-                    asyncio.get_event_loop().create_task(
-                        _bh.absorb(
-                            module="circuit_breaker",
-                            summary=f"Circuit breaker OPEN: {self.name} ({self.consecutive_failures} failures)",
-                            detail=f"Backend {self.name} marked DOWN for {self.cooldown_seconds}s",
-                            success=False,
-                            gap_type="timeout",
-                            gap_detail=f"Backend {self.name} unreachable",
+                    try:
+                        _loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        _loop = None
+                    if _loop is not None:
+                        _loop.create_task(
+                            _bh.absorb(
+                                module="circuit_breaker",
+                                summary=f"Circuit breaker OPEN: {self.name} ({self.consecutive_failures} failures)",
+                                detail=f"Backend {self.name} marked DOWN for {self.cooldown_seconds}s",
+                                success=False,
+                                gap_type="timeout",
+                                gap_detail=f"Backend {self.name} unreachable",
+                            )
                         )
-                    )
                 except Exception:
                     pass
 

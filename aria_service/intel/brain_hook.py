@@ -745,7 +745,15 @@ def _maybe_trip_breaker(reason: str) -> None:
                             "logged to Redis only until p95 recovers."
                         ),
                     )
-                asyncio.get_event_loop().create_task(_alert())
+                # asyncio.get_event_loop() is deprecated in 3.10+ when
+                # no loop is running. _record_latency is called from
+                # within absorb() (async), so a running loop is always
+                # available -- use it directly.
+                try:
+                    _loop = asyncio.get_running_loop()
+                    _loop.create_task(_alert())
+                except RuntimeError:
+                    pass
             except Exception:
                 pass
     else:
@@ -786,7 +794,12 @@ def _maybe_close_breaker() -> None:
                                 f"at trip)."
                             ),
                         )
-            asyncio.get_event_loop().create_task(_auto_resolve())
+            # See note above: prefer get_running_loop().
+            try:
+                _loop = asyncio.get_running_loop()
+                _loop.create_task(_auto_resolve())
+            except RuntimeError:
+                pass
         except Exception:
             pass
 

@@ -1012,8 +1012,15 @@ def _sync_correlation_context(message: str) -> str:
                     break  # Only check first country mentioned
             return "\n".join(parts)
 
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
+        # asyncio.get_event_loop() is deprecated in 3.10+ when no loop is
+        # running -- prefer get_running_loop() and handle RuntimeError as
+        # "no loop, run synchronously".
+        try:
+            asyncio.get_running_loop()
+            in_loop = True
+        except RuntimeError:
+            in_loop = False
+        if in_loop:
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 result = pool.submit(asyncio.run, _get_both()).result(timeout=8)
