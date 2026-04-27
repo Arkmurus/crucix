@@ -73,6 +73,41 @@ logger = logging.getLogger("ARIA.WriterOrchestrator")
 # AUDIT LOG
 # =============================================================================
 
+def _schedule_absorb(brain_hook: Any, **kwargs: Any) -> None:
+    """Fire-and-forget brain_hook.absorb() from a sync context.
+
+    brain_hook.absorb is async, but this orchestrator's write_* methods
+    are sync. Calling it directly without await left the coroutine
+    unawaited -- silent skip + RuntimeWarning. Wrap with create_task so
+    the absorption actually runs (when an event loop is available).
+
+    Mirrors the pattern used by intel/euc_library.py:414 and
+    intel/person_resolver.py:447.
+    """
+    try:
+        coro = brain_hook.absorb(**kwargs)
+    except Exception as e:
+        logger.debug("writer_orchestrator brain_hook.absorb call failed: %s", e)
+        return
+    # If absorb is sync (legacy stub or test double), the call already
+    # completed -- nothing more to do.
+    import inspect as _inspect
+    if not _inspect.iscoroutine(coro):
+        return
+    import asyncio as _asyncio
+    try:
+        loop = _asyncio.get_running_loop()
+        loop.create_task(coro)
+    except RuntimeError:
+        # No running loop -- run synchronously. This is the
+        # called-from-sync-tool path. Not ideal latency, but
+        # better than silently dropping the absorption.
+        try:
+            _asyncio.run(coro)
+        except Exception as e:
+            logger.debug("writer_orchestrator brain_hook absorb (sync run) failed: %s", e)
+
+
 class WriterAuditLog:
     """
     HMAC-signed audit log for all document production events.
@@ -481,23 +516,27 @@ class WriterOrchestrator:
         )
 
         if self.brain_hook:
-            try:
-                self.brain_hook.absorb(
-                    module="writer_orchestrator",
-                    summary=(
-                        f"Produced {writer_type}: {reference} ({word_count} words)"
-                        + (" [DEGRADED: DeepSeek fallback]" if degraded else "")
-                    ),
-                    success=True,
-                    metadata={
-                        "writer_type": writer_type,
-                        "reference": reference,
-                        "degraded": degraded,
-                        "actual_model": actual_model,
-                    },
-                )
-            except Exception as _bh_err:
-                logger.debug("writer_orchestrator brain_hook failed: %s", _bh_err)
+            # brain_hook.absorb is async; this method is sync. Fire-and-forget
+            # via create_task when an event loop is running. Without this
+            # wrapper the coroutine was never awaited and the absorption
+            # silently never happened (latent bug -- brain_hook is None in
+            # production today, but would have been a silent failure the
+            # moment anyone wired it up).
+            _schedule_absorb(
+                self.brain_hook,
+                module="writer_orchestrator",
+                summary=(
+                    f"Produced {writer_type}: {reference} ({word_count} words)"
+                    + (" [DEGRADED: DeepSeek fallback]" if degraded else "")
+                ),
+                success=True,
+                metadata={
+                    "writer_type": writer_type,
+                    "reference": reference,
+                    "degraded": degraded,
+                    "actual_model": actual_model,
+                },
+            )
 
         if degraded:
             logger.warning(
@@ -525,14 +564,12 @@ class WriterOrchestrator:
     def _error_result(self, writer_type: str, error: str) -> WriterResult:
         logger.error(f"Writer failed: {writer_type} | {error}")
         if self.brain_hook:
-            try:
-                self.brain_hook.absorb(
-                    module="writer_orchestrator",
-                    summary=f"Writer failed: {writer_type} — {error}",
-                    success=False,
-                )
-            except Exception:
-                pass
+            _schedule_absorb(
+                self.brain_hook,
+                module="writer_orchestrator",
+                summary=f"Writer failed: {writer_type} — {error}",
+                success=False,
+            )
         return WriterResult(
             writer_type=writer_type,
             reference="ERROR",
