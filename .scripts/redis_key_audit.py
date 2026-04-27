@@ -33,7 +33,7 @@ READER_FUNCS = {
     "lrange", "llen", "lindex",
     "hget", "hgetall", "hlen",
     "smembers", "scard",
-    "zrange", "zrangebyscore", "zcard",
+    "zrange", "zrevrange", "zrangebyscore", "zrevrangebyscore", "zcard", "zscore", "zrank",
     "exists", "ttl", "type",
     "keys",  # also a reader (pattern scan)
 }

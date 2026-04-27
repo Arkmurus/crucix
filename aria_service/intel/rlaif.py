@@ -339,8 +339,14 @@ async def stats() -> dict:
     try:
         from . import redis_store as rs
         raw_history = await rs.lrange(_KEY_HISTORY, 0, 500)
+        # `_KEY_LATEST` is set on every evaluate() call but was never
+        # surfaced anywhere -- pure dead-write. Pull it into stats so
+        # the operator can see the most recent single sample without
+        # scanning history.
+        latest = await rs.get_json(_KEY_LATEST)
     except Exception:
         raw_history = []
+        latest = None
 
     scores: list[dict] = []
     for r in raw_history:
@@ -354,6 +360,7 @@ async def stats() -> dict:
             "enabled": is_enabled(),
             "sample_rate": sample_rate(),
             "sample_count": 0,
+            "latest": latest,
             "message": "No RLAIF evaluations recorded yet.",
         }
 
@@ -367,6 +374,7 @@ async def stats() -> dict:
         "enabled": is_enabled(),
         "sample_rate": sample_rate(),
         "sample_count": len(scores),
+        "latest": latest,
         "averages": {
             "overall":       avg("average"),
             "grounding":     avg("grounding"),

@@ -362,6 +362,11 @@ async def process(
             ex=_IDEMPOTENCY_TTL_SEC,
         )
         await rs.lpush(_KEY_RECENT, nh)
+        # Bound the list so it doesn't grow forever -- nothing reads it
+        # today (intent was "let operators review past processings", but
+        # no endpoint surfaces it yet), so without ltrim every meeting
+        # stays in Redis indefinitely.
+        await rs.ltrim(_KEY_RECENT, 0, 199)
     except Exception as e:
         logger.warning("[meeting_notes] persist result failed: %s", e)
 
