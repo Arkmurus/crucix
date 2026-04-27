@@ -355,10 +355,6 @@ async def _resilience_floor() -> dict[str, Any]:
 
     # ── Provider chain health ──
     try:
-        # The FallbackProvider's stats are per-instance; we query it via
-        # the module-level helper already exposed on /health. Simpler:
-        # re-derive from env vars (authoritative truth about configured keys)
-        # and the rate_limiter/last-kind cache when available.
         import os
         provider_keys = {
             "anthropic": os.getenv("ANTHROPIC_API_KEY", ""),
@@ -372,31 +368,40 @@ async def _resilience_floor() -> dict[str, Any]:
         configured = [n for n, k in provider_keys.items() if k]
         out["providers_configured"] = len(configured)
 
-        # Pull runtime state from fallback stats if the chain is initialised
+        # Cooldown state — pull live from the FallbackProvider's in-process
+        # stats. The previous implementation read `crucix:llm:<name>:cooldown_until`
+        # from Redis, but fallback.py only ever writes cooldowns into its
+        # instance dict (see fallback.py:80,86,94), so the Redis key was
+        # never populated and every provider showed "active" even when one
+        # was billing-cooled. Now: read get_stats() off the live provider.
+        live_stats: dict = {}
         try:
-            from ..llm import fallback as _fb
-            # No module-level singleton exists, but we can probe the
-            # LLM factory's active chain via health endpoint's shape.
-            # For now, trust configured keys as "active" and rely on the
-            # per-provider failure counter (below) to mark cooling.
-            pass
-        except Exception:
-            pass
+            from ..main import app as _app
+            llm_provider = getattr(getattr(_app, "state", None), "llm_provider", None)
+            # Walk past wrappers (cost_meter, rate_limiter) to the FallbackProvider
+            inner = llm_provider
+            while inner is not None and not hasattr(inner, "get_stats"):
+                inner = getattr(inner, "inner", None) or getattr(inner, "_inner", None) or getattr(inner, "wrapped", None)
+            if inner is not None and hasattr(inner, "get_stats"):
+                stats_fn = inner.get_stats
+                if callable(stats_fn):
+                    raw = stats_fn()
+                    if isinstance(raw, dict):
+                        live_stats = raw
+        except Exception as _stats_err:
+            logger.debug("[autonomy_surface] live LLM stats probe failed: %s", _stats_err)
 
-        # Cooldown state (Redis-backed — the fallback.py writes cooldowns
-        # to its instance dict, not Redis directly; so "cooling" reflects
-        # whatever the last run recorded).
+        now_ts = datetime.now(timezone.utc).timestamp()
         for name in configured:
             try:
-                cd_raw = await rs.get(f"crucix:llm:{name}:cooldown_until")
-                cooling = False
-                if cd_raw is not None:
-                    try:
-                        cooling = float(cd_raw) > datetime.now(timezone.utc).timestamp()
-                    except (TypeError, ValueError):
-                        cooling = False
+                s = live_stats.get(name) or {}
+                cd = float(s.get("cooldown_until") or 0)
+                cooling = cd > now_ts
                 status = "cooling" if cooling else "active"
-                out["providers"].append({"name": name, "status": status})
+                out["providers"].append({"name": name, "status": status,
+                                         "reliability": s.get("reliability"),
+                                         "calls": s.get("calls", 0),
+                                         "failures": s.get("failures", 0)})
                 if cooling:
                     out["providers_cooling"] += 1
                 else:
