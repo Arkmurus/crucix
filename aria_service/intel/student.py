@@ -202,6 +202,57 @@ _TOPIC_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"contract\s+law|force\s+majeure|indemnity|warranty|"
         r"intellectual\s+property|licensing\s+agreement|"
         r"end.user\s+certificate|export\s+licence|import\s+permit)\b", re.I)),
+    # ── CORE_MASTERY_TAGS (cross-cutting capability tags) ───────────────
+    # These four were in CORE_MASTERY_TAGS but absent from _TOPIC_PATTERNS,
+    # so detect_topics() literally could not emit them and reading_session
+    # could never lift their mastery scores. Six core tags were stuck at the
+    # 0.491 floor as of 2026-04-27 (sanctions, nato_standards, strategic_
+    # geography, export_control + lang:ru, lang:zh — the language ones do
+    # have script-based detection further down). Patterns deliberately
+    # overlap with `compliance` / `geopolitics` / `legal` so an article
+    # about ITAR lifts BOTH compliance AND export_control simultaneously,
+    # which is the right semantic.
+    ("sanctions", re.compile(
+        r"\b(?:ofac|ofsi|sdn(?:\s+list)?|specially\s+designated|"
+        r"sanctions?\s+(?:list|regime|package|programme|program|target|"
+        r"designation|update|removal)|asset\s+freeze|"
+        r"sectoral\s+sanctions|secondary\s+sanctions|extraterritorial|"
+        r"caatsa|magnitsky|opensanctions|eu\s+consolidated\s+(?:list|sanctions)|"
+        r"un\s+sc(?:\s+sanctions)?|comprehensive\s+embargo|"
+        r"embargoed\s+(?:country|state|destination)|"
+        r"travel\s+ban|frozen\s+assets|de.?listing|sanctions?\s+evasion)\b",
+        re.I)),
+    ("nato_standards", re.compile(
+        r"\b(?:stanag|aqap|aectp|natostd|nspa|nato\s+standardisation|"
+        r"nato\s+standardization|nato\s+stock\s+number|nsn\s+\d|"
+        r"nato\s+codification|allied\s+(?:joint|technical|"
+        r"administrative)\s+publication|\bajp\s*-?\s*\d|\batp\s*-?\s*\d|"
+        r"\baap\s*-?\s*\d|annex\s+to\s+stanag|"
+        r"interoperability\s+standard|nato\s+(?:cert|certif)|"
+        r"def\s+stan|mil[\s-]std|federation\s+mission\s+network|fmn)\b",
+        re.I)),
+    ("strategic_geography", re.compile(
+        r"\b(?:choke[\s-]?point|strait\s+of|maritime\s+(?:trade|domain|chokepoint)|"
+        r"sea[\s-]lane|key\s+terrain|forward[\s-](?:base|posture|operating\s+base)|"
+        r"power\s+projection|sphere\s+of\s+influence|"
+        r"strategic\s+(?:depth|frontier|location|corridor|hub|importance)|"
+        r"littoral|landlocked|geostrategic|continental\s+shelf|"
+        r"red\s+sea|south\s+china\s+sea|persian\s+gulf|"
+        r"horn\s+of\s+africa|sahel|caucasus|balkans|"
+        r"baltic\s+(?:states|approaches)|mediterranean|gibraltar|bab[\s-]el[\s-]mandeb|"
+        r"hormuz|malacca|suez|panama\s+canal|northern\s+sea\s+route)\b",
+        re.I)),
+    ("export_control", re.compile(
+        r"\b(?:itar|\bear\b|eccn|spire|sitcl|siel|ogel|otcl|"
+        r"export\s+licen[cs]e|export[\s-]control|dual[\s-]use|"
+        r"wassenaar|mtcr|nsg|hcoc|australia\s+group|"
+        r"deemed\s+export|re[\s-]export|in[\s-]country\s+transfer|"
+        r"end[\s-]use\s+(?:check|monitoring)|technology\s+transfer|"
+        r"controlled\s+(?:item|technology|software|goods)|"
+        r"munitions\s+list|usml|cml|eu\s+dual[\s-]use\s+regulation|"
+        r"bis\s+entity|denied\s+person|debarment\s+list|"
+        r"ddtc|brokering\s+(?:registration|licence|license)|"
+        r"export\s+control\s+(?:act|order|reform))\b", re.I)),
 ]
 
 
