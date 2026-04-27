@@ -2332,9 +2332,15 @@ async def _persist_report(report: ARKDDReport) -> None:
             source_module="dd_orchestrator",
         )
         # Coverage: fraction of the 6 DD subsystems that produced at least one
-        # finding (identity, network, compliance, digital, verification, synthesis).
+        # finding (identity, network, compliance, digital, verification,
+        # commercial_coherence). Synthesis uses `key_findings` not
+        # `findings` and is the aggregator of the other layers, so it's
+        # not counted as a separate signal source. The comment previously
+        # said "6 subsystems" but the list had 5 -- commercial_coherence
+        # was missing, so coverage was always undercounted by 1/6.
         _subs = [report.identity, report.network, report.compliance,
-                 report.digital, report.verification]
+                 report.digital, report.verification,
+                 report.commercial_coherence]
         _produced = sum(1 for s in _subs
                         if s and (getattr(s, "findings", None) or getattr(s, "entity_name", None)))
         await self_metrics.emit(
