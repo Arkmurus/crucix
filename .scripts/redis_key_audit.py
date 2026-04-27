@@ -43,14 +43,21 @@ CALL_RX = re.compile(
     r"\b(?:rs|_rs|redis_store|client|_client)\.([a-z_]+)\s*\(\s*(?:f?\"([^\"]+)\"|f?'([^']+)')",
     re.MULTILINE,
 )
-# Also capture _client.<func>(<arg>) where arg is a constant name
+# Module-level constants:  NAME = "literal"
 CONST_ASSIGN_RX = re.compile(
     r"^([A-Z_][A-Z0-9_]*)\s*=\s*(?:f?\"([^\"]+)\"|f?'([^']+)')",
     re.MULTILINE,
 )
-# func(_K_NAME) / func(KEY_NAME)
+# Local variables:  key = "literal"  OR  key = SOME_CONST.format(...)
+LOCAL_KEY_LITERAL_RX = re.compile(
+    r"\b([a-z_][a-z0-9_]*)\s*=\s*f?[\"']([^\"']+)[\"']",
+)
+LOCAL_KEY_FROMCONST_RX = re.compile(
+    r"\b([a-z_][a-z0-9_]*)\s*=\s*([A-Z_][A-Z0-9_]*)\.format\(",
+)
+# func(_K_NAME) / func(KEY_NAME) / func(local_var)
 CALL_VAR_RX = re.compile(
-    r"\b(?:rs|_rs|redis_store|client|_client)\.([a-z_]+)\s*\(\s*([A-Z_][A-Z0-9_]*)\b",
+    r"\b(?:rs|_rs|redis_store|client|_client)\.([a-z_]+)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\b",
 )
 
 
@@ -81,6 +88,25 @@ def main() -> None:
             if value.startswith(("crucix:", "aria:")):
                 consts[name] = value
 
+        # Resolve local variables.  This is intentionally file-wide rather
+        # than scope-aware -- catches the common pattern
+        #   def foo():
+        #       key = "crucix:foo:bar"
+        #       await rs.set(key, ...)
+        # plus
+        #   key = _CONSTANT.format(x=...)
+        local_vars: dict[str, str] = {}
+        for m in LOCAL_KEY_LITERAL_RX.finditer(src):
+            name = m.group(1)
+            value = m.group(2)
+            if value.startswith(("crucix:", "aria:")):
+                local_vars[name] = value
+        for m in LOCAL_KEY_FROMCONST_RX.finditer(src):
+            name = m.group(1)
+            const_name = m.group(2)
+            if const_name in consts:
+                local_vars[name] = consts[const_name]
+
         # Direct literal calls
         for m in CALL_RX.finditer(src):
             func = m.group(1)
@@ -93,11 +119,12 @@ def main() -> None:
             elif func in READER_FUNCS:
                 read[key].add(rel)
 
-        # Constant-name calls
+        # Constant + local-variable calls.  Look up consts first (uppercase
+        # convention), fall back to local_vars.
         for m in CALL_VAR_RX.finditer(src):
             func = m.group(1)
             varname = m.group(2)
-            literal = consts.get(varname)
+            literal = consts.get(varname) or local_vars.get(varname)
             if not literal:
                 continue
             key = normalise(literal)
