@@ -1,0 +1,104 @@
+"""Tests for brain_hook circuit breaker close-after-cooldown logic.
+
+Regression guard for the live 2026-04-27 incident: breaker tripped at
+15:41:35 due to first-time sentence-transformer cold-load (6s), then
+stayed OPEN for 13+ minutes despite the cooldown being only 60s. Cause:
+OPEN-state absorbs short-circuit before _record_latency, so the
+latency window stays frozen with the slow samples that tripped it,
+p95 stays high forever, _maybe_close_breaker never finds it recovered.
+
+Fix: clear the stale window on cooldown elapse and unconditionally
+close. _maybe_trip_breaker will re-trip naturally if the underlying
+issue is still present.
+"""
+from __future__ import annotations
+
+import time
+
+from aria_service.intel import brain_hook
+
+
+def _reset_breaker():
+    """Restore breaker to a known-fresh state. brain_hook keeps state in
+    module-level mutables, so tests must reset between cases."""
+    brain_hook._breaker_state["open"] = False
+    brain_hook._breaker_state["tripped_at"] = 0.0
+    brain_hook._breaker_state["consecutive_high"] = 0
+    brain_hook._recent_latencies_ms.clear()
+
+
+def test_close_clears_stale_window_after_cooldown():
+    _reset_breaker()
+    # Simulate the live failure: window full of slow samples that tripped
+    # the breaker, breaker open, cooldown elapsed.
+    brain_hook._recent_latencies_ms.extend([5000.0, 6000.0, 7000.0, 8000.0])
+    brain_hook._breaker_state["open"] = True
+    brain_hook._breaker_state["tripped_at"] = time.time() - (brain_hook._COOLDOWN_S + 5)
+
+    brain_hook._maybe_close_breaker()
+
+    assert brain_hook._breaker_state["open"] is False, (
+        "breaker must close after cooldown even when stale samples "
+        "are still in the window"
+    )
+    assert len(brain_hook._recent_latencies_ms) == 0, (
+        "stale latency window must be cleared so the next call is judged "
+        "fresh, not against the samples that caused the trip"
+    )
+    assert brain_hook._breaker_state["consecutive_high"] == 0
+
+
+def test_close_is_noop_before_cooldown_elapses():
+    _reset_breaker()
+    brain_hook._recent_latencies_ms.extend([5000.0, 6000.0])
+    brain_hook._breaker_state["open"] = True
+    # Tripped 10s ago — well within the 60s cooldown
+    brain_hook._breaker_state["tripped_at"] = time.time() - 10
+
+    brain_hook._maybe_close_breaker()
+
+    assert brain_hook._breaker_state["open"] is True, (
+        "breaker must stay open while cooldown is still elapsing"
+    )
+    # Window stays untouched while cooldown is active
+    assert len(brain_hook._recent_latencies_ms) == 2
+
+
+def test_close_is_noop_when_already_closed():
+    _reset_breaker()
+    brain_hook._recent_latencies_ms.extend([100.0, 200.0])
+    # Already closed — no-op
+    brain_hook._maybe_close_breaker()
+    # Window untouched
+    assert len(brain_hook._recent_latencies_ms) == 2
+    assert brain_hook._breaker_state["open"] is False
+
+
+def test_breaker_can_re_trip_after_close_if_still_slow():
+    """After cooldown closes the breaker, the next slow calls should
+    re-trip it — proving the close+clear pattern works as a real
+    half-open probe rather than just hiding the issue."""
+    _reset_breaker()
+    # Trip once
+    brain_hook._recent_latencies_ms.extend(
+        [brain_hook._LATENCY_TRIP_MS + 1000] * 50
+    )
+    brain_hook._breaker_state["open"] = True
+    brain_hook._breaker_state["tripped_at"] = time.time() - (brain_hook._COOLDOWN_S + 5)
+
+    # Cooldown elapses → close + clear
+    brain_hook._maybe_close_breaker()
+    assert brain_hook._breaker_state["open"] is False
+
+    # Simulate downstream still slow — feed _TRIP_CONSECUTIVE bad samples
+    for _ in range(brain_hook._TRIP_CONSECUTIVE + 1):
+        brain_hook._record_latency(brain_hook._LATENCY_TRIP_MS + 500)
+        brain_hook._maybe_trip_breaker(reason="re-trip test")
+
+    assert brain_hook._breaker_state["open"] is True, (
+        "breaker must be able to re-trip after a close+clear cycle if "
+        "downstream is still slow — otherwise we just hide the problem"
+    )
+
+    # Cleanup so other tests start fresh
+    _reset_breaker()

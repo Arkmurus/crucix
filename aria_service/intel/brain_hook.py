@@ -762,46 +762,65 @@ def _maybe_trip_breaker(reason: str) -> None:
 
 def _maybe_close_breaker() -> None:
     """Half-open the circuit after the cooldown so subsequent calls test
-    whether downstream has recovered. We don't gradually ramp — one
-    successful call below threshold closes it fully."""
+    whether downstream has recovered.
+
+    PRIOR BUG (observed live 2026-04-27 — breaker stuck OPEN for 13+ min
+    after a transient cold-start trip): the OPEN-state absorb path
+    short-circuits BEFORE _record_latency, so no new samples are added
+    to `_recent_latencies_ms` while the breaker is open. The window
+    stays frozen with the slow samples that tripped it. p95 stays
+    high forever. The "p95 recovered" check below never fires.
+
+    Fix: after cooldown elapses, treat the next call as a half-open
+    probe by *clearing the stale latency window* and closing the
+    breaker. The very next absorb runs the full expensive path, records
+    its latency normally, and `_maybe_trip_breaker` re-trips after
+    _TRIP_CONSECUTIVE bad calls if the underlying issue is still
+    present. This is the standard half-open semantics.
+    """
     if not _breaker_state["open"]:
         return
     if (time.time() - _breaker_state["tripped_at"]) < _COOLDOWN_S:
         return
-    p95 = _p95_latency_ms()
-    if p95 < _LATENCY_TRIP_MS * 0.7:  # 30% headroom before reclosing
-        logger.info(
-            "[brain_hook] CIRCUIT CLOSED — p95 recovered to %.0fms (was over %dms)",
-            p95, _LATENCY_TRIP_MS,
-        )
-        _breaker_state["open"] = False
-        _breaker_state["consecutive_high"] = 0
-        # Auto-resolve the pending_actions entry that was raised when the
-        # breaker tripped. Otherwise stale HIGH alerts accumulate (saw 2
-        # in production 2026-04-19 referencing 12s p95 long after p95 had
-        # recovered to 26ms).
+    # Cooldown elapsed -- clear stale samples so the breaker doesn't
+    # re-judge based on the very samples that tripped it. Snapshot the
+    # last p95 for the log line so we can see how stuck it was.
+    stale_p95 = _p95_latency_ms()
+    _recent_latencies_ms.clear()
+    _breaker_state["open"] = False
+    _breaker_state["consecutive_high"] = 0
+    logger.info(
+        "[brain_hook] CIRCUIT CLOSED — cooldown elapsed, "
+        "stale p95 was %.0fms (trip threshold %dms). "
+        "Clearing latency window and resuming full absorb path; "
+        "_maybe_trip_breaker will re-trip naturally if downstream is still slow.",
+        stale_p95, _LATENCY_TRIP_MS,
+    )
+    # Auto-resolve the pending_actions entry that was raised when the
+    # breaker tripped. Otherwise stale HIGH alerts accumulate (saw 2
+    # in production 2026-04-19 referencing 12s p95 long after p95 had
+    # recovered to 26ms).
+    try:
+        async def _auto_resolve():
+            from . import pending_actions as _pa
+            opens = await _pa.list_open(limit=20)
+            for entry in opens:
+                if entry.get("source") == "brain_hook.circuit_breaker":
+                    await _pa.mark_satisfied(
+                        entry.get("action_id", ""),
+                        note=(
+                            f"Auto-resolved: brain breaker cooldown elapsed "
+                            f"(stale p95 {stale_p95:.0f}ms). Full path resuming."
+                        ),
+                    )
+        # See note above: prefer get_running_loop().
         try:
-            async def _auto_resolve():
-                from . import pending_actions as _pa
-                opens = await _pa.list_open(limit=20)
-                for entry in opens:
-                    if entry.get("source") == "brain_hook.circuit_breaker":
-                        await _pa.mark_satisfied(
-                            entry.get("action_id", ""),
-                            note=(
-                                f"Auto-resolved: brain p95 recovered to "
-                                f"{p95:.0f}ms (was over {_LATENCY_TRIP_MS}ms "
-                                f"at trip)."
-                            ),
-                        )
-            # See note above: prefer get_running_loop().
-            try:
-                _loop = asyncio.get_running_loop()
-                _loop.create_task(_auto_resolve())
-            except RuntimeError:
-                pass
-        except Exception:
+            _loop = asyncio.get_running_loop()
+            _loop.create_task(_auto_resolve())
+        except RuntimeError:
             pass
+    except Exception:
+        pass
 
 
 def get_breaker_state() -> dict:
