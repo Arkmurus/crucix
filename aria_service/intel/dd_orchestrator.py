@@ -1691,9 +1691,23 @@ async def _run_verification(target: dict, report: ARKDDReport) -> None:
             "resolution": "use worst-case — promote overall to country's level",
         })
 
-    # Confidence floor: worst tag across all sections
+    # Confidence floor: worst tag across all sections.
+    # Includes Layer 5c (commercial_coherence) -- it runs BEFORE verification
+    # in the orchestrator (lines 2737 vs 2845), so its anomalies/findings
+    # are already populated by this point. Excluding it meant a HIGH-tier
+    # commercial_coherence anomaly (e.g. licence-chain gap) wouldn't drag
+    # the report's confidence floor down, which it should.
+    # `report.verification` is included for consistency but contributes
+    # nothing today (no findings populated until later in this same call).
     all_confidences = ["ASSESSED"]  # baseline
-    for section in (report.identity, report.network, report.verification, report.compliance, report.digital):
+    for section in (
+        report.identity,
+        report.network,
+        report.verification,
+        report.compliance,
+        report.digital,
+        report.commercial_coherence,
+    ):
         for f in getattr(section, "findings", []) or []:
             all_confidences.append(getattr(f, "confidence", "ASSESSED"))
     report.verification.confidence_floor = weakest_confidence(all_confidences)
