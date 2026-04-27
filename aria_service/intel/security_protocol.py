@@ -937,9 +937,12 @@ async def run_security_audit() -> dict:
     except Exception as e:
         warning.append(f"CHECK 3 SKIP: Could not scan for prompt fragments: {e}")
 
-    # --- CHECK 4-8: Structural checks (logged as advisory) ---
-    # These require deeper integration with session store and reasoning
-    # library; for now we flag them as areas to monitor.
+    # --- CHECK 4-8: Structural checks (logged as advisory, not warnings) ---
+    # These are TODO placeholders for checks that require deeper integration
+    # with session store, reasoning library, etc. They MUST stay separate
+    # from the real `warning` bucket -- otherwise every audit cycle logs
+    # "6 warnings" forever and the operator can never tell whether a real
+    # warning has appeared (F7 fix 2026-04-27).
     advisory_checks = [
         ("CHECK 4", "Cross-session data leakage", "Requires session store scan"),
         ("CHECK 5", "Reasoning library isolation", "Requires reasoning library scan"),
@@ -947,21 +950,23 @@ async def run_security_audit() -> dict:
         ("CHECK 7", "Document PII exposure", "Requires document store scan"),
         ("CHECK 8", "Watchlist log exposure", "Requires watchlist log scan"),
     ]
-
-    for check_id, check_name, note in advisory_checks:
-        warning.append(f"{check_id} ADVISORY: {check_name} -- {note} (manual review recommended)")
+    advisory: list[str] = [
+        f"{check_id} ADVISORY: {check_name} -- {note} (manual review recommended)"
+        for check_id, check_name, note in advisory_checks
+    ]
 
     issues_found = len(critical) + len(warning)
 
     logger.info(
-        "Security audit complete: %d issues (%d critical, %d warning, %d clean)",
-        issues_found, len(critical), len(warning), len(clean_areas),
+        "Security audit complete: %d issues (%d critical, %d warning, %d clean, %d advisory)",
+        issues_found, len(critical), len(warning), len(clean_areas), len(advisory),
     )
 
     return {
         "issues_found": issues_found,
         "critical": critical,
         "warning": warning,
+        "advisory": advisory,
         "clean_areas": clean_areas,
         "timestamp": timestamp,
     }
