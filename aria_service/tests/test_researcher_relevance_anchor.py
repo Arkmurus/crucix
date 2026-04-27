@@ -17,7 +17,7 @@ def _score(title: str, description: str = "") -> int:
     """Replicate the inline scoring loop in research_and_learn() so we can
     test it without spinning up the full async cycle."""
     text = f"{title} {description}".lower()
-    if not any(k in text for k in researcher._DEFENCE_ANCHOR_TERMS):
+    if not researcher._has_defence_anchor(text):
         return 0
     score = 0
     for interest in researcher.RESEARCH_INTERESTS:

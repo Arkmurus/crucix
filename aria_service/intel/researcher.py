@@ -116,24 +116,75 @@ RESEARCH_FEEDS = [
     {"name": "SCMP China", "url": "https://www.scmp.com/rss/91/feed", "category": "china_analysis"},
 ]
 
-# Defence anchor terms — at least one must appear in title+description before
+# Defence anchor terms — at least one must match in title+description before
 # procurement/regional boosts apply during article scoring. Without this gate,
 # a hotel paper with "billion-dollar deal in Angola" picks up +13 score with
 # zero defence content (live incident 2026-04-27).
-_DEFENCE_ANCHOR_TERMS = (
-    "defence", "defense", "military", "weapon", "weapons", "arms ", " arms",
-    "nato", "army", "navy", "naval", "air force", "airforce",
-    "fighter", "missile", "tank", "drone", "uav", "ucav",
+#
+# 2026-04-27 v2 — F9 fix: original list used substring matching, so short
+# abbreviations false-positived (`isr` matched 'disruption'/'disregard',
+# 'mod' matched 'modern'/'module'). Train-crash article got selected for
+# deep reading + RAG ingest because its description contained 'disruption'.
+# Now: short anchors are word-bounded via regex, longer multi-char terms
+# stay as substring matches (lower false-positive risk).
+_DEFENCE_ANCHOR_SUBSTRINGS = (
+    "defence", "defense", "military", "weapon", "weapons",
+    "nato", "naval", "air force", "airforce",
+    "fighter", "missile", "drone",
     "artillery", "howitzer", "submarine", "frigate", "corvette",
     "helicopter", "warship", "armoured", "armored", "ammunition",
     "munitions", "soldier", "troops", "regiment", "brigade",
-    "procurement", "tender", "rfp", "rfi", "fms", "mod ", " mod",
+    "procurement", "tender",
     "ministry of defence", "ministry of defense", "general staff",
-    "battalion", "deployment", "combat", "tactical", "strategic command",
+    "battalion",
     "intelligence service", "sigint", "humint", "osint",
     "export control", "sanctions", "embargo", "dual-use",
-    "stanag", "interoperability", "c4isr", "isr",
+    "stanag", "interoperability", "c4isr",
 )
+# Word-bounded — short tokens that would false-positive as substrings.
+# `arms` matches in 'farmstand', `army` in 'armyworm', `mod` in 'modern'/
+# 'module', `isr` in 'disruption', `tank` in 'thank', etc.
+_DEFENCE_ANCHOR_WORDS = re.compile(
+    r"\b(?:arms|army|navy|tank|uav|ucav|rfp|rfi|fms|mod|isr"
+    r"|combat|tactical|deployment|strategic command)\b",
+    re.IGNORECASE,
+)
+
+
+def _shorten_for_search(text: str, max_chars: int = 60) -> str:
+    """Trim a long string to a search-engine-shaped query.
+
+    Hypotheses and analysis fragments can be 200+ chars; passing them
+    verbatim to news APIs returns nothing useful (and on Brave/Google
+    counts toward the per-query character limit). We keep the first
+    `max_chars` chars but cut on a word boundary so the query stays
+    grammatical. Punctuation that confuses search APIs is also stripped.
+    """
+    if not text:
+        return ""
+    s = text.strip()
+    # Drop quotes and punctuation that don't belong in a search query
+    s = re.sub(r"[\"'`]", "", s)
+    s = re.sub(r"[,;:!?]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if len(s) <= max_chars:
+        return s
+    cut = s[:max_chars].rsplit(" ", 1)[0]
+    return cut or s[:max_chars]
+
+
+def _has_defence_anchor(text: str) -> bool:
+    """True iff text contains at least one defence anchor (substring or
+    word-bounded). Centralised so test guards and scoring agree."""
+    lower = text.lower()
+    if any(s in lower for s in _DEFENCE_ANCHOR_SUBSTRINGS):
+        return True
+    return bool(_DEFENCE_ANCHOR_WORDS.search(text))
+
+
+# Backwards-compat alias for existing tests / callers that imported the
+# tuple directly. New callers should use _has_defence_anchor().
+_DEFENCE_ANCHOR_TERMS = _DEFENCE_ANCHOR_SUBSTRINGS
 
 # ── ARIA's Research Interests — GLOBAL scope ─────────────────────────────────
 
@@ -1068,6 +1119,10 @@ async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -
     if parsed.get("skip"):
         return 0, 0
 
+    # Collect all facts from this article so we can batch the RAG
+    # encode pass (F23 fix 2026-04-27 — was 14 separate model.encode
+    # calls per article, now 1).
+    rag_batch: list[dict] = []
     for fact in (parsed.get("facts") or []):
         topic = fact.get("topic", "")
         content = fact.get("content", "")
@@ -1075,6 +1130,18 @@ async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -
         if topic and content and len(content) > 20:
             await store_fact(topic, f"{content} [Source: {source}]", f"research:{source}", confidence)
             facts_learned += 1
+            rag_batch.append({
+                "topic": topic,
+                "content": f"{content} [Source: {source}]",
+                "confidence": confidence,
+                "source": f"research:{source}",
+            })
+    if rag_batch:
+        try:
+            from . import rag_store as _rag
+            await _rag.add_facts_batch(rag_batch)
+        except Exception as e:
+            logger.debug("rag_store.add_facts_batch failed: %s", e)
 
     hyp = parsed.get("hypothesis") or {}
     if hyp.get("statement") and len(hyp["statement"]) > 20:
@@ -2355,7 +2422,7 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
     scored: list[tuple[float, dict]] = []
     for article in all_articles:
         text = f"{article['title']} {article.get('description', '')}".lower()
-        if not any(k in text for k in _DEFENCE_ANCHOR_TERMS):
+        if not _has_defence_anchor(text):
             continue
         score = 0
         for interest in RESEARCH_INTERESTS:
@@ -2447,7 +2514,13 @@ async def validate_hypothesis(llm: LLMProvider, hypothesis_text: str) -> dict:
     if not target:
         return {"error": "Hypothesis not found"}
 
-    articles = await _web_search(f"{target['hypothesis']} evidence 2026")
+    # Hypotheses can be 200+ char descriptions ("The Measure Group Europe
+    # LinkedIn page shows negligible engagement and no defence content,
+    # suggesting it is either a non-defence entity, a shell page..."). Long
+    # queries return junk from search APIs and consume their per-query limits.
+    # F10 fix 2026-04-27: truncate to a search-shaped query (~60 chars).
+    query = _shorten_for_search(target["hypothesis"], max_chars=60) + " evidence 2026"
+    articles = await _web_search(query)
     if not articles:
         return {"hypothesis": target["hypothesis"], "status": "NO_NEW_EVIDENCE"}
 

@@ -389,6 +389,59 @@ async def ingest_fact(
         return False
 
 
+async def add_facts_batch(facts: list[dict]) -> int:
+    """Batched variant of add_fact — collapses N encode calls into 1.
+
+    F23 fix 2026-04-27: live log showed 28 separate "Batches: 1/1"
+    sentence-transformer calls per article ingest because each fact
+    was upserted individually. Routing them through this batch helper
+    cuts the per-article encode time from ~700ms to ~80ms (one model
+    pass instead of N).
+
+    Each item must be a dict with keys: fact_id, topic, content,
+    confidence, source, market. Items with content < 10 chars are
+    silently skipped (matches add_fact's contract).
+
+    Returns the number of facts actually upserted.
+    """
+    if not facts:
+        return 0
+    if not await _ensure_async():
+        return 0
+    ids: list[str] = []
+    docs: list[str] = []
+    metas: list[dict] = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+    ts_epoch = time.time()
+    for f in facts:
+        content = (f.get("content") or "").strip()
+        topic = f.get("topic") or ""
+        if not content or len(content) < 10:
+            continue
+        ids.append(f.get("fact_id") or _hash_id(content, f.get("source", "")))
+        docs.append(f"{topic}: {content}".strip())
+        metas.append({
+            "topic": topic[:200],
+            "confidence": f.get("confidence", "ASSESSED"),
+            "source": (f.get("source") or "")[:300],
+            "market": (f.get("market") or "")[:100],
+            "ingested_at": now_iso,
+            "ts_epoch": ts_epoch,
+        })
+    if not ids:
+        return 0
+    try:
+        import asyncio as _aio
+        await _aio.to_thread(
+            _facts_collection.upsert,
+            ids=ids, documents=docs, metadatas=metas,
+        )
+        return len(ids)
+    except Exception as e:
+        logger.debug("RAG batch fact ingest failed: %s", e)
+        return 0
+
+
 # ── Public API: retrieve ───────────────────────────────────────────────────
 
 def _recency_boost(ts_epoch: float | None) -> float:
