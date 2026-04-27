@@ -195,11 +195,21 @@ async def seed_web_atlas(skip_if_populated: bool = True) -> dict:
     except Exception as e:
         return {"ok": False, "error": f"web_atlas import failed: {e}"}
 
-    # Check current state — skip if already populated
+    # Check current state — skip if already populated. web_atlas.stats()
+    # exposes the family count under `source_families`; the previous
+    # `total_sources`/`total` keys never existed, so the guard always
+    # returned 0 and re-seeded on every boot. That fired ~30 brain_hook +
+    # audit_log writes per startup with no new information (visible in
+    # fly logs as a 30-line `source_atlas_update` storm at 09:21:00).
     if skip_if_populated:
         try:
             stats = await web_atlas.stats()
-            existing_count = int(stats.get("total_sources", 0) or stats.get("total", 0) or 0)
+            existing_count = int(
+                stats.get("source_families", 0)
+                or stats.get("total_sources", 0)
+                or stats.get("total", 0)
+                or 0
+            )
             if existing_count >= len(_DEFENCE_SOURCES) // 2:
                 return {
                     "ok": True,

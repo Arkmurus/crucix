@@ -493,7 +493,12 @@ async def _classify_url_llm(url: str, context: str, llm) -> URLProposal:
     try:
         from . import cost_tracker
         with cost_tracker.feature("corpus_manager"):
-            result = await llm.complete("You are a URL classifier.", prompt, max_tokens=300, timeout=15.0)
+            # 30s, not 15s: the fallback chain skips any provider when
+            # `remaining < 15.0`, so a 15s timeout sits exactly on the floor
+            # and a microsecond of wrapper overhead (cost meter / rate limit
+            # accounting) can flip it. URL classifier has a heuristic fallback,
+            # but we'd rather get the real LLM call than silently degrade.
+            result = await llm.complete("You are a URL classifier.", prompt, max_tokens=300, timeout=30.0)
         raw = result.text.strip()
         if "```" in raw:
             raw = raw.split("```")[1].split("```")[0]
