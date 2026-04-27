@@ -263,6 +263,32 @@ export async function briefing() {
   return results;
 }
 
+// Cache-keyed by source URL. TTL chosen so the cache covers ~6 sweeps
+// (sweeps fire every 5 min; 30 min cache means we re-fetch only every
+// 6th sweep instead of every sweep — cuts proxy requests by 6×).
+// On all-proxy-fail, we serve the cache so the dashboard panel keeps
+// rendering content from the most recent successful pull instead of
+// going blank when the proxies are all rate-limited (429/503 cascade
+// observed live 2026-04-27 16:59 — entire CPLP layer was failing).
+const FEED_CACHE_TTL_S = 30 * 60;
+let _persistMod = null;
+async function _getPersist() {
+  if (_persistMod) return _persistMod;
+  try {
+    _persistMod = await import('../../lib/persist/store.mjs');
+  } catch { _persistMod = { redisGet: async () => null, redisSet: async () => null }; }
+  return _persistMod;
+}
+function _cacheKey(src) {
+  // Hash the URL so very long URLs don't blow Redis key limits
+  // (some Google News RSS URLs are 200+ chars).
+  let h = 0;
+  for (let i = 0; i < src.url.length; i++) {
+    h = ((h << 5) - h + src.url.charCodeAt(i)) | 0;
+  }
+  return `crucix:rss_cache:${(src.name || 'unnamed').replace(/\s+/g, '_').toLowerCase()}:${(h >>> 0).toString(36)}`;
+}
+
 async function fetchSource(src) {
   // ReliefWeb JSON API — always works, no proxy needed
   if (src.type === 'reliefweb_api') {
@@ -292,10 +318,28 @@ async function fetchSource(src) {
   ];
   const _ua = _UAS[Math.floor(Math.random() * _UAS.length)];
 
+  const persist = await _getPersist();
+  const cacheKey = _cacheKey(src);
+
+  // Cache check: if we have a fresh cached payload, return it without
+  // hitting the network at all. Saves rate-limited proxy requests.
+  try {
+    const cached = await persist.redisGet(cacheKey);
+    if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
+      const ageS = Math.floor((Date.now() - (cached.at || 0)) / 1000);
+      if (ageS < FEED_CACHE_TTL_S) {
+        return cached.items;
+      }
+    }
+  } catch {}
+
   // Track last upstream status so a "blocked" warning can distinguish
   // 404 (feed moved) from 403/503 (real blocking) from network errors.
   const attempts = [];
 
+  // Direct fetch — bumped timeout 10s -> 15s. Lusophone PT/AO/MZ
+  // government sites can be slow without being unreachable; the previous
+  // 10s cap was timing out on perfectly working endpoints.
   try {
     const res = await fetch(src.url, {
       headers: {
@@ -303,18 +347,43 @@ async function fetchSource(src) {
         'Accept':     'application/rss+xml, application/xml, text/xml, */*',
         'Accept-Language': 'pt-PT,pt;q=0.9,en;q=0.5',
       },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(15000),
       redirect: 'follow',
     });
     attempts.push(`direct=${res.status}`);
     if (res.ok) {
       const xml = await res.text();
       const items = parseRSS(xml);
-      if (items.length > 0) return items;
+      if (items.length > 0) {
+        try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
+        return items;
+      }
     }
   } catch (e) { attempts.push(`direct=err(${(e && e.message || 'unknown').slice(0, 40)})`); }
 
-  // Fallback: rss2json proxy (bypasses Render IP blocks)
+  // Fallback chain. Order matters -- previous chain always tried rss2json
+  // first which is the most rate-limited free service. New ordering puts
+  // r.jina.ai first (more generous quota, content-extracts cleanly) then
+  // the older proxies.
+  // r.jina.ai is a reader proxy that returns the raw page contents --
+  // for RSS URLs it returns the RSS XML which we parse normally.
+  try {
+    const res = await fetch(`https://r.jina.ai/${src.url}`, {
+      headers: { 'User-Agent': _ua, 'Accept': 'application/xml, text/xml, */*' },
+      signal: AbortSignal.timeout(15000),
+    });
+    attempts.push(`jina=${res.status}`);
+    if (res.ok) {
+      const xml = await res.text();
+      const items = parseRSS(xml);
+      if (items.length > 0) {
+        try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
+        return items;
+      }
+    }
+  } catch { attempts.push(`jina=err`); }
+
+  // rss2json proxy (bypasses Render IP blocks; rate-limited free quota)
   try {
     const proxyUrl = 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(src.url);
     const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
@@ -322,17 +391,19 @@ async function fetchSource(src) {
     if (res.ok) {
       const data = await res.json();
       if (data.status === 'ok' && data.items?.length > 0) {
-        return data.items.slice(0, 20).map(item => ({
+        const items = data.items.slice(0, 20).map(item => ({
           title:       item.title || '',
           link:        item.link || '',
           description: item.description || item.content || '',
           pubDate:     item.pubDate || '',
         }));
+        try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
+        return items;
       }
     }
   } catch (e) { attempts.push(`rss2json=err`); }
 
-  // Third proxy: allorigins.win
+  // allorigins.win
   try {
     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(src.url)}`, {
       signal: AbortSignal.timeout(12000),
@@ -342,12 +413,15 @@ async function fetchSource(src) {
       const data = await res.json();
       if (data.contents) {
         const items = parseRSS(data.contents);
-        if (items.length > 0) return items;
+        if (items.length > 0) {
+          try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
+          return items;
+        }
       }
     }
   } catch { attempts.push(`allorigins=err`); }
 
-  // Fourth proxy: corsproxy.io
+  // corsproxy.io
   try {
     const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(src.url)}`, {
       headers: { 'User-Agent': _ua },
@@ -357,9 +431,42 @@ async function fetchSource(src) {
     if (res.ok) {
       const xml = await res.text();
       const items = parseRSS(xml);
-      if (items.length > 0) return items;
+      if (items.length > 0) {
+        try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
+        return items;
+      }
     }
   } catch { attempts.push(`corsproxy=err`); }
+
+  // codetabs.com proxy — additional fallback. Free quota is small but
+  // independent of the others, so works when rss2json/allorigins are
+  // both rate-limited.
+  try {
+    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(src.url)}`, {
+      headers: { 'User-Agent': _ua },
+      signal: AbortSignal.timeout(12000),
+    });
+    attempts.push(`codetabs=${res.status}`);
+    if (res.ok) {
+      const xml = await res.text();
+      const items = parseRSS(xml);
+      if (items.length > 0) {
+        try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
+        return items;
+      }
+    }
+  } catch { attempts.push(`codetabs=err`); }
+
+  // Last resort: serve stale cache if we have it. Better than empty
+  // dashboard. The age is logged so the operator knows it's stale.
+  try {
+    const cached = await persist.redisGet(cacheKey);
+    if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
+      const ageMin = Math.floor((Date.now() - (cached.at || 0)) / 60000);
+      console.warn(`[Lusophone] ${src.name} all proxies failed (${attempts.join(' ')}); serving stale cache age=${ageMin}min`);
+      return cached.items;
+    }
+  } catch {}
 
   console.warn(`[Lusophone] ${src.name} failed: ${attempts.join(' ')}`);
   return [];
