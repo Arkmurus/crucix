@@ -2753,7 +2753,10 @@ async def aria_chat(
                 user_message=message,
                 response_text=response_text,
                 tool_context=None,
-                mastery_overall=_mastery_report.get("overall_score", 0.0),
+                mastery_overall=(
+                    _mastery_report.get("headline_mastery")
+                    or _mastery_report.get("overall_mastery", 0.0)
+                ),
                 mastery_weak_topics=_mastery_report.get("weak_topics", []),
                 operating_mode=(await _om.get_mode()).name,
             )
@@ -3155,7 +3158,10 @@ async def aria_chat_stream(
                 user_message=message,
                 response_text=response_text,
                 tool_context=None,
-                mastery_overall=_mastery_report.get("overall_score", 0.0),
+                mastery_overall=(
+                    _mastery_report.get("headline_mastery")
+                    or _mastery_report.get("overall_mastery", 0.0)
+                ),
                 mastery_weak_topics=_mastery_report.get("weak_topics", []),
                 operating_mode=(await _om.get_mode()).name,
             )
