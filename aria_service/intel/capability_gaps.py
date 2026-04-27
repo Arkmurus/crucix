@@ -58,6 +58,12 @@ VALID_GAP_TYPES = frozenset({
     # the type silences the "Unknown gap type" warning that fired on
     # every miss.
     "no_symbolic_rule",
+    # Web search exhaustion (2026-04-27) — all backends returned 0 results
+    # for a research-cycle query. Emitted by researcher._web_search when
+    # every configured backend (crossref/openalex/semantic-scholar/brave)
+    # comes back empty. Was generating "Unknown gap type" warnings on
+    # every weak-cell search.
+    "search_zero_results",
 })
 
 
