@@ -108,20 +108,34 @@ async def evaluate_auto_transition() -> dict | None:
     except Exception:
         blocks_24h = 0
 
-    # Check adversarial score
+    # Check adversarial score. Treat missing/None as "no signal yet" rather
+    # than triggering a downgrade -- defaulting to 1.0 was the old behaviour
+    # and caused no transition either way; keeping that unless we have a
+    # real number.
     try:
         from .adversarial_challenge import stats as adv_stats
         adv = await adv_stats()
         last_run = adv.get("last_run") or {}
-        adversarial_score = last_run.get("overall_score", 1.0)
+        adversarial_score = last_run.get("overall_score")
+        if adversarial_score is None:
+            adversarial_score = 1.0
     except Exception:
         adversarial_score = 1.0
 
-    # Check grounded rate
+    # Check grounded rate. After the source_verifier 24h-rolling fix
+    # (baf34e1), avg_grounded_rate can legitimately be None when there's
+    # no verified turn in the last 24h (cold start, low traffic). Treat
+    # None as "unknown -- assume healthy" so we don't TypeError on the
+    # comparison and don't auto-degrade for lack of data. The previous
+    # code used `recent.get("avg_grounded_rate", 1.0)` which returned
+    # None (not 1.0) when the key existed with a None value -- the
+    # comparison `None < 0.X` then raised TypeError out of this function.
     try:
         from . import source_verifier
         recent = await source_verifier.get_verification_stats()
-        grounded_rate = recent.get("avg_grounded_rate", 1.0)
+        grounded_rate = recent.get("avg_grounded_rate")
+        if grounded_rate is None:
+            grounded_rate = 1.0
     except Exception:
         grounded_rate = 1.0
 
@@ -132,10 +146,10 @@ async def evaluate_auto_transition() -> dict | None:
     if blocks_24h >= EMERGENCY_BLOCK_COUNT:
         target = Mode.EMERGENCY
         reason = f"predictor blocked {blocks_24h} tasks in 24h (threshold: {EMERGENCY_BLOCK_COUNT})"
-    elif adversarial_score < SUPERVISED_ADVERSARIAL_SCORE:
+    elif adversarial_score is not None and adversarial_score < SUPERVISED_ADVERSARIAL_SCORE:
         target = Mode.SUPERVISED
         reason = f"adversarial score {adversarial_score:.0%} < {SUPERVISED_ADVERSARIAL_SCORE:.0%}"
-    elif grounded_rate < DEGRADED_GROUNDED_RATE:
+    elif grounded_rate is not None and grounded_rate < DEGRADED_GROUNDED_RATE:
         target = Mode.DEGRADED
         reason = f"grounded rate {grounded_rate:.0%} < {DEGRADED_GROUNDED_RATE:.0%}"
 
