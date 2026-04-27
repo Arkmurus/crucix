@@ -85,8 +85,19 @@ async def search_semantic_scholar(
 ) -> list[dict]:
     """Semantic Scholar graph API. Free, optional API key raises rate
     limit 10×. Covers 200M+ papers with abstract, authors, venue, year,
-    and open-access PDF URL when available."""
+    and open-access PDF URL when available.
+
+    Wrapped with a circuit breaker (F16 fix, 2026-04-27): without an
+    API key Semantic Scholar's 1 req/sec limit is shared globally, so
+    every research cycle hits 429. Breaker opens for 10 min after 3
+    consecutive failures (429 or otherwise) so we stop pinging while
+    rate-limited.
+    """
     if not query or not _is_enabled():
+        return []
+    from ..circuit_breaker import get_breaker
+    cb = get_breaker("semantic_scholar", failure_threshold=3, cooldown_seconds=600)
+    if cb.is_open():
         return []
     url = "https://api.semanticscholar.org/graph/v1/paper/search"
     headers = {"User-Agent": random_ua()}
@@ -103,13 +114,17 @@ async def search_semantic_scholar(
             resp = await client.get(url, headers=headers, params=params)
         if resp.status_code == 429:
             logger.debug("semantic_scholar: rate limited")
+            cb.record_failure()
             return []
         if resp.status_code != 200:
             logger.debug("semantic_scholar: HTTP %d", resp.status_code)
+            cb.record_failure()
             return []
+        cb.record_success()
         data = resp.json()
     except Exception as e:
         logger.debug("semantic_scholar fetch failed: %s", e)
+        cb.record_failure()
         return []
     out: list[dict] = []
     for p in (data.get("data") or [])[:max_results]:
@@ -154,6 +169,10 @@ async def search_openalex(
     institutional affiliations."""
     if not query or not _is_enabled():
         return []
+    from ..circuit_breaker import get_breaker
+    cb = get_breaker("openalex", failure_threshold=3, cooldown_seconds=600)
+    if cb.is_open():
+        return []
     url = "https://api.openalex.org/works"
     params = {
         "search": query,
@@ -166,10 +185,13 @@ async def search_openalex(
                                     headers={"User-Agent": random_ua()})
         if resp.status_code != 200:
             logger.debug("openalex: HTTP %d", resp.status_code)
+            cb.record_failure()
             return []
+        cb.record_success()
         data = resp.json()
     except Exception as e:
         logger.debug("openalex fetch failed: %s", e)
+        cb.record_failure()
         return []
     out: list[dict] = []
     for w in (data.get("results") or [])[:max_results]:
@@ -220,6 +242,10 @@ async def search_crossref(
     and conference papers. No auth, polite pool via mailto=."""
     if not query or not _is_enabled():
         return []
+    from ..circuit_breaker import get_breaker
+    cb = get_breaker("crossref", failure_threshold=3, cooldown_seconds=600)
+    if cb.is_open():
+        return []
     url = "https://api.crossref.org/works"
     params = {
         "query": query,
@@ -235,10 +261,13 @@ async def search_crossref(
                                     headers={"User-Agent": random_ua()})
         if resp.status_code != 200:
             logger.debug("crossref: HTTP %d", resp.status_code)
+            cb.record_failure()
             return []
+        cb.record_success()
         data = resp.json()
     except Exception as e:
         logger.debug("crossref fetch failed: %s", e)
+        cb.record_failure()
         return []
     items = (data.get("message") or {}).get("items") or []
     out: list[dict] = []

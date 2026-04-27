@@ -142,8 +142,19 @@ def _score_relevance(result: SearchResult, query: str) -> float:
 # ── Backend: Brave Search API ───────────────────────────────────────────────
 
 async def _search_brave(query: str, max_results: int = 10, language: str = "en") -> list[SearchResult]:
-    """Brave Search API — best quality, requires API key."""
+    """Brave Search API — best quality, requires API key.
+
+    Wrapped with a circuit breaker (F15 fix, 2026-04-27): the live key
+    was returning 402 Payment Required on every call (~9 wasted POSTs
+    per research cycle). After 3 consecutive 4xx/5xx the breaker opens
+    for 30 minutes; ARIA stops attempting Brave until the cooldown
+    expires, then a single probe request decides whether to re-enable.
+    """
     if not BRAVE_API_KEY:
+        return []
+    from .circuit_breaker import get_breaker
+    cb = get_breaker("brave_search", failure_threshold=3, cooldown_seconds=1800)
+    if cb.is_open():
         return []
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
@@ -154,7 +165,9 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
             )
             if resp.status_code != 200:
                 logger.debug("Brave search %d: %s", resp.status_code, resp.text[:200])
+                cb.record_failure()
                 return []
+            cb.record_success()
             data = resp.json()
             results = []
             for item in (data.get("web", {}).get("results", []))[:max_results]:
@@ -170,6 +183,7 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
             return results
     except Exception as e:
         logger.debug("Brave search failed: %s", e)
+        cb.record_failure()
         return []
 
 

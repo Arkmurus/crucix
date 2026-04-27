@@ -330,39 +330,80 @@ async def _try_archive_fallbacks(url: str, timeout: float = 12.0) -> str:
       1. archive.is (most defence/security articles get archived here within hours)
       2. Wayback Machine via /web/timemap/ (if archive.is fails)
       3. Google News cluster (sometimes serves a cached snippet)
+
+    Each mirror is wrapped in a circuit breaker (F21 fix, 2026-04-27):
+    archive.is rate-limits aggressively (429 every paywalled OUP DOI in
+    the live log). After 3 consecutive failures the breaker opens for
+    15 minutes; we skip that mirror and fall through to the next.
     """
     from urllib.parse import quote_plus as _q
+    from .circuit_breaker import get_breaker
 
     # 1. archive.is
-    try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            resp = await client.get(
-                f"https://archive.is/newest/{url}",
-                headers={"User-Agent": random_ua()},
-            )
-            if resp.status_code == 200 and len(resp.text) > 2000:
-                return resp.text
-    except httpx.HTTPError:
-        pass
+    cb_archive = get_breaker("archive_is", failure_threshold=3, cooldown_seconds=900)
+    if not cb_archive.is_open():
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                resp = await client.get(
+                    f"https://archive.is/newest/{url}",
+                    headers={"User-Agent": random_ua()},
+                )
+                if resp.status_code == 200 and len(resp.text) > 2000:
+                    cb_archive.record_success()
+                    return resp.text
+                cb_archive.record_failure()
+        except httpx.HTTPError:
+            cb_archive.record_failure()
 
     # 2. Wayback Machine — get the most recent snapshot URL via the availability API
-    try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            avail = await client.get(
-                "https://archive.org/wayback/available",
-                params={"url": url},
-            )
-            if avail.status_code == 200:
-                snap = (avail.json().get("archived_snapshots", {}) or {}).get("closest", {})
-                snap_url = snap.get("url") if snap.get("available") else None
-                if snap_url:
-                    snap_resp = await client.get(snap_url)
-                    if snap_resp.status_code == 200 and len(snap_resp.text) > 2000:
-                        return snap_resp.text
-    except (httpx.HTTPError, ValueError, KeyError):
-        pass
+    cb_wayback = get_breaker("wayback", failure_threshold=3, cooldown_seconds=900)
+    if not cb_wayback.is_open():
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                avail = await client.get(
+                    "https://archive.org/wayback/available",
+                    params={"url": url},
+                )
+                if avail.status_code == 200:
+                    snap = (avail.json().get("archived_snapshots", {}) or {}).get("closest", {})
+                    snap_url = snap.get("url") if snap.get("available") else None
+                    if snap_url:
+                        snap_resp = await client.get(snap_url)
+                        if snap_resp.status_code == 200 and len(snap_resp.text) > 2000:
+                            cb_wayback.record_success()
+                            return snap_resp.text
+                cb_wayback.record_failure()
+        except (httpx.HTTPError, ValueError, KeyError):
+            cb_wayback.record_failure()
 
     return ""
+
+
+# Domains that consistently return 403 (paywall/auth required) on direct
+# fetch -- skip them up-front rather than wasting an HTTP round-trip + a
+# downstream archive.is fallback that also rate-limits.
+# Live evidence 2026-04-27 18:30:48 / 18:30:59: every academic.oup.com URL
+# returned 403 then archive.is gave 429.
+_KNOWN_PAYWALL_DOMAINS = (
+    "academic.oup.com",
+    "www.sciencedirect.com",
+    "onlinelibrary.wiley.com",
+    "link.springer.com",
+    "pubs.aip.org",
+    "www.tandfonline.com",
+    "iopscience.iop.org",
+    "journals.sagepub.com",
+)
+
+
+def _is_known_paywall(url: str) -> bool:
+    """True if the URL host is on the known-paywall skip list."""
+    try:
+        from urllib.parse import urlparse as _up
+        host = (_up(url).hostname or "").lower()
+    except Exception:
+        return False
+    return any(host == d or host.endswith("." + d) for d in _KNOWN_PAYWALL_DOMAINS)
 
 
 def _extract_structured_html(html: str) -> dict:
@@ -561,6 +602,12 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
     from .security import sanitise_url, scan_content, strip_dangerous_content
     url = sanitise_url(url)
     if not url:
+        return ""
+
+    # Skip URLs we already know are paywalled — they 403 the direct
+    # fetch and the archive.is fallback then 429s. F22 fix 2026-04-27.
+    if _is_known_paywall(url):
+        logger.debug("Article %s on known-paywall domain — skipping fetch", url[:80])
         return ""
 
     html = ""
