@@ -118,6 +118,11 @@ RECORDED_ACTIONS = {
     "source_atlas_update",
     "source_atlas_promote",
     "source_atlas_demote",
+    # Calibration auto-tune — confidence-tag thresholds can drift over
+    # time as the calibration loop tightens or loosens them. Each
+    # adjustment is a governance decision that needs an immutable trail
+    # so the operator can prove the decision wasn't manually nudged.
+    "calibration_threshold_adjusted",
 }
 
 

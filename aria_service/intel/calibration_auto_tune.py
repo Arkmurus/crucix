@@ -245,12 +245,18 @@ async def run_auto_tune() -> dict:
 
         # Audit log — this is a governance decision, it deserves an
         # immutable record regardless of Redis persistence.
+        # Was previously calling `audit_log.append(...)` -- that function
+        # never existed (only `record`), so the AttributeError was caught
+        # by the bare except and every auto-tune decision was silently
+        # missing from the audit chain since shipped.
         try:
             from . import audit_log as _al
-            await _al.append(
+            await _al.record(
                 action="calibration_threshold_adjusted",
-                detail=reason,
-                metadata=adjustment_detail,
+                actor="aria_calibration_auto_tune",
+                inputs=adjustment_detail or {},
+                decision=(reason or "")[:200],
+                notes=(reason or "")[:500],
             )
         except Exception:
             pass
