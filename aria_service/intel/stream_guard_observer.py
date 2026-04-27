@@ -158,10 +158,13 @@ async def observe(
 
     # Always increment the "turns_observed" counter so we can compute a
     # violation RATE, not just an absolute count. 0-violation turns are
-    # the useful denominator.
+    # the useful denominator. Set TTL only on first incr — resetting
+    # expire() per incr turned this into a lifetime counter, breaking
+    # the "rolling window" semantics get_stats() advertises.
     try:
-        await rs.incr(_K_CTR_PREFIX + "turns_observed")
-        await rs.expire(_K_CTR_PREFIX + "turns_observed", _CTR_TTL_SECONDS)
+        _to_new = await rs.incr(_K_CTR_PREFIX + "turns_observed")
+        if _to_new == 1:
+            await rs.expire(_K_CTR_PREFIX + "turns_observed", _CTR_TTL_SECONDS)
     except Exception as e:
         logger.debug("[stream_observe] denominator counter failed: %s", e)
 
@@ -174,8 +177,9 @@ async def observe(
         await rs.ltrim(_K_LOG, 0, _MAX_LOG_ENTRIES - 1)
         for guard_name, count in by_guard.items():
             key = _K_CTR_PREFIX + guard_name
-            await rs.incr(key, amount=count)
-            await rs.expire(key, _CTR_TTL_SECONDS)
+            _new = await rs.incr(key, amount=count)
+            if _new == count:  # first write into a fresh key
+                await rs.expire(key, _CTR_TTL_SECONDS)
     except Exception as e:
         logger.debug("[stream_observe] persist failed: %s", e)
 

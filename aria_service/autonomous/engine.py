@@ -305,13 +305,16 @@ async def _engine_loop(llm) -> None:
                 # Persist a rolling 24h counter so /autonomy/surface can
                 # report real fires. Before this, the in-process counter
                 # was never synced to Redis, so the dashboard always read
-                # 0 and reset on every deploy. The 25h expire renews on
-                # each incr — counter decays naturally once the engine
-                # goes a full day without firing.
+                # 0 and reset on every deploy. Set TTL only on the first
+                # incr from a missing key — calling expire() on every
+                # incr resets the TTL, so under continuous firing the
+                # counter would never decay (became a lifetime tally,
+                # not a 24h window).
                 try:
                     from ..intel import redis_store as rs
-                    await rs.incr("crucix:autonomous:fires_24h")
-                    await rs.expire("crucix:autonomous:fires_24h", 90_000)
+                    new_val = await rs.incr("crucix:autonomous:fires_24h")
+                    if new_val == 1:
+                        await rs.expire("crucix:autonomous:fires_24h", 90_000)
                 except Exception as _e:
                     logger.debug("fires_24h counter incr failed: %s", _e)
 

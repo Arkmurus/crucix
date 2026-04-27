@@ -147,9 +147,18 @@ async def record_chat(
     # `chat_turns_served`. The lifetime log retains entries forever, but
     # the dashboard needs a bounded window. 25h expire gives natural
     # decay without per-event timestamp bookkeeping.
+    #
+    # Subtle: the previous implementation called `expire()` on every incr.
+    # That resets the TTL each time, so under continuous chat traffic the
+    # key never expired and the counter became a lifetime tally instead
+    # of a 24h rolling window. The dashboard's "24h" panel was reporting
+    # entries-since-25h-of-inactivity. Fix: only set TTL when the counter
+    # is first created (incr returned 1 from a missing key), so the
+    # window genuinely rolls every 25 hours.
     try:
-        await rs.incr(_K_ENTRIES_24H)
-        await rs.expire(_K_ENTRIES_24H, 90_000)
+        new_val = await rs.incr(_K_ENTRIES_24H)
+        if new_val == 1:
+            await rs.expire(_K_ENTRIES_24H, 90_000)
     except Exception as e:
         logger.debug("entries_24h counter incr failed: %s", e)
 

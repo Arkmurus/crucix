@@ -1114,16 +1114,20 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                 # ── BLOCK — too many unprevented failures in this domain ──
                 record["status"] = "blocked_by_predictor"
                 record["predictor"]["action"] = "BLOCKED"
-                # Track block count per domain + 24h counter for operating mode
+                # Track block count per domain + 24h counter for operating mode.
+                # Set TTL only on first incr — resetting expire() on every incr
+                # turned both into lifetime counters under continuous blocks.
                 try:
                     from ..intel import redis_store as _rs
                     _blk_key = f"crucix:predictor:blocks:{domain[:30]}"
-                    await _rs.incr(_blk_key)
-                    await _rs.expire(_blk_key, 30 * 86400)
+                    _new = await _rs.incr(_blk_key)
+                    if _new == 1:
+                        await _rs.expire(_blk_key, 30 * 86400)
                     # 24h counter for operating mode auto-transition
                     _blk_24h = "crucix:predictor:blocks:24h"
-                    await _rs.incr(_blk_24h)
-                    await _rs.expire(_blk_24h, 86400)
+                    _new24 = await _rs.incr(_blk_24h)
+                    if _new24 == 1:
+                        await _rs.expire(_blk_24h, 86400)
                 except Exception:
                     pass
                 record["predictor"]["reason"] = (
