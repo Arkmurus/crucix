@@ -419,11 +419,22 @@ async def lifespan(app: FastAPI):
                     result = await weekly_report.generate_weekly_report(
                         llm=getattr(app.state, "llm_provider", None),
                     )
+                    # weekly_report.generate_weekly_report returns nested
+                    # dicts (`new_facts.total`, `capability_gaps.unresolved`,
+                    # `mastery_changes.current_scores`), not flat keys.
+                    # Previous logging always printed "0 new facts, 0 gaps,
+                    # mastery 0%" because the keys it read didn't exist.
+                    _new_facts = (result.get("new_facts") or {}).get("total", 0)
+                    _gaps = (result.get("capability_gaps") or {}).get("unresolved", 0)
+                    _scores = (
+                        (result.get("mastery_changes") or {}).get("current_scores") or {}
+                    )
+                    _overall_now = (
+                        sum(_scores.values()) / len(_scores) if _scores else 0
+                    )
                     logger.info(
                         "[Weekly Report] Generated: %d new facts, %d gaps, mastery %.0f%%",
-                        result.get("new_facts_count", 0),
-                        result.get("unresolved_gaps", 0),
-                        (result.get("overall_mastery", 0) or 0) * 100,
+                        _new_facts, _gaps, _overall_now * 100,
                     )
             except Exception as e:
                 logger.warning("[Weekly Report] Loop iteration failed: %s", e)
