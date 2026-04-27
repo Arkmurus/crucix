@@ -116,6 +116,25 @@ RESEARCH_FEEDS = [
     {"name": "SCMP China", "url": "https://www.scmp.com/rss/91/feed", "category": "china_analysis"},
 ]
 
+# Defence anchor terms — at least one must appear in title+description before
+# procurement/regional boosts apply during article scoring. Without this gate,
+# a hotel paper with "billion-dollar deal in Angola" picks up +13 score with
+# zero defence content (live incident 2026-04-27).
+_DEFENCE_ANCHOR_TERMS = (
+    "defence", "defense", "military", "weapon", "weapons", "arms ", " arms",
+    "nato", "army", "navy", "naval", "air force", "airforce",
+    "fighter", "missile", "tank", "drone", "uav", "ucav",
+    "artillery", "howitzer", "submarine", "frigate", "corvette",
+    "helicopter", "warship", "armoured", "armored", "ammunition",
+    "munitions", "soldier", "troops", "regiment", "brigade",
+    "procurement", "tender", "rfp", "rfi", "fms", "mod ", " mod",
+    "ministry of defence", "ministry of defense", "general staff",
+    "battalion", "deployment", "combat", "tactical", "strategic command",
+    "intelligence service", "sigint", "humint", "osint",
+    "export control", "sanctions", "embargo", "dual-use",
+    "stanag", "interoperability", "c4isr", "isr",
+)
+
 # ── ARIA's Research Interests — GLOBAL scope ─────────────────────────────────
 
 RESEARCH_INTERESTS = [
@@ -2260,22 +2279,26 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
     all_articles = [a for a in all_articles if a.get("link") not in read_urls]
 
     # ── Step 4: Score relevance ───────────────────────────────────────────
+    # Defence anchor gate: nothing scores anything without at least one
+    # explicit defence term in title+description. Generic words like
+    # "contract", "billion", "deal", "angola" appear in many off-topic
+    # contexts (hospitality, tourism, entertainment) and were lifting hotel
+    # papers into the top reading queue (live incident 2026-04-27).
     scored: list[tuple[float, dict]] = []
     for article in all_articles:
         text = f"{article['title']} {article.get('description', '')}".lower()
+        if not any(k in text for k in _DEFENCE_ANCHOR_TERMS):
+            continue
         score = 0
         for interest in RESEARCH_INTERESTS:
             words = interest.lower().split()
             matches = sum(1 for w in words if w in text)
             if matches >= 2:
                 score += matches * 2
-        # Boost procurement signals
         if any(k in text for k in ["tender", "contract", "procure", "award", "billion", "million", "deal"]):
             score += 5
-        # Boost Lusophone (core market)
         if any(c in text for c in ["angola", "mozambique", "guinea-bissau", "cape verde", "lusophone"]):
             score += 8
-        # Boost other priority markets
         if any(c in text for c in ["nigeria", "kenya", "saudi", "uae", "indonesia", "philippines", "poland"]):
             score += 3
         if score > 0:
