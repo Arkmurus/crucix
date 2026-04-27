@@ -982,14 +982,28 @@ async def ingest_sweep(request: Request):
     # SYNC helpers between awaits. Two parallel tasks cannot corrupt the
     # store -- each task runs its sync mutation block atomically per
     # async-scheduling-window. _persist() races are benign last-writer-wins.
+    #
+    # Cost lever: ARIA_NEURAL_SAMPLE_RATE (0.0-1.0, default 1.0) skips
+    # the LLM-supplement on a fraction of items. Regex extract_concepts
+    # still runs on all items (free), so neuron/edge creation is
+    # preserved -- only the LLM-driven novel-entity catch is sampled.
+    # 0.25 ≈ 75% reduction in DeepSeek/Anthropic spend on neural ingest.
+    import random as _random
+    raw_rate = _os.getenv("ARIA_NEURAL_SAMPLE_RATE", "1.0") or "1.0"
+    try:
+        sample_rate = max(0.0, min(1.0, float(raw_rate)))
+    except ValueError:
+        sample_rate = 1.0
+
     neural_count = 0
     llm = getattr(app.state, "llm_provider", None)
     sem = asyncio.Semaphore(5)
 
     async def _learn_one(text: str, source: str) -> int:
         async with sem:
+            item_llm = llm if (sample_rate >= 1.0 or _random.random() < sample_rate) else None
             try:
-                result = await neural_memory.learn_from_text(text, source=source, llm=llm)
+                result = await neural_memory.learn_from_text(text, source=source, llm=item_llm)
                 return result.get("neurons_activated", 0)
             except Exception as e:
                 logger.warning("Neural ingest item failed (%s): %s", source, e)
