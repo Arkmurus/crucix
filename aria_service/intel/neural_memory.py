@@ -344,15 +344,22 @@ async def _extract_concepts_llm(text: str, llm) -> list[tuple[str, str]]:
     )
 
     try:
+        # The fallback chain has a 15s floor: if `remaining < 15.0`, every
+        # provider (anthropic / deepseek / groq) is skipped. The previous
+        # 10s timeout silently zeroed every neural-memory extraction call
+        # — sweep ingest never grew the graph because all 20-30 per-call
+        # extractions died with "Fallback budget exhausted (10.0s remaining)".
+        # 30s gives anthropic real room on a 600-token JSON extract while
+        # still bounding each call.
         result = await asyncio.wait_for(
             llm.complete(
                 "You are a concise entity-extraction assistant. "
                 "Return only the requested JSON, nothing else.",
                 prompt,
                 max_tokens=600,
-                timeout=10.0,
+                timeout=30.0,
             ),
-            timeout=12.0,  # outer safety net
+            timeout=35.0,  # outer safety net
         )
         raw = result.text.strip()
         # Strip markdown code fences if present
