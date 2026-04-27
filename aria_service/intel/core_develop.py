@@ -263,16 +263,35 @@ async def _act_mistake_pattern(payload: dict, key: str) -> dict:
 
 async def _act_capability_gap(payload: dict, key: str) -> dict:
     """Missing file parser / API / endpoint — log a detailed ticket for
-    the human engineering queue. No autonomous code-write on core files."""
+    the human engineering queue. No autonomous code-write on core files.
+
+    Routes through tickets.raise_ticket() which writes to GitHub Issues
+    (primary) and Airtable (fallback). The previous lpush to the
+    `aria:engineering:tickets` Redis list went nowhere -- nothing reads
+    that key, and Clause 22 mandates real ticket IDs from raise_ticket().
+    Capability-gap tickets had been silently lost since core_develop
+    shipped."""
     try:
-        ticket = {
-            "kind": "capability_gap_ticket",
-            "detail": payload,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        await rs.lpush("aria:engineering:tickets", str(ticket))
-        return {"key": key, "acted": True, "action": "eng_ticket_logged",
-                "ticket": ticket}
+        from . import tickets as _tk
+        title = f"capability gap: {(payload.get('detail') or payload.get('what') or 'unspecified')[:80]}"
+        symptom = (payload.get("detail") or payload.get("what") or str(payload))[:1000]
+        context = (
+            f"Detected by core_develop reassessment.\n"
+            f"Payload key: {key}\n"
+            f"Full payload (truncated): {str(payload)[:500]}"
+        )
+        result = await _tk.raise_ticket(
+            title=title,
+            symptom=symptom,
+            context=context,
+            severity="MEDIUM",
+            category="capability_gap",
+            source="core_develop",
+        )
+        return {"key": key, "acted": result.get("ok", False),
+                "action": "eng_ticket_logged",
+                "ticket_id": result.get("ticket_id"),
+                "ticket": result}
     except Exception as e:
         return {"key": key, "acted": False, "error": str(e)}
 
@@ -296,17 +315,28 @@ async def _act_learning_suggestion(payload: dict, key: str) -> dict:
             "detail": detail, "scout": scout_result,
         }
     except Exception as e:
-        # Fall back to logging an engineering ticket
+        # Fall back to a real ticket via tickets.raise_ticket() — the
+        # previous Redis lpush to aria:engineering:tickets had no reader,
+        # so learning suggestions that the source scout couldn't satisfy
+        # were silently dropped on the floor.
         try:
-            ticket = {
-                "kind": "learning_suggestion_ticket",
-                "detail": detail,
-                "source": payload.get("source", "self"),
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-            await rs.lpush("aria:engineering:tickets", str(ticket))
-            return {"key": key, "acted": True, "action": "learning_suggestion_ticketed",
-                    "detail": detail}
+            from . import tickets as _tk
+            result = await _tk.raise_ticket(
+                title=f"learning suggestion: {detail[:80]}",
+                symptom=detail[:1000],
+                context=(
+                    f"Source scout failed to satisfy this suggestion.\n"
+                    f"Originally surfaced by: {payload.get('source', 'self')}\n"
+                    f"Scout error: {str(e)[:500]}"
+                ),
+                severity="LOW",
+                category="capability_gap",
+                source="core_develop:learning_suggestion",
+            )
+            return {"key": key, "acted": result.get("ok", False),
+                    "action": "learning_suggestion_ticketed",
+                    "detail": detail,
+                    "ticket_id": result.get("ticket_id")}
         except Exception:
             return {"key": key, "acted": False, "error": str(e)}
 
