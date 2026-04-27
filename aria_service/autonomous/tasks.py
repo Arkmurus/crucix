@@ -1224,6 +1224,13 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "self_diagnostic"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
+            # 2026-04-27 — attribute every direct-tool LLM call to its
+            # tool-kind feature bucket. Without this wrap, all LLM
+            # calls inside _execute_direct_tool that don't set their
+            # own feature land in "uncategorized" — which was 40% of
+            # April 2026 spend.
+            from ..intel import cost_tracker as _ct
+            _direct_token = _ct.set_feature(f"tool:{tool_kind}")
             try:
                 direct_result = await _execute_direct_tool(tool_kind, task, llm)
                 record["status"] = "ok"
@@ -1249,6 +1256,8 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                 record["duration_ms"] = int((time.time() - t0) * 1000)
                 await record_run(record)
                 return record
+            finally:
+                _ct.reset_feature(_direct_token)
         else:
             record["status"] = "error"
             record["error"] = f"unsupported tool kind in first chain entry: {tool_kind!r}"

@@ -582,22 +582,31 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
     )[:5]
     logger.info("[student] reading session — focused on weak topics: %s", weak_topics)
 
-    # Get fresh articles from a rotating set of feeds
-    # Boost: when lang:ru / lang:zh / lang:ar are weak, force at least
-    # one matching-language feed into the pool. Random sampling alone
-    # rarely picks them since lang feeds are 4 of ~30 entries.
-    weak_lang_to_category = {
-        "lang:ru": "russia_",
-        "lang:zh": "china_",
-        "lang:ar": "arabic_",
+    # Get fresh articles from a rotating set of feeds.
+    # Boost: when a CORE_MASTERY_TAG is weak, force at least one
+    # matching feed into the pool. Random sampling alone rarely picks
+    # the relevant feeds (lang feeds are 4/~30, export-controls is 1/~30).
+    # 2026-04-26 (`ad3dc9e`) added language force-feeds; 2026-04-27
+    # extended this to the four cross-cutting capability tags so they
+    # don't stay frozen at 1-sample/0%-accuracy.
+    weak_topic_to_categories: dict[str, list[str]] = {
+        "lang:ru": ["russia_"],
+        "lang:zh": ["china_"],
+        "lang:ar": ["arabic_"],
+        "sanctions": ["export_controls", "arms_trade"],
+        "nato_standards": ["europe_defence", "defence_policy", "defence_research"],
+        "strategic_geography": ["geopolitics", "strategy"],
+        "export_control": ["export_controls", "arms_trade"],
     }
     forced_feeds: list[dict] = []
-    for tag, cat_prefix in weak_lang_to_category.items():
-        if tag in weak_topics:
-            for f in RESEARCH_FEEDS:
-                if (f.get("category") or "").startswith(cat_prefix) and f not in forced_feeds:
-                    forced_feeds.append(f)
-                    break  # one per language is enough per session
+    for tag, cat_prefixes in weak_topic_to_categories.items():
+        if tag not in weak_topics:
+            continue
+        for f in RESEARCH_FEEDS:
+            cat = f.get("category") or ""
+            if any(cat.startswith(p) for p in cat_prefixes) and f not in forced_feeds:
+                forced_feeds.append(f)
+                break  # one feed per weak tag is enough per session
     remaining_slots = max(0, 8 - len(forced_feeds))
     other_pool = [f for f in RESEARCH_FEEDS if f not in forced_feeds]
     feeds_pool = forced_feeds + random.sample(

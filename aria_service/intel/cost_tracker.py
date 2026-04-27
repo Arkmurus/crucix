@@ -129,7 +129,7 @@ _INDEX_CAP = 1000  # last N call summaries kept in the index
 # Hard ceiling on monthly LLM spend across ALL providers. Set at import
 # time from env; callers re-read env on every check so a runtime override
 # (operator flipping an env var) takes effect without a restart.
-DEFAULT_MONTHLY_CAP_USD = 100.0
+DEFAULT_MONTHLY_CAP_USD = 300.0
 
 
 def _monthly_cap_usd() -> float:
