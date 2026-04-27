@@ -154,15 +154,29 @@ def sanitise_url(url: str) -> str | None:
 
 # ── Content Security ─────────────────────────────────────────────────────────
 
-# Patterns that indicate malicious content
+# Patterns that indicate truly malicious content. Tightened 2026-04-27 after
+# zona-militar.com (WordPress + Google Tag Manager) tripped the broad
+# `<script>.*?eval(` / `document.write` / `onload=` patterns on every fetch
+# and produced log noise that masked real signals. The new patterns require
+# actual obfuscation/injection indicators (atob/Function/data: scheme).
 _MALWARE_PATTERNS = [
-    re.compile(r"<script[^>]*>.*?eval\s*\(", re.I | re.S),
-    re.compile(r"<script[^>]*>.*?document\.write", re.I | re.S),
+    # eval() with obfuscation indicators (atob/Function/escape/unescape) is
+    # a classic XSS payload signature. Plain eval() in tag-manager scripts
+    # is too common to flag.
+    re.compile(r"\beval\s*\(\s*(?:atob|unescape|decodeURIComponent|Function)\s*\(", re.I),
+    # document.write injecting another <script src= is the script-injection
+    # pattern. Naked document.write (AdSense/Twitter widgets) is benign.
+    re.compile(r"document\.write\s*\(\s*['\"]?\s*<script", re.I),
+    # iframe / embed loading from javascript: or data: schemes is a real XSS
+    # vector. Plain iframe/embed src= is fine (YouTube, Vimeo, etc.).
     re.compile(r"<iframe[^>]*src\s*=\s*['\"](?:javascript|data):", re.I),
-    re.compile(r"on(?:load|error|click|mouseover)\s*=\s*['\"]", re.I),
-    re.compile(r"window\.location\s*=\s*['\"](?:javascript|data):", re.I),
-    re.compile(r"<object[^>]*data\s*=", re.I),
-    re.compile(r"<embed[^>]*src\s*=", re.I),
+    re.compile(r"<embed[^>]*src\s*=\s*['\"](?:javascript|data):", re.I),
+    re.compile(r"<object[^>]*data\s*=\s*['\"](?:javascript|data):", re.I),
+    # Inline event handlers calling eval/Function/atob (XSS payload).
+    # Plain `onclick="doStuff()"` on UI buttons is benign.
+    re.compile(r"on\w+\s*=\s*['\"][^'\"]*(?:eval|Function|atob|unescape)\s*\(", re.I),
+    # window.location redirects to javascript: or data: schemes.
+    re.compile(r"window\.location(?:\.href)?\s*=\s*['\"](?:javascript|data):", re.I),
 ]
 
 # Prompt injection patterns — someone trying to manipulate ARIA through content

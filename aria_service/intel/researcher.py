@@ -604,8 +604,11 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
 
     scan = scan_content(html, source=url[:100])
     if not scan["safe"]:
-        logger.warning("Blocked unsafe content from %s: %s", url[:80],
-                       [t["type"] for t in scan["threats"]])
+        # We do NOT block — strip_dangerous_content sanitises and we
+        # continue with the cleaned HTML. Old log said "Blocked" which
+        # made it look like we dropped the article when we didn't.
+        logger.info("Sanitised suspicious HTML from %s: %s", url[:80],
+                    [t["type"] for t in scan["threats"]])
         html = strip_dangerous_content(html)
 
     # ── STRUCTURED EXTRACTION (replaces the old blob slice) ──
