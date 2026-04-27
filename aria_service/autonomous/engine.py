@@ -365,6 +365,17 @@ def start_engine(llm) -> bool:
             "[autonomous engine] not started — LLM provider is not configured",
         )
         return False
+    # Load tasks.yaml NOW so the "started" log line is accurate AND the
+    # engine's first tick has tasks ready. Previously load_tasks() ran
+    # INSIDE _engine_loop after the 90s startup delay, so start_engine
+    # always logged "0 tasks loaded" -- live observation 2026-04-27 18:00:05.
+    # Loading is a sync file read; failures are tolerated by load_tasks
+    # (returns previous cache). _engine_loop still re-loads on its first
+    # iteration so reload-tasks admin endpoint behavior is unchanged.
+    try:
+        tasks_mod.load_tasks()
+    except Exception as e:
+        logger.warning("[autonomous engine] eager tasks load failed (will retry in loop): %s", e)
     _engine_task = asyncio.create_task(_engine_loop(llm))
     _engine_task.add_done_callback(_on_engine_done)
     logger.info(
