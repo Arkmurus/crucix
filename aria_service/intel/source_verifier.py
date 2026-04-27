@@ -494,35 +494,61 @@ async def list_verifications(
 
 
 async def get_verification_stats() -> dict:
-    """Aggregate counts + rolling grounded rate."""
+    """Aggregate counts + grounded rates.
+
+    Returns BOTH a true 24h rolling rate and the lifetime (last-500-entry)
+    rate. Previously `rolling_grounded_rate` and its alias
+    `avg_grounded_rate` were averaged across all 500 entries -- with
+    typical traffic that spans days to weeks, so the metric was a stale
+    long-term average mislabeled as "rolling". operating_modes.py reads
+    avg_grounded_rate to decide NORMAL vs AUDIT transitions, so the wrong
+    semantics meant the mode-shift never actually responded to current
+    24h conditions. Fix: filter the average to entries within the 24h
+    cutoff (matching recent_24h), keep the lifetime number under a new
+    field for any caller that genuinely wants it.
+    """
     try:
         index = await rs.get_json(VERIFICATIONS_KEY) or []
         by_verdict: dict[str, int] = {}
         recent_24h = 0
         cutoff = time.time() - 86400
-        rate_sum = 0.0
-        rate_n = 0
+        rate_sum_24h = 0.0
+        rate_n_24h = 0
+        rate_sum_all = 0.0
+        rate_n_all = 0
         for e in index:
             v = e.get("verdict", "unknown")
             by_verdict[v] = by_verdict.get(v, 0) + 1
-            if e.get("ts", 0) >= cutoff:
-                recent_24h += 1
+            ts = e.get("ts", 0)
             r = e.get("grounded_rate")
             if r is not None:
-                rate_sum += r
-                rate_n += 1
-        rolling_rate = round(rate_sum / rate_n, 3) if rate_n > 0 else None
+                rate_sum_all += r
+                rate_n_all += 1
+            if ts >= cutoff:
+                recent_24h += 1
+                if r is not None:
+                    rate_sum_24h += r
+                    rate_n_24h += 1
+        rolling_rate_24h = (
+            round(rate_sum_24h / rate_n_24h, 3) if rate_n_24h > 0 else None
+        )
+        lifetime_rate = (
+            round(rate_sum_all / rate_n_all, 3) if rate_n_all > 0 else None
+        )
         return {
             "total": len(index),
             "by_verdict": by_verdict,
             "recent_24h": recent_24h,
-            "rolling_grounded_rate": rolling_rate,
-            # Alias for callers that read "avg_grounded_rate" (/health,
-            # autonomy_scorer, operating_modes, autonomous/tasks). Both
-            # keys point to the same value so neither reader sees None
-            # when the computation succeeds.
-            "avg_grounded_rate": rolling_rate,
-            "rate_sample_size": rate_n,
+            # The "rolling" name and its alias are the operating-mode
+            # input -- those consumers want a current-conditions signal.
+            "rolling_grounded_rate": rolling_rate_24h,
+            "avg_grounded_rate": rolling_rate_24h,
+            "rate_sample_size": rate_n_24h,
+            # Lifetime average kept under a clearly-named field for any
+            # caller that wants long-horizon trend (none today, but
+            # leaving the door open without ambiguity).
+            "lifetime_grounded_rate": lifetime_rate,
+            "lifetime_sample_size": rate_n_all,
         }
     except Exception as e:
         return {"error": str(e)}

@@ -154,12 +154,20 @@ def test_source_verifier_exposes_both_grounded_rate_keys(monkeypatch):
     # Guards the /health + autonomy_scorer + operating_modes readers that
     # look up `avg_grounded_rate`. Before the alias fix they all saw None
     # and the dashboard rendered `--` for grounded rate forever.
+    #
+    # Note: rolling_grounded_rate is a true 24h window (fixed in source_verifier
+    # to stop returning a stale long-term average), so timestamps must be
+    # current. lifetime_grounded_rate covers the long-horizon view if any
+    # caller wants it.
+    import time as _time
     from aria_service.intel import source_verifier
+
+    now = _time.time()
 
     async def _fake_get_json(key):
         return [
-            {"verdict": "grounded", "grounded_rate": 1.0, "ts": 1_700_000_000},
-            {"verdict": "partial",  "grounded_rate": 0.5, "ts": 1_700_000_000},
+            {"verdict": "grounded", "grounded_rate": 1.0, "ts": now - 60},
+            {"verdict": "partial",  "grounded_rate": 0.5, "ts": now - 120},
         ]
 
     monkeypatch.setattr(source_verifier.rs, "get_json", _fake_get_json)
@@ -167,3 +175,29 @@ def test_source_verifier_exposes_both_grounded_rate_keys(monkeypatch):
 
     assert stats["rolling_grounded_rate"] == pytest.approx(0.75, abs=0.001)
     assert stats["avg_grounded_rate"] == stats["rolling_grounded_rate"]
+    assert stats["lifetime_grounded_rate"] == pytest.approx(0.75, abs=0.001)
+
+
+def test_source_verifier_rolling_rate_excludes_stale_entries(monkeypatch):
+    """An entry from 25h ago must NOT contribute to rolling_grounded_rate
+    (the operating-mode-input metric). It still counts toward
+    lifetime_grounded_rate. Locks in the 2026-04-27 fix that stopped
+    operating_modes from auto-transitioning on stale long-term averages."""
+    import time as _time
+    from aria_service.intel import source_verifier
+
+    now = _time.time()
+
+    async def _fake_get_json(key):
+        return [
+            {"verdict": "grounded", "grounded_rate": 1.0, "ts": now - 60},        # in window
+            {"verdict": "partial",  "grounded_rate": 0.0, "ts": now - 25 * 3600}, # outside
+        ]
+
+    monkeypatch.setattr(source_verifier.rs, "get_json", _fake_get_json)
+    stats = _run(source_verifier.get_verification_stats())
+
+    assert stats["rolling_grounded_rate"] == pytest.approx(1.0, abs=0.001)
+    assert stats["lifetime_grounded_rate"] == pytest.approx(0.5, abs=0.001)
+    assert stats["rate_sample_size"] == 1
+    assert stats["lifetime_sample_size"] == 2
