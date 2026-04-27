@@ -115,10 +115,16 @@ async def _gather_adversarial() -> dict:
         from . import adversarial_challenge as ac
         stats = await ac.stats()
         last = stats.get("last_run") or {}
+        # `total_runs` was never a key on stats() — that returned None on
+        # every capability card since adversarial shipped. The attack count
+        # lives on the nested last_run summary as `total_attacks`; use the
+        # 4-week trend length as a fallback when the last_run isn't loaded.
         return {
             "last_run_score": last.get("overall_score"),
-            "last_run_ts": last.get("ts"),
-            "total_attacks": stats.get("total_runs"),
+            "last_run_ts": last.get("run_at") or last.get("ts"),
+            "total_attacks": last.get("total_attacks")
+                or len(stats.get("four_week_trend") or []),
+            "pending_amendments": stats.get("pending_amendments", 0),
         }
     except Exception:
         return {}
@@ -137,8 +143,13 @@ async def _gather_mistake_stats() -> dict:
     try:
         from . import mistake_ledger
         stats = await mistake_ledger.stats()
+        # mistake_ledger.stats() returns the count under `total_entries`,
+        # not `total`. Reading the wrong key zeroed `total_mistakes` on
+        # every capability card -- self_assess.py reads the same source
+        # correctly, so the card silently disagreed with the briefing.
         return {
-            "total_mistakes": stats.get("total", 0),
+            "total_mistakes": stats.get("total_entries", 0)
+                or stats.get("total", 0),
             "mistakes_prevented": stats.get("prevented_total", 0),
             "by_category": stats.get("by_category", {}),
         }
