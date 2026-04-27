@@ -242,18 +242,30 @@ async def lifespan(app: FastAPI):
                         f"[Research] Complete: {result.get('facts_learned', 0)} facts, "
                         f"{result.get('hypotheses_generated', 0)} hypotheses"
                     )
-                    # Auto-validate open hypotheses (every other cycle)
-                    # Auto-validate open hypotheses
+                    # Auto-validate open hypotheses (every other cycle).
+                    # F27 fix 2026-04-27: was reading the wrong dict key
+                    # but hypotheses are stored under key "hypothesis" (see
+                    # researcher._process_analysis). Empty-string lookup
+                    # then triggered the substring-match-anything fallback
+                    # in validate_hypothesis, so we re-validated the same
+                    # hypothesis #0 three times per cycle for months.
+                    # Also sort by created_at so we work the oldest-OPEN
+                    # backlog first — those have had the most time for new
+                    # evidence to land.
                     validated = 0
                     try:
                         hypotheses = await get_hypotheses()
                         open_hyps = [h for h in hypotheses if h.get("status") == "OPEN"]
+                        open_hyps.sort(key=lambda h: h.get("created_at") or "")
                         for h in open_hyps[:3]:
-                            vr = await validate_hypothesis(llm, h.get("statement", ""))
+                            hyp_text = h.get("hypothesis", "")
+                            if not hyp_text:
+                                continue
+                            vr = await validate_hypothesis(llm, hyp_text)
                             validated += 1
                             if vr.get("new_status") != "OPEN":
                                 logger.info("[Research] Hypothesis %s: %s → %s",
-                                            h.get("statement", "")[:50],
+                                            hyp_text[:50],
                                             "OPEN", vr.get("new_status"))
                         if open_hyps:
                             logger.info("[Research] Validated %d/%d hypotheses",

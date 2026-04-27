@@ -475,6 +475,43 @@ def _is_known_paywall(url: str) -> bool:
     return any(host == d or host.endswith("." + d) for d in _KNOWN_PAYWALL_DOMAINS)
 
 
+# Domains that almost never carry defence-relevant content. F26 fix
+# 2026-04-27: hypothesis validation pulled medical/literature/legal DOIs
+# from CrossRef (keyword-match across all DOIs) and Lightpanda-rendered
+# them into RAG. Defence research must skip these up-front.
+_IMPLAUSIBLE_DEFENCE_DOMAINS = (
+    # Medical research
+    "casemedicalresearch.com", "pubmed.ncbi.nlm.nih.gov", "nejm.org",
+    "thelancet.com", "bmj.com", "jamanetwork.com", "nih.gov",
+    # Literature / humanities aggregators
+    "bloomsburycollections.com", "jstor.org", "muse.jhu.edu",
+    "projectmuse.org", "modernlanguagesopen.org",
+    # Pure math / chemistry
+    "chemrxiv.org", "arxiv.org/abs/math",
+    # Generic non-defence retail / lifestyle
+    "amazon.com", "ebay.com", "etsy.com", "pinterest.com",
+    # Recipe / cooking / hospitality
+    "allrecipes.com", "tripadvisor.com", "booking.com",
+)
+
+
+def _is_plausible_defence_domain(url: str) -> bool:
+    """Return False when the URL is on the skip list. Returns True for
+    everything else — this is a denylist, not an allowlist, so unknown
+    domains still pass through. The caller decides what to do with the
+    filtered result list."""
+    if not url:
+        return False
+    try:
+        from urllib.parse import urlparse as _up
+        host = (_up(url).hostname or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    return not any(host == d or host.endswith("." + d) for d in _IMPLAUSIBLE_DEFENCE_DOMAINS)
+
+
 def _extract_structured_html(html: str) -> dict:
     """Extract STRUCTURED data from HTML — not just blob text.
 
@@ -1120,15 +1157,25 @@ async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -
         return 0, 0
 
     # Collect all facts from this article so we can batch the RAG
-    # encode pass (F23 fix 2026-04-27 — was 14 separate model.encode
-    # calls per article, now 1).
+    # encode pass (F23 + F24 fix 2026-04-27 — was 14 separate model.encode
+    # calls per article from store_fact's per-fact rag_store.ingest_fact
+    # tail. F23 added add_facts_batch but the F24 audit caught that
+    # store_fact still ran ingest_fact too, doubling the work. Now we
+    # pass skip_rag_ingest=True so store_fact does dedup/contradiction
+    # detection only, and a single add_facts_batch call handles RAG.).
     rag_batch: list[dict] = []
     for fact in (parsed.get("facts") or []):
         topic = fact.get("topic", "")
         content = fact.get("content", "")
         confidence = fact.get("confidence", "ASSESSED")
         if topic and content and len(content) > 20:
-            await store_fact(topic, f"{content} [Source: {source}]", f"research:{source}", confidence)
+            await store_fact(
+                topic,
+                f"{content} [Source: {source}]",
+                f"research:{source}",
+                confidence,
+                skip_rag_ingest=True,
+            )
             facts_learned += 1
             rag_batch.append({
                 "topic": topic,
@@ -2524,8 +2571,18 @@ async def validate_hypothesis(llm: LLMProvider, hypothesis_text: str) -> dict:
     if not articles:
         return {"hypothesis": target["hypothesis"], "status": "NO_NEW_EVIDENCE"}
 
+    # F26 fix 2026-04-27: CrossRef and academic search APIs return DOI
+    # matches by keyword overlap regardless of domain. A defence hypothesis
+    # like "MQ-25A Stingray first flight" pulled medical-research and
+    # literature-review papers from casemedicalresearch.com and
+    # bloomsburycollections.com, which we then Lightpanda-rendered and
+    # ingested into RAG. Filter implausible-domain results before fetch.
+    plausible = [a for a in articles if _is_plausible_defence_domain(a.get("link", ""))]
+    if not plausible:
+        return {"hypothesis": target["hypothesis"], "status": "NO_PLAUSIBLE_EVIDENCE"}
+
     evidence_texts = []
-    for a in articles[:3]:
+    for a in plausible[:3]:
         body = await _fetch_article_text(a.get("link", "")) if a.get("link") else ""
         evidence_texts.append(f"Title: {a['title']}\n{body[:1500]}")
 

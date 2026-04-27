@@ -173,7 +173,8 @@ async def store_fact(topic: str, content: str, source: str = "user",
                      source_url: str = "",
                      fact_type: str = "",
                      entity_name: str = "",
-                     entity_type: str = "") -> dict:
+                     entity_type: str = "",
+                     skip_rag_ingest: bool = False) -> dict:
     """Store a fact, detecting contradictions and merging duplicates.
 
     Clause 17 wiring: when `source_url` + `fact_type` + `entity_name` are
@@ -310,18 +311,22 @@ async def store_fact(topic: str, content: str, source: str = "user",
         )
     except Exception:
         pass
-    # Index into the persistent RAG store as well so retrieval can find it
-    try:
-        from . import rag_store
-        await rag_store.ingest_fact(
-            fact_id=new_id,
-            topic=topic,
-            content=content,
-            confidence=confidence,
-            source=source,
-        )
-    except Exception:
-        pass
+    # Index into the persistent RAG store as well so retrieval can find
+    # it. Callers that intend to batch-upsert downstream (e.g.
+    # researcher._process_analysis with rag_store.add_facts_batch) pass
+    # skip_rag_ingest=True to avoid double-encoding (F24 fix 2026-04-27).
+    if not skip_rag_ingest:
+        try:
+            from . import rag_store
+            await rag_store.ingest_fact(
+                fact_id=new_id,
+                topic=topic,
+                content=content,
+                confidence=confidence,
+                source=source,
+            )
+        except Exception:
+            pass
     return {"action": "created", "fact_id": new_id, "contradictions": contradictions}
 
 

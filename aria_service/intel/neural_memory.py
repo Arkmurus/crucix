@@ -317,6 +317,12 @@ _FINANCIAL_PATTERNS = re.compile(
 VALID_CATEGORIES = frozenset({
     "market", "oem", "capability", "regulation", "event",
     "person", "organisation", "general",
+    # Abstract / doctrinal terms the LLM legitimately surfaces (F25 fix
+    # 2026-04-27: DeepSeek emitted 'concept' for "Affordable Mass", which
+    # was being remapped to 'general' with a noisy warning every time).
+    # These don't trigger conflict detection (which only fires for
+    # person/organisation/oem) so they're stored as plain neurons.
+    "concept", "doctrine", "platform", "technology", "program",
 })
 
 
