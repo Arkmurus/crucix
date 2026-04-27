@@ -357,6 +357,14 @@ async def verify(
         stats = await rs.get_json(_REDIS_STATS_KEY) or {
             "verified": 0, "unverified": 0, "blocking": 0, "warn": 0,
         }
+        # The dashboard's 24h figures are now derived from the timestamped
+        # `recent` list (see 3767fed). These cumulative counters are kept
+        # as a sub-24h convenience -- but they should still genuinely roll
+        # every 24h rather than reset on every write under continuous
+        # traffic. Use keepttl on subsequent writes (same pattern as
+        # f981c0a / a01c359).
+        is_fresh = stats.get("verified", 0) == 0 and stats.get("unverified", 0) == 0 \
+                   and stats.get("blocking", 0) == 0 and stats.get("warn", 0) == 0
         if verdict == "CRITICAL_VERIFIED":
             stats["verified"] += 1
         elif verdict == "CRITICAL_UNVERIFIED":
@@ -365,7 +373,10 @@ async def verify(
                 stats["blocking"] += 1
             elif disagreement["severity"] == "WARN":
                 stats["warn"] += 1
-        await rs.set_json(_REDIS_STATS_KEY, stats, ex=86400)
+        if is_fresh:
+            await rs.set_json(_REDIS_STATS_KEY, stats, ex=86400)
+        else:
+            await rs.set_json(_REDIS_STATS_KEY, stats, keepttl=True)
     except Exception as exc:
         logger.debug("verification persistence failed: %s", exc)
 
@@ -630,14 +641,22 @@ async def record_skipped(reason: str) -> None:
     but secondary is broken N times'."""
     try:
         from ..intel import redis_store as rs
-        stats = await rs.get_json(_REDIS_STATS_KEY) or {
+        existing = await rs.get_json(_REDIS_STATS_KEY)
+        is_fresh = not isinstance(existing, dict)
+        stats = existing if isinstance(existing, dict) else {
             "verified": 0, "unverified": 0, "blocking": 0, "warn": 0,
         }
         stats["skipped_total"] = stats.get("skipped_total", 0) + 1
         by_reason = stats.get("skipped_by_reason") or {}
         by_reason[reason] = by_reason.get(reason, 0) + 1
         stats["skipped_by_reason"] = by_reason
-        await rs.set_json(_REDIS_STATS_KEY, stats, ex=86400)
+        # keepttl on subsequent writes -- under heavy skip events
+        # (broken secondary provider) the previous code reset the 24h
+        # window every call, turning skipped_total into a lifetime tally.
+        if is_fresh:
+            await rs.set_json(_REDIS_STATS_KEY, stats, ex=86400)
+        else:
+            await rs.set_json(_REDIS_STATS_KEY, stats, keepttl=True)
         logger.warning(
             "[verification_gate] skipped — %s (total_skipped=%d)",
             reason, stats["skipped_total"],
