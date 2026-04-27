@@ -7266,15 +7266,20 @@ async def admin_brain_ep(session_id: str, query: str = ""):
         return value
 
     # 1. Session history (best-effort — there is no top-level history
-    #    module; session state lives in Redis under crucix:aria:sessions)
+    #    module; session state lives in Redis under crucix:aria:sessions).
+    # aria_engine writes the array under `messages`, not `history` -- the
+    # diagnostic was reading the wrong key and reporting `turn_count: 0`
+    # for every session no matter how long. Read both for forward-compat.
     try:
         sess_data = await rs.get_json(f"crucix:aria:session:{session_id}")
         if sess_data and isinstance(sess_data, dict):
-            history = sess_data.get("history", [])
+            messages = sess_data.get("messages") or sess_data.get("history") or []
             out["session"] = {
                 "exists": True,
-                "turn_count": len(history) // 2,
-                "history_length": len(history),
+                "turn_count": len(messages) // 2,
+                "history_length": len(messages),
+                "created_at": sess_data.get("createdAt"),
+                "updated_at": sess_data.get("updatedAt"),
             }
         else:
             out["session"] = {"exists": False}
