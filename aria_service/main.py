@@ -971,25 +971,43 @@ async def ingest_sweep(request: Request):
     ledger_count = await intel_ledger.ingest_sweep_signals(data)
     comp_count = await competitors.scan_for_moves(data)
 
-    # Grow neural network from sweep signals
+    # Grow neural network from sweep signals.
+    # Live observation 2026-04-27 17:35:23-17:35:34: a single sweep with 5
+    # signals + 4 news items fired 9 sequential DeepSeek calls and held the
+    # ingest connection open for 12 seconds. Parallelize with concurrency
+    # cap so the rate limiter (RPM-bounded) still gates spend, and so one
+    # slow item doesn't head-of-line-block the rest.
+    #
+    # Safety: learn_from_text mutates module-level _neurons / _edges via
+    # SYNC helpers between awaits. Two parallel tasks cannot corrupt the
+    # store -- each task runs its sync mutation block atomically per
+    # async-scheduling-window. _persist() races are benign last-writer-wins.
     neural_count = 0
     llm = getattr(app.state, "llm_provider", None)
-    try:
-        # Learn from OSINT signals
-        signals = data.get("signals") or data.get("urgentSignals") or []
-        for sig in signals[:20]:
-            text = sig.get("text") or sig.get("content") or ""
-            if text:
-                result = await neural_memory.learn_from_text(text, source="sweep", llm=llm)
-                neural_count += result.get("neurons_activated", 0)
-        # Learn from news
-        for item in (data.get("news") or [])[:10]:
-            text = item.get("title", "") + " " + item.get("summary", "")
-            if text.strip():
-                result = await neural_memory.learn_from_text(text, source="news", llm=llm)
-                neural_count += result.get("neurons_activated", 0)
-    except Exception as e:
-        logger.warning("Neural ingest failed: %s", e)
+    sem = asyncio.Semaphore(5)
+
+    async def _learn_one(text: str, source: str) -> int:
+        async with sem:
+            try:
+                result = await neural_memory.learn_from_text(text, source=source, llm=llm)
+                return result.get("neurons_activated", 0)
+            except Exception as e:
+                logger.warning("Neural ingest item failed (%s): %s", source, e)
+                return 0
+
+    learn_tasks: list = []
+    signals = data.get("signals") or data.get("urgentSignals") or []
+    for sig in signals[:20]:
+        text = sig.get("text") or sig.get("content") or ""
+        if text:
+            learn_tasks.append(_learn_one(text, "sweep"))
+    for item in (data.get("news") or [])[:10]:
+        text = (item.get("title", "") + " " + item.get("summary", "")).strip()
+        if text:
+            learn_tasks.append(_learn_one(text, "news"))
+    if learn_tasks:
+        results = await asyncio.gather(*learn_tasks)
+        neural_count = sum(results)
 
     # ── PROACTIVE: anomaly watch fires on every sweep ──────────────────
     # Looks at the fresh sweep data for spikes vs the rolling baseline
