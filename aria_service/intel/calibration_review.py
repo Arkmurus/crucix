@@ -45,14 +45,24 @@ _CORRECT_COOLDOWN  = 3600   # seconds — once per hour max
 async def run_calibration_review() -> dict:
     """Run a full calibration review comparing mastery to ground truth."""
 
-    # 1. Get mastery scores
+    # 1. Get mastery scores. Use `headline_mastery` (= min(overall, core) per
+    # the 0150187 honest-rollup doctrine) instead of `overall_mastery`
+    # (sample-weighted across all topics). The dashboard, /quality endpoint,
+    # capability_card, and self_assess briefing all use headline -- calibration
+    # was the outlier reading the inflated number, which was producing false
+    # "overconfident by 42%" alerts (live 2026-04-27: overall=0.925 vs
+    # headline=~0.60, because the core_mastery cluster has 6 tags stuck at
+    # the 0.491 floor that pulls the honest headline down).
     mastery_scores = {}
     try:
         from . import student
         report = await student.get_mastery_report()
         for topic, data in report.get("topics", {}).items():
             mastery_scores[topic] = data.get("score", 0.5)
-        overall_mastery = report.get("overall_mastery", 0.5)
+        overall_mastery = (
+            report.get("headline_mastery")
+            or report.get("overall_mastery", 0.5)
+        )
     except Exception:
         overall_mastery = 0.5
 
@@ -75,20 +85,25 @@ async def run_calibration_review() -> dict:
     except Exception:
         pass
 
-    # 4. Get mistake count (ground truth for error rate)
+    # 4. Get mistake count (ground truth for error rate).
+    # The denominator is REAL chat interactions (chat_audit_log entries),
+    # not "mastery quiz samples". The previous implementation used quiz
+    # samples as a proxy -- but quiz samples come from ARIA quizzing
+    # herself in autonomous loops, which can run thousands of times per
+    # day. With ~5000 quiz samples and ~5 mistakes the rate became
+    # 0.001, and `1 - mistake_rate ≈ 0.999` artificially pulled
+    # estimated_accuracy upward (toward "ARIA is ~100% accurate").
+    # The honest denominator is chat turns served, where user-facing
+    # output mistakes actually matter.
     mistake_rate = None
     try:
-        from . import mistake_ledger as ml
+        from . import chat_audit_log as cal
         from . import redis_store as rs
         total_mistakes = await rs.llen("crucix:mistake_ledger:log") or 0
-        # Approximate accuracy = 1 - (mistakes / total_interactions)
-        # Use mastery samples as proxy for total interactions
-        total_samples = sum(
-            d.get("samples", 0)
-            for d in (await student.get_mastery_report()).get("topics", {}).values()
-        )
-        if total_samples > 0:
-            mistake_rate = total_mistakes / max(total_samples, 1)
+        cal_stats = await cal.get_stats()
+        total_interactions = (cal_stats or {}).get("total_entries", 0)
+        if total_interactions > 0:
+            mistake_rate = total_mistakes / total_interactions
     except Exception:
         pass
 
@@ -130,7 +145,11 @@ async def run_calibration_review() -> dict:
             "mistake_rate": round(mistake_rate, 4) if mistake_rate else None,
         },
         "mastery_per_topic": {k: round(v, 4) for k, v in mastery_scores.items()},
-        "recommendation": _get_recommendation(calibration_delta, calibration_status),
+        "recommendation": _get_recommendation(
+            calibration_delta, calibration_status,
+            mastery=overall_mastery,
+            estimated=estimated_accuracy,
+        ),
         "reviewed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
@@ -213,7 +232,12 @@ async def run_calibration_review() -> dict:
     return review
 
 
-def _get_recommendation(delta: float | None, status: str) -> str:
+def _get_recommendation(
+    delta: float | None,
+    status: str,
+    mastery: float | None = None,
+    estimated: float | None = None,
+) -> str:
     if delta is None or status == "insufficient_data":
         return ("Insufficient ground truth data for calibration. Run adversarial "
                 "audit and accumulate honesty judge verdicts before calibrating.")
@@ -223,10 +247,16 @@ def _get_recommendation(delta: float | None, status: str) -> str:
         return (f"Mastery is {'over' if delta > 0 else 'under'}confident by "
                 f"{abs(delta):.0%}. Monitor — no immediate action needed.")
     if status == "overconfident":
-        return (f"MASTERY IS OVERCONFIDENT by {delta:.0%}. A mastery score of "
-                f"{0.88:.0%} is predicting only {0.88 - delta:.0%} actual accuracy. "
-                f"Consider lowering WEAK_THRESHOLD or increasing source requirements "
-                f"at current mastery levels.")
+        # Use the actual values rather than a hardcoded 0.88 placeholder.
+        # The previous version printed "A mastery score of 88% is predicting
+        # only 46%" REGARDLESS of what the real mastery / estimated_accuracy
+        # were, making the recommendation non-actionable for triage.
+        m = mastery if mastery is not None else 0.0
+        e = estimated if estimated is not None else max(0.0, m - delta)
+        return (f"MASTERY IS OVERCONFIDENT by {delta:.0%}. A headline mastery "
+                f"of {m:.0%} is predicting only {e:.0%} actual accuracy. "
+                f"Consider lowering WEAK_THRESHOLD or increasing source "
+                f"requirements at current mastery levels.")
     if status == "underconfident":
         return (f"Mastery is underconfident by {abs(delta):.0%}. ARIA is better "
                 f"than she thinks. Consider raising mastery weights on brain_hook "
