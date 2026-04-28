@@ -229,7 +229,17 @@ async def sync_record(entry: dict) -> dict[str, Any]:
                 else:
                     resp = await client.patch(url, headers=_headers(), json=payload)
         except Exception as e:
-            logger.warning("airtable sync network error for %s: %s", action_id, e)
+            # F70 fix 2026-04-28: httpx.ReadTimeout (and several other
+            # transport errors) have an empty `str(e)`, so the prior
+            # log line printed "airtable sync network error for X:" with
+            # nothing after the colon. Always include the exception type
+            # name so the operator can tell ReadTimeout from ConnectError
+            # at a glance even when the message is blank.
+            err_text = str(e) or "(no message)"
+            logger.warning(
+                "airtable sync network error for %s: %s: %s",
+                action_id, type(e).__name__, err_text,
+            )
             return {"ok": False, "reason": f"net:{type(e).__name__}"}
         if resp.status_code != 429:
             break

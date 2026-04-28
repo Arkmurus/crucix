@@ -8,6 +8,8 @@ Chain: DeepSeek → Anthropic → OpenAI → Gemini
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import time
 from typing import Optional
@@ -16,6 +18,13 @@ from .provider import LLMProvider, LLMResult, ProviderError
 from .factory import create_llm_provider
 
 logger = logging.getLogger("aria.llm.fallback")
+
+# F68 fix 2026-04-28: HARD cooldowns (auth/billing) are mirrored to Redis
+# so they survive restarts. Without this, every fly.io restart re-probed
+# the failed backend and burned 5 calls before the in-process cooldown
+# re-engaged. Soft cooldowns (rate_limit, server) are left in-memory only
+# — those failure modes ARE often transient and re-probing is fine.
+_REDIS_KEY_PREFIX = "crucix:aria:llm:cooldown:"
 
 
 class FallbackProvider(LLMProvider):
@@ -60,11 +69,16 @@ class FallbackProvider(LLMProvider):
         return self._cooldown_until(stats) > time.time()
 
     def _record_success(self, provider, stats: dict):
+        had_hard_cooldown = stats.get("last_kind") in ("auth", "billing") and stats.get("cooldown_until", 0) > 0
         if stats.get("failures", 0) > 0 or stats.get("cooldown_until", 0) > 0:
             logger.info("Provider %s recovered — resetting failure stats", provider.name)
         stats["failures"] = 0
         stats["cooldown_until"] = 0
         stats["last_kind"] = ""
+        # F68: clear the Redis-mirrored cooldown so subsequent restarts
+        # don't re-apply a stale cooldown after the operator topped up.
+        if had_hard_cooldown:
+            self._clear_redis_cooldown(provider.name)
 
     def _record_failure(self, provider, stats: dict, error: Exception):
         stats["failures"] = stats.get("failures", 0) + 1
@@ -99,6 +113,11 @@ class FallbackProvider(LLMProvider):
                     "Provider %s HARD cooldown (%s) for %ds: %s",
                     provider.name, kind, self._HARD_COOLDOWN_SECONDS, str(error)[:200],
                 )
+                # F68: mirror to Redis so a fly restart / new VM honours
+                # the cooldown instead of re-probing the failed backend.
+                self._mirror_cooldown_to_redis(
+                    provider.name, kind, new_cooldown,
+                )
         elif kind == "rate_limit":
             stats["cooldown_until"] = now + self._SOFT_COOLDOWN_SECONDS
             logger.warning(
@@ -119,6 +138,86 @@ class FallbackProvider(LLMProvider):
                     "Provider %s failed (%d): %s — trying next",
                     provider.name, stats["failures"], str(error)[:200],
                 )
+
+    # ── F68: Redis cooldown mirror (HARD cooldowns only) ────────────────
+
+    @staticmethod
+    def _redis_key(provider_name: str) -> str:
+        return f"{_REDIS_KEY_PREFIX}{provider_name}"
+
+    def _mirror_cooldown_to_redis(self, provider_name: str, kind: str, cooldown_until: float) -> None:
+        """Fire-and-forget write of a HARD cooldown to Redis. Never blocks
+        the LLM hot path — failures are logged at debug only."""
+        async def _write():
+            try:
+                from ..intel import redis_store as rs
+                payload = json.dumps({"until": cooldown_until, "kind": kind})
+                # TTL trimmed to remaining seconds so the key auto-cleans
+                # the moment the in-memory cooldown would have expired.
+                ttl = max(1, int(cooldown_until - time.time()))
+                await rs.set(self._redis_key(provider_name), payload, ex=ttl)
+            except Exception as e:
+                logger.debug("redis cooldown mirror failed (non-fatal): %s", e)
+
+        try:
+            asyncio.get_running_loop().create_task(_write())
+        except RuntimeError:
+            # No running loop — happens in tests where _record_failure is
+            # exercised synchronously. Nothing to mirror; acceptable.
+            pass
+
+    def _clear_redis_cooldown(self, provider_name: str) -> None:
+        async def _del():
+            try:
+                from ..intel import redis_store as rs
+                await rs.delete(self._redis_key(provider_name))
+            except Exception as e:
+                logger.debug("redis cooldown clear failed (non-fatal): %s", e)
+
+        try:
+            asyncio.get_running_loop().create_task(_del())
+        except RuntimeError:
+            pass
+
+    async def hydrate_from_redis(self) -> int:
+        """Read mirrored HARD cooldowns from Redis and apply them to the
+        in-memory _stats. Called once during lifespan startup. Returns
+        the number of cooldowns rehydrated."""
+        try:
+            from ..intel import redis_store as rs
+        except Exception:
+            return 0
+        count = 0
+        now = time.time()
+        for provider in self.providers:
+            try:
+                raw = await rs.get(self._redis_key(provider.name))
+                if not raw:
+                    continue
+                data = json.loads(raw)
+                until = float(data.get("until", 0))
+                kind = str(data.get("kind", "billing"))
+                if until <= now:
+                    # Stale; let it expire on its own TTL
+                    continue
+                stats = self._stats.setdefault(provider.name, {
+                    "calls": 0, "failures": 0, "last_failure": 0,
+                    "cooldown_until": 0, "last_kind": "",
+                })
+                stats["cooldown_until"] = until
+                stats["last_kind"] = kind
+                count += 1
+                logger.warning(
+                    "Provider %s HARD cooldown (%s) rehydrated from Redis "
+                    "— %ds remaining",
+                    provider.name, kind, int(until - now),
+                )
+            except Exception as e:
+                logger.debug(
+                    "redis cooldown hydrate failed for %s (non-fatal): %s",
+                    provider.name, e,
+                )
+        return count
 
     async def complete(
         self,

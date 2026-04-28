@@ -156,6 +156,20 @@ async def lifespan(app: FastAPI):
         primary_model=settings.llm_model,
         primary_base_url=settings.llm_base_url,
     )
+    # F68 fix 2026-04-28: rehydrate any HARD (auth/billing) cooldowns
+    # that were mirrored to Redis before the previous process exited.
+    # Without this, every restart re-probes the failed backend and burns
+    # ~5 calls before the in-process cooldown re-engages.
+    if llm and hasattr(llm, "hydrate_from_redis"):
+        try:
+            n = await llm.hydrate_from_redis()
+            if n:
+                logger.info(
+                    "LLM fallback chain: rehydrated %d HARD cooldown(s) from Redis",
+                    n,
+                )
+        except Exception as e:
+            logger.warning("LLM cooldown hydrate failed (non-fatal): %s", e)
     if not llm:
         # No fallback providers either — use single provider
         llm = create_llm_provider(

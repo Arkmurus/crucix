@@ -437,6 +437,14 @@ async def search(
     try:
         from . import brain_hook as _bh
         backends_hit = sorted({r.source.split(":")[0] for r in final}) if final else []
+        # F72 fix 2026-04-28: include language code in the gap detail so
+        # the F66 (gap_type, detail) dedupe distinguishes per-language
+        # variants. Without it, a Portuguese query that returns 0 would
+        # block the English variant of the same query string from
+        # recording its own (genuinely different) outcome for the next
+        # hour, and the ledger would carry "no results for X" while
+        # crossref+openalex actually serve hl=en X with 12 results
+        # seconds later.
         await _bh.absorb(
             module="web_search",
             summary=f"web_search '{query[:80]}': {len(final)} results from {len(backends_hit)} backend(s) [{', '.join(backends_hit) or 'none'}]",
@@ -449,7 +457,9 @@ async def search(
             # failures and triggered noise alerts.
             success=True,
             gap_type=None if final else "search_zero_results",
-            gap_detail=None if final else f"All {len(backend_tasks)} backends returned 0 for {query[:120]}",
+            gap_detail=(None if final else
+                        f"All {len(backend_tasks)} backends returned 0 for "
+                        f"[lang={language}] {query[:120]}"),
             confidence="ASSESSED",
         )
     except Exception:

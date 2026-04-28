@@ -896,21 +896,38 @@ def detect_conflict(entity: str, new_text: str) -> dict | None:
     existing_high = any(s in all_existing for s in _HIGH_RISK_SIGNALS)
     existing_low = any(s in all_existing for s in _LOW_RISK_SIGNALS)
 
-    # Conflict: new intel says HIGH risk but existing says LOW (or vice versa)
-    if (new_high and existing_low) or (new_low and existing_high):
-        conflict = {
-            "entity": entity,
-            "neuron_id": neuron["id"],
-            "existing_assessment": "HIGH_RISK" if existing_high else "LOW_RISK",
-            "new_assessment": "HIGH_RISK" if new_high else "LOW_RISK",
-            "existing_source": neuron.get("source", "unknown"),
-            "existing_confidence": neuron.get("confidence", "ASSESSED"),
-            "detected_at": time.time(),
-            "new_text_preview": new_text[:300],
-        }
-        return conflict
+    # F71 fix 2026-04-28: real entities like "UN Security Council" have
+    # neuron metadata that legitimately contains BOTH "sanctioned" and
+    # "verified" signals — so existing_high AND existing_low both go
+    # True. The previous gate `(new_high and existing_low)` then fired
+    # but the ternary `existing_high ? HIGH_RISK : LOW_RISK` collapsed
+    # the mixed state to HIGH_RISK, producing log entries like
+    # `[conflict] UN Security Council: existing=HIGH_RISK new=HIGH_RISK`
+    # — same value flagged as a conflict. Compute deterministic
+    # assessments first, then only fire when they actually differ. Mixed
+    # signals on either side mean we can't classify cleanly, so skip.
+    if existing_high and existing_low:
+        return None  # ambiguous existing — no clean assessment to compare
+    if new_high and new_low:
+        return None  # ambiguous new — same reason
+    existing_assessment = "HIGH_RISK" if existing_high else ("LOW_RISK" if existing_low else None)
+    new_assessment = "HIGH_RISK" if new_high else ("LOW_RISK" if new_low else None)
+    if existing_assessment is None or new_assessment is None:
+        return None
+    if existing_assessment == new_assessment:
+        return None  # same direction — not a conflict, just a re-assertion
 
-    return None
+    conflict = {
+        "entity": entity,
+        "neuron_id": neuron["id"],
+        "existing_assessment": existing_assessment,
+        "new_assessment": new_assessment,
+        "existing_source": neuron.get("source", "unknown"),
+        "existing_confidence": neuron.get("confidence", "ASSESSED"),
+        "detected_at": time.time(),
+        "new_text_preview": new_text[:300],
+    }
+    return conflict
 
 
 async def log_conflict(conflict: dict) -> None:
