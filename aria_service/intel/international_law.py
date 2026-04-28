@@ -2481,8 +2481,18 @@ async def register_law_sources() -> dict:
             if added:
                 registered += 1
 
-    logger.info("Law sources registered with corpus manager: %d URLs", registered)
-    return {"registered": registered, "total_urls": sum(len(v) for v in LAW_SOURCE_URLS.values())}
+    # F58 fix 2026-04-28: previous log read "registered: 0 URLs" whenever
+    # all sources were already on the registry, which on every restart
+    # looked like a config gap. add_url_directly is idempotent and returns
+    # False for already-registered URLs, so 0 is the steady state — the
+    # message now distinguishes "0 new" from "0 total".
+    total = sum(len(v) for v in LAW_SOURCE_URLS.values())
+    logger.info(
+        "Law sources registered with corpus manager: %d new (out of %d total — "
+        "remainder already on registry)",
+        registered, total,
+    )
+    return {"registered": registered, "total_urls": total}
 
 
 async def refresh_law_knowledge() -> dict:

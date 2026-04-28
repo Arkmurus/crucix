@@ -7017,6 +7017,30 @@ async def self_code_knowledge_ep():
     return await self_improve.get_code_knowledge()
 
 
+# 43c. GET /api/aria/self/recent-errors — error ledger surface
+# F56 2026-04-28: the autonomous self-improve cycle reports e.g. "7 errors"
+# but the ledger has no HTTP surface, so the operator can't triage what
+# the cycle actually saw. Pre-B1 the ledger was empty so the gap was
+# invisible; with B1 + the F54 cascade-killer it now collects real signal.
+@router.get("/self/recent-errors")
+async def self_recent_errors_ep(hours: int = 24):
+    """Return the recent error ledger that the self-improve cycle reads.
+    `hours` filters to the last N hours (default 24, max 168)."""
+    hours = max(1, min(int(hours or 24), 168))
+    errors = await self_improve.get_recent_errors(hours=hours)
+    # Tally by type so the operator can see at-a-glance whether one
+    # subsystem dominates.
+    counts: dict[str, int] = {}
+    for e in errors:
+        counts[e.get("type", "unknown")] = counts.get(e.get("type", "unknown"), 0) + 1
+    return {
+        "window_hours": hours,
+        "total": len(errors),
+        "by_type": counts,
+        "errors": errors,
+    }
+
+
 # ── Brain Hook API ──────────────────────────────────────────────────────────
 
 # 43b. POST /api/aria/brain/absorb — Feed learning from any module (incl. Node.js seenode)

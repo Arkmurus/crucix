@@ -1495,6 +1495,17 @@ async def _auto_escalate_to_watchlist(
     if not entity_matches:
         return
 
+    # F57 fix 2026-04-28: filter through the same entity-shape validator
+    # the sanctions screening layer uses. Without this, deep_research
+    # tasks whose `entity:` field is a search query (e.g. "SAM.gov defence
+    # military security procurement global last 7 days 2026") were being
+    # added to the watchlist verbatim. The daily re-screen then fed those
+    # to OpenSanctions where _looks_like_entity_name rejected them — but
+    # the rejection happens AFTER the entry has already polluted the list.
+    # Filter here so the watchlist never accumulates query strings to
+    # begin with.
+    from ..intel.sanctions import _looks_like_entity_name
+
     # Deduplicate and escalate
     seen: set[str] = set()
     from ..intel import dd_orchestrator
@@ -1504,6 +1515,13 @@ async def _auto_escalate_to_watchlist(
         if name_lower in seen or len(name) < 3:
             continue
         seen.add(name_lower)
+        if not _looks_like_entity_name(name):
+            logger.info(
+                "[autonomous escalation] skipping %r — does not look like an "
+                "entity name (search query / sentence fragment)",
+                name[:80],
+            )
+            continue
 
         target = {
             "name": name,

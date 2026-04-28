@@ -3290,6 +3290,32 @@ async def rescreen_watchlist(llm=None) -> dict:
         return {"entities_screened": 0, "changes_detected": [], "errors": [],
                 "duration_ms": 0}
 
+    # F57 fix 2026-04-28: opportunistic purge of polluted entries before
+    # spending cycle budget on them. Past auto-escalations from before
+    # the validator was wired added search-query strings to the watchlist
+    # (e.g. "SAM.gov defence military security procurement global last 7
+    # days 2026"). Each daily re-screen wasted budget logging "rejecting
+    # non-entity input" for them. Strip those entries here so the
+    # watchlist self-cleans over the next few cycles.
+    try:
+        from . import sanctions as _sanc
+        if hasattr(_sanc, "_looks_like_entity_name"):
+            before = len(watchlist)
+            watchlist = [
+                w for w in watchlist
+                if _sanc._looks_like_entity_name((w.get("name") or w.get("entity") or "").strip())
+            ]
+            removed = before - len(watchlist)
+            if removed:
+                await rs.set_json(WATCHLIST_KEY, watchlist)
+                logger.info(
+                    "[watchlist purge] removed %d polluted entries (search "
+                    "queries / sentence fragments) before re-screen",
+                    removed,
+                )
+    except Exception as e:
+        logger.debug("[watchlist purge] non-fatal: %s", e)
+
     # Enforce cost cap: max 50 entities per cycle
     entities = watchlist[:_RESCREEN_MAX_ENTITIES]
 
