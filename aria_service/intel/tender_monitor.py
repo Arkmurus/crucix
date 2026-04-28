@@ -31,6 +31,32 @@ from . import redis_store as rs
 
 logger = logging.getLogger("aria.tender_monitor")
 
+# F75 fix 2026-04-28: per-process tracker so persistent upstream
+# failures (TED 404 / AfDB 403 / SEACE Peru 403) log a WARNING the
+# first time they happen but get demoted to debug after that until
+# the upstream recovers. A WARNING per cycle for a known-broken source
+# is just noise that the operator has to filter out of the dashboard.
+_PORTAL_FAILURE_LOGGED: dict[str, str] = {}
+
+
+def _log_portal_failure(portal: str, status: int, message: str) -> None:
+    """Log a portal failure WARNING the first time we see this status,
+    then demote subsequent identical failures to debug for the rest of
+    the process lifetime. Recovery (different status or 200) clears the
+    suppression so a NEW failure mode logs WARNING again.
+
+    `message` is the full text the caller wants to log, the helper only
+    adds the `[portal]` prefix so the existing log format stays
+    backward-compatible with grep / dashboard parsers.
+    """
+    key = f"{portal}:{status}"
+    last = _PORTAL_FAILURE_LOGGED.get(portal)
+    if last == key:
+        logger.debug("[%s] still %d (suppressed): %s", portal, status, message[:120])
+        return
+    _PORTAL_FAILURE_LOGGED[portal] = key
+    logger.warning("[%s] %s", portal, message)
+
 # ── Redis keys ────────────────────────────────────────────────────────────────
 _KEY_ALERTS = "crucix:aria:tender_monitor:alerts"       # list of JSON alerts
 _KEY_SEEN = "crucix:aria:tender_monitor:seen"            # JSON set of seen IDs
@@ -373,7 +399,13 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
             # we just report the byte count.
             preview_raw = resp.text[:300]
             preview = preview_raw if all(c.isprintable() or c in "\r\n\t" for c in preview_raw) else f"<binary, {len(resp.content)} bytes>"
-            logger.warning("[TED] API returned %d: %s", resp.status_code, preview)
+            # F75 2026-04-28: TED has been consistently 404'ing all session
+            # — endpoint migrated. Log loud the first time per process,
+            # then demote until status changes.
+            _log_portal_failure(
+                "TED", resp.status_code,
+                f"API returned {resp.status_code}: {preview}",
+            )
             return tenders
 
         data = resp.json()
@@ -648,8 +680,8 @@ async def _crawl_ungm(client: httpx.AsyncClient, max_results: int = 20) -> list[
         url = "https://www.ungm.org/Public/Notice"
         resp = await client.get(url, timeout=_HTTP_TIMEOUT, follow_redirects=True)
         if resp.status_code != 200:
-            logger.warning("[UNGM] Returned %d", resp.status_code)
-            return tenders
+            _log_portal_failure("UNGM", resp.status_code, f"Returned {resp.status_code}")
+            return tenders  # UNGM
 
         html = resp.text
 
@@ -731,7 +763,7 @@ async def _crawl_afdb(client: httpx.AsyncClient, max_results: int = 20) -> list[
         url = "https://www.afdb.org/en/projects-and-operations/procurement"
         resp = await client.get(url, timeout=_HTTP_TIMEOUT, follow_redirects=True)
         if resp.status_code != 200:
-            logger.warning("[AfDB] Returned %d", resp.status_code)
+            _log_portal_failure("AfDB", resp.status_code, f"Returned {resp.status_code}")
             return tenders
 
         html = resp.text
@@ -843,7 +875,7 @@ async def _crawl_seace_peru(client: httpx.AsyncClient, max_results: int = 20) ->
         async with httpx.AsyncClient(verify=ssl_ctx, timeout=_HTTP_TIMEOUT, follow_redirects=True) as seace_client:
             resp = await seace_client.get(url)
         if resp.status_code != 200:
-            logger.warning("[SEACE Peru] Returned %d", resp.status_code)
+            _log_portal_failure("SEACE Peru", resp.status_code, f"Returned {resp.status_code}")
             return tenders
 
         html = resp.text

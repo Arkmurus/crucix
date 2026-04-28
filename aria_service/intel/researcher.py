@@ -41,14 +41,21 @@ RESEARCH_FEEDS = [
     # ── Global Defence Procurement ────────────────────────────────────────
     {"name": "Defense News", "url": "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml", "category": "defence_procurement"},
     {"name": "Janes", "url": "https://www.janes.com/osint-insights/defence-news", "category": "defence_industry"},  # old /feeds/news → 404
-    {"name": "Defense One", "url": "https://www.defenseone.com/rss/", "category": "defence_policy"},
+    # F76 prune 2026-04-28: Defense One /rss/ → persistent 404 across
+    # every research cycle today. URL had no working alternative. Removing
+    # to stop ~6 wasted req/hour. Re-enable if Defense One restores RSS.
+    # {"name": "Defense One", "url": "https://www.defenseone.com/rss/", "category": "defence_policy"},
     {"name": "The Defense Post", "url": "https://www.thedefensepost.com/feed/", "category": "defence_news"},
-    {"name": "Army Recognition", "url": "https://www.armyrecognition.com/rss", "category": "land_systems"},
+    # F76 prune 2026-04-28: armyrecognition.com /rss → persistent 404.
+    # {"name": "Army Recognition", "url": "https://www.armyrecognition.com/rss", "category": "land_systems"},
     {"name": "Naval News", "url": "https://www.navalnews.com/feed/", "category": "naval"},
     {"name": "Air Force Technology", "url": "https://www.airforce-technology.com/feed/", "category": "aerospace"},
     {"name": "Army Technology", "url": "https://www.army-technology.com/feed/", "category": "land_systems"},
     {"name": "Naval Technology", "url": "https://www.naval-technology.com/feed/", "category": "naval"},
-    {"name": "Shephard Media", "url": "https://www.shephardmedia.com/feed/", "category": "defence_industry"},
+    # F76 prune 2026-04-28: shephardmedia.com /feed/ → 404. The working
+    # endpoint /news/defence-notes/feed/ is already in the list below as
+    # "Defence Notes", so we don't lose Shephard coverage.
+    # {"name": "Shephard Media", "url": "https://www.shephardmedia.com/feed/", "category": "defence_industry"},
 
     {"name": "C4ISRNet", "url": "https://www.c4isrnet.com/arc/outboundfeeds/rss/?outputType=xml", "category": "c4isr"},
     {"name": "Forecast International", "url": "https://dsm.forecastinternational.com/rss", "category": "defence_industry"},
@@ -56,13 +63,23 @@ RESEARCH_FEEDS = [
 
     # ── Arms Trade & Policy ───────────────────────────────────────────────
     {"name": "SIPRI Blog", "url": "https://www.sipri.org/rss", "category": "arms_trade"},  # old /rss.xml → 404
-    {"name": "DSCA Major Arms Sales", "url": "https://www.dsca.mil/dsca-rss-really-simple-syndication", "category": "fms"},  # old /feed → 403
-    {"name": "IISS", "url": "https://www.iiss.org/online-analysis/military-balance/feed", "category": "strategic_studies"},  # old /rss → 404
+    # F76 prune 2026-04-28: DSCA dsca-rss-really-simple-syndication → 403
+    # (Cloudflare or auth-required). Retained as comment so future operator
+    # can search; replacement candidate is the DSCA Major Arms Sales JSON
+    # at https://www.dsca.mil/major-arms-sales (HTML scrape).
+    # {"name": "DSCA Major Arms Sales", "url": "https://www.dsca.mil/dsca-rss-really-simple-syndication", "category": "fms"},
+    # F76 prune 2026-04-28: IISS military-balance/feed → 403 (auth wall).
+    # IISS RSS was deprecated; primary access now via paid API.
+    # {"name": "IISS", "url": "https://www.iiss.org/online-analysis/military-balance/feed", "category": "strategic_studies"},
     {"name": "RUSI", "url": "https://www.rusi.org/rusi-rss-feeds", "category": "defence_research"},  # old /rss.xml → 404
     {"name": "War on the Rocks", "url": "https://warontherocks.com/feed/", "category": "strategy"},
-    {"name": "Chatham House", "url": "https://www.chathamhouse.org/rss.xml", "category": "geopolitics"},
-    {"name": "CSIS", "url": "https://www.csis.org/rss", "category": "strategy"},  # fixed from /rss.xml
-    {"name": "RAND", "url": "https://www.rand.org/pubs/rss.xml", "category": "defence_research"},
+    # F76 prune 2026-04-28: Chatham House /rss.xml → 403. Reachable via
+    # newsletter only; no public RSS at present.
+    # {"name": "Chatham House", "url": "https://www.chathamhouse.org/rss.xml", "category": "geopolitics"},
+    # F76 prune 2026-04-28: csis.org /rss → 404 (page exists, RSS retired).
+    # {"name": "CSIS", "url": "https://www.csis.org/rss", "category": "strategy"},
+    # F76 prune 2026-04-28: rand.org /pubs/rss.xml → 404.
+    # {"name": "RAND", "url": "https://www.rand.org/pubs/rss.xml", "category": "defence_research"},
     {"name": "ISW", "url": "https://understandingwar.org/feed", "category": "conflict_intelligence"},
     {"name": "UCDP", "url": "https://ucdp.uu.se/apidocs/", "category": "conflict_data"},
     {"name": "CrisisWatch", "url": "https://www.crisisgroup.org/rss/crisiswatch", "category": "conflict_early_warning"},
@@ -72,7 +89,9 @@ RESEARCH_FEEDS = [
     {"name": "DefenceWeb", "url": "https://www.defenceweb.co.za/feed/", "category": "africa_defence"},
     {"name": "ISS Africa", "url": "https://issafrica.org/iss-today/feed", "category": "africa_security"},
     {"name": "DW Africa", "url": "https://rss.dw.com/xml/rss-en-africa", "category": "africa_news"},
-    {"name": "Africa Confidential", "url": "https://www.africa-confidential.com/rss", "category": "africa_intelligence"},
+    # F76 prune 2026-04-28: africa-confidential.com /rss → 404 (paywall,
+    # no public RSS). Newsletter-only.
+    # {"name": "Africa Confidential", "url": "https://www.africa-confidential.com/rss", "category": "africa_intelligence"},
     {"name": "Club of Mozambique", "url": "https://clubofmozambique.com/feed/", "category": "mozambique"},
     # Africa Intelligence has no public RSS — paywall site, removed (was 404)
     # {"name": "Africa Intelligence", "url": "https://www.africaintelligence.com/rss", "category": "africa_intelligence"},
@@ -90,7 +109,10 @@ RESEARCH_FEEDS = [
     {"name": "Breaking Defense", "url": "https://breakingdefense.com/feed/", "category": "defence_procurement"},
 
     # ── Regional: Latin America (Spanish) ────────────────────────────────
-    {"name": "Infodefensa", "url": "https://www.infodefensa.com/feed", "category": "latam_defence"},  # old /latam/rss.xml + /espana/rss.xml → 404, consolidated
+    # F76 prune 2026-04-28: infodefensa.com /feed → 404. The site has
+    # consolidated to non-RSS aggregators — Defensa.com + Zona Militar
+    # below cover the same Spanish-language LatAm intel space.
+    # {"name": "Infodefensa", "url": "https://www.infodefensa.com/feed", "category": "latam_defence"},
     {"name": "Defensa.com", "url": "https://www.defensa.com/rss", "category": "latam_defence"},
     {"name": "Zona Militar", "url": "https://www.zona-militar.com/feed/", "category": "latam_defence"},
     {"name": "Dialogo Americas", "url": "https://dialogo-americas.com/feed/", "category": "latam_security"},
@@ -109,10 +131,10 @@ RESEARCH_FEEDS = [
     {"name": "Kommersant Defence (RU)", "url": "https://www.kommersant.ru/RSS/news.xml", "category": "russia_industry"},
 
     # ── Chinese-language (for lang:zh mastery lift; same caveats as ru).
-    # Taipei Times + SCMP are neutral-to-critical perspectives on PLA /
-    # Chinese defence industry; Global Times is state-aligned and gets
-    # flagged by the tier classifier at claim time.
-    {"name": "Global Times Military (ZH)", "url": "https://www.huanqiu.com/rss/mil.xml", "category": "china_defence"},
+    # SCMP carries a neutral-to-critical perspective on PLA / Chinese
+    # defence industry. Global Times huanqiu RSS retired — 404.
+    # F76 prune 2026-04-28: huanqiu.com /rss/mil.xml → 404.
+    # {"name": "Global Times Military (ZH)", "url": "https://www.huanqiu.com/rss/mil.xml", "category": "china_defence"},
     {"name": "SCMP China", "url": "https://www.scmp.com/rss/91/feed", "category": "china_analysis"},
 ]
 

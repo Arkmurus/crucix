@@ -18,8 +18,21 @@ from aria_service.intel import circuit_breaker as cb_mod
 @pytest.fixture(autouse=True)
 def _fresh_breakers():
     cb_mod._breakers.clear()
+    # F75 fix 2026-04-28: tender_monitor._PORTAL_FAILURE_LOGGED is a
+    # module-level cache — also reset it so TED-404 tests below don't
+    # inherit a primed cache from a sibling test.
+    try:
+        from aria_service.intel import tender_monitor as _tm
+        _tm._PORTAL_FAILURE_LOGGED.clear()
+    except Exception:
+        pass
     yield
     cb_mod._breakers.clear()
+    try:
+        from aria_service.intel import tender_monitor as _tm
+        _tm._PORTAL_FAILURE_LOGGED.clear()
+    except Exception:
+        pass
 
 
 # ── F14: per-feed RSS circuit breaker ─────────────────────────────────────
