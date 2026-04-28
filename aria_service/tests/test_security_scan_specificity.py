@@ -107,8 +107,22 @@ def test_eval_with_function_constructor_caught():
 
 
 def test_document_write_script_injection_caught():
-    """document.write injecting another <script> is the classic XSS trick."""
-    html = "<script>document.write('<script src=//evil.com/x.js></script>');</script>"
+    """document.write injecting a <script> with a *dangerous* src scheme
+    (data: / javascript:) or obfuscated payload is still caught.
+
+    F62 2026-04-28: previously this test asserted that a plain external
+    src like ``<script src=//evil.com/x.js>`` was caught, but that
+    pattern is indistinguishable from synchronous AdSense / Google Tag
+    Manager injection (defensa.com, zona-militar — see F25 2026-04-27).
+    Tightened the regex to require an actual obfuscation indicator;
+    plain external-src ad-network injection is left for URL allowlist
+    filtering at fetch time + strip_dangerous_content during extraction.
+    """
+    html = (
+        "<script>document.write('"
+        "<script src=\"data:text/javascript;base64,YWxlcnQoMSk=\"></script>"
+        "');</script>"
+    )
     result = scan_content(html, source="malicious.com")
     assert result["safe"] is False
 

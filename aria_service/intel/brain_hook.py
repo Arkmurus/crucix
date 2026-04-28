@@ -679,6 +679,23 @@ _TRIP_CONSECUTIVE = 3
 _COOLDOWN_S = 60
 _BREAKER_KEY = "crucix:aria:brain_hook:breaker"
 
+# F55 fix 2026-04-28: minimum sample count before the breaker can trip.
+# At boot the absorb() path runs through a cold sentence-transformer
+# load + 3 expensive tiers; the first 2-3 calls easily clock 3-4s each
+# and a 5-sample p95 is just the cold-start outlier. The breaker then
+# trips on a tiny non-representative window, files a HIGH/operator_action
+# pending action, and auto-resolves on cooldown — pure noise during the
+# boot phase. Require ≥ this many recorded latencies before evaluating
+# the trip condition.
+#
+# Note: this gate only applies to the COLD-START warmup. Once the window
+# has saturated once (process has been hot), `_warmup_complete` flips
+# True and stays True for the process lifetime — so after a cooldown
+# half-open clear the breaker can re-trip immediately if downstream is
+# still slow (the regression the brain_hook circuit tests guard against).
+_MIN_SAMPLES_BEFORE_TRIP = int(os.environ.get("ARIA_BRAIN_MIN_SAMPLES_BEFORE_TRIP", "10"))
+_warmup_complete: bool = False
+
 _recent_latencies_ms: list[float] = []
 _breaker_state = {
     "open": False,
@@ -708,8 +725,18 @@ def _p95_latency_ms() -> float:
 def _maybe_trip_breaker(reason: str) -> None:
     """Open the circuit if p95 has been over threshold _TRIP_CONSECUTIVE
     times in a row. Idempotent — safe to call on every absorb."""
+    global _warmup_complete
     if _breaker_state["open"]:
         return
+    # F55 fix 2026-04-28: cold-start warmup gate. Only applied while
+    # the process has not yet seen a saturated window — once it has,
+    # _warmup_complete latches True and post-cooldown half-opens can
+    # re-trip immediately on a fresh slow sample, as the existing tests
+    # require.
+    if not _warmup_complete:
+        if len(_recent_latencies_ms) < _MIN_SAMPLES_BEFORE_TRIP:
+            return
+        _warmup_complete = True
     p95 = _p95_latency_ms()
     if p95 > _LATENCY_TRIP_MS:
         _breaker_state["consecutive_high"] += 1
@@ -789,6 +816,13 @@ def _maybe_close_breaker() -> None:
     _recent_latencies_ms.clear()
     _breaker_state["open"] = False
     _breaker_state["consecutive_high"] = 0
+    # F55 2026-04-28: by the time we're closing the breaker, the process
+    # is past cold-start. Latch warmup_complete=True so the post-close
+    # half-open probe can re-trip without waiting for a fresh window of
+    # MIN_SAMPLES samples. Cold-start protection only matters once per
+    # process lifetime.
+    global _warmup_complete
+    _warmup_complete = True
     logger.info(
         "[brain_hook] CIRCUIT CLOSED — cooldown elapsed, "
         "stale p95 was %.0fms (trip threshold %dms). "

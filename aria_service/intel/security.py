@@ -164,9 +164,21 @@ _MALWARE_PATTERNS = [
     # a classic XSS payload signature. Plain eval() in tag-manager scripts
     # is too common to flag.
     re.compile(r"\beval\s*\(\s*(?:atob|unescape|decodeURIComponent|Function)\s*\(", re.I),
-    # document.write injecting another <script src= is the script-injection
-    # pattern. Naked document.write (AdSense/Twitter widgets) is benign.
-    re.compile(r"document\.write\s*\(\s*['\"]?\s*<script", re.I),
+    # document.write injecting another <script> is the script-injection
+    # pattern. Naked document.write (AdSense/Twitter widgets) is benign,
+    # and so is document.write of <script src="https://googleads..."> —
+    # F62 fix 2026-04-28: defensa.com event listings tripped the prior
+    # pattern on every fetch because their AdSense / Google Tag Manager
+    # uses synchronous document.write('<script src="..."'>) injection.
+    # Now require either a dangerous src scheme (javascript:/data:) or
+    # an inline payload with eval/atob/Function/unescape inside the
+    # injected tag. Plain ad-network injection passes through.
+    re.compile(
+        r"document\.write\s*\([^)]{0,500}<script[^>]*"
+        r"(?:src\s*=\s*['\"]?(?:javascript|data):"
+        r"|>[^<]{0,500}(?:eval|atob|Function|unescape)\s*\()",
+        re.I,
+    ),
     # iframe / embed loading from javascript: or data: schemes is a real XSS
     # vector. Plain iframe/embed src= is fine (YouTube, Vimeo, etc.).
     re.compile(r"<iframe[^>]*src\s*=\s*['\"](?:javascript|data):", re.I),

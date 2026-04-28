@@ -323,6 +323,13 @@ VALID_CATEGORIES = frozenset({
     # These don't trigger conflict detection (which only fires for
     # person/organisation/oem) so they're stored as plain neurons.
     "concept", "doctrine", "platform", "technology", "program",
+    # F61 fix 2026-04-28: 'policy' surfaced organically for
+    # "FIFA Human Rights Policy" and similar institutional positions
+    # that aren't legally-binding regulation. Adding here preserves the
+    # semantic tier instead of remapping to 'general'. Same rationale
+    # as F25 — distinct from 'regulation' (binding) and 'doctrine'
+    # (military). Doesn't trigger conflict detection.
+    "policy",
 })
 
 
