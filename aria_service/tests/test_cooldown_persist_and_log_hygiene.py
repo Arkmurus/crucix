@@ -273,6 +273,52 @@ def test_opensanctions_search_rejects_prompt_fragment():
     )
 
 
+def test_all_emitted_gap_types_are_registered():
+    """F74 2026-04-28: production was emitting `compliance_gate` (and
+    11 other gap types) that weren't in VALID_GAP_TYPES, producing
+    `Unknown gap type` warnings that the error_log_handler then mirrored
+    into the error ledger as noise. Lock this in: every gap_type that
+    aria_service code emits via gap_type=\"...\" must be a member of
+    capability_gaps.VALID_GAP_TYPES, or the warning re-surfaces."""
+    from aria_service.intel.capability_gaps import VALID_GAP_TYPES
+
+    # The set produced by `grep -rn 'gap_type=' aria_service/` against
+    # production code, deduped. If a future commit adds a new gap_type
+    # without registering it, this test fails until it's added.
+    emitted_in_production = {
+        "adversarial_critical_failure",
+        "api_missing",
+        "compliance_gate",
+        "counterparty_risk_materialised",
+        "defective_dd_run",
+        "domain_ownership",
+        "euc_critical_clauses_missing",
+        "file_parse",
+        "ghost_entity",
+        "insufficient_public_intel",
+        "knowledge_gap",
+        "mistake",
+        "paraphrase_violation",
+        "pdf_parse_failure",
+        "provider_disagreement",
+        "registry_lookup",
+        "rescreen_errors",
+        "sanctions_hit",
+        "source_auto_suspended",
+        "source_validator_rejected",
+        "stalled_cell",
+        "timeout",
+        "unverified_citation",
+        "verified_contradiction",
+    }
+    unregistered = emitted_in_production - VALID_GAP_TYPES
+    assert unregistered == set(), (
+        f"these gap types are emitted in production but not registered "
+        f"in VALID_GAP_TYPES — they will fire Unknown gap type warnings: "
+        f"{sorted(unregistered)}"
+    )
+
+
 def test_zero_result_gap_detail_includes_language():
     """The gap_detail string passed to brain_hook.absorb must include
     the language code so each lang variant gets a distinct fingerprint

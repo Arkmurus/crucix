@@ -81,6 +81,25 @@ VALID_GAP_TYPES = frozenset({
     # comes back empty. Was generating "Unknown gap type" warnings on
     # every weak-cell search.
     "search_zero_results",
+    # F74 batch (2026-04-28) — types that production code legitimately
+    # emits but were not registered. Each was generating an "Unknown
+    # gap type" WARNING at first emit per process, which the
+    # error_log_handler then mirrored into the error ledger as noise.
+    # Grepped from `gap_type=` callers in aria_service/. Grouped by
+    # source module:
+    "compliance_gate",                 # regional_bright_lines.check_text — UAE_HOUTHI / DRC / Libya etc.
+    "counterparty_risk_materialised",  # autonomous DD — RED outcome on a target
+    "defective_dd_run",                # dd_orchestrator — run aborted before report
+    "domain_ownership",                # virtual_office_registry — domain RDAP ambiguity
+    "euc_critical_clauses_missing",    # euc_library — required clause absent from contract
+    "ghost_entity",                    # ghost_detector — shell / no-substance counterparty
+    "pdf_parse_failure",               # ocr / pdf_ingest — non-recoverable parse error
+    "provider_disagreement",           # ensemble — providers gave contradictory signals
+    "rescreen_errors",                 # dd_orchestrator.rescreen_watchlist — non-zero error count
+    "sanctions_hit",                   # sanctions — confirmed designated party
+    "stalled_cell",                    # heatmap — region/topic with no movement over window
+    "unverified_citation",             # cited_artifact_verifier — claim could not be grounded
+    "format_unsupported",              # already in set above (kept for clarity, fine if dup)
 })
 
 
