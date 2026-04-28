@@ -9,6 +9,39 @@ import re
 import uuid
 
 MAX_DOC_CHARS = int(os.environ.get("ARIA_MAX_DOC_CHARS", "500000"))  # bumped 2026-04-18 from 200k
+
+
+def _stamp_partial_extraction(extracted: str, dropped_summary: str) -> str:
+    """Prepend a `[!PARTIAL EXTRACTION ...]` banner when the parser
+    returned less than the full document. The banner is what the LLM
+    actually sees inside the `[ATTACHED DOCUMENT]` block on the
+    WhatsApp / chat / contract-review path; without it ARIA cannot
+    tell that "X is not in the text" means "X is not in the extracted
+    portion" rather than "X is not in the document". Past incident
+    2026-04-28: ARIA confidently asserted GESPI was not in Annex 1
+    of a signed agreement after the parser silently truncated before
+    Annex 1.
+
+    `dropped_summary` describes WHAT was lost (e.g. "PyMuPDF: 312 of
+    480 pages, 500000 of 1.2M chars") and MUST be a non-empty string
+    when truncation actually occurred. Pass an empty string / None to
+    skip the banner.
+    """
+    if not extracted or not dropped_summary:
+        return extracted
+    return (
+        f"[!PARTIAL EXTRACTION — {dropped_summary}. Content past that "
+        "point — including any annexes, schedules, signature pages, or "
+        "appendices at the end of the document — is NOT in the text "
+        "below. You MUST NOT assert that any clause, party, annex item, "
+        "or term is absent from the document based on this text alone. "
+        "If you cannot find something, say 'not present in the extracted "
+        "portion' and ask the user to paste the missing section. "
+        "Negative claims about document content require the FULL "
+        "document, not a truncated extract.]\n\n"
+    ) + extracted
+
+
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -5902,7 +5935,17 @@ async def read_document_ep(request: Request):
                     pg_text = page.get_text().strip()
                     if pg_text:
                         page_parts.append(f"[Page {pg_idx + 1}]\n{pg_text}")
-                extracted = ("\n\n".join(page_parts))[:MAX_DOC_CHARS]
+                _full_text = "\n\n".join(page_parts)
+                _full_chars = len(_full_text)
+                _total_pages = len(doc)
+                _pdf_summary = (
+                    f"PyMuPDF returned {_total_pages} pages totalling "
+                    f"{_full_chars} chars; only the first {MAX_DOC_CHARS} "
+                    f"chars are below"
+                ) if _full_chars > MAX_DOC_CHARS else ""
+                extracted = _stamp_partial_extraction(
+                    _full_text[:MAX_DOC_CHARS], _pdf_summary,
+                )
                 doc.close()
                 # Fire-and-forget deep ingest (per-page RAG chunks +
                 # image OCR). Runs in the background so /read-document
@@ -5930,8 +5973,14 @@ async def read_document_ep(request: Request):
                 zf = zipfile.ZipFile(io.BytesIO(raw_bytes))
                 if "word/document.xml" in zf.namelist():
                     xml = zf.read("word/document.xml").decode("utf-8", errors="ignore")
-                    extracted = _re.sub(r"<[^>]+>", " ", xml)
-                    extracted = " ".join(extracted.split())[:MAX_DOC_CHARS]
+                    _full_docx = " ".join(_re.sub(r"<[^>]+>", " ", xml).split())
+                    _docx_summary = (
+                        f"DOCX raw text totalled {len(_full_docx)} chars; "
+                        f"only the first {MAX_DOC_CHARS} chars are below"
+                    ) if len(_full_docx) > MAX_DOC_CHARS else ""
+                    extracted = _stamp_partial_extraction(
+                        _full_docx[:MAX_DOC_CHARS], _docx_summary,
+                    )
                 zf.close()
             except Exception as e:
                 _log.warning("DOCX extraction failed: %s", e)
@@ -5945,12 +5994,28 @@ async def read_document_ep(request: Request):
                     import xlrd
                     book = xlrd.open_workbook(file_contents=raw_bytes)
                     rows = []
+                    _xls_total_sheets = book.nsheets
+                    _xls_truncated_sheets = _xls_total_sheets > 3
+                    _xls_truncated_rows = False
                     for si in range(min(3, book.nsheets)):
                         sh = book.sheet_by_index(si)
                         rows.append(f"--- Sheet: {sh.name} ---")
+                        if sh.nrows > 500:
+                            _xls_truncated_rows = True
                         for ri in range(min(500, sh.nrows)):
                             rows.append(",".join(str(sh.cell_value(ri, ci) or "") for ci in range(min(40, sh.ncols))))
-                    extracted = "\n".join(rows)[:MAX_DOC_CHARS]
+                    _full_xls = "\n".join(rows)
+                    _xls_caps: list[str] = []
+                    if _xls_truncated_sheets:
+                        _xls_caps.append(f"xlrd showed only the first 3 of {_xls_total_sheets} sheets")
+                    if _xls_truncated_rows:
+                        _xls_caps.append("rows past 500 were dropped from at least one sheet")
+                    if len(_full_xls) > MAX_DOC_CHARS:
+                        _xls_caps.append(f"text totalled {len(_full_xls)} chars; only the first {MAX_DOC_CHARS} are below")
+                    extracted = _stamp_partial_extraction(
+                        _full_xls[:MAX_DOC_CHARS],
+                        "; ".join(_xls_caps),
+                    )
                 except Exception as e:
                     _log.warning("Legacy .xls extraction via xlrd failed: %s", e)
             else:
@@ -5958,12 +6023,27 @@ async def read_document_ep(request: Request):
                     from openpyxl import load_workbook
                     wb = load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
                     rows = []
+                    _xlsx_total_sheets = len(wb.worksheets)
+                    _xlsx_truncated_rows = False
                     for ws in wb.worksheets[:3]:
                         rows.append(f"--- Sheet: {ws.title} ---")
+                        if ws.max_row and ws.max_row > 500:
+                            _xlsx_truncated_rows = True
                         for row in ws.iter_rows(max_row=500, max_col=40, values_only=True):
                             rows.append(",".join(str(c or "") for c in row))
                     wb.close()
-                    extracted = "\n".join(rows)[:MAX_DOC_CHARS]
+                    _full_xlsx = "\n".join(rows)
+                    _xlsx_caps: list[str] = []
+                    if _xlsx_total_sheets > 3:
+                        _xlsx_caps.append(f"openpyxl showed only the first 3 of {_xlsx_total_sheets} sheets")
+                    if _xlsx_truncated_rows:
+                        _xlsx_caps.append("rows past 500 were dropped from at least one sheet")
+                    if len(_full_xlsx) > MAX_DOC_CHARS:
+                        _xlsx_caps.append(f"text totalled {len(_full_xlsx)} chars; only the first {MAX_DOC_CHARS} are below")
+                    extracted = _stamp_partial_extraction(
+                        _full_xlsx[:MAX_DOC_CHARS],
+                        "; ".join(_xlsx_caps),
+                    )
                 except Exception as e:
                     _log.warning("Excel extraction failed: %s — mime=%s name=%s", e, mime_lower, fname_lower)
 
@@ -5983,7 +6063,20 @@ async def read_document_ep(request: Request):
                 llm = get_llm(request)
                 dr_result = await _dr.read_document(source=tmp_path, llm=llm, query=context)
                 if dr_result.is_usable:
-                    extracted = dr_result.text[:MAX_DOC_CHARS]
+                    _v3_caps: list[str] = []
+                    if dr_result.total_pages and dr_result.pages_extracted < dr_result.total_pages:
+                        _v3_caps.append(
+                            f"v3 reader ({dr_result.method}) extracted "
+                            f"{dr_result.pages_extracted} of {dr_result.total_pages} pages"
+                        )
+                    if len(dr_result.text) > MAX_DOC_CHARS:
+                        _v3_caps.append(
+                            f"text totalled {len(dr_result.text)} chars; only "
+                            f"the first {MAX_DOC_CHARS} are below"
+                        )
+                    extracted = _stamp_partial_extraction(
+                        dr_result.text[:MAX_DOC_CHARS], "; ".join(_v3_caps),
+                    )
                     _log.info("[read-document] v3 fallback succeeded: %s %.0f%%", dr_result.method, dr_result.confidence * 100)
                 import os
                 os.unlink(tmp_path)
