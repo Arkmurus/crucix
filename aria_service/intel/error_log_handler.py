@@ -49,6 +49,16 @@ _SKIP_SUBSTRINGS = (
     "non-fatal",
     # Already-recorded errors — don't duplicate
     "self_improve.record_error",
+    # F54 fix 2026-04-28: cascade-killer for asyncio loop-binding errors.
+    # If a Redis op fails with one of these, record_error itself touches
+    # Redis on the same broken loop and triggers another warning, which
+    # the handler turns into another record_error task → recursion. On
+    # 04-28 a single cross-loop GET on deal_pipeline:leads cascaded into
+    # 21 record_error attempts in 10ms. F51 fixes the root cause; this
+    # defends against future cross-loop bugs we haven't found yet.
+    "got future",
+    "different loop",
+    "event loop is closed",
 )
 
 

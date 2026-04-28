@@ -1012,20 +1012,17 @@ def _sync_correlation_context(message: str) -> str:
                     break  # Only check first country mentioned
             return "\n".join(parts)
 
-        # asyncio.get_event_loop() is deprecated in 3.10+ when no loop is
-        # running -- prefer get_running_loop() and handle RuntimeError as
-        # "no loop, run synchronously".
-        try:
-            asyncio.get_running_loop()
-            in_loop = True
-        except RuntimeError:
-            in_loop = False
-        if in_loop:
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                result = pool.submit(asyncio.run, _get_both()).result(timeout=8)
-            return result
-        return asyncio.run(_get_both())
+        # F51/F52 fix 2026-04-28: this function is invoked from the
+        # ThreadPoolExecutor inside _build_7_layer_context (worker thread,
+        # no running loop). The previous `asyncio.run(_get_both())` opened
+        # a fresh loop in that thread, but _get_both() awaits the aioredis
+        # client which is bound to the MAIN app loop — every Redis call
+        # raised "got Future attached to a different loop", and through the
+        # error_log_handler that single failure cascaded into 20+ recursive
+        # record_error attempts. Use redis_store.run_on_main_loop() instead
+        # so the redis client stays on its own loop.
+        from .intel import redis_store as _rs
+        return _rs.run_on_main_loop(_get_both(), timeout=8.0)
     except Exception:
         return ""
 

@@ -4,6 +4,7 @@ Falls back to in-memory dicts if Redis is unavailable.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Optional
@@ -15,10 +16,20 @@ logger = logging.getLogger("aria.redis")
 _client: Optional[aioredis.Redis] = None
 _mem_store: dict[str, str] = {}
 
+# F51/F52 fix 2026-04-28: capture the main app loop on connect() so worker
+# threads can schedule redis-touching coroutines back onto it via
+# run_on_main_loop(). The aioredis client is loop-bound at construction;
+# awaiting its operations from a different loop (e.g. a fresh asyncio.run
+# inside a worker thread) raises "got Future attached to a different loop"
+# and — combined with the WARNING-mirroring error_log_handler — used to
+# cascade into 20+ recursive record_error attempts per autonomous fire.
+_main_loop: Optional[asyncio.AbstractEventLoop] = None
+
 
 async def connect(redis_url: str) -> bool:
-    global _client
+    global _client, _main_loop
     try:
+        _main_loop = asyncio.get_running_loop()
         _client = aioredis.from_url(redis_url, decode_responses=True)
         await _client.ping()
         logger.info("Redis connected")
@@ -27,6 +38,25 @@ async def connect(redis_url: str) -> bool:
         logger.warning(f"Redis unavailable, using in-memory fallback: {e}")
         _client = None
         return False
+
+
+def run_on_main_loop(coro, timeout: float = 8.0):
+    """Schedule a coroutine on the captured main app loop and block until done.
+
+    Use from worker threads when the coroutine awaits resources that are
+    bound to the main loop (notably the aioredis client). Falls back to
+    asyncio.run() if no main loop has been captured (startup, tests,
+    post-shutdown) — those contexts don't have the loop-affinity hazard.
+    """
+    main = _main_loop
+    if main is not None and not main.is_closed():
+        try:
+            fut = asyncio.run_coroutine_threadsafe(coro, main)
+            return fut.result(timeout=timeout)
+        except RuntimeError:
+            # Loop closed between the is_closed check and submit.
+            pass
+    return asyncio.run(coro)
 
 
 async def get(key: str) -> Optional[str]:

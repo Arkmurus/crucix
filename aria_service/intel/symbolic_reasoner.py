@@ -566,8 +566,15 @@ _MULTIPARTY_RE = re.compile(
 _SYMBOLIC_MAX_INPUT_LEN = 600
 
 
-def reason(question: str) -> dict:
+def reason(question: str, *, silent_brain_hook: bool = False) -> dict:
     """Try to answer a question using only symbolic rules.
+
+    Args:
+        silent_brain_hook: when True, skip the brain_hook absorb / capability-gap
+            emission. Used by student.compare_local_silently which re-runs
+            the same query post-LLM purely to score divergence — recording
+            the same `no_symbolic_rule` gap a second time per chat just
+            duplicates the ledger entry from the pre-LLM call (F53 2026-04-28).
 
     Returns:
         {
@@ -618,6 +625,8 @@ def reason(question: str) -> dict:
     # saved + deterministic answer shipped. Tracks which intents the
     # rules engine handles so the predictor can warn early on
     # repeating failures.
+    if silent_brain_hook:
+        return final_result
     try:
         import asyncio as _aio
         from . import brain_hook as _bh

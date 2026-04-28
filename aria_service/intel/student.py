@@ -818,7 +818,10 @@ async def compare_local_silently(question: str, cloud_response: str) -> dict:
     passively cache his answers.
     """
     try:
-        local = await reasoning_router.try_local_reasoning(question)
+        # F53 2026-04-28: pass silent=True so the symbolic reasoner does not
+        # double-record the same `no_symbolic_rule` capability gap that the
+        # pre-LLM try_local_reasoning call already recorded for this query.
+        local = await reasoning_router.try_local_reasoning(question, silent=True)
         local_response = local.get("response") if local.get("answered") else None
         local_source = local.get("source") if local.get("answered") else None
         similarity = _quick_similarity(local_response or "", cloud_response)

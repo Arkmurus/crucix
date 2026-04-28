@@ -115,12 +115,19 @@ async def _record_routing(source: str) -> None:
 
 # ── Public API ──────────────────────────────────────────────────────────────
 
-async def try_local_reasoning(question: str) -> dict:
+async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
     """Try every LOCAL reasoning source. Returns the first confident answer
     or a {"answered": False} signal to escalate.
 
     This function does NOT call any cloud LLM. It is the gatekeeper that
     decides whether the cloud is even needed.
+
+    Args:
+        silent: when True, suppress side effects that would otherwise pollute
+            the brain ledgers — currently routes through to symbolic_reasoner's
+            silent_brain_hook flag (F53 2026-04-28). Set by
+            student.compare_local_silently which re-runs the same query
+            purely to score local-vs-cloud divergence.
     """
     if not question or len(question.strip()) < 5:
         return {"answered": False, "reason": "empty query"}
@@ -148,7 +155,7 @@ async def try_local_reasoning(question: str) -> dict:
 
     # ── Stage 1: Symbolic reasoner (rules engine) ─────────────────────────
     try:
-        sym = symbolic_reasoner.reason(question)
+        sym = symbolic_reasoner.reason(question, silent_brain_hook=silent)
         trace.append({
             "stage": "symbolic_reasoner",
             "matched": sym.get("confident", False),
