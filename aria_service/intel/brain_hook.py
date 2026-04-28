@@ -673,7 +673,19 @@ _ALERT_STALE_HOURS = 24  # alert if module hasn't sent a signal in 24h
 # the 2026-04-13 LinkedIn ingest that caused chat turns to time out
 # at 60s because every brain_hook.absorb was blocking on the dead
 # Upstash connection. Better to drop signals loudly than block the user.
-_LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "1500"))
+# F69 fix 2026-04-28: bumped default from 1500ms to 2000ms after live
+# production surfaced a burst pattern that legitimately ran p95=1691ms
+# during the 10:00:08 multi-region WEEKLY-COMP-SANCTIONS absorb (11
+# brain_hook calls in 8s through cross_regional_correlator + 7
+# regional knowledge modules). 1500ms tripped the breaker by 191ms —
+# just barely over — and filed a HIGH/operator_action pending action
+# that auto-resolved on cooldown. Pure noise.
+#
+# 2000ms gives the legitimate burst pattern ~18% headroom while
+# remaining tight enough to flip on a real Redis/Chroma outage (those
+# produce p95 > 5000ms within seconds). Operator can still override
+# via ARIA_BRAIN_LATENCY_TRIP_MS env var.
+_LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "2000"))
 _LATENCY_WINDOW = 50
 _TRIP_CONSECUTIVE = 3
 _COOLDOWN_S = 60

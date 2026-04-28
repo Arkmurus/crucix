@@ -41,6 +41,48 @@ def test_breaker_does_not_trip_below_min_samples():
     )
 
 
+def test_breaker_does_not_trip_on_production_burst_p95():
+    """F69 2026-04-28: production WEEKLY-COMP-SANCTIONS absorb at 10:00:08
+    produced p95=1691ms during a legitimate 11-absorb burst across
+    cross_regional_correlator + regional knowledge modules. Old default
+    of 1500ms tripped on 191ms over threshold — pure noise. New default
+    of 2000ms must not trip on the same burst pattern."""
+    from aria_service.intel import brain_hook
+    importlib.reload(brain_hook)
+
+    brain_hook._recent_latencies_ms.clear()
+    brain_hook._breaker_state["open"] = False
+    brain_hook._breaker_state["consecutive_high"] = 0
+
+    # Reproduce the production sample distribution: a few cold-load
+    # outliers around 4400ms (boot phase, suppressed by F55 warmup
+    # gate), then steady-state ~1691ms p95 from the burst pattern.
+    # Use a representative distribution that yields p95 == 1691.
+    samples_ms = (
+        [200, 220, 240, 260, 280, 300, 320, 340, 360, 380]   # 10 fast warmups
+        + [1500] * 35                                          # bulk steady state
+        + [1691] * 5                                           # the p95 cluster
+    )
+    for ms in samples_ms:
+        brain_hook._record_latency(ms)
+
+    p95 = brain_hook._p95_latency_ms()
+    assert 1500 <= p95 <= 1700, (
+        f"sample distribution shifted; expected p95 ~1691ms, got {p95}ms "
+        f"(adjust the test fixture if intentional)"
+    )
+
+    # Drive enough trip-checks to flip if the threshold were tripped.
+    for _ in range(brain_hook._TRIP_CONSECUTIVE * 2):
+        brain_hook._maybe_trip_breaker(reason="burst_no_trip_test")
+
+    assert brain_hook._breaker_state["open"] is False, (
+        f"breaker tripped on production burst pattern (p95={p95}ms); "
+        f"the F69 default of 2000ms is supposed to give burst-pattern "
+        f"headroom"
+    )
+
+
 def test_breaker_still_trips_after_min_samples_with_real_high_p95():
     """Once the window has enough samples, sustained high p95 must
     still trip the breaker. Fix must not break the steady-state path."""
