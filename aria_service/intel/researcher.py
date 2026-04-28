@@ -173,6 +173,62 @@ def _shorten_for_search(text: str, max_chars: int = 60) -> str:
     return cut or s[:max_chars]
 
 
+# F60 fix 2026-04-28: hypothesis statements like "The ARIA collection
+# pipeline is subscribed to or receiving evidence" passed verbatim to
+# search APIs return junk because every other word is a stopword.
+# Extract the substantive nouns/verbs/proper-nouns and drop the rest.
+_QUERY_STOPWORDS = frozenset({
+    # Articles / determiners
+    "the", "a", "an", "this", "that", "these", "those",
+    # Auxiliaries / common verbs that filler hypothesis statements
+    "is", "are", "was", "were", "be", "been", "being",
+    "do", "does", "did", "have", "has", "had",
+    "will", "would", "shall", "should", "may", "might", "can", "could",
+    "shows", "showing", "appears", "seems", "indicates", "suggests",
+    "suggesting", "subscribed", "receiving",
+    # Connectors / prepositions
+    "to", "of", "in", "on", "at", "for", "with", "by", "as", "from",
+    "into", "onto", "over", "under", "about", "across", "between",
+    "and", "or", "but", "if", "then", "than", "while", "because",
+    "though", "although", "however",
+    # Pronouns
+    "it", "its", "their", "them", "they", "we", "our", "us", "i",
+    "he", "she", "him", "her", "his", "hers",
+    # Generic search-noise that doesn't disambiguate defence intent
+    "evidence", "data", "information",
+})
+
+
+def _extract_query_keywords(text: str, max_words: int = 8) -> str:
+    """Distill a long hypothesis / analysis sentence into 4-8 keywords.
+
+    Drops articles, auxiliaries, generic verbs, and connectors; keeps
+    capitalised tokens (proper nouns) and any non-stopword. Used by
+    validate_hypothesis where the hypothesis text would otherwise be
+    truncated mid-sentence to look like ``"The ARIA collection pipeline
+    is subscribed to or receiving"``.
+    """
+    if not text:
+        return ""
+    s = re.sub(r"[\"'`]", "", text.strip())
+    s = re.sub(r"[,;:!?.\-]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return ""
+    keywords: list[str] = []
+    for word in s.split():
+        # Stopword check first — even a capitalised "The" at the start
+        # of a sentence is junk in a search query.
+        if word.lower() in _QUERY_STOPWORDS:
+            continue
+        # Keep everything else: proper nouns ("ARIA", "NATO"), domain
+        # terms ("defence", "procurement"), numbers and model designators.
+        keywords.append(word)
+        if len(keywords) >= max_words:
+            break
+    return " ".join(keywords[:max_words])
+
+
 def _has_defence_anchor(text: str) -> bool:
     """True iff text contains at least one defence anchor (substring or
     word-bounded). Centralised so test guards and scoring agree."""
@@ -2572,7 +2628,11 @@ async def validate_hypothesis(llm: LLMProvider, hypothesis_text: str) -> dict:
     # suggesting it is either a non-defence entity, a shell page..."). Long
     # queries return junk from search APIs and consume their per-query limits.
     # F10 fix 2026-04-27: truncate to a search-shaped query (~60 chars).
-    query = _shorten_for_search(target["hypothesis"], max_chars=60) + " evidence 2026"
+    # F60 fix 2026-04-28: truncation alone left queries like "The ARIA
+    # collection pipeline is subscribed to or receiving" — mostly stopwords,
+    # zero search signal. Extract the substantive keywords first, then
+    # append "evidence 2026" as the recency anchor.
+    query = _extract_query_keywords(target["hypothesis"], max_words=8) + " evidence 2026"
     articles = await _web_search(query)
     if not articles:
         return {"hypothesis": target["hypothesis"], "status": "NO_NEW_EVIDENCE"}

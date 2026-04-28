@@ -11,6 +11,7 @@ Phase 3 of the ARIA learning infrastructure.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import uuid
@@ -23,6 +24,22 @@ logger = logging.getLogger("aria.intel.capability_gaps")
 
 KEY = "crucix:aria:capability_gaps"
 MAX_GAPS = 500
+
+# F66 fix 2026-04-28: same (gap_type, detail) within this window is
+# treated as a duplicate and not re-recorded. calibration_review fires
+# `[adversarial_critical_failure] Mastery scores overconfident by 23%`
+# on every diagnostic cycle (~5 min) — without dedupe that single signal
+# wrote 288 identical entries per day and would crowd MAX_GAPS=500 in
+# under 2 days, hiding real gaps from the cycle's analysis. 1h is the
+# trade-off: aggressive enough to suppress diagnostic spam, lax enough
+# that a recurring real gap (e.g. mastery dropping further at noon)
+# still re-surfaces hourly.
+_DEDUPE_WINDOW_SECONDS = 3600
+_DEDUPE_KEY_PREFIX = "crucix:aria:capability_gaps:dedupe:"
+
+
+def _gap_fingerprint(gap_type: str, detail: str) -> str:
+    return hashlib.md5(f"{gap_type}|{detail[:200]}".encode("utf-8")).hexdigest()
 
 VALID_GAP_TYPES = frozenset({
     "file_parse",
@@ -87,6 +104,21 @@ async def record_gap(
     if gap_type not in VALID_GAP_TYPES:
         logger.warning("Unknown gap type %r — recording anyway", gap_type)
 
+    # F66 dedupe (2026-04-28): same (gap_type, detail) within window = no-op.
+    fingerprint = _gap_fingerprint(gap_type, detail)
+    dedupe_key = _DEDUPE_KEY_PREFIX + fingerprint
+    if await rs.get(dedupe_key):
+        logger.debug(
+            "Capability gap deduped within %ds window: [%s] %s",
+            _DEDUPE_WINDOW_SECONDS, gap_type, detail[:80],
+        )
+        return {
+            "deduped": True,
+            "type": gap_type,
+            "detail": detail,
+            "fingerprint": fingerprint,
+        }
+
     entry: dict[str, Any] = {
         "id": str(uuid.uuid4()),
         "type": gap_type,
@@ -100,6 +132,9 @@ async def record_gap(
 
     await rs.lpush(KEY, json.dumps(entry, default=str))
     await rs.ltrim(KEY, 0, MAX_GAPS - 1)
+    # Set the dedupe sentinel AFTER the write so a failed lpush doesn't
+    # silently suppress the next try.
+    await rs.set(dedupe_key, "1", ex=_DEDUPE_WINDOW_SECONDS)
 
     logger.info("Capability gap recorded: [%s] %s", gap_type, detail[:120])
     return entry
