@@ -230,6 +230,49 @@ def test_genuine_opposite_signal_still_fires_conflict():
 # ── F72: search_zero_results gap detail includes language ────────────────
 
 
+def test_opensanctions_search_rejects_prompt_fragment():
+    """F73 2026-04-28: production trace 10:13:40 sent a system-prompt
+    fragment as `q=` to /search/default and OpenSanctions returned 400.
+    The same `_looks_like_entity_name` guard that gates `screen_with_aliases`
+    must now also gate `_opensanctions_search`, so non-entity input
+    never reaches the upstream API."""
+    from aria_service.intel import sanctions
+
+    # The exact (decoded) query from the production trace.
+    bad_query = (
+        "HIGH-STAKES and you are NOT 100% confident, state what you "
+        "would need to confirm — do NOT fabricate verifiable facts "
+        "(jurisdictions, financials"
+    )
+
+    sent_to_http: list = []
+
+    async def fake_get(*args, **kwargs):
+        sent_to_http.append(kwargs.get("params"))
+        # Non-200 to make sure we'd notice if it slipped through
+        class _Fake:
+            status_code = 400
+            def json(self): return {}
+        return _Fake()
+
+    async def run():
+        # If the guard works, AsyncClient.get is never called.
+        import httpx
+        with patch.object(httpx.AsyncClient, "get", new=fake_get):
+            result = await sanctions._opensanctions_search(bad_query, limit=8)
+        return result
+
+    result = asyncio.run(run())
+    assert result == [], (
+        f"prompt-fragment search should return [] without hitting "
+        f"OpenSanctions, got {result!r}"
+    )
+    assert sent_to_http == [], (
+        f"prompt-fragment query reached OpenSanctions HTTP call: "
+        f"{sent_to_http}"
+    )
+
+
 def test_zero_result_gap_detail_includes_language():
     """The gap_detail string passed to brain_hook.absorb must include
     the language code so each lang variant gets a distinct fingerprint

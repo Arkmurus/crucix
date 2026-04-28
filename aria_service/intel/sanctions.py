@@ -216,6 +216,21 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> list[di
 
 async def _opensanctions_search(query: str, limit: int = 5) -> list[dict]:
     """Free-text search against OpenSanctions when /match returns nothing."""
+    # F73 fix 2026-04-28: production trace 10:13:40 hit /search/default
+    # with `q=HIGH-STAKES and you are NOT 100% confident, state what you
+    # would need to confirm — do NOT fabricate verifiable facts...` —
+    # a fragment of ARIA's own system prompt extracted by some upstream
+    # entity-extraction regex. OpenSanctions returned 400 (query too
+    # long / not name-shaped). Same guard as screen_with_aliases now
+    # gates the search endpoint too, so the only way bad input reaches
+    # OpenSanctions is via direct internal call sites we control.
+    if not _looks_like_entity_name(query):
+        logger.info(
+            "_opensanctions_search: rejecting non-entity input %r "
+            "(looks like a prompt fragment / search query, not a name)",
+            query[:80],
+        )
+        return []
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
