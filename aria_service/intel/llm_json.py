@@ -192,6 +192,48 @@ def _strip_trailing_commas(s: str) -> str:
     return re.sub(r",(\s*[}\]])", r"\1", s)
 
 
+def _insert_missing_object_commas(s: str) -> str:
+    """Insert commas between adjacent object/array boundaries that
+    DeepSeek occasionally drops between elements of a list.
+
+    Patterns repaired (none of which are valid JSON): `}{`, `}[`,
+    `]{`, `][`. All of these only appear in real LLM output where the
+    model dropped a separating comma between two siblings inside the
+    same parent array.
+
+    Live evidence 2026-04-29 15:08-15:09: 3 consecutive
+    `_analyse_compliance_document` failures with
+    `Expecting ',' delimiter: line 188 column 6 (char 7919)`-style
+    errors. Walks character-by-character to skip occurrences inside
+    string values (where `}{` would be valid content, not structure).
+    """
+    out: list[str] = []
+    in_string = False
+    escape = False
+    n = len(s)
+    for i, ch in enumerate(s):
+        out.append(ch)
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in ("}", "]"):
+            # Find next non-whitespace char
+            j = i + 1
+            while j < n and s[j] in (" ", "\n", "\r", "\t"):
+                j += 1
+            if j < n and s[j] in ("{", "["):
+                out.append(",")
+    return "".join(out)
+
+
 def _nuclear_clean(s: str) -> str:
     """Last resort: strip control chars + collapse whitespace.
     Matches what bd_intelligence.mjs Fix 5 does."""
@@ -227,6 +269,18 @@ def parse_llm_json(text: str, *, default: Any = None) -> Any:
     # Strategy 1: escape control chars inside strings + drop trailing commas
     try:
         repaired = _strip_trailing_commas(_escape_control_chars_in_strings(candidate))
+        return json.loads(repaired)
+    except Exception:
+        pass
+
+    # Strategy 1b (F93 fix 2026-04-29): insert missing commas between
+    # adjacent objects/arrays. DeepSeek's compliance-extraction prompt
+    # occasionally drops the separator between two siblings inside the
+    # same list (live: char 7919 / line 188-style errors). Run before
+    # the unquoted-keys / single-quote strategies because those won't
+    # fire on otherwise-clean DeepSeek output.
+    try:
+        repaired = _insert_missing_object_commas(repaired)
         return json.loads(repaired)
     except Exception:
         pass

@@ -90,3 +90,27 @@ test('combines textContent and rawBody candidates', () => {
   assert.ok(urls.some(u => u.includes('text-source')));
   assert.ok(urls.some(u => u.includes('body-source')));
 });
+
+test('F92: dedupes when same URL appears in both textContent and rawBody', () => {
+  // Live LinkedIn-newsletter pattern (2026-04-29 15:06:54): the same
+  // article link appears in the plaintext part AND the HTML part.
+  // Pre-fix: the helper returned the URL twice and the caller fired
+  // two /api/aria/read POSTs for the same auth-required URL.
+  const url = 'https://www.linkedin.com/comm/pulse/floating-network-john-hurwitz-w8ssc?lipi=urn';
+  const textContent = `Read the latest article: ${url}`;
+  const rawBody = `Read the latest article: ${url}\n\nMore content here referencing ${url} again.`;
+  const urls = _extractArticleUrls({ textContent, rawBody });
+  // Despite the URL appearing 3 times across both inputs, we should
+  // see it at most once in the output.
+  const linkedinHits = urls.filter(u => u.includes('floating-network-john-hurwitz-w8ssc'));
+  assert.equal(linkedinHits.length, 1, `Expected 1 linkedin URL after dedupe, got ${linkedinHits.length}`);
+});
+
+test('F92: dedupes within a single input source too', () => {
+  // Even if all duplicates land in rawBody only, dedupe still applies.
+  const url = 'https://news.example.com/long-defence-procurement-story-2026';
+  const rawBody = `${url}\n\n${url}\n\n${url}\n\n${url}\n\n${url}`;
+  const urls = _extractArticleUrls({ textContent: '', rawBody });
+  assert.equal(urls.length, 1);
+  assert.equal(urls[0], url);
+});

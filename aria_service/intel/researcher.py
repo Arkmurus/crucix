@@ -362,13 +362,57 @@ HYPOTHESIS_KEY = "crucix:aria:hypotheses"
 ARTICLES_READ_KEY = "crucix:aria:articles_read"
 
 
+_INVALID_HYPOTHESIS_TEXTS = {"", "null", "none", "undefined", "nan", "n/a"}
+
+
+def _is_valid_hypothesis_text(text: object) -> bool:
+    """Filter out hypothesis entries whose text is missing, None, the
+    literal string 'null'/'None'/'undefined', or shorter than ~10 chars
+    (likely a parser artifact, not a real claim).
+
+    F90 fix 2026-04-29: live evidence at 15:04:27 showed an autonomous
+    research cycle running `news.google.com/rss/search?q=null+evidence+2026`
+    because validate_hypothesis got handed a hypothesis whose text was
+    literally 'null' — almost certainly a JSON-null leaking through
+    `str()` somewhere upstream. Filter at load + insert so existing
+    poison data drops out of the rotation and new bad entries can't
+    accumulate.
+    """
+    if not isinstance(text, str):
+        return False
+    stripped = text.strip()
+    if stripped.lower() in _INVALID_HYPOTHESIS_TEXTS:
+        return False
+    if len(stripped) < 10:
+        return False
+    return True
+
+
 async def _load_hypotheses() -> list[dict]:
     data = await rs.get_json(HYPOTHESIS_KEY)
-    return data or []
+    raw = data or []
+    # F90 fix: prune invalid hypothesis entries on read so the
+    # validation loop never picks "null", "" or stub text. If we
+    # filtered any out, persist the cleaned list back so the next
+    # boot sees a clean slate.
+    cleaned = [h for h in raw if _is_valid_hypothesis_text(h.get("hypothesis"))]
+    if len(cleaned) != len(raw):
+        try:
+            logger.info(
+                "[hypotheses] filtered %d invalid entries on load (kept %d of %d)",
+                len(raw) - len(cleaned), len(cleaned), len(raw),
+            )
+            await rs.set_json(HYPOTHESIS_KEY, cleaned[:200])
+        except Exception as e:
+            logger.debug("hypothesis cleanup persist failed: %s", e)
+    return cleaned
 
 
 async def _save_hypotheses(hypotheses: list[dict]) -> None:
-    await rs.set_json(HYPOTHESIS_KEY, hypotheses[:200])
+    # Same filter applied on save so an in-process bug that adds a bad
+    # entry can't pollute the persisted store on flush.
+    cleaned = [h for h in hypotheses if _is_valid_hypothesis_text(h.get("hypothesis"))]
+    await rs.set_json(HYPOTHESIS_KEY, cleaned[:200])
 
 
 async def _get_read_urls() -> set:
@@ -561,15 +605,55 @@ _KNOWN_PAYWALL_DOMAINS = (
     "ssrn.com",
 )
 
+# F91 fix 2026-04-29: DOI prefixes that consistently resolve via
+# doi.org redirects to one of the known paywall hosts above. The
+# original `_is_known_paywall` only checks hostname, so a URL coming
+# in as `doi.org/10.2139/ssrn.6340699` slips through (host is doi.org,
+# not ssrn.com) and we burn the full fetch chain: doi.org → ssrn.com
+# → 403 → archive.is 429 → wayback 503. Live evidence 2026-04-29
+# 15:04:32 — exactly that wasted cascade. Recognising the SSRN /
+# Elsevier / Wiley / Springer / OUP DOI prefixes lets us skip before
+# the first GET. Map: registrant prefix → which paywall it lands on.
+_KNOWN_PAYWALL_DOI_PREFIXES = (
+    "10.2139/",      # SSRN
+    "10.1016/",      # Elsevier (sciencedirect.com)
+    "10.1002/",      # Wiley
+    "10.1007/",      # Springer
+    "10.1093/",      # OUP (academic.oup.com)
+    "10.1080/",      # Taylor & Francis (tandfonline.com)
+    "10.1063/",      # AIP (pubs.aip.org)
+    "10.1088/",      # IOP (iopscience.iop.org)
+    "10.1177/",      # SAGE (journals.sagepub.com)
+)
+
 
 def _is_known_paywall(url: str) -> bool:
-    """True if the URL host is on the known-paywall skip list."""
+    """True if the URL is on the known-paywall skip list — either by
+    hostname or by DOI prefix that resolves to a known-paywall host.
+
+    The DOI-prefix check matters because doi.org is itself a redirector;
+    a URL like https://doi.org/10.2139/ssrn.6340699 has hostname
+    `doi.org` (not on the list) but resolves to papers.ssrn.com (which
+    is). Without the prefix check we fire a full fetch chain on every
+    such URL even though the destination is known-paywalled.
+    """
     try:
         from urllib.parse import urlparse as _up
-        host = (_up(url).hostname or "").lower()
+        parsed = _up(url)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path or ""
     except Exception:
         return False
-    return any(host == d or host.endswith("." + d) for d in _KNOWN_PAYWALL_DOMAINS)
+    if any(host == d or host.endswith("." + d) for d in _KNOWN_PAYWALL_DOMAINS):
+        return True
+    # F91: detect DOI-host URLs whose path begins with a known-paywall
+    # registrant prefix. Path shape is `/10.NNNN/suffix` so we strip
+    # the leading slash before matching.
+    if host in ("doi.org", "dx.doi.org"):
+        clean_path = path.lstrip("/")
+        if any(clean_path.startswith(p) for p in _KNOWN_PAYWALL_DOI_PREFIXES):
+            return True
+    return False
 
 
 # Domains that almost never carry defence-relevant content. F26 fix
@@ -1090,14 +1174,28 @@ If NO relevant compliance intelligence, set skip=true and return minimal JSON.""
         result = await llm.complete(
             "You are ARIA — a defence export control compliance analyst. Extract structured compliance intelligence with rigorous accuracy. Flag all risks.",
             compliance_prompt,
-            max_tokens=2000,
-            timeout=60.0,
+            # F93 fix 2026-04-29: bumped 2000 → 4000. Schema has 10
+            # nested arrays (entities/products/countries/classifications/
+            # licensing/EUC/offsets/sanctions/diversion/re-export/facts);
+            # 2000 truncated DeepSeek mid-array ~char 7919, dropping a
+            # comma between adjacent objects. Live evidence
+            # 2026-04-29 15:08-15:09: 3 consecutive failures on the same
+            # 17-chunk email document → "Document read: ... → 0 facts"
+            # (91 seconds wasted). 4000 fits the full schema with
+            # margin.
+            max_tokens=4000,
+            timeout=90.0,
         )
-        _cleaned = re.sub(r"^```(?:json)?\s*", "", result.text.strip())
-        _cleaned = re.sub(r"\s*```$", "", _cleaned)
-        json_match = re.search(r"\{[\s\S]*\}", _cleaned)
-        if json_match:
-            return json.loads(json_match.group())
+        # F93 fix 2026-04-29: switch from raw json.loads() to the
+        # multi-strategy parse_llm_json. _analyse_article already uses
+        # this for the same reason; the parallel compliance path was
+        # never migrated. parse_llm_json now also handles missing-
+        # comma-between-adjacent-objects (Strategy 6) which is the
+        # specific failure mode this function was hitting.
+        from .llm_json import parse_llm_json
+        parsed = parse_llm_json(result.text)
+        if parsed is not None:
+            return parsed
     except Exception as e:
         logger.warning(f"Compliance document analysis failed: {e}")
     return None
