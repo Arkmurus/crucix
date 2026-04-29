@@ -284,7 +284,13 @@ async def _search_google_news(query: str, max_results: int = 10, language: str =
     url = f"https://news.google.com/rss/search?q={encoded}&hl={hl}&gl=US&ceid=US:en"
 
     try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        # F78c 2026-04-29: news.google.com/rss/search returns 302 to
+        # the actual feed URL (cluster-specific). httpx does NOT follow
+        # redirects by default, so we silently dropped Google News from
+        # every parallel-gather web_search call ("1 backends" in the
+        # live log when only Crossref returned). follow_redirects=True
+        # restores the second backend.
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
                 return []
@@ -322,7 +328,9 @@ async def _search_bing_news(query: str, max_results: int = 10) -> list[SearchRes
     encoded = urllib.parse.quote_plus(query)
     url = f"https://www.bing.com/news/search?q={encoded}&format=rss"
     try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        # Same redirect issue as Google News (F78c) — Bing routes RSS
+        # requests through interstitial 302s for region/locale.
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": random_ua()})
             if resp.status_code != 200:
                 return []

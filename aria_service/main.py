@@ -293,7 +293,13 @@ async def lifespan(app: FastAPI):
                     # Also sort by created_at so we work the oldest-OPEN
                     # backlog first — those have had the most time for new
                     # evidence to land.
-                    validated = 0
+                    # F78d 2026-04-29: log was "Validated 3/175" which
+                    # read like a 1.7% success rate. Reality: 175 = OPEN
+                    # backlog total, 3 = per-cycle quota; flipped (verdict
+                    # reached) is a separate axis. Split the three so the
+                    # log doesn't mislead future log-readers.
+                    processed = 0
+                    flipped = 0
                     try:
                         hypotheses = await get_hypotheses()
                         open_hyps = [h for h in hypotheses if h.get("status") == "OPEN"]
@@ -303,17 +309,22 @@ async def lifespan(app: FastAPI):
                             if not hyp_text:
                                 continue
                             vr = await validate_hypothesis(llm, hyp_text)
-                            validated += 1
+                            processed += 1
                             if vr.get("new_status") != "OPEN":
+                                flipped += 1
                                 logger.info("[Research] Hypothesis %s: %s → %s",
                                             hyp_text[:50],
                                             "OPEN", vr.get("new_status"))
                         if open_hyps:
-                            logger.info("[Research] Validated %d/%d hypotheses",
-                                        validated, len(open_hyps))
+                            logger.info(
+                                "[Research] Hypothesis validation: %d processed this cycle, "
+                                "%d reached a verdict, %d still OPEN in backlog",
+                                processed, flipped,
+                                max(0, len(open_hyps) - flipped),
+                            )
                     except Exception as e:
-                        logger.warning("[Research] Hypothesis validation failed (%d validated before error): %s",
-                                       validated, e)
+                        logger.warning("[Research] Hypothesis validation failed (%d processed before error): %s",
+                                       processed, e)
                 except Exception as e:
                     logger.warning(f"[Research] Cycle failed: {e}")
                 finally:

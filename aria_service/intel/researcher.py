@@ -487,7 +487,12 @@ async def _try_archive_fallbacks(url: str, timeout: float = 12.0) -> str:
     from .circuit_breaker import get_breaker
 
     # 1. archive.is
-    cb_archive = get_breaker("archive_is", failure_threshold=3, cooldown_seconds=900)
+    # F78a 2026-04-29: bumped cooldown 900→3600 because archive.is
+    # rate-limits aggressively and the live HALF_OPEN probe gets a 429
+    # almost immediately every cycle (06:33:37 prod log). 15-min cycle
+    # wasted ~96 probes/day; 1-hour cycle cuts that to ~24 with no
+    # loss of recovery responsiveness.
+    cb_archive = get_breaker("archive_is", failure_threshold=3, cooldown_seconds=3600)
     if not cb_archive.is_open():
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -503,7 +508,14 @@ async def _try_archive_fallbacks(url: str, timeout: float = 12.0) -> str:
             cb_archive.record_failure()
 
     # 2. Wayback Machine — get the most recent snapshot URL via the availability API
-    cb_wayback = get_breaker("wayback", failure_threshold=3, cooldown_seconds=900)
+    # F78b 2026-04-29: cooldown 900→3600 (same reason as archive.is)
+    # AND distinguish "API succeeded but no archived snapshot for this
+    # URL" from "API itself failed". The wayback availability endpoint
+    # legitimately answers 200 + empty `archived_snapshots` when no
+    # snapshot exists — that's a valid response, not a backend failure.
+    # Previously we recorded that as a failure, so the breaker flapped
+    # on every research cycle that asked about a never-archived URL.
+    cb_wayback = get_breaker("wayback", failure_threshold=3, cooldown_seconds=3600)
     if not cb_wayback.is_open():
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -512,14 +524,15 @@ async def _try_archive_fallbacks(url: str, timeout: float = 12.0) -> str:
                     params={"url": url},
                 )
                 if avail.status_code == 200:
+                    cb_wayback.record_success()
                     snap = (avail.json().get("archived_snapshots", {}) or {}).get("closest", {})
                     snap_url = snap.get("url") if snap.get("available") else None
                     if snap_url:
                         snap_resp = await client.get(snap_url)
                         if snap_resp.status_code == 200 and len(snap_resp.text) > 2000:
-                            cb_wayback.record_success()
                             return snap_resp.text
-                cb_wayback.record_failure()
+                else:
+                    cb_wayback.record_failure()
         except (httpx.HTTPError, ValueError, KeyError):
             cb_wayback.record_failure()
 
