@@ -871,13 +871,26 @@ async def persist_filing(structured: dict, form_code: str, source: str) -> None:
     )
     company_number = structured.get("company_number") or structured.get("br_number") or structured.get("registration_number")
 
+    # F48 2026-04-29: collect facts here so one add_facts_batch handles
+    # all the RAG ingest at the end. A single registry filing produces
+    # up to ~60 facts (entity + 20 directors + 30 shareholders + 10
+    # PSCs); the previous code path ran 60 separate model.encode calls.
+    rag_batch: list[dict] = []
+
     async def _store(topic: str, content: str, fact_type: str = "", entity_name: str = ""):
         try:
             await store_fact(
                 topic=topic, content=content, source=source, confidence=confidence,
                 fact_type=fact_type, entity_name=entity_name or company_name or "",
                 entity_type="company" if entity_name == company_name else "",
+                skip_rag_ingest=True,
             )
+            rag_batch.append({
+                "topic": topic,
+                "content": content,
+                "confidence": confidence,
+                "source": source,
+            })
         except Exception as e:
             logger.debug("doc_intel persist: %s — %s", topic, e)
 
@@ -942,6 +955,18 @@ async def persist_filing(structured: dict, form_code: str, source: str) -> None:
                         f"{', '.join(p.get('nature_of_control') or [])}.",
                 fact_type="BENEFICIAL_OWNERSHIP", entity_name=p["name"],
             )
+
+    # F48: flush the accumulated RAG batch in one model.encode pass.
+    # Done outside _store so a single filing's worth of facts share a
+    # single embedding round-trip. add_facts_batch is no-op-safe on
+    # empty input, so the early-return paths above (no company_name,
+    # no entries) silently skip this.
+    if rag_batch:
+        try:
+            from . import rag_store as _rag
+            await _rag.add_facts_batch(rag_batch)
+        except Exception as e:
+            logger.debug("doc_intel rag_store.add_facts_batch failed: %s", e)
 
 
 # ── ORCHESTRATOR ────────────────────────────────────────────────────────────

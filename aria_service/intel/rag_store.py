@@ -91,6 +91,43 @@ _chromadb_failed = False
 _init_lock = asyncio.Lock()
 
 
+class _SharedSentenceTransformerEmbeddingFn:
+    """Chromadb-compatible embedding function backed by the shared
+    sentence-transformers singleton in semantic_search.
+
+    Replaces chromadb.utils.embedding_functions.SentenceTransformer-
+    EmbeddingFunction to eliminate the second model load (F79). Output
+    matches chromadb's default settings — no normalize_embeddings — so
+    queries against pre-existing collection vectors continue to score
+    identically to before this change.
+    """
+
+    def __init__(self, model_name: str):
+        self._model_name = model_name
+
+    def __call__(self, input):  # noqa: A002 — chromadb protocol uses `input`
+        from .semantic_search import _get_embedder
+        model = _get_embedder()
+        if model is None:
+            raise RuntimeError(
+                "Shared sentence-transformer model unavailable — "
+                "semantic_search._get_embedder() returned None. RAG "
+                "init should have been gated upstream."
+            )
+        # chromadb default: list[str] → list[list[float]] without
+        # normalize_embeddings (cosine HNSW handles it index-side).
+        return model.encode(list(input), convert_to_numpy=True).tolist()
+
+    def name(self) -> str:
+        # MUST match chromadb's built-in SentenceTransformerEmbedding-
+        # Function.name() ("sentence_transformer") — chromadb 0.5+
+        # persists this in collection metadata and refuses (or warns
+        # loudly about) a mismatched embedder on subsequent boots.
+        # Returning the same name makes this a drop-in replacement
+        # against existing prod collections.
+        return "sentence_transformer"
+
+
 def _get_client():
     """Lazy-load the chromadb persistent client + collections.
 
@@ -117,10 +154,19 @@ def _get_client():
             path=RAG_PATH,
             settings=Settings(anonymized_telemetry=False, allow_reset=False),
         )
-        from chromadb.utils import embedding_functions
-        embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=EMBEDDING_MODEL_NAME,
-        )
+        # F79 2026-04-29: previously chromadb instantiated its OWN
+        # SentenceTransformer via SentenceTransformerEmbeddingFunction,
+        # parallel to semantic_search._get_embedder(). Two model copies
+        # in memory, two HF HEAD-flood passes on cold start (~25 reqs
+        # each), ~3s extra cold-boot, and 5–10× slower encode batches
+        # once both loaded (witnessed during the F50 boot cascade).
+        # _SharedSentenceTransformerEmbeddingFn delegates to the
+        # semantic_search singleton so there's exactly one model in
+        # the process. Output is byte-for-byte compatible with the
+        # previous chromadb default (normalize_embeddings=False, same
+        # all-MiniLM-L6-v2 weights), so existing collection vectors
+        # match newly-encoded queries.
+        embed_fn = _SharedSentenceTransformerEmbeddingFn(EMBEDDING_MODEL_NAME)
         local_docs = local_client.get_or_create_collection(
             name=DOCUMENTS_COLLECTION,
             embedding_function=embed_fn,

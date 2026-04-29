@@ -2458,15 +2458,38 @@ async def read_document(
             parsed = await _analyse_compliance_document(llm, doc_text, f"{source}:{filename}", existing_kb)
             if parsed and not parsed.get("skip"):
                 compliance_results.append(parsed)
-                # Also store extracted facts via normal pipeline
+                # F48 2026-04-29: collect this chunk's facts so a single
+                # add_facts_batch covers the RAG side. Was 1 model.encode
+                # per fact (compliance docs often have 10-20 facts/chunk
+                # × multi-chunk = ~60 wasted encodes per filing). Same
+                # pattern as _process_analysis (F23/F24, 2026-04-27).
+                rag_batch: list[dict] = []
                 for fact in (parsed.get("facts") or []):
                     topic = fact.get("topic", "")
                     fact_content = fact.get("content", "")
                     confidence = fact.get("confidence", "ASSESSED")
                     if topic and fact_content and len(fact_content) > 20:
-                        await store_fact(topic, f"{fact_content} [Source: {source}:{filename}]", f"compliance:{source}", confidence)
+                        await store_fact(
+                            topic,
+                            f"{fact_content} [Source: {source}:{filename}]",
+                            f"compliance:{source}",
+                            confidence,
+                            skip_rag_ingest=True,
+                        )
                         total_facts += 1
                         all_facts.append(fact)
+                        rag_batch.append({
+                            "topic": topic,
+                            "content": f"{fact_content} [Source: {source}:{filename}]",
+                            "confidence": confidence,
+                            "source": f"compliance:{source}",
+                        })
+                if rag_batch:
+                    try:
+                        from . import rag_store as _rag
+                        await _rag.add_facts_batch(rag_batch)
+                    except Exception as e:
+                        logger.debug("rag_store.add_facts_batch (compliance) failed: %s", e)
         else:
             parsed = await _analyse_article(llm, doc_text, f"{source}:{filename}", existing_kb, hypotheses)
 
