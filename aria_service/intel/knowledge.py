@@ -174,7 +174,8 @@ async def store_fact(topic: str, content: str, source: str = "user",
                      fact_type: str = "",
                      entity_name: str = "",
                      entity_type: str = "",
-                     skip_rag_ingest: bool = False) -> dict:
+                     skip_rag_ingest: bool = False,
+                     skip_semantic_index: bool = False) -> dict:
     """Store a fact, detecting contradictions and merging duplicates.
 
     Clause 17 wiring: when `source_url` + `fact_type` + `entity_name` are
@@ -299,18 +300,22 @@ async def store_fact(topic: str, content: str, source: str = "user",
     # Index for semantic search — runs sync model.encode() under the hood,
     # which holds the GIL. Must be off the event loop or it will block the
     # /teach reply for hundreds of milliseconds (longer if first call cold-
-    # loads the model).
-    try:
-        from .semantic_search import index_fact
-        import asyncio as _aio
-        await _aio.to_thread(
-            index_fact,
-            db["facts"][0]["id"],
-            f"{topic} {content}",
-            {"confidence": confidence},
-        )
-    except Exception:
-        pass
+    # loads the model). Callers that intend to batch-index downstream
+    # (e.g. researcher._process_analysis with semantic_search
+    # .index_facts_batch) pass skip_semantic_index=True to avoid
+    # double-encoding (F83 fix 2026-04-29).
+    if not skip_semantic_index:
+        try:
+            from .semantic_search import index_fact
+            import asyncio as _aio
+            await _aio.to_thread(
+                index_fact,
+                db["facts"][0]["id"],
+                f"{topic} {content}",
+                {"confidence": confidence},
+            )
+        except Exception:
+            pass
     # Index into the persistent RAG store as well so retrieval can find
     # it. Callers that intend to batch-upsert downstream (e.g.
     # researcher._process_analysis with rag_store.add_facts_batch) pass

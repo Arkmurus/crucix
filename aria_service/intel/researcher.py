@@ -1261,17 +1261,24 @@ async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -
     # pass skip_rag_ingest=True so store_fact does dedup/contradiction
     # detection only, and a single add_facts_batch call handles RAG.).
     rag_batch: list[dict] = []
+    # F83 2026-04-29: parallel accumulator for the in-memory semantic
+    # index — paired with store_fact(skip_semantic_index=True) below
+    # so the per-fact model.encode tail is collapsed into one batch
+    # call at the end of the loop. Was 15 separate "Batches: 1/1" log
+    # lines per article; now one.
+    semantic_batch: list[tuple[str, str, dict | None]] = []
     for fact in (parsed.get("facts") or []):
         topic = fact.get("topic", "")
         content = fact.get("content", "")
         confidence = fact.get("confidence", "ASSESSED")
         if topic and content and len(content) > 20:
-            await store_fact(
+            sf_result = await store_fact(
                 topic,
                 f"{content} [Source: {source}]",
                 f"research:{source}",
                 confidence,
                 skip_rag_ingest=True,
+                skip_semantic_index=True,
             )
             facts_learned += 1
             rag_batch.append({
@@ -1280,12 +1287,28 @@ async def _process_analysis(parsed: dict, source: str, hypotheses: list[dict]) -
                 "confidence": confidence,
                 "source": f"research:{source}",
             })
+            fid = (sf_result or {}).get("fact_id")
+            if fid:
+                semantic_batch.append((
+                    fid,
+                    f"{topic} {content}",
+                    {"confidence": confidence},
+                ))
     if rag_batch:
         try:
             from . import rag_store as _rag
             await _rag.add_facts_batch(rag_batch)
         except Exception as e:
             logger.debug("rag_store.add_facts_batch failed: %s", e)
+    if semantic_batch:
+        try:
+            from . import semantic_search as _ss
+            import asyncio as _aio
+            # to_thread because index_facts_batch runs sync model.encode
+            # which holds the GIL; matches the per-fact path's offload.
+            await _aio.to_thread(_ss.index_facts_batch, semantic_batch)
+        except Exception as e:
+            logger.debug("semantic_search.index_facts_batch failed: %s", e)
 
     hyp = parsed.get("hypothesis") or {}
     if hyp.get("statement") and len(hyp["statement"]) > 20:
@@ -2464,17 +2487,19 @@ async def read_document(
                 # × multi-chunk = ~60 wasted encodes per filing). Same
                 # pattern as _process_analysis (F23/F24, 2026-04-27).
                 rag_batch: list[dict] = []
+                semantic_batch: list[tuple[str, str, dict | None]] = []
                 for fact in (parsed.get("facts") or []):
                     topic = fact.get("topic", "")
                     fact_content = fact.get("content", "")
                     confidence = fact.get("confidence", "ASSESSED")
                     if topic and fact_content and len(fact_content) > 20:
-                        await store_fact(
+                        sf_result = await store_fact(
                             topic,
                             f"{fact_content} [Source: {source}:{filename}]",
                             f"compliance:{source}",
                             confidence,
                             skip_rag_ingest=True,
+                            skip_semantic_index=True,
                         )
                         total_facts += 1
                         all_facts.append(fact)
@@ -2484,12 +2509,26 @@ async def read_document(
                             "confidence": confidence,
                             "source": f"compliance:{source}",
                         })
+                        fid = (sf_result or {}).get("fact_id")
+                        if fid:
+                            semantic_batch.append((
+                                fid,
+                                f"{topic} {fact_content}",
+                                {"confidence": confidence},
+                            ))
                 if rag_batch:
                     try:
                         from . import rag_store as _rag
                         await _rag.add_facts_batch(rag_batch)
                     except Exception as e:
                         logger.debug("rag_store.add_facts_batch (compliance) failed: %s", e)
+                if semantic_batch:
+                    try:
+                        from . import semantic_search as _ss
+                        import asyncio as _aio
+                        await _aio.to_thread(_ss.index_facts_batch, semantic_batch)
+                    except Exception as e:
+                        logger.debug("semantic_search.index_facts_batch (compliance) failed: %s", e)
         else:
             parsed = await _analyse_article(llm, doc_text, f"{source}:{filename}", existing_kb, hypotheses)
 

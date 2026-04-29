@@ -167,6 +167,54 @@ class SemanticIndex:
             except Exception as exc:
                 logger.debug("Embedding failed for %s: %s", doc_id, exc)
 
+    def add_batch(self, items: list[tuple[str, str, dict | None]]) -> None:
+        """Add many docs in a single model.encode() pass.
+
+        F83 fix 2026-04-29: live log showed 15 separate `Batches: 1/1`
+        sentence-transformer calls per article ingest (one per fact in
+        researcher._process_analysis), because store_fact's tail
+        invokes index_fact() per-fact. Routing the same facts through
+        this batch helper collapses those into one model.encode() call
+        — same shape as rag_store.add_facts_batch (F23) but for the
+        in-memory semantic index.
+
+        items: list of (doc_id, text, metadata) tuples. Items with
+        empty text or no tokens are silently skipped (matches add()'s
+        contract).
+        """
+        if not items:
+            return
+        # Phase 1: update TF-IDF state per-item (cheap, no model).
+        keep: list[tuple[str, str]] = []
+        for doc_id, text, metadata in items:
+            if not text:
+                continue
+            tokens = _tokenise(text)
+            if not tokens:
+                continue
+            self._docs[doc_id] = {
+                "text": text[:2000],
+                "tokens": tokens,
+                "tf": Counter(tokens),
+                "metadata": metadata or {},
+            }
+            keep.append((doc_id, text[:2000]))
+        if keep:
+            self._dirty = True
+        # Phase 2: ONE model.encode() for all kept texts together.
+        model = _get_embedder()
+        if model is None or not keep:
+            return
+        ids = [doc_id for doc_id, _ in keep]
+        texts = [t for _, t in keep]
+        try:
+            embeddings = model.encode(texts, normalize_embeddings=True)
+            for doc_id, emb in zip(ids, embeddings):
+                self._embeddings[doc_id] = emb
+            self._matrix_dirty = True
+        except Exception as exc:
+            logger.debug("Batch embedding failed (%d items): %s", len(keep), exc)
+
     def remove(self, doc_id: str) -> None:
         if doc_id in self._docs:
             del self._docs[doc_id]
@@ -354,6 +402,19 @@ _index = SemanticIndex()
 def index_fact(fact_id: str, text: str, metadata: dict = None) -> None:
     """Add a fact to the semantic index."""
     _index.add(fact_id, text, metadata)
+
+
+def index_facts_batch(items: list[tuple[str, str, dict | None]]) -> None:
+    """Add many facts to the semantic index in one model.encode pass.
+
+    Used by callers that already have all facts in hand — e.g.
+    researcher._process_analysis after parsing an article, read_document
+    compliance after analysing a chunk, document_intelligence
+    persist_filing after extracting a registry filing. Pair with
+    `knowledge.store_fact(skip_semantic_index=True)` so the per-fact
+    tail does not double-encode.
+    """
+    _index.add_batch(items)
 
 
 def index_neuron(neuron_id: str, concept: str, category: str = "") -> None:
