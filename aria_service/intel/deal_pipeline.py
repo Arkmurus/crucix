@@ -537,6 +537,25 @@ async def auto_create_from_signal(
 
     buyer = _extract_buyer(response_text)
     value = _extract_value(response_text)
+
+    # F85 fix 2026-04-29: skip lead creation when both buyer AND value
+    # are empty. Live evidence: DAILY-PROC-SAM at 08:16:13 created
+    # `LEAD-8A389CAF — Saudi Arabia /  ($0)` because the LLM response
+    # only mentioned "Saudi Arabia" + a procurement keyword with no
+    # entity attached (SAM_GOV_API_KEY not set → no real notice data
+    # → LLM filled the void with a generic "Saudi Arabia is interesting
+    # for defence" answer). Result: pipeline pollution with non-
+    # actionable placeholder leads. A real lead needs at least ONE
+    # concrete anchor — a buyer entity OR a $ value figure. Country
+    # alone is the noise floor.
+    if not buyer and value <= 0:
+        logger.info(
+            "[pipeline] Lead skipped (no buyer, no value): %s — task=%s "
+            "— LLM response too generic to action",
+            country, task_id,
+        )
+        return None
+
     requirement = ""
 
     # Extract the first substantive line as requirement description
