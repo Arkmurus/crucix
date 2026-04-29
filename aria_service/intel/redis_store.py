@@ -81,6 +81,27 @@ async def set(key: str, value: str, ex: int | None = None,
     window every event under continuous traffic, turning what was meant
     to be a rolling window into a lifetime tally.
     """
+    # F87 observability 2026-04-29: Upstash free tier caps single-value
+    # size at 1 MB. Before this guard, a too-large value would either
+    # silently truncate (no exception, just lost data on next read) or
+    # raise an ambiguous error. The intel_ledger collapse from 4587 →
+    # 2000 signals between 07:27 and 08:23 boots is the exact symptom
+    # of this — a JSON blob just over 1 MB getting silently rejected.
+    # Log a WARNING above 700 KB so we see the trajectory early, and
+    # an ERROR above 950 KB so the truncation event is unmistakable.
+    val_len = len(value) if isinstance(value, str) else 0
+    if val_len > 950_000:
+        logger.error(
+            "Redis SET %s: value size %d bytes EXCEEDS Upstash free-tier "
+            "1MB cap — write may silently truncate. Reduce payload or "
+            "split across keys.", key, val_len,
+        )
+    elif val_len > 700_000:
+        logger.warning(
+            "Redis SET %s: value size %d bytes approaching Upstash 1MB "
+            "cap. If you see this regularly, plan a key split before the "
+            "next truncation event.", key, val_len,
+        )
     if _client:
         try:
             if keepttl and ex is None:
@@ -89,7 +110,7 @@ async def set(key: str, value: str, ex: int | None = None,
                 await _client.set(key, value, ex=ex)
             return
         except Exception as e:
-            logger.warning("Redis SET %s failed: %s", key, e)
+            logger.warning("Redis SET %s failed (size=%d): %s", key, val_len, e)
     _mem_store[key] = value
 
 

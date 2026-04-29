@@ -93,6 +93,16 @@ def _prune() -> None:
 
 async def _save() -> None:
     if _cache:
+        # F87 observability 2026-04-29: count signals at save time so we
+        # can correlate trajectory with the redis_store size warning. If
+        # the ledger drops without warning between two boots, this lets
+        # us see the last-known healthy size before the next collapse.
+        try:
+            n = len(_cache.get("signals", []) or [])
+            if n and n % 250 == 0:
+                logger.info("intel_ledger save checkpoint: %d signals", n)
+        except Exception:
+            pass
         await rs.set_json(KEY, _cache)
 
 
