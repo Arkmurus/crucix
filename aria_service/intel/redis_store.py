@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import Any, Optional
 
 import redis.asyncio as aioredis
@@ -81,26 +82,35 @@ async def set(key: str, value: str, ex: int | None = None,
     window every event under continuous traffic, turning what was meant
     to be a rolling window into a lifetime tally.
     """
-    # F87 observability 2026-04-29: Upstash free tier caps single-value
-    # size at 1 MB. Before this guard, a too-large value would either
-    # silently truncate (no exception, just lost data on next read) or
-    # raise an ambiguous error. The intel_ledger collapse from 4587 →
-    # 2000 signals between 07:27 and 08:23 boots is the exact symptom
-    # of this — a JSON blob just over 1 MB getting silently rejected.
-    # Log a WARNING above 700 KB so we see the trajectory early, and
-    # an ERROR above 950 KB so the truncation event is unmistakable.
+    # F87 + F88 observability 2026-04-29: Upstash caps single-value
+    # sizes. The cap depends on tier (free ~1 MB, Pro ~100 MB). The
+    # original F87 commit assumed free-tier and warned at 700 KB / 950
+    # KB, which fired on every knowledge save (current blob ≈ 2.6 MB)
+    # because this account is on a higher tier — a noise problem.
+    # Now: env-configurable thresholds, defaulting to 4 MB warn / 25 MB
+    # error. Override via ARIA_REDIS_WARN_BYTES / ARIA_REDIS_ERROR_BYTES
+    # to match your tier's actual cap.
+    #
+    # Why we still warn at all: the 2026-04-29 ledger collapse (4587 →
+    # 2000 signals) shows that *some* truncation pathway exists on this
+    # account at large blob sizes. Until knowledge + ledger are
+    # restructured off the one-giant-JSON-blob shape (F88 architectural
+    # follow-up), early visibility into blob growth is what tells us
+    # when the next collapse is imminent.
     val_len = len(value) if isinstance(value, str) else 0
-    if val_len > 950_000:
+    _warn_bytes = int(os.getenv("ARIA_REDIS_WARN_BYTES", "4000000"))
+    _error_bytes = int(os.getenv("ARIA_REDIS_ERROR_BYTES", "25000000"))
+    if val_len > _error_bytes:
         logger.error(
-            "Redis SET %s: value size %d bytes EXCEEDS Upstash free-tier "
-            "1MB cap — write may silently truncate. Reduce payload or "
-            "split across keys.", key, val_len,
+            "Redis SET %s: value size %d bytes exceeds error threshold "
+            "(%d). Write may silently truncate. Reduce payload or split "
+            "across keys.", key, val_len, _error_bytes,
         )
-    elif val_len > 700_000:
+    elif val_len > _warn_bytes:
         logger.warning(
-            "Redis SET %s: value size %d bytes approaching Upstash 1MB "
-            "cap. If you see this regularly, plan a key split before the "
-            "next truncation event.", key, val_len,
+            "Redis SET %s: value size %d bytes exceeds warn threshold "
+            "(%d). Plan a key split before this hits the tier cap.",
+            key, val_len, _warn_bytes,
         )
     if _client:
         try:
