@@ -2,19 +2,13 @@
 
 Why this file exists
 ────────────────────
-The canonical 100+ OEM database lives in `brain/oem_database_v2.py`, but
-the `aria_service` Docker image only copies `aria_service/`, so that
-module is not importable here. Rather than bloat the image or duplicate
-the full database, this file holds a curated Phase-1 priority list ARIA
-can use when the user says "crawl the known OEMs" without pasting URLs.
+This file holds a curated Phase-1 priority list ARIA can use when the
+user says "crawl the known OEMs" without pasting URLs. ARIA owns this
+list directly — no external module dependency.
 
 The research pipeline (`research_tasks._do_research_each`) only needs the
 name — it uses the LLM + web_search to discover each OEM's official site
 before running `extract_url_deep`, so no hardcoded URL is required.
-
-When the brain/ module eventually gets copied into the image (see
-Dockerfile TODO), this file can import from there and fall back to the
-curated list if the DB is unavailable.
 
 Selection criteria for this list (Phase-1, April 2026)
 ──────────────────────────────────────────────────────

@@ -1,10 +1,9 @@
 """
 ARIA Engine — Unified chat + reasoning + identity + 7-layer context injection.
 
-Merges:
-- Node.js lib/aria/aria.mjs (7-layer context, system prompts, session mgmt)
-- Python brain/aria_cognition.py (6-step reasoning, identity, curiosity)
-- Python brain/aria_chat.py (intent detection, special responses)
+Owns: 7-layer context, system prompts, session management, 6-step reasoning,
+identity, curiosity, intent detection, special responses. Single source of
+truth — no longer split across Node lib/aria/ and Flask brain/.
 """
 from __future__ import annotations
 
