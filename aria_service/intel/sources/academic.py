@@ -50,6 +50,21 @@ _TIMEOUT_SEC = 10.0
 _MAX_RESULTS_PER_API = 8
 
 
+def _classify_status(status: int) -> str:
+    """HTTP status → circuit_breaker.record_failure(reason=…) tag.
+    Mirrors web_search._classify_http_status; kept local to avoid
+    cross-module imports between intel/sources/ and intel/."""
+    if status == 402:
+        return "billing"
+    if status == 429:
+        return "rate_limit"
+    if status in (401, 403):
+        return "auth"
+    if 500 <= status < 600:
+        return "server"
+    return "other"
+
+
 def _is_enabled() -> bool:
     return (os.getenv("ACADEMIC_APIS_ENABLED", "1") or "1").strip() != "0"
 
@@ -114,14 +129,22 @@ async def search_semantic_scholar(
             resp = await client.get(url, headers=headers, params=params)
         if resp.status_code == 429:
             logger.debug("semantic_scholar: rate limited")
-            cb.record_failure()
+            # F94: classify as rate_limit, not generic timeout — when the
+            # breaker trips, the gap ledger should say "rate_limited" so
+            # triage points at SEMANTIC_SCHOLAR_API_KEY rotation, not at
+            # network reachability.
+            cb.record_failure(reason="rate_limit")
             return []
         if resp.status_code != 200:
             logger.debug("semantic_scholar: HTTP %d", resp.status_code)
-            cb.record_failure()
+            cb.record_failure(reason=_classify_status(resp.status_code))
             return []
         cb.record_success()
         data = resp.json()
+    except httpx.TimeoutException as e:
+        logger.debug("semantic_scholar timeout: %s", e)
+        cb.record_failure(reason="timeout")
+        return []
     except Exception as e:
         logger.debug("semantic_scholar fetch failed: %s", e)
         cb.record_failure()
@@ -185,10 +208,14 @@ async def search_openalex(
                                     headers={"User-Agent": random_ua()})
         if resp.status_code != 200:
             logger.debug("openalex: HTTP %d", resp.status_code)
-            cb.record_failure()
+            cb.record_failure(reason=_classify_status(resp.status_code))
             return []
         cb.record_success()
         data = resp.json()
+    except httpx.TimeoutException as e:
+        logger.debug("openalex timeout: %s", e)
+        cb.record_failure(reason="timeout")
+        return []
     except Exception as e:
         logger.debug("openalex fetch failed: %s", e)
         cb.record_failure()
@@ -261,10 +288,14 @@ async def search_crossref(
                                     headers={"User-Agent": random_ua()})
         if resp.status_code != 200:
             logger.debug("crossref: HTTP %d", resp.status_code)
-            cb.record_failure()
+            cb.record_failure(reason=_classify_status(resp.status_code))
             return []
         cb.record_success()
         data = resp.json()
+    except httpx.TimeoutException as e:
+        logger.debug("crossref timeout: %s", e)
+        cb.record_failure(reason="timeout")
+        return []
     except Exception as e:
         logger.debug("crossref fetch failed: %s", e)
         cb.record_failure()

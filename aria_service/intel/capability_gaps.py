@@ -100,6 +100,15 @@ VALID_GAP_TYPES = frozenset({
     "stalled_cell",                    # heatmap — region/topic with no movement over window
     "unverified_citation",             # cited_artifact_verifier — claim could not be grounded
     "format_unsupported",              # already in set above (kept for clarity, fine if dup)
+    # F94 batch (2026-04-30) — circuit-breaker failure reasons. Before
+    # this, every tripped breaker recorded gap_type="timeout" regardless
+    # of whether the upstream said 402 (Brave billing), 429 (Semantic
+    # Scholar rate limit), or 401/403 (auth). Triage was reading those
+    # as transient network issues when the actual fix is operator-side
+    # (key rotation, plan upgrade, caller-side rate limiting).
+    "billing_required",                # 402 / credit exhausted
+    "rate_limited",                    # 429 / quota exceeded
+    "auth_failure",                    # 401 / 403
 })
 
 

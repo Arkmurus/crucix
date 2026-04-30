@@ -55,6 +55,22 @@ SEARXNG_INSTANCES: list[str] = [
 REQUEST_TIMEOUT = 12.0
 MAX_RESULTS_PER_BACKEND = 15
 
+
+def _classify_http_status(status: int) -> str:
+    """Map an HTTP error status to a circuit-breaker failure reason.
+    Used to record the right capability_gap type when a backend trips
+    the breaker — billing/rate-limit/auth failures need different
+    operator action and should not all surface as 'timeout'."""
+    if status == 402:
+        return "billing"
+    if status == 429:
+        return "rate_limit"
+    if status in (401, 403):
+        return "auth"
+    if 500 <= status < 600:
+        return "server"
+    return "other"
+
 # Source credibility tiers (from v3_prompts SOURCE_HIERARCHY)
 TIER_1_DOMAINS = {
     "gov.uk", "nato.int", "un.org", "sipri.org", "wassenaar.org",
@@ -165,7 +181,10 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
             )
             if resp.status_code != 200:
                 logger.debug("Brave search %d: %s", resp.status_code, resp.text[:200])
-                cb.record_failure()
+                # F94: classify the failure so the capability_gap reflects
+                # the real cause. Brave 402 = subscription/credit dead;
+                # logging it as "timeout" sent triage to the wrong place.
+                cb.record_failure(reason=_classify_http_status(resp.status_code))
                 return []
             cb.record_success()
             data = resp.json()
@@ -181,6 +200,10 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
                 results.append(r)
             logger.debug("Brave: %d results for %r", len(results), query[:60])
             return results
+    except httpx.TimeoutException as e:
+        logger.debug("Brave search timeout: %s", e)
+        cb.record_failure(reason="timeout")
+        return []
     except Exception as e:
         logger.debug("Brave search failed: %s", e)
         cb.record_failure()

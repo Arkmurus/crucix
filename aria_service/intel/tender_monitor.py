@@ -361,13 +361,25 @@ def _resolve_country_iso2(country_name: str) -> str:
 async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[TenderAlert]:
     """Crawl TED (Tenders Electronic Daily) — EU defence procurement.
 
-    Uses the TED free REST API v3. Filters by CPV codes in the defence range
-    (35000000-35999999) and target market country codes.
+    Filters by CPV codes in the defence range (35000000-35999999) and
+    target market country codes.
+
+    F101 (2026-04-30): TED v3.0 returned 404 every cycle since at least
+    mid-April. The legacy ted.europa.eu/api/v3.0 endpoint is gone; the
+    replacement lives at api.ted.europa.eu/v3 and uses the
+    PublicExpertSearchRequest schema (different query syntax: `cpv=35*`
+    not `cpv:35*`; different field names: BT-* / business-term codes;
+    `limit` not `pageSize`). Pointing the URL at the new host is a
+    one-line bump that surfaces the right error in logs (400 validation
+    instead of 404 not-found) so the next round of work knows it's a
+    schema migration, not a connectivity issue. Body shape is left
+    legacy-incompatible by design — it returns 400 cleanly, the existing
+    non-200 path returns []. Full migration of query syntax + field
+    names is tracked as the next TED follow-up task.
     """
     tenders: list[TenderAlert] = []
     try:
-        # TED API v3.0 requires POST with JSON body, not GET with query params.
-        url = "https://ted.europa.eu/api/v3.0/notices/search"
+        url = "https://api.ted.europa.eu/v3/notices/search"
         # Build the POST body — q uses Lucene-style query syntax;
         # cpv:35* is too narrow, broaden to include maintenance/transport CPVs.
         pub_from = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y%m%d")

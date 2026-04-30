@@ -30,6 +30,31 @@ _DEFAULT_COOLDOWN_SECONDS = 300      # 5 minutes before probe
 _DEFAULT_HALF_OPEN_MAX = 1           # probes allowed in half-open
 
 
+# F94 (2026-04-30): map circuit-breaker failure reason → capability gap
+# type so the gap ledger reflects the actual root cause. Before this,
+# every breaker trip recorded `gap_type="timeout"` regardless of whether
+# the upstream returned 402 (billing), 429 (rate limit), or 401/403
+# (auth) — misrouting triage onto a "transient network" code path that
+# would never fix the actual problem.
+_REASON_TO_GAP = {
+    "billing":    ("billing_required", "Backend {name} returned billing/payment-required — operator action needed (top up credit or rotate key)"),
+    "rate_limit": ("rate_limited",     "Backend {name} rate-limited — set API key for higher quota or add caller-side token bucket"),
+    "auth":       ("auth_failure",     "Backend {name} returned auth failure (401/403) — rotate or set the API key"),
+    "timeout":    ("timeout",          "Backend {name} unreachable (timeout)"),
+    "server":     ("timeout",          "Backend {name} 5xx upstream error"),
+}
+
+
+def _gap_for_reason(name: str, reason: str) -> tuple[str, str]:
+    """Return (gap_type, gap_detail) for the given breaker name + reason."""
+    if reason in _REASON_TO_GAP:
+        gtype, template = _REASON_TO_GAP[reason]
+        return gtype, template.format(name=name)
+    # Default — preserves legacy behaviour for callers that haven't yet
+    # been updated to pass a reason.
+    return "timeout", f"Backend {name} unreachable"
+
+
 @dataclass
 class CircuitBreaker:
     """Per-backend circuit breaker."""
@@ -42,6 +67,7 @@ class CircuitBreaker:
     total_successes: int = 0
     last_failure_at: float = 0.0
     last_success_at: float = 0.0
+    last_failure_reason: str = ""  # F94 (2026-04-30): set by record_failure(reason=…)
     state: str = "CLOSED"  # CLOSED (healthy), OPEN (failing), HALF_OPEN (probing)
 
     def is_open(self) -> bool:
@@ -67,11 +93,28 @@ class CircuitBreaker:
             logger.info("[circuit_breaker] %s: %s → CLOSED (success)", self.name, self.state)
             self.state = "CLOSED"
 
-    def record_failure(self) -> None:
-        """Backend failed."""
+    def record_failure(self, reason: str = "") -> None:
+        """Backend failed.
+
+        ``reason`` is a short tag describing the failure mode so the
+        capability gap recorded when the breaker trips OPEN is
+        classified correctly. Recognised values (F94, 2026-04-30):
+
+          - ``"rate_limit"``  — HTTP 429 / quota exceeded
+          - ``"billing"``     — HTTP 402 / payment required / credit
+                                 exhausted
+          - ``"auth"``        — HTTP 401 / 403
+          - ``"timeout"``     — connect/read timeout
+          - ``"server"``      — 5xx
+          - ``""`` / other    — falls back to ``timeout`` gap_type
+                                 (legacy callers that don't supply a
+                                 reason, kept for backward compat)
+        """
         self.consecutive_failures += 1
         self.total_failures += 1
         self.last_failure_at = time.time()
+        if reason:
+            self.last_failure_reason = reason
         if self.state == "HALF_OPEN":
             # Probe failed — back to OPEN
             self.state = "OPEN"
@@ -79,10 +122,18 @@ class CircuitBreaker:
         elif self.consecutive_failures >= self.failure_threshold:
             if self.state != "OPEN":
                 logger.warning(
-                    "[circuit_breaker] %s: CLOSED → OPEN (%d consecutive failures)",
+                    "[circuit_breaker] %s: CLOSED → OPEN (%d consecutive failures, reason=%s)",
                     self.name, self.consecutive_failures,
+                    self.last_failure_reason or "unspecified",
                 )
                 self.state = "OPEN"
+                # Map reason → gap_type so misrouted triage stops:
+                # billing failures don't get fixed by waiting, rate
+                # limits don't need an outage page, and auth failures
+                # need a key rotation, not a network probe.
+                gap_type, gap_detail = _gap_for_reason(
+                    self.name, self.last_failure_reason,
+                )
                 # Signal brain — source reliability degraded. Use the
                 # running loop directly; asyncio.get_event_loop() is
                 # deprecated in 3.10+ when no loop is running and may
@@ -102,11 +153,11 @@ class CircuitBreaker:
                         _loop.create_task(
                             _bh.absorb(
                                 module="circuit_breaker",
-                                summary=f"Circuit breaker OPEN: {self.name} ({self.consecutive_failures} failures)",
+                                summary=f"Circuit breaker OPEN: {self.name} ({self.consecutive_failures} failures, {self.last_failure_reason or 'unspecified'})",
                                 detail=f"Backend {self.name} marked DOWN for {self.cooldown_seconds}s",
                                 success=False,
-                                gap_type="timeout",
-                                gap_detail=f"Backend {self.name} unreachable",
+                                gap_type=gap_type,
+                                gap_detail=gap_detail,
                             )
                         )
                 except Exception:
