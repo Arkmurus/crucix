@@ -892,6 +892,13 @@ async def lifespan(app: FastAPI):
         await knowledge.shutdown()
     except Exception as e:
         logger.warning("knowledge.shutdown failed (non-fatal): %s", e)
+    # F110: same protection for the intel ledger — without this, the last
+    # ~2s of channel/ingest signals (and any sweep-burst mid-flush) are
+    # lost on every deploy.
+    try:
+        await intel_ledger.shutdown()
+    except Exception as e:
+        logger.warning("intel_ledger.shutdown failed (non-fatal): %s", e)
     logger.info("ARIA Service shutting down")
 
 

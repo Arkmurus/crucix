@@ -4,14 +4,34 @@ Ported from lib/aria/intel_ledger.mjs.
 
 Retention: previously 30-day rolling, now permanent (100-year retention
 sentinel + 1M-signal cap). Operator explicitly asked for forever memory.
-Redis keys carry no TTL; eviction is governed by `maxmemory-policy` at
-the Redis layer (must be `noeviction` for true forever semantics).
+
+Persistence layout (F110, 2026-04-30 — mirrors F94 knowledge):
+  primary  : disk JSON at /data/aria_signals.json (atomic write)
+  hydrate  : disk → legacy Redis blob → empty
+  snapshot : periodic copy to Redis for off-host backup (every
+             SNAPSHOT_INTERVAL_S, only if dirty since last snapshot)
+
+Why this shape:
+  Pre-F110, every add_signal/ingest_sweep_signals call did a full
+  rs.set_json(KEY, _cache) — at 4043 signals × ~600 bytes that's a
+  ~2.5 MB Redis SET per write. Sweep cycles can ingest 50+ signals
+  in a burst, and Upstash silently truncates values > 1 MB, which is
+  what cost us 2587 signals on 2026-04-29 (memo: F87/F88). Mirroring
+  F94's pattern: disk is canonical, Redis is a 10-min off-host snapshot.
+  Public API (add_signal / ingest_sweep_signals / query_ledger / get_*
+  AND the de-facto-public _load() that 5 modules read) is unchanged.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import os
 import re
+import tempfile
+import time
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Any
 
 from . import redis_store as rs
@@ -23,6 +43,144 @@ MAX_SIGNALS = 1_000_000
 RETENTION_DAYS = 36500  # 100 years — effectively permanent
 
 _cache: dict | None = None
+
+# Debounced-flush state. Writes mark _dirty; a single background task
+# flushes to disk after FLUSH_DEBOUNCE_S. Sweep ingest of 50+ signals in a
+# burst coalesces into one disk write instead of N Redis SETs.
+_dirty: bool = False
+_dirty_since_snapshot: bool = False
+_flush_task: asyncio.Task | None = None
+_flusher_started: bool = False
+_flusher_stop = False
+FLUSH_DEBOUNCE_S = 2.0
+SNAPSHOT_INTERVAL_S = 600.0  # 10 min — Redis off-host backup cadence
+
+
+def _resolve_disk_path() -> str:
+    """Match knowledge.py / rag_store.py resolution rules so the same volume
+    is used. Override with ARIA_LEDGER_PATH for tests / dev shells. Falls
+    back to the OS temp dir on hosts without /data (Windows dev, CI)."""
+    override = os.getenv("ARIA_LEDGER_PATH", "").strip()
+    if override:
+        return override
+    if Path("/data").exists() and os.access("/data", os.W_OK):
+        return "/data/aria_signals.json"
+    fallback = os.path.join(tempfile.gettempdir(), "aria_signals.json")
+    logger.warning(
+        "intel_ledger: /data volume not mounted — falling back to %s. "
+        "State will NOT persist across restarts. Mount a fly.io volume "
+        "at /data to enable persistence.",
+        fallback,
+    )
+    return fallback
+
+
+_DISK_PATH = _resolve_disk_path()
+
+
+def _read_from_disk() -> dict | None:
+    try:
+        with open(_DISK_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and "signals" in data:
+            return data
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        logger.warning("intel_ledger: disk load failed at %s: %s", _DISK_PATH, e)
+    return None
+
+
+def _write_to_disk_atomic(data: dict) -> None:
+    """Atomic write via temp file + rename so a crash mid-write can't
+    corrupt the canonical signals file."""
+    target = _DISK_PATH
+    target_dir = os.path.dirname(target) or "."
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=".aria_signals.", suffix=".json.tmp", dir=target_dir,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, default=str)
+        os.replace(tmp_path, target)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+async def _flush_to_disk() -> None:
+    """Serialize the cache and write to disk in a thread executor (json.dump
+    is sync C; doing it on the event loop blocks every other coroutine for
+    the duration of the dump)."""
+    global _dirty, _dirty_since_snapshot
+    if not _cache or not _dirty:
+        return
+    snapshot = _cache  # write-by-reference is safe — we don't mutate
+    try:
+        await asyncio.to_thread(_write_to_disk_atomic, snapshot)
+        _dirty = False
+        _dirty_since_snapshot = True
+        # F87 observability (preserved from pre-F110 _save): log signal
+        # count at flush time on 250-signal increments so the operator can
+        # spot trajectory drops between two boots from the disk-flush log.
+        try:
+            n = len(_cache.get("signals", []) or [])
+            if n and n % 250 == 0:
+                logger.info("intel_ledger flush checkpoint: %d signals", n)
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error("intel_ledger: disk flush failed: %s", e)
+
+
+async def _flush_loop() -> None:
+    """Background coroutine: every FLUSH_DEBOUNCE_S, flush dirty cache to
+    disk; every SNAPSHOT_INTERVAL_S, also push a Redis snapshot."""
+    global _dirty_since_snapshot
+    last_snapshot = time.monotonic()
+    while not _flusher_stop:
+        try:
+            await asyncio.sleep(FLUSH_DEBOUNCE_S)
+            await _flush_to_disk()
+            now = time.monotonic()
+            if (
+                _dirty_since_snapshot
+                and (now - last_snapshot) >= SNAPSHOT_INTERVAL_S
+                and _cache
+            ):
+                try:
+                    await rs.set_json(KEY, _cache)
+                    _dirty_since_snapshot = False
+                    last_snapshot = now
+                    logger.info(
+                        "intel_ledger: Redis snapshot written (%d signals)",
+                        len(_cache.get("signals", [])),
+                    )
+                except Exception as e:
+                    logger.warning("intel_ledger: Redis snapshot failed: %s", e)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("intel_ledger: flush loop error: %s", e)
+
+
+def _ensure_flusher() -> None:
+    """Start the debounced flusher if a running loop exists. No-op in sync
+    test contexts (no loop) — those should call flush() explicitly if they
+    need persistence."""
+    global _flush_task, _flusher_started
+    if _flusher_started:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    _flush_task = loop.create_task(_flush_loop())
+    _flusher_started = True
+
 
 # ── Entity extraction lists ──────────────────────────────────────────────────
 
@@ -70,15 +228,50 @@ def _extract_entities(text: str) -> dict:
 
 
 async def _load() -> dict:
+    """Hydrate the cache once. Order: disk → legacy Redis blob (one-shot
+    migration) → empty default. Subsequent calls hit the in-memory cache
+    without I/O. NOTE: 5 sibling modules (chain_correlator, competitor_tracker,
+    narrative_monitor, signal_correlator, plus tests) consume this directly
+    via `await intel_ledger._load()` — the leading underscore is advisory.
+    Return shape `{"signals": [...], "version": int}` MUST be preserved."""
     global _cache
     if _cache is not None:
         return _cache
-    data = await rs.get_json(KEY)
-    if data and "signals" in data:
+
+    # 1. Prefer disk — canonical store post-F110.
+    data = _read_from_disk()
+    if data:
         _cache = data
-    else:
-        _cache = {"signals": [], "version": 1}
+        logger.info(
+            "intel_ledger: loaded %d signals from disk (%s)",
+            len(_cache.get("signals", [])), _DISK_PATH,
+        )
+        _prune()
+        _ensure_flusher()
+        return _cache
+
+    # 2. Disk empty — try the legacy Redis blob and migrate it forward.
+    legacy = await rs.get_json(KEY)
+    if legacy and isinstance(legacy, dict) and "signals" in legacy:
+        _cache = legacy
+        logger.warning(
+            "intel_ledger: hydrated from legacy Redis blob (%d signals) — "
+            "migrating to disk %s",
+            len(_cache.get("signals", [])), _DISK_PATH,
+        )
+        try:
+            await asyncio.to_thread(_write_to_disk_atomic, _cache)
+            logger.info("intel_ledger: legacy Redis → disk migration complete")
+        except Exception as e:
+            logger.error("intel_ledger: legacy migration to disk failed: %s", e)
+        _prune()
+        _ensure_flusher()
+        return _cache
+
+    # 3. Cold start with no prior state.
+    _cache = {"signals": [], "version": 1}
     _prune()
+    _ensure_flusher()
     return _cache
 
 
@@ -92,18 +285,35 @@ def _prune() -> None:
 
 
 async def _save() -> None:
-    if _cache:
-        # F87 observability 2026-04-29: count signals at save time so we
-        # can correlate trajectory with the redis_store size warning. If
-        # the ledger drops without warning between two boots, this lets
-        # us see the last-known healthy size before the next collapse.
+    """Mark the cache dirty. Actual disk I/O is debounced through
+    _flush_loop so sweep bursts (50+ signals/cycle) coalesce into a single
+    write. Pre-F110 this did rs.set_json on every call — see module docstring."""
+    global _dirty
+    if not _cache:
+        return
+    _dirty = True
+    _ensure_flusher()
+
+
+async def flush() -> None:
+    """Force an immediate disk flush. Call from shutdown hooks or tests
+    that need to assert on-disk state without waiting for the debounce."""
+    await _flush_to_disk()
+
+
+async def shutdown() -> None:
+    """Stop the background flusher and write any pending changes. Wired
+    into main.py lifespan teardown next to knowledge.shutdown()."""
+    global _flusher_stop, _flush_task
+    _flusher_stop = True
+    if _flush_task:
+        _flush_task.cancel()
         try:
-            n = len(_cache.get("signals", []) or [])
-            if n and n % 250 == 0:
-                logger.info("intel_ledger save checkpoint: %d signals", n)
-        except Exception:
+            await _flush_task
+        except (asyncio.CancelledError, Exception):
             pass
-        await rs.set_json(KEY, _cache)
+        _flush_task = None
+    await _flush_to_disk()
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
