@@ -885,6 +885,13 @@ async def lifespan(app: FastAPI):
         rag_backfill_task.cancel()
     if tender_monitor_task:
         tender_monitor_task.cancel()
+    # F94: flush any pending knowledge writes to disk before exit so the
+    # last <FLUSH_DEBOUNCE_S of in-memory mutations aren't lost on a
+    # clean shutdown / deploy.
+    try:
+        await knowledge.shutdown()
+    except Exception as e:
+        logger.warning("knowledge.shutdown failed (non-fatal): %s", e)
     logger.info("ARIA Service shutting down")
 
 

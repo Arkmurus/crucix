@@ -62,6 +62,18 @@ class FallbackProvider(LLMProvider):
     _HARD_COOLDOWN_SECONDS = 1800
     _SOFT_COOLDOWN_SECONDS = 60
 
+    # F94 fix 2026-04-30: each non-cooling provider gets its own
+    # `timeout`-second budget (not a slice of a shared wall clock).
+    # Previous "primary gets full, secondary gets remainder" design left
+    # the secondary with 0.0s when the primary either burned the budget
+    # on a slow timeout OR fast-failed in a way the caller's timeout
+    # already considered "elapsed". A fallback that gets 0s isn't a
+    # fallback — it's a skip. We bound chain wall-clock with
+    # _MAX_FALLBACK_ATTEMPTS so a pathological all-timeout cascade can't
+    # run for `timeout * len(providers)` seconds.
+    _MAX_FALLBACK_ATTEMPTS = 3
+    _PROVIDER_MIN_BUDGET = 15.0  # floor below which a call isn't worth starting
+
     def _cooldown_until(self, stats: dict) -> float:
         return stats.get("cooldown_until", 0)
 
@@ -227,51 +239,47 @@ class FallbackProvider(LLMProvider):
         max_tokens: int = 4096,
         timeout: float = 90.0,  # bumped from 60s — DeepSeek needs more for complex queries
     ) -> LLMResult:
-        """Try each provider in order. The caller's `timeout` is the
-        budget for the PRIMARY provider. If the primary fails FAST (e.g.
-        rate-limit, 500 error, quick connect refusal), the secondary
-        provider gets whatever time is left in the caller's budget after
-        accounting for elapsed time. If the primary fails SLOW (burns
-        the whole budget on a timeout), we don't try the secondary at
-        all — the outer caller's wall clock is already exhausted.
+        """Try each non-cooling provider with its OWN `timeout`-second
+        budget, up to ``_MAX_FALLBACK_ATTEMPTS`` providers.
 
-        Previous design (2026-04-11 first pass) split the timeout
-        evenly — each provider got (caller_timeout * 0.9) / N. With
-        N=2 and caller=75s that gave each provider ~34s, which is too
-        short for a real LLM synthesis call on a 4KB context, and both
-        providers then timed out mid-generation. Hanwha Redback
-        incident (2026-04-11 22:21) surfaced this.
-
-        New design: primary gets full budget, secondary gets remainder.
+        Design history:
+          - 2026-04-11: split caller_timeout evenly across providers.
+            With N=2 and caller=75s, each got ~34s — too tight for a
+            4KB synthesis call, both timed out (Hanwha incident).
+          - 2026-04-11 fix: primary got full caller_timeout, secondary
+            got the remainder. Worked for slow primaries that succeeded;
+            broke for primaries that fast-failed in a way that left the
+            secondary with <15s and triggered "Fallback budget
+            exhausted" → no fallback attempted (F3 / 2026-04-30 logs).
+          - 2026-04-30 (F94, this file): each provider gets a full
+            ``timeout``-second call. Capped at ``_MAX_FALLBACK_ATTEMPTS``
+            attempts so an all-timeout cascade can't run forever. The
+            caller is responsible for any outer wall-clock guard.
         """
         last_error = None
-        import time as _t
-        t_start = _t.monotonic()
+        attempted = 0
 
         for provider in self.providers:
+            if attempted >= self._MAX_FALLBACK_ATTEMPTS:
+                logger.warning(
+                    "Fallback chain stopped after %d attempts; %d providers untried",
+                    attempted, len(self.providers) - attempted,
+                )
+                break
+
             stats = self._stats.get(provider.name, {})
             if self._should_skip(stats):
                 logger.debug("Skipping %s (cooling down, %d recent failures)",
                              provider.name, stats.get("failures", 0))
                 continue
 
-            elapsed = _t.monotonic() - t_start
-            remaining = max(0.0, timeout - elapsed)
-            # Skip this provider if the outer budget is effectively spent.
-            # 15s is the floor for any useful LLM call.
-            if remaining < 15.0:
-                logger.warning(
-                    "Fallback budget exhausted (%.1fs remaining); skipping %s",
-                    remaining, provider.name,
-                )
-                break
-            # Each provider gets min(caller_timeout, remaining). The
-            # primary sees the full caller_timeout; the secondary sees
-            # whatever is left after the primary either succeeded fast
-            # or failed fast.
-            per_call = min(timeout, remaining)
+            # Each non-cooling provider gets a full per-call budget.
+            # If the caller passed an unreasonably small timeout, raise
+            # to the floor — anything less isn't worth dialling out for.
+            per_call = max(timeout, self._PROVIDER_MIN_BUDGET)
 
             try:
+                attempted += 1
                 stats["calls"] = stats.get("calls", 0) + 1
                 result = await provider.complete(
                     system_prompt, user_message,
