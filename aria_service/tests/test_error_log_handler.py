@@ -124,6 +124,60 @@ def test_skip_substrings_filtered():
     assert "Real failure that needs fixing" in recorded[0]["message"]
 
 
+def test_recorded_file_is_project_relative_path_F96():
+    """F96 2026-04-30: pre-fix the handler stored record.filename which is
+    the basename only (knowledge.py), so the self_improve.py:950 check
+    `if file_path not in MODIFIABLE_FILES` (keyed on relative paths like
+    'aria_service/intel/knowledge.py') always failed and bugs_detected
+    stayed at 0 forever. Post-fix we must store the project-relative POSIX
+    path so the membership check has a fighting chance."""
+    from aria_service.intel import error_log_handler, self_improve
+
+    recorded: list = []
+
+    async def fake_record_error(**kwargs):
+        recorded.append(kwargs)
+
+    async def run():
+        error_log_handler.uninstall()
+        with patch("aria_service.intel.self_improve.record_error",
+                   side_effect=fake_record_error):
+            error_log_handler.install()
+            try:
+                # Log from a real aria.* logger — the handler will populate
+                # `file` from the call site (THIS test file's pathname).
+                logging.getLogger("aria.test").warning(
+                    "F96 path-resolution probe"
+                )
+                await asyncio.sleep(0.01)
+            finally:
+                error_log_handler.uninstall()
+
+    asyncio.run(run())
+    assert len(recorded) == 1
+    file_field = recorded[0]["file"]
+    # Must be project-relative POSIX, not the bare basename.
+    assert "/" in file_field, (
+        f"expected project-relative POSIX path, got bare basename: {file_field!r}"
+    )
+    assert file_field.endswith("test_error_log_handler.py"), (
+        f"path should end with this test file's name; got {file_field!r}"
+    )
+    assert "aria_service/tests/" in file_field, (
+        f"expected aria_service/tests/ prefix; got {file_field!r}"
+    )
+
+    # And the resolution helper itself must produce a string that lines up
+    # with at least one MODIFIABLE_FILES entry shape (the membership check
+    # this whole fix exists to enable).
+    sample_resolved = error_log_handler._project_relative_path(
+        str(error_log_handler._PROJECT_ROOT
+            / "aria_service" / "intel" / "knowledge.py")
+    )
+    assert sample_resolved == "aria_service/intel/knowledge.py"
+    assert sample_resolved in self_improve.MODIFIABLE_FILES
+
+
 def test_self_recursion_guard():
     """The handler logs an INFO message on install. That message comes
     from aria.error_log_handler itself — must NOT recurse into the ledger."""

@@ -33,9 +33,32 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger("aria.error_log_handler")
+
+# F96 fix 2026-04-30: self_improve.MODIFIABLE_FILES keys are project-relative
+# POSIX paths ("aria_service/intel/knowledge.py"), but LogRecord.filename is
+# the basename only ("knowledge.py"). Every recorded error therefore failed
+# the MODIFIABLE_FILES membership check at self_improve.py:950, leaving
+# bugs_detected pinned at 0 across every cycle even when 200 errors had
+# been ingested. Resolve from record.pathname to a relative-from-root path
+# so the membership check has a fighting chance.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _project_relative_path(pathname: str) -> str:
+    """Return a POSIX-style path relative to the project root, falling back
+    to the basename when the source file is outside the project tree
+    (third-party libraries, stdlib). Third-party records are already filtered
+    by the aria.* logger-name gate above, so this fallback is rarely hit."""
+    if not pathname:
+        return ""
+    try:
+        return Path(pathname).resolve().relative_to(_PROJECT_ROOT).as_posix()
+    except (ValueError, OSError):
+        return Path(pathname).name
 
 # Substrings that mark a log line as transient/operational rather than
 # actionable. These get filtered out so the ledger doesn't fill with
@@ -92,7 +115,7 @@ class ErrorLedgerHandler(logging.Handler):
             loop.create_task(_si.record_error(
                 error_type=f"log:{record.levelname.lower()}",
                 message=msg[:500],
-                file=record.filename,
+                file=_project_relative_path(record.pathname),
                 function=record.funcName,
             ))
         except Exception:
