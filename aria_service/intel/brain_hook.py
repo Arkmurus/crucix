@@ -681,11 +681,19 @@ _ALERT_STALE_HOURS = 24  # alert if module hasn't sent a signal in 24h
 # just barely over — and filed a HIGH/operator_action pending action
 # that auto-resolved on cooldown. Pure noise.
 #
-# 2000ms gives the legitimate burst pattern ~18% headroom while
-# remaining tight enough to flip on a real Redis/Chroma outage (those
-# produce p95 > 5000ms within seconds). Operator can still override
+# F107 fix 2026-04-30: bumped 2000ms → 3500ms after F94 (knowledge → disk)
+# shifted the absorb-path bottleneck from Redis SET to neural_memory
+# encode. 7 parallel knowledge-module absorbs each call
+# neural_memory.learn_from_text() → model.encode(); sentence-transformers
+# under torch holds the GIL, so encodes serialize in the executor queue.
+# Live observation 2026-04-30 10:03:13: 7 absorbs in 3ms wall-time pushed
+# absorb p95 to 2084ms, tripping the 2000ms breaker for 60s of cooldown
+# before auto-recovery. Same pattern as F69 — legitimate burst, not a
+# downstream outage. 3500ms gives the post-F94 burst pattern ~70%
+# headroom. Real Redis/Chroma outages still produce p95 > 5000ms within
+# seconds, well clear of the new threshold. Operator can still override
 # via ARIA_BRAIN_LATENCY_TRIP_MS env var.
-_LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "2000"))
+_LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "3500"))
 _LATENCY_WINDOW = 50
 _TRIP_CONSECUTIVE = 3
 _COOLDOWN_S = 60

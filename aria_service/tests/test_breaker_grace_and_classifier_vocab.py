@@ -42,11 +42,17 @@ def test_breaker_does_not_trip_below_min_samples():
 
 
 def test_breaker_does_not_trip_on_production_burst_p95():
-    """F69 2026-04-28: production WEEKLY-COMP-SANCTIONS absorb at 10:00:08
-    produced p95=1691ms during a legitimate 11-absorb burst across
-    cross_regional_correlator + regional knowledge modules. Old default
-    of 1500ms tripped on 191ms over threshold — pure noise. New default
-    of 2000ms must not trip on the same burst pattern."""
+    """Regression guard for the legitimate-burst trip cycle:
+
+    F69 2026-04-28: WEEKLY-COMP-SANCTIONS absorb @ 10:00:08 ran
+    p95=1691ms across 11 brain_hook calls. 1500ms tripped by 191ms.
+    F107 2026-04-30: post-F94 (knowledge→disk) shifted the bottleneck
+    from Redis SET to neural_memory encode. 7-parallel knowledge-module
+    absorbs pushed p95 to 2084ms, tripping the 2000ms breaker.
+
+    The current default must clear BOTH bursts — they are normal load,
+    not downstream outages. Rebinds whenever the default changes since
+    the test reads brain_hook._LATENCY_TRIP_MS directly."""
     from aria_service.intel import brain_hook
     importlib.reload(brain_hook)
 
@@ -54,21 +60,20 @@ def test_breaker_does_not_trip_on_production_burst_p95():
     brain_hook._breaker_state["open"] = False
     brain_hook._breaker_state["consecutive_high"] = 0
 
-    # Reproduce the production sample distribution: a few cold-load
-    # outliers around 4400ms (boot phase, suppressed by F55 warmup
-    # gate), then steady-state ~1691ms p95 from the burst pattern.
-    # Use a representative distribution that yields p95 == 1691.
+    # Reproduce the F107 post-F94 burst (more demanding than F69's 1691ms).
+    # A few cold-load outliers (suppressed by F55 warmup gate) then
+    # steady-state with a p95 around 2084ms.
     samples_ms = (
         [200, 220, 240, 260, 280, 300, 320, 340, 360, 380]   # 10 fast warmups
-        + [1500] * 35                                          # bulk steady state
-        + [1691] * 5                                           # the p95 cluster
+        + [1800] * 35                                          # bulk steady state
+        + [2084] * 5                                           # the F107 p95 cluster
     )
     for ms in samples_ms:
         brain_hook._record_latency(ms)
 
     p95 = brain_hook._p95_latency_ms()
-    assert 1500 <= p95 <= 1700, (
-        f"sample distribution shifted; expected p95 ~1691ms, got {p95}ms "
+    assert 1800 <= p95 <= 2100, (
+        f"sample distribution shifted; expected p95 ~2084ms, got {p95}ms "
         f"(adjust the test fixture if intentional)"
     )
 
@@ -77,9 +82,9 @@ def test_breaker_does_not_trip_on_production_burst_p95():
         brain_hook._maybe_trip_breaker(reason="burst_no_trip_test")
 
     assert brain_hook._breaker_state["open"] is False, (
-        f"breaker tripped on production burst pattern (p95={p95}ms); "
-        f"the F69 default of 2000ms is supposed to give burst-pattern "
-        f"headroom"
+        f"breaker tripped on production burst pattern "
+        f"(p95={p95}ms vs threshold {brain_hook._LATENCY_TRIP_MS}ms); "
+        f"the F69+F107 default is supposed to give burst-pattern headroom"
     )
 
 
