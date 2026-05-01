@@ -142,10 +142,20 @@ function parseXML(xml, feedName) {
 }
 
 async function fetchFeed(feed) {
+  // R-F18 2026-05-01: same root cause as R-F17 (Arkmurus). The
+  // Googlebot UA pretender works against most servers but Google News
+  // itself detects non-Google-IP requests claiming to be Googlebot and
+  // throttles aggressively. Live evidence (3 sweeps): Ethiopia /
+  // ISS Africa / Africa Defence News / Defense News / Breaking
+  // Defense / Kenya Defence / Great Lakes Security / DRC Congo
+  // Defence / DefenseWeb all "all attempts failed". 09:19:23 was 1/13
+  // sources OK. Switch to a stock Chrome desktop UA and bump the
+  // direct timeout to 15s.
+  const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
   const attempts = [
     () => fetch(feed.url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' },
-      signal: AbortSignal.timeout(10000),
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(15000),
     }),
     () => fetch(RSS2JSON + encodeURIComponent(feed.url), {
       signal: AbortSignal.timeout(12000),
