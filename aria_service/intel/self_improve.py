@@ -39,6 +39,17 @@ STAGED_KEY = "crucix:aria:staged_improvements"
 IMPROVEMENT_LOG_KEY = "crucix:aria:improvement_log"
 PROMPT_EVOLUTION_KEY = "crucix:aria:prompt_evolution"
 
+# R-F9 2026-05-01: per-file diagnose-failure counter. The LLM struggles
+# to escape the COMPLETE FIXED FILE content into a JSON string for large
+# files (neural_memory.py has been failing JSON parse every cycle since
+# at least 2026-04-30). Without backoff, every 2h cycle wastes one slot
+# on a file that won't parse. Track consecutive failures per-file; skip
+# after the threshold; auto-expire after the TTL so a temporarily-broken
+# diagnose self-heals.
+_DIAGNOSE_FAIL_KEY_PREFIX = "crucix:aria:self_improve:diagnose_fail:"
+_DIAGNOSE_FAIL_THRESHOLD = 3
+_DIAGNOSE_FAIL_TTL_SECONDS = 86400  # 24h
+
 # Files ARIA is allowed to modify (whitelisted)
 MODIFIABLE_FILES = {
     # Python ARIA service
@@ -1121,6 +1132,25 @@ async def autonomous_improvement_cycle(llm) -> dict:
 
 async def _diagnose_and_fix(llm, file_path: str, errors: list[dict]) -> Optional[dict]:
     """Use LLM to diagnose errors in a file and generate a fix."""
+    # Skip files that have repeatedly failed JSON parse on this LLM call.
+    # Common pattern: the LLM can't escape a large `fixed_code` string
+    # into JSON, breaks every cycle on the same file forever. R-F9
+    # 2026-05-01.
+    fail_key = f"{_DIAGNOSE_FAIL_KEY_PREFIX}{file_path}"
+    fail_count = 0
+    try:
+        raw = await rs.get(fail_key)
+        if raw:
+            fail_count = int(raw)
+    except Exception:
+        pass
+    if fail_count >= _DIAGNOSE_FAIL_THRESHOLD:
+        logger.info(
+            "[Self-Improve] skipping %s — %d consecutive parse failures, "
+            "TTL %ds remaining before retry",
+            file_path, fail_count, _DIAGNOSE_FAIL_TTL_SECONDS,
+        )
+        return None
     try:
         # Read the current file
         code_info = await read_own_code(file_path)
@@ -1175,6 +1205,12 @@ RULES:
         if not parsed.get("fixed_code"):
             return None
 
+        # Successful parse — clear any prior failure counter for this file.
+        try:
+            await rs.delete(fail_key)
+        except Exception:
+            pass
+
         return {
             "description": parsed.get("fix_description", "Auto-fix detected bugs"),
             "reasoning": parsed.get("diagnosis", ""),
@@ -1182,6 +1218,11 @@ RULES:
         }
     except Exception as e:
         logger.warning("[Self-Improve] Diagnosis failed for %s: %s", file_path, e)
+        # Bump per-file failure counter so repeated failures back off.
+        try:
+            await rs.set(fail_key, str(fail_count + 1), ex=_DIAGNOSE_FAIL_TTL_SECONDS)
+        except Exception:
+            pass
         return None
 
 
