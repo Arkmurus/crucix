@@ -69,8 +69,16 @@ function parseXML(xml, sourceName) {
 }
 
 async function fetchRSS(rssUrl, sourceName) {
+  // R-F19 2026-05-01: same UA fix as R-F17 (Arkmurus) and R-F18
+  // (DefenseNews). The Googlebot pretender UA gets throttled by Google
+  // News from non-Google cloud IPs. Live evidence 09:19:34: Lusophone
+  // procurement returned 0 items vs 107 in earlier sweeps — every
+  // Portuguese Google News RSS fetch in fetchLusophoneProcurement uses
+  // this shared fetchRSS helper. Switch to a stock Chrome desktop UA
+  // and bump the direct-fetch timeout 10s → 15s to match.
+  const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
   const attempts = [
-    () => fetch(rssUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' }, signal: AbortSignal.timeout(10000) }),
+    () => fetch(rssUrl, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(15000) }),
     () => fetch(RSS2JSON + encodeURIComponent(rssUrl), { signal: AbortSignal.timeout(12000) }),
     () => fetch(ALLORIGINS + encodeURIComponent(rssUrl), { signal: AbortSignal.timeout(14000) }),
   ];
