@@ -47,12 +47,20 @@ export async function briefing() {
   const signals  = [];
   const errors   = [];
 
+  // R-F17 2026-05-01: Google News RSS started blocking the bot UA + 10s
+  // timeout combination across all 4 Arkmurus sources. Live evidence
+  // (3 sweeps): 08:39:57 all 4 OK → 09:00:18 ISS Africa fails →
+  // 09:05:18 all 4 fail. The custom 'ArkmurusintelBot/1.0' UA is
+  // identifiably automation; switch to a normal Chrome desktop UA and
+  // give Google News a longer ceiling (15s) to respond under load.
+  const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+
   await Promise.allSettled(
     FEEDS.map(async ({ name, url }) => {
       try {
         const res = await fetch(url, {
-          signal: AbortSignal.timeout(10000),
-          headers: { 'User-Agent': 'ArkmurusintelBot/1.0' }
+          signal: AbortSignal.timeout(15000),
+          headers: { 'User-Agent': USER_AGENT }
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const xml   = await res.text();
