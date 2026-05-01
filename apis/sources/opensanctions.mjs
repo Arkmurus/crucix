@@ -65,6 +65,17 @@ async function fetchSanctionsFallback() {
 
 export async function fetchOpenSanctions() {
   const results = { updates: [], recent: [], stats: {}, error: null };
+  // R-F12 2026-05-01: short-circuit when key isn't configured. Live
+  // evidence 08:39:57 + 08:40:22 on seenode: every sweep logged
+  // "OpenSanctions API 401 — check OPENSANCTIONS_API_KEY" twice and the
+  // sweep fell through to Treasury RSS (1 item). The key is set on
+  // fly.io (per memory opensanctions_api_key_needed) but missing on
+  // seenode — operator action. Skip the wasted 401 round-trip; the
+  // caller's Treasury RSS fallback still runs.
+  if (!process.env.OPENSANCTIONS_API_KEY) {
+    results.error = 'OPENSANCTIONS_API_KEY not set — set it on this host to enable OpenSanctions';
+    return results;
+  }
   try {
     // 2026-04-12: OpenSanctions deprecated /entities endpoint (returns 404).
     // New endpoint: /search/default?q=... for entity search, or
@@ -163,6 +174,12 @@ export async function fetchOpenSanctions() {
 }
 
 export async function searchSanctions(query) {
+  // R-F12: same short-circuit as fetchOpenSanctions — skip the API call
+  // if no key, return empty + clear error. Stops the 401 round-trip on
+  // every entity-screen call on seenode.
+  if (!process.env.OPENSANCTIONS_API_KEY) {
+    return { query, results: [], error: 'OPENSANCTIONS_API_KEY not set' };
+  }
   try {
     const params = new URLSearchParams({ q: query, limit: '10', dataset: DATASETS.join(',') });
     const headers = { 'Accept': 'application/json', 'User-Agent': 'CrucixIntelligence/1.0' };
