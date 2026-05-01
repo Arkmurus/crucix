@@ -5200,7 +5200,11 @@ async def chat_ep(req: ChatRequest, request: Request):
         try:
             from ..intel import officeholder_guard
             _v = result.get("verification")
-            _log.warning(
+            # Lifecycle traces — INFO so the per-chat noop pair (~2/chat)
+            # doesn't pollute the WARNING+ self_improve error_log_handler.
+            # The actual demotion event below stays WARNING so any real
+            # claim-rewrite still shows up as alert-worthy.
+            _log.info(
                 "[officeholder_guard] running on trace=%s verification=%r response_len=%d",
                 trace_id,
                 _v,
@@ -5210,7 +5214,7 @@ async def chat_ep(req: ChatRequest, request: Request):
                 response_text,
                 _v,
             )
-            _log.warning(
+            _log.info(
                 "[officeholder_guard] result trace=%s demotions=%d",
                 trace_id,
                 len(demotions),
