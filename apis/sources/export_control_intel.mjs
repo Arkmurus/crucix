@@ -201,7 +201,7 @@ async function fetchSource(src) {
   try {
     const res = await fetch(src.url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
         'Accept':     'application/atom+xml, application/rss+xml, application/xml, text/xml',
       },
       signal: AbortSignal.timeout(10000),

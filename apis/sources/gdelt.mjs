@@ -210,7 +210,7 @@ export async function fetchGDELT() {
             if (results.updates.length >= 10) break;
             try {
               const gnRes = await fetch(gnUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1)' },
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36' },
                 signal: AbortSignal.timeout(15000),
               });
               if (!gnRes.ok) continue;
