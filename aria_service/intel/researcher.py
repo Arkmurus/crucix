@@ -361,6 +361,13 @@ WEB_SEARCH_QUERIES = [
 HYPOTHESIS_KEY = "crucix:aria:hypotheses"
 ARTICLES_READ_KEY = "crucix:aria:articles_read"
 
+# After this many validation attempts that didn't flip the hypothesis off
+# OPEN, validate_hypothesis() forces it to INSUFFICIENT_EVIDENCE so the
+# 200-cap backlog drains. 5 means each stuck hypothesis takes ~5 days to
+# age out under the 30-min research cycle (3 hypotheses validated/cycle,
+# oldest-first), which roughly matches operator review cadence.
+_HYPOTHESIS_ATTEMPT_CAP = 5
+
 
 _INVALID_HYPOTHESIS_TEXTS = {"", "null", "none", "undefined", "nan", "n/a"}
 
@@ -2805,7 +2812,16 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
 # ── Public: Validate a hypothesis ────────────────────────────────────────────
 
 async def validate_hypothesis(llm: LLMProvider, hypothesis_text: str) -> dict:
-    """Search for evidence to validate or refute a specific hypothesis."""
+    """Search for evidence to validate or refute a specific hypothesis.
+
+    Drain rule (added 2026-05-01): every call increments
+    `validation_attempts`; after `_HYPOTHESIS_ATTEMPT_CAP` consecutive
+    attempts that didn't flip the hypothesis off OPEN, force the status
+    to INSUFFICIENT_EVIDENCE so the backlog drains. Without this the
+    LLM's natural conservatism ("when in doubt, return OPEN") combined
+    with the 200-cap hypothesis store had the OPEN backlog saturated at
+    188/200 indefinitely (live observation 2026-05-01 06:34:12).
+    """
     if not llm or not llm.is_configured:
         return {"error": "LLM not configured"}
 
@@ -2817,6 +2833,24 @@ async def validate_hypothesis(llm: LLMProvider, hypothesis_text: str) -> dict:
             break
     if not target:
         return {"error": "Hypothesis not found"}
+
+    target["validation_attempts"] = int(target.get("validation_attempts") or 0) + 1
+    target["last_validated_at"] = datetime.now(timezone.utc).isoformat()
+
+    async def _exit(payload: dict) -> dict:
+        # Single point that persists attempt-counter mutations and
+        # applies the drain rule. Every early-exit and the LLM path go
+        # through here so the counter never silently de-syncs from
+        # disk.
+        if (
+            target.get("status") == "OPEN"
+            and target["validation_attempts"] >= _HYPOTHESIS_ATTEMPT_CAP
+        ):
+            target["status"] = "INSUFFICIENT_EVIDENCE"
+            payload = {**payload, "status": "INSUFFICIENT_EVIDENCE",
+                       "new_status": "INSUFFICIENT_EVIDENCE"}
+        await _save_hypotheses(hypotheses)
+        return payload
 
     # Hypotheses can be 200+ char descriptions ("The Measure Group Europe
     # LinkedIn page shows negligible engagement and no defence content,
@@ -2830,7 +2864,7 @@ async def validate_hypothesis(llm: LLMProvider, hypothesis_text: str) -> dict:
     query = _extract_query_keywords(target["hypothesis"], max_words=8) + " evidence 2026"
     articles = await _web_search(query)
     if not articles:
-        return {"hypothesis": target["hypothesis"], "status": "NO_NEW_EVIDENCE"}
+        return await _exit({"hypothesis": target["hypothesis"], "status": "NO_NEW_EVIDENCE"})
 
     # F26 fix 2026-04-27: CrossRef and academic search APIs return DOI
     # matches by keyword overlap regardless of domain. A defence hypothesis
@@ -2840,7 +2874,7 @@ async def validate_hypothesis(llm: LLMProvider, hypothesis_text: str) -> dict:
     # ingested into RAG. Filter implausible-domain results before fetch.
     plausible = [a for a in articles if _is_plausible_defence_domain(a.get("link", ""))]
     if not plausible:
-        return {"hypothesis": target["hypothesis"], "status": "NO_PLAUSIBLE_EVIDENCE"}
+        return await _exit({"hypothesis": target["hypothesis"], "status": "NO_PLAUSIBLE_EVIDENCE"})
 
     evidence_texts = []
     for a in plausible[:3]:
@@ -2871,11 +2905,16 @@ Return JSON:
             target["evidence_count"] = target.get("evidence_count", 0) + (1 if parsed.get("verdict") == "SUPPORTS" else 0)
             if parsed.get("refined_hypothesis"):
                 target["hypothesis"] = parsed["refined_hypothesis"]
-            await _save_hypotheses(hypotheses)
-            return {**parsed, "hypothesis": target["hypothesis"]}
+            return await _exit({**parsed, "hypothesis": target["hypothesis"]})
     except Exception as e:
+        # Persist the bumped attempt counter even on exception so a
+        # serially-failing hypothesis can still age out via the cap.
+        try:
+            await _save_hypotheses(hypotheses)
+        except Exception:
+            pass
         return {"error": str(e)}
-    return {"hypothesis": target["hypothesis"], "status": "EVALUATION_FAILED"}
+    return await _exit({"hypothesis": target["hypothesis"], "status": "EVALUATION_FAILED"})
 
 
 async def get_hypotheses() -> list[dict]:

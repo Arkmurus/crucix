@@ -22,6 +22,8 @@ API surface is unchanged — every existing caller works without edits.
 from __future__ import annotations
 
 import asyncio
+import base64
+import gzip
 import json
 import logging
 import os
@@ -79,6 +81,58 @@ def _resolve_disk_path() -> str:
 
 
 _DISK_PATH = _resolve_disk_path()
+
+
+# Redis snapshot is the off-host backup tier — disk is canonical post-F94.
+# At ~700 facts/day the raw-JSON blob crossed Upstash's 4 MB warn threshold
+# (5.72 MB at 8508 facts on 2026-05-01) and would hit the 25 MB error
+# threshold in ~24 days. JSON of facts compresses 5-8× with gzip, so a
+# small base64+gzip wrapper buys multi-month headroom without the
+# operational complexity of sharding. Magic prefix lets the loader
+# distinguish gzipped values from a legacy raw-JSON blob.
+_GZ_PREFIX = "GZ1:"
+
+
+def _encode_snapshot(obj: dict) -> str:
+    raw = json.dumps(obj, default=str).encode("utf-8")
+    gz = gzip.compress(raw, compresslevel=6)
+    return _GZ_PREFIX + base64.b64encode(gz).decode("ascii")
+
+
+def _decode_snapshot(value: Any) -> dict | None:
+    """Decode a Redis snapshot. Returns None if the value is empty or
+    unparseable. Accepts both new gzipped payloads (prefix `GZ1:`) and
+    legacy raw-JSON blobs so existing snapshots migrate forward on the
+    next read. Tolerates both str and bytes (the Redis client returns
+    either depending on decode_responses)."""
+    if not value:
+        return None
+    if isinstance(value, dict):
+        return value if "facts" in value else None
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            value = value.decode("utf-8")
+        except Exception:
+            return None
+    if not isinstance(value, str):
+        return None
+    if value.startswith(_GZ_PREFIX):
+        try:
+            gz = base64.b64decode(value[len(_GZ_PREFIX):])
+            raw = gzip.decompress(gz)
+            data = json.loads(raw)
+            if isinstance(data, dict) and "facts" in data:
+                return data
+        except Exception as e:
+            logger.warning("knowledge: gzip snapshot decode failed: %s", e)
+        return None
+    try:
+        data = json.loads(value)
+        if isinstance(data, dict) and "facts" in data:
+            return data
+    except Exception:
+        pass
+    return None
 
 
 def _read_from_disk() -> dict | None:
@@ -147,12 +201,13 @@ async def _flush_loop() -> None:
                 and _cache
             ):
                 try:
-                    await rs.set_json(KEY, _cache)
+                    payload = _encode_snapshot(_cache)
+                    await rs.set(KEY, payload)
                     _dirty_since_snapshot = False
                     last_snapshot = now
                     logger.info(
-                        "knowledge: Redis snapshot written (%d facts)",
-                        len(_cache.get("facts", [])),
+                        "knowledge: Redis snapshot written (%d facts, %d bytes gzip)",
+                        len(_cache.get("facts", [])), len(payload),
                     )
                 except Exception as e:
                     logger.warning("knowledge: Redis snapshot failed: %s", e)
@@ -196,9 +251,11 @@ async def _load() -> dict:
         _ensure_flusher()
         return _cache
 
-    # 2. Disk empty — try the legacy Redis blob and migrate it forward.
-    legacy = await rs.get_json(KEY)
-    if legacy and isinstance(legacy, dict) and "facts" in legacy:
+    # 2. Disk empty — try the Redis snapshot (gzip or legacy raw-JSON)
+    #    and migrate it forward to disk.
+    raw = await rs.get(KEY)
+    legacy = _decode_snapshot(raw)
+    if legacy:
         _cache = legacy
         logger.warning(
             "knowledge: hydrated from legacy Redis blob (%d facts) — "

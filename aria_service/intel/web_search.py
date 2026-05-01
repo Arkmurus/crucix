@@ -71,6 +71,26 @@ def _classify_http_status(status: int) -> str:
         return "server"
     return "other"
 
+
+# Brave's `search_lang` rejects bare codes for languages with regional
+# variants (Portuguese, Chinese, Japanese) with HTTP 422. Live evidence
+# 2026-05-01 06:34:08: a Mozambique sweep sent `search_lang=pt` and got
+# 422; the Lusophone backend silently dropped to 1/3 backends. Map
+# unsupported bare codes to a regional default. `pt-pt` covers
+# Angola/Mozambique; Brazil callers should pass `pt-BR` explicitly.
+_BRAVE_LANG_NORMALISE = {
+    "pt": "pt-pt",
+    "zh": "zh-hans",
+    "ja": "jp",
+}
+
+
+def _normalise_brave_lang(language: str) -> str:
+    if not language:
+        return "en"
+    code = language.strip().lower()
+    return _BRAVE_LANG_NORMALISE.get(code, code)
+
 # Source credibility tiers (from v3_prompts SOURCE_HIERARCHY)
 TIER_1_DOMAINS = {
     "gov.uk", "nato.int", "un.org", "sipri.org", "wassenaar.org",
@@ -176,7 +196,7 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             resp = await client.get(
                 "https://api.search.brave.com/res/v1/web/search",
-                params={"q": query, "count": min(max_results, 20), "search_lang": language},
+                params={"q": query, "count": min(max_results, 20), "search_lang": _normalise_brave_lang(language)},
                 headers={"X-Subscription-Token": BRAVE_API_KEY, "Accept": "application/json"},
             )
             if resp.status_code != 200:
