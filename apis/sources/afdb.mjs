@@ -4,11 +4,22 @@
 // Free API: https://projectsapi.afdb.org
 // No API key required
 
+import { shouldSkip, recordFailure, recordSuccess } from '../../lib/util/throttle.mjs';
+
 // ORDS API (projectsapi.afdb.org) and OpenData portal consistently fail on cloud IPs — removed.
 // IATI Datastore requires authentication (401) — removed.
 const AFDB_NEWS_RSS     = 'https://www.afdb.org/en/rss/news-and-events';
 const AFDB_NEWS_RSS_ALT = 'https://www.afdb.org/en/rss.xml';
 const RSS2JSON          = 'https://api.rss2json.com/v1/api.json?rss_url=';
+
+// R-F23 2026-05-01: AfDB has a ~30% failure rate today (5/13 sweeps)
+// where ALL 5 fallback endpoints fail simultaneously. Shared root
+// cause: rss2json free quota gets burned by DefenseNews/Lusophone
+// earlier in the same sweep, plus AfDB direct site rate-limits the
+// seenode IP under load. After 3 consecutive total-failures, skip
+// AfDB for 5 minutes so we stop wasting 5×10s = 50s of timeout each
+// sweep on a known-broken source.
+const _CIRCUIT_KEY = 'afdb:all_endpoints';
 
 // Countries of primary interest (ISO2 codes)
 const PRIORITY_COUNTRIES = {
@@ -154,8 +165,16 @@ export async function briefing() {
   console.log('[AfDB] Fetching project pipeline...');
   const results = { updates: [], signals: [], stats: {}, error: null };
 
+  // R-F23: short-circuit when all AfDB fallbacks have been failing
+  // recently. Saves 5×10s of timeouts per sweep during outage windows.
+  if (shouldSkip(_CIRCUIT_KEY)) {
+    results.error = 'AfDB circuit open — recent consecutive failures';
+    return results;
+  }
+
   try {
     const items = await fetchAfDBProjects();
+    recordSuccess(_CIRCUIT_KEY);
 
     let lusophoneCount = 0;
     let totalValue     = 0;
@@ -209,6 +228,9 @@ export async function briefing() {
 
     console.log(`[AfDB] ${results.updates.length} projects · ${lusophoneCount} Lusophone · $${Math.round(totalValue)}M UA`);
   } catch (err) {
+    // R-F23: bump circuit-breaker counter so repeated total-failures
+    // start short-circuiting next call.
+    recordFailure(_CIRCUIT_KEY);
     results.error = err.message;
     console.error('[AfDB] Error:', err.message);
   }
