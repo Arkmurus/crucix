@@ -553,7 +553,14 @@ _WORKFLOW_CMD_RE = re.compile(
     # R-F10: the colon-label format ("Aria, person: Colin Risso / Nationality: UK / Role: Director at Limestone")
     # is a structured DD request the LLM/DD orchestrator handles, not a
     # rules-engine question. Skip cleanly to suppress the gap log.
-    r"\b(?:person|company|entity|counterpart(?:y|ies)|supplier|buyer)\s*:\s*\S",
+    r"\b(?:person|company|entity|counterpart(?:y|ies)|supplier|buyer)\s*:\s*\S|"
+    # R-F11 2026-05-01: autonomous task templates use "Aria, investigate
+    # the latest on: X" (DAILY-PROC-TED, DAILY-PROC-SAM, etc). Live
+    # evidence 08:15:24: SAM.gov template fired no_symbolic_rule. The
+    # rules engine has no deterministic answer for "latest news on
+    # procurement portal X" — that's the deep_researcher's job. Skip.
+    r"\binvestigate\s+(?:the\s+|that\s+|this\s+)?(?:latest|recent|new|update|news|current)\b|"
+    r"\b(?:latest|recent|new|news|update)\s+on\s*:",
     re.IGNORECASE,
 )
 # 2026-04-24: multiparty / end-use structures (origin → buyer → end user)
