@@ -217,53 +217,35 @@ async function monitorMarket(market) {
 export async function briefing() {
   console.log(`[Portals] Monitoring ${PRIORITY_MARKETS.length} government procurement portals...`);
 
-  // R-F21 2026-05-01: cap market-fetch concurrency at 6 instead of
-  // firing all 28 in parallel. Previous burst (28 markets × up to 3
-  // sequential RSS fallbacks each = 84 outbound calls in flight)
-  // triggered seenode connection-pool exhaustion on 09:39 — only
-  // 4/28 markets covered before the 25s cap. With concurrency=6 each
-  // market still gets its own 3-attempt chain but the wave is smaller.
-  // Per-market circuit breaker skips a country after 3 consecutive
-  // "no items" returns for 5 minutes.
+  // R-F22 2026-05-01: revert R-F21's concurrency=6 for portals — the
+  // burst-all-28 pattern was actually correct for this source because
+  // monitorMarket() runs up to 3 sequential RSS attempts per market
+  // (10-15s each = 30-45s worst case). With only 6 workers, slow
+  // markets blocked their worker for the full 25s budget and we got
+  // 1/28 markets covered (warm sweep 10:04 evidence). Burst-all-28
+  // lets every market's chain run in parallel; the slowest 4 don't
+  // gate the other 24.
   //
-  // Construction: build N deferred slots (one per market) up front so
-  // the outer Promise.race / Promise.allSettled call below sees a fixed
-  // promise array with one entry per market. Worker pool of 6 pulls
-  // the next index, runs monitorMarket, resolves that slot.
-  const marketPromises = PRIORITY_MARKETS.map(() => {
-    let resolve;
-    const p = new Promise((r) => { resolve = r; });
-    p._resolve = resolve;
-    return p;
-  });
-  let nextIdx = 0;
-  const concurrency = 6;
-  async function portalWorker() {
-    while (true) {
-      const i = nextIdx++;
-      if (i >= PRIORITY_MARKETS.length) return;
-      const market = PRIORITY_MARKETS[i];
-      const ckey = `portals:${market.name}`;
-      let result;
-      if (shouldSkip(ckey)) {
-        result = { market, items: [], method: 'circuit_open' };
-      } else {
-        try {
-          result = await monitorMarket(market);
-          if (result && Array.isArray(result.items) && result.items.length > 0) {
-            recordSuccess(ckey);
-          } else {
-            recordFailure(ckey);
-          }
-        } catch (err) {
-          recordFailure(ckey);
-          result = { market, items: [], method: 'error', error: err?.message };
-        }
-      }
-      marketPromises[i]._resolve(result);
+  // Per-market circuit breaker is still useful — wraps each call so a
+  // recently-failing market gets skipped for 5 min. That keeps the
+  // request count bounded if a country's portal goes hard down.
+  const marketPromises = PRIORITY_MARKETS.map((market) => {
+    const ckey = `portals:${market.name}`;
+    if (shouldSkip(ckey)) {
+      return Promise.resolve({ market, items: [], method: 'circuit_open' });
     }
-  }
-  for (let w = 0; w < concurrency; w++) portalWorker();
+    return monitorMarket(market).then((r) => {
+      if (r && Array.isArray(r.items) && r.items.length > 0) {
+        recordSuccess(ckey);
+      } else {
+        recordFailure(ckey);
+      }
+      return r;
+    }).catch((err) => {
+      recordFailure(ckey);
+      return { market, items: [], method: 'error', error: err?.message };
+    });
+  });
 
   const timeoutPromise = new Promise(resolve =>
     setTimeout(() => resolve('TIMEOUT'), 25000)
