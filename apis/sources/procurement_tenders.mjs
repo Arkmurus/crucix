@@ -10,6 +10,7 @@
 // Arkmurus focus: Lusophone Africa, African Union missions, export-control-compliant deals
 
 import '../utils/env.mjs';
+import { withConcurrency, shouldSkip, recordFailure, recordSuccess } from '../../lib/util/throttle.mjs';
 
 const RSS2JSON   = 'https://api.rss2json.com/v1/api.json?rss_url=';
 const ALLORIGINS = 'https://api.allorigins.win/get?url=';
@@ -413,9 +414,23 @@ async function fetchLusophoneProcurement() {
   ];
 
   const DEFENCE_FILTER = /(defesa|defense|militar|military|forças armadas|exército|marinha|armas|"contrato"|aquisição|tender|licitação)/i;
-  const results = await Promise.allSettled(
-    tasks.map(t => fetchRSS(t.url, t.label))
-  );
+  // R-F21 2026-05-01: cap concurrency at 4 for the 14-feed Lusophone
+  // burst. Combined with DefenseNews (13×) and Portals (28×) running
+  // in parallel, the previous all-at-once Promise.allSettled produced
+  // 60+ simultaneous outbound calls and triggered upstream rate-limit
+  // cascades (rss2json 429, corsproxy 503). Per-feed circuit breaker
+  // skips a label after 3 consecutive empty returns for 5 minutes.
+  const results = await withConcurrency(tasks, async (t) => {
+    const ckey = `procurement_lusophone:${t.label}:${t.url.slice(0, 40)}`;
+    if (shouldSkip(ckey)) return [];
+    const out = await fetchRSS(t.url, t.label);
+    if (Array.isArray(out) && out.length > 0) {
+      recordSuccess(ckey);
+    } else {
+      recordFailure(ckey);
+    }
+    return out;
+  }, { concurrency: 4 });
 
   const items = [];
   results.forEach((r, i) => {

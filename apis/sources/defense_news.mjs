@@ -4,6 +4,7 @@
 // All via RSS — direct → rss2json → allorigins fallback chain
 
 import '../utils/env.mjs';
+import { withConcurrency, shouldSkip, recordFailure, recordSuccess } from '../../lib/util/throttle.mjs';
 
 const RSS2JSON   = 'https://api.rss2json.com/v1/api.json?rss_url=';
 const ALLORIGINS = 'https://api.allorigins.win/get?url=';
@@ -208,7 +209,22 @@ async function fetchFeed(feed) {
 export async function briefing() {
   console.log('[DefenseNews] Fetching live defense industry feeds...');
 
-  const results = await Promise.allSettled(FEEDS.map(f => fetchFeed(f)));
+  // R-F21 2026-05-01: cap concurrency at 4 to avoid the 13-feed burst
+  // pattern that triggered seenode connection-pool / proxy quota
+  // exhaustion on 2026-05-01 09:39 (0/13 sources OK across 13×3 = 39
+  // simultaneous outbound calls). Per-feed circuit breaker skips a
+  // source after 3 consecutive empty returns for 5 minutes.
+  const results = await withConcurrency(FEEDS, async (feed) => {
+    const ckey = `defense_news:${feed.name}`;
+    if (shouldSkip(ckey)) return [];  // circuit open — skip wasted call
+    const items = await fetchFeed(feed);
+    if (Array.isArray(items) && items.length > 0) {
+      recordSuccess(ckey);
+    } else {
+      recordFailure(ckey);
+    }
+    return items;
+  }, { concurrency: 4 });
 
   const allItems = [];
   const sourceStatus = {};

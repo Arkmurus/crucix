@@ -9,6 +9,7 @@
 
 import '../utils/env.mjs';
 import { TARGET_MARKETS } from '../../lib/self/opportunity_engine.mjs';
+import { withConcurrency, shouldSkip, recordFailure, recordSuccess } from '../../lib/util/throttle.mjs';
 
 const RSS2JSON   = 'https://api.rss2json.com/v1/api.json?rss_url=';
 const ALLORIGINS = 'https://api.allorigins.win/get?url=';
@@ -216,9 +217,54 @@ async function monitorMarket(market) {
 export async function briefing() {
   console.log(`[Portals] Monitoring ${PRIORITY_MARKETS.length} government procurement portals...`);
 
-  // Run all markets concurrently with a 25s internal timeout
-  // This ensures we return results before the 30s source timeout kills us
-  const marketPromises = PRIORITY_MARKETS.map(m => monitorMarket(m));
+  // R-F21 2026-05-01: cap market-fetch concurrency at 6 instead of
+  // firing all 28 in parallel. Previous burst (28 markets × up to 3
+  // sequential RSS fallbacks each = 84 outbound calls in flight)
+  // triggered seenode connection-pool exhaustion on 09:39 — only
+  // 4/28 markets covered before the 25s cap. With concurrency=6 each
+  // market still gets its own 3-attempt chain but the wave is smaller.
+  // Per-market circuit breaker skips a country after 3 consecutive
+  // "no items" returns for 5 minutes.
+  //
+  // Construction: build N deferred slots (one per market) up front so
+  // the outer Promise.race / Promise.allSettled call below sees a fixed
+  // promise array with one entry per market. Worker pool of 6 pulls
+  // the next index, runs monitorMarket, resolves that slot.
+  const marketPromises = PRIORITY_MARKETS.map(() => {
+    let resolve;
+    const p = new Promise((r) => { resolve = r; });
+    p._resolve = resolve;
+    return p;
+  });
+  let nextIdx = 0;
+  const concurrency = 6;
+  async function portalWorker() {
+    while (true) {
+      const i = nextIdx++;
+      if (i >= PRIORITY_MARKETS.length) return;
+      const market = PRIORITY_MARKETS[i];
+      const ckey = `portals:${market.name}`;
+      let result;
+      if (shouldSkip(ckey)) {
+        result = { market, items: [], method: 'circuit_open' };
+      } else {
+        try {
+          result = await monitorMarket(market);
+          if (result && Array.isArray(result.items) && result.items.length > 0) {
+            recordSuccess(ckey);
+          } else {
+            recordFailure(ckey);
+          }
+        } catch (err) {
+          recordFailure(ckey);
+          result = { market, items: [], method: 'error', error: err?.message };
+        }
+      }
+      marketPromises[i]._resolve(result);
+    }
+  }
+  for (let w = 0; w < concurrency; w++) portalWorker();
+
   const timeoutPromise = new Promise(resolve =>
     setTimeout(() => resolve('TIMEOUT'), 25000)
   );
