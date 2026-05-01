@@ -400,8 +400,14 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
             # different unknown field, fix forward in the same place.
             "limit": min(max_results, 50),
             "page": 1,
-            "sortField": "PD",
-            "sortOrder": "desc",
+            # R-F30 2026-05-01: TED v3 also rejects `sortField` +
+            # `sortOrder` under the new PublicExpertSearchRequestV1
+            # schema (live evidence 11:22:22 — second 400 after
+            # R-F7's pageSize→limit rename). Server-side sort is
+            # non-essential here; downstream sorts client-side by
+            # publication date. Removing both rather than guessing
+            # the new field names. Re-add per documented schema once
+            # available.
         }
         logger.debug("[TED] POST body: %s", json.dumps(body)[:300])
         resp = await client.post(
