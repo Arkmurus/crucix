@@ -873,6 +873,16 @@ def _sync_correlation_context(message: str) -> str:
                     parts.append(oc)
             except Exception as _ctx_err:
                 logger.debug("chat-context intel hook failed: %s", _ctx_err)
+            # Gulf law (2026-05-01) — UAE (CCL / DIFC / ADGM /
+            # EDGE / Tawazun) + Saudi (PPL 1440H / GAMI / SAMI /
+            # IKTVA / SCCA) + adjacent Bahrain/Qatar/Kuwait notes.
+            try:
+                from .intel import legal_gulf
+                gc = legal_gulf.get_gulf_legal_context(message)
+                if gc:
+                    parts.append(gc)
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Tier 2 regional knowledge (2026-04-17 PM) — North Africa,
             # South/SE Asia, Central Africa, Balkans.
             try:
@@ -1031,6 +1041,8 @@ def _sync_correlation_context(message: str) -> str:
                     "PORTUGUESE PUBLIC PROCUREMENT": "legal_portuguese",
                     "OHADA UNIFIED COMMERCIAL LAW": "legal_ohada",
                     "OHADA APPLICATION TO DEFENCE": "legal_ohada",
+                    "UAE COMMERCIAL & DEFENCE LAW": "legal_gulf",
+                    "SAUDI ARABIA COMMERCIAL & DEFENCE LAW": "legal_gulf",
                 }
                 _joined = "\n".join(parts)
                 _fired_modules: list[str] = []
