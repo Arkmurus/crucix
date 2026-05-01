@@ -386,13 +386,23 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
         pub_to = datetime.now(timezone.utc).strftime("%Y%m%d")
         body = {
             "query": "(cpv:35* OR cpv:506* OR cpv:604*)",
-            "fields": [
-                "title", "description", "buyerName", "organisationName",
-                "country", "countryCode", "cpvCodes", "cpv",
-                "estimatedValue", "valueEur", "deadline",
-                "submissionDeadline", "publicationDate", "PD",
-                "noticeId", "docId",
-            ],
+            # R-F31 2026-05-01: third TED v3 schema-rename iteration.
+            # Live evidence 12:17:33: TED returned 400 "Parameter
+            # 'fields' contains unsupported value (supported values
+            # are: sme-part, touchpoint-gateway-ted-esen, BT-13(t)-Part,
+            # BT-821-Lot, ...)" — the new schema replaced our
+            # `title/description/buyerName` simple field list with
+            # eForms BT-* (Business Term) codes from the EU eForms
+            # standard. Mapping each old field to its BT-* equivalent
+            # is a bigger rewrite than this fix wants; drop the
+            # `fields` parameter entirely so TED returns its default
+            # field set. Parser already has resilient fallbacks
+            # (notice.get("title", {}).get("text", "") etc.) that
+            # handle whichever shape comes back. If TED returns 0
+            # parseable tenders because the default field set doesn't
+            # include the keys we read, we'll surface that as a clean
+            # "0 tenders" log rather than a 400, and the next fix
+            # iteration can map BT-* keys.
             # F101 follow-up 2026-05-01: `pageSize` was the legacy v3.0
             # field name. Live evidence 07:43:39: TED returned 400
             # "Unrecognized field 'pageSize' ... PublicExpertSearchRequestV1".
