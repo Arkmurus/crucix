@@ -843,6 +843,15 @@ def _sync_correlation_context(message: str) -> str:
                     parts.append(tc)
             except Exception as _ctx_err:
                 logger.debug("chat-context intel hook failed: %s", _ctx_err)
+            # Swiss law (2026-05-01) — CO / KMG-AMG / GKG / EmbG /
+            # FINMA / GwG + neutrality export-control regime.
+            try:
+                from .intel import legal_swiss
+                sc = legal_swiss.get_swiss_legal_context(message)
+                if sc:
+                    parts.append(sc)
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Tier 2 regional knowledge (2026-04-17 PM) — North Africa,
             # South/SE Asia, Central Africa, Balkans.
             try:
@@ -995,6 +1004,8 @@ def _sync_correlation_context(message: str) -> str:
                     "[EQUIPMENT:": "equipment_specs",
                     "TURKISH COMMERCIAL & CORPORATE LAW": "legal_turkish",
                     "TÜRKİYE DEFENCE PROCUREMENT": "legal_turkish",
+                    "SWISS COMMERCIAL & CORPORATE LAW": "legal_swiss",
+                    "SWISS DEFENCE LAW": "legal_swiss",
                 }
                 _joined = "\n".join(parts)
                 _fired_modules: list[str] = []
