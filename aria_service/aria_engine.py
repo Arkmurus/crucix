@@ -834,6 +834,15 @@ def _sync_correlation_context(message: str) -> str:
                     parts.append(blc)
             except Exception as _ctx_err:
                 logger.debug("chat-context intel hook failed: %s", _ctx_err)
+            # Turkish law (2026-05-01) — TTK / SSB / EYDEP / KVKK /
+            # ISTAC + defence-industrial regime.
+            try:
+                from .intel import legal_turkish
+                tc = legal_turkish.get_turkish_legal_context(message)
+                if tc:
+                    parts.append(tc)
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Tier 2 regional knowledge (2026-04-17 PM) — North Africa,
             # South/SE Asia, Central Africa, Balkans.
             try:
@@ -984,6 +993,8 @@ def _sync_correlation_context(message: str) -> str:
                     "POLITICAL RISK INDEX": "political_risk_index",
                     "CROSS-REGIONAL": "cross_regional_correlator",
                     "[EQUIPMENT:": "equipment_specs",
+                    "TURKISH COMMERCIAL & CORPORATE LAW": "legal_turkish",
+                    "TÜRKİYE DEFENCE PROCUREMENT": "legal_turkish",
                 }
                 _joined = "\n".join(parts)
                 _fired_modules: list[str] = []
