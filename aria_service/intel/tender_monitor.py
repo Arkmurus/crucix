@@ -393,7 +393,12 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
                 "submissionDeadline", "publicationDate", "PD",
                 "noticeId", "docId",
             ],
-            "pageSize": min(max_results, 50),
+            # F101 follow-up 2026-05-01: `pageSize` was the legacy v3.0
+            # field name. Live evidence 07:43:39: TED returned 400
+            # "Unrecognized field 'pageSize' ... PublicExpertSearchRequestV1".
+            # The new schema uses `limit`. If a follow-on 400 surfaces a
+            # different unknown field, fix forward in the same place.
+            "limit": min(max_results, 50),
             "page": 1,
             "sortField": "PD",
             "sortOrder": "desc",
