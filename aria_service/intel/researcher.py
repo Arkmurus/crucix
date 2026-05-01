@@ -40,7 +40,7 @@ logger = logging.getLogger("aria.researcher")
 RESEARCH_FEEDS = [
     # ── Global Defence Procurement ────────────────────────────────────────
     {"name": "Defense News", "url": "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml", "category": "defence_procurement"},
-    {"name": "Janes", "url": "https://www.janes.com/osint-insights/defence-news", "category": "defence_industry"},  # old /feeds/news → 404
+    {"name": "Janes", "url": "https://www.janes.com/defence-intelligence-insights/defence-news", "category": "defence_industry"},  # 2026-05-01: /osint-insights/* 301'd to /defence-intelligence-insights/*
     # F76 prune 2026-04-28: Defense One /rss/ → persistent 404 across
     # every research cycle today. URL had no working alternative. Removing
     # to stop ~6 wasted req/hour. Re-enable if Defense One restores RSS.
@@ -82,7 +82,7 @@ RESEARCH_FEEDS = [
     # {"name": "RAND", "url": "https://www.rand.org/pubs/rss.xml", "category": "defence_research"},
     {"name": "ISW", "url": "https://understandingwar.org/feed", "category": "conflict_intelligence"},
     {"name": "UCDP", "url": "https://ucdp.uu.se/apidocs/", "category": "conflict_data"},
-    {"name": "CrisisWatch", "url": "https://www.crisisgroup.org/rss/crisiswatch", "category": "conflict_early_warning"},
+    {"name": "CrisisWatch", "url": "https://www.crisisgroup.org/rss-0", "category": "conflict_early_warning"},  # 2026-05-01: /rss/crisiswatch 301'd to /rss-0
     {"name": "Crisis Group Africa", "url": "https://www.crisisgroup.org/rss/1", "category": "africa_security"},
 
     # ── Regional: Africa ──────────────────────────────────────────────────
