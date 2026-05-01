@@ -164,7 +164,13 @@ async def record_gap(
     # silently suppress the next try.
     await rs.set(dedupe_key, "1", ex=_DEDUPE_WINDOW_SECONDS)
 
-    logger.info("Capability gap recorded: [%s] %s", gap_type, detail[:120])
+    # Strip newlines/control chars so multi-line gap_detail (e.g. rlaif's
+    # query echo) doesn't split the log entry across lines and confuse
+    # downstream log parsers / fly-log search. Live evidence
+    # 2026-05-01 07:30:17: a digest-generation prompt with an embedded
+    # `\n` rendered as a stray "Inclu..." next-line fragment in fly logs.
+    _safe = " ".join((detail or "")[:120].split())
+    logger.info("Capability gap recorded: [%s] %s", gap_type, _safe)
     return entry
 
 
