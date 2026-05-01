@@ -542,11 +542,18 @@ _WORKFLOW_CMD_RE = re.compile(
     r"\b(?:run|do|start|perform|execute|conduct|please\s+run)\s+"
     r"(?:a\s+|the\s+)?(?:full\s+|complete\s+|quick\s+)?"
     r"(?:due[\s-]?diligence|dd)\b|"
-    r"\b(?:screen|vet|investigate|background[\s-]?check)\s+"
+    # R-F10 2026-05-01: added `search|find|look[\s-]?up` so chat queries
+    # like "Aria, can your search this person Antonio Magalhaes" route to
+    # the DD flow instead of logging a no_symbolic_rule gap.
+    r"\b(?:screen|vet|investigate|background[\s-]?check|search|find|look[\s-]?up)\s+"
     r"(?:this\s+|that\s+|the\s+)?"
     r"(?:company|entity|person|individual|org(?:anisation|anization)?|counterpart(?:y|ies)|"
     r"supplier|buyer|customer|vendor|contact)\b|"
-    r"\bfind\s+(?:info|information|details|intel|everything)\s+(?:on|about)\b",
+    r"\bfind\s+(?:info|information|details|intel|everything)\s+(?:on|about)\b|"
+    # R-F10: the colon-label format ("Aria, person: Colin Risso / Nationality: UK / Role: Director at Limestone")
+    # is a structured DD request the LLM/DD orchestrator handles, not a
+    # rules-engine question. Skip cleanly to suppress the gap log.
+    r"\b(?:person|company|entity|counterpart(?:y|ies)|supplier|buyer)\s*:\s*\S",
     re.IGNORECASE,
 )
 # 2026-04-24: multiparty / end-use structures (origin → buyer → end user)
