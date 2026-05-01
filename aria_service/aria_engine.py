@@ -861,6 +861,18 @@ def _sync_correlation_context(message: str) -> str:
                     parts.append(pc)
             except Exception as _ctx_err:
                 logger.debug("chat-context intel hook failed: %s", _ctx_err)
+            # OHADA harmonised commercial law (2026-05-01) — covers
+            # 17 African states (Cameroon, Côte d'Ivoire, DRC, Senegal,
+            # Mali, Burkina Faso, Niger, Togo, Benin, Guinea, Guinea-
+            # Bissau, Chad, CAR, Republic of Congo, Gabon, Equatorial
+            # Guinea, Comoros) under unified Actes Uniformes + CCJA.
+            try:
+                from .intel import legal_ohada
+                oc = legal_ohada.get_ohada_legal_context(message)
+                if oc:
+                    parts.append(oc)
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Tier 2 regional knowledge (2026-04-17 PM) — North Africa,
             # South/SE Asia, Central Africa, Balkans.
             try:
@@ -1017,6 +1029,8 @@ def _sync_correlation_context(message: str) -> str:
                     "SWISS DEFENCE LAW": "legal_swiss",
                     "PORTUGUESE COMMERCIAL & CORPORATE LAW": "legal_portuguese",
                     "PORTUGUESE PUBLIC PROCUREMENT": "legal_portuguese",
+                    "OHADA UNIFIED COMMERCIAL LAW": "legal_ohada",
+                    "OHADA APPLICATION TO DEFENCE": "legal_ohada",
                 }
                 _joined = "\n".join(parts)
                 _fired_modules: list[str] = []
