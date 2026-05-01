@@ -185,6 +185,21 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> list[di
     OpenSanctions consolidates OFAC SDN, EU, UK OFSI, UN, Interpol Red Notices,
     PEP databases, and ~200 other lists into a single normalised dataset.
     """
+    # F73 fix extension 2026-05-01: live evidence 07:30:05.969 — a chat
+    # leaked a prompt fragment ('HIGH-STAKES and you are NOT 100%
+    # confident, state what you would need to confirm') into the entity
+    # extractor. /search/default already rejects via _looks_like_entity_name
+    # but /match/default did NOT — so the bad input burned a free-tier
+    # request (1 req/sec quota) before the /search guard caught the
+    # follow-on call. Apply the same guard here so neither endpoint
+    # wastes quota on prompt-text leaks.
+    if not _looks_like_entity_name(name):
+        logger.info(
+            "_opensanctions_match: rejecting non-entity input %r "
+            "(looks like a prompt fragment / search query, not a name)",
+            name[:80],
+        )
+        return []
     payload = {
         "queries": {
             "q1": {
