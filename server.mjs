@@ -619,6 +619,12 @@ if (telegramAlerter.isConfigured) {
     if (subCmd === 'discard' && parts[1]) {
       const { unlinkSync, existsSync } = await import('node:fs');
       const stagePath = join(ROOT, 'runs', 'staged', `${parts[1]}.mjs.staged`);
+      // R-F16: also clear Redis mirror so a future boot doesn't
+      // rehydrate a module the operator already discarded.
+      try {
+        const { discardStagedFromRedis } = await import('./lib/self/code_generator.mjs');
+        await discardStagedFromRedis(parts[1]);
+      } catch {}
       if (existsSync(stagePath)) {
         unlinkSync(stagePath);
         try { unlinkSync(stagePath + '.meta.json'); } catch {}
@@ -4199,6 +4205,19 @@ async function start() {
       }
     });
   });
+
+  // R-F16 2026-05-01: rebuild staged-module disk area from Redis before
+  // accepting traffic. Container ephemeral filesystem otherwise loses
+  // pending review work on every restart. Fire-and-forget — disk write
+  // is fast and the autonomous loop runs after server boot anyway.
+  (async () => {
+    try {
+      const { hydrateStagedFromRedis } = await import('./lib/self/code_generator.mjs');
+      await hydrateStagedFromRedis();
+    } catch (err) {
+      console.warn('[Boot] Staged module hydrate failed:', err.message);
+    }
+  })();
 
   server.listen(port, '0.0.0.0');
 
