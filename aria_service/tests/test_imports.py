@@ -85,6 +85,7 @@ CORE_MODULES = [
     "aria_service.intel.knowledge_latam_lusophone",
     "aria_service.intel.legal_turkish",
     "aria_service.intel.legal_swiss",
+    "aria_service.intel.legal_portuguese",
     "aria_service.intel.regional_bright_lines",
     # Heat-map expansion follow-up (2026-04-17 late PM)
     "aria_service.intel.gulf_oem_structure",

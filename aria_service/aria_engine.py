@@ -852,6 +852,15 @@ def _sync_correlation_context(message: str) -> str:
                     parts.append(sc)
             except Exception as _ctx_err:
                 logger.debug("chat-context intel hook failed: %s", _ctx_err)
+            # Portuguese law (2026-05-01) — CSC / CCP / DL 75-2007 /
+            # DL 80-2007 / DGAIED / DGPE + Lusophone-PALOP overlay.
+            try:
+                from .intel import legal_portuguese
+                pc = legal_portuguese.get_portuguese_legal_context(message)
+                if pc:
+                    parts.append(pc)
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Tier 2 regional knowledge (2026-04-17 PM) — North Africa,
             # South/SE Asia, Central Africa, Balkans.
             try:
@@ -1006,6 +1015,8 @@ def _sync_correlation_context(message: str) -> str:
                     "TÜRKİYE DEFENCE PROCUREMENT": "legal_turkish",
                     "SWISS COMMERCIAL & CORPORATE LAW": "legal_swiss",
                     "SWISS DEFENCE LAW": "legal_swiss",
+                    "PORTUGUESE COMMERCIAL & CORPORATE LAW": "legal_portuguese",
+                    "PORTUGUESE PUBLIC PROCUREMENT": "legal_portuguese",
                 }
                 _joined = "\n".join(parts)
                 _fired_modules: list[str] = []
