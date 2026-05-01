@@ -442,7 +442,12 @@ export async function briefing() {
     withTimeout('Africa procurement', fetchAfricaDefenseProcurement, 30000),
     withTimeout('UN procurement',     fetchUNProcurement,             20000),
     withTimeout('World Bank',    fetchWorldBankProcurement,       25000),
-    withTimeout('Lusophone',     fetchLusophoneProcurement,       30000),
+    // R-F14 2026-05-01: bump 30s → 45s. Live evidence 08:45:27: Lusophone
+    // timed out at 30s but the data actually arrived at 08:45:39 (~42s).
+    // 14 parallel feeds, slowest fallback chain can hit the high-30s.
+    // Budget is plenty (outer sweep cap is 90s); losing 182 updates/sweep
+    // for the Lusophone moat is worse than the extra 15s of sweep time.
+    withTimeout('Lusophone',     fetchLusophoneProcurement,       45000),
   ]);
 
   const allItems = [
