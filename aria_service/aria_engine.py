@@ -825,6 +825,15 @@ def _sync_correlation_context(message: str) -> str:
                     parts.append(lc)
             except Exception as _ctx_err:
                 logger.debug("chat-context intel hook failed: %s", _ctx_err)
+            # Brazil-specific Lusophone-LatAm content (2026-05-01) —
+            # closes the latam_lusophone heat-map gap (was 51% uniformly).
+            try:
+                from .intel import knowledge_latam_lusophone
+                blc = knowledge_latam_lusophone.get_brazil_context(message)
+                if blc:
+                    parts.append(blc)
+            except Exception as _ctx_err:
+                logger.debug("chat-context intel hook failed: %s", _ctx_err)
             # Tier 2 regional knowledge (2026-04-17 PM) — North Africa,
             # South/SE Asia, Central Africa, Balkans.
             try:
@@ -964,6 +973,7 @@ def _sync_correlation_context(message: str) -> str:
                     "TURKEY DEFENCE LANDSCAPE": "knowledge_turkey_standalone",
                     "WEST AFRICA DEFENCE": "knowledge_west_africa",
                     "LATAM NON-LUSOPHONE": "knowledge_latam_non_lusophone",
+                    "BRAZIL DEFENCE LANDSCAPE": "knowledge_latam_lusophone",
                     "NORTH AFRICA DEFENCE": "knowledge_north_africa",
                     "SOUTH / SOUTH-EAST ASIA": "knowledge_south_se_asia",
                     "CENTRAL AFRICA": "knowledge_central_africa",
