@@ -298,13 +298,19 @@ async def lifespan(app: FastAPI):
                     # backlog total, 3 = per-cycle quota; flipped (verdict
                     # reached) is a separate axis. Split the three so the
                     # log doesn't mislead future log-readers.
+                    # R-F32 2026-05-03: bumped quota 3→8. With 5-attempt
+                    # drain cap, picks=3 gave 0.6 drained/cycle vs ~1.0
+                    # generated/cycle — backlog grew +20/day (live
+                    # observation 2026-05-03 09:00:56: 109 OPEN, 0/3
+                    # verdicts). picks=8 gives 1.6/cycle drain, net
+                    # -0.6/cycle so the backlog actually clears.
                     processed = 0
                     flipped = 0
                     try:
                         hypotheses = await get_hypotheses()
                         open_hyps = [h for h in hypotheses if h.get("status") == "OPEN"]
                         open_hyps.sort(key=lambda h: h.get("created_at") or "")
-                        for h in open_hyps[:3]:
+                        for h in open_hyps[:8]:
                             hyp_text = h.get("hypothesis", "")
                             if not hyp_text:
                                 continue

@@ -363,9 +363,11 @@ ARTICLES_READ_KEY = "crucix:aria:articles_read"
 
 # After this many validation attempts that didn't flip the hypothesis off
 # OPEN, validate_hypothesis() forces it to INSUFFICIENT_EVIDENCE so the
-# 200-cap backlog drains. 5 means each stuck hypothesis takes ~5 days to
-# age out under the 30-min research cycle (3 hypotheses validated/cycle,
-# oldest-first), which roughly matches operator review cadence.
+# 200-cap backlog drains. 5 means a stuck hypothesis ages out after ~5
+# cycles of being in the per-cycle pick window (oldest-first). Combined
+# with the per-cycle pick quota in main.py (R-F32 2026-05-03 raised that
+# to 8), drain ≈ picks/cap = 8/5 = 1.6 hypotheses/cycle, comfortably
+# above the ~1/cycle generation rate so the backlog actually shrinks.
 _HYPOTHESIS_ATTEMPT_CAP = 5
 
 
