@@ -8,10 +8,19 @@
  *   applyInputValidation(app);
  */
 
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import slowDown  from 'express-slow-down';
 import helmet    from 'helmet';
 import { body, query, param, validationResult } from 'express-validator';
+
+// R-F35 (2026-05-03): IPv6-safe IP fallback. express-rate-limit v8+ emits
+// ERR_ERL_KEY_GEN_IPV6 if you mix req.ip into a custom keyGenerator
+// without normalising — IPv6 addresses can otherwise bypass the limiter
+// because the same prefix maps to many distinct addresses. ipKeyGenerator
+// applies a /64 prefix mask to v6 and leaves v4 alone. Live evidence
+// 2026-05-03 11:09:55: 3× ValidationError stack traces at boot from
+// rateLimiter.mjs:112/113/119 (ariaThin/ariaChat/admin tiers).
+const _ipFallback = (req, res) => ipKeyGenerator(req, res);
 
 // ── Redis store for distributed rate limiting (uses your existing Upstash) ────
 // If you want Redis-backed counters (survives restarts), install:
@@ -50,7 +59,7 @@ const TIERS = {
     windowMs:  60 * 1000,
     max:       5,
     message:   { error: 'ARIA think rate limit reached. Max 5 requests/minute.' },
-    keyGenerator: (req) => req.user?.id || req.ip,   // per-user if authenticated
+    keyGenerator: (req, res) => req.user?.id || _ipFallback(req, res),
   },
 
   // ARIA chat — more lenient, still bounded
@@ -58,7 +67,7 @@ const TIERS = {
     windowMs:  60 * 1000,
     max:       20,
     message:   { error: 'ARIA chat rate limit reached. Max 20 messages/minute.' },
-    keyGenerator: (req) => req.user?.id || req.ip,
+    keyGenerator: (req, res) => req.user?.id || _ipFallback(req, res),
   },
 
   // Compliance screening — moderate cost
@@ -80,7 +89,7 @@ const TIERS = {
     windowMs:  60 * 1000,
     max:       30,
     message:   { error: 'Admin rate limit reached.' },
-    keyGenerator: (req) => req.user?.id || req.ip,
+    keyGenerator: (req, res) => req.user?.id || _ipFallback(req, res),
   },
 };
 
