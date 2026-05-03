@@ -355,6 +355,43 @@ def _resolve_country_iso2(country_name: str) -> str:
     return _COUNTRY_TO_ISO2.get(country_name.lower().strip(), "")
 
 
+# ISO 3166-1 alpha-3 → alpha-2 for the geographies TED publishes against
+# (EU/EEA + UK + a few neighbours). TED's organisation-country-buyer field
+# returns alpha-3 codes like "POL"/"ESP"/"DEU"; the rest of the tender
+# pipeline keys off alpha-2. Kept inline in this module — the only call
+# site is the TED parser.
+_ISO3_TO_ISO2 = {
+    "AUT": "AT", "BEL": "BE", "BGR": "BG", "HRV": "HR", "CYP": "CY",
+    "CZE": "CZ", "DNK": "DK", "EST": "EE", "FIN": "FI", "FRA": "FR",
+    "DEU": "DE", "GRC": "GR", "HUN": "HU", "IRL": "IE", "ITA": "IT",
+    "LVA": "LV", "LTU": "LT", "LUX": "LU", "MLT": "MT", "NLD": "NL",
+    "POL": "PL", "PRT": "PT", "ROU": "RO", "SVK": "SK", "SVN": "SI",
+    "ESP": "ES", "SWE": "SE", "GBR": "GB", "NOR": "NO", "ISL": "IS",
+    "CHE": "CH", "TUR": "TR",
+}
+
+
+def _ted_i18n_pick_str(value: object, prefer: tuple = ("eng", "fra", "deu")) -> str:
+    """Pick a string from an i18n map. TED v3 returns title/buyer-name as
+    {"eng": "...", "fra": "..."} (string per language) and description-lot
+    as {"eng": ["...", "..."]} (list per language). This helper handles
+    both shapes — for list values it joins with a space."""
+    if not isinstance(value, dict):
+        return str(value or "")[:5000]
+    for lang in prefer:
+        v = value.get(lang)
+        if v:
+            if isinstance(v, list):
+                return " ".join(str(x) for x in v if x)[:5000]
+            return str(v)[:5000]
+    for v in value.values():
+        if v:
+            if isinstance(v, list):
+                return " ".join(str(x) for x in v if x)[:5000]
+            return str(v)[:5000]
+    return ""
+
+
 # ── Portal crawlers ──────────────────────────────────────────────────────────
 
 
@@ -366,58 +403,57 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
 
     F101 (2026-04-30): TED v3.0 returned 404 every cycle since at least
     mid-April. The legacy ted.europa.eu/api/v3.0 endpoint is gone; the
-    replacement lives at api.ted.europa.eu/v3 and uses the
-    PublicExpertSearchRequest schema (different query syntax: `cpv=35*`
-    not `cpv:35*`; different field names: BT-* / business-term codes;
-    `limit` not `pageSize`). Pointing the URL at the new host is a
-    one-line bump that surfaces the right error in logs (400 validation
-    instead of 404 not-found) so the next round of work knows it's a
-    schema migration, not a connectivity issue. Body shape is left
-    legacy-incompatible by design — it returns 400 cleanly, the existing
-    non-200 path returns []. Full migration of query syntax + field
-    names is tracked as the next TED follow-up task.
+    replacement lives at api.ted.europa.eu/v3 and uses the eForms
+    PublicExpertSearchRequestV1 schema. Three earlier guess-iterations
+    (R-F29/30/31 2026-05-01) tried to coax a 200 by stripping unknown
+    fields; the last one dropped `fields` entirely and TED responded
+    with the inverse complaint ("fields must not be empty").
+
+    R-F33 2026-05-03: pulled the actual OpenAPI spec from
+    api.ted.europa.eu/api-v3.yaml, which made the schema explicit:
+
+      * query  — expert syntax: `field IN (value*)` and date comparisons
+                 like `publication-date >= 20260419` (YYYYMMDD).
+      * fields — required, non-empty array of eForms field names from a
+                 large enum (~hundreds of BT-* / business-term codes).
+                 Budget: limit × len(fields) ≤ 10 000 (per-page cap).
+      * Most fields come back as i18n maps:
+          notice-title  : {"eng": "...", "fra": "...", ...}
+          buyer-name    : {"eng": ["..."], ...}        # list per lang
+          description-lot:{"eng": ["...", "..."], ...} # multi-lot
+          links.html    : {"ENG": url, "FRA": url, ...}# uppercase!
+        organisation-country-buyer is alpha-3 (POL/ESP/SVK).
     """
     tenders: list[TenderAlert] = []
     try:
         url = "https://api.ted.europa.eu/v3/notices/search"
-        # Build the POST body — q uses Lucene-style query syntax;
-        # cpv:35* is too narrow, broaden to include maintenance/transport CPVs.
         pub_from = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y%m%d")
         pub_to = datetime.now(timezone.utc).strftime("%Y%m%d")
+        # CPV ranges: 35* defence, 506* maintenance/repair (often defence),
+        # 604* transport (logistics contracts attached to defence).
+        query = (
+            f"(classification-cpv IN (35*) "
+            f"OR classification-cpv IN (506*) "
+            f"OR classification-cpv IN (604*)) "
+            f"AND publication-date >= {pub_from} "
+            f"AND publication-date <= {pub_to}"
+        )
         body = {
-            "query": "(cpv:35* OR cpv:506* OR cpv:604*)",
-            # R-F31 2026-05-01: third TED v3 schema-rename iteration.
-            # Live evidence 12:17:33: TED returned 400 "Parameter
-            # 'fields' contains unsupported value (supported values
-            # are: sme-part, touchpoint-gateway-ted-esen, BT-13(t)-Part,
-            # BT-821-Lot, ...)" — the new schema replaced our
-            # `title/description/buyerName` simple field list with
-            # eForms BT-* (Business Term) codes from the EU eForms
-            # standard. Mapping each old field to its BT-* equivalent
-            # is a bigger rewrite than this fix wants; drop the
-            # `fields` parameter entirely so TED returns its default
-            # field set. Parser already has resilient fallbacks
-            # (notice.get("title", {}).get("text", "") etc.) that
-            # handle whichever shape comes back. If TED returns 0
-            # parseable tenders because the default field set doesn't
-            # include the keys we read, we'll surface that as a clean
-            # "0 tenders" log rather than a 400, and the next fix
-            # iteration can map BT-* keys.
-            # F101 follow-up 2026-05-01: `pageSize` was the legacy v3.0
-            # field name. Live evidence 07:43:39: TED returned 400
-            # "Unrecognized field 'pageSize' ... PublicExpertSearchRequestV1".
-            # The new schema uses `limit`. If a follow-on 400 surfaces a
-            # different unknown field, fix forward in the same place.
+            "query": query,
+            "fields": [
+                "publication-number",
+                "publication-date",
+                "notice-title",
+                "notice-type",
+                "description-lot",
+                "buyer-name",
+                "organisation-country-buyer",
+                "classification-cpv",
+                "deadline-receipt-tender-date-lot",
+                "links",
+            ],
             "limit": min(max_results, 50),
             "page": 1,
-            # R-F30 2026-05-01: TED v3 also rejects `sortField` +
-            # `sortOrder` under the new PublicExpertSearchRequestV1
-            # schema (live evidence 11:22:22 — second 400 after
-            # R-F7's pageSize→limit rename). Server-side sort is
-            # non-essential here; downstream sorts client-side by
-            # publication date. Removing both rather than guessing
-            # the new field names. Re-add per documented schema once
-            # available.
         }
         logger.debug("[TED] POST body: %s", json.dumps(body)[:300])
         resp = await client.post(
@@ -432,9 +468,6 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
             # we just report the byte count.
             preview_raw = resp.text[:300]
             preview = preview_raw if all(c.isprintable() or c in "\r\n\t" for c in preview_raw) else f"<binary, {len(resp.content)} bytes>"
-            # F75 2026-04-28: TED has been consistently 404'ing all session
-            # — endpoint migrated. Log loud the first time per process,
-            # then demote until status changes.
             _log_portal_failure(
                 "TED", resp.status_code,
                 f"API returned {resp.status_code}: {preview}",
@@ -449,7 +482,7 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
                 logger.warning("[TED] API returned non-dict: %s", type(data))
                 return tenders
         else:
-            notices = data.get("results") or data.get("notices") or data.get("hits") or []
+            notices = data.get("notices") or data.get("results") or data.get("hits") or []
         if not isinstance(notices, list):
             logger.warning("[TED] API notices not a list: %s", type(notices))
             return tenders
@@ -457,39 +490,59 @@ async def _crawl_ted(client: httpx.AsyncClient, max_results: int = 20) -> list[T
 
         for notice in notices[:max_results]:
             try:
-                title = (
-                    notice.get("title", {}).get("text", "")
-                    if isinstance(notice.get("title"), dict)
-                    else str(notice.get("title", ""))
-                )
-                description = str(notice.get("description", {}).get("text", "")
-                                  if isinstance(notice.get("description"), dict)
-                                  else notice.get("description", ""))[:_MAX_DESCRIPTION_LEN]
-                buyer = str(notice.get("buyerName", notice.get("organisationName", "")))
-                country = str(notice.get("country", notice.get("countryCode", "")))
-                country_iso2 = _resolve_country_iso2(country) or country[:2].upper()
+                title = _ted_i18n_pick_str(notice.get("notice-title", {}))
+                description = _ted_i18n_pick_str(notice.get("description-lot", {}))[:_MAX_DESCRIPTION_LEN]
+                buyer = _ted_i18n_pick_str(notice.get("buyer-name", {}))
 
-                # Extract CPV codes
-                cpv_codes = []
-                cpv_raw = notice.get("cpvCodes") or notice.get("cpv") or []
-                if isinstance(cpv_raw, list):
-                    cpv_codes = [str(c.get("code", c) if isinstance(c, dict) else c) for c in cpv_raw]
-                elif isinstance(cpv_raw, str):
-                    cpv_codes = [cpv_raw]
+                # alpha-3 → alpha-2; fall through to TARGET_MARKETS lookup
+                # by full country name if alpha-3 isn't in our map.
+                country_alpha3 = ""
+                ocb = notice.get("organisation-country-buyer", [])
+                if isinstance(ocb, list) and ocb:
+                    country_alpha3 = str(ocb[0]).upper()
+                elif isinstance(ocb, str):
+                    country_alpha3 = ocb.upper()
+                country_iso2 = _ISO3_TO_ISO2.get(country_alpha3, "")
+                country = TARGET_MARKETS.get(country_iso2, country_alpha3 or "")
 
-                # Value
-                value = notice.get("estimatedValue") or notice.get("valueEur") or ""
-                if value and isinstance(value, (int, float)):
-                    value = f"EUR {value:,.0f}"
-                elif not value:
-                    value = "undisclosed"
-                else:
-                    value = str(value)
+                # CPV is a flat list of strings in eForms.
+                cpv_raw = notice.get("classification-cpv") or []
+                cpv_codes = [str(c) for c in cpv_raw] if isinstance(cpv_raw, list) else []
 
-                deadline = str(notice.get("deadline", notice.get("submissionDeadline", "")))
-                pub_date = str(notice.get("publicationDate", notice.get("PD", "")))
-                notice_id = str(notice.get("noticeId", notice.get("docId", "")))
-                tender_url = f"https://ted.europa.eu/en/notice/-/detail/{notice_id}" if notice_id else ""
+                # Estimated value isn't in our minimal `fields` list — keep
+                # the column populated so downstream renderers don't break.
+                value = "undisclosed"
+
+                # eForms returns one deadline per lot; take the first
+                # non-empty. Strip the +HH:MM TZ suffix so the existing
+                # `_is_deadline_open` parser (which fromisoformat()'s the
+                # string) still works.
+                deadlines = notice.get("deadline-receipt-tender-date-lot") or []
+                deadline = ""
+                if isinstance(deadlines, list):
+                    for d in deadlines:
+                        if d:
+                            deadline = str(d)
+                            break
+
+                pub_date = str(notice.get("publication-date") or "")
+
+                # Build the human-facing URL: prefer links.html in EN/FR/DE,
+                # else any HTML link, else synthesize from publication-number
+                # which is always present (e.g. "151516-2016").
+                publication_number = str(notice.get("publication-number") or "")
+                tender_url = ""
+                links = notice.get("links") or {}
+                html_links = links.get("html") if isinstance(links, dict) else None
+                if isinstance(html_links, dict):
+                    for lang in ("ENG", "FRA", "DEU"):
+                        if html_links.get(lang):
+                            tender_url = str(html_links[lang])
+                            break
+                    if not tender_url and html_links:
+                        tender_url = str(next(iter(html_links.values()), ""))
+                if not tender_url and publication_number:
+                    tender_url = f"https://ted.europa.eu/en/notice/-/detail/{publication_number}"
 
                 t = TenderAlert(
                     id="",
