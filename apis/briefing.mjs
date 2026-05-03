@@ -153,8 +153,45 @@ export async function runSource(name, fn, ...args) {
       timer = setTimeout(() => reject(new Error(`Source ${name} timed out after ${SOURCE_TIMEOUT_MS / 1000}s`)), SOURCE_TIMEOUT_MS);
     });
     const data = await Promise.race([dataPromise, timeoutPromise]);
-    if (_onSourceSuccess) _onSourceSuccess(name, Date.now() - start);
-    return { name, status: 'ok', durationMs: Date.now() - start, data };
+
+    // R-F34 (2026-05-03): honest tally for aggregator sources. Aggregators
+    // (DefenseNews, CyberThreats, ExportControlIntel, Arkmurus,
+    // ProcurementTenders) wrap many sub-sources internally. They catch
+    // their own sub-source errors and return a normal data shape with
+    // empty arrays — so this runner sees status='ok' even when every
+    // sub-source failed. The "49/49 sources OK" summary then lies.
+    //
+    // Aggregators that opt in expose `data._subStatus = {ok, total,
+    // failed}`. Promote to 'partial' (some sub-sources failed) or
+    // 'error' (none returned). Sources without _subStatus stay 'ok' as
+    // before — backwards compatible.
+    let status = 'ok';
+    let subStatus = null;
+    if (data && typeof data === 'object' && data._subStatus
+        && typeof data._subStatus.ok === 'number'
+        && typeof data._subStatus.total === 'number'
+        && data._subStatus.total > 0) {
+      subStatus = {
+        ok:     data._subStatus.ok,
+        total:  data._subStatus.total,
+        failed: Array.isArray(data._subStatus.failed) ? data._subStatus.failed.slice(0, 20) : [],
+      };
+      if (subStatus.ok === 0) status = 'error';
+      else if (subStatus.ok < subStatus.total) status = 'partial';
+    }
+
+    // Reliability tracker: count partial as success (we still got SOME
+    // data back), error as failure. Sub-source-level reliability is a
+    // separate concern — the pruner only knows top-level sources.
+    if (status === 'error' && _onSourceError) {
+      _onSourceError(name, new Error(`all ${subStatus.total} sub-sources failed`), Date.now() - start);
+    } else if (_onSourceSuccess) {
+      _onSourceSuccess(name, Date.now() - start);
+    }
+
+    const result = { name, status, durationMs: Date.now() - start, data };
+    if (subStatus) result.subStatus = subStatus;
+    return result;
   } catch (e) {
     if (_onSourceError) _onSourceError(name, e, Date.now() - start);
     return { name, status: 'error', durationMs: Date.now() - start, error: e.message };
@@ -325,19 +362,38 @@ export async function fullBriefing() {
 
   const confirmedCount = sortedUpdates.filter(u => u._crossSourceConfirmed >= 2).length;
 
+  // R-F34: count by promoted status. 'ok' = full success, 'partial' =
+  // some sub-sources failed but data flowed, 'error'/'timeout' = nothing
+  // useful came back, 'suspended' = pruner short-circuited the call.
+  // sourcesOk now means truly-OK; partial/failed are separate buckets.
+  const okCount       = sources.filter(s => s.status === 'ok').length;
+  const partialCount  = sources.filter(s => s.status === 'partial').length;
+  const failedCount   = sources.filter(s => s.status === 'error' || s.status === 'timeout' || s.status === 'failed').length;
+
   const output = {
     crucix: {
       version:        '2.1.0',
       timestamp:       new Date().toISOString(),
       totalDurationMs: totalMs,
       sourcesQueried:  sources.length,
-      sourcesOk:       sources.filter(s => s.status === 'ok').length,
-      sourcesFailed:   sources.filter(s => s.status !== 'ok').length,
+      sourcesOk:       okCount,
+      sourcesPartial:  partialCount,
+      sourcesFailed:   failedCount,
     },
     sources: Object.fromEntries(
-      sources.filter(s => s.status === 'ok').map(s => [s.name, s.data])
+      // Include partial sources too — their data is still usable, just
+      // incomplete. Filtering them out would silently drop everything
+      // DefenseNews/CyberThreats/etc. surfaced when even ONE sub-source
+      // failed.
+      sources.filter(s => s.status === 'ok' || s.status === 'partial').map(s => [s.name, s.data])
     ),
-    errors: sources.filter(s => s.status !== 'ok').map(s => ({ name: s.name, error: s.error })),
+    errors: sources
+      .filter(s => s.status !== 'ok' && s.status !== 'suspended')
+      .map(s => {
+        const entry = { name: s.name, status: s.status, error: s.error };
+        if (s.subStatus) entry.subStatus = s.subStatus;
+        return entry;
+      }),
     timing: Object.fromEntries(
       sources.map(s => [s.name, { status: s.status, ms: s.durationMs }])
     ),
@@ -358,20 +414,32 @@ export async function fullBriefing() {
     }
   };
 
-  // Name the failing / suspended sources — "48/49 returned data" without names was
-  // a silent skip that hid URL rot (RFI feed moved, ANGOP bot-blocked) for weeks.
-  // Suspensions are split into their own group so the operator can tell a latched
-  // pruner decision from a live crash.
+  // Name the failing / suspended / partial sources. R-F34 added the partial
+  // bucket so that aggregator sources (DefenseNews, CyberThreats, etc.)
+  // whose sub-sources flap are visible at a glance — previously they all
+  // counted as "ok" and operators had to grep sub-source warnings to spot
+  // degradation.
   const erroredNames = sources
-    .filter(s => s.status === 'error' || s.status === 'timeout')
+    .filter(s => s.status === 'error' || s.status === 'timeout' || s.status === 'failed')
     .map(s => `${s.name || 'unknown'}${s.error ? `(${String(s.error).slice(0, 60)})` : ''}`);
   const suspendedNames = sources
     .filter(s => s.status === 'suspended')
     .map(s => s.name || 'unknown');
+  const partialNames = sources
+    .filter(s => s.status === 'partial')
+    .map(s => {
+      if (s.subStatus) {
+        const failed = (s.subStatus.failed || []).slice(0, 3).join(',');
+        return `${s.name}(${s.subStatus.ok}/${s.subStatus.total}${failed ? ` failed:${failed}` : ''})`;
+      }
+      return s.name;
+    });
   const parts = [];
   if (erroredNames.length)   parts.push(` · failed: ${erroredNames.join(', ')}`);
+  if (partialNames.length)   parts.push(` · partial: ${partialNames.join(', ')}`);
   if (suspendedNames.length) parts.push(` · suspended: ${suspendedNames.join(', ')}`);
-  console.error(`[Crucix] Sweep complete in ${totalMs}ms — ${output.crucix.sourcesOk}/${sources.length} sources returned data${parts.join('')}`);
+  const partialFrag = partialCount ? ` (${partialCount} partial)` : '';
+  console.error(`[Crucix] Sweep complete in ${totalMs}ms — ${okCount}/${sources.length} sources fully OK${partialFrag}${parts.join('')}`);
   console.error(`[Crucix] Dashboard: ${sortedUpdates.length} deduped updates (${confirmedCount} cross-confirmed), ${sortedSignals.length} signals`);
   return output;
 }

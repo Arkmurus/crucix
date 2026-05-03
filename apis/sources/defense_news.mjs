@@ -284,6 +284,9 @@ export async function briefing() {
   ];
 
   const okSources = Object.values(sourceStatus).filter(s => s === 'ok').length;
+  const failedSubs = Object.entries(sourceStatus)
+    .filter(([, s]) => s !== 'ok')
+    .map(([n]) => n);
   console.log(`[DefenseNews] ${top.length} items · ${lusophone.length} Lusophone · ${okSources}/${FEEDS.length} sources OK`);
 
   return {
@@ -297,6 +300,13 @@ export async function briefing() {
       lusophone:  lusophone.length,
       highRelevance: highRelevance.length,
       sourcesOk:  okSources,
+    },
+    // R-F34: surface sub-source health to the runner so the top-level
+    // sweep tally is honest. See apis/briefing.mjs `runSource`.
+    _subStatus: {
+      ok:     okSources,
+      total:  FEEDS.length,
+      failed: failedSubs,
     },
   };
 }

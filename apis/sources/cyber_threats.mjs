@@ -117,10 +117,21 @@ async function fetchRansomwareVictims() {
 export async function briefing() {
   console.log('[CyberThreats] Fetching CVE and ransomware intelligence...');
 
-  const [cves, ransomware] = await Promise.allSettled([
+  // R-F34: track sub-source outcomes so the top-level "49/49 sources OK"
+  // tally surfaces NVD/ransomwatch outages instead of swallowing them.
+  // Live evidence 2026-05-03 10:49:31: both sub-sources returned "fetch
+  // failed" (network blip) but CyberThreats still reported 'ok' upstream.
+  const settled = await Promise.allSettled([
     fetchCriticalCVEs(),
     fetchRansomwareVictims(),
-  ]).then(r => r.map(x => x.status === 'fulfilled' ? x.value : []));
+  ]);
+  const subNames = ['NVD-CVE', 'ransomwatch'];
+  const subFailed = settled
+    .map((r, i) => r.status !== 'fulfilled' || !Array.isArray(r.value) || r.value.length === 0 ? subNames[i] : null)
+    .filter(Boolean);
+  const subOk = subNames.length - subFailed.length;
+  const cves       = settled[0].status === 'fulfilled' ? settled[0].value : [];
+  const ransomware = settled[1].status === 'fulfilled' ? settled[1].value : [];
 
   const updates = [...cves, ...ransomware];
   const signals = updates
@@ -145,6 +156,7 @@ export async function briefing() {
       ransomwareVictims: ransomware.length,
       criticalSignals:   signals.length,
     },
+    _subStatus: { ok: subOk, total: subNames.length, failed: subFailed },
   };
 }
 

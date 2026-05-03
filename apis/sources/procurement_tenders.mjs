@@ -552,6 +552,9 @@ export async function briefing() {
   };
 
   const okCount = Object.values(sourceStatus).filter(s => s === 'ok').length;
+  const failedSubs = Object.entries(sourceStatus)
+    .filter(([, s]) => s !== 'ok')
+    .map(([n]) => n);
   console.log(`[Procurement] ${top.length} tenders · ${lusophone.length} Lusophone · ${african.length} African · ${okCount}/6 sources OK`);
 
   return {
@@ -574,6 +577,14 @@ export async function briefing() {
         un:          un.status      === 'fulfilled' ? un.value.length      : 0,
         wb:          wb.status      === 'fulfilled' ? wb.value.length      : 0,
       },
+    },
+    // R-F34: surface sub-source health to the runner. Sub-sources that
+    // returned 0 items count as failed — World Bank 500s and Breaking
+    // Defense blocks now show up in the top-level "X partial" tally.
+    _subStatus: {
+      ok:     okCount,
+      total:  Object.keys(sourceStatus).length,
+      failed: failedSubs,
     },
   };
 }

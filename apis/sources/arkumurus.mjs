@@ -102,6 +102,10 @@ export async function briefing() {
   // Sort newest first
   dedup.sort((a, b) => b.timestamp - a.timestamp);
 
+  // R-F34: surface sub-feed health to the runner. The existing `errors`
+  // array carries entries shaped "FeedName: error message" — split out
+  // the names for the honest sweep tally.
+  const failedFeeds = errors.map(e => String(e).split(':')[0].trim()).filter(Boolean);
   return {
     source:    'Arkmurus Intelligence',
     timestamp: new Date().toISOString(),
@@ -115,6 +119,11 @@ export async function briefing() {
       signals: signals.length,
       feeds:   FEEDS.length,
       errors:  errors.length,
+    },
+    _subStatus: {
+      ok:     FEEDS.length - errors.length,
+      total:  FEEDS.length,
+      failed: failedFeeds,
     },
   };
 }

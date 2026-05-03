@@ -4061,7 +4061,12 @@ async function runSweepCycle() {
     // Push sweep data to Python ARIA service for intel layer updates
     pushSweepToARIA(currentData).catch(() => {});
 
-    console.log(`[Crucix] Sweep complete — ${currentData.meta.sourcesOk}/${currentData.meta.sourcesQueried} sources OK`);
+    {
+      const m = currentData.meta || {};
+      const partFrag = m.sourcesPartial ? ` (${m.sourcesPartial} partial)` : '';
+      const failFrag = m.sourcesFailed  ? ` · ${m.sourcesFailed} failed` : '';
+      console.log(`[Crucix] Sweep complete — ${m.sourcesOk}/${m.sourcesQueried} sources fully OK${partFrag}${failFrag}`);
+    }
     console.log(`[Crucix] ${currentData.ideas.length} ideas (${synthesized.ideasSource}) | ${currentData.news.length} news | ${currentData.newsFeed.length} feed items`);
     if (delta?.summary) console.log(`[Crucix] Delta: ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical, direction: ${delta.summary.direction}`);
     if (correlations.length > 0) console.log(`[Crucix] Correlations: ${correlations.map(c => `${c.region}(${c.severity})`).join(', ')}`);

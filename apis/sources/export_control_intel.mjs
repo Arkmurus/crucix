@@ -86,6 +86,19 @@ export async function briefing() {
     SOURCES.map(src => fetchSource(src))
   );
 
+  // R-F34: track sub-source health for the honest sweep tally.
+  // fetchSource returns [] on failure (see "all attempts blocked" path
+  // at line ~246), which we count as a failure here.
+  const _subFailed = [];
+  for (let i = 0; i < settled.length; i++) {
+    const res = settled[i];
+    const src = SOURCES[i];
+    if (res.status !== 'fulfilled' || !Array.isArray(res.value) || res.value.length === 0) {
+      _subFailed.push(src.name);
+    }
+  }
+  const _subOk = SOURCES.length - _subFailed.length;
+
   for (let i = 0; i < settled.length; i++) {
     const res = settled[i];
     const src = SOURCES[i];
@@ -161,6 +174,7 @@ export async function briefing() {
   };
 
   console.log(`[ExportControlIntel] ${results.updates.length} updates · ${results.alerts.length} critical · ${results.entityListChanges.length} entity list changes`);
+  results._subStatus = { ok: _subOk, total: SOURCES.length, failed: _subFailed };
   return results;
 }
 
