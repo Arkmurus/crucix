@@ -105,11 +105,14 @@ def test_legacy_redis_blob_migrates_to_disk_on_first_load(
         "version": 1,
     }
 
-    async def fake_get_json(key):
+    async def fake_get(key):
         assert key == il.KEY
-        return legacy_payload
+        # Pre-R-F36 snapshots were written via rs.set_json (raw JSON
+        # string); the post-R-F36 loader uses rs.get + _decode_snapshot
+        # which accepts both that legacy shape and the new gzipped one.
+        return json.dumps(legacy_payload, default=str)
 
-    monkeypatch.setattr(il.rs, "get_json", fake_get_json)
+    monkeypatch.setattr(il.rs, "get", fake_get)
 
     async def go():
         loaded = await il._load()

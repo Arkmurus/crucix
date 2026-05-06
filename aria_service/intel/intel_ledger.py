@@ -24,6 +24,8 @@ Why this shape:
 from __future__ import annotations
 
 import asyncio
+import base64
+import gzip
 import json
 import logging
 import os
@@ -41,6 +43,56 @@ logger = logging.getLogger("aria.intel.ledger")
 KEY = "crucix:intel_ledger"
 MAX_SIGNALS = 1_000_000
 RETENTION_DAYS = 36500  # 100 years — effectively permanent
+
+# R-F36 (2026-05-06): mirrors F111's knowledge-snapshot fix. The 10-min
+# Redis snapshot of the ledger crossed Upstash's 4 MB warn threshold at
+# ~13.7k signals (4.51 MB raw) and would hit the tier cap in days. Signal
+# JSON compresses ~5-8× with gzip, so a base64+gzip wrapper buys multi-month
+# headroom. Magic prefix lets the loader distinguish gzipped values from
+# legacy raw-JSON blobs written before this fix.
+_GZ_PREFIX = "GZ1:"
+
+
+def _encode_snapshot(obj: dict) -> str:
+    raw = json.dumps(obj, default=str).encode("utf-8")
+    gz = gzip.compress(raw, compresslevel=6)
+    return _GZ_PREFIX + base64.b64encode(gz).decode("ascii")
+
+
+def _decode_snapshot(value: Any) -> dict | None:
+    """Decode a Redis ledger snapshot. Returns None if empty/unparseable.
+    Accepts both new gzipped payloads (prefix `GZ1:`) and legacy raw-JSON
+    blobs so existing snapshots migrate forward on the next read. Tolerates
+    str, bytes, and the dict that legacy `rs.get_json` test fixtures hand
+    back so swapping the call site doesn't break them."""
+    if not value:
+        return None
+    if isinstance(value, dict):
+        return value if "signals" in value else None
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            value = value.decode("utf-8")
+        except Exception:
+            return None
+    if not isinstance(value, str):
+        return None
+    if value.startswith(_GZ_PREFIX):
+        try:
+            gz = base64.b64decode(value[len(_GZ_PREFIX):])
+            raw = gzip.decompress(gz)
+            data = json.loads(raw)
+            if isinstance(data, dict) and "signals" in data:
+                return data
+        except Exception as e:
+            logger.warning("intel_ledger: gzip snapshot decode failed: %s", e)
+        return None
+    try:
+        data = json.loads(value)
+        if isinstance(data, dict) and "signals" in data:
+            return data
+    except Exception:
+        pass
+    return None
 
 _cache: dict | None = None
 
@@ -152,12 +204,13 @@ async def _flush_loop() -> None:
                 and _cache
             ):
                 try:
-                    await rs.set_json(KEY, _cache)
+                    payload = _encode_snapshot(_cache)
+                    await rs.set(KEY, payload)
                     _dirty_since_snapshot = False
                     last_snapshot = now
                     logger.info(
-                        "intel_ledger: Redis snapshot written (%d signals)",
-                        len(_cache.get("signals", [])),
+                        "intel_ledger: Redis snapshot written (%d signals, %d bytes gzip)",
+                        len(_cache.get("signals", [])), len(payload),
                     )
                 except Exception as e:
                     logger.warning("intel_ledger: Redis snapshot failed: %s", e)
@@ -250,8 +303,10 @@ async def _load() -> dict:
         _ensure_flusher()
         return _cache
 
-    # 2. Disk empty — try the legacy Redis blob and migrate it forward.
-    legacy = await rs.get_json(KEY)
+    # 2. Disk empty — try the Redis snapshot (gzip post-R-F36, or legacy
+    #    raw-JSON pre-R-F36) and migrate it forward to disk.
+    raw = await rs.get(KEY)
+    legacy = _decode_snapshot(raw)
     if legacy and isinstance(legacy, dict) and "signals" in legacy:
         _cache = legacy
         logger.warning(
