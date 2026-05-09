@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ARIA — Terms of Service</title>
+  <link rel="icon" type="image/png" href="../images/fav-icon/icon.png">
+  <link rel="stylesheet" href="../css/crucix.css?v=3">
+  <link rel="stylesheet" href="../fonts/bootstrap-icons/font-css.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { background: #0c0919; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.85); line-height: 1.7; }
+    .legal-shell { max-width: 760px; margin: 0 auto; padding: 56px 24px 80px; }
+    .legal-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(124,58,237,0.85); font-weight: 700; margin-bottom: 12px; }
+    .legal-title { font-size: 34px; font-weight: 800; color: #fff; margin: 0 0 6px; letter-spacing: -0.02em; }
+    .legal-meta { font-size: 13px; color: rgba(255,255,255,0.4); margin-bottom: 28px; }
+
+    .draft-banner {
+      padding: 16px 20px; border-radius: 12px; margin-bottom: 36px;
+      background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.32);
+      color: #fbbf24; font-size: 13.5px;
+    }
+    .draft-banner strong { color: #fff; display: block; margin-bottom: 4px; font-size: 14px; }
+
+    h2 { font-size: 22px; font-weight: 800; color: #fff; margin: 40px 0 12px; letter-spacing: -0.01em; }
+    h3 { font-size: 15px; font-weight: 700; color: #c4b5fd; margin: 26px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+    p { margin: 0 0 14px; font-size: 14.5px; }
+    p strong, li strong { color: #e9e3ff; }
+    ul, ol { padding-left: 22px; margin: 0 0 16px; }
+    li { margin: 6px 0; font-size: 14.5px; }
+    code { background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.18); padding: 1px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12.5px; color: #c4b5fd; }
+    a { color: #c4b5fd; }
+
+    .legal-callout {
+      padding: 14px 18px; border-radius: 10px; margin: 14px 0 22px;
+      border-left: 3px solid;
+    }
+    .legal-callout.amber { background: rgba(245,158,11,0.07); border-color: #f59e0b; }
+    .legal-callout.red   { background: rgba(239,68,68,0.07);  border-color: #ef4444; }
+    .legal-callout p { margin: 0; font-size: 13.5px; color: rgba(255,255,255,0.78); }
+
+    .legal-footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 12px; color: rgba(255,255,255,0.4); }
+  </style>
+</head>
+<body>
+<div class="legal-shell">
+
+  <div class="legal-eyebrow">Legal</div>
+  <h1 class="legal-title">Terms of Service</h1>
+  <div class="legal-meta">Effective date: <strong>To be determined upon legal review.</strong> Operator: Arkmurus Limited.</div>
+
+  <div class="draft-banner">
+    <strong>DRAFT — pending legal counsel review</strong>
+    This document is a working draft. The clauses below describe the service as currently implemented but have not yet been reviewed or approved by external counsel. Do not rely on it as a binding agreement. Email <a href="mailto:support@arkmurus.com">support@arkmurus.com</a> with questions while the final terms are being prepared.
+  </div>
+
+  <h2>1. Agreement</h2>
+  <p>These Terms of Service ("Terms") are an agreement between you and <strong>Arkmurus Limited</strong>, a company registered in England &amp; Wales ("Arkmurus", "we", "us"). By creating an account, accessing the ARIA web product, sending messages to ARIA via WhatsApp, or using any forthcoming public API, you accept these Terms. If you do not accept them, do not use ARIA.</p>
+  <p>"ARIA" means the AI assistant operated by Arkmurus, including the web chat at <code>aria.app</code> (or the operator's current host), the WhatsApp interface, the <code>/api/aria</code> backend, and the public API surface where enabled.</p>
+
+  <h2>2. What ARIA is, and what it isn't</h2>
+  <p>ARIA is a domain-specialised AI assistant for security and defence due-diligence work. Its capabilities and limitations are stated in detail in <a href="/model-card.html">the public model card</a>, which is incorporated by reference into these Terms.</p>
+  <div class="legal-callout amber">
+    <p><strong>ARIA is not a substitute for licensed legal, regulatory, or financial advice.</strong> Outputs that identify potential compliance issues are <em>indicators</em>, not legal opinions. Final classification, decision, and licensing belong to a licensed counsel or compliance officer in the relevant jurisdiction.</p>
+  </div>
+
+  <h2>3. Eligibility</h2>
+  <ul>
+    <li>You must be at least 18 years old.</li>
+    <li>You must have legal authority to enter these Terms on your own behalf or on behalf of the organisation you represent.</li>
+    <li>You must not be subject to UK, EU, US (OFAC SDN), or UN sanctions.</li>
+    <li>You must not use ARIA from a jurisdiction where access is prohibited by Arkmurus's home jurisdictional export-control regime (UK SITCL).</li>
+  </ul>
+
+  <h2>4. Accounts &amp; access</h2>
+  <ul>
+    <li>You are responsible for keeping your password and any API keys secure. Notify us immediately at <a href="mailto:support@arkmurus.com">support@arkmurus.com</a> if you believe your credentials are compromised.</li>
+    <li>You are responsible for all activity under your account.</li>
+    <li>We may approve, decline, suspend, or terminate any account at our discretion, particularly when we suspect violation of these Terms or applicable law.</li>
+    <li>We may require email verification, identity confirmation, or admin approval before granting account access.</li>
+  </ul>
+
+  <h2>5. Subscription &amp; billing</h2>
+  <p>Where a paid subscription is active on your account:</p>
+  <ul>
+    <li>Subscription fees, renewal cadence, and tier limits are stated on the account / pricing pages and in the model card.</li>
+    <li>We process payments via <strong>Stripe</strong>. We do not store card data on our infrastructure.</li>
+    <li>Subscriptions auto-renew until cancelled. You may cancel at any time via the Stripe customer portal (link from the account page); cancellation takes effect at the end of the current billing period.</li>
+    <li>Refunds: we offer a full refund within 14 days of the first charge if you are unsatisfied (consumer right of withdrawal). Refunds outside that window are at our discretion and limited to manifest service failures (e.g. extended outages).</li>
+    <li>Tier limits (messages per day, DD runs per month, file upload size and count, autonomous-task access, public-API access) are enforced server-side. Exceeding a limit results in HTTP 429 and the resource resets at the next UTC day or calendar month, depending on the limit type.</li>
+  </ul>
+
+  <h2>6. Acceptable use</h2>
+  <p>You agree not to:</p>
+  <ul>
+    <li>Use ARIA to facilitate any transaction prohibited by UK, EU, US, UN, or Arkmurus's home-jurisdiction export-control / sanctions regimes.</li>
+    <li>Submit content you do not have the right to submit (e.g. third-party copyrighted material without licence).</li>
+    <li>Attempt to extract personal data on individuals without a lawful basis.</li>
+    <li>Probe for security vulnerabilities, perform unauthorised penetration testing, or interfere with the service's availability.</li>
+    <li>Impersonate any person, organisation, or government entity.</li>
+    <li>Use ARIA's outputs to build a competing AI product without our written agreement.</li>
+    <li>Use ARIA's outputs as the sole basis for decisions with legal or financial consequences for a third party (you remain responsible for verification — see §2 and the model card).</li>
+    <li>Submit prompts that attempt to override ARIA's constitution / safety controls. ARIA's constitution (see model card §8) is a hard floor; output that violates it is a malfunction we want to know about, not a feature.</li>
+  </ul>
+
+  <h2>7. Intellectual property</h2>
+  <ul>
+    <li><strong>Your content</strong> (the prompts, documents, and instructions you submit) remains yours. You grant us a non-exclusive licence to process it for the duration of, and to the extent necessary for, providing the service.</li>
+    <li><strong>ARIA's outputs</strong> — when ARIA generates content in response to your prompts, you may use that content for any lawful purpose, subject to (a) source-citation obligations imposed by the original source (e.g. respecting paywall licences), and (b) the disclaimer in §2.</li>
+    <li><strong>The ARIA service itself</strong> (codebase, brand, model card, constitution, audit-log specification, source registry, knowledge modules) is owned by Arkmurus. These Terms do not grant you a licence to redistribute or sub-license the service.</li>
+  </ul>
+
+  <h2>8. Audit log &amp; verifiability</h2>
+  <p>Every material claim ARIA makes is recorded in a hash-chained, HMAC-signed audit log (see model card §7). This is a feature of the product: you (or your client's compliance officer) can verify that an ARIA output has not been altered after generation. We retain audit-log entries for the duration described in the privacy policy §6. Audit-log integrity is a service-level commitment: we will not knowingly publish content that fails its own audit signature.</p>
+
+  <h2>9. Confidentiality</h2>
+  <p>Conversation content is treated as confidential to your account. We will not share, sell, or otherwise disclose conversation content to third parties except (a) to the processors listed in <a href="/about/privacy.html">the privacy policy §5</a> as necessary to operate the service, (b) when compelled by law enforcement under valid legal process, or (c) with your explicit consent. Internally, conversation content is accessible only to authorised personnel acting under data-handling agreements.</p>
+
+  <h2>10. Disclaimers</h2>
+  <div class="legal-callout amber">
+    <p>ARIA IS PROVIDED "AS IS". TO THE MAXIMUM EXTENT PERMITTED BY LAW, ARKMURUS DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.</p>
+  </div>
+  <p>In particular, ARIA may produce outputs that are factually incorrect, incomplete, or out-of-date. The model card describes the constitutional safeguards we have in place against fabrication, source mis-attribution, and propaganda elevation, but no AI system is perfect. <strong>You are responsible for verifying any output before relying on it for a high-stakes decision.</strong></p>
+  <p>The service may be unavailable from time to time for maintenance, deployment, or unforeseen technical reasons. We publish operational status at <a href="/status.html">the status page</a>.</p>
+
+  <h2>11. Limitation of liability</h2>
+  <div class="legal-callout red">
+    <p>To the maximum extent permitted by law, Arkmurus's total cumulative liability under these Terms shall not exceed the greater of (a) the fees you paid us in the 12 months preceding the claim, or (b) £100. Arkmurus shall not be liable for indirect, incidental, special, consequential, or punitive damages, including lost profits, lost data, lost business opportunities, or reputational harm, even if Arkmurus was advised of the possibility.</p>
+  </div>
+  <p>This limitation does not apply to: liability arising from death or personal injury caused by our negligence; liability for fraud or fraudulent misrepresentation; or any other liability that cannot be excluded by law.</p>
+  <p>Some jurisdictions do not allow limitations on certain warranties or liabilities; in those jurisdictions, our liability is limited to the maximum extent permitted by law.</p>
+
+  <h2>12. Indemnity</h2>
+  <p>You agree to indemnify and hold Arkmurus harmless from any third-party claim arising from (a) your breach of these Terms, (b) your misuse of the service, or (c) your violation of any law or third-party right. We will give you prompt notice of any claim, and you may control the defence subject to our right to participate at our own cost.</p>
+
+  <h2>13. Suspension &amp; termination</h2>
+  <ul>
+    <li>You may close your account at any time by emailing <a href="mailto:support@arkmurus.com">support@arkmurus.com</a> or via the in-product control when available. See <a href="/about/privacy.html">privacy policy §6</a> for what happens to your data on closure.</li>
+    <li>We may suspend or terminate your account immediately if we reasonably believe you have violated these Terms, particularly the acceptable-use clause (§6) or the eligibility requirements (§3).</li>
+    <li>For non-violations (e.g. inactive accounts), we will provide at least 30 days' notice before termination.</li>
+    <li>Sections that are intended to survive termination — including but not limited to §7 (Intellectual property), §10 (Disclaimers), §11 (Limitation of liability), §12 (Indemnity), §15 (Governing law) — survive termination.</li>
+  </ul>
+
+  <h2>14. Changes to these Terms</h2>
+  <p>We will publish material changes here and notify registered users by email at least 30 days before they take effect. Continued use after the effective date constitutes acceptance. Non-material changes (clarifications, formatting, minor wording) take effect on publication.</p>
+
+  <h2>15. Governing law &amp; jurisdiction</h2>
+  <p>These Terms are governed by the laws of England &amp; Wales. Any dispute that cannot be resolved by good-faith discussion will be submitted to the exclusive jurisdiction of the courts of England &amp; Wales. Nothing in this clause limits any consumer right that cannot be excluded under your local law.</p>
+
+  <h2>16. Contact</h2>
+  <p>Operator: <strong>Arkmurus Limited</strong>, registered in England &amp; Wales.<br>
+  General contact: <a href="mailto:support@arkmurus.com">support@arkmurus.com</a><br>
+  Privacy enquiries: <a href="mailto:privacy@arkmurus.com">privacy@arkmurus.com</a></p>
+
+  <div class="legal-footer">
+    Companion documents: <a href="/about/privacy.html">Privacy policy</a> · <a href="/model-card.html">Model card</a> · <a href="/status.html">Status page</a>
+    <br><br>
+    Operator: Arkmurus Limited, England &amp; Wales
+  </div>
+</div>
+</body>
+</html>
