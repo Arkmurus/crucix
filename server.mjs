@@ -40,6 +40,11 @@ import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUs
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { createReportsRouter } from './lib/reports/routes.mjs';
 import { createStatusRouter } from './lib/status/routes.mjs';
+// R-F42 (2026-05-09): public API surface — env-gated on ENABLE_PUBLIC_API.
+// When unset, both routers return 503 from byte 1, so this import is safe
+// to leave permanently — no behaviour change until the operator opts in.
+import { createKeysRouter, createV1Router, publicApiEnabled } from './lib/api_keys/routes.mjs';
+import { initApiKeysStore } from './lib/api_keys/store.mjs';
 import { initIncidentsStore } from './lib/status/store.mjs';
 import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
@@ -182,6 +187,7 @@ const telegramAlerter = new TelegramAlerter(config.telegram);
     await initLearningStore();
     await initBDStore();
     await initIncidentsStore();
+    await initApiKeysStore();
     const { initEntityStore } = await import('./lib/search/entity-store.mjs');
     await initEntityStore();
     console.log('[Persist] All stores initialized');
@@ -3908,6 +3914,60 @@ app.use('/api/billing', createBillingRouter({
   updateUser,
   listUsers,
 }));
+
+// ── R-F42 Public API (Lifter #5 from strategic review) ────────────────────────
+//
+// Mounts /api/keys/* (user-managed key CRUD, JWT-auth) and /api/v1/*
+// (public chat surface, API-key auth). Both 503 when ENABLE_PUBLIC_API is
+// unset so this is behaviour-neutral until the operator flips the env var
+// (gated on first paying Pro Intelligence customer per the strategic review).
+//
+// The v1 chat endpoint reuses the same fly.io upstream + persona resolution
+// + trivial short-circuit as /api/aria/chat. We don't rebuild the chain —
+// we route requests through _publicApiChatProxy which mirrors the auth'd
+// path's behaviour and returns the response object directly. Failure modes
+// are surfaced as JSON, not propagated as exceptions, so a fly outage on
+// the public surface shows up as a 502 with a useful detail field.
+async function _publicApiChatProxy({ userId, message, sessionId }) {
+  const sid = sessionId || `apiv1_${userId}_${Date.now()}`;
+
+  // Trivial short-circuit (matches /api/aria/chat at line 2537-2546).
+  const _trivial = trivialReply(message);
+  if (_trivial !== null) {
+    return { response: _trivial, session_id: sid, service: 'trivial', engine: 'short-circuit' };
+  }
+
+  // Resolve persona from the user record so the brain picks the right overlay.
+  let _persona = '';
+  try {
+    const u = findUserById(userId);
+    if (u && u.sector) _persona = String(u.sector).trim();
+  } catch {}
+
+  if (!ARIA_SERVICE_URL) {
+    throw new Error('ARIA_SERVICE_URL not configured — fly upstream unreachable');
+  }
+  const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
+    method: 'POST',
+    headers: _ariaHeaders(),
+    body: JSON.stringify({ message, session_id: sid, user_id: userId, persona: _persona }),
+    signal: AbortSignal.timeout(240000),
+  });
+  if (!r.ok) {
+    const body = await r.text().catch(() => '');
+    throw new Error(`fly upstream ${r.status}: ${body.slice(0, 200)}`);
+  }
+  const data = await r.json();
+  data.service = data.service || 'python';
+  data.engine = data.engine || 'aria-8layer';
+  data.session_id = sid;
+  return data;
+}
+app.use('/api/keys', createKeysRouter({ requireAuth, findUserById }));
+app.use('/api/v1', createV1Router({ findUserById, chatProxy: _publicApiChatProxy }));
+console.log(
+  `[PublicAPI] R-F42 routes mounted — ENABLE_PUBLIC_API=${publicApiEnabled() ? 'on' : 'off (503)'}`,
+);
 
 // ── Reports Routes (audit-grade PDF export — Lifter #3 from strategic review) ─
 //

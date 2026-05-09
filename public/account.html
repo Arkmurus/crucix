@@ -151,6 +151,34 @@
       <div style="grid-column:1/-1;color:rgba(255,255,255,0.35);font-size:13px">Loading plans…</div>
     </div>
 
+    <!-- R-F42 API keys (only renders when ENABLE_PUBLIC_API=1 server-side) -->
+    <div id="acct-keys-section" style="display:none">
+      <div class="acct-section-title">API keys</div>
+      <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:18px;">
+        <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:12px">
+          Use API keys to access ARIA from your own scripts and integrations.
+          Keys count against your tier's daily message quota and are rate-limited to 60 req/min per key.
+          Pro Intelligence tier required.
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+          <input id="keys-name-input" type="text" placeholder="Key label (e.g. Backend service)"
+                 style="flex:1;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.08);
+                        border-radius:8px;padding:9px 12px;color:#fff;font-size:13px;font-family:inherit">
+          <button id="keys-create-btn" class="sc-btn sc-btn-primary sc-btn-sm">Create new key</button>
+        </div>
+        <div id="keys-just-created" style="display:none;margin:10px 0 14px;padding:12px;
+             background:rgba(34,197,94,0.07);border:1px solid rgba(34,197,94,0.25);border-radius:8px">
+          <div style="font-size:12px;color:#4ade80;margin-bottom:6px;font-weight:600">
+            <i class="bi bi-check-circle-fill"></i> Key created — copy now, you won't see it again
+          </div>
+          <code id="keys-just-created-value"
+                style="display:block;padding:8px;background:rgba(0,0,0,0.4);border-radius:6px;
+                       font-size:12px;color:#fff;word-break:break-all;user-select:all"></code>
+        </div>
+        <div id="keys-list" style="font-size:13px;color:rgba(255,255,255,0.4)">Loading…</div>
+      </div>
+    </div>
+
   </div>
 </main>
 
@@ -351,6 +379,109 @@ Sidebar.init('account');
       btn.disabled = false; btn.textContent = orig;
     }
   }
+
+  // ── R-F42 API keys panel ──────────────────────────────────────────────
+  // /api/keys returns 503 with {enabled:false} when ENABLE_PUBLIC_API is
+  // unset; that's our signal to leave the section hidden. When enabled,
+  // we render the list + a "Create new key" button. The plaintext key
+  // is shown ONCE on creation and never persisted client-side.
+  (async function() {
+    const token = localStorage.getItem('crucix_token') || '';
+    if (!token) return;
+    const headers = { 'Authorization': 'Bearer ' + token };
+    let keysResp;
+    try {
+      const r = await fetch('/api/keys/', { headers });
+      if (r.status === 503) return; // public API not enabled
+      keysResp = await r.json().catch(() => ({}));
+      if (!keysResp || keysResp.enabled === false) return;
+    } catch { return; }
+
+    document.getElementById('acct-keys-section').style.display = '';
+    renderKeys(keysResp.keys || []);
+
+    document.getElementById('keys-create-btn').addEventListener('click', async function(ev) {
+      const btn = ev.target;
+      const nameInput = document.getElementById('keys-name-input');
+      const name = (nameInput.value || '').trim() || 'API key';
+      const orig = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Creating…';
+      try {
+        const r = await fetch('/api/keys/', {
+          method: 'POST',
+          headers: Object.assign({}, headers, { 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ name }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          alert('Key creation failed: ' + (data.error || r.status));
+          return;
+        }
+        const banner = document.getElementById('keys-just-created');
+        document.getElementById('keys-just-created-value').textContent = data.key.plaintext;
+        banner.style.display = '';
+        nameInput.value = '';
+        // Refresh list (without the plaintext)
+        const listResp = await fetch('/api/keys/', { headers }).then(r => r.json()).catch(() => ({}));
+        renderKeys(listResp.keys || []);
+      } catch (err) {
+        alert('Key creation error: ' + err.message);
+      } finally {
+        btn.disabled = false; btn.textContent = orig;
+      }
+    });
+
+    function renderKeys(keys) {
+      const listEl = document.getElementById('keys-list');
+      if (!keys.length) {
+        listEl.innerHTML = '<div style="padding:8px 0">No keys yet — create one above.</div>';
+        return;
+      }
+      listEl.innerHTML = '';
+      keys.forEach(function(k) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;'
+          + 'padding:10px 0;border-top:1px solid rgba(255,255,255,0.05)';
+        const left = document.createElement('div');
+        left.innerHTML = '<div style="color:#fff;font-weight:600;font-size:13px">'
+          + escapeHtml(k.name || 'API key') + '</div>'
+          + '<div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:3px">'
+          + escapeHtml(k.prefix || 'crx_live_') + '…' + escapeHtml(k.last4 || '') + ' · '
+          + 'created ' + (k.createdAt ? k.createdAt.slice(0, 10) : '')
+          + (k.lastUsedAt ? ' · last used ' + k.lastUsedAt.slice(0, 10) : ' · never used')
+          + (k.revokedAt ? ' · REVOKED ' + k.revokedAt.slice(0, 10) : '')
+          + '</div>';
+        const right = document.createElement('div');
+        if (!k.revokedAt) {
+          const btn = document.createElement('button');
+          btn.className = 'sc-btn sc-btn-sm';
+          btn.style.cssText = 'background:transparent;border:1px solid rgba(239,68,68,0.3);'
+            + 'color:#fca5a5;font-size:11px';
+          btn.textContent = 'Revoke';
+          btn.onclick = async function() {
+            if (!confirm('Revoke "' + (k.name || 'this key') + '"? This cannot be undone.')) return;
+            btn.disabled = true; btn.textContent = 'Revoking…';
+            try {
+              await fetch('/api/keys/' + encodeURIComponent(k.id), { method: 'DELETE', headers });
+              const r = await fetch('/api/keys/', { headers }).then(r => r.json()).catch(() => ({}));
+              renderKeys(r.keys || []);
+            } catch (err) {
+              alert('Revoke failed: ' + err.message);
+              btn.disabled = false; btn.textContent = 'Revoke';
+            }
+          };
+          right.appendChild(btn);
+        } else {
+          right.innerHTML = '<span style="font-size:11px;color:rgba(255,255,255,0.3)">revoked</span>';
+        }
+        row.appendChild(left); row.appendChild(right);
+        listEl.appendChild(row);
+      });
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+  })();
 
   // ── Surface checkout-return query param messages ─────────────────────
   var params = new URLSearchParams(window.location.search);
