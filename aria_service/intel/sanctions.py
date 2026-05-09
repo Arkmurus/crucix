@@ -514,6 +514,29 @@ _ENTITY_STOPWORDS = frozenset({
 _DOMAIN_TOKEN_RE = re.compile(r"\.(?:gov|com|org|net|edu|co|io|ai|mil)\b", re.IGNORECASE)
 
 
+# R-F49 (2026-05-09): denylist of export-control regimes, compliance
+# acronyms, and generic concepts that are NOT entity names but pass the
+# all-caps shape heuristic. Past leak (memory session_2026_05_06.md):
+# 'ITAR' got pushed to OpenSanctions because its shape is identical to
+# 'BAE' — short, all-caps. The defensive guard logged "rejecting" but
+# only after the wasted quota call. This denylist short-circuits before
+# any other checks, and is the cheapest mitigation for R-F37.
+_NON_ENTITY_DENYLIST = frozenset({
+    # Export-control regimes
+    "itar", "ear", "eccn", "euc", "spire", "sitcl", "ofac", "ofsi",
+    "ncnt", "wassenaar", "mtcr", "nsg", "ag", "cwc", "att", "ccl",
+    # Sanctions list short-names
+    "sdn", "consolidated", "sema", "dfat", "seco", "unsc", "scsanc",
+    # Compliance / DD generic concepts
+    "kyc", "aml", "ubo", "pep", "edd", "cdd", "cft", "mlro",
+    # ARIA-internal acronyms surfaced through prompt fragments
+    "dd", "rfq", "rfp", "rfi", "moq", "mou", "lol", "loi", "nda",
+    # Geopolitical generic shorthand (not a real entity)
+    "nato", "eu", "un", "asean", "ecowas", "sadc", "gcc", "mercosur",
+    "cplp", "au", "oas", "osce",
+})
+
+
 def _looks_like_entity_name(s: str) -> bool:
     """Reject inputs that don't look like an entity name before they
     waste OpenSanctions API quota.
@@ -524,7 +547,13 @@ def _looks_like_entity_name(s: str) -> bool:
     embargo 2026' or 'Arkmurus weekly intelligence summary Angola
     Mozambique...' generated 80+ /match POSTs each, all returning junk.
 
+    R-F49 (2026-05-09): added _NON_ENTITY_DENYLIST short-circuit for
+    export-control regime / compliance-concept acronyms (ITAR, OFAC,
+    EUC, etc.) that pass the all-caps shape heuristic but are never
+    sanctions-screenable entities.
+
     Heuristics — entity names are typically:
+      - NOT in the regime/concept denylist
       - 2-100 chars
       - <= 7 words (covers 'Sheikh Hamad bin Khalifa Al Thani II'
         and 'Krasnoyarsk Aluminum Smelter Open Joint-Stock Company';
@@ -539,6 +568,12 @@ def _looks_like_entity_name(s: str) -> bool:
         return False
     s = s.strip()
     if len(s) < 2 or len(s) > 100:
+        return False
+    # R-F49: regime / concept acronym denylist BEFORE other heuristics.
+    # Single-token inputs like 'ITAR' or 'OFAC' are checked here; multi-
+    # word combinations that contain a denylist token as their entirety
+    # ('Cite OFAC' would pass; 'OFAC' alone fails) are rejected.
+    if s.lower() in _NON_ENTITY_DENYLIST:
         return False
     if "," in s or "?" in s or "!" in s:
         return False

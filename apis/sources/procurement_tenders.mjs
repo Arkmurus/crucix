@@ -132,16 +132,32 @@ async function fetchDSCA() {
 
 // ── EU TED: Tenders Electronic Daily ─────────────────────────────────────────
 // CPV 35* = defense/security equipment.
-// TED API v3 POST → TED OData GET → Google News fallback
+// TED API v3 POST → Google News fallback
+//
+// R-F49 (2026-05-09): API field migration. TED v3 rejected the prior shape
+// with HTTP 400 every cycle, silently falling through to Google News and
+// reporting "EU TED 0 items" forever. Three corrections:
+//   1. query operator: `cpvCode=35*` → `classification-cpv=35*`
+//      (verified live: cpvCode now returns "Unknown search field" 400)
+//   2. body parameter rename: `pageSize` → `limit` (mirrors R-F7 on the
+//      Python-side tender_monitor; field was never propagated here)
+//   3. fields list: legacy camelCase names dropped from API; eForms
+//      hyphenated names (`notice-title`, `publication-date`,
+//      `buyer-country`, `notice-type`) are the supported v3 surface.
+//
+// Response shape changed correspondingly: top-level kebab-case keys, no
+// embedded contracting-authority block (the rich-content fields are
+// behind separate fetches now). We display what's directly available
+// (title + publication-date + buyer-country + notice-type) and link to
+// the canonical ENG XML via `links.xml.MUL` so the human can dig in.
 async function fetchEUTED() {
-  // Attempt 1: TED API v3 POST (corrected query syntax)
   try {
     const body = {
-      query:    'cpvCode=35*',
-      fields:   ['title', 'publicationDate', 'contractingAuthorityName', 'buyerCountry', 'totalValue', 'cpv', 'noticeType'],
-      page:     1,
-      pageSize: 15,
-      scope:    'ACTIVE',
+      query: 'classification-cpv=35*',
+      fields: ['notice-title', 'publication-date', 'buyer-country', 'notice-type'],
+      page:  1,
+      limit: 15,
+      scope: 'ACTIVE',
     };
     const res = await fetch('https://api.ted.europa.eu/v3/notices/search', {
       method:  'POST',
@@ -154,25 +170,38 @@ async function fetchEUTED() {
       const notices = data.notices || data.results || data.items || [];
       if (notices.length > 0) {
         const items = notices.map(n => {
-          const title   = (Array.isArray(n.title) ? n.title.find(t => t.language === 'EN')?.value : (n.title?.EN || n.title || '')).toString().slice(0, 200);
-          const country = n.buyerCountry || '';
-          const authority = (Array.isArray(n.contractingAuthorityName)
-            ? n.contractingAuthorityName.find(a => a.language === 'EN')?.value
-            : n.contractingAuthorityName) || '';
-          const value   = n.totalValue?.amount ? `€${(n.totalValue.amount / 1e6).toFixed(1)}M` : '';
+          // notice-title can be (a) a string, (b) an object keyed by
+          // ISO-639-3 language code (e.g. {ENG: '...', FRA: '...'}),
+          // or (c) absent for older notices.
+          const rawTitle = n['notice-title'] ?? n.noticeTitle ?? n.title ?? '';
+          const title = (typeof rawTitle === 'string'
+            ? rawTitle
+            : (rawTitle?.ENG || rawTitle?.EN || Object.values(rawTitle || {})[0] || '')
+          ).toString().slice(0, 200);
+          const country = n['buyer-country'] || n.buyerCountry || '';
+          const noticeType = n['notice-type'] || n.noticeType || '';
+          const pubNumber = n['publication-number'] || '';
+          const pubDate = (n['publication-date'] || n.publicationDate || '').toString().slice(0, 10);
+          const xmlLink = n.links?.xml?.MUL || n.permalink || `https://ted.europa.eu/en/notice/${pubNumber}`;
           return {
             source:      'EU TED',
-            title:       title || `Defense Tender (${country})`,
-            description: `${authority} · ${country}${value ? ' · ' + value : ''}`.replace(/^·\s*|·\s*$/, '').trim(),
-            url:         n.permalink || `https://ted.europa.eu`,
-            pubDate:     n.publicationDate || '',
+            title:       title || `Defense Tender ${pubNumber || ''} (${country})`.trim(),
+            description: [country, noticeType, pubDate].filter(Boolean).join(' · '),
+            url:         xmlLink,
+            pubDate,
           };
-        }).filter(i => i.title && i.title.length > 5);
+        }).filter(i => (i.title && i.title.length > 5) || i.url);
         console.log(`[Procurement] EU TED: ${items.length} defense notices`);
         return items;
       }
+    } else {
+      // Surface the actual API response so future schema drift is loud.
+      const errBody = await res.text().catch(() => '');
+      console.warn(`[Procurement] EU TED v3 HTTP ${res.status} — ${errBody.slice(0, 160)}`);
     }
-  } catch {}
+  } catch (e) {
+    console.warn(`[Procurement] EU TED v3 fetch failed: ${e.message}`);
+  }
 
   // Fallback: Google News for EU defense tenders
   const gnUrl = `https://news.google.com/rss/search?q=${encodeURIComponent('Europe defense security procurement tender contract CPV 35')}&hl=en-US&gl=GB&ceid=GB:en`;
