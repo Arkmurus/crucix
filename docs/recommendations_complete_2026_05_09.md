@@ -12,9 +12,28 @@ in the 2026-05-09 session.
 
 **Total commits today**: 56 (from `79feefb` start of session → `ac38820` end)
 
-**R-numbered improvements shipped**: 28 in early-day session + 20 in
-this evening's recommendations sprint = **48 R-numbered improvements**
-in a single working day.
+**R-numbered improvements shipped**: **49 distinct R-numbers** today,
+verified against `git log` (extracted: every commit message mentioning
+an R-F<N> identifier).
+
+  - **Morning session**: 29 R-numbers (R-F37 + R-F38 through R-F65,
+    excluding R-F44 which was a finding closed by R-F45, plus R-F48
+    split into R-F48a + R-F48b)
+  - **Evening sprint**: 20 R-numbers (R-F66 through R-F84, plus
+    R-F66b — the LinkedIn help-page denylist that piggybacked on the
+    R-F66 commit but is functionally distinct)
+
+**Sub-numbering convention** (added 2026-05-09 EOD after the count
+discrepancy was flagged in review): a letter-suffixed R-number
+(e.g. R-F66b, R-F48a) indicates a distinct fix that was committed
+alongside its parent R-number for batching purposes but addresses a
+separate problem. Count it. The integer-only span "R-F66 through R-F84"
+is 19 numbers; adding R-F66b makes 20. Every count in this report uses
+the inclusive convention (sub-numbers count).
+
+**Source of truth**: `git log --grep="R-F[0-9]"` is the canonical
+sprint-metric source. Future reports will be generated from that
+command rather than asserted in prose.
 
 **New code added in evening sprint** (R-F66 through R-F84):
 - 14 new Python modules in `aria_service/intel/` and `aria_service/learning/`
@@ -462,6 +481,66 @@ Cross-server live verification fired multiple times:
 
 ---
 
+## What Was Deferred — Recommendations Not Taken (and Why)
+
+A 100% acceptance rate would be a credibility flag, not a virtue. The
+following items were considered but deferred to subsequent sessions
+with explicit reasoning:
+
+| Recommendation | Why deferred | When to revisit |
+|---|---|---|
+| LLM-based NER on FCPA press release bodies | R-F69's regex catches ~70% of headline-named entities; LLM NER on full press-release text would catch intermediaries mentioned mid-paragraph but adds Anthropic cost (~$0.05/cycle) and latency. Defer until intermediary recall becomes the bottleneck. | When DOJ-named-but-not-extracted entities show up as DD blind spots |
+| TRM Labs / Chainalysis paid API integration | The free OpenSanctions wallet dataset is shipped (R-F74). Paid providers add wallet-graph traversal (the laundering trail), which is high-value but ~£300-1000/mo. Per peer review's own framing: "paid API follows when first client specifically requires it." | When first crypto-heavy DD client arrives |
+| FATF typologies 9-14 (the remaining 6 from the 2023 ML report) | R-F72 ships 8 of the 14 patterns. The 6 deferred (cash courier networks, money mules, real estate, casinos, charity/NPO abuse, insurance products) are lower-prevalence in defence-DD. Encoding them is ~1 session each. | One per fortnight, demand-driven |
+| FATF 2024 TBML report — 8 additional commodity-specific patterns | R-F73 ships the price-anomaly primitive. The 8 commodity-specific patterns (gold, oil, electronics, etc.) need per-commodity benchmark data. | After COMTRADE_API_KEY is set + first commodity-specific case |
+| Wallet-graph traversal | Tracking which wallets transacted with sanctioned wallets — i.e. one hop out from R-F74. Requires either paid graph provider (TRM/Chainalysis) or self-hosted blockchain indexer (substantial infra). | When first crypto-laundering DD case arrives |
+| DPA timeline tracking | Active risk window when an FCPA-defendant's Deferred Prosecution Agreement is in effect. Per-defendant DPA expiry dates are publicly available but not in a single feed; needs operator-curated input. | After 5+ DPA-bearing entities are in the watchlist |
+| Storage-layer adoption of multi-tenant namespacing | R-F81 scaffold is shipped, behaviour-neutral. Knowledge / RAG / intel_ledger storage layers don't yet pass `tenant_id` to the scaffold's resolution helper. Wiring is non-breaking but ~2-3 hours of careful work across each storage. | Before first paying Pro Intel customer brings proprietary uploads |
+| LLM-based sentiment for counter-intelligence | R-F84 uses a coarse keyword-list sentiment classifier. False-positive rate is low; false-negative rate is moderate. A proper sentiment model (e.g. distilbert finetune) would improve recall. | When operator manually flags 5+ false-clean cases |
+| Programmatic sprint-metric script | The internal review's structural fix for documentation imprecision (a script that counts R-numbers from git log and generates the sprint summary). Worth shipping as R-F85 next session — small, ~30 min. | Next session |
+
+**Items rejected as out of scope for this sprint** (i.e. not on the
+near roadmap):
+
+- **Encryption at rest per tenant with customer-held keys** — Tier 4
+  in the strategic review. Real for true enterprise customers (DoD-
+  level requirement); not needed for first 5-10 commercial customers
+  who will accept platform-level encryption.
+- **HSM-backed signing for audit-grade PDFs** — R-F43's HMAC signing
+  + R-F82's watermarking are sufficient for the first deployment.
+  HSM is a Tier 4 item.
+- **Self-hosted blockchain indexer** — paid graph provider integration
+  is the right path before going self-hosted.
+
+---
+
+## Content Depth Roadmap — Specific Targets Replacing "More Content"
+
+The previous version of this report referenced "more FATF typologies",
+"more weapon systems", "more jurisdictions" without numerical targets.
+The internal review correctly flagged this as vague. Here are the
+specific completeness targets:
+
+| Domain | Today | Target | Rationale | Sessions to close |
+|---|---|---|---|---|
+| FATF ML typologies | 8 | **14** | The full set from FATF 2023 *Professional Money Laundering* report | 1 session (8 hrs across the remaining 6) |
+| FATF TBML typologies | 1 (price-anomaly) | **8** | The commodity-specific patterns from FATF 2024 *TBML Risk Indicators* — gold/oil/electronics/textiles/agri/precious-stones/services/digital | 2 sessions (~1 per cluster of 4) |
+| Weapon-system catalogue (R-F54) | 105 | **150** | Adds: drone/loitering depth (currently coarse), naval mine warfare, electronic countermeasures niche, hypersonics tier | 1 session |
+| Critical defence markets covered | 17 (registry adapters live) | **20** | Add: Saudi Arabia, South Korea, Egypt — completes the global player set per the strategic review's market matrix | 1 session per market (registry adapter + tender portal + sanctions deltas) |
+| Tender monitor portals | 5 | **8** | Add: DSP (DoD's Defense Standardization Program), NSPA (NATO Support and Procurement Agency), KOTRA (Korean MNDA contracts) | 1 session |
+| EUC profiles (R-F53) | 12 | **15** | Add: South Korea, Egypt, Saudi Arabia (matches the defence-markets target) | Bundled with the markets sessions |
+| Constitutional clauses | 23 | 23 | Stable. Adding clauses requires real incident motivation per `feedback_aria_rule_zero.md` discipline. | Reactive only |
+| Adversarial library (R-F59 social + R-F80 prompt-injection) | 23 + 10 = 33 | 50 | Add: 8 deeper social engineering scenarios + 9 OWASP LLM02-10 (data leakage, training data poisoning, model DoS, supply chain, sensitive info disclosure, etc.) | 1 session |
+| Knowledge base facts | 20,275 | (no target — grows organically at +3,962/day) | Quality-over-quantity. Once R-F75 provenance + R-F84 counter-intelligence are running, growth will skew toward verified content. | Continuous |
+| RAG corpus chunks | 76,248 | (no target — grows organically) | Same as knowledge — quality matters more than quantity at this scale. | Continuous |
+
+**Completeness statement**: when the targeted numbers above are hit,
+ARIA covers the structural surface a defence-DD Pro Intelligence customer
+would expect. Beyond that, additional content is incremental yield, not
+structural completeness.
+
+---
+
 ## Strategic Position — Where ARIA Is Now
 
 **Production-ready**: Arkmurus internal use today.
@@ -492,28 +571,34 @@ A more honest statement after today's sprint:
 
 ## R-Number Reference
 
-| R-F# | Description | Module / Layer | Commit |
-|---|---|---|---|
-| R-F66 | GDELT timeout 30→45s | apis/briefing.mjs | 2fff262 |
-| R-F66b | LinkedIn help denylist | aria_service/intel/security.py | 2fff262 |
-| R-F67 | Output harvester attribution + stats | aria_service/aria_engine.py + routes/aria.py | d7e6f1b |
-| R-F68 | Sanctions divergence | aria_service/intel/sanctions_divergence.py | 520859b |
-| R-F69 | DOJ FCPA monitoring | aria_service/intel/fcpa_enforcement.py + autonomous task | 6400498 |
-| R-F70 | Benford's Law | aria_service/intel/forensic_benford.py | 1e465f4 |
-| R-F71 | Structured ACH | aria_service/intel/ach_explainability.py | bb88ed9 |
-| R-F72 | FATF typology library | aria_service/intel/fatf_typologies.py | d269da8 |
-| R-F73 | TBML detection | aria_service/intel/tbml_detection.py | 58c920b |
-| R-F74 | Crypto sanctions | aria_service/intel/crypto_sanctions.py | 58c920b |
-| R-F75 | Provenance chain | aria_service/intel/provenance_chain.py | bb88ed9 |
-| R-F76 | RCA screening | aria_service/intel/rca_screening.py | d269da8 |
-| R-F77 | Economic substance | aria_service/intel/economic_substance.py | d269da8 |
-| R-F78 | Citation audit | aria_service/intel/citation_audit.py | 58c920b |
-| R-F79 | Crypto refresh task | autonomous/tasks.yaml + tasks.py | 3c9de89 |
-| R-F80 | Prompt injection suite | aria_service/intel/prompt_injection_suite.py | 3c9de89 |
-| R-F81 | Multi-tenant scaffold | aria_service/intel/tenant_namespace.py | 52bab26 |
-| R-F82 | PDF watermarking | lib/reports/pdf_generator.mjs | 3c9de89 |
-| R-F83 | API query monitor | aria_service/intel/api_query_monitor.py | ac38820 |
-| R-F84 | Counter-intelligence | aria_service/intel/counter_intelligence.py | ac38820 |
+**Status legend**:
+- **Active** — running on every relevant request immediately upon deploy
+- **Gated** — code shipped but behaviour-neutral until an env var is flipped
+- **Scaffold** — module exists, callers will adopt as customers arrive (no breaking change today)
+- **Triggered** — runs only when called (endpoint/admin invocation)
+
+| R-F# | Description | Module / Layer | Commit | Status |
+|---|---|---|---|---|
+| R-F66 | GDELT timeout 30→45s | apis/briefing.mjs | 2fff262 | **Active** — fires on every sweep |
+| R-F66b | LinkedIn help denylist | aria_service/intel/security.py | 2fff262 | **Active** — fires on every URL fetch |
+| R-F67 | Output harvester attribution + stats | aria_service/aria_engine.py + routes/aria.py | d7e6f1b | **Gated** — `ARIA_OUTPUT_HARVEST_ENABLED=1` for live capture (dry-run scoring is active) |
+| R-F68 | Sanctions divergence | aria_service/intel/sanctions_divergence.py | 520859b | **Triggered** — endpoint live |
+| R-F69 | DOJ FCPA monitoring | aria_service/intel/fcpa_enforcement.py + autonomous task | 6400498 | **Active** — autonomous Mon 03:30 UTC |
+| R-F70 | Benford's Law | aria_service/intel/forensic_benford.py | 1e465f4 | **Triggered** — endpoint live |
+| R-F71 | Structured ACH | aria_service/intel/ach_explainability.py | bb88ed9 | **Triggered** — endpoint live |
+| R-F72 | FATF typology library | aria_service/intel/fatf_typologies.py | d269da8 | **Triggered** — endpoint live |
+| R-F73 | TBML detection | aria_service/intel/tbml_detection.py | 58c920b | **Gated** — `COMTRADE_API_KEY` for full pipeline; classifier is Triggered |
+| R-F74 | Crypto sanctions | aria_service/intel/crypto_sanctions.py | 58c920b | **Active** — daily refresh via R-F79; screen endpoint live |
+| R-F75 | Provenance chain | aria_service/intel/provenance_chain.py | bb88ed9 | **Triggered** — endpoints live; storage layers will adopt as facts get edges registered |
+| R-F76 | RCA screening | aria_service/intel/rca_screening.py | d269da8 | **Triggered** — endpoint live |
+| R-F77 | Economic substance | aria_service/intel/economic_substance.py | d269da8 | **Triggered** — endpoint live |
+| R-F78 | Citation audit | aria_service/intel/citation_audit.py | 58c920b | **Triggered** — endpoint live |
+| R-F79 | Crypto refresh task | autonomous/tasks.yaml + tasks.py | 3c9de89 | **Active** — autonomous daily 03:00 UTC |
+| R-F80 | Prompt injection suite | aria_service/intel/prompt_injection_suite.py | 3c9de89 | **Triggered** — endpoints live; should be run before `ENABLE_PUBLIC_API=1` |
+| R-F81 | Multi-tenant scaffold | aria_service/intel/tenant_namespace.py | 52bab26 | **Scaffold** — live behaviour-neutral; storage layers adopt as customer arrives |
+| R-F82 | PDF watermarking | lib/reports/pdf_generator.mjs | 3c9de89 | **Active** — fires on every audit-grade PDF |
+| R-F83 | API query monitor | aria_service/intel/api_query_monitor.py | ac38820 | **Gated** — recording only when `ENABLE_PUBLIC_API=1`; analyser endpoints are Triggered |
+| R-F84 | Counter-intelligence | aria_service/intel/counter_intelligence.py | ac38820 | **Triggered** — endpoint live; recommend wiring as autonomous weekly task next session |
 
 ---
 
