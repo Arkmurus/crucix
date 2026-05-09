@@ -1650,3 +1650,33 @@ tasks:
       - "UAE"
       - "Brazil"
     mem0_tags: [enforcement_action, fcpa, sanctions, weekly, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # R-F79 (2026-05-09): DAILY-CRYPTO-SANCTIONS-REFRESH
+  # Refresh OpenSanctions free crypto-wallet dataset into Redis index.
+  # Zero LLM cost. Daily TTL is enforced inside the module — a missed
+  # cron fires fine (the stale index keeps serving until refresh).
+  # ──────────────────────────────────────────────────────────────────
+  - id: DAILY-CRYPTO-SANCTIONS-REFRESH
+    name: Refresh OpenSanctions crypto wallet index
+    description: |
+      Daily 03:00 UTC pull of the OpenSanctions consolidated targets
+      CSV; extracts wallet addresses → Redis index for O(1) screening
+      via /api/aria/crypto/screen and screen_wallet_batch. Backs the
+      crypto-sanctions surface (R-F74) so DD inputs containing wallet
+      addresses get screened against the freshest sanctioned-entity list.
+
+      The module enforces a daily TTL internally — a missed cron
+      doesn't matter; the next fire refreshes when due.
+    cron: "0 3 * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 180
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: crypto_sanctions_refresh
+        force: false
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [sanctions, crypto, daily, autonomous]

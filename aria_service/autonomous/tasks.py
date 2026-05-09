@@ -461,6 +461,14 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         days_back = int((task.tool_chain[0] or {}).get("days_back", 30))
         return await fcpa_enforcement.monitor_doj_fcpa(days_back=days_back)
 
+    # R-F79 (2026-05-09): refresh the OpenSanctions crypto wallet index
+    # daily so screen_wallet hits the freshest data. Zero LLM cost; one
+    # CSV download + Redis index rebuild.
+    elif tool_kind == "crypto_sanctions_refresh":
+        from ..intel import crypto_sanctions
+        force = bool((task.tool_chain[0] or {}).get("force", False))
+        return await crypto_sanctions.fetch_and_index(force=force)
+
     elif tool_kind == "knowledge_freshness_audit":
         from ..intel import weekly_report
         return await weekly_report._audit_knowledge_freshness()

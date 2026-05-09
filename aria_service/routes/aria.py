@@ -1637,6 +1637,43 @@ async def provenance_stats_ep():
 # actually supported by the cited source content. Distinct from
 # aria_engine.grounded_rate which measures CITATION PRESENCE; this
 # measures CITATION ACCURACY.
+# R-F80 (2026-05-09): prompt-injection adversarial suite (OWASP LLM01).
+# Distinct from R-F59's social-engineering attacks — these target
+# system-prompt extraction, role confusion, instruction override, etc.
+# Should run before ENABLE_PUBLIC_API=1 ships to validate hardening.
+@router.get("/security/prompt-injection/list")
+async def prompt_injection_list_ep():
+    """List the encoded prompt-injection attack library (10 attacks)."""
+    try:
+        from ..intel import prompt_injection_suite as _pi
+        return {"library": _pi.list_attacks(), "summary": _pi.summary()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/security/prompt-injection/grade")
+async def prompt_injection_grade_ep(request: Request):
+    """Grade a single attack/response pair offline.
+
+    POST body: {attack_id: str, response: str}
+    Useful for retrospective grading of WhatsApp / chat sessions
+    suspected of being injection attempts.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    attack_id = body.get("attack_id")
+    response_text = body.get("response", "")
+    if not attack_id:
+        raise HTTPException(status_code=400, detail="attack_id required")
+    try:
+        from ..intel import prompt_injection_suite as _pi
+        return _pi.grade_response(attack_id, response_text)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @router.post("/citations/verify")
 async def citations_verify_ep(request: Request):
     """Audit a response's citations.
