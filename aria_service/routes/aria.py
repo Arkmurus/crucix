@@ -425,11 +425,41 @@ async def dd_watchlist_rescreen_ep(request: Request):
 
 
 @router.get("/dd/watchlist/alerts")
-async def dd_watchlist_alerts_ep(since_hours: int = 24):
-    """Retrieve recent watchlist re-screen alerts."""
+async def dd_watchlist_alerts_ep(since_hours: int = 24, user_id: str = ""):
+    """Retrieve recent watchlist re-screen alerts.
+
+    R-F51: when user_id is supplied, each alert is annotated with a
+    read flag computed against the per-user read-until timestamp,
+    and the response includes an unread_count for the badge.
+    """
     from ..intel import dd_orchestrator
-    alerts = await dd_orchestrator.get_watchlist_alerts(since_hours=since_hours)
-    return {"alerts": alerts, "count": len(alerts), "since_hours": since_hours}
+    alerts = await dd_orchestrator.get_watchlist_alerts(since_hours=since_hours, user_id=user_id)
+    unread_count = sum(1 for a in alerts if not a.get("read", False)) if user_id else None
+    out = {"alerts": alerts, "count": len(alerts), "since_hours": since_hours}
+    if unread_count is not None:
+        out["unread_count"] = unread_count
+    return out
+
+
+class WatchlistAlertsReadRequest(BaseModel):
+    user_id: str = ""
+
+
+@router.post("/dd/watchlist/alerts/read")
+async def dd_watchlist_alerts_read_ep(req: WatchlistAlertsReadRequest):
+    """R-F51: mark all currently visible alerts as read for this user.
+    Idempotent — calling twice resets the read-until timestamp to now."""
+    from ..intel import dd_orchestrator
+    result = await dd_orchestrator.mark_watchlist_alerts_read(req.user_id or "")
+    return result
+
+
+@router.get("/dd/watchlist/alerts/unread-count")
+async def dd_watchlist_alerts_unread_count_ep(user_id: str = "", since_hours: int = 168):
+    """R-F51: light-weight badge probe — unread count for the last 7d."""
+    from ..intel import dd_orchestrator
+    n = await dd_orchestrator.get_watchlist_unread_count(user_id or "", since_hours=since_hours)
+    return {"unread_count": n, "user_id": user_id, "since_hours": since_hours}
 
 
 def _rebuild_report_from_dict(d: dict, dd_schema):

@@ -2176,6 +2176,14 @@ app.get('/api/aria/vendors', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/vendors', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/dd/sources', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/dd/sources', { fallback: async () => res.status(503).json(_brainFallback()) }));
+// R-F51 watchlist alerts — three endpoints proxied to fly. Query string is
+// preserved (since_hours, user_id) so the FE can pass the read-state tag.
+app.get('/api/aria/dd/watchlist/alerts', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/dd/watchlist/alerts${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/dd/watchlist/alerts/unread-count', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/dd/watchlist/alerts/unread-count${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/dd/watchlist/alerts/read', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/dd/watchlist/alerts/read', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/rlaif/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/rlaif/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/rlaif/evaluate', requireAuth, (req, res) =>

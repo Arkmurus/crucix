@@ -3463,27 +3463,79 @@ async def rescreen_watchlist(llm=None) -> dict:
     }
 
 
-async def get_watchlist_alerts(since_hours: int = 24) -> list[dict]:
-    """Retrieve recent watchlist re-screen alerts from Redis."""
+async def get_watchlist_alerts(since_hours: int = 24, user_id: str = "") -> list[dict]:
+    """Retrieve recent watchlist re-screen alerts from Redis.
+
+    R-F51: when user_id is supplied, every alert carries an additional
+    `read` boolean derived from the per-user "read-until" timestamp
+    persisted at crucix:aria:watchlist:read_until:<userId>. Alerts older
+    than the read_until timestamp are marked read=True; newer ones
+    read=False. This lets the FE compute an unread-count badge without
+    a separate roundtrip.
+    """
     import json as _json
+    from datetime import datetime as _dt
     from . import redis_store as rs
 
     raw_list = await rs.lrange(WATCHLIST_ALERTS_KEY, 0, 499)
     if not raw_list:
         return []
 
-    cutoff = datetime.now(timezone.utc).timestamp() - (since_hours * 3600)
+    # Read-until timestamp per user (best-effort; no error if Redis
+    # is unavailable — alerts come back marked unread, which is the
+    # conservative default).
+    read_until_ts = 0.0
+    if user_id:
+        try:
+            ru = await rs.get(f"crucix:aria:watchlist:read_until:{user_id}")
+            if ru:
+                read_until_ts = float(ru)
+        except Exception:
+            pass
+
+    cutoff = _dt.now(timezone.utc).timestamp() - (since_hours * 3600)
     alerts: list[dict] = []
     for raw in raw_list:
         try:
             alert = _json.loads(raw) if isinstance(raw, str) else raw
             ts_str = alert.get("timestamp", "")
+            ts = 0.0
             if ts_str:
-                from datetime import datetime as _dt
                 ts = _dt.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
                 if ts < cutoff:
                     continue
+            if user_id:
+                alert = {**alert, "read": (ts > 0 and ts <= read_until_ts)}
             alerts.append(alert)
         except Exception:
             continue
     return alerts
+
+
+async def mark_watchlist_alerts_read(user_id: str) -> dict:
+    """R-F51: mark all currently visible alerts as read for this user
+    by stamping the per-user read-until timestamp. Idempotent — calling
+    twice in a row is harmless.
+    """
+    if not user_id:
+        return {"ok": False, "reason": "user_id required"}
+    from . import redis_store as rs
+    ts = datetime.now(timezone.utc).timestamp()
+    try:
+        await rs.set(f"crucix:aria:watchlist:read_until:{user_id}", str(ts))
+        # 90 days TTL — old read-until stamps are pruned naturally.
+        await rs.expire(f"crucix:aria:watchlist:read_until:{user_id}", 90 * 86400)
+    except Exception as e:
+        return {"ok": False, "reason": f"redis error: {e}"}
+    return {"ok": True, "read_until": ts}
+
+
+async def get_watchlist_unread_count(user_id: str, since_hours: int = 168) -> int:
+    """R-F51: light-weight unread badge probe. Counts alerts in the last
+    `since_hours` (default 7d) that arrived after the per-user read-until
+    timestamp. Skips the JSON re-shape get_watchlist_alerts performs.
+    """
+    if not user_id:
+        return 0
+    alerts = await get_watchlist_alerts(since_hours=since_hours, user_id=user_id)
+    return sum(1 for a in alerts if not a.get("read", False))
