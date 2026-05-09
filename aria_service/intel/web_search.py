@@ -364,6 +364,61 @@ async def _search_google_news(query: str, max_results: int = 10, language: str =
         return []
 
 
+# ── Backend: DuckDuckGo HTML scrape (free, no auth, no API) ────────────────
+
+async def _search_duckduckgo(query: str, max_results: int = 10) -> list[SearchResult]:
+    """R-F120 (2026-05-09): DuckDuckGo HTML scrape — free, no API key,
+    no rate limit hard cap, hits the same general-web index Brave does.
+    Critical fallback when Brave billing exhausts (circuit OPEN) and no
+    SearXNG instance is configured. Live coverage of trade shows, contract
+    signings, defence press releases that academic backends miss."""
+    encoded = urllib.parse.quote_plus(query)
+    url = f"https://html.duckduckgo.com/html/?q={encoded}"
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.post(
+                url,
+                headers={
+                    "User-Agent": random_ua(),
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            )
+            if resp.status_code != 200:
+                return []
+            html = resp.text
+            results: list[SearchResult] = []
+            # DDG HTML format: <a class="result__a" href="...">Title</a>
+            #                  <a class="result__snippet">Snippet</a>
+            pattern = re.compile(
+                r'<a[^>]+class="result__a"[^>]+href="(?P<url>[^"]+)"[^>]*>(?P<title>.+?)</a>'
+                r'.*?<a[^>]+class="result__snippet"[^>]*>(?P<snippet>.+?)</a>',
+                re.DOTALL | re.IGNORECASE,
+            )
+            for m in pattern.finditer(html):
+                u = m.group("url")
+                title = re.sub(r"<[^>]+>", "", m.group("title")).strip()
+                snippet = re.sub(r"<[^>]+>", "", m.group("snippet")).strip()[:300]
+                # DDG redirects through /l/?uddg=<url>; unwrap
+                if "/l/?uddg=" in u:
+                    qs = urllib.parse.parse_qs(urllib.parse.urlparse(u).query)
+                    if "uddg" in qs:
+                        u = qs["uddg"][0]
+                if not title or not u or not u.startswith("http"):
+                    continue
+                results.append(SearchResult(
+                    title=title, url=u, snippet=snippet,
+                    source="duckduckgo",
+                    credibility_tier=_score_credibility(u),
+                ))
+                if len(results) >= max_results:
+                    break
+            logger.debug("DuckDuckGo: %d results for %r", len(results), query[:60])
+            return results
+    except Exception as e:
+        logger.debug("DuckDuckGo search failed: %s", e)
+        return []
+
+
 # ── Backend: Bing News RSS (free fallback) ──────────────────────────────────
 
 async def _search_bing_news(query: str, max_results: int = 10) -> list[SearchResult]:
@@ -420,11 +475,19 @@ async def search(
     Returns:
         Deduplicated, credibility-scored, relevance-ranked results.
     """
-    # Fire all backends in parallel
+    # R-F120 (2026-05-09): added DuckDuckGo + Bing News to the main
+    # parallel-gather. Live evidence: operator searched SAHA 2026
+    # (Turkish defence trade show) when Brave was OPEN — Google News
+    # alone returned thin coverage; academic backends had nothing
+    # because the topic is industry news not papers; SearXNG not yet
+    # deployed. DDG covers general web (substitutes for Brave), Bing
+    # News covers news (mirrors Google News for redundancy).
     backend_tasks = [
         _search_brave(query, MAX_RESULTS_PER_BACKEND, language),
         _search_searxng(query, MAX_RESULTS_PER_BACKEND, language),
+        _search_duckduckgo(query, MAX_RESULTS_PER_BACKEND),
         _search_google_news(query, MAX_RESULTS_PER_BACKEND, language),
+        _search_bing_news(query, MAX_RESULTS_PER_BACKEND),
         _search_academic(query, MAX_RESULTS_PER_BACKEND, language),
     ]
 
