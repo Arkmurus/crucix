@@ -3673,32 +3673,35 @@ app.post('/api/aria/report',
     });
   }}));
 
-// ── R-F110 (2026-05-09): catch-all /api/aria/* proxy ──────────────────────
+// ── R-F110 (2026-05-09) + R-F117 (2026-05-09): catch-all /api/aria/* proxy ──
 //
-// New fly endpoints shipped this session (R-F68 sanctions/divergence,
-// R-F76 sanctions/rca, R-F72 fatf/match, R-F77 dd/substance, R-F73
-// tbml/classify, R-F74 crypto/screen, R-F70 forensic/benford, R-F78
-// citations/verify, R-F84 security/counter-intel, R-F75 provenance/*,
-// R-F80 security/prompt-injection/*, R-F87a llm/tier-router, R-F88-90
-// learning/*, R-F104 cost/diagnostic, R-F67 harvest/stats, etc.) all
-// 404'd at seenode because no explicit proxy route existed. The DD
-// Pipeline Tools panel on /dd-reports.html surfaced this when operator
-// tried "Sanctions Divergence" → "✗ HTTP 404".
+// New fly endpoints shipped this session (R-F68/F70/F71/F72/F73/F74/F75/
+// F76/F77/F78/F80/F83/F84/F87a/F88/F89/F90/F104/F107/etc.) all 404'd at
+// seenode because no explicit proxy route existed. Catch-all forwards
+// any unmatched /api/aria/* path to fly with the authenticated session's
+// bearer header. Comes AFTER all explicit routes so it only catches the
+// gaps. Auth required; method-agnostic.
 //
-// Catch-all forwards any unmatched /api/aria/* path to fly with the
-// authenticated session's bearer header. Comes AFTER all explicit
-// routes so it only catches the gaps. Auth required; method-agnostic.
-//
-// New fly endpoints get UI access automatically — no per-endpoint
-// wiring on the seenode side.
-app.all('/api/aria/*', requireAuth, (req, res) => {
-  // Reconstruct the path including query string to forward verbatim
-  const fullPath = req.originalUrl.startsWith('/api/aria')
-    ? req.originalUrl
-    : `/api/aria${req.url}`;
+// R-F117 (2026-05-09): switched from app.all('/api/aria/*') to
+// middleware-based registration. Express 5.1 uses path-to-regexp v7
+// which deprecated the bare `*` wildcard suffix — `app.all('/api/aria/*')`
+// either crashes at registration or silently registers no handler depending
+// on the runtime version. The `app.use('/api/aria', ...)` pattern works
+// reliably across Express 4 + 5 + 5.1. Order matters: explicit routes
+// above this point already handle their paths and call res.send(), at
+// which point Express stops the middleware chain — this only fires for
+// unmatched /api/aria/* requests.
+app.use('/api/aria', requireAuth, async (req, res, next) => {
+  // Defensive: skip if a prior handler already responded
+  if (res.headersSent) return next();
+  // req.originalUrl preserves the full /api/aria prefix + path + query;
+  // req.url is relative to the mount point (/api/aria) so we need the
+  // original to forward verbatim.
+  const fullPath = req.originalUrl;
   ariaProxy(req, res, fullPath, {
     method: req.method,
     fallback: async ({ lastStatus, lastErr } = {}) => {
+      if (res.headersSent) return;
       res.status(lastStatus || 503).json({
         error: 'fly endpoint unavailable',
         path: fullPath,
