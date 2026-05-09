@@ -83,6 +83,12 @@
   </style>
 </head>
 <body>
+<!-- R-F106 (2026-05-09): shared sidebar/header — was orphaned before.
+     Pages are public so anonymous viewers see decorative sidebar with
+     placeholder user info; logged-in operators get full nav. -->
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+<main id="app-main">
 <div class="st-shell">
 
   <div class="st-eyebrow">System status</div>
@@ -117,6 +123,19 @@
     Companion documents: <a href="/model-card.html">Model card</a> · <a href="/about/privacy.html">Privacy policy</a> · <a href="/about/terms.html">Terms of service</a> · <a href="/account.html">Account &amp; billing</a>
   </div>
 </div>
+</main>
+
+<!-- R-F106: load shared sidebar+header. Sidebar.init() is safe to call
+     for anonymous viewers — it gracefully handles missing user info. -->
+<script src="js/app.js?v=3"></script>
+<script src="js/sidebar.js?v=3"></script>
+<script>
+  // Public page — no Auth.requireAuth(). Sidebar shows placeholder
+  // user info (?) for anonymous viewers; full info for logged-in.
+  if (typeof Sidebar !== 'undefined' && Sidebar.init) {
+    try { Sidebar.init('status'); } catch (e) { console.warn('Sidebar init failed:', e); }
+  }
+</script>
 
 <script>
 function fmt(d) {
