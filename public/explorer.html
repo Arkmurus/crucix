@@ -584,14 +584,28 @@ Sidebar.init('explorer');
           <strong style="color:#c4b5fd">Not listed:</strong> ${escapeHtml((div.jurisdictions_not_listed||[]).join(', ') || '—')}
         </div>
       </div>`);
-      // Per-match detail
+      // Per-match detail. R-F133 (2026-05-10): hide UNMAPPED dataset
+      // rows in the per-match listings — they are dataset IDs that
+      // haven't been mapped to a tracked jurisdiction (Wikidata, PEP
+      // annotation tables, regional indices) and reading "UNMAPPED:
+      // tw_shtc" doesn't help an operator decide. Mapped rows still
+      // render. If a match has zero mapped rows, render "Other lists
+      // (n)" so the row count is honest without surfacing the IDs.
       (div.per_match || []).slice(0, 3).forEach(pm => {
+        const mapped = (pm.listed_in || []).filter(li =>
+          li.jurisdiction && li.jurisdiction !== 'UNMAPPED');
+        const unmappedCount = (pm.listed_in || []).length - mapped.length;
+        const bodyParts = mapped.map(li =>
+          `<div>• <strong>${escapeHtml(li.jurisdiction)}:</strong> ${escapeHtml(li.list)}</div>`);
+        if (unmappedCount > 0) {
+          bodyParts.push(`<div style="color:#8b949e;font-size:0.85em">+ ${unmappedCount} other list${unmappedCount > 1 ? 's' : ''} (Wikidata / PEP annotations / regional)</div>`);
+        }
         out.push(`<div class="ex-card">
           <div class="ex-card-head">
             <div class="ex-card-source">${escapeHtml(pm.name || '—')}</div>
             <span class="ex-card-meta">score ${pm.score == null ? '—' : pm.score}</span>
           </div>
-          <div class="ex-card-body">${(pm.listed_in||[]).map(li => `<div>• <strong>${escapeHtml(li.jurisdiction)}:</strong> ${escapeHtml(li.list)}</div>`).join('')}</div>
+          <div class="ex-card-body">${bodyParts.join('')}</div>
           ${pm.url ? `<div class="ex-card-tags"><a href="${escapeHtml(pm.url)}" target="_blank" rel="noopener">View on OpenSanctions →</a></div>` : ''}
         </div>`);
       });

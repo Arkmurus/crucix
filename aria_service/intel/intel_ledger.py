@@ -771,3 +771,35 @@ async def get_stats() -> dict:
         "byType": by_type,
         "byCountry": dict(sorted(by_country.items(), key=lambda x: x[1], reverse=True)[:15]),
     }
+
+
+async def get_recent(limit: int = 1000) -> list[dict]:
+    """Return the most-recent N signals as a list — newest first.
+
+    R-F134 (2026-05-10): added because counter_intelligence.scan_entity
+    expected this exact helper name and returned INDETERMINATE on every
+    explorer.html sweep when the helper was absent. Live evidence on
+    /explorer.html for "Assan Group Turkey":
+        "INDETERMINATE — could not access intel_ledger signal stream.
+         Module needs intel_ledger to expose a get_recent() helper..."
+    Now returns the in-memory signals list ordered by ts (descending),
+    no I/O. Aliases all_signals() / recent_signals() for cross-module
+    expectations."""
+    db = await _load()
+    sigs = list(db.get("signals") or [])
+    sigs.sort(
+        key=lambda s: s.get("ts") or s.get("timestamp") or "",
+        reverse=True,
+    )
+    return sigs[: max(1, int(limit or 1000))]
+
+
+async def all_signals() -> list[dict]:
+    """Alias for get_recent(limit=10000) — kept because callers in
+    coverage_heatmap and counter_intelligence probe both names."""
+    return await get_recent(limit=10000)
+
+
+async def recent_signals(limit: int = 1000) -> list[dict]:
+    """Alias for get_recent — same defensive reason as all_signals."""
+    return await get_recent(limit=limit)

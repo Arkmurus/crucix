@@ -167,6 +167,51 @@ def _build_per_match(match: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# R-F133 (2026-05-10): token-overlap filter for fuzzy matches.
+# Live evidence on /explorer.html search "Assan Group Turkey":
+# fuzzy_screen at threshold 0.78 returned RosAero FZC (Russian
+# aviation, score 0.877) and "德里斯·范阿赫特" (Dries van Achter,
+# Dutch PEP, score 0.833). Both shared NO substantive token with the
+# query yet drove the divergence narrative ("listed on CH, US but
+# NOT on UK, EU..."). The narrative was structurally correct but the
+# matches it referenced were unrelated entities. Operators read this
+# as a false positive against Assan Group when the screen result
+# actually belonged to other firms entirely.
+import re as _re_div
+
+
+def _substantive_tokens(s: str) -> set[str]:
+    """Return the set of lowercased Latin-script tokens of length ≥ 4
+    that we consider substantive for entity-name overlap. Drops common
+    corporate suffixes (Group, Limited, Holdings...) so e.g. "Assan
+    Group Turkey" → {"assan", "turkey"}."""
+    if not s:
+        return set()
+    stop = {
+        "group", "limited", "holdings", "holding", "company", "corp",
+        "corporation", "inc", "incorporated", "ltd", "llc", "lp",
+        "plc", "gmbh", "private", "public", "international", "industries",
+        "industrial", "trading", "trade", "services", "service",
+        "global", "worldwide", "co", "the", "and",
+    }
+    tokens = _re_div.findall(r"[A-Za-z]{4,}", s.lower())
+    return {t for t in tokens if t not in stop}
+
+
+def _shares_substantive_token(query_name: str, match_name: str) -> bool:
+    """A match counts as related to the query iff they share at least
+    one substantive Latin-script token. Pure non-Latin matches (e.g.
+    Cyrillic, CJK without a Latin caption) get a free pass — fuzzy_screen
+    is responsible for transliteration."""
+    q = _substantive_tokens(query_name)
+    m = _substantive_tokens(match_name)
+    if not q:
+        return True   # query has no scoreable tokens — accept all
+    if not m:
+        return True   # match is non-Latin only — fuzzy_screen vouches
+    return bool(q & m)
+
+
 def _build_narrative(name: str, listed: list[str], not_listed: list[str]) -> str:
     """One-line operator-readable summary of the divergence pattern.
 
@@ -210,16 +255,40 @@ async def analyze_divergence(name: str, *, threshold: float = 0.78) -> dict[str,
         }
 
     matches: list[dict[str, Any]] = screen.get("matches", []) or []
+    # R-F133 — strip fuzzy matches that don't share a substantive
+    # token with the query. fuzzy_screen at threshold 0.78 will
+    # admit matches purely on transliteration / character bigrams;
+    # for the divergence narrative to be honest, a match must
+    # plausibly be the same entity. We log the drop count so it's
+    # visible in fly logs how aggressive this filter is.
+    raw_match_count = len(matches)
+    filtered_matches: list[dict[str, Any]] = []
+    for m in matches:
+        m_name = m.get("name") or m.get("caption") or ""
+        if _shares_substantive_token(name, m_name):
+            filtered_matches.append(m)
+    if raw_match_count and len(filtered_matches) < raw_match_count:
+        logger.info(
+            "sanctions divergence: dropped %d/%d unrelated fuzzy matches for %r",
+            raw_match_count - len(filtered_matches), raw_match_count, name,
+        )
+    matches = filtered_matches
     if not matches:
         return {
             "name": name,
             "ok": True,
             "matches": 0,
+            "raw_match_count": raw_match_count,  # surface the drop
             "jurisdictions_listed": [],
             "jurisdictions_not_listed": list(_TRACKED_JURISDICTIONS),
             "divergence_count": 0,
             "per_match": [],
-            "narrative": f"{name}: no sanctions matches above threshold {threshold}.",
+            "narrative": (
+                f"{name}: no sanctions matches above threshold {threshold} "
+                f"share a substantive token with the query."
+                if raw_match_count else
+                f"{name}: no sanctions matches above threshold {threshold}."
+            ),
         }
 
     per_match = [_build_per_match(m) for m in matches]
