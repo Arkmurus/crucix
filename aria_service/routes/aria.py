@@ -1651,6 +1651,71 @@ async def prompt_injection_list_ep():
         return {"ok": False, "error": str(e)}
 
 
+# R-F83 (2026-05-09): public API query-pattern monitoring.
+# Per-API-key behavioural anomaly detection — drilling, coverage probe,
+# refusal mining. The seenode public-API gate (lib/api_keys/routes.mjs)
+# records into Redis; this fly-side analyser reads + scores.
+@router.post("/security/api-monitor/record")
+async def api_monitor_record_ep(request: Request):
+    """Record one query event from the public-API gate.
+
+    POST body: { key_id, query, entity_extracted?, refused? }
+    Called by seenode's lib/api_keys/routes.mjs after every chat.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    key_id = body.get("key_id")
+    query = body.get("query", "")
+    if not key_id or not query:
+        raise HTTPException(status_code=400, detail="key_id + query required")
+    try:
+        from ..intel import api_query_monitor as _qm
+        await _qm.record_query(
+            key_id, query,
+            entity_extracted=body.get("entity_extracted"),
+            refused=bool(body.get("refused", False)),
+        )
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/security/api-monitor/key/{key_id}")
+async def api_monitor_key_ep(key_id: str, window_hours: int = 24):
+    """Score one API key for the three patterns over a window."""
+    try:
+        from ..intel import api_query_monitor as _qm
+        return await _qm.analyze_key(key_id, window_hours=window_hours)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/security/api-monitor/high-risk")
+async def api_monitor_high_risk_ep(window_hours: int = 24, threshold: float = 0.6):
+    """Operator dashboard: which keys are scoring above threshold?"""
+    try:
+        from ..intel import api_query_monitor as _qm
+        return await _qm.high_risk_keys(window_hours=window_hours, threshold=threshold)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# R-F84 (2026-05-09): counter-intelligence — detect corpus poisoning
+# via reputation washing, credibility anomaly, new-outlet burst.
+@router.get("/security/counter-intel/scan")
+async def counter_intel_scan_ep(entity: str, window_days: int = 14):
+    """Run the three counter-intelligence patterns against one entity."""
+    if not entity or not entity.strip():
+        raise HTTPException(status_code=400, detail="entity required")
+    try:
+        from ..intel import counter_intelligence as _ci
+        return await _ci.scan_entity(entity.strip(), window_days=window_days)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @router.post("/security/prompt-injection/grade")
 async def prompt_injection_grade_ep(request: Request):
     """Grade a single attack/response pair offline.
