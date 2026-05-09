@@ -2132,6 +2132,10 @@ app.get('/api/aria/student/mastery/heatmap', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/student/mastery/heatmap', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/adversarial/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/adversarial/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
+// R-F57: trigger a fresh weekly run from the dashboard. Long-running
+// (each attack is an LLM round-trip + verifier check), 5-min timeout.
+app.post('/api/aria/adversarial/run_weekly', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/adversarial/run_weekly', { method: 'POST', timeoutMs: 300000, fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/chat-audit/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/chat-audit/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/chat-audit/recent', requireAuth, (req, res) =>

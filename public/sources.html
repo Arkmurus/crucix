@@ -64,6 +64,17 @@
     </div>
     <div id="sector-body" style="padding:18px 22px;font-size:13.5px;color:rgba(255,255,255,0.7)">Loading…</div>
   </div>
+
+  <div class="sc-card mt-24">
+    <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
+      <div class="sc-card-title"><i class="bi bi-shield-check"></i> Adversarial resistance (R-F57)</div>
+      <button class="sc-btn sc-btn-sm" id="btn-run-adv"
+        style="background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);padding:5px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer">
+        <i class="bi bi-play-fill"></i> Run weekly suite
+      </button>
+    </div>
+    <div id="adv-body" style="padding:18px 22px;font-size:13.5px;color:rgba(255,255,255,0.7)">Loading…</div>
+  </div>
 </main>
 <script src="js/app.js?v=3"></script>
 <script src="js/sidebar.js?v=3"></script>
@@ -205,18 +216,110 @@ async function loadSectorStats() {
   }
 }
 
+// R-F57: adversarial pass-rate from /api/aria/adversarial/stats
+function _passPct(run) {
+  if (!run) return null;
+  // Tolerate the multiple shapes adversarial_challenge.run_weekly has
+  // returned over time: pass_rate / passed+total / score / etc.
+  if (typeof run.pass_rate === 'number') return run.pass_rate;
+  if (typeof run.score === 'number') return run.score;
+  if (typeof run.passed === 'number' && typeof run.total === 'number' && run.total > 0) {
+    return (run.passed / run.total) * 100;
+  }
+  if (typeof run.passed === 'number' && typeof run.failed === 'number' && (run.passed + run.failed) > 0) {
+    return (run.passed / (run.passed + run.failed)) * 100;
+  }
+  return null;
+}
+
+async function loadAdversarial() {
+  const el = document.getElementById('adv-body');
+  try {
+    const data = await API.get('/api/aria/adversarial/stats');
+    if (!data) { el.textContent = 'Adversarial stats unavailable.'; return; }
+    const last = data.last_run;
+    const trend = Array.isArray(data.four_week_trend) ? data.four_week_trend : [];
+    const lastPct = _passPct(last);
+    const lastTs = last && (last.run_at || last.timestamp || last.ts);
+
+    let bigPct = lastPct == null ? '—' : lastPct.toFixed(1) + '%';
+    let pctColor = '#7c3aed';
+    if (lastPct != null) {
+      pctColor = lastPct >= 95 ? '#22c55e' : lastPct >= 85 ? '#fbbf24' : '#fca5a5';
+    }
+
+    let trendHtml = '';
+    if (trend.length) {
+      trendHtml = trend.slice(0, 4).map(r => {
+        const p = _passPct(r);
+        const ts = r.run_at || r.timestamp || r.ts || '';
+        const c = p == null ? 'rgba(255,255,255,0.35)' : p >= 95 ? '#22c55e' : p >= 85 ? '#fbbf24' : '#fca5a5';
+        return '<div style="display:inline-block;text-align:center;margin-right:14px"><div style="font-size:14px;font-weight:700;color:' + c + '">' + (p == null ? '—' : p.toFixed(1) + '%') + '</div><div style="font-size:10.5px;color:rgba(255,255,255,0.4)">' + (ts ? fmtDateTime(ts).slice(0, 10) : '—') + '</div></div>';
+      }).join('');
+    }
+
+    const pending = data.pending_amendments || 0;
+    const regCount = data.regression_count || 0;
+
+    el.innerHTML =
+      '<div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:14px">' +
+        '<div>' +
+          '<div style="font-size:12px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Latest pass rate</div>' +
+          '<div style="font-size:34px;font-weight:800;color:' + pctColor + ';line-height:1">' + bigPct + '</div>' +
+          '<div style="font-size:11.5px;color:rgba(255,255,255,0.4);margin-top:4px">' + (lastTs ? 'Run ' + fmtDateTime(lastTs) : 'No run recorded yet — click "Run weekly suite" or wait for the Wed/Sun 10:00 UTC schedule.') + '</div>' +
+        '</div>' +
+        (trendHtml ?
+          '<div style="border-left:1px solid rgba(255,255,255,0.06);padding-left:24px"><div style="font-size:12px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Last 4 runs</div>' +
+          trendHtml + '</div>'
+          : '') +
+      '</div>' +
+      '<div style="display:flex;gap:18px;font-size:12px;color:rgba(255,255,255,0.45);margin-top:6px">' +
+        '<div>Pending amendments: <strong style="color:' + (pending > 0 ? '#fbbf24' : 'rgba(255,255,255,0.7)') + '">' + pending + '</strong></div>' +
+        '<div>Regressions: <strong style="color:' + (regCount > 0 ? '#fca5a5' : 'rgba(255,255,255,0.7)') + '">' + regCount + '</strong></div>' +
+      '</div>';
+  } catch (e) {
+    el.textContent = 'Adversarial stats load error: ' + e.message;
+  }
+}
+
+document.getElementById('btn-run-adv').addEventListener('click', async function() {
+  const btn = this;
+  if (!confirm('Run a fresh adversarial suite now? Each attack is an LLM round-trip + verifier check; can take 2-5 minutes.')) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Running…';
+  try {
+    const resp = await fetch('/api/aria/adversarial/run_weekly', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || '') },
+    });
+    if (!resp.ok) {
+      alert('Run failed (HTTP ' + resp.status + ').');
+    } else {
+      await loadAdversarial();
+    }
+  } catch (err) {
+    alert('Run error: ' + err.message);
+  }
+  btn.disabled = false;
+  btn.innerHTML = orig;
+});
+
 loadSources();
 loadBridge();
 loadPythonSources();
 loadSectorStats();
+loadAdversarial();
 
-// Auto-refresh every 60s
+// Auto-refresh every 60s (adversarial runs are infrequent enough that
+// 60s is excessive — bump to 5 min on the adversarial fetch only).
 setInterval(() => {
   loadSources();
   loadBridge();
   loadPythonSources();
   loadSectorStats();
 }, 60000);
+setInterval(loadAdversarial, 5 * 60 * 1000);
 </script>
 </body>
 </html>
