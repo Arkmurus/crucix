@@ -106,7 +106,11 @@ RESEARCH_FEEDS = [
 
     # ── Regional: Europe & NATO ───────────────────────────────────────────
     {"name": "European Security & Defence", "url": "https://euro-sd.com/feed/", "category": "europe_defence"},  # EurActiv /feed → 404, replaced with euro-sd.com
-    {"name": "Breaking Defense", "url": "https://breakingdefense.com/feed/", "category": "defence_procurement"},
+    # R-F64 (2026-05-09): direct breakingdefense.com/feed/ → 403 from cloud IPs
+    # (Cloudflare WAF blocks fly.io egress, mirrors seenode R-F61 fix on the Node
+    # side). Switch to Google News RSS scoped to site:breakingdefense.com — same
+    # editorial coverage, GoogleBot-style fetch path.
+    {"name": "Breaking Defense", "url": "https://news.google.com/rss/search?q=site%3Abreakingdefense.com&hl=en-US&gl=US&ceid=US:en", "category": "defence_procurement"},
 
     # ── Regional: Latin America (Spanish) ────────────────────────────────
     # F76 prune 2026-04-28: infodefensa.com /feed → 404. The site has

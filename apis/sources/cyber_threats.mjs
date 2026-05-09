@@ -30,23 +30,26 @@ async function fetchCriticalCVEs() {
     });
 
     // R-F61 (2026-05-09): 15s was too tight — NVD has a known pattern
-    // of 8-25s response under load (NIST 2025 capacity issues). 1/2
-    // failures per cycle in seenode logs were timeouts, not 4xx/5xx.
-    // 30s primary + one 20s retry covers the slow path; on persistent
-    // timeout the cycle returns 0 CVEs (non-fatal — handled at line 73).
+    // of 8-25s response under load (NIST 2025 capacity issues).
+    // R-F64 (2026-05-09): bumped 30s primary → 45s, retry 20s → 30s.
+    // Live evidence 12:00:22 fly log: even the 30s ceiling timed out
+    // ("[CVE] NVD fetch failed: The operation was aborted due to
+    // timeout"). 45s + 30s retry covers the slowest known NVD response
+    // window; persistent timeout still returns 0 CVEs (non-fatal —
+    // handled at line 73).
     let res;
     try {
       res = await fetch(`${NVD_API}?${params}`, {
         headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(45000),
       });
     } catch (e) {
       if (e?.name === 'TimeoutError' || /abort/i.test(e?.message || '')) {
-        // One retry at 20s before giving up — covers the case where the
+        // One retry at 30s before giving up — covers the case where the
         // first connection stalled but a fresh socket succeeds.
         res = await fetch(`${NVD_API}?${params}`, {
           headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
-          signal: AbortSignal.timeout(20000),
+          signal: AbortSignal.timeout(30000),
         });
       } else {
         throw e;
