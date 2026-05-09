@@ -379,17 +379,36 @@ async function loadAmendments() {
         + 'style="background:#6e2c2c;color:#fff;border:0;padding:4px 12px;'
         + 'border-radius:4px;cursor:pointer;font-size:0.85em;margin-left:6px">'
         + 'Reject all amendments older than 7 days</button></div>';
-  html += '<table style="margin-top:8px"><tr><th>Attack</th><th>Clauses</th><th>Staged</th><th>Action</th></tr>';
+  // R-F140 (2026-05-10): single-line per row. Operator complaint:
+  // "the reject wording should fit in one line". Previous render
+  // used <br/> between attack ID + name, plus the global td
+  // word-break rule (R-F127) wrapped long names mid-row, pushing
+  // the Reject button to its own visual line. Now: attack ID +
+  // name on one inline line with `·` separator; nowrap on Staged
+  // and Action cells so the button stays beside its row metadata.
+  html += '<table style="margin-top:8px;font-size:0.82em">'
+        + '<tr><th>Attack</th><th>Clauses</th>'
+        + '<th style="white-space:nowrap">Staged</th>'
+        + '<th>Action</th></tr>';
   amendments.forEach(a => {
-    const attack = (a.attack_id || '?') + '<br/><span style="font-size:0.75em;color:#8b949e">'
-                 + (a.attack_name || '') + '</span>';
+    const attackId = a.attack_id || '?';
+    const attackName = a.attack_name || '';
+    const attack = `<span style="font-weight:600">${escapeHtml(attackId)}</span>`
+                 + (attackName
+                    ? ` <span style="color:#8b949e">· ${escapeHtml(attackName)}</span>`
+                    : '');
     const clauses = (a.anchor_clauses || []).join(', ');
     const staged = (a.staged_at || '').slice(0, 16).replace('T', ' ');
-    const safeAttackId = (a.attack_id || '').replace(/[^A-Za-z0-9_.-]/g, '');
+    const safeAttackId = attackId.replace(/[^A-Za-z0-9_.-]/g, '');
     const action = `<button onclick="rejectAmendment('${safeAttackId}')" `
-                 + `style="background:#6e2c2c;color:#fff;border:0;padding:3px 8px;`
-                 + `border-radius:3px;cursor:pointer;font-size:0.8em">Reject</button>`;
-    html += `<tr><td>${attack}</td><td>${clauses}</td><td>${staged}</td><td>${action}</td></tr>`;
+                 + `style="background:#6e2c2c;color:#fff;border:0;padding:3px 10px;`
+                 + `border-radius:3px;cursor:pointer;font-size:0.85em;white-space:nowrap">Reject</button>`;
+    html += `<tr>`
+          + `<td style="line-height:1.3">${attack}</td>`
+          + `<td style="white-space:nowrap">${escapeHtml(clauses)}</td>`
+          + `<td style="white-space:nowrap;color:#8b949e">${escapeHtml(staged)}</td>`
+          + `<td style="white-space:nowrap">${action}</td>`
+          + `</tr>`;
   });
   html += '</table>';
   el.innerHTML = html;
@@ -1245,19 +1264,36 @@ async function loadFreshness() {
     el.classList.remove('loading');
     return;
   }
-  let html = '<table><tr><th>Domain</th><th>Status</th><th>Last refreshed</th><th>Window</th><th>Source</th><th>Facts/Signals</th></tr>';
+  // R-F140 (2026-05-10): single-line per row. Long underscored domain
+  // names like "155mm_ammunition_supply_chain_implication_for_malaysia"
+  // were wrapping under the global td word-break rule (R-F127),
+  // pushing the FRESH badge + dates onto subsequent visual lines.
+  // Now: nowrap on Status / Last refreshed / Window / Facts so they
+  // stay aligned; Domain cell allowed to truncate with ellipsis +
+  // hover tooltip for the full name.
+  let html = '<table style="font-size:0.82em">'
+           + '<tr>'
+           + '<th>Domain</th>'
+           + '<th style="white-space:nowrap">Status</th>'
+           + '<th style="white-space:nowrap">Last refreshed</th>'
+           + '<th style="white-space:nowrap">Window</th>'
+           + '<th>Source</th>'
+           + '<th style="white-space:nowrap">Facts/Signals</th>'
+           + '</tr>';
   domains.slice(0, 30).forEach(rec => {
     const cls = rec.is_stale ? 'bad' : 'good';
     const stat = rec.is_stale ? 'STALE' : 'FRESH';
     const hours = rec.hours_since_refresh != null ? `${rec.hours_since_refresh}h ago` : '—';
     const win = rec.max_staleness_hours ? `${rec.max_staleness_hours}h` : '—';
+    const dom = rec.domain || '';
+    const src = rec.last_refresh_source || '—';
     html += `<tr>
-      <td style="font-family:'Cascadia Code',monospace;color:#c4b5fd">${escapeHtml(rec.domain || '')}</td>
-      <td><span class="${cls}">${stat}</span></td>
-      <td>${escapeHtml(hours)}</td>
-      <td>${escapeHtml(win)}</td>
-      <td style="font-size:0.85em;color:#8b949e">${escapeHtml(rec.last_refresh_source || '—')}</td>
-      <td>${rec.facts_count || 0} / ${rec.signals_count || 0}</td>
+      <td style="font-family:'Cascadia Code',monospace;color:#c4b5fd;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(dom)}">${escapeHtml(dom)}</td>
+      <td style="white-space:nowrap"><span class="${cls}">${stat}</span></td>
+      <td style="white-space:nowrap">${escapeHtml(hours)}</td>
+      <td style="white-space:nowrap">${escapeHtml(win)}</td>
+      <td style="font-size:0.85em;color:#8b949e;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(src)}">${escapeHtml(src)}</td>
+      <td style="white-space:nowrap">${rec.facts_count || 0} / ${rec.signals_count || 0}</td>
     </tr>`;
   });
   html += '</table>';
