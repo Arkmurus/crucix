@@ -27,7 +27,7 @@
 
   <div class="sc-card">
     <div class="sc-card-header">
-      <div class="sc-card-title"><i class="bi bi-database"></i> All Sources</div>
+      <div class="sc-card-title"><i class="bi bi-database"></i> Node-side sources (sweep)</div>
     </div>
     <div style="padding:0">
       <table class="sc-table" id="src-table">
@@ -35,6 +35,34 @@
         <tbody id="src-body"><tr><td colspan="5" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr></tbody>
       </table>
     </div>
+  </div>
+
+  <!-- R-F58: brain-bridge + Python sources + per-sector breakdown -->
+
+  <div class="sc-card mt-24">
+    <div class="sc-card-header">
+      <div class="sc-card-title"><i class="bi bi-link-45deg"></i> Brain bridge (seenode → fly)</div>
+    </div>
+    <div id="bridge-body" style="padding:18px 22px;font-size:13.5px;color:rgba(255,255,255,0.7)">Loading…</div>
+  </div>
+
+  <div class="sc-card mt-24">
+    <div class="sc-card-header">
+      <div class="sc-card-title"><i class="bi bi-cpu"></i> Python-side sources (fly brain)</div>
+    </div>
+    <div style="padding:0">
+      <table class="sc-table" id="pysrc-table">
+        <thead><tr><th>Source</th><th>Status</th><th>Last success</th><th>Last error</th><th>Suspended?</th></tr></thead>
+        <tbody id="pysrc-body"><tr><td colspan="5" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sc-card mt-24">
+    <div class="sc-card-header">
+      <div class="sc-card-title"><i class="bi bi-people"></i> Brain absorb — per-sector (R-F56)</div>
+    </div>
+    <div id="sector-body" style="padding:18px 22px;font-size:13.5px;color:rgba(255,255,255,0.7)">Loading…</div>
   </div>
 </main>
 <script src="js/app.js?v=3"></script>
@@ -82,7 +110,113 @@ async function loadSources() {
   }).join('') || '<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,.4);padding:30px">No source data yet — run a sweep first</td></tr>';
 }
 
+// R-F58: brain-bridge state pulled from R-F45's /api/brain-absorb/verify
+async function loadBridge() {
+  const el = document.getElementById('bridge-body');
+  try {
+    const data = await API.get('/api/brain-absorb/verify');
+    if (!data) { el.textContent = 'Bridge state unavailable.'; return; }
+    const healthy = !!data.healthy;
+    const dotColor = healthy ? '#22c55e' : (data.has_token === false ? '#ef4444' : '#f59e0b');
+    const stateLabel = healthy ? 'Healthy'
+                     : (data.has_token === false ? 'Misconfigured — ARIA_API_TOKEN unset on this server'
+                                                 : 'Degraded: ' + escHtml(data.reason || 'unknown'));
+    el.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+        '<span style="width:9px;height:9px;border-radius:50%;background:' + dotColor + ';display:inline-block"></span>' +
+        '<strong>' + stateLabel + '</strong>' +
+      '</div>' +
+      '<div style="font-size:12.5px;color:rgba(255,255,255,0.45)">' +
+        'Endpoint: <code>' + escHtml(data.url || '—') + '</code> · ' +
+        'Status: ' + (data.status != null ? data.status : '—') + ' · ' +
+        'Has token: ' + (data.has_token ? 'yes' : 'no') + ' · ' +
+        'Last check: ' + (data.timestamp ? fmtDateTime(data.timestamp) : '—') +
+      '</div>';
+  } catch (e) {
+    el.textContent = 'Bridge state load error: ' + e.message;
+  }
+}
+
+// R-F58: Python-side sources from /api/aria/sources/uptime
+async function loadPythonSources() {
+  const body = document.getElementById('pysrc-body');
+  try {
+    const data = await API.get('/api/aria/sources/uptime');
+    if (!data) { body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,0.4);padding:30px">No data — fly endpoint unreachable.</td></tr>'; return; }
+    const sources = data.sources || data.uptime || [];
+    if (!sources.length) {
+      body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,0.4);padding:30px">No Python sources reported yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = sources.map(s => {
+      const status = s.status || s.state || (s.last_ok ? 'ok' : 'unknown');
+      const isOk  = status === 'ok' || status === 'healthy';
+      const isErr = status === 'error' || status === 'failed' || status === 'down';
+      const dot = isOk ? '#22c55e' : isErr ? '#ef4444' : '#f59e0b';
+      const lastOk  = s.last_success || s.last_ok || s.last_success_at || '';
+      const lastErr = s.last_error || s.last_fail || '';
+      const susp = s.suspended || s.disabled ? '<span style="color:#fbbf24">Yes</span>' : 'No';
+      return '<tr>' +
+        '<td><strong>' + escHtml(s.name || s.source || '—') + '</strong></td>' +
+        '<td><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + dot + ';vertical-align:middle;margin-right:6px"></span><span style="font-size:12px;text-transform:capitalize">' + escHtml(status) + '</span></td>' +
+        '<td style="font-size:11.5px;color:rgba(255,255,255,0.45)">' + (lastOk ? fmtDateTime(lastOk) : '—') + '</td>' +
+        '<td style="font-size:11.5px;color:rgba(255,255,255,0.45);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(String(lastErr || '')) + '">' + escHtml(String(lastErr || '—').slice(0, 80)) + '</td>' +
+        '<td style="font-size:12px">' + susp + '</td>' +
+      '</tr>';
+    }).join('');
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:rgba(255,255,255,0.4);padding:30px">Load error: ' + escHtml(e.message) + '</td></tr>';
+  }
+}
+
+// R-F58: per-sector breakdown of brain absorb signals (R-F56 _by_sector)
+async function loadSectorStats() {
+  const el = document.getElementById('sector-body');
+  try {
+    const data = await API.get('/api/aria/brain/stats');
+    if (!data) { el.textContent = 'Brain stats unavailable.'; return; }
+    const bs = data._by_sector || {};
+    const keys = Object.keys(bs).filter(k => bs[k] && (bs[k].total || 0) > 0);
+    if (!keys.length) {
+      el.innerHTML = '<div style="color:rgba(255,255,255,0.45)">No sector-tagged signals recorded yet. After a chat turn from a user with sector set (R-F48), per-sector buckets begin populating here.</div>';
+      return;
+    }
+    keys.sort((a, b) => (bs[b].total || 0) - (bs[a].total || 0));
+    let html = '<table class="sc-table"><thead><tr><th>Sector</th><th>Total</th><th>Success</th><th>Fail</th><th>Last signal</th><th>Top modules</th></tr></thead><tbody>';
+    for (const k of keys) {
+      const v = bs[k];
+      const successPct = v.total ? Math.round((v.success / v.total) * 100) : 0;
+      const topModules = Object.entries(v.by_module || {}).sort((a, b) => b[1] - a[1]).slice(0, 3)
+        .map(([m, n]) => m + ' (' + n + ')').join(', ');
+      const lastTs = v.last_signal_at ? new Date(v.last_signal_at * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '—';
+      html += '<tr>' +
+        '<td><strong>' + escHtml(k) + '</strong></td>' +
+        '<td>' + (v.total || 0) + '</td>' +
+        '<td style="color:#4ade80">' + (v.success || 0) + ' (' + successPct + '%)</td>' +
+        '<td style="color:#fca5a5">' + (v.fail || 0) + '</td>' +
+        '<td style="font-size:11.5px;color:rgba(255,255,255,0.45)">' + lastTs + '</td>' +
+        '<td style="font-size:12px;color:rgba(255,255,255,0.6)">' + escHtml(topModules || '—') + '</td>' +
+      '</tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.textContent = 'Sector stats load error: ' + e.message;
+  }
+}
+
 loadSources();
+loadBridge();
+loadPythonSources();
+loadSectorStats();
+
+// Auto-refresh every 60s
+setInterval(() => {
+  loadSources();
+  loadBridge();
+  loadPythonSources();
+  loadSectorStats();
+}, 60000);
 </script>
 </body>
 </html>
