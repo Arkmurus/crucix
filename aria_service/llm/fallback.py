@@ -405,7 +405,33 @@ def create_fallback_chain(
 
     providers = []
 
-    # Primary
+    # R-F93 (2026-05-09): ARIA-LLM (sovereign vLLM endpoint) takes
+    # FIRST PRIORITY in the chain when ARIA_LLM_URL is set. This is
+    # the Phase 4 transition point — once weights deploy and the URL
+    # is set, ARIA-LLM serves all chat / DD / audit-grade calls with
+    # the existing chain demoted to break-glass fallback.
+    _aria_llm_url = (os.getenv("ARIA_LLM_URL") or "").strip()
+    if _aria_llm_url:
+        # ARIA-LLM speaks OpenAI-compatible API; reuse the OpenAICompatProvider.
+        aria_llm = create_llm_provider(
+            "openai",
+            os.getenv("ARIA_LLM_KEY", "sovereign"),
+            os.getenv("ARIA_LLM_MODEL", "aria-llm-v0.1"),
+            base_url=_aria_llm_url.rstrip("/"),
+        )
+        if aria_llm and aria_llm.is_configured:
+            # Rename so logs are clear about what's serving
+            try:
+                aria_llm.name = "aria_llm"
+            except Exception:
+                pass
+            providers.append(aria_llm)
+            logger.info(
+                "ARIA-LLM (R-F93 sovereign) configured at %s — taking primary position",
+                _aria_llm_url,
+            )
+
+    # Primary (configured via env vars in main.py — typically Anthropic)
     primary = create_llm_provider(
         primary_provider, primary_key, primary_model, primary_base_url,
     )
