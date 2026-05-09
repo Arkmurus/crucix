@@ -10,7 +10,15 @@
     *, *::before, *::after { box-sizing: border-box; }
     body { margin: 0; background: #0c0919; font-family: 'Gordita', system-ui, -apple-system, sans-serif; }
 
-    #app-main { padding: 0; display: flex; flex-direction: row; height: calc(100vh - var(--header-h, 52px)); overflow: hidden; }
+    /* 100dvh handles iOS Safari's dynamic viewport (URL bar collapse +
+       on-screen keyboard) better than 100vh, which is fixed to the
+       initial layout viewport. Older browsers fall back to 100vh. */
+    #app-main {
+      padding: 0; display: flex; flex-direction: row;
+      height: calc(100vh - var(--header-h, 52px));
+      height: calc(100dvh - var(--header-h, 52px));
+      overflow: hidden;
+    }
 
     /* ── Conversations panel (left of chat) ── */
     .convos-panel {
@@ -69,15 +77,29 @@
     }
     .convos-load-older:hover { color: rgba(255,255,255,0.7); border-color: rgba(255,255,255,0.18); }
 
-    .convos-toggle {
-      position: absolute; top: 14px; left: 14px;
-      width: 30px; height: 30px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(0,0,0,0.4); color: rgba(255,255,255,0.5); cursor: pointer;
-      display: none; align-items: center; justify-content: center; z-index: 5;
-      font-size: 14px; transition: all .15s;
+    .chat-titlebar {
+      display: none; align-items: center; gap: 10px;
+      padding: 9px 14px; min-height: 44px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      background: rgba(12,9,25,0.92); backdrop-filter: blur(8px);
+      position: sticky; top: 0; z-index: 5; flex-shrink: 0;
     }
-    .convos-toggle:hover { color: #fff; border-color: rgba(124,58,237,0.4); }
-    .convos-panel.collapsed ~ .chat-shell .convos-toggle { display: flex; }
+    .convos-toggle {
+      width: 36px; height: 36px; flex-shrink: 0;
+      border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);
+      background: transparent; color: rgba(255,255,255,0.55); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; transition: all .15s;
+    }
+    .convos-toggle:hover { color: #fff; border-color: rgba(124,58,237,0.4); background: rgba(124,58,237,0.08); }
+    .chat-title-text {
+      flex: 1; min-width: 0; font-size: 13px; font-weight: 600;
+      color: rgba(255,255,255,0.75);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* Show titlebar whenever the convos panel is collapsed (always on
+       mobile, optional on desktop). */
+    .convos-panel.collapsed ~ .chat-shell .chat-titlebar { display: flex; }
 
     /* ── Shell ── */
     .chat-shell { flex: 1; display: flex; flex-direction: column; height: 100%; background: #0c0919; position: relative; min-width: 0; }
@@ -260,12 +282,24 @@
     @media (max-width: 900px) {
       .convos-panel { position: absolute; top: 0; left: 0; bottom: 0; z-index: 4; box-shadow: 4px 0 18px rgba(0,0,0,0.4); }
       .convos-panel.collapsed { margin-left: -260px; box-shadow: none; }
+      /* Always show the titlebar on mobile so the user can re-open the
+         drawer + see which conversation they're in. */
+      .chat-titlebar { display: flex; }
     }
     @media (max-width: 640px) {
       .chat-feed, .input-wrap { max-width: 100%; }
       .input-hint { display: none; }
       .msg-user-bubble { max-width: 90%; }
       .convos-panel { width: 80vw; max-width: 280px; }
+      /* 44px minimum tap targets per Apple HIG / Material Design. The
+         desktop 32px send button is too small for thumbs. */
+      .send-btn { width: 40px; height: 40px; font-size: 16px; }
+      .think-btn, .new-btn, .upload-btn { min-height: 36px; padding: 7px 11px; }
+      .convo-item { padding: 12px 36px 12px 14px; }
+      .convo-item .convo-del { opacity: 1; width: 28px; height: 28px; }
+      /* Avoid the iOS keyboard hiding the input — push the input up by
+         the safe-area inset on devices that report it. */
+      .input-area { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
     }
   </style>
 </head>
@@ -286,7 +320,10 @@
 
 <div class="chat-shell">
 
-  <button class="convos-toggle" id="convos-toggle" title="Show conversations"><i class="bi bi-layout-sidebar"></i></button>
+  <div class="chat-titlebar" id="chat-titlebar">
+    <button class="convos-toggle" id="convos-toggle" title="Show conversations"><i class="bi bi-layout-sidebar"></i></button>
+    <div class="chat-title-text" id="chat-title-text">New conversation</div>
+  </div>
 
   <div class="chat-scroll" id="chat-scroll">
     <div class="chat-feed" id="chat-feed">
@@ -338,6 +375,22 @@ function newSID() {
   return USER_ID_SLUG + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
 }
 var SID = newSID();
+
+// AUTH_READY resolves once /api/auth/me returns. send() awaits this before
+// the first turn so the SID prefix is the real userId, not 'anon'. Without
+// this, a user clicking a chip within the first ~200ms could get their
+// first conversation bucketed under the anon user. Resolves with the user
+// object (or null on failure) — never rejects.
+var AUTH_READY = Auth.me().then(function(user) {
+  if (user) {
+    CURRENT_USER = user;
+    USER_ID_SLUG = (user.id || user.username || 'anon').toString().replace(/[^A-Za-z0-9]/g, '');
+    // Welcome still visible = no chat yet, so rebuild SID under real user.
+    var welcomeEl = document.getElementById('welcome');
+    if (welcomeEl && welcomeEl.style.display !== 'none') SID = newSID();
+  }
+  return user;
+}).catch(function(e) { console.warn('[Auth] me() failed:', e); return null; });
 var thinkMode = false;
 var sending = false;
 var feed = document.getElementById('chat-feed');
@@ -371,7 +424,13 @@ function startNewConversation() {
   feed.querySelectorAll('.msg, .thinking').forEach(function(n) { n.remove(); });
   document.getElementById('welcome').style.display = '';
   Convos.setActive(null);
+  setTitlebar('New conversation');
   ta.focus();
+}
+
+function setTitlebar(text) {
+  var el = document.getElementById('chat-title-text');
+  if (el) el.textContent = text || 'New conversation';
 }
 document.getElementById('new-btn').addEventListener('click', startNewConversation);
 document.getElementById('convos-new').addEventListener('click', startNewConversation);
@@ -507,6 +566,18 @@ function removeThinking() { var t = document.getElementById('thk'); if (t) t.rem
 async function send(text, opts) {
   opts = opts || {};
   if (!text || sending) return;
+  // First send: wait up to ~600ms for /api/auth/me so the SID prefix is the
+  // real userId. After that we proceed with whatever's resolved (anon
+  // bucket if the user truly isn't authed). This gates only the FIRST turn
+  // — subsequent sends are immediate.
+  if (!CURRENT_USER) {
+    try {
+      await Promise.race([
+        AUTH_READY,
+        new Promise(function(r) { setTimeout(r, 600); }),
+      ]);
+    } catch(e) {}
+  }
   sending = true;
   lastUserMessage = text;
   if (!opts.keepInput) {
@@ -873,6 +944,7 @@ var Convos = (function() {
         else addAria(md(m.content || ''));
       });
       bottom();
+      setTitlebar(data.title || 'Conversation');
       // On mobile, collapse the panel after selecting
       if (window.innerWidth <= 900) panel.classList.add('collapsed');
     } catch (err) {
@@ -919,15 +991,17 @@ var Convos = (function() {
     }
     // New conversation — insert a stub row at top, server-side title will
     // appear on the next full refresh.
+    var title = fallbackTitle || 'New conversation';
     var stub = renderRow({
       session_id: sid,
-      title: fallbackTitle || 'New conversation',
+      title: title,
       updatedAt: Date.now() / 1000,
       messageCount: 1,
     });
     listEl.insertBefore(stub, listEl.firstChild);
     emptyEl.style.display = 'none';
     setActive(sid);
+    setTitlebar(title);
   }
 
   toggleBtn.addEventListener('click', function() {
@@ -939,18 +1013,11 @@ var Convos = (function() {
   return { refresh: refresh, load: load, setActive: setActive, bumpToTop: bumpToTop };
 })();
 
-// Resolve user, fix SID prefix, then load conversations.
-Auth.me().then(function(user) {
-  if (!user) return;
-  CURRENT_USER = user;
-  USER_ID_SLUG = (user.id || user.username || 'anon').toString().replace(/[^A-Za-z0-9]/g, '');
-  // Rebuild SID so the very first turn lands under the right user bucket.
-  // Only rebuild if no chat has happened yet (welcome still visible).
-  var welcomeVisible = document.getElementById('welcome').style.display !== 'none';
-  if (welcomeVisible) SID = newSID();
-  Convos.refresh();
-}).catch(function(err) {
-  console.warn('[Convos] auth.me failed:', err);
+// Once the auth probe at the top of the script resolves, refresh the
+// conversation list. CURRENT_USER + USER_ID_SLUG are already set by then;
+// AUTH_READY is the single source of truth for "auth resolved".
+AUTH_READY.then(function(user) {
+  if (user) Convos.refresh();
 });
 
 // After every successful send, bump the conversation to the top of the list.
