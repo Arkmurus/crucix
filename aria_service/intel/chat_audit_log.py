@@ -95,6 +95,28 @@ async def record_chat(
     # Get previous chain hash
     prev_hash = await rs.get(_K_HEAD) or _GENESIS_HASH
 
+    # R-F107 (2026-05-09): merge URLs cited in the response with the
+    # RAG sources that were actually retrieved (passed via tool_context
+    # by aria_engine). Previously sources_count counted ONLY URLs that
+    # survived the LLM paraphrase — chronically 0 even when the
+    # 8-layer context had 5+ retrieved passages. Now reflects real
+    # retrieval provenance.
+    inline_urls = _extract_cited_urls(response_text or "")
+    retrieved_urls: list[str] = []
+    if isinstance(tool_context, dict):
+        retrieved = tool_context.get("retrieved_sources") or []
+        if isinstance(retrieved, list):
+            for r in retrieved:
+                if isinstance(r, dict):
+                    u = r.get("url") or r.get("source")
+                    if u and u not in retrieved_urls:
+                        retrieved_urls.append(u)
+                elif isinstance(r, str) and r:
+                    if r not in retrieved_urls:
+                        retrieved_urls.append(r)
+    # Union of inline + retrieved (dedupe)
+    all_urls = list(dict.fromkeys(inline_urls + retrieved_urls))[:30]
+
     entry = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "session_id": session_id or "unknown",
@@ -102,8 +124,10 @@ async def record_chat(
         "response_hash": _hash_text(response_text or ""),
         "response_length": len(response_text or ""),
         "confidence_tags": _extract_confidence_tags(response_text or ""),
-        "sources_cited": _extract_cited_urls(response_text or ""),
-        "sources_count": len(_extract_cited_urls(response_text or "")),
+        "sources_cited": all_urls,
+        "sources_count": len(all_urls),
+        "sources_inline_count":    len(inline_urls),     # in the response text
+        "sources_retrieved_count": len(retrieved_urls),  # from RAG/knowledge layer
         "mastery_overall": round(mastery_overall, 3),
         "mastery_weak_topics": mastery_weak_topics or [],
         "verification_status": verification_status,

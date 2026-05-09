@@ -682,6 +682,10 @@ def _build_intel_context(intel_data: dict | None, message: str = "") -> str:
 import contextvars
 _neural_ctx_var: contextvars.ContextVar[str] = contextvars.ContextVar("neural_ctx", default="")
 _rag_ctx_var: contextvars.ContextVar[str] = contextvars.ContextVar("rag_ctx", default="")
+# R-F107 (2026-05-09): contextvar carrying the structured RAG source
+# list (URL/title/source/score) so chat_audit can record what was
+# retrieved even when the LLM paraphrases without quoting URLs.
+_rag_sources_var: contextvars.ContextVar[list] = contextvars.ContextVar("rag_sources", default=[])
 
 
 # ── Language Detection ──────────────────────────────────────────────────────
@@ -2537,16 +2541,22 @@ async def _aria_chat_impl(
             return ""
 
     async def _prefetch_rag():
+        # R-F107 (2026-05-09): use the source-aware RAG fetcher so the
+        # audit layer can record retrieval provenance even when the LLM
+        # response paraphrases without quoting URLs.
         try:
             from .intel import rag_store
-            return await rag_store.get_rag_context(message, max_chars=6000)
+            text, sources = await rag_store.get_rag_context_with_sources(message, max_chars=6000)
+            return (text, sources)
         except Exception as e:
             logger.warning("RAG retrieval failed: %s", e)
-            return ""
+            return ("", [])
 
-    neural_ctx, rag_ctx = await _aio.gather(_prefetch_neural(), _prefetch_rag())
+    neural_ctx, rag_pair = await _aio.gather(_prefetch_neural(), _prefetch_rag())
+    rag_ctx, rag_sources = rag_pair if isinstance(rag_pair, tuple) else (rag_pair, [])
     _neural_ctx_var.set(neural_ctx)
     _rag_ctx_var.set(rag_ctx)
+    _rag_sources_var.set(rag_sources)
 
     # Build 8-layer context (7 intel + neural memory).
     # BUG-FIX 2026-04-08: this used to run sync on the event loop. The
@@ -2871,12 +2881,17 @@ async def _aria_chat_impl(
     try:
         from .intel import operating_modes as _om
         _mastery_report = await student.get_mastery_report()
+        # R-F107: pull retrieved RAG sources from the contextvar so
+        # they reach the audit even when the LLM paraphrased without
+        # quoting URLs. Without this, sources_count was always 0 in
+        # chat_audit despite real retrieval happening upstream.
+        _retrieved = list(_rag_sources_var.get([]))
         _audit_task = asyncio.create_task(
             _verify_and_record_chat(
                 session_id=session_id or "",
                 user_message=message,
                 response_text=response_text,
-                tool_context=None,
+                tool_context={"retrieved_sources": _retrieved} if _retrieved else None,
                 mastery_overall=(
                     _mastery_report.get("headline_mastery")
                     or _mastery_report.get("overall_mastery", 0.0)
@@ -3096,16 +3111,20 @@ async def _aria_chat_stream_impl(
             return ""
 
     async def _prefetch_rag_s():
+        # R-F107 (2026-05-09): same source-aware fetch on the streaming path
         try:
             from .intel import rag_store
-            return await rag_store.get_rag_context(message, max_chars=6000)
+            text, sources = await rag_store.get_rag_context_with_sources(message, max_chars=6000)
+            return (text, sources)
         except Exception as e:
             logger.debug("rag_store ctx failed (non-fatal): %s", e)
-            return ""
+            return ("", [])
 
-    neural_ctx, rag_ctx = await _aio.gather(_prefetch_neural_s(), _prefetch_rag_s())
+    neural_ctx, rag_pair_s = await _aio.gather(_prefetch_neural_s(), _prefetch_rag_s())
+    rag_ctx, rag_sources_s = rag_pair_s if isinstance(rag_pair_s, tuple) else (rag_pair_s, [])
     _neural_ctx_var.set(neural_ctx)
     _rag_ctx_var.set(rag_ctx)
+    _rag_sources_var.set(rag_sources_s)
 
     context = await _aio.to_thread(_build_7_layer_context, message, intel_data)
 

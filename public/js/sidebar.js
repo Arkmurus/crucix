@@ -267,7 +267,7 @@ const Sidebar = {
             <i class="bi bi-bell"></i>
             <span id="alerts-badge" style="display:none;position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;border-radius:8px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;line-height:16px;padding:0 4px;text-align:center;box-shadow:0 0 0 2px #0c0919"></span>
           </button>
-          <div id="alerts-popup" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:380px;max-width:calc(100vw - 24px);max-height:70vh;background:#1a1430;border:1px solid rgba(255,255,255,0.08);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.5);z-index:100;overflow:hidden;display:flex;flex-direction:column">
+          <div id="alerts-popup" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:380px;max-width:calc(100vw - 24px);max-height:70vh;background:#1a1430;border:1px solid rgba(255,255,255,0.08);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.5);z-index:100;overflow:hidden;flex-direction:column">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0">
               <div style="font-size:13px;font-weight:700;color:#fff;letter-spacing:0.3px;text-transform:uppercase">Watchlist alerts</div>
               <button id="alerts-mark-read" style="background:transparent;border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.55);font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer">Mark all read</button>

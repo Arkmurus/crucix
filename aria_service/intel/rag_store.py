@@ -667,26 +667,43 @@ def _hybrid_rerank(results: list[dict], query: str) -> list[dict]:
     return results
 
 
-async def get_rag_context(
+async def get_rag_context_with_sources(
     query: str,
     max_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
     top_k: int = DEFAULT_TOP_K,
-) -> str:
-    """Build a formatted context string for LLM prompt injection.
+) -> tuple[str, list[dict]]:
+    """R-F107 (2026-05-09): same as get_rag_context but also returns the
+    structured source list so the chat-audit layer can record what was
+    actually retrieved (vs what made it into the response text).
 
-    Returns the top retrieved passages with citations, capped at max_chars.
-    Designed to slot into aria_engine's context layer pipeline.
+    Returns (formatted_context_text, [{title, source, url, score}, ...]).
+    The source list survives even when the LLM paraphrases without
+    quoting URLs — fixes the chronic 'sources_count: 0' on chat_audit
+    entries despite real retrieval.
     """
     if not await _ensure_async():
-        return ""
+        return ("", [])
     results = await search(query, top_k=top_k)
     if not results:
-        return ""
+        return ("", [])
+    sources = [
+        {
+            "title":  r.get("title", ""),
+            "source": r.get("source", ""),
+            "url":    r.get("url") or r.get("source", ""),
+            "score":  r.get("score"),
+            "ingested_at": r.get("ingested_at"),
+        }
+        for r in results
+    ]
+    text = _format_rag_context(results, max_chars)
+    return (text, sources)
 
-    # M3: flag stale RAG chunks. Passages older than 90 days for
-    # fast-moving domains (sanctions, procurement, officeholders) are
-    # shown to the LLM with a ⚠ STALE marker so the model knows not to
-    # present them as current intelligence.
+
+def _format_rag_context(results: list[dict], max_chars: int) -> str:
+    """Build the formatted prompt-injection context block. Extracted so
+    both get_rag_context (back-compat) and get_rag_context_with_sources
+    (R-F107) can share the rendering logic without duplication."""
     from datetime import datetime, timezone
     _now = datetime.now(timezone.utc)
     _STALE_DAYS = 90
@@ -709,12 +726,9 @@ async def get_rag_context(
     total = 0
     for r in results:
         cite_parts = []
-        if r.get("title"):
-            cite_parts.append(r["title"])
-        if r.get("source"):
-            cite_parts.append(r["source"])
-        if r.get("ingested_at"):
-            cite_parts.append(r["ingested_at"][:10])
+        if r.get("title"):  cite_parts.append(r["title"])
+        if r.get("source"): cite_parts.append(r["source"])
+        if r.get("ingested_at"): cite_parts.append(r["ingested_at"][:10])
         cite = " | ".join(cite_parts) if cite_parts else "unknown source"
         stale = _staleness_marker(r.get("ingested_at", ""))
         body = f"\n• [{r['score']:.2f}]{stale} {r['text'][:600]}\n  ↳ source: {cite}"
@@ -723,6 +737,24 @@ async def get_rag_context(
         lines.append(body)
         total += len(body)
     return "\n".join(lines)
+
+
+async def get_rag_context(
+    query: str,
+    max_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+    top_k: int = DEFAULT_TOP_K,
+) -> str:
+    """Build a formatted context string for LLM prompt injection.
+
+    Returns the top retrieved passages with citations, capped at max_chars.
+    Designed to slot into aria_engine's context layer pipeline.
+
+    Back-compat wrapper around get_rag_context_with_sources — drops the
+    sources list. New callers should prefer get_rag_context_with_sources
+    so retrieval provenance reaches the audit layer (R-F107).
+    """
+    text, _ = await get_rag_context_with_sources(query, max_chars=max_chars, top_k=top_k)
+    return text
 
 
 # ── Public API: stats + maintenance ────────────────────────────────────────
