@@ -7184,7 +7184,13 @@ async def brain_absorb_ep(request: Request):
     fans out to mastery, knowledge, neural memory, and capability gaps.
 
     Body: { module, summary, detail?, entity_name?, success?, gap_type?,
-            gap_detail?, extra_topics?, source_id?, confidence? }
+            gap_detail?, extra_topics?, source_id?, confidence?,
+            user_id?, sector? }
+
+    R-F56: user_id + sector are persisted on the signal record so future
+    rollups can bucket telemetry per-customer / per-persona without a
+    re-ingest. Empty strings preserve the legacy behaviour for callers
+    that haven't been updated yet.
     """
     from ..intel import brain_hook
     body = await request.json()
@@ -7203,6 +7209,8 @@ async def brain_absorb_ep(request: Request):
         extra_topics=body.get("extra_topics"),
         source_id=body.get("source_id", ""),
         confidence=body.get("confidence", "PROBABLE"),
+        user_id=body.get("user_id", ""),
+        sector=body.get("sector", ""),
     )
     return result
 

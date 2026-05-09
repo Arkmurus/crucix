@@ -398,6 +398,8 @@ async def absorb(
     extra_topics: Optional[list[str]] = None,
     source_id: str = "",
     confidence: str = "PROBABLE",
+    user_id: str = "",
+    sector: str = "",
 ) -> dict:
     """Feed one intel module's output into all learning tiers.
 
@@ -415,6 +417,16 @@ async def absorb(
         extra_topics: Additional mastery topics beyond the module default.
         source_id:    Unique run/trace ID for attribution.
         confidence:   Knowledge confidence level (CONFIRMED/PROBABLE/ASSESSED).
+
+        R-F56 (per-customer learning loop):
+        user_id:      Authenticated user id when the signal came from a
+                      chat / DD turn. Empty string for autonomous /
+                      sweep-driven signals (no human in the loop).
+        sector:       Persona sector tag from the user record (broker /
+                      oem_export / government_acquisition / compliance /
+                      banking_insurance / journalist). Carried alongside
+                      every signal so future per-sector mastery rollups
+                      can bucket without re-ingest.
 
     Returns:
         dict with keys: mastery_ok, knowledge_ok, neural_ok, gap_ok, errors.
@@ -525,10 +537,29 @@ async def absorb(
     # signal counter in Redis. This protects chat latency without losing
     # the stats trail. Drop is recorded against drops_total so we can see
     # how many signals were sacrificed during the outage.
+    # R-F56: when caller didn't pass user_id/sector, fall back to the
+    # current chat-turn contextvar set by aria_chat / aria_chat_stream.
+    # Means downstream modules (deep_research, dd_orchestrator, etc.)
+    # get correctly tagged absorbs even if they don't thread user_id
+    # through their own call chains.
+    if not user_id or not sector:
+        _ctx_uid, _ctx_sector = get_chat_context()
+        if not user_id and _ctx_uid:
+            user_id = _ctx_uid
+        if not sector and _ctx_sector:
+            sector = _ctx_sector
+
+    # Normalise sector once at entry so downstream calls see a stable
+    # bucket key. Empty / unknown values normalise to "" (no per-sector
+    # bucket) so legacy / sweep-driven absorbs preserve the existing shape.
+    _sector_normalised = (sector or "").strip().lower()
+    if _sector_normalised and _sector_normalised not in _ALLOWED_SECTORS:
+        _sector_normalised = "unknown"
+
     if _breaker_state["open"]:
         _breaker_state["drops_total"] += 1
         try:
-            await _record_signal(module, success=False)
+            await _record_signal(module, success=False, sector=_sector_normalised)
         except Exception:
             pass
         return {
@@ -608,6 +639,8 @@ async def absorb(
                 gap_type=gap_type,
                 detail=gap_detail or f"{module} reported gap: {gap_type}",
                 source=f"brain_hook:{module}",
+                user_id=user_id,
+                sector=_sector_normalised,
             )
             result["gap_ok"] = True
         except Exception as e:
@@ -623,8 +656,14 @@ async def absorb(
 
     # ── 5. Record signal for stats/health tracking ──
     # Success = at least mastery OR knowledge stored. Gap errors are non-fatal.
+    # R-F56: pass sector so the per-sector bucket counter advances when
+    # this absorb came from a chat / DD turn with a known persona.
     _core_ok = result["mastery_ok"] or result["knowledge_ok"]
-    await _record_signal(module, success=_core_ok)
+    await _record_signal(module, success=_core_ok, sector=_sector_normalised)
+    # Surface the resolved sector + user_id in the absorb result so callers
+    # can audit propagation. Empty values stay empty.
+    result["user_id"] = user_id or ""
+    result["sector"] = _sector_normalised
 
     # ── 6. Latency tracking + circuit breaker ──
     # If wall-clock exceeded the trip threshold, count toward the
@@ -917,8 +956,13 @@ async def _record_gate_skip(reason: str, module: str) -> None:
         pass  # gate-skip stats must never block absorb
 
 
-async def _record_signal(module: str, success: bool) -> None:
-    """Record a signal in Redis for per-module tracking."""
+async def _record_signal(module: str, success: bool, sector: str = "") -> None:
+    """Record a signal in Redis for per-module tracking.
+
+    R-F56: when `sector` is non-empty, also bumps a parallel
+    per-sector counter so the dashboard / get_stats surface can
+    answer "how many compliance-officer absorbs this week vs broker".
+    """
     try:
         from . import redis_store as rs
         stats = await rs.get_json(_STATS_KEY) or {}
@@ -941,9 +985,73 @@ async def _record_signal(module: str, success: bool) -> None:
         stats.setdefault("_global", {"total": 0, "started_at": now})
         stats["_global"]["total"] += 1
 
+        # R-F56 — per-sector buckets keyed by `_by_sector`. Sector is
+        # validated against the known persona keys to prevent unbounded
+        # bucket growth from typos / malformed inputs.
+        if sector and sector in _ALLOWED_SECTORS:
+            sec_buckets = stats.setdefault("_by_sector", {})
+            sb = sec_buckets.setdefault(sector, {
+                "total": 0, "success": 0, "fail": 0,
+                "first_signal_at": now, "last_signal_at": 0,
+                "by_module": {},
+            })
+            sb["total"] += 1
+            if success:
+                sb["success"] += 1
+            else:
+                sb["fail"] += 1
+            sb["last_signal_at"] = now
+            sb["by_module"][module] = sb["by_module"].get(module, 0) + 1
+
         await rs.set_json(_STATS_KEY, stats, ex=30 * 86400)
     except Exception:
         pass  # stats recording must never break absorb
+
+
+# R-F56: closed set of sector keys we'll bucket telemetry against. Mirrors
+# DEFAULT_PERSONA + the keys in personas/__init__.py:_OVERLAYS plus an
+# explicit "" → no-bucket sentinel and "unknown" for anything we can't
+# resolve. Keeps the Redis stats shape bounded.
+_ALLOWED_SECTORS = frozenset({
+    "broker", "oem_export", "government_acquisition",
+    "compliance", "banking_insurance", "journalist",
+    "unknown",
+})
+
+
+# R-F56: chat-turn context. Set at the top of aria_chat / aria_chat_stream
+# from the request body's user_id + sector; read by brain_hook.absorb when
+# the caller didn't pass them explicitly. Means downstream modules
+# (deep_research, dd_orchestrator, watchlist re-screen, etc.) get correct
+# per-customer tagging without each one having to thread user_id through.
+# Same pattern as cost_tracker._current_feature.
+import contextvars as _cv
+_chat_user_ctx: _cv.ContextVar[tuple[str, str]] = _cv.ContextVar(
+    "_chat_user_ctx", default=("", "")
+)
+
+
+def set_chat_context(user_id: str, sector: str) -> _cv.Token:
+    """Set the per-turn (user_id, sector) context. Call at chat entry;
+    pair with `reset_chat_context(token)` in a finally block.
+    Returns the contextvars Token caller passes to reset."""
+    return _chat_user_ctx.set((user_id or "", sector or ""))
+
+
+def reset_chat_context(token: _cv.Token) -> None:
+    try:
+        _chat_user_ctx.reset(token)
+    except Exception:
+        pass
+
+
+def get_chat_context() -> tuple[str, str]:
+    """Return the current chat (user_id, sector) — ('', '') when no
+    chat-turn context is active (autonomous / sweep / dev calls)."""
+    try:
+        return _chat_user_ctx.get()
+    except Exception:
+        return ("", "")
 
 
 async def get_stats() -> dict:

@@ -2301,6 +2301,36 @@ async def aria_chat(
     to local_brain.degraded_response() which serves rule-based answers from
     local data sources. ARIA never hard-fails — she always returns SOMETHING.
     """
+    # R-F56: scope (user_id, sector) for the entire turn so every absorb
+    # downstream of this point — incl. modules invoked indirectly via
+    # deep_research, dd_orchestrator, watchlist re-screen — can read the
+    # current chat user from brain_hook.get_chat_context() without each
+    # caller threading user_id through its own arg list.
+    from .intel import brain_hook as _bh_ctx
+    from .personas import resolve_persona as _resolve_persona_ctx
+    _chat_ctx_token = _bh_ctx.set_chat_context(
+        user_id=user_id or "",
+        sector=_resolve_persona_ctx(persona),
+    )
+    try:
+        return await _aria_chat_impl(
+            message=message, session_id=session_id, llm=llm, intel_data=intel_data,
+            user_id=user_id, persona=persona,
+        )
+    finally:
+        _bh_ctx.reset_chat_context(_chat_ctx_token)
+
+
+async def _aria_chat_impl(
+    message: str,
+    session_id: str,
+    llm: LLMProvider,
+    intel_data: dict | None = None,
+    user_id: str = "",
+    persona: str = "",
+) -> dict:
+    """Internal implementation of aria_chat (R-F56 split — public wrapper
+    sets the per-turn brain_hook contextvar; this impl is the actual body)."""
     # ── Trivial-question short-circuit ──────────────────────────────────────
     # Greetings, liveness probes ('are you online?'), identity questions
     # ('who are you?'), 'test'/'ping', 'thanks' — these never deserve an LLM
@@ -2918,6 +2948,39 @@ async def aria_chat_stream(
     persona: str = "",
 ):
     """Streaming variant of aria_chat — yields SSE event dicts.
+
+    R-F56: scopes (user_id, sector) for the entire stream so absorbs
+    triggered by downstream modules (deep_research, dd_orchestrator,
+    watchlist re-screen, etc.) get the correct per-customer tags via
+    brain_hook.get_chat_context().
+    """
+    from .intel import brain_hook as _bh_ctx
+    from .personas import resolve_persona as _resolve_persona_ctx
+    _chat_ctx_token = _bh_ctx.set_chat_context(
+        user_id=user_id or "",
+        sector=_resolve_persona_ctx(persona),
+    )
+    try:
+        async for _ev in _aria_chat_stream_impl(
+            message=message, session_id=session_id, llm=llm, intel_data=intel_data,
+            user_id=user_id, persona=persona,
+        ):
+            yield _ev
+    finally:
+        _bh_ctx.reset_chat_context(_chat_ctx_token)
+
+
+async def _aria_chat_stream_impl(
+    message: str,
+    session_id: str,
+    llm: LLMProvider,
+    intel_data: dict | None = None,
+    user_id: str = "",
+    persona: str = "",
+):
+    """Internal implementation of aria_chat_stream (R-F56 split — public
+    wrapper sets the per-turn brain_hook contextvar; this impl is the
+    actual body).
 
     Event types:
       {"type": "status", "message": "..."}    — progress updates (tool exec, context build)

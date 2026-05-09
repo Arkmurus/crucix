@@ -117,6 +117,8 @@ async def record_gap(
     detail: str,
     message_context: str = "",
     source: str = "",
+    user_id: str = "",
+    sector: str = "",
 ) -> dict:
     """Record a capability gap to Redis.
 
@@ -125,6 +127,12 @@ async def record_gap(
         detail: human-readable description of the gap
         message_context: optional snippet from the user message that triggered it
         source: optional identifier for where the gap was detected
+        user_id: R-F56 — authenticated user id when the gap surfaced
+                 from a chat / DD turn. Empty for sweep / autonomous.
+        sector:  R-F56 — persona sector (broker / oem_export / compliance /
+                 banking_insurance / journalist / government_acquisition).
+                 Carried on every gap entry so per-sector reports can
+                 surface "compliance officers have hit X gap N times".
 
     Returns:
         The stored gap entry dict.
@@ -156,6 +164,10 @@ async def record_gap(
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "resolved": False,
         "resolution": None,
+        # R-F56: per-customer telemetry tags. Empty strings on legacy /
+        # sweep-driven gaps preserve the existing shape.
+        "user_id": (user_id or "").strip()[:64],
+        "sector": (sector or "").strip()[:64],
     }
 
     await rs.lpush(KEY, json.dumps(entry, default=str))
