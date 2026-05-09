@@ -58,6 +58,7 @@ CONFIDENCE_LEVELS = ("HIGH", "MEDIUM", "LOW")
 # the graph matches the "50 individuals across ~12 OEMs" target without
 # hallucinating names.
 _SEED_OEMS: list[dict] = [
+    # Original 12 European + Korean partners (kept from seed v1)
     {"oem": "Leonardo", "hq": "IT", "focus": ["EU", "NATO", "GCC", "SADC"]},
     {"oem": "Rheinmetall", "hq": "DE", "focus": ["EU", "NATO", "ASEAN"]},
     {"oem": "KNDS", "hq": "FR", "focus": ["EU", "NATO", "GCC"]},
@@ -70,6 +71,61 @@ _SEED_OEMS: list[dict] = [
     {"oem": "Safran", "hq": "FR", "focus": ["EU", "NATO", "GCC", "ASEAN"]},
     {"oem": "MBDA", "hq": "FR", "focus": ["EU", "NATO", "GCC"]},
     {"oem": "Hanwha Aerospace", "hq": "KR", "focus": ["NATO", "ASEAN", "MERCOSUR", "GCC"]},
+
+    # R-F138 (2026-05-10) — Expanded set: US primes + Israeli + Turkish +
+    # Indian + Japanese + emerging European specialists. Operator queue
+    # was 60/60 empty on 12 OEMs; expanding to 36 grows the slot pool to
+    # ~180 (12 → 36 OEMs × 5 anchor roles) so the operator has structured
+    # buckets for every major counterparty ARIA encounters in DD work.
+    # ARIA does NOT seed names (clause 11 anti-fabrication). Operator
+    # fills from LinkedIn / DSEI speaker lists / corporate IR pages.
+
+    # US primes
+    {"oem": "Lockheed Martin", "hq": "US", "focus": ["NATO", "GCC", "ASEAN", "AUKUS"]},
+    {"oem": "RTX (Raytheon)", "hq": "US", "focus": ["NATO", "GCC", "AUKUS"]},
+    {"oem": "Northrop Grumman", "hq": "US", "focus": ["NATO", "GCC", "AUKUS"]},
+    {"oem": "General Dynamics", "hq": "US", "focus": ["NATO", "GCC", "ASEAN"]},
+    {"oem": "Boeing Defense", "hq": "US", "focus": ["NATO", "GCC", "ASEAN", "AUKUS"]},
+    {"oem": "L3Harris", "hq": "US", "focus": ["NATO", "GCC", "MERCOSUR"]},
+    {"oem": "GA-ASI", "hq": "US", "focus": ["NATO", "GCC", "ASEAN"]},
+    {"oem": "Anduril", "hq": "US", "focus": ["NATO", "AUKUS", "ASEAN"]},
+
+    # Israeli
+    {"oem": "Israel Aerospace Industries", "hq": "IL", "focus": ["NATO", "GCC", "MERCOSUR", "ASEAN"]},
+    {"oem": "Rafael", "hq": "IL", "focus": ["NATO", "GCC", "MERCOSUR", "ASEAN"]},
+    {"oem": "Elbit Systems", "hq": "IL", "focus": ["NATO", "GCC", "MERCOSUR", "ASEAN", "SADC"]},
+
+    # Turkish
+    {"oem": "Aselsan", "hq": "TR", "focus": ["NATO", "MENA", "GCC", "ASEAN", "SADC"]},
+    {"oem": "Roketsan", "hq": "TR", "focus": ["NATO", "MENA", "GCC", "ASEAN"]},
+    {"oem": "Baykar", "hq": "TR", "focus": ["NATO", "MENA", "GCC", "ASEAN", "SADC"]},
+    {"oem": "TAI / TUSAS", "hq": "TR", "focus": ["NATO", "MENA", "GCC"]},
+
+    # Indian
+    {"oem": "Hindustan Aeronautics (HAL)", "hq": "IN", "focus": ["ASEAN", "GCC", "SADC"]},
+    {"oem": "Bharat Dynamics", "hq": "IN", "focus": ["ASEAN", "GCC"]},
+    {"oem": "Tata Defence", "hq": "IN", "focus": ["ASEAN", "GCC", "SADC"]},
+
+    # Japanese
+    {"oem": "Mitsubishi Heavy Industries", "hq": "JP", "focus": ["NATO", "ASEAN", "AUKUS"]},
+    {"oem": "Kawasaki Heavy Industries", "hq": "JP", "focus": ["NATO", "ASEAN"]},
+
+    # European specialists (additional)
+    {"oem": "Diehl Defence", "hq": "DE", "focus": ["EU", "NATO", "GCC"]},
+    {"oem": "Hensoldt", "hq": "DE", "focus": ["EU", "NATO", "GCC"]},
+    {"oem": "Helsing", "hq": "DE", "focus": ["EU", "NATO"]},
+    {"oem": "Patria", "hq": "FI", "focus": ["EU", "NATO", "ASEAN"]},
+    {"oem": "Iveco Defence Vehicles", "hq": "IT", "focus": ["EU", "NATO", "MENA"]},
+    {"oem": "Indra Sistemas", "hq": "ES", "focus": ["EU", "NATO", "MERCOSUR"]},
+    {"oem": "Babcock", "hq": "GB", "focus": ["NATO", "AUKUS", "GCC"]},
+    {"oem": "QinetiQ", "hq": "GB", "focus": ["NATO", "AUKUS", "GCC"]},
+
+    # Nordic + Baltic
+    {"oem": "Kongsberg", "hq": "NO", "focus": ["NATO", "AUKUS", "ASEAN"]},
+    {"oem": "Nammo", "hq": "NO", "focus": ["NATO", "GCC"]},
+
+    # Brazilian
+    {"oem": "Embraer Defense & Security", "hq": "BR", "focus": ["MERCOSUR", "AFRICA", "GCC"]},
 ]
 
 # Anchor role slots per OEM — ~5 per OEM × 12 OEMs = 60 placeholder slots
@@ -141,6 +197,37 @@ def _seed_contacts() -> list[dict]:
 async def _load() -> dict:
     data = await rs.get_json(CONTACTS_KEY)
     if isinstance(data, dict) and "items" in data:
+        # R-F138 (2026-05-10): additive re-seed. The OEM seed list grew
+        # from 12 → 36 today; without this, existing Redis state stays
+        # at the old 60-slot pool and the new 24 OEMs (US primes /
+        # Israeli / Turkish / Indian / Japanese / European specialists)
+        # would never become tracked slots. We add only NEW
+        # (oem, role_slot) tuples — operator-filled names are NEVER
+        # touched. Idempotent: a second call adds nothing.
+        try:
+            existing_keys: set[tuple[str, str]] = {
+                ((c.get("oem") or "").strip(), (c.get("role_slot") or "").strip())
+                for c in data["items"]
+                if isinstance(c, dict)
+            }
+            new_seeds: list[dict] = []
+            for seed in _seed_contacts():
+                k = ((seed.get("oem") or "").strip(),
+                     (seed.get("role_slot") or "").strip())
+                if k not in existing_keys:
+                    new_seeds.append(seed)
+            if new_seeds:
+                data["items"].extend(new_seeds)
+                await _save(data["items"])
+                logger.info(
+                    "[oem_contact_graph] additive re-seed: +%d new placeholder slots "
+                    "(total now %d across %d OEMs)",
+                    len(new_seeds),
+                    len(data["items"]),
+                    len({(c.get("oem") or "") for c in data["items"]}),
+                )
+        except Exception as e:
+            logger.debug("[oem_contact_graph] additive re-seed skipped: %s", e)
         return data
     seeded = {"items": _seed_contacts(), "version": 1}
     await rs.set_json(CONTACTS_KEY, seeded)
