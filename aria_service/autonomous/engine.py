@@ -264,7 +264,36 @@ async def _engine_loop(llm) -> None:
                 continue
 
             now_utc = time.gmtime()
-            for task_id, task in loaded.items():
+
+            # R-F97 (2026-05-09): bias task selection toward priority
+            # domains computed by R-F90 continuous_update. When multiple
+            # tasks match cron at the same tick (common at 06:00 UTC),
+            # tasks tagged for currently-stale or coverage-gap domains
+            # fire first. Best-effort; never blocks the engine.
+            try:
+                from ..intel import continuous_update as _cu
+                _priorities = await _cu.read_priorities()
+                _priority_domains = set(
+                    p.get("domain", "").lower()
+                    for p in (_priorities.get("priorities") or [])[:10]
+                )
+            except Exception:
+                _priority_domains = set()
+
+            def _task_priority_score(task_item):
+                _, t = task_item
+                tags = set((tag or "").lower() for tag in (t.mem0_tags or []))
+                # +1 per priority-domain match in the task's mem0_tags or id
+                score = 0
+                t_id_lower = (t.id or "").lower()
+                for d in _priority_domains:
+                    if d and (d in t_id_lower or d in tags):
+                        score += 1
+                return -score  # negative for descending sort
+
+            ordered_tasks = sorted(loaded.items(), key=_task_priority_score)
+
+            for task_id, task in ordered_tasks:
                 # Cheap filters first
                 if not task.enabled:
                     continue

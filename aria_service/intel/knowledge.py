@@ -597,6 +597,26 @@ async def store_fact(topic: str, content: str, source: str = "user",
             )
         except Exception:
             pass
+
+    # R-F96 (2026-05-09): record domain freshness so R-F88 tracker
+    # accumulates state. Topic maps directly onto domain when it matches
+    # a known domain; otherwise falls back to free-text topic which still
+    # writes a record (just with the default 7-day staleness window).
+    try:
+        from . import learning_progress as _lp
+        # Use the topic itself as the domain — knowledge facts are stored
+        # by topic and the topic vocabulary already aligns with domains
+        # (sanctions_screening, eccn_classification, etc).
+        domain = topic.strip().lower().replace(" ", "_")[:80] if topic else None
+        if domain:
+            await _lp.record_refresh(
+                domain,
+                source=f"knowledge:{source}",
+                facts_added=1,
+            )
+    except Exception:
+        pass
+
     return {"action": "created", "fact_id": new_id, "contradictions": contradictions}
 
 

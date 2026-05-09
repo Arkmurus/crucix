@@ -437,7 +437,58 @@ async def add_signal(payload: dict) -> str:
     except Exception:
         pass
 
+    # R-F96 (2026-05-09): record domain freshness so R-F88 tracker
+    # accumulates real state. Domain inferred from signal type / source
+    # / payload tags. Best-effort; never blocks ingest.
+    try:
+        from . import learning_progress as _lp
+        domain = _domain_for_signal(payload, source, ent)
+        if domain:
+            await _lp.record_refresh(
+                domain,
+                source=f"intel_ledger:{source}",
+                signals_added=1,
+            )
+    except Exception:
+        pass
+
     return "ok"
+
+
+def _domain_for_signal(payload: dict, source: str, entities: dict) -> str | None:
+    """R-F96: classify a ledger signal into a learning_progress domain.
+
+    Maps the signal's source / type / tags / countries onto one of the
+    known domain identifiers from learning_progress._MAX_STALENESS_OVERRIDES
+    + the per-country defence_market:* prefix.
+    """
+    sig_type = (payload.get("type") or "").lower()
+    src = (source or "").lower()
+    tags = [t.lower() for t in (payload.get("tags") or [])]
+
+    if "fcpa" in src or "enforcement" in tags:
+        return "fcpa_enforcement"
+    if "sanction" in src or "ofac" in tags or "ofsi" in tags or "sdn" in src:
+        return "sanctions_screening"
+    if "fatf" in src or "fatf" in tags:
+        return "fatf_ml_typologies"
+    if "tbml" in tags or sig_type == "tbml":
+        return "fatf_tbml"
+    if "crypto" in src or "wallet" in tags:
+        return "virtual_assets"
+    if sig_type == "cve" or "cyber" in src:
+        return "cyber_threats"
+    if sig_type == "tender" or "procurement" in src or "tender" in tags:
+        # Country-specific procurement
+        countries = entities.get("countries") or []
+        if countries:
+            return f"defence_market:{countries[0].lower()}"
+        return "procurement_pipeline"
+    # Country-anchored signals fall into per-market briefing
+    countries = entities.get("countries") or []
+    if countries:
+        return f"defence_market:{countries[0].lower()}"
+    return None
 
 
 async def purge_signals_by_keyword(keywords: list[str], dry_run: bool = False) -> dict:

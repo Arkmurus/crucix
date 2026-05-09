@@ -1680,3 +1680,65 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: []
     mem0_tags: [sanctions, crypto, daily, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # R-F98 (2026-05-09): WEEKLY-COUNTER-INTEL
+  # Detects reputation-washing / credibility-anomaly / new-outlet-burst
+  # patterns against the top-mentioned entities in the last 14 days.
+  # Zero LLM cost; pure ledger inspection + tier-classified sources.
+  # ──────────────────────────────────────────────────────────────────
+  - id: WEEKLY-COUNTER-INTEL
+    name: Counter-intelligence sweep over top entities
+    description: |
+      Every Sunday 04:00 UTC, scan the 5 most-mentioned entities in the
+      last 14 days of intel_ledger signals for counter-intelligence
+      patterns (R-F84). Material alerts (composite ≥ 0.5) absorb to
+      brain with topic=counter_intelligence_alert.
+
+      Why weekly: the patterns this detects (reputation washing,
+      coordinated-source bursts) play out over days-to-weeks. A faster
+      cadence wouldn't add signal; a slower cadence would let coordinated
+      campaigns build pressure before detection.
+    cron: "0 4 * * 0"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: counter_intel_sweep
+        top_n: 5
+        window_days: 14
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if:
+      - "alerted_count"
+      - "reputation_washing"
+      - "credibility_anomaly"
+    mem0_tags: [counter_intelligence, sanctions, weekly, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # R-F90/F97 (2026-05-09): RECOMPUTE-PRIORITIES-6H
+  # Refreshes the continuous-update priority list (R-F90) so the
+  # autonomous task selector (R-F97) has fresh signal on which domains
+  # need attention. 6h cadence matches the granularity of R-F88 freshness.
+  # ──────────────────────────────────────────────────────────────────
+  - id: RECOMPUTE-PRIORITIES-6H
+    name: Recompute continuous-update priorities
+    description: |
+      Every 6 hours, run R-F90 continuous_update.write_priorities — pulls
+      stale domains (R-F88) + coverage gaps (R-F89) and writes the
+      priority list to Redis. The autonomous engine's task selector
+      (R-F97) reads this on every poll so cron-coincident tasks fire
+      in priority-domain order.
+    cron: "0 */6 * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 60
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: recompute_priorities
+        max_priorities: 30
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, priorities, autonomous]

@@ -469,6 +469,24 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         force = bool((task.tool_chain[0] or {}).get("force", False))
         return await crypto_sanctions.fetch_and_index(force=force)
 
+    # R-F98 (2026-05-09): weekly counter-intelligence sweep over the
+    # top-mentioned entities. Scans for reputation washing / credibility
+    # anomaly / new-outlet burst patterns. Zero LLM cost.
+    elif tool_kind == "counter_intel_sweep":
+        from ..intel import counter_intelligence
+        n = int((task.tool_chain[0] or {}).get("top_n", 5))
+        days = int((task.tool_chain[0] or {}).get("window_days", 14))
+        return await counter_intelligence.scan_top_entities(n=n, window_days=days)
+
+    # R-F90/F97 (2026-05-09): recompute continuous-update priorities.
+    # Reads R-F88 freshness + R-F89 coverage gaps, writes the priority
+    # list the autonomous engine reads on every poll cycle. Should fire
+    # every 6 hours so priorities don't go stale.
+    elif tool_kind == "recompute_priorities":
+        from ..intel import continuous_update
+        max_p = int((task.tool_chain[0] or {}).get("max_priorities", 30))
+        return await continuous_update.write_priorities(max_priorities=max_p)
+
     elif tool_kind == "knowledge_freshness_audit":
         from ..intel import weekly_report
         return await weekly_report._audit_knowledge_freshness()

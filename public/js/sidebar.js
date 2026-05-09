@@ -240,6 +240,8 @@ const Sidebar = {
         <div class="sidebar-section">System</div>
         ${link('sources', '/sources.html', 'bi-activity', 'Source Health')}
         ${link('brain',   '/aria-brain',   'bi-heart-pulse', 'ARIA Brain')}
+        ${link('status',  '/status.html',  'bi-broadcast-pin', 'Status')}
+        ${link('model-card', '/model-card.html', 'bi-file-text', 'Model Card')}
 
         <div data-admin style="display:none">
           <div class="sidebar-divider"></div>

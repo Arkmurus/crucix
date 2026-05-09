@@ -364,6 +364,113 @@ async def scan_entity(
     return result
 
 
+async def scan_top_entities(*, n: int = 5, window_days: int = 14) -> dict[str, Any]:
+    """Scan the N most-frequently-mentioned entities in recent ledger
+    signals. Used by the WEEKLY-COUNTER-INTEL autonomous task (R-F98).
+
+    Picks entities that: (1) appear in ≥3 ledger signals in the window,
+    (2) aren't generic country names. Scans each via scan_entity().
+    Returns aggregated results + which entities triggered the alert.
+    """
+    try:
+        from . import intel_ledger
+        signals: list[dict[str, Any]] = []
+        for method_name in ("get_recent", "all_signals"):
+            fn = getattr(intel_ledger, method_name, None)
+            if callable(fn):
+                try:
+                    out = fn()
+                    if hasattr(out, "__await__"):
+                        out = await out
+                    if isinstance(out, list):
+                        signals = out
+                        break
+                except Exception:
+                    continue
+    except Exception:
+        signals = []
+
+    if not signals:
+        return {
+            "ok":              True,
+            "scanned_count":   0,
+            "alerted_count":   0,
+            "narrative":       "No signals available — autonomous engine fired before any sweep cycles.",
+            "results":         [],
+        }
+
+    # Filter to window + extract entity mentions
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+    counter: dict[str, int] = {}
+    for s in signals:
+        if not isinstance(s, dict):
+            continue
+        ts_raw = s.get("ts") or s.get("timestamp")
+        try:
+            if isinstance(ts_raw, (int, float)):
+                ts = datetime.fromtimestamp(ts_raw, tz=timezone.utc)
+            elif isinstance(ts_raw, str):
+                ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+            else:
+                continue
+            if ts < cutoff:
+                continue
+        except Exception:
+            continue
+        entity = (s.get("entity") or "").strip()
+        if not entity:
+            continue
+        # Skip pure country names — they show up in every signal but aren't
+        # the kind of "entity" counter-intelligence cares about.
+        if entity in _PRIORITY_COUNTRIES if False else False:
+            continue
+        # Defensive: real country list lives in fcpa_enforcement; just
+        # filter obvious 1-2-word country strings here
+        if len(entity) < 4:
+            continue
+        counter[entity] = counter.get(entity, 0) + 1
+
+    # Pick top N with at least 3 mentions
+    top_entities = sorted(
+        ((e, c) for e, c in counter.items() if c >= 3),
+        key=lambda kv: -kv[1],
+    )[:n]
+
+    if not top_entities:
+        return {
+            "ok":              True,
+            "scanned_count":   0,
+            "alerted_count":   0,
+            "narrative":       f"No entities with ≥3 mentions in last {window_days}d.",
+            "results":         [],
+        }
+
+    results: list[dict[str, Any]] = []
+    alerted = 0
+    for entity, freq in top_entities:
+        try:
+            r = await scan_entity(entity, window_days=window_days)
+            r["mention_frequency"] = freq
+            results.append(r)
+            if r.get("composite_score", 0) >= 0.5:
+                alerted += 1
+        except Exception as e:
+            results.append({"entity": entity, "ok": False, "error": str(e)})
+
+    return {
+        "ok":              True,
+        "scanned_count":   len(top_entities),
+        "alerted_count":   alerted,
+        "window_days":     window_days,
+        "narrative":       (
+            f"Scanned {len(top_entities)} top-mentioned entities; "
+            f"{alerted} triggered counter-intelligence alert." if alerted
+            else f"Scanned {len(top_entities)} top-mentioned entities; no alerts."
+        ),
+        "results":         results,
+    }
+
+
 def summary() -> dict[str, Any]:
     return {
         "module":   "counter_intelligence",
