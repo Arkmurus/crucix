@@ -920,7 +920,10 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
             })
             if resp.status_code == 200:
                 html = resp.text
-            elif resp.status_code in (401, 402, 403):
+            elif resp.status_code in (401, 402, 403, 404, 410, 451, 500, 502, 503, 504):
+                # R-F126 (2026-05-10): widen wayback fallback (mirrors
+                # the same fix in extract_url_text) — 404/410/5xx
+                # commonly occur on rotated CMS URLs of post-event PR.
                 logger.info("Article %s returned %d — trying archive", url[:80], resp.status_code)
                 html = await _try_archive_fallbacks(url, timeout=timeout)
             else:
