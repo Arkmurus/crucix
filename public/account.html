@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account & Billing — ARKMURUS</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    .acct-shell { max-width: 960px; margin: 0 auto; padding: 28px 24px 60px; }
+
+    .acct-banner {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 18px; border-radius: 12px; margin-bottom: 24px;
+      background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25);
+      color: rgba(255,255,255,0.75); font-size: 13.5px;
+    }
+    .acct-banner i { color: #fbbf24; font-size: 18px; }
+    .acct-banner.info { background: rgba(0,102,255,0.07); border-color: rgba(0,102,255,0.22); }
+    .acct-banner.info i { color: #60a5fa; }
+
+    .acct-tier {
+      background: linear-gradient(135deg, rgba(124,58,237,0.12), rgba(37,99,235,0.08));
+      border: 1px solid rgba(124,58,237,0.25);
+      border-radius: 14px; padding: 22px;
+      margin-bottom: 22px;
+    }
+    .acct-tier-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .acct-tier-name { font-size: 22px; font-weight: 700; color: #fff; }
+    .acct-tier-price { font-size: 15px; color: rgba(255,255,255,0.55); margin-top: 2px; }
+    .acct-tier-status {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.5px; text-transform: uppercase;
+    }
+    .acct-tier-status.active   { background: rgba(34,197,94,0.15);  color: #4ade80; }
+    .acct-tier-status.trialing { background: rgba(0,102,255,0.15);  color: #60a5fa; }
+    .acct-tier-status.past_due { background: rgba(245,158,11,0.15); color: #fbbf24; }
+    .acct-tier-status.canceled { background: rgba(239,68,68,0.15);  color: #fca5a5; }
+    .acct-tier-status.none     { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.45); }
+
+    .acct-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .acct-usage {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px; margin-bottom: 28px;
+    }
+    .acct-usage-card {
+      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px; padding: 16px;
+    }
+    .acct-usage-label { font-size: 11px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .acct-usage-value { font-size: 22px; font-weight: 700; color: #fff; }
+    .acct-usage-cap { font-size: 13px; color: rgba(255,255,255,0.4); font-weight: 500; }
+    .acct-usage-bar {
+      margin-top: 10px; height: 5px; border-radius: 3px;
+      background: rgba(255,255,255,0.06); overflow: hidden;
+    }
+    .acct-usage-bar-fill {
+      height: 100%; background: linear-gradient(90deg, #7c3aed, #2563eb);
+      transition: width .3s ease;
+    }
+    .acct-usage-bar-fill.warn { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+
+    .acct-section-title {
+      font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.45);
+      letter-spacing: 1.5px; text-transform: uppercase; margin: 30px 0 14px;
+    }
+
+    .pricing-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .pricing-card {
+      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 14px; padding: 22px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .pricing-card.current { border-color: rgba(124,58,237,0.4); background: rgba(124,58,237,0.05); }
+    .pricing-card.featured { border-color: rgba(0,102,255,0.4); }
+    .pricing-card-head { display: flex; align-items: baseline; justify-content: space-between; }
+    .pricing-name { font-size: 17px; font-weight: 700; color: #fff; }
+    .pricing-current-pill {
+      font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;
+      background: rgba(124,58,237,0.18); color: #c4b5fd; letter-spacing: 0.4px;
+    }
+    .pricing-price { font-size: 28px; font-weight: 800; color: #fff; }
+    .pricing-price-suffix { font-size: 13px; color: rgba(255,255,255,0.45); font-weight: 500; }
+    .pricing-features { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 7px; }
+    .pricing-features li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: rgba(255,255,255,0.7); }
+    .pricing-features li i { color: #4ade80; font-size: 14px; flex-shrink: 0; margin-top: 2px; }
+    .pricing-features li.dim { color: rgba(255,255,255,0.3); }
+    .pricing-features li.dim i { color: rgba(255,255,255,0.2); }
+    .pricing-cta { margin-top: auto; }
+    .pricing-cta-btn {
+      width: 100%; padding: 11px; border-radius: 9px; border: none;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
+    }
+    .pricing-cta-btn.primary {
+      background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
+      box-shadow: 0 2px 16px rgba(124,58,237,0.35);
+    }
+    .pricing-cta-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 24px rgba(124,58,237,0.5); }
+    .pricing-cta-btn.outline {
+      background: transparent; border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.7);
+    }
+    .pricing-cta-btn.outline:hover { border-color: rgba(124,58,237,0.4); color: #fff; }
+    .pricing-cta-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: none; }
+  </style>
+</head>
+<body>
+<div id="sidebar-placeholder"></div>
+<div id="header-placeholder"></div>
+
+<main id="app-main">
+  <div class="acct-shell">
+
+    <h1 class="sc-page-title" style="margin-bottom: 6px"><i class="bi bi-person-circle"></i> Account & Billing</h1>
+    <p class="sc-page-sub" style="margin-bottom: 24px" id="acct-email">Loading…</p>
+
+    <div class="acct-banner info" id="acct-billing-disabled" style="display:none">
+      <i class="bi bi-info-circle"></i>
+      <span>Subscription billing isn't configured on this deployment yet — paid tiers will appear once it's enabled. You can keep using the free tier as normal.</span>
+    </div>
+
+    <div class="acct-banner" id="acct-past-due" style="display:none">
+      <i class="bi bi-exclamation-triangle-fill"></i>
+      <span>Your last payment didn't go through. Please update your payment method to keep paid features active.</span>
+    </div>
+
+    <div class="acct-tier" id="acct-tier-card" style="display:none">
+      <div class="acct-tier-row">
+        <div>
+          <div class="acct-tier-name" id="acct-tier-name">—</div>
+          <div class="acct-tier-price" id="acct-tier-price"></div>
+          <div style="margin-top:8px"><span class="acct-tier-status none" id="acct-tier-status">—</span></div>
+        </div>
+        <div class="acct-actions" id="acct-actions">
+          <!-- populated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <div class="acct-section-title">Today's usage</div>
+    <div class="acct-usage" id="acct-usage"><div style="grid-column:1/-1;color:rgba(255,255,255,0.35);font-size:13px">Loading…</div></div>
+
+    <div class="acct-section-title">Plans</div>
+    <div class="pricing-grid" id="pricing-grid">
+      <div style="grid-column:1/-1;color:rgba(255,255,255,0.35);font-size:13px">Loading plans…</div>
+    </div>
+
+  </div>
+</main>
+
+<script src="js/app.js?v=3"></script>
+<script src="js/sidebar.js?v=3"></script>
+<script>
+Auth.requireAuth();
+Sidebar.init('account');
+
+(async function() {
+  var configResp = await fetch('/api/billing/config').then(r => r.json()).catch(() => null);
+  var meResp = await fetch('/api/billing/me', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || '') } }).then(r => r.ok ? r.json() : null).catch(() => null);
+  var user = await Auth.me();
+
+  if (user && document.getElementById('acct-email')) {
+    document.getElementById('acct-email').textContent = user.email || user.username || '';
+  }
+
+  if (!configResp) return;
+  var billingOn = !!configResp.configured;
+
+  if (!billingOn) {
+    document.getElementById('acct-billing-disabled').style.display = '';
+  }
+
+  // ── Current tier card ────────────────────────────────────────────────
+  if (meResp) {
+    document.getElementById('acct-tier-card').style.display = '';
+    document.getElementById('acct-tier-name').textContent = meResp.tierLabel || 'Free';
+    document.getElementById('acct-tier-price').textContent = meResp.priceUsd > 0
+      ? '$' + meResp.priceUsd + '/month'
+      : 'No subscription';
+
+    var statusEl = document.getElementById('acct-tier-status');
+    var status = meResp.subscriptionStatus || 'none';
+    statusEl.className = 'acct-tier-status ' + status;
+    statusEl.textContent = status === 'none' ? 'free tier' : status.replace('_', ' ');
+
+    if (status === 'past_due') {
+      document.getElementById('acct-past-due').style.display = '';
+    }
+
+    // Action buttons
+    var actions = document.getElementById('acct-actions');
+    actions.innerHTML = '';
+    if (billingOn && meResp.tier === 'free') {
+      var upgradePro = document.createElement('button');
+      upgradePro.className = 'sc-btn sc-btn-primary sc-btn-sm';
+      upgradePro.textContent = 'Upgrade to Pro';
+      upgradePro.onclick = function() { startCheckout('pro', this); };
+      actions.appendChild(upgradePro);
+    }
+    if (billingOn && meResp.tier === 'pro') {
+      var upgradeIntel = document.createElement('button');
+      upgradeIntel.className = 'sc-btn sc-btn-primary sc-btn-sm';
+      upgradeIntel.textContent = 'Upgrade to Pro Intelligence';
+      upgradeIntel.onclick = function() { startCheckout('proIntel', this); };
+      actions.appendChild(upgradeIntel);
+    }
+    if (billingOn && meResp.tier !== 'free') {
+      var manage = document.createElement('button');
+      manage.className = 'sc-btn sc-btn-sm';
+      manage.style.cssText = 'background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7)';
+      manage.textContent = 'Manage subscription';
+      manage.onclick = function() { openPortal(this); };
+      actions.appendChild(manage);
+    }
+  }
+
+  // ── Usage panels ─────────────────────────────────────────────────────
+  var usageEl = document.getElementById('acct-usage');
+  usageEl.innerHTML = '';
+  if (meResp && meResp.usage) {
+    function usageCard(label, value, cap, kind) {
+      var pct = cap > 0 ? Math.min(100, (value / cap) * 100) : 0;
+      var warn = pct > 80;
+      var card = document.createElement('div');
+      card.className = 'acct-usage-card';
+      card.innerHTML =
+        '<div class="acct-usage-label">' + label + '</div>' +
+        '<div><span class="acct-usage-value">' + value + '</span> ' +
+        '<span class="acct-usage-cap">/ ' + (cap || 0) + (kind === 'ddRun' ? ' this month' : ' today') + '</span></div>' +
+        '<div class="acct-usage-bar"><div class="acct-usage-bar-fill' + (warn ? ' warn' : '') + '" style="width:' + pct + '%"></div></div>';
+      return card;
+    }
+    var u = meResp.usage;
+    var caps = u.caps || {};
+    usageEl.appendChild(usageCard('Messages', u.messages, caps.messages, 'message'));
+    usageEl.appendChild(usageCard('Uploads', u.uploads, caps.uploads, 'upload'));
+    usageEl.appendChild(usageCard('DD runs', u.ddRuns, caps.ddRuns, 'ddRun'));
+  }
+
+  // ── Pricing grid ─────────────────────────────────────────────────────
+  var grid = document.getElementById('pricing-grid');
+  grid.innerHTML = '';
+  (configResp.tiers || []).forEach(function(t) {
+    var card = document.createElement('div');
+    var isCurrent = meResp && meResp.tier === t.id;
+    var classes = ['pricing-card'];
+    if (isCurrent) classes.push('current');
+    if (t.id === 'pro') classes.push('featured');
+    card.className = classes.join(' ');
+
+    var priceLabel = t.priceUsd > 0
+      ? '<span class="pricing-price">$' + t.priceUsd + '</span><span class="pricing-price-suffix"> /mo</span>'
+      : '<span class="pricing-price">$0</span>';
+
+    var features = [
+      { txt: t.messagesPerDay + ' messages / day', on: true },
+      { txt: t.ddRunsPerMonth > 0 ? t.ddRunsPerMonth + ' DD runs / month' : 'No DD runs', on: t.ddRunsPerMonth > 0 },
+      { txt: 'Up to ' + Math.round(t.uploadBytesMax / 1024 / 1024) + ' MB / file', on: true },
+      { txt: t.deepResearchEnabled ? 'Deep research' : 'No deep research', on: t.deepResearchEnabled },
+      { txt: t.autonomousEnabled ? 'Autonomous tasks' : 'No autonomous tasks', on: t.autonomousEnabled },
+      { txt: t.publicApiEnabled ? 'Public API access' : 'No API access', on: t.publicApiEnabled },
+    ];
+
+    var ctaBtn;
+    if (isCurrent) {
+      ctaBtn = '<button class="pricing-cta-btn outline" disabled>Your current plan</button>';
+    } else if (!billingOn) {
+      ctaBtn = '<button class="pricing-cta-btn outline" disabled>Coming soon</button>';
+    } else if (t.id === 'free') {
+      ctaBtn = '<button class="pricing-cta-btn outline" disabled>Free</button>';
+    } else if (!t.checkoutReady) {
+      ctaBtn = '<button class="pricing-cta-btn outline" disabled>Configuration pending</button>';
+    } else {
+      ctaBtn = '<button class="pricing-cta-btn primary" data-tier="' + t.id + '">Upgrade</button>';
+    }
+
+    card.innerHTML =
+      '<div class="pricing-card-head"><div class="pricing-name">' + t.label + '</div>' +
+        (isCurrent ? '<span class="pricing-current-pill">Current</span>' : '') +
+      '</div>' +
+      '<div>' + priceLabel + '</div>' +
+      '<ul class="pricing-features">' +
+        features.map(function(f) {
+          return '<li class="' + (f.on ? '' : 'dim') + '"><i class="bi bi-' +
+            (f.on ? 'check-circle-fill' : 'dash-circle') + '"></i>' + f.txt + '</li>';
+        }).join('') +
+      '</ul>' +
+      '<div class="pricing-cta">' + ctaBtn + '</div>';
+
+    grid.appendChild(card);
+  });
+
+  grid.addEventListener('click', function(e) {
+    var btn = e.target.closest('.pricing-cta-btn[data-tier]');
+    if (!btn) return;
+    startCheckout(btn.dataset.tier, btn);
+  });
+
+  async function startCheckout(tier, btn) {
+    var orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Redirecting…';
+    try {
+      var resp = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || ''),
+        },
+        body: JSON.stringify({ tier: tier }),
+      });
+      var data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        alert('Checkout failed: ' + (data.error || resp.status));
+        btn.disabled = false; btn.textContent = orig;
+        return;
+      }
+      window.location.href = data.url;
+    } catch (err) {
+      alert('Checkout error: ' + err.message);
+      btn.disabled = false; btn.textContent = orig;
+    }
+  }
+
+  async function openPortal(btn) {
+    var orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Opening…';
+    try {
+      var resp = await fetch('/api/billing/portal', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || ''),
+        },
+      });
+      var data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        alert('Portal error: ' + (data.error || resp.status));
+        btn.disabled = false; btn.textContent = orig;
+        return;
+      }
+      window.location.href = data.url;
+    } catch (err) {
+      alert('Portal error: ' + err.message);
+      btn.disabled = false; btn.textContent = orig;
+    }
+  }
+
+  // ── Surface checkout-return query param messages ─────────────────────
+  var params = new URLSearchParams(window.location.search);
+  if (params.get('checkout') === 'ok') {
+    var ok = document.createElement('div');
+    ok.className = 'acct-banner info';
+    ok.innerHTML = '<i class="bi bi-check-circle-fill"></i><span>Subscription activated — your tier will refresh in a few seconds as Stripe confirms the payment.</span>';
+    document.querySelector('.acct-shell').insertBefore(ok, document.querySelector('.acct-shell').firstChild.nextSibling);
+    // Refresh tier in 5s to pick up the webhook update
+    setTimeout(() => location.reload(), 5000);
+  } else if (params.get('checkout') === 'cancelled') {
+    var c = document.createElement('div');
+    c.className = 'acct-banner';
+    c.innerHTML = '<i class="bi bi-info-circle"></i><span>Checkout cancelled — no payment was taken.</span>';
+    document.querySelector('.acct-shell').insertBefore(c, document.querySelector('.acct-shell').firstChild.nextSibling);
+  }
+})();
+</script>
+</body>
+</html>

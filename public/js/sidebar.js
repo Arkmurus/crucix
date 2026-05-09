@@ -125,6 +125,9 @@ const Sidebar = {
             <a href="/dashboard.html" class="nav-dropdown-item">
               <i class="bi bi-radar"></i> Intelligence Brief
             </a>
+            <a href="/account.html" class="nav-dropdown-item">
+              <i class="bi bi-person-circle"></i> Account & billing
+            </a>
             <a href="/sources.html" class="nav-dropdown-item">
               <i class="bi bi-activity"></i> Source Health
             </a>
