@@ -37,6 +37,7 @@ import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage,
 import { screenDeal, getProductCategories } from './lib/compliance/screen.mjs';
 import { redisGet, redisSet, redisDel } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore } from './lib/auth/users.mjs';
+import { createBillingRouter } from './lib/billing/routes.mjs';
 import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
 import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
@@ -927,6 +928,14 @@ app.set('trust proxy', 1);
 applySecurityHeaders(app);
 
 // ── Request body parsing — tiered limits ─────────────────────────────────────
+//
+// Stripe webhook MUST receive the raw request body so the signature header
+// can be verified against it. Mount the raw parser BEFORE any json parser
+// so the json parser sees req._body=true and skips. Once express.json has
+// consumed a Buffer, signature verification fails with "no signatures
+// match" — an obscure error to debug, hence the explicit ordering here.
+app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
+
 app.use('/api/aria',  express.json({ limit: '500kb' }));
 app.use('/api/brain', express.json({ limit: '500kb' }));
 app.use('/api/',      express.json({ limit: '100kb' }));
@@ -3771,6 +3780,19 @@ app.get('/api/tenders/active', requireAuth, async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// ── Billing Routes (Stripe — env-gated, no-op until STRIPE_SECRET_KEY set) ────
+//
+// Mounts /api/billing/{config,me,checkout,portal,webhook}. The webhook's
+// raw-body parser is registered earlier (above express.json) so signature
+// verification works. See lib/billing/{tiers,stripe,quotas,routes}.mjs for
+// the per-tier limits and the env vars required to flip Stripe on.
+app.use('/api/billing', createBillingRouter({
+  requireAuth,
+  findUserById,
+  updateUser,
+  listUsers,
+}));
 
 // ── Push Notification Routes ──────────────────────────────────────────────────
 
