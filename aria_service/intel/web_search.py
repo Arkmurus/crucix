@@ -192,6 +192,7 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
     cb = get_breaker("brave_search", failure_threshold=3, cooldown_seconds=1800)
     if cb.is_open():
         return []
+    _t_brave_start = time.time()
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             resp = await client.get(
@@ -205,8 +206,33 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
                 # the real cause. Brave 402 = subscription/credit dead;
                 # logging it as "timeout" sent triage to the wrong place.
                 cb.record_failure(reason=_classify_http_status(resp.status_code))
+                # R-F139: record failed Brave call (zero cost) so the
+                # operator dashboard sees attempt count + error rate
+                # alongside successful spend.
+                try:
+                    from . import cost_tracker as _ct
+                    await _ct.record_brave_call(
+                        operation="search",
+                        success=False,
+                        latency_ms=int((time.time() - _t_brave_start) * 1000),
+                        cost_per_call_usd=0.0,
+                    )
+                except Exception:
+                    pass
                 return []
             cb.record_success()
+            # R-F139: successful Brave call → record at the configured
+            # per-call cost (default $0.005 / call on Pro plan; operator
+            # override via BRAVE_COST_PER_CALL_USD env var).
+            try:
+                from . import cost_tracker as _ct
+                await _ct.record_brave_call(
+                    operation="search",
+                    success=True,
+                    latency_ms=int((time.time() - _t_brave_start) * 1000),
+                )
+            except Exception:
+                pass
             data = resp.json()
             results = []
             for item in (data.get("web", {}).get("results", []))[:max_results]:

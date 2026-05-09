@@ -230,6 +230,135 @@ def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> floa
 
 # ── Recording ──────────────────────────────────────────────────────────────
 
+# R-F139 (2026-05-10) — external (non-LLM) service cost tracking.
+# Brave Search API and Upstash Redis are both paid services that don't
+# go through the LLM MeteredProvider — we need a parallel recording
+# path so the dashboard cost panel surfaces total cost-of-operation,
+# not just LLM spend. Same Redis index + monthly rollup as LLM calls
+# but with a "kind" discriminator so they don't pollute LLM stats.
+EXTERNAL_RECORD_PREFIX = "crucix:cost:ext:"
+EXTERNAL_INDEX_KEY = "crucix:cost:ext:index"
+EXTERNAL_AGG_KEY = "crucix:cost:ext:agg"
+
+# Public Brave Search API price as of 2026-05-10: $5 per 1,000 queries
+# on the Pro plan, $9 per 1,000 on Pro AI. Free tier allows 2,000/month.
+# We assume Pro pricing as the conservative ceiling — operator can
+# override via `BRAVE_COST_PER_CALL_USD` env var if on a different plan.
+_BRAVE_DEFAULT_COST_PER_CALL = 0.005  # $5 / 1,000 queries
+
+
+async def record_external_call(
+    *,
+    service: str,                  # "brave" | "upstash" | etc.
+    operation: str = "",           # "search" | "match" | "snapshot" | etc.
+    cost_usd: float = 0.0,
+    feature_name: str | None = None,
+    success: bool = True,
+    latency_ms: int = 0,
+    metadata: dict | None = None,
+    error: str = "",
+) -> dict:
+    """Persist one external-service call (Brave / Upstash / etc).
+
+    Same Redis-index + monthly-rollup pattern as record_call() but
+    keyed under EXTERNAL_RECORD_PREFIX so the LLM cost panel doesn't
+    conflate them. Aggregates are keyed by service so /cost/external
+    can return per-service totals.
+
+    Fail-open — never blocks the calling feature on persist errors.
+    """
+    feat = feature_name or get_current_feature() or "uncategorized"
+    call_id = f"ext_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+    record = {
+        "id": call_id,
+        "kind": "external",
+        "service": service or "unknown",
+        "operation": operation or "",
+        "ts": time.time(),
+        "feature": feat,
+        "cost_usd": round(float(cost_usd or 0.0), 6),
+        "latency_ms": int(latency_ms or 0),
+        "success": success,
+        "error": (error or "")[:300],
+        "metadata": metadata or {},
+    }
+    try:
+        await rs.set_json(f"{EXTERNAL_RECORD_PREFIX}{call_id}", record, ex=COST_TTL)
+        index = await rs.get_json(EXTERNAL_INDEX_KEY) or []
+        index.insert(0, {
+            "id": call_id,
+            "ts": record["ts"],
+            "service": record["service"],
+            "operation": record["operation"],
+            "feature": feat,
+            "cost_usd": record["cost_usd"],
+            "success": success,
+        })
+        index = index[:_INDEX_CAP]
+        await rs.set_json(EXTERNAL_INDEX_KEY, index, ex=COST_TTL)
+        agg = await rs.get_json(EXTERNAL_AGG_KEY) or {}
+        svc_agg = agg.get(service) or {
+            "calls": 0, "cost_usd": 0.0, "errors": 0,
+        }
+        svc_agg["calls"] += 1
+        svc_agg["cost_usd"] = round(svc_agg["cost_usd"] + record["cost_usd"], 6)
+        if not success:
+            svc_agg["errors"] += 1
+        agg[service] = svc_agg
+        await rs.set_json(EXTERNAL_AGG_KEY, agg, ex=COST_TTL)
+        # Roll into monthly bucket alongside LLM spend so the dashboard
+        # has a single composite "month-to-date" total. We re-use
+        # _update_month_rollup but tag the record with kind=external
+        # so the writer can filter / report on demand.
+        await _update_month_rollup(record)
+    except Exception as e:
+        logger.warning(
+            "cost_tracker.record_external_call persist failed (%s/%s): %s",
+            service, operation, e,
+        )
+    return record
+
+
+async def record_brave_call(
+    *,
+    operation: str = "search",
+    feature_name: str | None = None,
+    success: bool = True,
+    latency_ms: int = 0,
+    cost_per_call_usd: float | None = None,
+) -> dict:
+    """Convenience wrapper around record_external_call for Brave.
+    Operator can override per-call cost via BRAVE_COST_PER_CALL_USD."""
+    rate = cost_per_call_usd
+    if rate is None:
+        env = (os.getenv("BRAVE_COST_PER_CALL_USD") or "").strip()
+        try:
+            rate = float(env) if env else _BRAVE_DEFAULT_COST_PER_CALL
+        except Exception:
+            rate = _BRAVE_DEFAULT_COST_PER_CALL
+    return await record_external_call(
+        service="brave",
+        operation=operation,
+        cost_usd=rate,
+        feature_name=feature_name,
+        success=success,
+        latency_ms=latency_ms,
+    )
+
+
+async def get_external_summary(month: str | None = None) -> dict:
+    """Return per-service external spend summary for the dashboard."""
+    agg = await rs.get_json(EXTERNAL_AGG_KEY) or {}
+    return {
+        "by_service": agg,
+        "total_calls": sum(int(v.get("calls", 0)) for v in agg.values()),
+        "total_cost_usd": round(
+            sum(float(v.get("cost_usd", 0.0)) for v in agg.values()),
+            6,
+        ),
+    }
+
+
 async def record_call(
     *,
     model: str,

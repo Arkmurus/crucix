@@ -1206,6 +1206,68 @@ async def cost_monthly_status_ep():
     return await cost_tracker.get_month_spend()
 
 
+# R-F139 (2026-05-10) — external (non-LLM) service spend surface.
+# Brave Search API + Upstash Redis are paid services that sit outside
+# the LLM MeteredProvider. The dashboard previously showed only LLM
+# spend; the operator's true cost-of-operation includes both. This
+# endpoint returns per-service breakdown for the dashboard panel.
+@router.get("/cost/external")
+async def cost_external_ep():
+    """Per-service external-spend summary (Brave / Upstash / future)."""
+    summary = await cost_tracker.get_external_summary()
+    # Upstash live usage probe — only fires if creds are set; otherwise
+    # returns a configured=False marker so the dashboard renders a
+    # "configure UPSTASH_REST_URL + UPSTASH_REST_TOKEN to enable" hint
+    # instead of silently showing zero.
+    upstash = await _upstash_usage_probe()
+    summary["upstash"] = upstash
+    return summary
+
+
+async def _upstash_usage_probe() -> dict:
+    """Read DBSIZE + INFO from Upstash REST API to surface live usage.
+    Cluster: adapted-ostrich-92296 (per upstash_redis_provider memory).
+    Fail-open — every error returns configured=False so the dashboard
+    has something to render."""
+    rest_url = (os.getenv("UPSTASH_REST_URL") or "").strip()
+    rest_token = (os.getenv("UPSTASH_REST_TOKEN") or "").strip()
+    if not rest_url or not rest_token:
+        return {
+            "configured": False,
+            "hint": "Set UPSTASH_REST_URL + UPSTASH_REST_TOKEN env vars to enable live usage panel",
+        }
+    out: dict = {"configured": True}
+    try:
+        import httpx as _httpx
+        headers = {"Authorization": f"Bearer {rest_token}"}
+        async with _httpx.AsyncClient(timeout=6.0) as client:
+            r = await client.post(f"{rest_url}/dbsize", headers=headers)
+            if r.status_code == 200:
+                try:
+                    out["dbsize"] = (r.json() or {}).get("result")
+                except Exception:
+                    pass
+            r2 = await client.post(f"{rest_url}/info", headers=headers,
+                                    json=["server"])
+            if r2.status_code == 200:
+                try:
+                    info = (r2.json() or {}).get("result") or ""
+                    # Parse a few headline fields out of the redis info string
+                    parsed: dict = {}
+                    for line in str(info).splitlines():
+                        if ":" in line and not line.startswith("#"):
+                            k, v = line.split(":", 1)
+                            if k.strip() in ("redis_version", "uptime_in_seconds",
+                                             "tcp_port", "process_id"):
+                                parsed[k.strip()] = v.strip()
+                    out["info"] = parsed
+                except Exception:
+                    pass
+    except Exception as e:
+        out["error"] = str(e)[:200]
+    return out
+
+
 # R-F104 (2026-05-09): cost-tracker wiring diagnostic.
 # When the operator sees "NO DATA" on the dashboard, this endpoint
 # answers WHY: is the metered provider wrapped? did record_call fire

@@ -1015,11 +1015,69 @@ async function loadLlmCost() {
 
   html += '</div>';  // end side-by-side grid
 
+  // R-F139 (2026-05-10) — external (non-LLM) services panel.
+  // Brave Search API + Upstash Redis costs surface here so the
+  // operator sees true cost-of-operation, not just LLM spend.
+  try {
+    const ext = await fetchJson('/cost/external');
+    if (ext && (ext.by_service || ext.upstash)) {
+      html += '<div style="margin-top:14px;padding-top:10px;border-top:1px solid #21262d">';
+      html += '<div style="font-size:0.85em;color:#8b949e;margin-bottom:6px">External services (non-LLM)</div>';
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">';
+
+      // Brave + other services
+      const services = ext.by_service || {};
+      const svcRows = Object.entries(services).sort((a,b) => (b[1].cost_usd||0) - (a[1].cost_usd||0));
+      if (svcRows.length) {
+        html += '<div><div style="font-size:0.78em;color:#8b949e;margin-bottom:4px">API spend</div>';
+        html += '<table style="font-size:0.78em"><tr><th>Service</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">Errors</th></tr>';
+        for (const [name, row] of svcRows) {
+          const errCls = (row.errors||0) > 0 ? 'warn' : 'neutral';
+          html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${(row.calls||0).toLocaleString()}</td><td style="text-align:right">$${(row.cost_usd||0).toFixed(4)}</td><td class="${errCls}" style="text-align:right">${row.errors||0}</td></tr>`;
+        }
+        html += '</table></div>';
+      } else {
+        html += '<div><div style="font-size:0.78em;color:#8b949e;margin-bottom:4px">API spend</div>';
+        html += '<div class="neutral" style="font-size:0.78em">No external API calls recorded yet this window.</div></div>';
+      }
+
+      // Upstash usage panel
+      const ups = ext.upstash || {};
+      html += '<div><div style="font-size:0.78em;color:#8b949e;margin-bottom:4px">Upstash Redis (cluster: adapted-ostrich-92296)</div>';
+      if (ups.configured) {
+        html += '<table style="font-size:0.78em">';
+        if (ups.dbsize != null) {
+          html += `<tr><td>DB size (keys)</td><td style="text-align:right">${(ups.dbsize||0).toLocaleString()}</td></tr>`;
+        }
+        if (ups.info && ups.info.redis_version) {
+          html += `<tr><td>Redis version</td><td style="text-align:right">${escapeHtml(ups.info.redis_version)}</td></tr>`;
+        }
+        if (ups.info && ups.info.uptime_in_seconds) {
+          const days = (parseInt(ups.info.uptime_in_seconds, 10) / 86400).toFixed(1);
+          html += `<tr><td>Uptime (days)</td><td style="text-align:right">${days}</td></tr>`;
+        }
+        if (ups.error) {
+          html += `<tr><td colspan="2" class="warn">Probe error: ${escapeHtml(ups.error)}</td></tr>`;
+        }
+        html += '</table>';
+        html += '<div style="margin-top:4px;font-size:0.72em;color:#6e7681">For bandwidth + commands billing, see Upstash Console</div>';
+      } else {
+        html += `<div class="warn" style="font-size:0.78em">Not configured. ${escapeHtml(ups.hint || 'Set UPSTASH_REST_URL + UPSTASH_REST_TOKEN to enable.')}</div>`;
+      }
+      html += '</div>';
+
+      html += '</div></div>';
+    }
+  } catch (e) {
+    // Fail-silent — external panel is supplementary
+  }
+
   html += `<div style="margin-top:10px;font-size:0.72em;color:#6e7681">`;
   html += `Month ${d.month || '--'} · `;
   html += `<a href="/api/aria/cost/monthly" style="color:#58a6ff">/cost/monthly</a> · `;
   html += `<a href="/api/aria/cost/cumulative" style="color:#58a6ff">/cost/cumulative</a> · `;
-  html += `<a href="/api/aria/cost/recent" style="color:#58a6ff">/cost/recent</a>`;
+  html += `<a href="/api/aria/cost/recent" style="color:#58a6ff">/cost/recent</a> · `;
+  html += `<a href="/api/aria/cost/external" style="color:#58a6ff">/cost/external</a>`;
   html += `</div>`;
 
   el.innerHTML = html;
