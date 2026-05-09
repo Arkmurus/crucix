@@ -320,8 +320,18 @@ Sidebar.init('explorer');
       ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
     );
   }
+  // R-F129 (2026-05-10): Google News RSS snippets carry inline <a href="...">
+  // anchors that escapeHtml renders as visible "<a href=..." text.
+  // Strip HTML tags + decode entities before truncation/escape so the
+  // result-card body shows clean text only.
+  function stripHtml(s) {
+    if (s == null) return '';
+    const tmp = document.createElement('div');
+    tmp.innerHTML = String(s);
+    return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
+  }
   function truncate(s, n) {
-    s = String(s || '');
+    s = stripHtml(s);
     return s.length > n ? s.slice(0, n).trimEnd() + '…' : s;
   }
   function fmtDate(s) {

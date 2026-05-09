@@ -1812,14 +1812,14 @@ async def learning_coverage_ep():
         from ..intel import coverage_heatmap as _ch
         # Cheap caching layer — Redis key with 1h TTL
         from ..intel import redis_store as rs
-        cached = await rs.get_json("crucix:aria:coverage_heatmap:latest")
+        cached = await rs.get_json("crucix:aria:coverage_heatmap:v2")
         if isinstance(cached, dict) and cached.get("matrix"):
             cached["from_cache"] = True
             return cached
         out = await _ch.build_heatmap()
         out["from_cache"] = False
         try:
-            await rs.set_json("crucix:aria:coverage_heatmap:latest", out, ex=3600)
+            await rs.set_json("crucix:aria:coverage_heatmap:v2", out, ex=3600)
         except Exception:
             pass
         return out
@@ -1832,12 +1832,12 @@ async def learning_coverage_gaps_ep(max_targets: int = 20):
     try:
         from ..intel import coverage_heatmap as _ch
         from ..intel import redis_store as rs
-        cached = await rs.get_json("crucix:aria:coverage_heatmap:latest")
+        cached = await rs.get_json("crucix:aria:coverage_heatmap:v2")
         if isinstance(cached, dict) and cached.get("matrix"):
             return {"gaps": _ch.gap_targets(cached, max_targets=max_targets)}
         out = await _ch.build_heatmap()
         try:
-            await rs.set_json("crucix:aria:coverage_heatmap:latest", out, ex=3600)
+            await rs.set_json("crucix:aria:coverage_heatmap:v2", out, ex=3600)
         except Exception:
             pass
         return {"gaps": _ch.gap_targets(out, max_targets=max_targets)}

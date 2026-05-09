@@ -125,46 +125,94 @@ def density_tier(fact_count: int) -> str:
     return "absent"
 
 
+# R-F128 (2026-05-10): jurisdiction synonyms — the dashboard heatmap
+# was 100% absent because facts say "Saudi" not "Saudi Arabia",
+# "UAE" or "Emirates" not "United Arab Emirates", "USA" not "US",
+# etc. The previous matcher required EXACT substring of the canonical
+# name and the result was 867 cells absent on a corpus of 20k facts.
+JURISDICTION_SYNONYMS: dict[str, list[str]] = {
+    "US":            ["us", "usa", "united states", "u.s.", "u.s.a"],
+    "UK":            ["uk", "united kingdom", "britain", "british",
+                      "great britain"],
+    "EU":            ["eu", "european union", "europe"],
+    "UN":            ["un", "united nations"],
+    "NATO":          ["nato", "atlantic alliance"],
+    "Angola":        ["angola", "angolan"],
+    "Mozambique":    ["mozambique", "mozambican", "moçamb"],
+    "Cape Verde":    ["cape verde", "cabo verde"],
+    "Guinea-Bissau": ["guinea-bissau", "guinea bissau", "bissau"],
+    "Brazil":        ["brazil", "brazilian", "brasil"],
+    "São Tomé":      ["são tomé", "sao tome", "stp"],
+    "Saudi Arabia":  ["saudi arabia", "saudi", "ksa", "riyadh"],
+    "UAE":           ["uae", "u.a.e", "emirates", "united arab emirates",
+                      "abu dhabi", "dubai"],
+    "Côte d'Ivoire": ["côte d'ivoire", "cote d'ivoire", "ivory coast",
+                      "ivorian"],
+    "South Africa":  ["south africa", "south african"],
+    "South Korea":   ["south korea", "republic of korea", "rok"],
+    "North Korea":   ["north korea", "dprk"],
+}
+
+
+def _juris_synonyms(jurisdiction: str) -> list[str]:
+    """Return lowercase synonym list for a jurisdiction (always includes
+    the bare name)."""
+    syn = JURISDICTION_SYNONYMS.get(jurisdiction)
+    if syn:
+        return [s.lower() for s in syn]
+    return [jurisdiction.lower()]
+
+
+def _domain_tokens(domain: str) -> list[str]:
+    """Split a snake_case domain into significant lowercase tokens."""
+    return [t for t in domain.lower().split("_") if len(t) >= 3]
+
+
+def _matches_cell(text: str, dom_tokens: list[str],
+                  jur_synonyms: list[str]) -> bool:
+    """A fact matches a (domain, jurisdiction) cell when ANY jurisdiction
+    synonym appears AND ALL substantive domain tokens appear in the text."""
+    if not text:
+        return False
+    if not any(s in text for s in jur_synonyms):
+        return False
+    return all(tok in text for tok in dom_tokens)
+
+
 async def _count_facts_for_cell(domain: str, jurisdiction: str) -> tuple[int, int]:
     """Return (fact_count, signal_count) for one matrix cell.
 
-    Both knowledge base + intel_ledger are queried with substring
-    matching on domain + jurisdiction tokens. This is O(N) per cell
-    today (no indexed query); for the 17×42 = 714-cell matrix the full
-    build takes ~1-3 seconds at current corpus size. Acceptable for
-    on-demand operator dashboard view.
+    Both knowledge base + intel_ledger are queried with token-level
+    matching on domain + jurisdiction synonyms. R-F128 (2026-05-10)
+    replaced the previous adjacency-required substring matcher (which
+    scored 867/867 cells absent on 20k facts because "sanctions
+    screening" rarely appears verbatim — facts say "OFAC sanctions
+    list updated" + "screened against SDN" in separate fields).
+
+    O(N) per cell today (no indexed query); 17×51 = 867 cells take
+    ~2-4 seconds to build. Result is cached for 1h via the routes
+    layer.
     """
     fact_count = 0
     signal_count = 0
+    dom_tokens = _domain_tokens(domain)
+    jur_synonyms = _juris_synonyms(jurisdiction)
 
     try:
         from . import knowledge as _k
-        # knowledge.search() takes a query and returns matching facts
-        # build a query that combines the domain + jurisdiction tokens
         query = f"{domain.replace('_', ' ')} {jurisdiction}"
         if hasattr(_k, "search"):
-            results = await _k.search(query, limit=500) if (
-                hasattr(_k.search, "__call__") and
-                hasattr(_k.search, "__await__") if False else True
-            ) else []
-            # Defensive: if .search is sync we call it directly
-            try:
-                if not isinstance(results, list):
-                    if hasattr(results, "__await__"):
-                        results = await results
-            except Exception:
-                results = []
+            results = _k.search(query, limit=500)
+            if hasattr(results, "__await__"):
+                results = await results
             if isinstance(results, list):
-                # Substring match on either domain or jurisdiction in
-                # entity / topic / source field
-                jur_lower = jurisdiction.lower()
-                dom_lower = domain.lower().replace("_", " ")
                 for fact in results:
                     if not isinstance(fact, dict):
                         continue
                     text = " ".join(str(fact.get(k) or "") for k in
-                                    ("entity", "topic", "summary", "detail")).lower()
-                    if jur_lower in text and dom_lower in text:
+                                    ("entity", "topic", "summary",
+                                     "detail", "source")).lower()
+                    if _matches_cell(text, dom_tokens, jur_synonyms):
                         fact_count += 1
     except Exception as e:
         logger.debug("coverage knowledge query failed for %s/%s: %s",
@@ -184,15 +232,13 @@ async def _count_facts_for_cell(domain: str, jurisdiction: str) -> tuple[int, in
             except Exception:
                 continue
             if isinstance(signals, list):
-                jur_lower = jurisdiction.lower()
-                dom_lower = domain.lower().replace("_", " ")
                 for s in signals:
                     if not isinstance(s, dict):
                         continue
                     text = " ".join(str(s.get(k) or "") for k in
                                     ("source", "summary", "detail",
                                      "entity", "topic")).lower()
-                    if jur_lower in text and dom_lower in text:
+                    if _matches_cell(text, dom_tokens, jur_synonyms):
                         signal_count += 1
                 break
     except Exception as e:
