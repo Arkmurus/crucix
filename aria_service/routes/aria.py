@@ -1702,6 +1702,109 @@ async def api_monitor_high_risk_ep(window_hours: int = 24, threshold: float = 0.
         return {"ok": False, "error": str(e)}
 
 
+# R-F88 (2026-05-09): per-domain learning-progress tracker.
+# Surfaces freshness picture across ARIA's domains so the operator
+# (and the autonomous engine via R-F90) can target stale domains.
+@router.get("/learning/freshness/{domain}")
+async def learning_freshness_one_ep(domain: str):
+    try:
+        from ..intel import learning_progress as _lp
+        return await _lp.get_freshness(domain)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/learning/freshness")
+async def learning_freshness_all_ep():
+    try:
+        from ..intel import learning_progress as _lp
+        return {"domains": await _lp.get_all_domains(), "stats": await _lp.stats()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# R-F89 (2026-05-09): knowledge coverage heatmap.
+# Domain × jurisdiction matrix surfacing structural gaps. Slow query
+# (~1-3s at current corpus scale) so cache the build for 1h.
+@router.get("/learning/coverage")
+async def learning_coverage_ep():
+    try:
+        from ..intel import coverage_heatmap as _ch
+        # Cheap caching layer — Redis key with 1h TTL
+        from ..intel import redis_store as rs
+        cached = await rs.get_json("crucix:aria:coverage_heatmap:latest")
+        if isinstance(cached, dict) and cached.get("matrix"):
+            cached["from_cache"] = True
+            return cached
+        out = await _ch.build_heatmap()
+        out["from_cache"] = False
+        try:
+            await rs.set_json("crucix:aria:coverage_heatmap:latest", out, ex=3600)
+        except Exception:
+            pass
+        return out
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/learning/coverage/gaps")
+async def learning_coverage_gaps_ep(max_targets: int = 20):
+    try:
+        from ..intel import coverage_heatmap as _ch
+        from ..intel import redis_store as rs
+        cached = await rs.get_json("crucix:aria:coverage_heatmap:latest")
+        if isinstance(cached, dict) and cached.get("matrix"):
+            return {"gaps": _ch.gap_targets(cached, max_targets=max_targets)}
+        out = await _ch.build_heatmap()
+        try:
+            await rs.set_json("crucix:aria:coverage_heatmap:latest", out, ex=3600)
+        except Exception:
+            pass
+        return {"gaps": _ch.gap_targets(out, max_targets=max_targets)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# R-F90 (2026-05-09): continuous-update orchestrator.
+# Reads R-F88 freshness + R-F89 coverage gaps, writes a priority list
+# the autonomous engine can read on every poll cycle.
+@router.post("/learning/recompute-priorities")
+async def learning_recompute_priorities_ep(max_priorities: int = 30):
+    try:
+        from ..intel import continuous_update as _cu
+        return await _cu.write_priorities(max_priorities=max_priorities)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/learning/priorities")
+async def learning_priorities_ep():
+    try:
+        from ..intel import continuous_update as _cu
+        return await _cu.read_priorities()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# R-F87a (2026-05-09): tier-router diagnostic — explain what tier each
+# intent maps to, which provider is chosen, whether degraded.
+@router.get("/llm/tier-router/explain")
+async def llm_tier_router_explain_ep(intent: str = "default"):
+    try:
+        from ..llm import tier_router as _tr
+        # Approximate available_providers from the live LLM config
+        import os as _os
+        avail = set()
+        if _os.getenv("ANTHROPIC_API_KEY"): avail.add("anthropic")
+        if _os.getenv("DEEPSEEK_API_KEY"): avail.add("deepseek")
+        if _os.getenv("GROQ_API_KEY"): avail.add("groq")
+        if _os.getenv("OPENAI_API_KEY"): avail.add("openai")
+        if _os.getenv("OLLAMA_URL"): avail.add("ollama")
+        return _tr.explain_routing(intent, available_providers=avail)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # R-F84 (2026-05-09): counter-intelligence — detect corpus poisoning
 # via reputation washing, credibility anomaly, new-outlet burst.
 @router.get("/security/counter-intel/scan")
