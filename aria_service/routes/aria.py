@@ -1206,6 +1206,86 @@ async def cost_monthly_status_ep():
     return await cost_tracker.get_month_spend()
 
 
+# R-F104 (2026-05-09): cost-tracker wiring diagnostic.
+# When the operator sees "NO DATA" on the dashboard, this endpoint
+# answers WHY: is the metered provider wrapped? did record_call fire
+# at all? what's in Redis right now? where would calls be going?
+@router.get("/cost/diagnostic")
+async def cost_diagnostic_ep():
+    """Diagnose silent NO DATA on the cost panel."""
+    from ..main import app as _app
+    out: dict[str, Any] = {
+        "now":                datetime.now(timezone.utc).isoformat(),
+        "current_month_key":  None,
+        "metered_wrapper":    False,
+        "rate_limited":       False,
+        "monthly_rollup":     None,
+        "index_count":        None,
+        "boot_log_hint":      "Look for '[main] LLM provider wrapped with cost meter' at startup",
+    }
+    # 1) Is the live LLM provider wrapped with MeteredProvider?
+    try:
+        llm = getattr(getattr(_app, "state", None), "llm_provider", None)
+        # Walk the wrapper chain
+        seen = set()
+        cur = llm
+        for _ in range(10):
+            if cur is None or id(cur) in seen:
+                break
+            seen.add(id(cur))
+            cls_name = type(cur).__name__
+            if "MeteredProvider" in cls_name:
+                out["metered_wrapper"] = True
+            if "RateLimit" in cls_name or "RateLimiter" in cls_name:
+                out["rate_limited"] = True
+            cur = getattr(cur, "_inner", None) or getattr(cur, "inner", None)
+    except Exception as e:
+        out["wrapper_walk_error"] = str(e)
+    # 2) Current month rollup
+    try:
+        from ..intel import cost_tracker as _ct
+        month_key = _ct._current_month_key()
+        out["current_month_key"] = month_key
+        from ..intel import redis_store as _rs
+        rollup = await _rs.get_json(f"{_ct.COST_MONTH_PREFIX}{month_key}")
+        out["monthly_rollup"] = (
+            {
+                "exists":      True,
+                "total_calls": int((rollup or {}).get("total_calls", 0)),
+                "total_cost":  float((rollup or {}).get("total_cost_usd", 0.0)),
+                "first_ts":    (rollup or {}).get("first_ts"),
+                "last_ts":     (rollup or {}).get("last_ts"),
+                "_source":     (rollup or {}).get("_source"),
+            }
+            if rollup else {"exists": False}
+        )
+        # 3) Per-call index size (the 90-day fallback)
+        idx = await _rs.get_json(_ct.COST_INDEX_KEY) if hasattr(_ct, "COST_INDEX_KEY") else None
+        if isinstance(idx, list):
+            out["index_count"] = len(idx)
+        elif isinstance(idx, dict):
+            out["index_count"] = len(idx.keys())
+    except Exception as e:
+        out["redis_probe_error"] = str(e)
+    # 4) Hint at the most likely cause
+    if out["metered_wrapper"] and out.get("monthly_rollup", {}).get("total_calls", 0) == 0:
+        out["likely_cause"] = (
+            "Wrapper is in place but record_call has not produced any rows for "
+            "this month. Likely (a) no LLM calls fired since month start, OR "
+            "(b) record_call is raising silently — check fly logs for "
+            "'cost_tracker.record_call task failed' (R-F104 surfacing)."
+        )
+    elif not out["metered_wrapper"]:
+        out["likely_cause"] = (
+            "MeteredProvider not in the live LLM chain — check main.py boot "
+            "log for 'wrapped with cost meter'. The wrap may have failed at "
+            "startup."
+        )
+    else:
+        out["likely_cause"] = "Cost data appears healthy."
+    return out
+
+
 # R-F67 (2026-05-09): expose output_harvester stats so the operator can
 # see dry-run scoring counts before flipping ARIA_OUTPUT_HARVEST_ENABLED=1.
 # The harvester is wired into both chat paths; this endpoint surfaces:

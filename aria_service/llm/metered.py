@@ -53,7 +53,16 @@ class MeteredProvider(LLMProvider):
         return getattr(self._inner, item)
 
     def _record_cost(self, started: float, result, success: bool, error: str) -> None:
-        """Fire-and-forget cost recording. Never blocks the caller."""
+        """Fire-and-forget cost recording. Never blocks the caller.
+
+        R-F104 (2026-05-09): instrumented to surface silent failures.
+        Previously the create_task'd record_call could raise inside the
+        coroutine and disappear without trace — leaving the operator
+        dashboard showing 'NO DATA' while LLM calls actually were
+        producing cost. Now wraps the task with a done-callback that
+        logs at WARNING when the task raised, so fly logs show:
+            cost_tracker record_call failed: ...
+        """
         latency_ms = int((time.time() - started) * 1000)
         try:
             from ..intel import cost_tracker
@@ -67,7 +76,7 @@ class MeteredProvider(LLMProvider):
             else:
                 model = getattr(self._inner, "model", "") or getattr(self._inner, "name", "")
             import asyncio as _aio
-            _aio.create_task(cost_tracker.record_call(
+            task = _aio.create_task(cost_tracker.record_call(
                 model=model or "",
                 input_tokens=in_tk,
                 output_tokens=out_tk,
@@ -76,8 +85,18 @@ class MeteredProvider(LLMProvider):
                 success=success,
                 error=error,
             ))
+            # R-F104: surface silent failures
+            def _on_done(t):
+                try:
+                    exc = t.exception()
+                except Exception:
+                    return
+                if exc is not None:
+                    logger.warning("cost_tracker.record_call task failed: %s: %s",
+                                   type(exc).__name__, exc)
+            task.add_done_callback(_on_done)
         except Exception as e:
-            logger.debug("MeteredProvider record dispatch failed: %s", e)
+            logger.warning("MeteredProvider record dispatch failed: %s", e)
 
     async def _enforce_monthly_cap(self) -> None:
         """Hard stop if month-to-date LLM spend has hit ARIA_MONTHLY_CAP_USD.
