@@ -1486,6 +1486,153 @@ async def crypto_screen_batch_ep(request: Request):
         return {"ok": False, "error": str(e)}
 
 
+# R-F71 (2026-05-09): structured ACH explainability output for DD
+# conclusions. Complements the chat narrative — adds a machine-readable
+# JSON sidecar with hypotheses + signals + considered alternatives.
+@router.post("/ach/build")
+async def ach_build_ep(request: Request):
+    """Assemble a canonical ACH output dict from caller-supplied data.
+
+    POST body: {
+        conclusion: str, confidence: float (0..1),
+        hypotheses: [...], signals: [...],
+        considered_and_rejected?: [...], narrative?: str, subject?: str
+    }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    try:
+        from ..intel import ach_explainability as _ach
+        return _ach.build_ach_output(
+            conclusion=body.get("conclusion", ""),
+            confidence=body.get("confidence", 0.0),
+            hypotheses=body.get("hypotheses", []),
+            signals=body.get("signals", []),
+            rejected=body.get("considered_and_rejected", []),
+            narrative=body.get("narrative", ""),
+            subject=body.get("subject", ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/ach/from-dd")
+async def ach_from_dd_ep(request: Request):
+    """Convert a DD orchestrator output bundle into ACH signals.
+
+    POST body: { dd_data: {...} }  — the bundle of {sanctions_divergence,
+    fatf_matches, substance, rca, tbml, ...}.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    dd_data = body.get("dd_data") or body
+    if not isinstance(dd_data, dict):
+        raise HTTPException(status_code=400, detail="dd_data must be an object")
+    try:
+        from ..intel import ach_explainability as _ach
+        return {"signals": _ach.extract_signals_from_dd(dd_data)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# R-F75 (2026-05-09): provenance chain with cascade-invalidate.
+# DAG of source → fact → conclusion. When a source is later flagged
+# disinformation, downstream conclusions auto-invalidate.
+@router.post("/provenance/source")
+async def provenance_register_source_ep(request: Request):
+    """Register a source. Body: {source_id, url?, trust?, source_type?, notes?}."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    sid = body.get("source_id")
+    if not sid:
+        raise HTTPException(status_code=400, detail="source_id required")
+    try:
+        from ..intel import provenance_chain as _pc
+        return await _pc.register_source(
+            sid,
+            url=body.get("url"),
+            trust=float(body.get("trust", 1.0)),
+            source_type=body.get("source_type"),
+            notes=body.get("notes"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/provenance/derivation")
+async def provenance_register_derivation_ep(request: Request):
+    """Record an edge. Body: {src_id, dst_id, edge_type?, weight?, via_module?}."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    try:
+        from ..intel import provenance_chain as _pc
+        return await _pc.register_derivation(
+            body.get("src_id", ""),
+            body.get("dst_id", ""),
+            edge_type=body.get("edge_type", "derives"),
+            weight=float(body.get("weight", 0.8)),
+            via_module=body.get("via_module"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/provenance/invalidate")
+async def provenance_invalidate_ep(request: Request):
+    """Mark a source invalid + cascade. Body: {source_id, reason}."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    sid = body.get("source_id")
+    reason = body.get("reason", "manual operator invalidation")
+    if not sid:
+        raise HTTPException(status_code=400, detail="source_id required")
+    try:
+        from ..intel import provenance_chain as _pc
+        return await _pc.invalidate_source(sid, reason)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/provenance/lineage")
+async def provenance_lineage_ep(node_id: str, max_depth: int = 10):
+    """Walk backwards from a node to find contributing sources/facts."""
+    if not node_id:
+        raise HTTPException(status_code=400, detail="node_id required")
+    try:
+        from ..intel import provenance_chain as _pc
+        path = await _pc.get_lineage(node_id, max_depth=max_depth)
+        invalidated = await _pc.is_invalidated(node_id)
+        return {"node_id": node_id, "invalidated": invalidated, "lineage": path}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/provenance/stats")
+async def provenance_stats_ep():
+    """Provenance graph stats."""
+    try:
+        from ..intel import provenance_chain as _pc
+        return await _pc.stats()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # R-F78 (2026-05-09): citation audit — verifies that cited claims are
 # actually supported by the cited source content. Distinct from
 # aria_engine.grounded_rate which measures CITATION PRESENCE; this
