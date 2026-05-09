@@ -2495,6 +2495,17 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
   const { message, session_id, skip_aria_service } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
   const sid = session_id || `${req.user?.id || 'anon'}_${Date.now()}`;
+  // R-F48b: resolve persona from authenticated user record so the
+  // Python brain picks the right overlay. Empty string = let Python
+  // default to broker (current behaviour for legacy users w/o sector).
+  let _persona = '';
+  let _personaUserId = req.user?.userId || '';
+  try {
+    if (_personaUserId) {
+      const u = findUserById(_personaUserId);
+      if (u && u.sector) _persona = String(u.sector).trim();
+    }
+  } catch {}
 
   // ── Trivial-question short-circuit (highest priority) ─────────────────
   // Greetings, liveness probes, identity questions, 'test'/'ping', 'thanks'
@@ -2545,7 +2556,7 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
       const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/chat`, {
         method: 'POST',
         headers: _ariaHeaders(),
-        body: JSON.stringify({ message, session_id: sid }),
+        body: JSON.stringify({ message, session_id: sid, user_id: _personaUserId, persona: _persona }),
         // 2026-04-26 (was 420s): /chat is reached by the WA listener as the
         // FALLBACK after its streaming path already failed. The listener's
         // outer abort fires at 360s — if we hold fly.io for 420s here, the
@@ -2610,6 +2621,16 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
   const { message, session_id, auto_tools, group_context } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
   const sid = session_id || `${req.user?.id || 'anon'}_${Date.now()}`;
+  // R-F48b: resolve persona from authenticated user record (sector
+  // field captured at registration). Empty → Python falls back to
+  // broker overlay = current default behaviour.
+  let _persona = '';
+  try {
+    if (req.user?.userId) {
+      const u = findUserById(req.user.userId);
+      if (u && u.sector) _persona = String(u.sector).trim();
+    }
+  } catch {}
 
   // Trivial short-circuit — no need to call Python for greetings
   const _trivial = trivialReply(message);
@@ -2644,6 +2665,7 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
         message,
         session_id: sid,
         user_id: req.user?.id || '',
+        persona: _persona,
         auto_tools: auto_tools !== false,
         group_context: group_context || '',
       }),
@@ -3017,7 +3039,16 @@ function requireAdmin(req, res, next) {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { username, email, password, fullName } = req.body || {};
+    const {
+      username, email, password, fullName,
+      // R-F48b organisation context — all optional (legacy 1-screen
+      // signup omits these and gets default-empty values that the
+      // Python brain interprets as "broker" persona).
+      accountType, companyName, companyCountry, companySize,
+      sector, jobTitle,
+      useCases, regions, languages, volumeEstimate, complianceNeeds,
+      purposeStatement,
+    } = req.body || {};
     if (!username || username.length < 3)  return res.status(400).json({ error: 'Username must be at least 3 characters' });
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email address' });
     if (!password || password.length < 8)  return res.status(400).json({ error: 'Password must be at least 8 characters' });
@@ -3056,7 +3087,13 @@ app.post('/api/auth/register', async (req, res) => {
 
     const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
 
-    createUser({ username, email, password, fullName });
+    createUser({
+      username, email, password, fullName,
+      accountType, companyName, companyCountry, companySize,
+      sector, jobTitle,
+      useCases, regions, languages, volumeEstimate, complianceNeeds,
+      purposeStatement,
+    });
     const rawUser = findUserByEmail(email); // raw record includes verificationCode
 
     if (smtpConfigured) {
@@ -3284,13 +3321,41 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 
 app.put('/api/auth/profile', requireAuth, (req, res) => {
   try {
-    const { fullName, telegramUsername, notifyDigest, notifyFlash, notifyPush } = req.body || {};
+    const {
+      fullName, telegramUsername, notifyDigest, notifyFlash, notifyPush,
+      // R-F48b: editable org-context fields. Same shape as registration.
+      accountType, companyName, companyCountry, companySize,
+      sector, jobTitle,
+      useCases, regions, languages, volumeEstimate, complianceNeeds,
+      purposeStatement,
+    } = req.body || {};
     const updates = {};
     if (fullName         !== undefined) updates.fullName         = fullName;
     if (telegramUsername !== undefined) updates.telegramUsername = telegramUsername;
     if (notifyDigest     !== undefined) updates.notifyDigest     = !!notifyDigest;
     if (notifyFlash      !== undefined) updates.notifyFlash      = !!notifyFlash;
     if (notifyPush       !== undefined) updates.notifyPush       = !!notifyPush;
+    // R-F48b org-context — server-side bounds match createUser()
+    if (accountType      !== undefined) updates.accountType      = String(accountType || '').slice(0, 32);
+    if (companyName      !== undefined) updates.companyName      = String(companyName || '').slice(0, 200);
+    if (companyCountry   !== undefined) updates.companyCountry   = String(companyCountry || '').slice(0, 80);
+    if (companySize      !== undefined) updates.companySize      = String(companySize || '').slice(0, 32);
+    if (sector           !== undefined) updates.sector           = String(sector || '').slice(0, 64);
+    if (jobTitle         !== undefined) updates.jobTitle         = String(jobTitle || '').slice(0, 120);
+    if (volumeEstimate   !== undefined) updates.volumeEstimate   = String(volumeEstimate || '').slice(0, 32);
+    if (purposeStatement !== undefined) updates.purposeStatement = String(purposeStatement || '').slice(0, 600);
+    if (useCases         !== undefined && Array.isArray(useCases)) {
+      updates.useCases = useCases.slice(0, 20).map(s => String(s).slice(0, 64));
+    }
+    if (regions          !== undefined && Array.isArray(regions)) {
+      updates.regions = regions.slice(0, 30).map(s => String(s).slice(0, 64));
+    }
+    if (languages        !== undefined && Array.isArray(languages)) {
+      updates.languages = languages.slice(0, 20).map(s => String(s).slice(0, 16));
+    }
+    if (complianceNeeds  !== undefined && Array.isArray(complianceNeeds)) {
+      updates.complianceNeeds = complianceNeeds.slice(0, 20).map(s => String(s).slice(0, 64));
+    }
     const updated = updateUser(req.user.userId, updates);
     res.json(updated);
   } catch (err) {
