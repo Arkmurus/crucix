@@ -2279,6 +2279,7 @@ async def aria_chat(
     session_id: str,
     llm: LLMProvider,
     intel_data: dict | None = None,
+    user_id: str = "",
 ) -> dict:
     """Multi-turn chat with ARIA, 8-layer context injection (7 intel + neural memory).
 
@@ -2465,10 +2466,17 @@ async def aria_chat(
     session = await _get_session(session_id)
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
 
-    # Persist user_id in session — extracted from session_id format {userId}_{ts}
-    # on first access, then available from session dict for all future calls.
+    # Persist user_id in session. Prefer the explicit user_id argument (web
+    # UI passes it in the request body); fall back to extracting from
+    # session_id format {userId}_{ts}_{rand} for legacy callers (WA
+    # listeners). Past gap: the rsplit("_", 1)[0] heuristic only works
+    # when the session_id has exactly two underscores, which broke for
+    # the web UI's `<userId>_<ts>_<rand>` shape (userId got conflated
+    # with timestamp). Explicit user_id is authoritative.
     if not session.get("userId"):
-        _uid = session_id.rsplit("_", 1)[0] if "_" in session_id else ""
+        _uid = (user_id or "").strip()
+        if not _uid:
+            _uid = session_id.rsplit("_", 1)[0] if "_" in session_id else ""
         if _uid and _uid != "anon":
             session["userId"] = _uid
 
@@ -2892,6 +2900,7 @@ async def aria_chat_stream(
     session_id: str,
     llm: LLMProvider,
     intel_data: dict | None = None,
+    user_id: str = "",
 ):
     """Streaming variant of aria_chat — yields SSE event dicts.
 
@@ -2980,9 +2989,12 @@ async def aria_chat_stream(
     session = await _get_session(session_id)
     history = (session.get("messages") or [])[-MAX_TURNS * 2:]
 
-    # Persist user_id in session (same as aria_chat)
+    # Persist user_id in session (same as aria_chat — prefer explicit arg
+    # over session_id parsing).
     if not session.get("userId"):
-        _uid = session_id.rsplit("_", 1)[0] if "_" in session_id else ""
+        _uid = (user_id or "").strip()
+        if not _uid:
+            _uid = session_id.rsplit("_", 1)[0] if "_" in session_id else ""
         if _uid and _uid != "anon":
             session["userId"] = _uid
 
