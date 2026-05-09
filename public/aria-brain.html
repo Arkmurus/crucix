@@ -152,6 +152,30 @@ Sidebar.init('brain');
     <div id="heatmap" class="loading">Loading...</div>
   </div>
 
+  <!-- R-F89 (2026-05-09): Coverage Heatmap (Domain x Jurisdiction) +
+       R-F88 freshness + R-F90 priorities — surfaces exactly which
+       cells the autonomous engine should target next, based on
+       domain freshness windows + structural coverage gaps. -->
+  <div class="card wide">
+    <h2>Coverage Heatmap (Domain x Jurisdiction) <span class="badge" id="cov-score">—</span></h2>
+    <div id="cov-summary" style="margin-bottom:10px;font-size:0.85em;color:#8b949e">Loading…</div>
+    <div id="cov-heatmap" class="loading">Loading…</div>
+    <div id="cov-gaps" style="margin-top:14px"></div>
+    <div style="margin-top:10px;font-size:0.75em;color:#8b949e;line-height:1.55">
+      Cell intensity = fact density (absent / thin / moderate / strong / deep).
+      Red border = cell is in the priority targeting list (R-F90).
+      The autonomous task selector preferentially fires tasks tagged for these domains.
+    </div>
+  </div>
+
+  <!-- R-F88 (2026-05-09): per-domain freshness tracker — shows which
+       domains haven't seen a refresh within their max-staleness window. -->
+  <div class="card wide">
+    <h2>Domain Freshness <span class="badge" id="fresh-stale-count">—</span></h2>
+    <div id="fresh-summary" style="margin-bottom:10px;font-size:0.85em;color:#8b949e">Loading…</div>
+    <div id="fresh-list" class="loading">Loading…</div>
+  </div>
+
   <!-- Dead Letter Queue -->
   <div class="card">
     <h2>Dead Letter Queue</h2>
@@ -317,18 +341,35 @@ async function loadBreakers() {
 async function loadAmendments() {
   const d = await fetchJson('/adversarial/amendments');
   const el = document.getElementById('amendments-queue');
-  if (!d) { el.innerHTML = '<span class="neutral">No data</span>'; return; }
+  if (!d) {
+    // R-F103 (2026-05-09): explicit cause when endpoint returns null
+    el.innerHTML = '<span class="neutral">Endpoint unavailable — '
+                 + '/adversarial/amendments returned no data. The queue '
+                 + 'is in Redis at <code>aria:adversarial:amendments_queue</code>; '
+                 + 'check fly logs for connection issues.</span>';
+    return;
+  }
   const amendments = d.amendments || [];
   if (!amendments.length) {
     el.innerHTML = '<span class="good">No pending amendments — queue clean</span>';
     return;
   }
+  // R-F103 (2026-05-09): added bulk-reject button + better explainer
   let html = metricRow('Queue depth', d.queue_depth || amendments.length,
                        (d.queue_depth || 0) > 5 ? 'warn' : 'neutral');
-  html += '<div style="margin-top:8px;font-size:0.8em;color:#8b949e">'
-        + 'Operator triage: reject invalid amendments (reason required). '
-        + 'Accepting an amendment means deploying a clause change via '
-        + 'self_improve.deploy_improvement per aria_autonomy_doctrine.md.</div>';
+  html += '<div style="margin-top:8px;font-size:0.8em;color:#8b949e;line-height:1.55">'
+        + 'Operator triage: each amendment is a constitutional change candidate '
+        + 'staged from a failed adversarial attack. Reject invalid ones with a '
+        + 'reason (audit-logged). Accepting means deploying via '
+        + 'self_improve.deploy_improvement per aria_autonomy_doctrine.md — '
+        + 'do that from the CLI (no UI button — manual deploy is the safety gate).</div>';
+  // Bulk-reject UI
+  html += '<div style="margin-top:10px;padding:8px;background:rgba(110,44,44,0.1);border-radius:6px;font-size:0.8em">'
+        + '<strong>Bulk reject</strong> all amendments matching a pattern: '
+        + '<button onclick="bulkRejectStale()" '
+        + 'style="background:#6e2c2c;color:#fff;border:0;padding:4px 12px;'
+        + 'border-radius:4px;cursor:pointer;font-size:0.85em;margin-left:6px">'
+        + 'Reject all amendments older than 7 days</button></div>';
   html += '<table style="margin-top:8px"><tr><th>Attack</th><th>Clauses</th><th>Staged</th><th>Action</th></tr>';
   amendments.forEach(a => {
     const attack = (a.attack_id || '?') + '<br/><span style="font-size:0.75em;color:#8b949e">'
@@ -343,6 +384,48 @@ async function loadAmendments() {
   });
   html += '</table>';
   el.innerHTML = html;
+}
+
+// R-F103 (2026-05-09): bulk-reject all amendments older than 7d.
+// Useful when the queue accumulates stale candidates from earlier
+// adversarial runs whose attacks no longer fail.
+async function bulkRejectStale() {
+  const reason = prompt(
+    'Reason for bulk-rejecting all amendments older than 7 days?\n'
+    + '(Required — will be audit-logged for every rejected amendment.)\n\n'
+    + 'Suggested: "stale candidate — superseded by R-F59/F80 expansion"',
+  );
+  if (!reason || !reason.trim()) return;
+  // Get the current queue
+  const d = await fetchJson('/adversarial/amendments');
+  if (!d || !d.amendments) {
+    alert('Cannot fetch amendments queue.');
+    return;
+  }
+  const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+  const stale = d.amendments.filter(a => {
+    if (!a.staged_at) return true;  // missing date = treat as stale
+    try {
+      return new Date(a.staged_at).getTime() < cutoff;
+    } catch {
+      return true;
+    }
+  });
+  if (!stale.length) {
+    alert('No amendments older than 7 days.');
+    return;
+  }
+  if (!confirm(`About to reject ${stale.length} amendment(s) older than 7 days. Continue?`)) return;
+  const ids = stale.map(a => a.attack_id).filter(Boolean);
+  const resp = await API.post(
+    '/api/aria/adversarial/amendments/reject-bulk',
+    { attack_ids: ids, reason: reason.trim() },
+  );
+  if (!resp || !resp.ok) {
+    alert('Bulk reject failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'));
+    return;
+  }
+  await loadAmendments();
 }
 
 async function rejectAmendment(attackId) {
@@ -964,6 +1047,141 @@ async function loadSystemHealth() {
   el.classList.remove('loading');
 }
 
+// R-F89/R-F88 (2026-05-09): coverage heatmap + freshness panels
+async function loadCoverageHeatmap() {
+  const d = await fetchJson('/learning/coverage');
+  const el = document.getElementById('cov-heatmap');
+  const sumEl = document.getElementById('cov-summary');
+  const gapEl = document.getElementById('cov-gaps');
+  const scoreBadge = document.getElementById('cov-score');
+  if (!d || !d.matrix) {
+    el.innerHTML = '<span class="neutral">No coverage data yet — endpoint unavailable.</span>';
+    el.classList.remove('loading');
+    sumEl.innerHTML = '';
+    return;
+  }
+  const score = d.coverage_score == null ? '—' : (d.coverage_score * 100).toFixed(0) + '%';
+  scoreBadge.textContent = score;
+  scoreBadge.className = 'badge ' + scoreClass(d.coverage_score || 0);
+  const summary = d.summary || {};
+  sumEl.innerHTML = `${summary.cells || 0} cells · ${summary.deep_cells || 0} deep · `
+                  + `${summary.gap_count || 0} absent (${summary.gap_pct || 0}%) · `
+                  + `${summary.stale_cells || 0} stale${d.from_cache ? ' · cached' : ''}`;
+
+  // Get priority targets for highlighting
+  let priorityKeys = new Set();
+  try {
+    const gaps = await fetchJson('/learning/coverage/gaps?max_targets=15');
+    if (gaps && gaps.gaps) {
+      gaps.gaps.forEach(g => priorityKeys.add(`${g.domain}::${g.jurisdiction}`));
+      // Render gap chips
+      gapEl.innerHTML = `<div style="font-size:0.85em;color:#8b949e;margin-bottom:6px">
+        <strong>Top gap targets (R-F90):</strong></div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px">
+        ${gaps.gaps.slice(0, 12).map(g =>
+          `<span style="font-size:0.75em;padding:3px 8px;border-radius:5px;background:rgba(245,158,11,0.13);border:1px solid rgba(245,158,11,0.3);color:#fbbf24">
+             ${escapeHtml(g.domain)} × ${escapeHtml(g.jurisdiction)}
+             <span style="opacity:0.7">(${g.tier})</span>
+           </span>`).join('')}
+        </div>`;
+    }
+  } catch {}
+
+  // Render the matrix
+  const domains = d.domains || [];
+  const juris = d.jurisdictions || [];
+  const groups = d.jurisdiction_groups || {};
+  const tierColor = {
+    absent:   '#3d1418',
+    thin:     '#3d2818',
+    moderate: '#3d2e00',
+    strong:   '#1f3320',
+    deep:     '#0d3117',
+  };
+  // Compact render — show jurisdiction abbreviations
+  let html = '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:0.7em">';
+  html += '<tr><th style="text-align:left;padding:4px 6px;background:#161b22;color:#8b949e;position:sticky;left:0">Domain</th>';
+  juris.forEach(j => {
+    const abbr = j.length > 3 ? j.slice(0, 3) : j;
+    html += `<th style="padding:3px 4px;background:#161b22;color:#8b949e" title="${escapeHtml(j)}">${escapeHtml(abbr)}</th>`;
+  });
+  html += '</tr>';
+  domains.forEach(dom => {
+    html += `<tr><td style="padding:3px 6px;background:#161b22;color:#c4b5fd;position:sticky;left:0;font-weight:600">${escapeHtml(dom.replace(/_/g,' '))}</td>`;
+    juris.forEach(j => {
+      const cell = (d.matrix[dom] || {})[j] || { tier: 'absent' };
+      const isPriority = priorityKeys.has(`${dom}::${j}`);
+      const colour = tierColor[cell.tier] || tierColor.absent;
+      const border = isPriority ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.04)';
+      const titleParts = [
+        `${dom} × ${j}`,
+        `tier: ${cell.tier}`,
+        `facts: ${cell.fact_count || 0}`,
+        `signals: ${cell.signal_count || 0}`,
+        cell.is_stale ? 'STALE' : 'fresh',
+      ];
+      html += `<td style="background:${colour};border:${border};padding:6px 3px;text-align:center;cursor:help"
+                  title="${escapeHtml(titleParts.join(' · '))}">
+                ${cell.fact_count > 0 ? cell.fact_count : ''}
+              </td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</table></div>';
+  el.innerHTML = html;
+  el.classList.remove('loading');
+}
+
+async function loadFreshness() {
+  const d = await fetchJson('/learning/freshness');
+  const el = document.getElementById('fresh-list');
+  const sumEl = document.getElementById('fresh-summary');
+  const badge = document.getElementById('fresh-stale-count');
+  if (!d || !d.domains) {
+    el.innerHTML = '<span class="neutral">No freshness data yet — populates as ingest paths fire (R-F96).</span>';
+    el.classList.remove('loading');
+    return;
+  }
+  const stats = d.stats || {};
+  badge.textContent = `${stats.stale_count || 0} stale / ${stats.tracked_total || 0}`;
+  badge.className = 'badge ' + ((stats.stale_count || 0) > (stats.tracked_total || 0) * 0.3 ? 'warn' : 'good');
+  sumEl.innerHTML = `Tracked: <strong>${stats.tracked_total || 0}</strong> · `
+                  + `Fresh: <strong class="good">${stats.fresh_count || 0}</strong> · `
+                  + `Stale: <strong class="warn">${stats.stale_count || 0}</strong> `
+                  + `(${stats.stale_pct || 0}%)`;
+  const domains = d.domains || [];
+  if (!domains.length) {
+    el.innerHTML = '<span class="neutral">No domains tracked yet.</span>';
+    el.classList.remove('loading');
+    return;
+  }
+  let html = '<table><tr><th>Domain</th><th>Status</th><th>Last refreshed</th><th>Window</th><th>Source</th><th>Facts/Signals</th></tr>';
+  domains.slice(0, 30).forEach(rec => {
+    const cls = rec.is_stale ? 'bad' : 'good';
+    const stat = rec.is_stale ? 'STALE' : 'FRESH';
+    const hours = rec.hours_since_refresh != null ? `${rec.hours_since_refresh}h ago` : '—';
+    const win = rec.max_staleness_hours ? `${rec.max_staleness_hours}h` : '—';
+    html += `<tr>
+      <td style="font-family:'Cascadia Code',monospace;color:#c4b5fd">${escapeHtml(rec.domain || '')}</td>
+      <td><span class="${cls}">${stat}</span></td>
+      <td>${escapeHtml(hours)}</td>
+      <td>${escapeHtml(win)}</td>
+      <td style="font-size:0.85em;color:#8b949e">${escapeHtml(rec.last_refresh_source || '—')}</td>
+      <td>${rec.facts_count || 0} / ${rec.signals_count || 0}</td>
+    </tr>`;
+  });
+  html += '</table>';
+  el.innerHTML = html;
+  el.classList.remove('loading');
+}
+
+// Helper used by R-F89 panel — escapeHtml helper needed by inline render
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
+  );
+}
+
 async function refreshAll() {
   document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
   await Promise.all([
@@ -972,6 +1190,8 @@ async function refreshAll() {
     loadAudit(), loadHeatmap(), loadDLQ(), loadMastery(), loadComposite(),
     loadCalibration(), loadSurface(), loadLearning(), loadSystemHealth(),
     loadLlmCost(),
+    // R-F89/F88 panels added 2026-05-09
+    loadCoverageHeatmap(), loadFreshness(),
   ]);
 }
 

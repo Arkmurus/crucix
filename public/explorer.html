@@ -73,10 +73,32 @@
 
     /* ─── Layout (sidebar + main) ─── */
     .ex-body {
-      display: grid; grid-template-columns: 1fr 320px; gap: 22px; align-items: flex-start;
+      display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; align-items: flex-start;
+    }
+    /* Explorer overflow fix (R-F101a, 2026-05-09): grid items default to
+       min-width: auto which is sized by content — long URLs in result
+       cards pushed the column wider than the grid track. minmax(0, 1fr)
+       on the column + min-width:0 + word-break on text containers
+       prevents horizontal overflow. */
+    .ex-main { min-width: 0; }
+    .ex-card,
+    .ex-card-body,
+    .ex-card-title,
+    .ex-verdict-text {
+      min-width: 0;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    .ex-card a {
+      word-break: break-all;
+    }
+    .ex-card pre, .ex-card code {
+      max-width: 100%;
+      overflow-x: auto;
+      white-space: pre-wrap;
     }
     @media (max-width: 1100px) {
-      .ex-body { grid-template-columns: 1fr; }
+      .ex-body { grid-template-columns: minmax(0, 1fr); }
       .ex-rail { order: -1; }
     }
 
