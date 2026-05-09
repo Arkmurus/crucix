@@ -148,6 +148,70 @@ _WEAPON_SYSTEMS: dict[str, dict] = {
     "AK-74":       {"type": "rifle", "country": "RU", "oem": "various", "ml": "ML1", "eccn": "0A501", "controlled": True},
     "Galil":       {"type": "rifle", "country": "IL", "oem": "IWI",     "ml": "ML1", "eccn": "0A501", "controlled": True},
     "G36":         {"type": "rifle", "country": "DE", "oem": "Heckler & Koch", "ml": "ML1", "eccn": "0A501", "controlled": True},
+
+    # ── R-F54 (2026-05-09) curated coverage extension ──────────────────────
+    # Naval platforms (ML9 / 8A/E)
+    "Type 26":      {"type": "frigate",   "country": "UK", "oem": "BAE Systems",    "ml": "ML9", "eccn": "8A609", "controlled": True},
+    "Type 31":      {"type": "frigate",   "country": "UK", "oem": "Babcock",        "ml": "ML9", "eccn": "8A609", "controlled": True},
+    "FREMM":        {"type": "frigate",   "country": "FR/IT", "oem": "Naval Group/Fincantieri", "ml": "ML9", "eccn": "8A609", "controlled": True},
+    "Constellation":{"type": "frigate",   "country": "US", "oem": "Fincantieri Marinette", "ml": "ML9", "eccn": "8A609", "controlled": True},
+    "Type 212":     {"type": "submarine", "country": "DE/IT", "oem": "TKMS",        "ml": "ML9", "eccn": "8A609", "controlled": True},
+    "Type 214":     {"type": "submarine", "country": "DE", "oem": "TKMS",           "ml": "ML9", "eccn": "8A609", "controlled": True},
+    "Scorpene":     {"type": "submarine", "country": "FR", "oem": "Naval Group",    "ml": "ML9", "eccn": "8A609", "controlled": True},
+    "Astute":       {"type": "submarine", "country": "UK", "oem": "BAE Systems",    "ml": "ML9", "eccn": "8A609", "controlled": True},
+    "Virginia-class":{"type":"submarine", "country": "US", "oem": "GD Electric Boat/Newport News", "ml": "ML9", "eccn": "8A609", "controlled": True},
+
+    # Combat & utility helicopters (ML10)
+    "AH-64 Apache": {"type": "attack_helo", "country": "US", "oem": "Boeing",       "ml": "ML10", "eccn": "9A610", "controlled": True},
+    "AH-1Z Viper":  {"type": "attack_helo", "country": "US", "oem": "Bell",         "ml": "ML10", "eccn": "9A610", "controlled": True},
+    "T129 ATAK":    {"type": "attack_helo", "country": "TR/IT", "oem": "TAI/Leonardo", "ml": "ML10", "eccn": "9A610", "controlled": True},
+    "Mi-28":        {"type": "attack_helo", "country": "RU", "oem": "Mil",          "ml": "ML10", "eccn": "EAR99", "controlled": True, "embargo_risk": "RU sanctions"},
+    "Tiger":        {"type": "attack_helo", "country": "EU", "oem": "Airbus Helicopters", "ml": "ML10", "eccn": "9A610", "controlled": True},
+    "NH90":         {"type": "utility_helo","country": "EU", "oem": "Airbus/Leonardo/Fokker", "ml": "ML10", "eccn": "9A610", "controlled": True},
+    "CH-47 Chinook":{"type": "transport_helo","country":"US","oem": "Boeing",       "ml": "ML10", "eccn": "9A610", "controlled": True},
+    "UH-60 Blackhawk":{"type":"utility_helo","country":"US", "oem": "Sikorsky",     "ml": "ML10", "eccn": "9A610", "controlled": True},
+
+    # Precision air-to-ground munitions (ML4)
+    "Hellfire":     {"type": "agm",      "country": "US", "oem": "Lockheed Martin", "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "Brimstone":    {"type": "agm",      "country": "UK", "oem": "MBDA",            "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "Maverick":     {"type": "agm",      "country": "US", "oem": "Raytheon",        "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "HARM":         {"type": "anti_radar","country":"US",  "oem": "Northrop Grumman","ml":"ML4", "eccn": "9A610", "controlled": True},
+    "GBU-12":       {"type": "lgb",       "country":"US",  "oem": "Raytheon",       "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "GBU-31 JDAM":  {"type": "guided_bomb","country":"US",  "oem": "Boeing",        "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "Paveway":      {"type": "lgb",       "country":"US/UK","oem": "Raytheon",      "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "SDB":          {"type": "guided_bomb","country":"US",  "oem": "Boeing",        "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "Spice":        {"type": "guided_bomb","country":"IL",  "oem": "Rafael",        "ml": "ML4", "eccn": "9A610", "controlled": True},
+
+    # Air-to-air missiles (ML4)
+    "AIM-9X Sidewinder":{"type":"aam",   "country":"US", "oem": "Raytheon",         "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "AIM-120 AMRAAM":   {"type":"aam",   "country":"US", "oem": "Raytheon",         "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "Meteor":           {"type":"aam",   "country":"EU", "oem": "MBDA",             "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "MICA":             {"type":"aam",   "country":"FR", "oem": "MBDA",             "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "R-77":             {"type":"aam",   "country":"RU", "oem": "Vympel",           "ml": "ML4", "eccn": "EAR99", "controlled": True, "embargo_risk": "RU sanctions"},
+    "PL-15":            {"type":"aam",   "country":"CN", "oem": "AVIC",             "ml": "ML4", "eccn": "EAR99", "controlled": True},
+
+    # Stand-off / land-attack (MTCR-relevant)
+    "JASSM":            {"type":"alcm",  "country":"US", "oem": "Lockheed Martin",  "ml": "ML4", "eccn": "9A610", "controlled": True, "mtcr": "Cat I"},
+    "Tomahawk":         {"type":"cruise","country":"US", "oem": "Raytheon",         "ml": "ML4", "eccn": "9A610", "controlled": True, "mtcr": "Cat I"},
+    "Taurus KEPD-350":  {"type":"alcm",  "country":"DE/SE","oem": "Taurus Systems", "ml": "ML4", "eccn": "9A610", "controlled": True, "mtcr": "Cat I"},
+    "Kalibr":           {"type":"cruise","country":"RU", "oem": "Novator",          "ml": "ML4", "eccn": "EAR99", "controlled": True, "embargo_risk": "RU sanctions", "mtcr": "Cat I"},
+    "Kinzhal":          {"type":"hypersonic","country":"RU","oem":"various",        "ml": "ML4", "eccn": "EAR99", "controlled": True, "embargo_risk": "RU sanctions", "mtcr": "Cat I"},
+
+    # Radars + EW + ISR (ML11 / ML15)
+    "AN/MPQ-65":        {"type":"radar","country":"US", "oem": "Raytheon",          "ml": "ML15", "eccn": "9A610", "controlled": True},
+    "GhostEye":         {"type":"radar","country":"US", "oem": "Raytheon",          "ml": "ML15", "eccn": "9A610", "controlled": True},
+    "ELM-2080 Green Pine":{"type":"radar","country":"IL","oem": "IAI ELTA",         "ml": "ML15", "eccn": "9A610", "controlled": True},
+    "Master 400":       {"type":"radar","country":"FR", "oem": "Thales",            "ml": "ML15", "eccn": "9A610", "controlled": True},
+    "AN/ALQ-249 NGJ":   {"type":"ew_pod","country":"US","oem": "Raytheon",          "ml": "ML11", "eccn": "9A610", "controlled": True},
+    "Krasukha-4":       {"type":"ew_system","country":"RU","oem":"KRET",            "ml": "ML11", "eccn": "EAR99", "controlled": True, "embargo_risk": "RU sanctions"},
+    "Litening":         {"type":"isr_pod","country":"IL/US","oem":"Northrop Grumman/Rafael","ml": "ML15", "eccn": "9A610", "controlled": True},
+    "Sniper XR":        {"type":"isr_pod","country":"US", "oem": "Lockheed Martin", "ml": "ML15", "eccn": "9A610", "controlled": True},
+
+    # Loitering munitions / one-way attack drones (ML4 + ML10 hybrid)
+    "Switchblade":      {"type":"loiter","country":"US","oem":"AeroVironment",      "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "Hero":             {"type":"loiter","country":"IL","oem":"UVision",            "ml": "ML4", "eccn": "9A610", "controlled": True},
+    "Lancet":           {"type":"loiter","country":"RU","oem":"Zala Aero",          "ml": "ML4", "eccn": "EAR99", "controlled": True, "embargo_risk": "RU sanctions"},
+    "Shahed-136":       {"type":"loiter","country":"IR","oem":"HESA",               "ml": "ML4", "eccn": "EAR99", "controlled": True, "embargo_risk": "IR sanctions"},
 }
 
 
