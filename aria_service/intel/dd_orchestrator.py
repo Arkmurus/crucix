@@ -2329,8 +2329,18 @@ async def _persist_report(report: ARKDDReport) -> None:
             index.insert(0, {
                 "run_id": report.run_id,
                 "generated_at": report.generated_at,
+                # Mirror entity name + jurisdiction into the columns the
+                # dashboard table expects so the library renders both.
                 "entity_name": report.identity.entity_name,
+                "jurisdiction": report.identity.jurisdiction,
+                # R-F130 (2026-05-10): write `severity` + `risk` +
+                # `risk_classification` together so the library table
+                # column populates regardless of which key the renderer
+                # asks for.
+                "severity": report.risk_classification,
                 "risk": report.risk_classification,
+                "risk_classification": report.risk_classification,
+                "created_at": report.generated_at,
             })
             index = index[:500]
             await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)

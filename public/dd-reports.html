@@ -290,7 +290,12 @@ function renderTable(reports) {
   }
   let html = '<table class="dd-table"><thead><tr><th>Entity</th><th>Severity</th><th>Run ID</th><th>Created</th></tr></thead><tbody>';
   for (const r of reports) {
-    const sev = r.severity || r.worst_severity || r.status || '';
+    // R-F130 (2026-05-10): the /dd/reports index stores `risk` not
+    // `severity` — the column was always rendering "—" because the
+    // first three keys were never populated. Read `risk` last so old
+    // entries surface their classification (GREEN / AMBER / RED /
+    // HARD_STOP) until they expire.
+    const sev = r.severity || r.worst_severity || r.status || r.risk || r.risk_classification || '';
     const created = r.created_at || r.timestamp || '';
     html += '<tr class="dd-row" data-run-id="' + escAttr(r.run_id) + '">' +
       '<td class="col-entity">' + escText(r.entity_name || '(unknown)') +
