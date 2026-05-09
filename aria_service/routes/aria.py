@@ -212,6 +212,13 @@ class ChatRequest(BaseModel):
     session_id: str = ""
     user_id: str = ""         # authenticated user ID (injected by Node proxy)
     auto_tools: bool = True   # auto-detect intent and call investigate/crawl/read tools
+    # R-F48a: persona overlay key. Tunes which constitution clauses are
+    # weighted most heavily in the system prompt. Recognised values:
+    # broker, oem_export, government_acquisition, compliance,
+    # banking_insurance, journalist. Empty / unrecognised → broker
+    # (current default behaviour). Resolved by the Node proxy from the
+    # authenticated user's `sector` field at registration time.
+    persona: str = ""
     # Group context as a SEPARATE field — populated by the WhatsApp listener
     # with the last 5 group messages so ARIA has multi-participant context.
     # The chat handler treats this as an ADDITIONAL context layer (not as
@@ -4853,7 +4860,7 @@ async def chat_ep(req: ChatRequest, request: Request):
                 # a friendly reply instead of "fallback 400". Added
                 # 2026-04-17 22:40 after the PDF upload incident.
                 try:
-                    result = await aria_chat(message_for_llm, session_id, llm, intel, user_id=getattr(req, "user_id", "") or "")
+                    result = await aria_chat(message_for_llm, session_id, llm, intel, user_id=getattr(req, "user_id", "") or "", persona=getattr(req, "persona", "") or "")
                 except Exception as _llm_err:
                     _log.warning(
                         "[chat] aria_chat raised: %s — returning 200 with explanation",
@@ -5743,7 +5750,7 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
             from ..llm.provider import ProviderError
 
             try:
-                async for event in aria_chat_stream(message_for_llm, session_id, llm, intel, user_id=user_id):
+                async for event in aria_chat_stream(message_for_llm, session_id, llm, intel, user_id=user_id, persona=getattr(req, "persona", "") or ""):
                     yield f'data: {json.dumps(event)}\n\n'
 
                     # Inject tool_used into the done event

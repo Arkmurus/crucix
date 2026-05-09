@@ -1589,7 +1589,7 @@ def _detect_metacog_domain(message: str) -> str:
     return "general"
 
 
-async def _build_calibrated_system_prompt(message: str) -> str:
+async def _build_calibrated_system_prompt(message: str, persona: str = "") -> str:
     """Build the system prompt with calibration + contradictions + structured-
     analysis templates injected.
 
@@ -1602,6 +1602,19 @@ async def _build_calibrated_system_prompt(message: str) -> str:
          system prompt
     """
     addendum_parts = []
+
+    # R-F48a: persona overlay — sector-specific tuning of the constitution.
+    # Prepended FIRST so the LLM reads the persona framing immediately
+    # after the constitution, before any of the conditional addenda
+    # (calibration, PMESII, principles, etc). Falls back silently to
+    # the broker overlay (current default behaviour) when persona is
+    # empty or unrecognised.
+    try:
+        from .personas import resolve_persona, get_overlay
+        _resolved_persona = resolve_persona(persona)
+        addendum_parts.append(get_overlay(_resolved_persona))
+    except Exception as e:
+        logger.debug("persona overlay injection failed (non-fatal): %s", e)
 
     cal = await _get_cached_calibration()
     cal_addendum = _calibration_to_prompt_addendum(cal)
@@ -2280,6 +2293,7 @@ async def aria_chat(
     llm: LLMProvider,
     intel_data: dict | None = None,
     user_id: str = "",
+    persona: str = "",
 ) -> dict:
     """Multi-turn chat with ARIA, 8-layer context injection (7 intel + neural memory).
 
@@ -2562,7 +2576,7 @@ async def aria_chat(
 
     # Build the final system prompt with calibration adjustments learned from
     # past errors. This is the closed loop: confidence calibration → behaviour.
-    system_prompt = await _build_calibrated_system_prompt(message)
+    system_prompt = await _build_calibrated_system_prompt(message, persona=persona)
 
     # Timeout tuning: tool-context chats (deep_research, dd_orchestrate,
     # extract_url) require narrative synthesis over 4-10KB of pre-fetched
@@ -2901,6 +2915,7 @@ async def aria_chat_stream(
     llm: LLMProvider,
     intel_data: dict | None = None,
     user_id: str = "",
+    persona: str = "",
 ):
     """Streaming variant of aria_chat — yields SSE event dicts.
 
@@ -3067,7 +3082,7 @@ async def aria_chat_stream(
     else:
         user_prompt = f"{lang_hint}{message}{context}"
 
-    system_prompt = await _build_calibrated_system_prompt(message)
+    system_prompt = await _build_calibrated_system_prompt(message, persona=persona)
 
     # ── Stream the LLM response ───────────────────────────────────────
     _has_tool = "[TOOL:" in message or "[I have already run" in message
