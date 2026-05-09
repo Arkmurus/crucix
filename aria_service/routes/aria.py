@@ -1274,6 +1274,92 @@ async def forensic_benford_ep(request: Request):
 # Example queries:
 #   GET /api/aria/sanctions/divergence?name=Wagner+Group
 #   GET /api/aria/sanctions/divergence?name=Hikvision&threshold=0.85
+# R-F76 (2026-05-09): RCA / PEP relatives screening per FATF Rec 12.
+# Recursive screening through OpenSanctions relationships array. Surfaces
+# inherited risk: subject not directly listed, but spouse/child/sibling is.
+@router.get("/sanctions/rca")
+async def sanctions_rca_ep(name: str, depth: int = 1, threshold: float = 0.78):
+    """Run primary fuzzy_screen + walk relationships to depth N.
+
+    Returns the inherited-risk record set with one-line operator narrative.
+    Depth=1 (default) screens direct relatives only; depth=2 explodes
+    query count and is opt-in.
+    """
+    if not name or not name.strip():
+        raise HTTPException(status_code=400, detail="name parameter required")
+    if depth < 0 or depth > 2:
+        raise HTTPException(status_code=400, detail="depth must be 0..2")
+    try:
+        from ..intel import rca_screening as _rca
+        return await _rca.screen_with_relatives(name.strip(), depth=depth, threshold=threshold)
+    except Exception as e:
+        return {"ok": False, "error": str(e), "name": name}
+
+
+# R-F77 (2026-05-09): economic substance scoring (distinct from ghost detection).
+# Real entities with fictitious capacity claims (2-employee shop claiming
+# £50M turnover). OECD BEPS Action 5 + EU ATAD + FATF substance criteria.
+@router.post("/dd/substance")
+async def dd_substance_ep(request: Request):
+    """Score a counterparty profile against six substance criteria.
+
+    POST body: profile dict with optional fields {employees,
+    paid_up_capital_usd, claimed_revenue_usd, claimed_contract_size_usd,
+    incorporation_date, claimed_history_years, registered_address,
+    directors_count, virtual_office_flag}.
+
+    Returns substance_score, grade (SUBSTANTIVE/MARGINAL/INSUBSTANTIVE/
+    INDETERMINATE), per-criterion scoring, and a one-line narrative.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="body must be a profile object")
+    try:
+        from ..intel import economic_substance as _es
+        return _es.score_substance(body)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# R-F72 (2026-05-09): FATF typology library + matcher.
+# Encodes 14+ FATF 2023/2024 ML/TBML typologies as deterministic detection
+# rules. Apply against a counterparty profile to surface matched and weak
+# typology signals. Cross-reference with R-F73 TBML detection for trade-
+# corridor anomalies.
+@router.get("/fatf/typologies")
+async def fatf_typology_list_ep():
+    """List the encoded FATF typology library (for the operator UI)."""
+    try:
+        from ..intel import fatf_typologies as _ft
+        return {"library": _ft.list_typologies(), "summary": _ft.summary()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/fatf/match")
+async def fatf_match_ep(request: Request):
+    """Score a counterparty profile against the FATF typology library.
+
+    POST body: profile dict with any of the fields referenced by the
+    typology indicators (jurisdictions, registered_address, directors,
+    ubo_disclosure, payment_method, transit_jurisdictions, etc).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="body must be a profile object")
+    try:
+        from ..intel import fatf_typologies as _ft
+        return _ft.match_typologies(body)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @router.get("/sanctions/divergence")
 async def sanctions_divergence_ep(name: str, threshold: float = 0.78):
     """Cross-list divergence analysis for a single entity name.
