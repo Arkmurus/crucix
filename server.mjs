@@ -27,7 +27,7 @@ import { fetchUNSecurityCouncil, fetchCentralBanks, fetchThinkTanks, fetchTradeF
 import { fetchOpenSanctions } from './apis/sources/opensanctions.mjs';
 
 // === Self-Learning & Self-Update System ===
-import { getLearningStats, getOutcomes, recordAlertOutcome, getSourceHistory, getSourcesToReview, getPatterns, getOpportunities, getExplorerFindings, getUpdateLog, recordSourceSweep, initLearningStore, getBrainAbsorbStats } from './lib/self/learning_store.mjs';
+import { getLearningStats, getOutcomes, recordAlertOutcome, getSourceHistory, getSourcesToReview, getPatterns, getOpportunities, getExplorerFindings, getUpdateLog, recordSourceSweep, initLearningStore, getBrainAbsorbStats, runAndCacheBridgeVerdict, getBrainBridgeVerdict } from './lib/self/learning_store.mjs';
 import { detectOpportunities, formatOpportunitiesForTelegram } from './lib/self/opportunity_engine.mjs';
 import { analyzePatterns, formatPatternsForTelegram } from './lib/self/pattern_analyzer.mjs';
 import { runExploration, exploreQuery, formatExplorerFindingsForTelegram } from './lib/self/web_explorer.mjs';
@@ -199,6 +199,19 @@ import('./lib/aria/contacts.mjs').then(m => m.initContacts()).catch(err => conso
 import('./lib/aria/competitors.mjs').then(m => m.initCompetitors()).catch(err => console.error('[Competitors] init failed:', err.message));
 import('./lib/aria/query_evolution.mjs').then(m => m.initEvolution()).catch(err => console.error('[QueryEvolution] init failed:', err.message));
 import('./lib/aria/prompt_optimizer.mjs').then(m => m.initOptimizer()).catch(err => console.error('[PromptOptimizer] init failed:', err.message));
+
+// === Brain bridge boot self-check (R-F45) ===================================
+// Catches the recurring ARIA_API_TOKEN drift between fly + seenode that has
+// twice now caused silent learning-loop outages (2026-04-23 WA listener;
+// 2026-05-09 brainAbsorb). Fires a one-shot ping at boot so the operator
+// sees the misconfig in the deploy log + a Telegram alert (if configured)
+// rather than discovering it days later via grep. Doesn't block startup —
+// just runs after the first event-loop tick so other init can proceed.
+setImmediate(() => {
+  runAndCacheBridgeVerdict({ telegramAlerter }).catch(err => {
+    console.error('[brainBridge] verification crashed:', err.message);
+  });
+});
 
 // === SMTP Diagnostics ===
 const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
@@ -1032,6 +1045,20 @@ app.get('/api/health', (req, res) => {
 // 380+ emails processed but only 1 absorbed showed the failure was silent.
 app.get('/api/brain-absorb/diag', requireAuth, (req, res) => {
   res.json(getBrainAbsorbStats());
+});
+
+// R-F45: surface the boot-time brain-bridge verdict so an operator can
+// curl one endpoint to see whether the bridge passed self-check without
+// reading the deploy log line-by-line. Returns the verdict from boot
+// (cached) + a "rerun" option that re-pings synchronously.
+app.get('/api/brain-absorb/verify', requireAuth, async (req, res) => {
+  if (req.query?.rerun === '1') {
+    const v = await runAndCacheBridgeVerdict({ telegramAlerter });
+    return res.json(v);
+  }
+  const cached = getBrainBridgeVerdict();
+  if (!cached) return res.status(503).json({ error: 'boot self-check has not yet run; try ?rerun=1' });
+  res.json(cached);
 });
 
 // Cross-server health — does Node see fly.io and vice versa?
