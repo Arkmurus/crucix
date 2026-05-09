@@ -296,7 +296,12 @@ function renderTable(reports) {
     // entries surface their classification (GREEN / AMBER / RED /
     // HARD_STOP) until they expire.
     const sev = r.severity || r.worst_severity || r.status || r.risk || r.risk_classification || '';
-    const created = r.created_at || r.timestamp || '';
+    // R-F144 (2026-05-10): generated_at fallback. Existing index
+    // entries from before R-F130 only have `generated_at`, not
+    // `created_at` — the table was leaving the Created column empty
+    // for the two real DDs (TARA Aerospace + Assan Group). Reader
+    // fallback to generated_at surfaces those dates immediately.
+    const created = r.created_at || r.generated_at || r.timestamp || '';
     html += '<tr class="dd-row" data-run-id="' + escAttr(r.run_id) + '">' +
       '<td class="col-entity">' + escText(r.entity_name || '(unknown)') +
         (r.jurisdiction ? ' <span style="color:rgba(255,255,255,0.4);font-weight:400">· ' + escText(r.jurisdiction) + '</span>' : '') +
