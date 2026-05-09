@@ -2184,6 +2184,13 @@ app.get('/api/aria/dd/watchlist/alerts/unread-count', requireAuth, (req, res) =>
   ariaProxy(req, res, `/api/aria/dd/watchlist/alerts/unread-count${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/dd/watchlist/alerts/read', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/dd/watchlist/alerts/read', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
+// R-F52 DD report library
+app.get('/api/aria/dd/reports', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/dd/reports${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.get('/api/aria/dd/report/:run_id', requireAuth, (req, res) =>
+  ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+app.post('/api/aria/dd/orchestrate', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/dd/orchestrate', { method: 'POST', timeoutMs: 240000, fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/rlaif/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/rlaif/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/rlaif/evaluate', requireAuth, (req, res) =>
