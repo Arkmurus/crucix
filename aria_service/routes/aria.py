@@ -1228,6 +1228,33 @@ async def harvest_stats_ep():
         return {"ok": False, "error": str(e)}
 
 
+# R-F68 (2026-05-09): sanctions divergence cross-list query.
+# OpenSanctions already aggregates OFAC/OFSI/EU/UN/etc. — this endpoint
+# surfaces *where the same entity appears on some lists but not others*.
+# That divergence pattern is exactly what sanctions evaders exploit and
+# what compliance officers need on a counterparty DD report.
+#
+# Example queries:
+#   GET /api/aria/sanctions/divergence?name=Wagner+Group
+#   GET /api/aria/sanctions/divergence?name=Hikvision&threshold=0.85
+@router.get("/sanctions/divergence")
+async def sanctions_divergence_ep(name: str, threshold: float = 0.78):
+    """Cross-list divergence analysis for a single entity name.
+
+    Returns: jurisdictions where the entity is listed, jurisdictions
+    where it isn't (from a curated tracked-list), per-match grouping
+    by list, and a one-line narrative suitable for paste into a DD
+    report.
+    """
+    if not name or not name.strip():
+        raise HTTPException(status_code=400, detail="name parameter required")
+    try:
+        from ..intel import sanctions_divergence as _sd
+        return await _sd.analyze_divergence(name.strip(), threshold=threshold)
+    except Exception as e:
+        return {"ok": False, "error": str(e), "name": name}
+
+
 # ── Trace stream: joined view across cost / verification / feedback ──────
 @router.get("/trace/recent")
 async def trace_recent_ep(
