@@ -743,29 +743,44 @@ Sidebar.init('explorer');
   }
 
   // ─── Suggested actions rail ──────────────────────────────────────
+  // R-F115 (2026-05-09): pass entity context via URL query string so
+  // the destination tool actually knows what the operator is exploring.
+  // dd-reports.html reads ?tool=<id>&entity=<q> on load and pre-fills
+  // the matching pipeline tool's form, scrolling it into view.
   function renderActionsForQuery(q) {
+    const ddUrl = (toolId) =>
+      `/dd-reports.html?tool=${encodeURIComponent(toolId)}&entity=${encodeURIComponent(q)}`;
     const actions = [
-      { name: 'Run full DD pipeline',  rfn: 'dd', icon: 'bi-folder2-open', href: '/dd-reports.html' },
-      { name: 'FATF typology match',   rfn: 'R-F72', icon: 'bi-diagram-3', click: () => promptProfile(q, 'fatf') },
-      { name: 'Economic substance',    rfn: 'R-F77', icon: 'bi-building',  click: () => promptProfile(q, 'substance') },
+      { name: 'Run full DD pipeline',  rfn: 'dd',    icon: 'bi-folder2-open', href: `/dd-reports.html?entity=${encodeURIComponent(q)}` },
+      { name: 'Sanctions divergence',  rfn: 'R-F68', icon: 'bi-shield-exclamation', href: ddUrl('sanctions-divergence') },
+      { name: 'RCA / Relatives',       rfn: 'R-F76', icon: 'bi-people',       href: ddUrl('sanctions-rca') },
+      { name: 'FATF typology match',   rfn: 'R-F72', icon: 'bi-diagram-3',    href: ddUrl('fatf-match') },
+      { name: 'Economic substance',    rfn: 'R-F77', icon: 'bi-building',     href: ddUrl('dd-substance') },
+      { name: 'Counter-Intel scan',    rfn: 'R-F84', icon: 'bi-shield-shaded',href: ddUrl('counter-intel') },
       { name: 'Crypto wallet screen',  rfn: 'R-F74', icon: 'bi-currency-bitcoin', click: () => promptWallet(q) },
-      { name: 'TBML classifier',       rfn: 'R-F73', icon: 'bi-graph-up-arrow', href: '/dd-reports.html' },
-      { name: "Benford's Law check",   rfn: 'R-F70', icon: 'bi-bar-chart', href: '/dd-reports.html' },
-      { name: 'Provenance lineage',    rfn: 'R-F75', icon: 'bi-diagram-2', href: '/dd-reports.html' },
-      { name: 'Open in chat',          rfn: 'aria', icon: 'bi-chat-dots',  click: () => openInChat(q) },
+      { name: "Benford's Law check",   rfn: 'R-F70', icon: 'bi-bar-chart',    click: () => promptBenford(q) },
+      { name: 'TBML classifier',       rfn: 'R-F73', icon: 'bi-graph-up-arrow', click: () => promptTbml(q) },
+      { name: 'Provenance lineage',    rfn: 'R-F75', icon: 'bi-diagram-2',    click: () => promptProvenance(q) },
+      { name: 'Open in chat',          rfn: 'aria',  icon: 'bi-chat-dots',    click: () => openInChat(q) },
     ];
     $('#ex-actions').innerHTML = actions.map(a => `
-      <div class="ex-action" data-action="${escapeHtml(a.rfn)}">
-        <div class="ex-action-icon"><i class="bi ${a.icon}"></i></div>
+      <div class="ex-action" data-action="${escapeHtml(a.rfn)}" role="button" tabindex="0"
+           title="${escapeHtml(a.name)} — ${escapeHtml(a.rfn)}"
+           aria-label="${escapeHtml(a.name)}">
+        <div class="ex-action-icon" aria-hidden="true"><i class="bi ${a.icon}"></i></div>
         <div class="ex-action-name">${escapeHtml(a.name)}</div>
         <div class="ex-action-rfn">${escapeHtml(a.rfn)}</div>
       </div>
     `).join('');
     document.querySelectorAll('#ex-actions .ex-action').forEach((el, i) => {
-      el.addEventListener('click', () => {
-        const a = actions[i];
+      const a = actions[i];
+      const trigger = () => {
         if (a.href) window.location.href = a.href;
         else if (a.click) a.click();
+      };
+      el.addEventListener('click', trigger);
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
       });
     });
   }
@@ -773,12 +788,29 @@ Sidebar.init('explorer');
     sessionStorage.setItem('aria-prefill', `Tell me about ${q}.`);
     window.location.href = '/aria.html';
   }
-  function promptProfile(q) {
-    sessionStorage.setItem('aria-prefill', `Build a structured DD profile for "${q}" suitable for FATF typology matching and economic-substance scoring.`);
+  function promptWallet(q) {
+    sessionStorage.setItem('aria-prefill',
+      `Find every cryptocurrency wallet address associated with "${q}". `
+      + `Then run R-F74 crypto wallet screening on each — flag any that match `
+      + `the OpenSanctions sanctioned-wallet index. Return as a structured list.`);
     window.location.href = '/aria.html';
   }
-  function promptWallet(q) {
-    sessionStorage.setItem('aria-prefill', `Find any cryptocurrency wallet addresses associated with "${q}".`);
+  function promptBenford(q) {
+    sessionStorage.setItem('aria-prefill',
+      `Pull "${q}"'s most recent reported financial figures (revenue, expenses, contract values — anything numeric and material). `
+      + `List at least 50 values across multiple orders of magnitude. Return as a comma-separated list ready to paste into the Benford's Law tool (R-F70).`);
+    window.location.href = '/aria.html';
+  }
+  function promptTbml(q) {
+    sessionStorage.setItem('aria-prefill',
+      `What's the typical unit-value range for "${q}"'s primary commodity exports/imports? `
+      + `I need (declared_unit_value, low_benchmark, high_benchmark) so I can run the TBML classifier (R-F73) on a real transaction.`);
+    window.location.href = '/aria.html';
+  }
+  function promptProvenance(q) {
+    sessionStorage.setItem('aria-prefill',
+      `What's the node_id (FACT-... format) of the most recent fact ARIA recorded about "${q}"? `
+      + `I want to walk the provenance lineage (R-F75) backwards to see every source that contributed.`);
     window.location.href = '/aria.html';
   }
 })();

@@ -492,6 +492,80 @@ body.sidebar-collapsed #app-header { left: 0; }
   .sc-skeleton { animation: none; }
 }
 
+/* ── R-F112 (2026-05-09): print stylesheet ────────────────────────────
+   Direct browser-print of any dashboard page should produce something
+   readable on paper. The audit-grade PDF route (R-F43) is still the
+   primary output for compliance distribution; this is for ad-hoc
+   "I just need a paper copy" moments. */
+@media print {
+  /* Background → white, text → black */
+  html, body { background: #fff !important; color: #000 !important; }
+
+  /* Hide chrome — nav, header, sidebar, sidebar-toggle */
+  #app-header, #app-sidebar, #sidebar-overlay, #sidebar-toggle,
+  .header-toggle, .header-icon-btn, .nav-avatar, .nav-dropdown,
+  #alerts-bell, #alerts-popup, .convos-panel, .input-area,
+  .chat-titlebar, .ex-search-wrap, .ex-tabs, .ex-rail,
+  .dd-pipeline, .dd-toolbar, .dd-act-btn, .sc-btn, button,
+  .convos-toggle, .convos-new-btn,
+  /* Skeleton placeholders are noise on paper */
+  .sc-skeleton, .ex-skel,
+  /* Nav-only items in heatmap headers */
+  .header-spacer, .header-brand {
+    display: none !important;
+  }
+
+  /* Main content takes full width — no fixed margin from header */
+  #app-main, main, .acct-shell, .dd-shell, .ex-shell, .mc-shell, .st-shell {
+    margin-left: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  /* Cards become flat outlined boxes for print clarity */
+  .sc-card, .ex-card, .ex-rail-card, .pricing-card,
+  .acct-tier, .acct-usage-card, .dd-table {
+    background: transparent !important;
+    border: 1px solid #999 !important;
+    box-shadow: none !important;
+    color: #000 !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Headings + table headers force page breaks before */
+  h1, h2 { page-break-before: auto; page-break-after: avoid; color: #000 !important; }
+  h3, h4 { page-break-after: avoid; color: #000 !important; }
+  table { page-break-inside: auto; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  tr    { page-break-inside: avoid; }
+  th, td { border: 1px solid #999 !important; padding: 4px 6px !important; }
+
+  /* URLs visible after the link text — ops want the source on paper */
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em; color: #555;
+  }
+  /* Don't expand internal anchors / mailto / tel */
+  a[href^="#"]::after, a[href^="mailto:"]::after, a[href^="tel:"]::after { content: ""; }
+
+  /* Text colour everywhere */
+  *, *::before, *::after { color: #000 !important; text-shadow: none !important; }
+  .text-muted, .sc-page-sub, .acct-usage-label { color: #555 !important; }
+
+  /* @page directive — operator-readable A4 with page numbers */
+  @page {
+    size: A4;
+    margin: 16mm 14mm 18mm 14mm;
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-size: 9pt; color: #555;
+    }
+    @top-right { content: "ARKMURUS — Confidential"; font-size: 8.5pt; color: #555; }
+  }
+}
+
 /* ── Grid ──────────────────────────────────────────────────────────── */
 .sc-grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 20px; }
 .sc-grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; }

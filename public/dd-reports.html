@@ -742,6 +742,55 @@ loadReports();
       const tool = TOOLS.find(function(t) { return t.id === id; });
       if (tool) runTool(tool);
     });
+
+    // R-F115 (2026-05-09): URL-param-driven prefill from the Explorer
+    // suggested-actions rail. /dd-reports.html?tool=<id>&entity=<name>
+    // scrolls to the matching tool, prefills its primary entity-shaped
+    // field, and (if the tool has a single required string field with
+    // no need for structured input) auto-runs it.
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const toolId = params.get('tool');
+      const entity = params.get('entity');
+      if (toolId && entity) {
+        const tool = TOOLS.find(t => t.id === toolId);
+        const card = grid.querySelector(`[data-tool="${toolId}"]`);
+        if (tool && card) {
+          // Find the first text-shaped (non-textarea, non-numeric) field
+          // and prefill it with the entity name. Skip if the tool's
+          // primary field is JSON / numeric — those need structured input.
+          const firstField = tool.fields.find(f =>
+            !f.textarea && f.type !== 'number' && f.key !== 'profile'
+          );
+          if (firstField) {
+            const input = document.getElementById('tool-' + toolId + '-' + firstField.key);
+            if (input) input.value = entity;
+          }
+          // Smooth-scroll into view
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          card.style.outline = '2px solid rgba(124,58,237,0.5)';
+          card.style.outlineOffset = '4px';
+          setTimeout(() => {
+            card.style.outline = '';
+            card.style.outlineOffset = '';
+          }, 2500);
+          // Auto-run only when prefill was sufficient (string field
+          // populated, no JSON / numeric blanks left)
+          const hasOpenRequiredField = tool.fields.some(f =>
+            f.required && (f.textarea || f.type === 'number' || f.key === 'profile')
+            && !document.getElementById('tool-' + toolId + '-' + f.key)?.value
+          );
+          if (firstField && !hasOpenRequiredField) {
+            setTimeout(() => runTool(tool), 600);
+          }
+        }
+      } else if (entity && !toolId) {
+        // ?entity= alone — just scroll into the pipeline section
+        document.getElementById('dd-pipeline').scrollIntoView({ behavior: 'smooth' });
+      }
+    } catch (err) {
+      console.warn('[dd-pipeline] prefill from URL params failed:', err);
+    }
   }
 
   // Collapse / expand

@@ -52,11 +52,13 @@ const Sidebar = {
     if (navAvatar && dropdown) {
       navAvatar.addEventListener('click', e => {
         e.stopPropagation();
-        dropdown.classList.toggle('open');
+        const isOpen = dropdown.classList.toggle('open');
+        navAvatar.setAttribute('aria-expanded', String(isOpen));
       });
       document.addEventListener('click', e => {
         if (!e.target.closest('#nav-dropdown') && !e.target.closest('#nav-avatar')) {
           dropdown.classList.remove('open');
+          navAvatar.setAttribute('aria-expanded', 'false');
         }
       });
     }
@@ -172,8 +174,10 @@ const Sidebar = {
       const isOpen = popup.style.display !== 'none' && popup.style.display !== '';
       if (isOpen) {
         popup.style.display = 'none';
+        bell.setAttribute('aria-expanded', 'false');
       } else {
         popup.style.display = 'flex';
+        bell.setAttribute('aria-expanded', 'true');
         loadAlerts();
       }
     });
@@ -181,6 +185,7 @@ const Sidebar = {
     document.addEventListener('click', e => {
       if (!e.target.closest('#alerts-popup') && !e.target.closest('#alerts-bell')) {
         popup.style.display = 'none';
+        bell.setAttribute('aria-expanded', 'false');
       }
     });
 
@@ -255,17 +260,17 @@ const Sidebar = {
   headerHtml() {
     return `
     <header id="app-header">
-      <button class="header-toggle" id="sidebar-toggle" title="Toggle sidebar">
-        <i class="bi bi-list"></i>
+      <button class="header-toggle" id="sidebar-toggle" title="Toggle sidebar" aria-label="Toggle navigation sidebar">
+        <i class="bi bi-list" aria-hidden="true"></i>
       </button>
       <span class="header-brand d-none d-md-block">ARKMURUS INTELLIGENCE</span>
       <div class="header-spacer"></div>
       <div class="header-actions">
         <!-- R-F51 watchlist alerts bell -->
         <div style="position:relative">
-          <button class="header-icon-btn" id="alerts-bell" title="Watchlist alerts">
-            <i class="bi bi-bell"></i>
-            <span id="alerts-badge" style="display:none;position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;border-radius:8px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;line-height:16px;padding:0 4px;text-align:center;box-shadow:0 0 0 2px #0c0919"></span>
+          <button class="header-icon-btn" id="alerts-bell" title="Watchlist alerts" aria-label="Open watchlist alerts" aria-expanded="false" aria-controls="alerts-popup">
+            <i class="bi bi-bell" aria-hidden="true"></i>
+            <span id="alerts-badge" style="display:none;position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;border-radius:8px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;line-height:16px;padding:0 4px;text-align:center;box-shadow:0 0 0 2px #0c0919" aria-label="Unread alert count"></span>
           </button>
           <div id="alerts-popup" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:380px;max-width:calc(100vw - 24px);max-height:70vh;background:#1a1430;border:1px solid rgba(255,255,255,0.08);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.5);z-index:100;overflow:hidden;flex-direction:column">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0">
@@ -277,11 +282,11 @@ const Sidebar = {
             </div>
           </div>
         </div>
-        <a href="/sources.html" class="header-icon-btn" title="Source Health">
-          <i class="bi bi-activity"></i>
+        <a href="/sources.html" class="header-icon-btn" title="Source Health" aria-label="View source health dashboard">
+          <i class="bi bi-activity" aria-hidden="true"></i>
         </a>
         <div class="nav-dropdown" style="position:relative">
-          <div class="nav-avatar" id="nav-avatar" title="Profile">?</div>
+          <button class="nav-avatar" id="nav-avatar" title="Profile" aria-label="Open profile menu" aria-haspopup="true" aria-expanded="false">?</button>
           <div class="nav-dropdown-menu" id="nav-dropdown">
             <div class="nav-dropdown-user">
               <div class="nav-dropdown-name" id="nav-user-name">Loading…</div>

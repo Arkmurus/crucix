@@ -2750,7 +2750,11 @@ app.get('/api/aria/session/:sessionId', requireAuth, async (req, res) => {
 // ── Conversation History CRUD (proxy to Python ARIA service) ─────────────
 
 app.get('/api/aria/conversations', requireAuth, async (req, res) => {
-  const userId = req.user?.id || '';
+  // R-F116 (2026-05-09): was reading req.user?.id (always undefined —
+  // JWT payload field is userId, not id) so every conversations fetch
+  // returned 401 → aria.html showed 'Failed to load.' in the convos
+  // panel. Aligning with the rest of the handlers in this file.
+  const userId = req.user?.userId || '';
   if (!userId) return res.status(401).json({ error: 'Authentication required' });
   const offset = parseInt(req.query.offset) || 0;
   const limit = parseInt(req.query.limit) || 30;
