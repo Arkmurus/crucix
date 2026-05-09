@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ARIA — System Status</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { background: #0c0919; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.85); line-height: 1.6; }
+    .st-shell { max-width: 880px; margin: 0 auto; padding: 56px 24px 80px; }
+    .st-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(124,58,237,0.85); font-weight: 700; margin-bottom: 12px; }
+    .st-title { font-size: 32px; font-weight: 800; color: #fff; margin: 0 0 24px; letter-spacing: -0.02em; }
+
+    .st-banner {
+      display: flex; align-items: center; gap: 16px;
+      padding: 22px 28px; border-radius: 14px; margin-bottom: 28px;
+      border: 1px solid;
+    }
+    .st-banner-icon { font-size: 40px; flex-shrink: 0; }
+    .st-banner-text { flex: 1; }
+    .st-banner-status { font-size: 22px; font-weight: 800; margin: 0; line-height: 1.2; }
+    .st-banner-summary { font-size: 14px; color: rgba(255,255,255,0.65); margin: 6px 0 0; }
+    .st-banner.operational    { background: rgba(34,197,94,0.07);  border-color: rgba(34,197,94,0.32);  color: #4ade80; }
+    .st-banner.operational .st-banner-icon { color: #22c55e; }
+    .st-banner.degraded       { background: rgba(245,158,11,0.07); border-color: rgba(245,158,11,0.32); color: #fbbf24; }
+    .st-banner.degraded .st-banner-icon { color: #f59e0b; }
+    .st-banner.partial_outage { background: rgba(255,122,65,0.07); border-color: rgba(255,122,65,0.32); color: #fdba74; }
+    .st-banner.partial_outage .st-banner-icon { color: #ff7a41; }
+    .st-banner.major_outage   { background: rgba(239,68,68,0.08);  border-color: rgba(239,68,68,0.34);  color: #fca5a5; }
+    .st-banner.major_outage .st-banner-icon { color: #ef4444; }
+
+    .st-uptime {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 20px; background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.06); border-radius: 10px;
+      margin-bottom: 28px;
+    }
+    .st-uptime-pct { font-size: 30px; font-weight: 800; color: #fff; }
+    .st-uptime-label { font-size: 13px; color: rgba(255,255,255,0.45); }
+
+    .st-section-title { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.55); text-transform: uppercase; letter-spacing: 1.5px; margin: 32px 0 12px; }
+
+    .st-card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; }
+    .st-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .st-card-title { font-size: 15px; font-weight: 700; color: #fff; margin: 0; }
+    .st-card-meta { font-size: 12px; color: rgba(255,255,255,0.4); }
+    .st-pill {
+      display: inline-block; padding: 3px 9px; border-radius: 5px; font-size: 10px;
+      font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; flex-shrink: 0;
+    }
+    .st-pill.investigating { background: rgba(245,158,11,0.18); color: #fbbf24; }
+    .st-pill.identified    { background: rgba(255,122,65,0.18); color: #fdba74; }
+    .st-pill.monitoring    { background: rgba(0,102,255,0.18);  color: #60a5fa; }
+    .st-pill.resolved      { background: rgba(34,197,94,0.18);  color: #4ade80; }
+    .st-pill.minor    { background: rgba(245,158,11,0.13); color: #fbbf24; }
+    .st-pill.major    { background: rgba(255,122,65,0.13); color: #fdba74; }
+    .st-pill.critical { background: rgba(239,68,68,0.18);  color: #fca5a5; }
+
+    .st-update {
+      padding: 10px 0 10px 16px; border-left: 2px solid rgba(255,255,255,0.08);
+      margin: 8px 0 4px;
+    }
+    .st-update-meta { font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 4px; }
+    .st-update-body { font-size: 13.5px; color: rgba(255,255,255,0.75); }
+
+    .st-empty { padding: 24px 20px; text-align: center; color: rgba(255,255,255,0.35); font-size: 13.5px; background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.08); border-radius: 10px; }
+
+    .st-bridge {
+      display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+      border-radius: 10px; margin-bottom: 22px;
+      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+      font-size: 13px;
+    }
+    .st-bridge i { font-size: 16px; }
+    .st-bridge.ok i  { color: #4ade80; }
+    .st-bridge.bad i { color: #fbbf24; }
+
+    .st-footer { margin-top: 48px; padding-top: 22px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 12px; color: rgba(255,255,255,0.4); }
+    .st-footer a { color: #c4b5fd; }
+  </style>
+</head>
+<body>
+<div class="st-shell">
+
+  <div class="st-eyebrow">System status</div>
+  <h1 class="st-title">ARIA — current state</h1>
+
+  <div id="banner" class="st-banner operational">
+    <div class="st-banner-icon"><i class="bi bi-check-circle-fill"></i></div>
+    <div class="st-banner-text">
+      <p class="st-banner-status" id="banner-status">Loading…</p>
+      <p class="st-banner-summary" id="banner-summary"></p>
+    </div>
+  </div>
+
+  <div class="st-uptime">
+    <div class="st-uptime-pct" id="uptime-pct">—%</div>
+    <div class="st-uptime-label">Estimated uptime over the last 30 days</div>
+  </div>
+
+  <div id="bridge-row" class="st-bridge ok" style="display:none">
+    <i class="bi bi-link-45deg"></i>
+    <span id="bridge-text">Bridge: …</span>
+  </div>
+
+  <div class="st-section-title">Active incidents</div>
+  <div id="open-incidents"><div class="st-empty">No active incidents.</div></div>
+
+  <div class="st-section-title">Recent history (last 30 days)</div>
+  <div id="recent-incidents"><div class="st-empty">No resolved incidents in the last 30 days.</div></div>
+
+  <div class="st-footer">
+    Last updated: <span id="generated-at">—</span> · Operator: Arkmurus Limited.
+    Companion documents: <a href="/model-card.html">Model card</a> · <a href="/account.html">Account &amp; billing</a>
+  </div>
+</div>
+
+<script>
+function fmt(d) {
+  if (!d) return '—';
+  var dt = new Date(d);
+  return dt.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+function el(tag, cls, html) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (html !== undefined) n.innerHTML = html;
+  return n;
+}
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, function(c) {
+    return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
+  });
+}
+
+function renderIncidents(list, target, emptyMsg) {
+  var box = document.getElementById(target);
+  if (!list || !list.length) {
+    box.innerHTML = '<div class="st-empty">' + emptyMsg + '</div>';
+    return;
+  }
+  box.innerHTML = '';
+  list.forEach(function(i) {
+    var card = el('div', 'st-card');
+    var headHtml =
+      '<div class="st-card-head">' +
+        '<h3 class="st-card-title">' + escapeHtml(i.title) + '</h3>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          '<span class="st-pill ' + i.status + '">' + i.status + '</span>' +
+          '<span class="st-pill ' + i.severity + '">' + i.severity + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="st-card-meta">' +
+        'Started: ' + fmt(i.startedAt) +
+        (i.resolvedAt ? ' · Resolved: ' + fmt(i.resolvedAt) : '') +
+        ' · Scope: ' + escapeHtml(i.scope) +
+      '</div>';
+    var updates = (i.updates || []).slice().reverse();
+    var updHtml = updates.map(function(u) {
+      return '<div class="st-update">' +
+        '<div class="st-update-meta">' + fmt(u.ts) + ' · ' + escapeHtml(u.status) + '</div>' +
+        '<div class="st-update-body">' + escapeHtml(u.body) + '</div>' +
+      '</div>';
+    }).join('');
+    card.innerHTML = headHtml + updHtml;
+    box.appendChild(card);
+  });
+}
+
+(async function() {
+  try {
+    var resp = await fetch('/api/status');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var data = await resp.json();
+
+    // Banner
+    var banner = document.getElementById('banner');
+    var statusMap = {
+      operational:    { label: 'All systems operational',  icon: 'check-circle-fill' },
+      degraded:       { label: 'Degraded performance',     icon: 'exclamation-triangle-fill' },
+      partial_outage: { label: 'Partial outage',           icon: 'cone-striped' },
+      major_outage:   { label: 'Major outage',             icon: 'x-circle-fill' },
+    };
+    var s = statusMap[data.overall] || statusMap.operational;
+    banner.className = 'st-banner ' + data.overall;
+    document.getElementById('banner-status').textContent = s.label;
+    banner.querySelector('.st-banner-icon').innerHTML = '<i class="bi bi-' + s.icon + '"></i>';
+    document.getElementById('banner-summary').textContent = data.summary || '';
+
+    // Uptime
+    document.getElementById('uptime-pct').textContent =
+      (data.uptime30dPct !== undefined ? data.uptime30dPct.toFixed(2) : '—') + '%';
+
+    // Bridge row
+    if (data.bridge) {
+      var br = document.getElementById('bridge-row');
+      br.style.display = '';
+      br.className = 'st-bridge ' + (data.bridge.healthy ? 'ok' : 'bad');
+      var text = data.bridge.healthy
+        ? 'Sweep → brain learning bridge: healthy'
+        : 'Sweep → brain learning bridge: ' + (data.bridge.reason || 'unknown') +
+          (data.bridge.has_token === false ? ' (token missing on this server)' : '');
+      document.getElementById('bridge-text').textContent = text;
+    }
+
+    // Generated at
+    document.getElementById('generated-at').textContent = fmt(data.generatedAt);
+
+    // Incidents
+    renderIncidents(data.open || [], 'open-incidents', 'No active incidents.');
+    renderIncidents(data.recent || [], 'recent-incidents', 'No resolved incidents in the last 30 days.');
+  } catch (err) {
+    console.error('[Status] load failed:', err);
+    document.getElementById('banner-status').textContent = 'Status check failed';
+    document.getElementById('banner-summary').textContent = 'Unable to load /api/status — the page itself is up but live data is unavailable.';
+  }
+})();
+</script>
+</body>
+</html>

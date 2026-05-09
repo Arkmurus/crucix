@@ -39,6 +39,8 @@ import { redisGet, redisSet, redisDel } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore } from './lib/auth/users.mjs';
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { createReportsRouter } from './lib/reports/routes.mjs';
+import { createStatusRouter } from './lib/status/routes.mjs';
+import { initIncidentsStore } from './lib/status/store.mjs';
 import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
 import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
@@ -179,6 +181,7 @@ const telegramAlerter = new TelegramAlerter(config.telegram);
     await initUsersStore();
     await initLearningStore();
     await initBDStore();
+    await initIncidentsStore();
     const { initEntityStore } = await import('./lib/search/entity-store.mjs');
     await initEntityStore();
     console.log('[Persist] All stores initialized');
@@ -3839,6 +3842,17 @@ app.use('/api/reports', createReportsRouter({
   brainInternalToken: (process.env.ARIA_INTERNAL_TOKEN
     || process.env.ARIA_API_TOKEN
     || '').trim(),
+}));
+
+// ── Status Routes (public status page — Lifter from strategic review §5.3) ────
+//
+// Mounts /api/status (public GET + admin mutations). Backed by
+// runs/incidents.json with Redis mirror. Aggregates the brain-bridge
+// boot verdict so the /status.html page shows the seenode → fly bridge
+// state in real time.
+app.use('/api/status', createStatusRouter({
+  requireAdmin,
+  getBrainBridgeVerdict,
 }));
 
 // ── Push Notification Routes ──────────────────────────────────────────────────
