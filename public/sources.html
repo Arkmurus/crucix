@@ -68,6 +68,40 @@
     </div>
   </div>
 
+  <!-- R-F143 (2026-05-10) — Curated source catalogue panel.
+       The 188 sources ARIA seeds into web_atlas at startup were
+       invisible because /sources.html only showed Node-side sweep
+       sources + Python-side uptime monitor. Now reads
+       /api/aria/sources/seed/catalogue. -->
+  <div class="sc-card mt-24">
+    <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
+      <div class="sc-card-title"><i class="bi bi-bookmark-star"></i> Curated defence source catalogue (R-F137)</div>
+      <span id="catalogue-total" class="sc-pill sc-pill-info" style="font-size:12px">—</span>
+    </div>
+    <div id="catalogue-body" style="padding:18px 22px;font-size:13.5px;color:rgba(255,255,255,0.7)">Loading…</div>
+    <div style="padding:10px 22px 14px;font-size:11.5px;color:rgba(255,255,255,0.4);border-top:1px solid rgba(255,255,255,0.04)">
+      Persistent registry of defence-DD sources seeded into <code style="background:rgba(124,58,237,0.13);padding:1px 5px;border-radius:4px;color:#c4b5fd">web_atlas</code> at startup.
+      Source for the Tier 1a / 1b / 2 credibility scoring across DD reports + chat retrieval.
+      View raw via <a href="/api/aria/sources/seed/catalogue" style="color:#7c3aed">/api/aria/sources/seed/catalogue</a>.
+    </div>
+  </div>
+
+  <!-- R-F143 — OEM slot pool panel. Operator queue on aria-brain
+       shows a single "OEM slots empty 60/60" counter; this surfaces
+       the per-OEM detail so the operator can see who's tracked + which
+       roles are filled. Reads /api/aria/oem/contacts (filled_only=False). -->
+  <div class="sc-card mt-24">
+    <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
+      <div class="sc-card-title"><i class="bi bi-building"></i> OEM slot pool (R-F138)</div>
+      <span id="oem-summary" class="sc-pill sc-pill-info" style="font-size:12px">—</span>
+    </div>
+    <div id="oem-body" style="padding:18px 22px;font-size:13.5px;color:rgba(255,255,255,0.7)">Loading…</div>
+    <div style="padding:10px 22px 14px;font-size:11.5px;color:rgba(255,255,255,0.4);border-top:1px solid rgba(255,255,255,0.04)">
+      Structured placeholder slots ARIA tracks for operator fill. Names stay empty until the operator POSTs a verified contact (clause 11 forbids name fabrication).
+      Add via <code style="background:rgba(124,58,237,0.13);padding:1px 5px;border-radius:4px;color:#c4b5fd">POST /api/aria/oem/contact</code>.
+    </div>
+  </div>
+
   <div class="sc-card mt-24">
     <div class="sc-card-header">
       <div class="sc-card-title"><i class="bi bi-people"></i> Brain absorb — per-sector (R-F56)</div>
@@ -155,6 +189,125 @@ async function loadBridge() {
       '</div>';
   } catch (e) {
     el.textContent = 'Bridge state load error: ' + e.message;
+  }
+}
+
+// R-F143 (2026-05-10): curated defence source catalogue panel.
+// Renders the 188 sources seeded into web_atlas at startup with
+// per-tier + per-topic breakdown so operators see what ARIA trusts
+// before fetching anything live.
+async function loadCatalogue() {
+  const body = document.getElementById('catalogue-body');
+  const totalPill = document.getElementById('catalogue-total');
+  try {
+    const resp = await API.get('/api/aria/sources/seed/catalogue');
+    if (!resp || !resp.ok || !resp.catalogue) {
+      body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">Catalogue endpoint unreachable.</div>';
+      totalPill.textContent = '?';
+      return;
+    }
+    const cat = resp.catalogue;
+    totalPill.textContent = (cat.total_curated || 0) + ' sources';
+
+    // Tier breakdown (reliability hierarchy)
+    const tiers = cat.by_tier || {};
+    const tierLabels = {
+      tier_1a: { label: 'Tier 1a (regulator / primary / OEM IR)', colour: '#22c55e' },
+      tier_1b: { label: 'Tier 1b (think tanks / academic)',       colour: '#3b82f6' },
+      tier_2:  { label: 'Tier 2 (specialist + country press)',     colour: '#a855f7' },
+    };
+    let tierHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:14px">';
+    Object.keys(tierLabels).forEach(k => {
+      const count = tiers[k] || 0;
+      const pct = cat.total_curated ? Math.round(count / cat.total_curated * 100) : 0;
+      const meta = tierLabels[k];
+      tierHtml += '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px">'
+                + '<div style="font-size:11.5px;color:rgba(255,255,255,0.55);margin-bottom:4px">' + escHtml(meta.label) + '</div>'
+                + '<div style="font-size:22px;font-weight:600;color:' + meta.colour + '">' + count + '</div>'
+                + '<div style="font-size:11.5px;color:rgba(255,255,255,0.4)">' + pct + '%</div>'
+                + '</div>';
+    });
+    tierHtml += '</div>';
+
+    // Top topics
+    const topics = cat.top_topics || {};
+    const topicEntries = Object.entries(topics).sort((a,b) => b[1] - a[1]);
+    let topicHtml = '<div style="font-size:11.5px;color:rgba(255,255,255,0.55);margin-bottom:6px">Top topics covered</div>';
+    topicHtml += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+    topicEntries.forEach(([t, n]) => {
+      topicHtml += '<span style="background:rgba(124,58,237,0.13);color:#c4b5fd;padding:3px 9px;border-radius:12px;font-size:11.5px">'
+                 + escHtml(t) + ' · ' + n + '</span>';
+    });
+    topicHtml += '</div>';
+
+    body.innerHTML = tierHtml + topicHtml;
+  } catch (e) {
+    body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">Load error: ' + escHtml(e.message) + '</div>';
+    totalPill.textContent = '?';
+  }
+}
+
+// R-F143 — OEM slot pool panel.
+async function loadOemPool() {
+  const body = document.getElementById('oem-body');
+  const summary = document.getElementById('oem-summary');
+  try {
+    const resp = await API.get('/api/aria/oem/contacts');
+    if (!resp || !Array.isArray(resp)) {
+      body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">OEM endpoint unreachable.</div>';
+      summary.textContent = '?';
+      return;
+    }
+    const total = resp.length;
+    const filled = resp.filter(c => c && c.name && c.name.trim()).length;
+    const empty = total - filled;
+    summary.textContent = filled + ' / ' + total + ' filled';
+
+    // Per-OEM aggregate
+    const byOem = {};
+    resp.forEach(c => {
+      if (!c || !c.oem) return;
+      if (!byOem[c.oem]) byOem[c.oem] = { total: 0, filled: 0, hq: c.oem_country_hq || '' };
+      byOem[c.oem].total += 1;
+      if (c.name && c.name.trim()) byOem[c.oem].filled += 1;
+    });
+    const oems = Object.entries(byOem).sort((a,b) => b[1].total - a[1].total);
+
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px;margin-bottom:14px">';
+    html += '<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.18);border-radius:8px;padding:12px">'
+          + '<div style="font-size:11.5px;color:rgba(255,255,255,0.55)">Total slots</div>'
+          + '<div style="font-size:22px;font-weight:600">' + total + '</div></div>';
+    html += '<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.18);border-radius:8px;padding:12px">'
+          + '<div style="font-size:11.5px;color:rgba(255,255,255,0.55)">Filled (operator-supplied)</div>'
+          + '<div style="font-size:22px;font-weight:600;color:#22c55e">' + filled + '</div></div>';
+    html += '<div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.18);border-radius:8px;padding:12px">'
+          + '<div style="font-size:11.5px;color:rgba(255,255,255,0.55)">Empty (awaiting fill)</div>'
+          + '<div style="font-size:22px;font-weight:600;color:#f59e0b">' + empty + '</div></div>';
+    html += '<div style="background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.18);border-radius:8px;padding:12px">'
+          + '<div style="font-size:11.5px;color:rgba(255,255,255,0.55)">OEMs tracked</div>'
+          + '<div style="font-size:22px;font-weight:600;color:#c4b5fd">' + oems.length + '</div></div>';
+    html += '</div>';
+
+    // Per-OEM table
+    html += '<table class="sc-table" style="font-size:12.5px">';
+    html += '<thead><tr><th>OEM</th><th>HQ</th><th style="text-align:right">Filled</th><th style="text-align:right">Total</th><th>Coverage</th></tr></thead><tbody>';
+    oems.forEach(([oem, s]) => {
+      const pct = s.total ? Math.round(s.filled / s.total * 100) : 0;
+      const barColour = pct > 0 ? '#22c55e' : '#f59e0b';
+      html += '<tr>'
+            + '<td><strong>' + escHtml(oem) + '</strong></td>'
+            + '<td style="font-size:11.5px;color:rgba(255,255,255,0.55)">' + escHtml(s.hq || '—') + '</td>'
+            + '<td style="text-align:right">' + s.filled + '</td>'
+            + '<td style="text-align:right">' + s.total + '</td>'
+            + '<td><div style="background:rgba(255,255,255,0.05);height:6px;border-radius:3px;overflow:hidden;width:120px">'
+            + '<div style="height:100%;width:' + pct + '%;background:' + barColour + '"></div></div></td>'
+            + '</tr>';
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">Load error: ' + escHtml(e.message) + '</div>';
+    summary.textContent = '?';
   }
 }
 
@@ -342,6 +495,8 @@ document.getElementById('btn-run-adv').addEventListener('click', async function(
 
 loadSources();
 loadBridge();
+loadCatalogue();
+loadOemPool();
 loadPythonSources();
 loadSectorStats();
 loadAdversarial();
@@ -352,6 +507,8 @@ setInterval(() => {
   loadSources();
   loadBridge();
   loadPythonSources();
+  loadCatalogue();   // R-F143
+  loadOemPool();     // R-F143
   loadSectorStats();
 }, 60000);
 setInterval(loadAdversarial, 5 * 60 * 1000);
