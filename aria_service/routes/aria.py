@@ -1360,6 +1360,160 @@ async def fatf_match_ep(request: Request):
         return {"ok": False, "error": str(e)}
 
 
+# R-F73 (2026-05-09): TBML detection endpoint.
+# Gated on COMTRADE_API_KEY env var. classify_anomaly works without
+# the key (pure math); analyze_transaction returns INDETERMINATE when
+# the key is unset.
+@router.post("/tbml/analyze")
+async def tbml_analyze_ep(request: Request):
+    """Analyse a trade transaction for TBML price-anomaly.
+
+    POST body: {
+        declared_unit_value: float, hs_code: str,
+        exporter_country: str, importer_country: str,
+        year?: int, quantity?: float
+    }
+
+    Returns the COMTRADE benchmark range + classification grade
+    (OK/FLAG/SEVERE/BLATANT/INDETERMINATE) + narrative.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    declared = body.get("declared_unit_value")
+    hs       = body.get("hs_code")
+    exp_c    = body.get("exporter_country")
+    imp_c    = body.get("importer_country")
+    if not (declared and hs and exp_c and imp_c):
+        raise HTTPException(
+            status_code=400,
+            detail="declared_unit_value + hs_code + exporter_country + importer_country required",
+        )
+    try:
+        from ..intel import tbml_detection as _tb
+        return await _tb.analyze_transaction(
+            declared_unit_value=float(declared),
+            hs_code=str(hs),
+            exporter_country=str(exp_c),
+            importer_country=str(imp_c),
+            year=body.get("year"),
+            quantity=body.get("quantity", 1),
+        )
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/tbml/classify")
+async def tbml_classify_ep(request: Request):
+    """Pure classifier — no COMTRADE call. Caller supplies declared
+    + benchmark range. Useful when the operator already has a
+    benchmark from a different source (Lloyd's List, S&P Platts, etc).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    declared = body.get("declared")
+    low = body.get("low")
+    high = body.get("high")
+    if declared is None or low is None or high is None:
+        raise HTTPException(status_code=400, detail="declared + low + high required")
+    try:
+        from ..intel import tbml_detection as _tb
+        return _tb.classify_anomaly(float(declared), float(low), float(high))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# R-F74 (2026-05-09): cryptocurrency wallet sanctions screening.
+# OpenSanctions free dataset; daily index refresh via autonomous task
+# OR on-demand via /api/aria/crypto/refresh. screen_wallet returns
+# matches in O(1) Redis lookup.
+@router.get("/crypto/status")
+async def crypto_status_ep():
+    """Index status — last refresh timestamp + indexed count."""
+    try:
+        from ..intel import crypto_sanctions as _cs
+        return await _cs.index_status()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/crypto/refresh")
+async def crypto_refresh_ep(force: bool = False):
+    """Refresh the wallet index from OpenSanctions. Daily TTL applies
+    unless force=true."""
+    try:
+        from ..intel import crypto_sanctions as _cs
+        return await _cs.fetch_and_index(force=bool(force))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/crypto/screen")
+async def crypto_screen_one_ep(address: str):
+    """Screen a single wallet address against the indexed sanctioned-wallet table."""
+    if not address or not address.strip():
+        raise HTTPException(status_code=400, detail="address required")
+    try:
+        from ..intel import crypto_sanctions as _cs
+        hits = await _cs.screen_wallet(address.strip())
+        return {
+            "address": address,
+            "chain":   _cs.detect_chain(address),
+            "matches": hits,
+            "matched": bool(hits),
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/crypto/screen")
+async def crypto_screen_batch_ep(request: Request):
+    """Batch screen — POST body: {"addresses": ["0x...", "bc1...", ...]}"""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    addrs = body.get("addresses")
+    if not isinstance(addrs, list):
+        raise HTTPException(status_code=400, detail="'addresses' must be a JSON array")
+    try:
+        from ..intel import crypto_sanctions as _cs
+        return await _cs.screen_wallet_batch(addrs)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# R-F78 (2026-05-09): citation audit — verifies that cited claims are
+# actually supported by the cited source content. Distinct from
+# aria_engine.grounded_rate which measures CITATION PRESENCE; this
+# measures CITATION ACCURACY.
+@router.post("/citations/verify")
+async def citations_verify_ep(request: Request):
+    """Audit a response's citations.
+
+    POST body: { "response": "<text>", "max_urls"?: int (default 8) }
+
+    Returns: per-citation verdict (SUPPORTED/PARTIAL/UNSUPPORTED/
+    UNREACHABLE), citation_grounded_rate, narrative.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    response_text = body.get("response", "")
+    if not response_text:
+        raise HTTPException(status_code=400, detail="'response' required")
+    max_urls = int(body.get("max_urls", 8))
+    try:
+        from ..intel import citation_audit as _ca
+        return await _ca.verify_response(response_text, max_urls=max_urls)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @router.get("/sanctions/divergence")
 async def sanctions_divergence_ep(name: str, threshold: float = 0.78):
     """Cross-list divergence analysis for a single entity name.
