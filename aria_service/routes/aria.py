@@ -1228,6 +1228,43 @@ async def harvest_stats_ep():
         return {"ok": False, "error": str(e)}
 
 
+# R-F70 (2026-05-09): Benford's Law forensic check.
+# Cheap, statistically clean flag for fabricated financials. Operator
+# pastes a list of revenue / invoice / transaction figures, gets back
+# the chi-squared anomaly grade and an operator-readable narrative
+# suitable for paste into a counterparty DD report. Particularly
+# valuable in markets where audited financials are unreliable
+# (Nigeria CPI 24/100, Angola 33/100, Guinea-Bissau 20/100).
+#
+# POST body shape:
+#   { "values": [123.4, "$1,234.56", "500k", -750, ...] }
+#
+# Mixed types accepted (str / int / float). Currency symbols and commas
+# are stripped; negatives are absoluted (sign doesn't affect leading
+# digit). Returns inapplicable=true with reason if n<50 or value range
+# spans <10× (test isn't meaningful in those cases).
+@router.post("/forensic/benford")
+async def forensic_benford_ep(request: Request):
+    """Run Benford's Law first-digit chi-squared test on a number set.
+
+    Returns: applicable flag, n, chi_squared, anomaly_grade
+    (OK/WARN/SEVERE/INAPPLICABLE), expected vs observed first-digit
+    distributions, and a one-line narrative.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    values = body.get("values")
+    if not isinstance(values, list):
+        raise HTTPException(status_code=400, detail="'values' must be a JSON array")
+    try:
+        from ..intel import forensic_benford as _fb
+        return _fb.benford_test(values)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # R-F68 (2026-05-09): sanctions divergence cross-list query.
 # OpenSanctions already aggregates OFAC/OFSI/EU/UN/etc. — this endpoint
 # surfaces *where the same entity appears on some lists but not others*.
