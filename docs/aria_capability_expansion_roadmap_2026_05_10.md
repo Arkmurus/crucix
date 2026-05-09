@@ -129,7 +129,7 @@ Categorised by what each unlocks, with effort + dependency labels:
 
 ### Days 60-90 — moat + scale
 
-11. **ARIA-LLM v0.1 fine-tune** — operator rents GPU + we run the LoRA training on accumulated 5k+ chat pairs. Ships sovereign LLM as the long-term defence against Anthropic billing surprise.
+11. **ARIA-LLM v0.1 fine-tune** — **GPU dependency unblocked 2026-05-10: operator signed up for RunPod.** Training harness (R-F92) already ships in `scripts/train/`. Estimated $30-45 for first full SFT + DPO + eval cycle on Mistral-7B or Llama-3.1-8B base. Ships sovereign LLM as the long-term defence against Anthropic billing surprise. See `memory/runpod_signed_up.md` for the run-book.
 12. **Multi-tenant architecture** — proper data isolation so the platform can scale to 5-10 paying customers
 13. **Public API + Stripe** — usage-based pricing + customer-self-serve portal
 14. **SOC 2 path** — start the 3-6 month compliance journey
@@ -163,7 +163,7 @@ The path to "no competition" is not chasing every feature — it's deepening the
 | Top up Brave | $5-50 | full general-web search reach |
 | `COMTRADE_API_KEY` Plus tier | $300/mo | TBML + trade flow forensics |
 | `UPSTASH_REST_URL` + `UPSTASH_REST_TOKEN` | free | live cluster usage panel |
-| GPU rental (RTX 4090 or A100) | ~$200 one-off | ARIA-LLM v0.1 fine-tune |
+| ~~GPU rental~~ **RunPod signed up 2026-05-10** | ~$30-45 first cycle | ARIA-LLM v0.1 fine-tune unblocked |
 | Stripe activation | 30 min | revenue path |
 | Salesforce / HubSpot dev account | free trial | CRM integration |
 | External SOC 2 auditor | $15-30K | enterprise procurement |
