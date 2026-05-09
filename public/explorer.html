@@ -1,99 +1,765 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Explorer — ARKMURUS</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Intelligence Explorer — ARKMURUS</title>
   <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
-  
   <link rel="stylesheet" href="css/crucix.css?v=3">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
-    .result-card { background:#1d1245; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:16px; margin-bottom:10px; }
-    .result-title { font-size:14px; font-weight:600; color:#fff; margin-bottom:6px; }
-    .result-source { font-size:11px; color:#913BFF; font-weight:700; }
-    .result-text { font-size:13px; color:rgba(255,255,255,0.65); line-height:1.55; margin:6px 0; }
-    .search-bar { display:flex; gap:10px; margin-bottom:24px; }
-    .search-bar input { flex:1; }
-    .filter-row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { background: #0c0919; margin: 0; font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.85); line-height: 1.55; }
+
+    .ex-shell { max-width: 1280px; margin: 0 auto; padding: 24px 24px 60px; }
+
+    /* ─── Hero search ─── */
+    .ex-hero {
+      background: linear-gradient(135deg, rgba(124,58,237,0.10), rgba(37,99,235,0.06));
+      border: 1px solid rgba(124,58,237,0.18); border-radius: 14px;
+      padding: 26px 28px 22px; margin-bottom: 22px;
+    }
+    .ex-eyebrow { font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; color: rgba(196,181,253,0.85); font-weight: 700; margin-bottom: 6px; }
+    .ex-title { font-size: 26px; font-weight: 800; color: #fff; margin: 0 0 4px; letter-spacing: -0.02em; }
+    .ex-sub   { font-size: 13.5px; color: rgba(255,255,255,0.55); margin: 0 0 18px; }
+
+    .ex-search-wrap { position: relative; }
+    .ex-search-row { display: flex; gap: 10px; align-items: stretch; }
+    .ex-search {
+      flex: 1; padding: 14px 18px; font-size: 15px;
+      background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 11px; color: #fff; font-family: inherit; outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .ex-search:focus { border-color: rgba(124,58,237,0.55); box-shadow: 0 0 0 3px rgba(124,58,237,0.12); }
+    .ex-search-btn {
+      padding: 0 22px; border: none; border-radius: 11px;
+      background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      box-shadow: 0 2px 14px rgba(124,58,237,0.35);
+      transition: transform .12s, box-shadow .12s;
+    }
+    .ex-search-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 22px rgba(124,58,237,0.55); }
+    .ex-search-btn:disabled { opacity: 0.5; cursor: wait; transform: none; }
+    .ex-search-btn i { margin-right: 6px; }
+
+    /* Autocomplete dropdown */
+    .ex-suggest {
+      position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+      background: #1a1430; border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 11px; padding: 6px; z-index: 30;
+      max-height: 320px; overflow-y: auto; display: none;
+      box-shadow: 0 14px 38px rgba(0,0,0,0.45);
+    }
+    .ex-suggest.show { display: block; }
+    .ex-sugg-item {
+      padding: 9px 12px; border-radius: 7px; cursor: pointer;
+      display: flex; align-items: center; gap: 10px; font-size: 13px;
+      color: rgba(255,255,255,0.78);
+    }
+    .ex-sugg-item:hover, .ex-sugg-item.focus { background: rgba(124,58,237,0.15); color: #fff; }
+    .ex-sugg-icon { color: rgba(196,181,253,0.7); font-size: 14px; }
+    .ex-sugg-meta { margin-left: auto; font-size: 11px; color: rgba(255,255,255,0.35); }
+
+    /* ─── Sample queries ─── */
+    .ex-samples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+    .ex-sample-chip {
+      padding: 5px 12px; border-radius: 6px; cursor: pointer;
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.65); font-size: 12px;
+      transition: all .12s;
+    }
+    .ex-sample-chip:hover { background: rgba(124,58,237,0.13); border-color: rgba(124,58,237,0.32); color: #fff; }
+
+    /* ─── Layout (sidebar + main) ─── */
+    .ex-body {
+      display: grid; grid-template-columns: 1fr 320px; gap: 22px; align-items: flex-start;
+    }
+    @media (max-width: 1100px) {
+      .ex-body { grid-template-columns: 1fr; }
+      .ex-rail { order: -1; }
+    }
+
+    /* ─── Tabs ─── */
+    .ex-tabs {
+      display: flex; gap: 2px; flex-wrap: wrap; margin-bottom: 14px;
+      background: rgba(255,255,255,0.02); border-radius: 10px; padding: 4px;
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .ex-tab {
+      flex: 1; min-width: 0; padding: 9px 12px; cursor: pointer;
+      background: transparent; border: none; border-radius: 7px;
+      color: rgba(255,255,255,0.55); font-size: 12.5px; font-weight: 600;
+      font-family: inherit; transition: all .12s; white-space: nowrap;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .ex-tab:hover { color: #fff; }
+    .ex-tab.active { background: rgba(124,58,237,0.18); color: #fff; box-shadow: inset 0 0 0 1px rgba(124,58,237,0.32); }
+    .ex-tab-badge {
+      background: rgba(124,58,237,0.22); color: #c4b5fd;
+      font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 9px; min-width: 18px; text-align: center;
+    }
+    .ex-tab.active .ex-tab-badge { background: rgba(124,58,237,0.4); color: #fff; }
+    .ex-tab-badge.warn { background: rgba(245,158,11,0.22); color: #fbbf24; }
+    .ex-tab-badge.bad  { background: rgba(239,68,68,0.22);  color: #fca5a5; }
+
+    /* ─── Tab panel ─── */
+    .ex-panel { display: none; }
+    .ex-panel.active { display: block; }
+
+    .ex-card {
+      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 11px; padding: 16px 18px; margin-bottom: 12px;
+      transition: border-color .12s;
+    }
+    .ex-card:hover { border-color: rgba(124,58,237,0.22); }
+    .ex-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+    .ex-card-source {
+      font-size: 11px; font-weight: 700; color: #c4b5fd; text-transform: uppercase; letter-spacing: 1px;
+    }
+    .ex-card-meta { font-size: 11px; color: rgba(255,255,255,0.4); }
+    .ex-card-title { font-size: 14px; font-weight: 600; color: #fff; margin: 4px 0; line-height: 1.45; }
+    .ex-card-body { font-size: 13px; color: rgba(255,255,255,0.65); line-height: 1.6; }
+    .ex-card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+    .ex-card-tag {
+      font-size: 10.5px; padding: 2px 7px; border-radius: 5px; font-weight: 600;
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.55);
+    }
+    .ex-card-tag.tier-1 { background: rgba(34,197,94,0.13); color: #4ade80; border-color: rgba(34,197,94,0.25); }
+    .ex-card-tag.tier-2 { background: rgba(0,102,255,0.13); color: #60a5fa; border-color: rgba(0,102,255,0.25); }
+    .ex-card-tag.tier-3 { background: rgba(245,158,11,0.13); color: #fbbf24; border-color: rgba(245,158,11,0.25); }
+    .ex-card a { color: #c4b5fd; text-decoration: none; }
+    .ex-card a:hover { color: #fff; text-decoration: underline; }
+
+    /* ─── Empty / loading / error states ─── */
+    .ex-state {
+      padding: 50px 20px; text-align: center; font-size: 13.5px;
+      color: rgba(255,255,255,0.4);
+      background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.07);
+      border-radius: 11px;
+    }
+    .ex-state i { font-size: 28px; display: block; margin-bottom: 10px; color: rgba(124,58,237,0.5); }
+    .ex-state.error { color: #fca5a5; border-color: rgba(239,68,68,0.25); background: rgba(239,68,68,0.05); }
+    .ex-state.loading { color: rgba(196,181,253,0.7); }
+
+    .ex-skel {
+      background: rgba(255,255,255,0.03); border-radius: 9px;
+      height: 86px; margin-bottom: 8px;
+      animation: shimmer 1.4s ease-in-out infinite;
+      background-image: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.03) 100%);
+      background-size: 200% 100%;
+    }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+    /* ─── Right rail (suggested actions + summary) ─── */
+    .ex-rail {
+      position: sticky; top: 76px;
+    }
+    .ex-rail-card {
+      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px; padding: 16px 18px; margin-bottom: 14px;
+    }
+    .ex-rail-title {
+      font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.5);
+      letter-spacing: 1.4px; text-transform: uppercase; margin-bottom: 10px;
+    }
+    .ex-action {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 11px; margin-bottom: 4px; border-radius: 7px;
+      cursor: pointer; transition: all .12s;
+      background: rgba(255,255,255,0.03); border: 1px solid transparent;
+      font-size: 12.5px; color: rgba(255,255,255,0.78);
+    }
+    .ex-action:hover { background: rgba(124,58,237,0.13); border-color: rgba(124,58,237,0.3); color: #fff; }
+    .ex-action-icon {
+      width: 26px; height: 26px; border-radius: 6px;
+      background: rgba(124,58,237,0.15); color: #c4b5fd;
+      display: flex; align-items: center; justify-content: center; font-size: 13px;
+      flex-shrink: 0;
+    }
+    .ex-action-name { flex: 1; font-weight: 600; }
+    .ex-action-rfn  { font-size: 10px; color: rgba(255,255,255,0.3); }
+
+    /* Verdict pill at the top of the Overview tab when search resolves */
+    .ex-verdict {
+      padding: 14px 16px; border-radius: 11px; margin-bottom: 14px;
+      display: flex; align-items: flex-start; gap: 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .ex-verdict-icon {
+      width: 36px; height: 36px; border-radius: 9px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 18px;
+    }
+    .ex-verdict.green .ex-verdict-icon { background: rgba(34,197,94,0.18); color: #4ade80; }
+    .ex-verdict.amber .ex-verdict-icon { background: rgba(245,158,11,0.18); color: #fbbf24; }
+    .ex-verdict.red   .ex-verdict-icon { background: rgba(239,68,68,0.20); color: #fca5a5; }
+    .ex-verdict-text  { font-size: 13px; color: rgba(255,255,255,0.78); line-height: 1.6; }
+    .ex-verdict-headline { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 3px; }
   </style>
 </head>
 <body>
 <div id="sidebar-placeholder"></div>
 <div id="header-placeholder"></div>
+
 <main id="app-main">
-  <div class="sc-page-header">
-    <h1 class="sc-page-title"><i class="bi bi-globe2"></i> Intelligence Explorer</h1>
-    <p class="sc-page-sub">Search across all intelligence sources</p>
-  </div>
+  <div class="ex-shell">
 
-  <div class="sc-card mb-24">
-    <div class="sc-card-body">
-      <div class="search-bar">
-        <div class="sc-field" style="margin:0;flex:1">
-          <input type="text" id="search-input" placeholder="Search companies, entities, countries, topics…">
-        </div>
-        <button type="button" class="sc-btn sc-btn-primary" id="btn-search"><i class="bi bi-search"></i> Search</button>
+    <div class="ex-hero">
+      <div class="ex-eyebrow">Intelligence</div>
+      <h1 class="ex-title">Explorer</h1>
+      <p class="ex-sub">Search across the live OSINT corpus, sanctions, enforcement records, and ARIA's neural network — with one query.</p>
+
+      <div class="ex-search-wrap">
+        <form class="ex-search-row" id="ex-form" autocomplete="off">
+          <input type="search" class="ex-search" id="ex-q"
+                 placeholder="Entity, country, programme, OEM, contractor, or topic…"
+                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          <button type="submit" class="ex-search-btn" id="ex-go">
+            <i class="bi bi-search"></i>Explore
+          </button>
+        </form>
+        <div class="ex-suggest" id="ex-suggest" role="listbox"></div>
       </div>
-      <div class="filter-row" id="filter-row"></div>
-    </div>
-  </div>
 
-  <div id="search-results">
-    <div style="text-align:center;padding:60px;color:rgba(255,255,255,0.3)">
-      <i class="bi bi-search" style="font-size:48px;display:block;margin-bottom:12px"></i>
-      Enter a search term to explore intelligence data
+      <div class="ex-samples">
+        <div class="ex-sample-chip" data-q="Wagner Group">Wagner Group</div>
+        <div class="ex-sample-chip" data-q="Hikvision">Hikvision</div>
+        <div class="ex-sample-chip" data-q="Angola defence procurement">Angola defence procurement</div>
+        <div class="ex-sample-chip" data-q="Kongsberg">Kongsberg</div>
+        <div class="ex-sample-chip" data-q="UAE Jebel Ali FTZ">UAE Jebel Ali FTZ</div>
+        <div class="ex-sample-chip" data-q="Hanwha Aerospace">Hanwha Aerospace</div>
+        <div class="ex-sample-chip" data-q="Mozambique LNG">Mozambique LNG</div>
+      </div>
     </div>
+
+    <div class="ex-body" id="ex-body" style="display:none">
+
+      <!-- Main results -->
+      <div class="ex-main">
+        <div class="ex-tabs" id="ex-tabs">
+          <button class="ex-tab active" data-tab="overview"><i class="bi bi-grid"></i> Overview <span class="ex-tab-badge" id="bdg-overview">·</span></button>
+          <button class="ex-tab" data-tab="web"><i class="bi bi-globe2"></i> Web &amp; News <span class="ex-tab-badge" id="bdg-web">0</span></button>
+          <button class="ex-tab" data-tab="sanctions"><i class="bi bi-shield-exclamation"></i> Sanctions <span class="ex-tab-badge" id="bdg-sanctions">0</span></button>
+          <button class="ex-tab" data-tab="enforcement"><i class="bi bi-hammer"></i> Enforcement <span class="ex-tab-badge" id="bdg-enforcement">0</span></button>
+          <button class="ex-tab" data-tab="network"><i class="bi bi-diagram-3"></i> Network <span class="ex-tab-badge" id="bdg-network">0</span></button>
+          <button class="ex-tab" data-tab="counter"><i class="bi bi-shield-shaded"></i> Counter-Intel <span class="ex-tab-badge" id="bdg-counter">0</span></button>
+        </div>
+
+        <div class="ex-panel active" id="panel-overview"></div>
+        <div class="ex-panel" id="panel-web"></div>
+        <div class="ex-panel" id="panel-sanctions"></div>
+        <div class="ex-panel" id="panel-enforcement"></div>
+        <div class="ex-panel" id="panel-network"></div>
+        <div class="ex-panel" id="panel-counter"></div>
+      </div>
+
+      <!-- Suggested actions rail -->
+      <aside class="ex-rail">
+        <div class="ex-rail-card">
+          <div class="ex-rail-title">Suggested actions</div>
+          <div id="ex-actions">
+            <!-- Populated dynamically once a query resolves -->
+          </div>
+        </div>
+
+        <div class="ex-rail-card" id="ex-related-card" style="display:none">
+          <div class="ex-rail-title">Related entities</div>
+          <div id="ex-related"></div>
+        </div>
+      </aside>
+    </div>
+
+    <div id="ex-empty" class="ex-state" style="margin-top:12px">
+      <i class="bi bi-search"></i>
+      Type a query and press <strong>Explore</strong> — fans out to the OSINT corpus, sanctions diff, FCPA enforcement, neural network, and counter-intelligence in parallel.
+    </div>
+
   </div>
 </main>
+
 <script src="js/app.js?v=3"></script>
 <script src="js/sidebar.js?v=3"></script>
 <script>
 Auth.requireAuth();
 Sidebar.init('explorer');
 
-document.getElementById('btn-search').addEventListener('click', doSearch);
-document.getElementById('search-input').addEventListener('keydown', function(e) { if (e.key === 'Enter') doSearch(); });
+(function() {
+  'use strict';
+  const TOKEN = localStorage.getItem('crucix_token') || '';
+  const HEADERS = {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + TOKEN,
+  };
 
-// Restore last search
-const lastQuery = sessionStorage.getItem('explorer-query');
-if (lastQuery) { document.getElementById('search-input').value = lastQuery; doSearch(); }
-
-async function doSearch() {
-  const q = document.getElementById('search-input').value.trim();
-  if (!q) return;
-  sessionStorage.setItem('explorer-query', q);
-  const el = document.getElementById('search-results');
-  el.innerHTML = '<div class="sc-loading-state"><div class="sc-spinner"></div>Searching…</div>';
-
-  const data = await API.get(`/api/search?q=${encodeURIComponent(q)}`);
-  if (!data) return;
-
-  // API returns { results: { web, news, social, companies, reference, intel }, ... }
-  // Flatten all sub-arrays into one list
-  let results = [];
-  if (data.results && typeof data.results === 'object' && !Array.isArray(data.results)) {
-    results = Object.values(data.results).flat().filter(Boolean);
-  } else {
-    results = data.results || data.items || [];
+  const $ = sel => document.querySelector(sel);
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
+    );
   }
-  if (!results.length) {
-    el.innerHTML = '<p class="text-muted" style="text-align:center;padding:40px">No results found for "' + escHtml(q) + '"</p>';
-    return;
+  function truncate(s, n) {
+    s = String(s || '');
+    return s.length > n ? s.slice(0, n).trimEnd() + '…' : s;
+  }
+  function fmtDate(s) {
+    if (!s) return '';
+    try { return new Date(s).toISOString().slice(0, 10); } catch { return s.slice(0, 10); }
+  }
+  function tierClass(tier) {
+    if (tier === 1 || tier === '1') return 'tier-1';
+    if (tier === 3 || tier === '3') return 'tier-3';
+    return 'tier-2';
   }
 
-  el.innerHTML = `<div style="margin-bottom:12px;font-size:13px;color:rgba(255,255,255,.4)">${results.length} result${results.length!==1?'s':''} for <strong style="color:#913BFF">"${escHtml(q)}"</strong></div>` +
-    results.map(r => `
-    <div class="result-card">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span class="result-source">${escHtml(r.source||r.type||'')}</span>
-        ${r.date?`<span style="font-size:11px;color:rgba(255,255,255,.3)">${fmtDate(r.date)}</span>`:''}
-        ${r.url?`<a href="${escHtml(r.url)}" target="_blank" rel="noopener" style="margin-left:auto;font-size:12px;color:#913BFF"><i class="bi bi-box-arrow-up-right"></i></a>`:''}
+  // ─── Tab switching ───────────────────────────────────────────────
+  document.querySelectorAll('.ex-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.ex-tab').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.ex-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // ─── Sample chips ────────────────────────────────────────────────
+  document.querySelectorAll('.ex-sample-chip').forEach(c => {
+    c.addEventListener('click', () => { $('#ex-q').value = c.dataset.q; doExplore(); });
+  });
+
+  // ─── Form submit ─────────────────────────────────────────────────
+  $('#ex-form').addEventListener('submit', e => { e.preventDefault(); doExplore(); });
+
+  // ─── Restore last query ──────────────────────────────────────────
+  const lastQuery = sessionStorage.getItem('explorer-q');
+  if (lastQuery) { $('#ex-q').value = lastQuery; setTimeout(doExplore, 50); }
+
+  // ─── Autocomplete (entity suggestions) ──────────────────────────
+  let suggestTimer = null;
+  let suggestFocus = -1;
+  $('#ex-q').addEventListener('input', () => {
+    const v = $('#ex-q').value.trim();
+    clearTimeout(suggestTimer);
+    if (v.length < 2) { hideSuggest(); return; }
+    suggestTimer = setTimeout(() => fetchSuggest(v), 220);
+  });
+  $('#ex-q').addEventListener('keydown', e => {
+    const sug = $('#ex-suggest');
+    if (!sug.classList.contains('show')) return;
+    const items = sug.querySelectorAll('.ex-sugg-item');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      suggestFocus = Math.min(suggestFocus + 1, items.length - 1);
+      items.forEach((el, i) => el.classList.toggle('focus', i === suggestFocus));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      suggestFocus = Math.max(suggestFocus - 1, -1);
+      items.forEach((el, i) => el.classList.toggle('focus', i === suggestFocus));
+    } else if (e.key === 'Enter' && suggestFocus >= 0) {
+      e.preventDefault();
+      items[suggestFocus].click();
+    } else if (e.key === 'Escape') {
+      hideSuggest();
+    }
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.ex-search-wrap')) hideSuggest();
+  });
+  function hideSuggest() {
+    $('#ex-suggest').classList.remove('show');
+    suggestFocus = -1;
+  }
+  async function fetchSuggest(q) {
+    try {
+      const r = await fetch(`/api/search/entity?q=${encodeURIComponent(q)}`, { headers: HEADERS });
+      if (!r.ok) return;
+      const data = await r.json();
+      const ents = (data && data.entities) || [];
+      const sug = $('#ex-suggest');
+      if (!ents.length) { hideSuggest(); return; }
+      sug.innerHTML = ents.slice(0, 8).map(e => {
+        const name = escapeHtml(e.name || e.entity || e.label || '');
+        const meta = escapeHtml(e.country || e.type || e.score || '');
+        return `<div class="ex-sugg-item" data-name="${name}">
+                  <i class="bi bi-search ex-sugg-icon"></i>
+                  <span>${name}</span>
+                  <span class="ex-sugg-meta">${meta}</span>
+                </div>`;
+      }).join('');
+      sug.querySelectorAll('.ex-sugg-item').forEach(it => {
+        it.addEventListener('click', () => {
+          $('#ex-q').value = it.dataset.name;
+          hideSuggest(); doExplore();
+        });
+      });
+      sug.classList.add('show');
+    } catch {
+      hideSuggest();
+    }
+  }
+
+  // ─── doExplore: parallel fan-out across all sources ─────────────
+  async function doExplore() {
+    const q = $('#ex-q').value.trim();
+    if (!q) return;
+    sessionStorage.setItem('explorer-q', q);
+    hideSuggest();
+    $('#ex-empty').style.display = 'none';
+    $('#ex-body').style.display = 'grid';
+
+    const btn = $('#ex-go');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Exploring…';
+
+    // Reset all panels with skeleton loaders
+    setSkeletons();
+    setBadges({ overview: '·', web: '…', sanctions: '…', enforcement: '…', network: '…', counter: '…' });
+    renderActionsForQuery(q);
+
+    // Fan out — all promises run in parallel
+    const tasks = await Promise.allSettled([
+      fetchWeb(q),
+      fetchSanctions(q),
+      fetchEnforcement(q),
+      fetchNetwork(q),
+      fetchCounterIntel(q),
+    ]);
+
+    const [webResult, sancResult, enfResult, netResult, ciResult] = tasks.map(t => t.status === 'fulfilled' ? t.value : { error: t.reason?.message });
+
+    renderWeb(webResult);
+    renderSanctions(sancResult, q);
+    renderEnforcement(enfResult);
+    renderNetwork(netResult);
+    renderCounterIntel(ciResult);
+    renderOverview({ q, web: webResult, sanctions: sancResult, enforcement: enfResult, network: netResult, counter: ciResult });
+
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-search"></i>Explore';
+  }
+
+  function setSkeletons() {
+    const skel = `<div class="ex-skel"></div>`.repeat(3);
+    ['overview','web','sanctions','enforcement','network','counter'].forEach(p => {
+      $('#panel-' + p).innerHTML = skel;
+    });
+  }
+  function setBadges(map) {
+    Object.keys(map).forEach(k => {
+      const el = document.getElementById('bdg-' + k);
+      if (!el) return;
+      el.textContent = map[k];
+      el.classList.remove('warn', 'bad');
+    });
+  }
+  function setBadge(k, value, cls) {
+    const el = document.getElementById('bdg-' + k);
+    if (!el) return;
+    el.textContent = value;
+    el.classList.remove('warn', 'bad');
+    if (cls) el.classList.add(cls);
+  }
+
+  // ─── Fan-out fetchers ────────────────────────────────────────────
+  async function fetchWeb(q) {
+    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { headers: HEADERS });
+    if (!r.ok) throw new Error('search ' + r.status);
+    return r.json();
+  }
+  async function fetchSanctions(q) {
+    const [div, rca] = await Promise.allSettled([
+      fetch(`/api/aria/sanctions/divergence?name=${encodeURIComponent(q)}`, { headers: HEADERS }).then(r => r.json()),
+      fetch(`/api/aria/sanctions/rca?name=${encodeURIComponent(q)}&depth=1`, { headers: HEADERS }).then(r => r.json()),
+    ]);
+    return {
+      divergence: div.status === 'fulfilled' ? div.value : null,
+      rca:        rca.status === 'fulfilled' ? rca.value : null,
+    };
+  }
+  async function fetchEnforcement(q) {
+    // Knowledge search filtered by enforcement_action topic — closest live surface
+    const r = await fetch(`/api/search?q=${encodeURIComponent(q + ' enforcement FCPA')}`, { headers: HEADERS });
+    if (!r.ok) return null;
+    return r.json();
+  }
+  async function fetchNetwork(q) {
+    const r = await fetch(`/api/search/entity?q=${encodeURIComponent(q)}`, { headers: HEADERS });
+    if (!r.ok) return null;
+    return r.json();
+  }
+  async function fetchCounterIntel(q) {
+    const r = await fetch(`/api/aria/security/counter-intel/scan?entity=${encodeURIComponent(q)}&window_days=30`, { headers: HEADERS });
+    if (!r.ok) return null;
+    return r.json();
+  }
+
+  // ─── Renderers ───────────────────────────────────────────────────
+  function flattenWebResults(data) {
+    if (!data) return [];
+    if (Array.isArray(data.results)) return data.results;
+    if (data.results && typeof data.results === 'object') return Object.values(data.results).flat().filter(Boolean);
+    return data.items || [];
+  }
+
+  function renderCard(r, kind) {
+    const url    = r.url || '';
+    const title  = r.title || r.name || r.headline || '';
+    const text   = r.text || r.snippet || r.description || r.summary || '';
+    const source = r.source || r.host || kind || '';
+    const date   = r.date || r.published_at || r.seenAt || '';
+    const tier   = r.source_tier || (r.tier_1 ? 1 : r.tier_3 ? 3 : 2);
+    return `
+      <div class="ex-card">
+        <div class="ex-card-head">
+          <div class="ex-card-source">${escapeHtml(source)}</div>
+          ${date ? `<div class="ex-card-meta">${escapeHtml(fmtDate(date))}</div>` : ''}
+          ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" style="margin-left:auto"><i class="bi bi-box-arrow-up-right"></i></a>` : ''}
+        </div>
+        <div class="ex-card-title">${escapeHtml(title)}</div>
+        <div class="ex-card-body">${escapeHtml(truncate(text, 320))}</div>
+        ${(r.tags && r.tags.length) ? `<div class="ex-card-tags">${r.tags.map(t => `<span class="ex-card-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+        ${tier ? `<div class="ex-card-tags"><span class="ex-card-tag ${tierClass(tier)}">tier ${escapeHtml(tier)}</span></div>` : ''}
+      </div>`;
+  }
+
+  function renderWeb(data) {
+    const panel = $('#panel-web');
+    const results = flattenWebResults(data);
+    setBadge('web', results.length);
+    if (!results.length) {
+      panel.innerHTML = `<div class="ex-state"><i class="bi bi-search"></i>No web/news results.</div>`;
+      return;
+    }
+    panel.innerHTML = results.slice(0, 30).map(r => renderCard(r, 'web')).join('');
+  }
+
+  function renderSanctions(data, q) {
+    const panel = $('#panel-sanctions');
+    const out = [];
+    let badge = 0, badgeClass = '';
+    if (data && data.divergence && data.divergence.matches > 0) {
+      badge += data.divergence.matches;
+      badgeClass = 'bad';
+      const div = data.divergence;
+      out.push(`<div class="ex-card">
+        <div class="ex-card-head">
+          <div class="ex-card-source">Sanctions Divergence (R-F68)</div>
+          <span class="ex-card-tag tier-3">${div.matches} match(es)</span>
+        </div>
+        <div class="ex-card-title">${escapeHtml(div.narrative || '—')}</div>
+        <div class="ex-card-body">
+          <strong style="color:#c4b5fd">Listed:</strong> ${escapeHtml((div.jurisdictions_listed||[]).join(', ') || '—')}<br>
+          <strong style="color:#c4b5fd">Not listed:</strong> ${escapeHtml((div.jurisdictions_not_listed||[]).join(', ') || '—')}
+        </div>
+      </div>`);
+      // Per-match detail
+      (div.per_match || []).slice(0, 3).forEach(pm => {
+        out.push(`<div class="ex-card">
+          <div class="ex-card-head">
+            <div class="ex-card-source">${escapeHtml(pm.name || '—')}</div>
+            <span class="ex-card-meta">score ${pm.score == null ? '—' : pm.score}</span>
+          </div>
+          <div class="ex-card-body">${(pm.listed_in||[]).map(li => `<div>• <strong>${escapeHtml(li.jurisdiction)}:</strong> ${escapeHtml(li.list)}</div>`).join('')}</div>
+          ${pm.url ? `<div class="ex-card-tags"><a href="${escapeHtml(pm.url)}" target="_blank" rel="noopener">View on OpenSanctions →</a></div>` : ''}
+        </div>`);
+      });
+    }
+    if (data && data.rca && (data.rca.inherited_risks || []).length) {
+      badge += data.rca.inherited_risks.length;
+      badgeClass = badgeClass || 'warn';
+      out.push(`<div class="ex-card">
+        <div class="ex-card-head">
+          <div class="ex-card-source">RCA / Relatives Inherited Risk (R-F76)</div>
+          <span class="ex-card-tag tier-3">${data.rca.inherited_risks.length} relative risk(s)</span>
+        </div>
+        <div class="ex-card-body">
+          ${data.rca.inherited_risks.slice(0, 5).map(ih => `<div style="margin-bottom:6px">${escapeHtml(ih.narrative || '—')}</div>`).join('')}
+        </div>
+      </div>`);
+    }
+    if (!out.length) {
+      panel.innerHTML = `<div class="ex-state"><i class="bi bi-shield-check"></i>No direct sanctions matches found for "${escapeHtml(q)}". <br><span style="font-size:12px;color:rgba(255,255,255,0.3)">Cleared on direct screening — counter-intel and substance checks remain on the suggested-actions rail.</span></div>`;
+    } else {
+      panel.innerHTML = out.join('');
+    }
+    setBadge('sanctions', badge, badgeClass);
+  }
+
+  function renderEnforcement(data) {
+    const panel = $('#panel-enforcement');
+    const results = flattenWebResults(data).filter(r => /\bFCPA\b|enforcement|indict|guilty|settled|kickback|bribery/i.test(
+      (r.title || '') + ' ' + (r.summary || r.text || '')
+    ));
+    setBadge('enforcement', results.length, results.length ? 'warn' : '');
+    if (!results.length) {
+      panel.innerHTML = `<div class="ex-state"><i class="bi bi-hammer"></i>No enforcement records found in the indexed corpus. <br><span style="font-size:12px;color:rgba(255,255,255,0.3)">DOJ FCPA / SEC / SFO autonomous sweeps fire weekly (R-F69).</span></div>`;
+      return;
+    }
+    panel.innerHTML = results.slice(0, 15).map(r => renderCard(r, 'enforcement')).join('');
+  }
+
+  function renderNetwork(data) {
+    const panel = $('#panel-network');
+    const ents = (data && (data.entities || data.results)) || [];
+    setBadge('network', ents.length);
+    if (!ents.length) {
+      panel.innerHTML = `<div class="ex-state"><i class="bi bi-diagram-3"></i>No connected entities in the neural network yet. <br><span style="font-size:12px;color:rgba(255,255,255,0.3)">As ARIA's neural memory grows (10,500+ neurons today), connected entities will surface here.</span></div>`;
+      // Related entities rail also empty
+      $('#ex-related-card').style.display = 'none';
+      return;
+    }
+    panel.innerHTML = ents.slice(0, 25).map(e => `
+      <div class="ex-card">
+        <div class="ex-card-head">
+          <div class="ex-card-source">${escapeHtml(e.type || 'Entity')}</div>
+          ${e.country ? `<span class="ex-card-meta">${escapeHtml(e.country)}</span>` : ''}
+        </div>
+        <div class="ex-card-title">${escapeHtml(e.name || e.entity || '—')}</div>
+        ${e.summary ? `<div class="ex-card-body">${escapeHtml(truncate(e.summary, 220))}</div>` : ''}
+        ${e.score != null ? `<div class="ex-card-tags"><span class="ex-card-tag tier-2">connection ${e.score}</span></div>` : ''}
       </div>
-      <div class="result-title">${escHtml(r.title||r.name||'')}</div>
-      <div class="result-text">${escHtml(truncate(r.text||r.description||r.summary||'',250))}</div>
-      ${(r.tags||[]).length?`<div>${r.tags.map(t=>`<span class="sc-badge sc-badge-muted" style="margin:2px">${escHtml(t)}</span>`).join('')}</div>`:''}
-    </div>`).join('');
-}
+    `).join('');
+    // Surface top 5 related entities in the rail
+    const rail = $('#ex-related');
+    rail.innerHTML = ents.slice(0, 5).map(e => `
+      <div class="ex-action" data-q="${escapeHtml(e.name || e.entity || '')}">
+        <div class="ex-action-icon"><i class="bi bi-arrow-right-short"></i></div>
+        <div class="ex-action-name">${escapeHtml(e.name || e.entity || '—')}</div>
+      </div>
+    `).join('');
+    rail.querySelectorAll('.ex-action').forEach(el => {
+      el.addEventListener('click', () => { $('#ex-q').value = el.dataset.q; doExplore(); });
+    });
+    $('#ex-related-card').style.display = '';
+  }
+
+  function renderCounterIntel(data) {
+    const panel = $('#panel-counter');
+    if (!data || !data.ok) {
+      panel.innerHTML = `<div class="ex-state"><i class="bi bi-shield-shaded"></i>${data && data.error ? escapeHtml(data.error) : 'Counter-intelligence scan unavailable.'}</div>`;
+      setBadge('counter', '0');
+      return;
+    }
+    const score = data.composite_score == null ? 0 : data.composite_score;
+    const badge = score >= 0.5 ? '⚠' : '✓';
+    setBadge('counter', badge, score >= 0.5 ? 'bad' : '');
+    const tier = data.tier_distribution || {};
+    panel.innerHTML = `
+      <div class="ex-card">
+        <div class="ex-card-head">
+          <div class="ex-card-source">Counter-Intelligence Scan (R-F84)</div>
+          <span class="ex-card-tag ${score >= 0.5 ? 'tier-3' : 'tier-1'}">composite ${score}</span>
+        </div>
+        <div class="ex-card-title">${escapeHtml(data.narrative || '—')}</div>
+        <div class="ex-card-body">
+          <div><strong style="color:#c4b5fd">Tier distribution:</strong>
+            <span class="ex-card-tag tier-1">tier 1: ${tier.tier_1 || 0}</span>
+            <span class="ex-card-tag tier-2">tier 2: ${tier.tier_2 || 0}</span>
+            <span class="ex-card-tag tier-3">tier 3: ${tier.tier_3 || 0}</span>
+          </div>
+          <div style="margin-top:8px"><strong style="color:#c4b5fd">Pattern scores:</strong></div>
+          ${Object.entries(data.patterns || {}).map(([k, v]) =>
+            `<div style="margin-left:12px">• ${escapeHtml(k)}: ${escapeHtml(v)}</div>`
+          ).join('')}
+        </div>
+      </div>`;
+  }
+
+  function renderOverview({ q, web, sanctions, enforcement, network, counter }) {
+    const panel = $('#panel-overview');
+    const webCount = flattenWebResults(web).length;
+    const sancHits = (sanctions && sanctions.divergence && sanctions.divergence.matches) || 0;
+    const inhRisk  = (sanctions && sanctions.rca && (sanctions.rca.inherited_risks || []).length) || 0;
+    const enfCount = flattenWebResults(enforcement).filter(r => /FCPA|enforcement/i.test((r.title||'')+(r.summary||r.text||''))).length;
+    const netCount = (network && (network.entities || network.results) || []).length;
+    const counterScore = (counter && counter.composite_score) || 0;
+
+    setBadge('overview', '·');
+
+    // Verdict pill
+    let verdict = { cls: 'green', icon: 'bi-check-circle', headline: 'Cleared on initial screening', text: '' };
+    if (sancHits > 0 || counterScore >= 0.5) {
+      verdict = { cls: 'red',   icon: 'bi-exclamation-triangle', headline: 'Material risk signals detected',  text: '' };
+    } else if (inhRisk > 0 || enfCount > 0) {
+      verdict = { cls: 'amber', icon: 'bi-info-circle',          headline: 'Indirect risk signals — review',   text: '' };
+    }
+    verdict.text = `<strong>${webCount}</strong> web/news result${webCount===1?'':'s'}, <strong>${sancHits}</strong> direct sanctions match${sancHits===1?'':'es'}, <strong>${inhRisk}</strong> inherited risk${inhRisk===1?'':'s'}, <strong>${enfCount}</strong> enforcement record${enfCount===1?'':'s'}, <strong>${netCount}</strong> related entit${netCount===1?'y':'ies'}, counter-intel composite <strong>${counterScore}</strong>.`;
+
+    let html = `<div class="ex-verdict ${verdict.cls}">
+      <div class="ex-verdict-icon"><i class="bi ${verdict.icon}"></i></div>
+      <div>
+        <div class="ex-verdict-headline">${escapeHtml(verdict.headline)} · "${escapeHtml(q)}"</div>
+        <div class="ex-verdict-text">${verdict.text}</div>
+      </div>
+    </div>`;
+
+    // Top 3 from web tab + top sanctions match if any
+    const top = flattenWebResults(web).slice(0, 5);
+    if (sancHits > 0 && sanctions.divergence) {
+      html += `<div class="ex-card">
+        <div class="ex-card-head">
+          <div class="ex-card-source">⚠ Top sanctions signal</div>
+          <span class="ex-card-tag tier-3">${sancHits} match(es)</span>
+        </div>
+        <div class="ex-card-title">${escapeHtml(sanctions.divergence.narrative || '—')}</div>
+      </div>`;
+    }
+    if (counterScore >= 0.5) {
+      html += `<div class="ex-card">
+        <div class="ex-card-head">
+          <div class="ex-card-source">⚠ Counter-intelligence alert</div>
+          <span class="ex-card-tag tier-3">composite ${counterScore}</span>
+        </div>
+        <div class="ex-card-title">${escapeHtml(counter.narrative || '—')}</div>
+      </div>`;
+    }
+    if (top.length) {
+      html += `<div class="ex-card-source" style="margin:14px 4px 8px">Top web/news</div>`;
+      html += top.map(r => renderCard(r, 'web')).join('');
+    }
+    panel.innerHTML = html;
+  }
+
+  // ─── Suggested actions rail ──────────────────────────────────────
+  function renderActionsForQuery(q) {
+    const actions = [
+      { name: 'Run full DD pipeline',  rfn: 'dd', icon: 'bi-folder2-open', href: '/dd-reports.html' },
+      { name: 'FATF typology match',   rfn: 'R-F72', icon: 'bi-diagram-3', click: () => promptProfile(q, 'fatf') },
+      { name: 'Economic substance',    rfn: 'R-F77', icon: 'bi-building',  click: () => promptProfile(q, 'substance') },
+      { name: 'Crypto wallet screen',  rfn: 'R-F74', icon: 'bi-currency-bitcoin', click: () => promptWallet(q) },
+      { name: 'TBML classifier',       rfn: 'R-F73', icon: 'bi-graph-up-arrow', href: '/dd-reports.html' },
+      { name: "Benford's Law check",   rfn: 'R-F70', icon: 'bi-bar-chart', href: '/dd-reports.html' },
+      { name: 'Provenance lineage',    rfn: 'R-F75', icon: 'bi-diagram-2', href: '/dd-reports.html' },
+      { name: 'Open in chat',          rfn: 'aria', icon: 'bi-chat-dots',  click: () => openInChat(q) },
+    ];
+    $('#ex-actions').innerHTML = actions.map(a => `
+      <div class="ex-action" data-action="${escapeHtml(a.rfn)}">
+        <div class="ex-action-icon"><i class="bi ${a.icon}"></i></div>
+        <div class="ex-action-name">${escapeHtml(a.name)}</div>
+        <div class="ex-action-rfn">${escapeHtml(a.rfn)}</div>
+      </div>
+    `).join('');
+    document.querySelectorAll('#ex-actions .ex-action').forEach((el, i) => {
+      el.addEventListener('click', () => {
+        const a = actions[i];
+        if (a.href) window.location.href = a.href;
+        else if (a.click) a.click();
+      });
+    });
+  }
+  function openInChat(q) {
+    sessionStorage.setItem('aria-prefill', `Tell me about ${q}.`);
+    window.location.href = '/aria.html';
+  }
+  function promptProfile(q) {
+    sessionStorage.setItem('aria-prefill', `Build a structured DD profile for "${q}" suitable for FATF typology matching and economic-substance scoring.`);
+    window.location.href = '/aria.html';
+  }
+  function promptWallet(q) {
+    sessionStorage.setItem('aria-prefill', `Find any cryptocurrency wallet addresses associated with "${q}".`);
+    window.location.href = '/aria.html';
+  }
+})();
 </script>
 </body>
 </html>
