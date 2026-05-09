@@ -6146,6 +6146,35 @@ async def read_document_ep(request: Request):
     # here with a 400 response that callers swallowed to WARN.
     if not content or len(content) < 20:
         raise HTTPException(status_code=400, detail="content required (min 20 chars)")
+
+    # R-F65 (2026-05-09): content-hash dedupe with 24h TTL.
+    # Live evidence 12:20:01 → 12:20:49: same LinkedIn email document
+    # re-extracted within 48s, yielding 44 facts then 26 facts (different
+    # LLM yields confirm independent runs). The email reader's queue is
+    # replaying without dedupe, so each cycle pays 150-235s of Anthropic
+    # for content the brain has already absorbed. Cache the first run's
+    # result for 24h and serve it back; subsequent identical posts skip
+    # the LLM extraction entirely. Source-aware (different sources for
+    # the same body still extract once) but body-driven (the same email
+    # arriving via two channels still dedupes).
+    import hashlib as _hashlib
+    _norm = (content or "").strip().encode("utf-8", errors="ignore")
+    _doc_hash = _hashlib.sha1(_norm).hexdigest()[:16]
+    _dedupe_key = f"crucix:aria:read_doc_dedupe:{_doc_hash}"
+    try:
+        from ..intel import redis_store as _rs_dedup
+        _cached = await _rs_dedup.get_json(_dedupe_key)
+    except Exception:
+        _cached = None
+    if isinstance(_cached, dict):
+        _log.info(
+            "[read-document] R-F65 dedupe HIT: %s (hash=%s, source=%s) — skipping LLM extraction",
+            filename, _doc_hash, source,
+        )
+        _cached["dedupe_hit"] = True
+        _cached["dedupe_hash"] = _doc_hash
+        return _cached
+
     llm = get_llm(request)
     result = await read_document(llm, content, filename, source, context)
     # Surface the extracted text so callers (WA listener, email reader) can
@@ -6169,6 +6198,15 @@ async def read_document_ep(request: Request):
             result["overview_markdown"] = di.get("overview_markdown")
     except Exception as _di_err:
         _log.debug("doc_intelligence pass failed (non-fatal): %s", _di_err)
+
+    # R-F65 (2026-05-09): cache the result for 24h so subsequent identical
+    # posts hit the dedupe branch above. Best-effort — Redis blip is non-fatal.
+    if isinstance(result, dict):
+        try:
+            from ..intel import redis_store as _rs_dedup
+            await _rs_dedup.set_json(_dedupe_key, result, ex=86400)
+        except Exception as _cache_err:
+            _log.debug("R-F65 dedupe cache write failed (non-fatal): %s", _cache_err)
 
     return result
 
