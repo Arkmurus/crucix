@@ -2913,6 +2913,12 @@ async def _aria_chat_impl(
     # Output harvester — scores every turn (dry-run by default so no
     # data is written). Once ARIA_OUTPUT_HARVEST_ENABLED=1, passing
     # turns (score >= 0.75) append to /data/aria_training/.
+    #
+    # R-F67 (2026-05-09): meta now carries the full attribution tuple
+    # (user_id, sector, model) per peer review — this is what makes the
+    # corpus useful for DPO fine-tuning later. Per-sector slicing and
+    # per-user feedback joins both depend on this attribution being
+    # captured at write-time.
     try:
         from .learning import output_harvester as _oh
         _oh_task = asyncio.create_task(
@@ -2923,6 +2929,9 @@ async def _aria_chat_impl(
                     "session_id": session_id or "",
                     "source": "cloud_llm",
                     "has_tool_context": False,
+                    "user_id": user_id or "",
+                    "sector": persona or "",
+                    "model": getattr(intel_data, "model", "") if intel_data else "",
                 },
             )
         )
@@ -3406,6 +3415,10 @@ async def _aria_chat_stream_impl(
     # behaviour as the non-streaming branch above. `message` in this
     # scope is the original user message; response_text is the final
     # concatenated LLM output.
+    #
+    # R-F67 (2026-05-09): full attribution tuple in meta — same shape
+    # as the non-streaming branch so a JSONL file mixing both sources
+    # is uniform for downstream DPO/RLHF preprocessing.
     try:
         from .learning import output_harvester as _oh
         _oh_task = asyncio.create_task(
@@ -3416,6 +3429,9 @@ async def _aria_chat_stream_impl(
                     "session_id": session_id or "",
                     "source": "cloud_llm_stream",
                     "has_tool_context": False,
+                    "user_id": user_id or "",
+                    "sector": persona or "",
+                    "model": stream_result.model if stream_result else "",
                 },
             )
         )

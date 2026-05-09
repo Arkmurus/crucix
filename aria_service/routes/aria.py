@@ -1206,6 +1206,28 @@ async def cost_monthly_status_ep():
     return await cost_tracker.get_month_spend()
 
 
+# R-F67 (2026-05-09): expose output_harvester stats so the operator can
+# see dry-run scoring counts before flipping ARIA_OUTPUT_HARVEST_ENABLED=1.
+# The harvester is wired into both chat paths; this endpoint surfaces:
+#   - enabled flag (dry-run vs live)
+#   - threshold (default 0.75)
+#   - rolling 14-day counter (total scored / passed / written / dry-skipped)
+#   - today's harvest file path + existence
+@router.get("/harvest/stats")
+async def harvest_stats_ep():
+    """Output harvester rolling stats — see learning/output_harvester.py.
+
+    When ARIA_OUTPUT_HARVEST_ENABLED=0 (default), `total_dry_skipped`
+    increments instead of `total_written`. Use this to calibrate the
+    0.75 threshold against real chat traffic before flipping live.
+    """
+    try:
+        from ..learning import output_harvester as _oh
+        return await _oh.stats()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # ── Trace stream: joined view across cost / verification / feedback ──────
 @router.get("/trace/recent")
 async def trace_recent_ep(
