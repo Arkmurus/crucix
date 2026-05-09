@@ -53,6 +53,46 @@
     .pending-check { display:flex;align-items:flex-start;gap:10px;font-size:13px;color:rgba(255,255,255,.65);margin-bottom:10px; }
     .pending-check:last-child { margin-bottom:0; }
     .pending-check .chk { color:#22c55e;font-size:16px;flex-shrink:0;margin-top:1px; }
+
+    /* R-F48b: 3-screen registration */
+    .progress-dots { display:flex;justify-content:center;gap:6px;margin-bottom:22px; }
+    .progress-dot { width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.12);transition:all .2s; }
+    .progress-dot.active { background:linear-gradient(135deg,#913BFF,#0066FF);box-shadow:0 0 8px rgba(145,59,255,.6); }
+    .progress-dot.done { background:#22c55e; }
+
+    .row { display:flex;gap:10px; }
+    .row .sc-field { flex:1; }
+    select.sc-input, .sc-field select {
+      width:100%;padding:11px 14px;border-radius:8px;background:rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);color:#fff;font-size:14px;font-family:inherit;
+      cursor:pointer;outline:none;transition:border-color .15s;
+    }
+    select.sc-input:focus, .sc-field select:focus { border-color:rgba(145,59,255,.5); }
+    .sc-field textarea {
+      width:100%;padding:11px 14px;border-radius:8px;background:rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);color:#fff;font-size:14px;font-family:inherit;
+      resize:vertical;min-height:70px;outline:none;transition:border-color .15s;
+    }
+    .sc-field textarea:focus { border-color:rgba(145,59,255,.5); }
+    .chip-grid { display:flex;flex-wrap:wrap;gap:8px;margin-top:6px; }
+    .chip-toggle {
+      display:inline-flex;align-items:center;gap:4px;padding:6px 12px;
+      border:1px solid rgba(255,255,255,.1);border-radius:18px;background:rgba(255,255,255,.02);
+      color:rgba(255,255,255,.6);font-size:12.5px;cursor:pointer;transition:all .15s;
+    }
+    .chip-toggle:hover { color:#fff;border-color:rgba(124,58,237,.4); }
+    .chip-toggle.on { background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.45);color:#c4b5fd; }
+    .step-title { font-size:21px;font-weight:700;color:#fff;margin:0 0 4px; }
+    .step-sub { font-size:13.5px;color:rgba(255,255,255,.45);margin:0 0 22px; }
+    .step-actions { display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:22px; }
+    .step-actions .skip { color:rgba(255,255,255,.4);font-size:13px;cursor:pointer;text-decoration:none; }
+    .step-actions .skip:hover { color:#fff; }
+    .step-actions .step-fwd { display:flex;gap:8px;align-items:center; }
+    .btn-back {
+      background:transparent;border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.7);
+      padding:10px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;
+    }
+    .btn-back:hover { color:#fff;border-color:rgba(124,58,237,.4); }
   </style>
 </head>
 <body>
@@ -95,36 +135,200 @@
         <a href="/signin.html" class="sc-btn sc-btn-primary w-full">Back to Sign In</a>
       </div>
 
-      <!-- Registration form -->
+      <!-- Registration form — 3 screens -->
       <div id="register-screen">
         <h2 class="auth-title">Create account</h2>
         <p class="auth-sub">Set up your analyst profile</p>
 
+        <div class="progress-dots">
+          <div class="progress-dot active" id="dot-1"></div>
+          <div class="progress-dot" id="dot-2"></div>
+          <div class="progress-dot" id="dot-3"></div>
+        </div>
+
         <div id="error-msg" style="display:none;padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:16px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fca5a5"></div>
 
-        <div class="sc-field">
-          <label>Full Name</label>
-          <input type="text" id="fullName" placeholder="John Smith" autocomplete="name">
-        </div>
-        <div class="sc-field">
-          <label>Username</label>
-          <input type="text" id="username" placeholder="jsmith_analyst" autocomplete="username">
-        </div>
-        <div class="sc-field">
-          <label>Email address</label>
-          <input type="email" id="email" placeholder="you@organisation.com" autocomplete="email">
-        </div>
-        <div class="sc-field">
-          <label>Password</label>
-          <input type="password" id="password" placeholder="Min. 8 characters" autocomplete="new-password">
-        </div>
-        <div class="sc-field">
-          <label>Confirm Password</label>
-          <input type="password" id="confirmPassword" placeholder="Re-enter password" autocomplete="new-password">
+        <!-- Screen 1 — account fundamentals (required) -->
+        <div id="step-1">
+          <div class="sc-field">
+            <label>Full Name</label>
+            <input type="text" id="fullName" placeholder="John Smith" autocomplete="name">
+          </div>
+          <div class="sc-field">
+            <label>Username</label>
+            <input type="text" id="username" placeholder="jsmith_analyst" autocomplete="username">
+          </div>
+          <div class="sc-field">
+            <label>Email address</label>
+            <input type="email" id="email" placeholder="you@organisation.com" autocomplete="email">
+          </div>
+          <div class="sc-field">
+            <label>Password</label>
+            <input type="password" id="password" placeholder="Min. 8 characters" autocomplete="new-password">
+          </div>
+          <div class="sc-field">
+            <label>Confirm Password</label>
+            <input type="password" id="confirmPassword" placeholder="Re-enter password" autocomplete="new-password">
+          </div>
+          <div class="step-actions">
+            <span></span>
+            <button type="button" class="sc-btn sc-btn-primary" id="btn-step1-next">Continue →</button>
+          </div>
+          <p class="auth-footer">Already have an account? <a href="signin.html" class="auth-link">Sign in</a></p>
         </div>
 
-        <button type="button" class="sc-btn sc-btn-primary w-full" id="btn-register">Create Account</button>
-        <p class="auth-footer">Already have an account? <a href="signin.html" class="auth-link">Sign in</a></p>
+        <!-- Screen 2 — organisation context (optional) -->
+        <div id="step-2" style="display:none">
+          <h3 class="step-title">Organisation context</h3>
+          <p class="step-sub">Helps us tailor sources, prompts, and onboarding to your work. All optional.</p>
+
+          <div class="sc-field">
+            <label>Account type</label>
+            <select id="accountType">
+              <option value="individual">Individual</option>
+              <option value="company">Company</option>
+            </select>
+          </div>
+
+          <div id="company-fields">
+            <div class="row">
+              <div class="sc-field">
+                <label>Company name</label>
+                <input type="text" id="companyName" placeholder="Arkmurus Limited">
+              </div>
+              <div class="sc-field" style="max-width:140px">
+                <label>Country</label>
+                <input type="text" id="companyCountry" placeholder="United Kingdom">
+              </div>
+            </div>
+            <div class="sc-field">
+              <label>Company size</label>
+              <select id="companySize">
+                <option value="">— select —</option>
+                <option value="≤10">≤10</option>
+                <option value="11-50">11–50</option>
+                <option value="51-200">51–200</option>
+                <option value="201-1000">201–1000</option>
+                <option value="1000+">1000+</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="sc-field">
+            <label>Sector</label>
+            <select id="sector">
+              <option value="">— select —</option>
+              <option value="defence_broker">Defence broker / dealer / agent</option>
+              <option value="oem_export">OEM (defence manufacturer)</option>
+              <option value="government_acquisition">Government / acquisition / intel</option>
+              <option value="compliance_consultancy">Compliance / export-control consultancy</option>
+              <option value="banking_insurance">Banking / insurance (defence accounts)</option>
+              <option value="research">Research / academic / NGO</option>
+              <option value="journalism">Defence journalism</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="sc-field">
+            <label>Job title (optional)</label>
+            <input type="text" id="jobTitle" placeholder="Compliance Analyst">
+          </div>
+
+          <div class="step-actions">
+            <button type="button" class="btn-back" id="btn-step2-back">← Back</button>
+            <div class="step-fwd">
+              <a class="skip" id="btn-step2-skip">Skip</a>
+              <button type="button" class="sc-btn sc-btn-primary" id="btn-step2-next">Continue →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Screen 3 — use case (optional) -->
+        <div id="step-3" style="display:none">
+          <h3 class="step-title">How will you use ARIA?</h3>
+          <p class="step-sub">Drives default heatmap regions, source mix, and example queries. All optional.</p>
+
+          <div class="sc-field">
+            <label>Primary use cases</label>
+            <div class="chip-grid" id="use-cases">
+              <span class="chip-toggle" data-val="dd">Counterparty due diligence</span>
+              <span class="chip-toggle" data-val="sanctions">Sanctions screening</span>
+              <span class="chip-toggle" data-val="tender">Tender intelligence</span>
+              <span class="chip-toggle" data-val="contract">Contract / RFQ review</span>
+              <span class="chip-toggle" data-val="market">Market intelligence</span>
+              <span class="chip-toggle" data-val="audit">Compliance audit</span>
+              <span class="chip-toggle" data-val="eccn">ECCN classification</span>
+              <span class="chip-toggle" data-val="programme">Programme tracking</span>
+            </div>
+          </div>
+
+          <div class="sc-field">
+            <label>Region focus</label>
+            <div class="chip-grid" id="regions">
+              <span class="chip-toggle" data-val="global">Global</span>
+              <span class="chip-toggle" data-val="nato">NATO</span>
+              <span class="chip-toggle" data-val="eu">EU</span>
+              <span class="chip-toggle" data-val="lusophone">Lusophone Africa</span>
+              <span class="chip-toggle" data-val="anglophone">Anglophone Africa</span>
+              <span class="chip-toggle" data-val="francophone">Francophone Africa</span>
+              <span class="chip-toggle" data-val="gulf">Gulf</span>
+              <span class="chip-toggle" data-val="levant">Levant</span>
+              <span class="chip-toggle" data-val="latam">LatAm</span>
+              <span class="chip-toggle" data-val="cis">CIS</span>
+              <span class="chip-toggle" data-val="south_asia">South Asia</span>
+              <span class="chip-toggle" data-val="se_asia">SE Asia</span>
+              <span class="chip-toggle" data-val="east_asia">East Asia</span>
+            </div>
+          </div>
+
+          <div class="sc-field">
+            <label>Languages needed</label>
+            <div class="chip-grid" id="languages">
+              <span class="chip-toggle on" data-val="en">EN</span>
+              <span class="chip-toggle" data-val="pt">PT</span>
+              <span class="chip-toggle" data-val="fr">FR</span>
+              <span class="chip-toggle" data-val="es">ES</span>
+              <span class="chip-toggle" data-val="ar">AR</span>
+              <span class="chip-toggle" data-val="ru">RU</span>
+              <span class="chip-toggle" data-val="zh">ZH</span>
+              <span class="chip-toggle" data-val="tr">TR</span>
+            </div>
+          </div>
+
+          <div class="sc-field">
+            <label>Volume estimate</label>
+            <select id="volumeEstimate">
+              <option value="">— select —</option>
+              <option value="few_per_week">A few queries per week</option>
+              <option value="daily">Daily (10–50/day)</option>
+              <option value="heavy">Heavy (50–500/day)</option>
+              <option value="enterprise">Enterprise (500+/day)</option>
+            </select>
+          </div>
+
+          <div class="sc-field">
+            <label>Compliance needs</label>
+            <div class="chip-grid" id="complianceNeeds">
+              <span class="chip-toggle" data-val="standard">Standard</span>
+              <span class="chip-toggle" data-val="audit_grade">Audit-grade exports</span>
+              <span class="chip-toggle" data-val="data_residency">Data residency</span>
+              <span class="chip-toggle" data-val="sso">SSO (SAML / OIDC)</span>
+              <span class="chip-toggle" data-val="on_prem">On-premise option</span>
+            </div>
+          </div>
+
+          <div class="sc-field">
+            <label>Brief purpose statement (optional)</label>
+            <textarea id="purposeStatement" placeholder="e.g. We screen counterparties on every export licence we apply for; need an audit trail we can share with the ECJU." maxlength="600"></textarea>
+          </div>
+
+          <div class="step-actions">
+            <button type="button" class="btn-back" id="btn-step3-back">← Back</button>
+            <div class="step-fwd">
+              <a class="skip" id="btn-step3-skip">Skip &amp; submit</a>
+              <button type="button" class="sc-btn sc-btn-primary" id="btn-step3-submit">Create Account</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -153,8 +357,43 @@
     if (el) el.style.display = 'none';
   }
 
-  async function doRegister() {
-    var btn = document.getElementById('btn-register');
+  // ── Screen state ──────────────────────────────────────────────────────
+  var currentStep = 1;
+  function showStep(n) {
+    [1, 2, 3].forEach(function(i) {
+      document.getElementById('step-' + i).style.display = (i === n) ? 'block' : 'none';
+      var dot = document.getElementById('dot-' + i);
+      dot.classList.toggle('active', i === n);
+      dot.classList.toggle('done', i < n);
+    });
+    currentStep = n;
+    hideError();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ── Chip toggle wiring ───────────────────────────────────────────────
+  ['use-cases', 'regions', 'languages', 'complianceNeeds'].forEach(function(group) {
+    document.getElementById(group).addEventListener('click', function(e) {
+      var chip = e.target.closest('.chip-toggle');
+      if (!chip) return;
+      chip.classList.toggle('on');
+    });
+  });
+  function chipsSelected(groupId) {
+    return Array.prototype.slice.call(
+      document.querySelectorAll('#' + groupId + ' .chip-toggle.on')
+    ).map(function(c) { return c.dataset.val; });
+  }
+
+  // ── Account-type → toggle company fields ──
+  document.getElementById('accountType').addEventListener('change', function() {
+    var company = this.value === 'company';
+    document.getElementById('company-fields').style.display = company ? '' : 'none';
+  });
+  document.getElementById('company-fields').style.display = 'none';
+
+  // ── Screen 1 → 2 ─────────────────────────────────────────────────────
+  document.getElementById('btn-step1-next').addEventListener('click', function() {
     var fullName = document.getElementById('fullName').value.trim();
     var username = document.getElementById('username').value.trim();
     var email = document.getElementById('email').value.trim();
@@ -165,17 +404,48 @@
     if (!fullName || !username || !email || !password) { showError('All fields are required.'); return; }
     if (password.length < 8) { showError('Password must be at least 8 characters.'); return; }
     if (password !== confirmPassword) { showError('Passwords do not match.'); return; }
+    showStep(2);
+  });
 
-    btn.textContent = 'Creating account\u2026'; btn.disabled = true;
+  document.getElementById('btn-step2-back').addEventListener('click', function() { showStep(1); });
+  document.getElementById('btn-step2-next').addEventListener('click', function() { showStep(3); });
+  document.getElementById('btn-step2-skip').addEventListener('click', function() { showStep(3); });
 
+  document.getElementById('btn-step3-back').addEventListener('click', function() { showStep(2); });
+  document.getElementById('btn-step3-skip').addEventListener('click', function() { doSubmit(true); });
+  document.getElementById('btn-step3-submit').addEventListener('click', function() { doSubmit(false); });
+
+  async function doSubmit(skipped) {
+    var btn = document.getElementById('btn-step3-submit');
+    var fullName = document.getElementById('fullName').value.trim();
+    var username = document.getElementById('username').value.trim();
+    var email = document.getElementById('email').value.trim();
+    var password = document.getElementById('password').value;
+
+    var payload = {
+      fullName: fullName, username: username, email: email, password: password,
+      accountType: document.getElementById('accountType').value,
+      companyName: document.getElementById('companyName').value.trim(),
+      companyCountry: document.getElementById('companyCountry').value.trim(),
+      companySize: document.getElementById('companySize').value,
+      sector: document.getElementById('sector').value,
+      jobTitle: document.getElementById('jobTitle').value.trim(),
+      useCases: skipped ? [] : chipsSelected('use-cases'),
+      regions: skipped ? [] : chipsSelected('regions'),
+      languages: skipped ? ['en'] : chipsSelected('languages'),
+      volumeEstimate: skipped ? '' : document.getElementById('volumeEstimate').value,
+      complianceNeeds: skipped ? [] : chipsSelected('complianceNeeds'),
+      purposeStatement: skipped ? '' : document.getElementById('purposeStatement').value.trim(),
+    };
+
+    btn.textContent = 'Creating account...'; btn.disabled = true;
     try {
-      var result = await API.post('/api/auth/register', {
-        fullName: fullName, username: username, email: email, password: password
-      });
+      var result = await API.post('/api/auth/register', payload);
       btn.textContent = 'Create Account'; btn.disabled = false;
 
       if (!result.ok) {
         showError((result.data && result.data.error) ? result.data.error : 'Registration failed.');
+        showStep(1);
         return;
       }
 
@@ -192,10 +462,13 @@
     }
   }
 
-  document.getElementById('btn-register').addEventListener('click', doRegister);
-
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') doRegister();
+    if (e.key !== 'Enter') return;
+    if (e.target && e.target.tagName === 'TEXTAREA') return;
+    e.preventDefault();
+    if (currentStep === 1) document.getElementById('btn-step1-next').click();
+    else if (currentStep === 2) document.getElementById('btn-step2-next').click();
+    else if (currentStep === 3) document.getElementById('btn-step3-submit').click();
   });
 })();
 </script>
