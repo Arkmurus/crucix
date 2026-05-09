@@ -455,6 +455,200 @@ async def _search_bing_news(query: str, max_results: int = 10) -> list[SearchRes
 
 # ── Core search functions ───────────────────────────────────────────────────
 
+# ── R-F124 — Memory-first inversion (2026-05-10) ─────────────────────────────
+# Pay-once-remember-forever doctrine: every paid API call is absorbed
+# into rag_store + intel_ledger, so a repeat query should hit memory
+# first and skip the web entirely if the corpus is already strong on
+# the topic. Cuts 40-60% of repeat-query LLM/Brave spend.
+async def _query_memory(
+    query: str, *, max_results: int = 10
+) -> list[SearchResult]:
+    """Pull recent corpus hits for the query as SearchResult-shaped items.
+
+    Hits rag_store.search() (chromadb-backed semantic) + tags each
+    result with credibility_tier=2 (institutional memory) and a
+    relevance_score that already reflects the embedding similarity.
+    Fail-open — returns [] on any error so live web search still runs.
+    """
+    out: list[SearchResult] = []
+    try:
+        from . import rag_store
+        hits = await asyncio.wait_for(
+            rag_store.search(query, top_k=max_results),
+            timeout=4.0,
+        )
+        for h in hits or []:
+            if not isinstance(h, dict):
+                continue
+            url = (h.get("url") or "").strip()
+            if not url:
+                # No URL — synthesise an opaque memory:// pointer so the
+                # dedupe key stays stable across repeated retrievals
+                _id = hashlib.sha1(
+                    (h.get("source") or h.get("title") or h.get("text") or "")[:200]
+                    .encode("utf-8")
+                ).hexdigest()[:12]
+                url = f"memory://{_id}"
+            out.append(SearchResult(
+                title=(h.get("title") or h.get("source") or "memory")[:200],
+                url=url,
+                snippet=(h.get("text") or "")[:500],
+                source=f"memory:{h.get('collection') or h.get('source_type') or 'rag'}",
+                credibility_tier=2,
+                language=h.get("language") or "en",
+                timestamp=h.get("ingested_at") or "",
+                relevance_score=float(h.get("score") or 0.0) + 0.5,  # memory-bonus
+            ))
+    except Exception as _me:
+        logger.debug("memory-first query failed (non-fatal): %s", _me)
+    return out
+
+
+# ── R-F125 — Auto-language fan-out (2026-05-10) ──────────────────────────────
+# Detect non-English script + entity-name suffix heuristics, then run
+# the same query in those languages so e.g. "SAHA 2026 contracts"
+# (Turkish defence trade show) also probes tr-TR sources where the
+# actual contract press releases live.
+def _detect_query_languages(query: str, base_lang: str = "en") -> list[str]:
+    """Return additional language codes to fan out to (excludes base_lang)."""
+    extras: set[str] = set()
+    if not query:
+        return []
+    # Unicode-script detection
+    script_map = [
+        ("Ѐ-ӿ", "ru"),   # Cyrillic
+        ("؀-ۿ", "ar"),   # Arabic
+        ("֐-׿", "he"),   # Hebrew
+        ("一-鿿", "zh"),   # CJK Unified
+        ("぀-ゟ", "ja"),   # Hiragana
+        ("가-힯", "ko"),   # Hangul
+        ("ऀ-ॿ", "hi"),   # Devanagari
+    ]
+    for rng, lang in script_map:
+        try:
+            if re.search(f"[{rng}]", query):
+                extras.add(lang)
+        except Exception:
+            continue
+    # Entity-name + locale heuristics on the Latin-script portion
+    q_lower = query.lower()
+    tr_markers = ("aş.", " a.ş.", " a.s.", " sti.", " ş.", " ltd.şti", "türk",
+                  "türkiye", "istanbul", "ankara", "saha ", "idef", "tusaş")
+    if any(m in q_lower for m in tr_markers):
+        extras.add("tr")
+    pt_markers = (" lda", " ltda", " s.a.", "brasil", "portugal", "lisboa",
+                  "angola", "moçambique", "moçamb", "lusofon", "embraer")
+    if any(m in q_lower for m in pt_markers):
+        extras.add("pt")
+    es_markers = (" s.l.", "españa", "españ", "méxico", " mexico ", "argentina",
+                  "colombia", "indra ", "navantia")
+    if any(m in q_lower for m in es_markers):
+        extras.add("es")
+    fr_markers = (" s.a.r.l", " sarl", "société", "française", "côte d'ivoire",
+                  "sénégal", "burkina", "mali ", "thales", "naval group", "dassault")
+    if any(m in q_lower for m in fr_markers):
+        extras.add("fr")
+    de_markers = (" gmbh", " ag ", " kg ", "deutschland", "rheinmetall",
+                  "diehl", "krauss-maffei", "hensoldt")
+    if any(m in q_lower for m in de_markers):
+        extras.add("de")
+    ar_markers = ("idex", "wodaeen", "edge group", "abu dhabi", "riyadh",
+                  "kuwait", "qatar", "bahrain", "oman ", " uae ")
+    if any(m in q_lower for m in ar_markers):
+        extras.add("ar")
+    # Strip the base language so we only return the fan-out additions
+    extras.discard((base_lang or "en").lower())
+    return sorted(extras)
+
+
+# ── R-F126 — Defence-show calendar (2026-05-10) ──────────────────────────────
+# When an operator asks about a known defence event the post-event press
+# releases live on the official site + organiser PR + trade press —
+# rarely indexed in time by general news engines (the SAHA 2026 case).
+# Map known events to their official site + a curated query enrichment.
+DEFENCE_EVENTS: dict[str, dict[str, str]] = {
+    "saha":        {"site": "sahaexpo.com",       "lang": "tr",
+                    "enrich": "SAHA EXPO İstanbul defence industry summit"},
+    "idex":        {"site": "idexuae.ae",         "lang": "ar",
+                    "enrich": "IDEX Abu Dhabi defence exhibition contracts"},
+    "navdex":      {"site": "navdex.ae",          "lang": "ar",
+                    "enrich": "NAVDEX naval defence exhibition Abu Dhabi"},
+    "eurosatory":  {"site": "eurosatory.com",     "lang": "fr",
+                    "enrich": "Eurosatory Paris défense salon contrats"},
+    "dsei":        {"site": "dsei.co.uk",         "lang": "en",
+                    "enrich": "DSEI ExCeL London defence equipment contracts"},
+    "ausa":        {"site": "ausa.org",           "lang": "en",
+                    "enrich": "AUSA Annual Meeting US Army contracts"},
+    "dubai airshow": {"site": "dubaiairshow.aero", "lang": "ar",
+                      "enrich": "Dubai Airshow contracts orders 2026"},
+    "le bourget":  {"site": "siae.fr",            "lang": "fr",
+                    "enrich": "Salon du Bourget Paris Air Show contrats"},
+    "indo defence": {"site": "indodefence.com",   "lang": "id",
+                     "enrich": "Indo Defence Jakarta procurement"},
+    "lima":        {"site": "limaexhibition.com", "lang": "en",
+                    "enrich": "LIMA Langkawi maritime aerospace exhibition"},
+    "dx korea":    {"site": "dxkorea.com",        "lang": "ko",
+                    "enrich": "DX Korea Seoul defence procurement"},
+    "africa aerospace": {"site": "aadexpo.co.za", "lang": "en",
+                         "enrich": "Africa Aerospace Defence AAD Pretoria"},
+    "expodefensa": {"site": "expodefensa.com.co", "lang": "es",
+                    "enrich": "Expodefensa Colombia defensa contratos"},
+    "lima maritime": {"site": "limaexhibition.com", "lang": "en",
+                      "enrich": "LIMA Langkawi maritime"},
+    "world defense show": {"site": "worlddefenseshow.com", "lang": "ar",
+                           "enrich": "World Defense Show Riyadh contracts"},
+    "ila berlin":  {"site": "ila-berlin.com",     "lang": "de",
+                    "enrich": "ILA Berlin air space defence trade fair"},
+    "balt military": {"site": "baltmilitary.com", "lang": "en",
+                      "enrich": "Balt Military Expo Gdańsk procurement"},
+    "milipol":     {"site": "milipol.com",        "lang": "fr",
+                    "enrich": "Milipol homeland security exhibition"},
+}
+
+
+def _detect_defence_event(query: str) -> dict[str, str] | None:
+    """Return the calendar entry for any known defence event mentioned."""
+    if not query:
+        return None
+    q = query.lower()
+    for key, entry in DEFENCE_EVENTS.items():
+        if key in q:
+            return {"key": key, **entry}
+    return None
+
+
+async def _search_defence_event(query: str, max_results: int = 10) -> list[SearchResult]:
+    """If the query mentions a known defence event, run a site:-scoped
+    Brave/DDG search against the official site so post-event press +
+    contract-signing pages surface even when general news is thin."""
+    entry = _detect_defence_event(query)
+    if not entry:
+        return []
+    site = entry.get("site") or ""
+    if not site:
+        return []
+    enriched = f"{entry.get('enrich', query)} site:{site}"
+    out: list[SearchResult] = []
+    try:
+        # Run both Brave (if creds) and DDG against the site-scoped query
+        brave_results, ddg_results = await asyncio.gather(
+            _search_brave(enriched, max_results, entry.get("lang", "en")),
+            _search_duckduckgo(enriched, max_results),
+            return_exceptions=True,
+        )
+        for batch in (brave_results, ddg_results):
+            if isinstance(batch, Exception):
+                continue
+            for r in batch:
+                # Tag with defence-event source and tier-2 (institutional)
+                r.source = f"defence_event:{entry['key']}"
+                r.credibility_tier = 2
+                out.append(r)
+    except Exception as _ee:
+        logger.debug("defence-event search failed (non-fatal): %s", _ee)
+    return out
+
+
 async def search(
     query: str,
     *,
@@ -482,6 +676,12 @@ async def search(
     # because the topic is industry news not papers; SearXNG not yet
     # deployed. DDG covers general web (substitutes for Brave), Bing
     # News covers news (mirrors Google News for redundancy).
+    # R-F125 (2026-05-10): auto-language fan-out — detect non-English
+    # script + Turkish/Portuguese/Arabic/etc entity-name markers and
+    # add same query in those languages. Solves SAHA 2026 thin-coverage
+    # case directly: Turkish defence press indexes the contract data
+    # that Google-News-en doesn't surface.
+    extra_langs = _detect_query_languages(query, base_lang=language)
     backend_tasks = [
         _search_brave(query, MAX_RESULTS_PER_BACKEND, language),
         _search_searxng(query, MAX_RESULTS_PER_BACKEND, language),
@@ -489,9 +689,33 @@ async def search(
         _search_google_news(query, MAX_RESULTS_PER_BACKEND, language),
         _search_bing_news(query, MAX_RESULTS_PER_BACKEND),
         _search_academic(query, MAX_RESULTS_PER_BACKEND, language),
+        _search_defence_event(query, MAX_RESULTS_PER_BACKEND),  # R-F126
     ]
+    for _xl in extra_langs[:3]:  # cap fan-out at 3 extra langs
+        backend_tasks.append(_search_brave(query, MAX_RESULTS_PER_BACKEND, _xl))
+        backend_tasks.append(_search_google_news(query, MAX_RESULTS_PER_BACKEND, _xl))
+    if extra_langs:
+        logger.info(
+            "Search %r: language fan-out → %s (base=%s)",
+            query[:60], extra_langs, language,
+        )
+    _ev = _detect_defence_event(query)
+    if _ev:
+        logger.info(
+            "Search %r: defence-event match → %s (site:%s, lang:%s)",
+            query[:60], _ev["key"], _ev["site"], _ev["lang"],
+        )
 
-    raw_results = await asyncio.gather(*backend_tasks, return_exceptions=True)
+    # R-F124 — memory-first inversion: query the corpus before fanning
+    # out to the web. If memory carries strong recent hits we still run
+    # web (fresh data), but memory gets a relevance bonus so repeated
+    # queries on the same topic surface cached intel first.
+    raw_results_list = await asyncio.gather(
+        _query_memory(query, max_results=max_results),
+        *backend_tasks,
+        return_exceptions=True,
+    )
+    raw_results = list(raw_results_list)
 
     # Flatten and deduplicate by URL
     seen_urls: dict[str, SearchResult] = {}

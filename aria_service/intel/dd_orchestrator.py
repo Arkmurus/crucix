@@ -2882,6 +2882,163 @@ async def orchestrate_dd(
         except Exception as _de:
             logger.debug("[dd_orchestrator] deception scoring failed (non-fatal): %s", _de)
 
+        # ── LAYER 8: COUNTER-INTELLIGENCE (R-F121 — wired 2026-05-10) ──
+        # Sweeps recent intel_ledger signals about this entity for the
+        # patterns that none of the prior layers can see: narrative-shift
+        # (positive press timed against negative event), coordinated press
+        # (≥3 tier-3 sources publishing in the same window), tier
+        # contradiction (tier-1 says listed, tier-3 says clean). Result
+        # attached to report.counter_intelligence; brain absorbs material
+        # alerts.  Fail-open — never blocks DD on its own errors.
+        layer_name = "counter_intelligence"
+        report.layers_run.append(layer_name)
+        try:
+            from . import counter_intelligence as _ci
+            _ci_result = await asyncio.wait_for(
+                _ci.scan_entity(report.identity.entity_name or "", window_days=30),
+                timeout=8,
+            )
+            try:
+                report.counter_intelligence = _ci_result  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            if isinstance(_ci_result, dict) and _ci_result.get("composite_score", 0) >= 0.5:
+                logger.warning(
+                    "[dd_orchestrator] COUNTER-INTEL alert on %s: score=%.2f patterns=%s",
+                    report.identity.entity_name or "?",
+                    _ci_result.get("composite_score", 0),
+                    list((_ci_result.get("patterns") or {}).keys())[:3],
+                )
+        except asyncio.TimeoutError:
+            logger.warning("[dd_orchestrator] counter-intel timed out (non-fatal)")
+        except Exception as _ci_err:
+            logger.debug("[dd_orchestrator] counter-intel failed (non-fatal): %s", _ci_err)
+
+        # ── LAYER 9: SANCTIONS DIVERGENCE (R-F122 — wired 2026-05-10) ──
+        # Cross-list jurisdictional divergence: entity listed by US OFAC
+        # but not UK OFSI? UN SC silent while EU acts? This is the
+        # compliance-officer ground-truth question and the prior identity
+        # layer's parallel screen reports presence/absence per source —
+        # this layer tells the operator the *meaning* of that pattern.
+        # Result attached to report.sanctions_divergence.
+        layer_name = "sanctions_divergence"
+        report.layers_run.append(layer_name)
+        try:
+            from . import sanctions_divergence as _sdiv
+            _sdiv_result = await asyncio.wait_for(
+                _sdiv.analyze_divergence(report.identity.entity_name or ""),
+                timeout=10,
+            )
+            try:
+                report.sanctions_divergence = _sdiv_result  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            if (
+                isinstance(_sdiv_result, dict)
+                and _sdiv_result.get("matches", 0) > 0
+                and _sdiv_result.get("divergence_count", 0) >= 1
+            ):
+                logger.warning(
+                    "[dd_orchestrator] SANCTIONS DIVERGENCE on %s: listed=%s, silent=%s",
+                    report.identity.entity_name or "?",
+                    _sdiv_result.get("jurisdictions_listed"),
+                    _sdiv_result.get("jurisdictions_not_listed"),
+                )
+        except asyncio.TimeoutError:
+            logger.warning("[dd_orchestrator] sanctions divergence timed out (non-fatal)")
+        except Exception as _sdiv_err:
+            logger.debug(
+                "[dd_orchestrator] sanctions divergence failed (non-fatal): %s",
+                _sdiv_err,
+            )
+
+        # ── LAYER 10: FORENSIC (Benford + TBML — R-F123, wired 2026-05-10) ──
+        # Apply Benford's Law to financial figures collected for this
+        # entity (procurement history values + caller-provided figures)
+        # and run the TBML transaction classifier over caller-provided
+        # transaction line items. Conservative gate: Benford only if
+        # ≥50 distinct values; TBML only if transactions list present.
+        # When neither gate fires the layer self-skips silently.
+        layer_name = "forensic"
+        report.layers_run.append(layer_name)
+        _forensic_out: dict[str, Any] = {}
+        try:
+            _values: list[float] = []
+            for _key in ("financials", "values", "amounts", "figures", "contract_values"):
+                _v = target.get(_key)
+                if isinstance(_v, list):
+                    for _x in _v:
+                        try:
+                            _values.append(float(_x))
+                        except Exception:
+                            pass
+            for _ph in (report.network.procurement_history or [])[:200]:
+                if not isinstance(_ph, dict):
+                    continue
+                for _k in ("value", "amount", "contract_value", "award_value"):
+                    _vv = _ph.get(_k)
+                    if _vv is None:
+                        continue
+                    try:
+                        _values.append(float(_vv))
+                    except Exception:
+                        pass
+            if len(_values) >= 50:
+                from . import forensic_benford as _fb
+                _benford = _fb.benford_test(_values)
+                if isinstance(_benford, dict):
+                    _forensic_out["benford"] = {
+                        "n":          _benford.get("n"),
+                        "chi_square": _benford.get("chi_square"),
+                        "p_value":    _benford.get("p_value"),
+                        "tier":       _benford.get("tier"),
+                        "narrative":  _fb.benford_narrative(_benford),
+                    }
+                    if str(_benford.get("tier") or "").upper() == "HIGH":
+                        logger.warning(
+                            "[dd_orchestrator] BENFORD anomaly on %s: chi2=%s, p=%s, n=%s",
+                            report.identity.entity_name or "?",
+                            _benford.get("chi_square"),
+                            _benford.get("p_value"),
+                            _benford.get("n"),
+                        )
+            _txns = target.get("transactions")
+            if isinstance(_txns, list) and _txns:
+                from . import tbml_detection as _tbml
+                _tbml_results: list[dict[str, Any]] = []
+                for _t in _txns[:25]:
+                    if not isinstance(_t, dict):
+                        continue
+                    try:
+                        _r = await asyncio.wait_for(_tbml.analyze_transaction(_t), timeout=6)
+                        if isinstance(_r, dict):
+                            _tbml_results.append(_r)
+                    except Exception:
+                        continue
+                if _tbml_results:
+                    _forensic_out["tbml"] = {
+                        "transactions_analysed": len(_tbml_results),
+                        "high_anomalies": sum(
+                            1 for _r in _tbml_results
+                            if str(_r.get("anomaly_tier") or "").upper() == "HIGH"
+                        ),
+                        "results": _tbml_results,
+                    }
+            if _forensic_out:
+                try:
+                    report.forensic = _forensic_out  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                logger.info(
+                    "[dd_orchestrator] forensic layer ran: keys=%s",
+                    sorted(_forensic_out.keys()),
+                )
+            else:
+                if "forensic" not in report.layers_skipped:
+                    report.layers_skipped.append("forensic")
+        except Exception as _fx_err:
+            logger.debug("[dd_orchestrator] forensic layer failed (non-fatal): %s", _fx_err)
+
         # ── LAYER 3: VERIFICATION (runs over what the previous layers collected) ──
         layer_name = "verification"
         report.layers_run.append(layer_name)

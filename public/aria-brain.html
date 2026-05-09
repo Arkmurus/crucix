@@ -12,16 +12,25 @@
           --green: #3fb950; --yellow: #d29922; --red: #f85149; --blue: #58a6ff;
           --purple: #bc8cff; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 0; overflow-x: hidden; }
+  /* R-F127 (2026-05-10): hard guard against content overflow.
+     Long URLs, IDs, audit hashes, mastery topics with long names were
+     pushing card content past the right edge of the screen. Apply
+     the explorer.html fix pattern (R-F101a) globally here. */
+  .card, .metric, .heat-cell, .audit-entry, .dlq-entry,
+  td, th { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+  .card pre, .card code { white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* Wrap tables narrower than parents so they scroll, not overflow */
+  .card table { display: block; overflow-x: auto; max-width: 100%; }
   h1 { color: #fff; margin-bottom: 4px; font-size: 1.6em; }
   .subtitle { color: #8b949e; margin-bottom: 20px; font-size: 0.9em; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px; min-width: 0; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
   .card h2 { font-size: 1em; color: var(--blue); margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
-  .metric { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #21262d; }
+  .metric { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #21262d; gap: 8px; }
   .metric:last-child { border-bottom: none; }
-  .metric .label { color: #8b949e; font-size: 0.85em; }
-  .metric .value { font-weight: 600; font-size: 1.1em; }
+  .metric .label { color: #8b949e; font-size: 0.85em; flex: 0 1 auto; }
+  .metric .value { font-weight: 600; font-size: 1.1em; flex: 1 1 auto; text-align: right; min-width: 0; }
   .good { color: var(--green); }
   .warn { color: var(--yellow); }
   .bad { color: var(--red); }
@@ -45,8 +54,8 @@
   .dlq-entry { background: #3d1418; border: 1px solid #5c2125; border-radius: 4px; padding: 8px; margin-bottom: 6px; font-size: 0.8em; }
   .loading { color: #8b949e; font-style: italic; }
   /* Offset content for sidebar */
-  #app-main { margin-left: 240px; padding: 20px; }
-  @media (max-width: 1024px) { #app-main { margin-left: 0; } }
+  #app-main { margin-left: 240px; padding: 20px; min-width: 0; max-width: calc(100vw - 240px); overflow-x: hidden; }
+  @media (max-width: 1024px) { #app-main { margin-left: 0; max-width: 100vw; } }
 </style>
 </head>
 <body>

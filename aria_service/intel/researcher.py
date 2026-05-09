@@ -2332,7 +2332,13 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
             })
             if resp.status_code == 200:
                 html = resp.text
-            elif resp.status_code in (401, 402, 403):
+            elif resp.status_code in (401, 402, 403, 404, 410, 451, 500, 502, 503, 504):
+                # R-F126 (2026-05-10): widen wayback fallback. Was only
+                # 401/402/403 — but contract-signing PR pages often return
+                # 404 / 410 once the org's CMS rotates content; 5xx is
+                # equally common during high-traffic post-event windows.
+                # Trying archive.org's snapshot is the difference between
+                # surfacing the contract value vs returning "fetch failed".
                 logger.info("extract_url_text: %s returned %d, trying archive", url[:80], resp.status_code)
                 html = await _try_archive_fallbacks(url, timeout=timeout)
             else:

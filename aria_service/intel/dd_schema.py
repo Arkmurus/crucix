@@ -471,6 +471,64 @@ class ARKDDReport:
                 lines.append(f"  • [{f.severity}] {f.title}")
             lines.append("")
 
+        # 8. Counter-intelligence (R-F121, attached as instance attribute)
+        _ci = getattr(self, "counter_intelligence", None)
+        if isinstance(_ci, dict) and _ci.get("composite_score", 0) >= 0.3:
+            lines.append("━━━ 🛡 Counter-intelligence [OK] ━━━")
+            _patterns = _ci.get("patterns") or {}
+            lines.append(
+                f"Composite score: {_ci.get('composite_score', 0):.2f} "
+                f"· n_signals: {_ci.get('n_signals', 0)} "
+                f"· window: {_ci.get('window_days', '?')}d"
+            )
+            if _patterns:
+                _top = sorted(_patterns.items(), key=lambda kv: kv[1], reverse=True)[:3]
+                lines.append("Patterns: " + ", ".join(
+                    f"{k}={v:.2f}" if isinstance(v, (int, float)) else f"{k}={v}"
+                    for k, v in _top
+                ))
+            if _ci.get("narrative"):
+                lines.append(f"  • {str(_ci['narrative'])[:400]}")
+            lines.append("")
+
+        # 9. Sanctions divergence (R-F122, attached as instance attribute)
+        _sdiv = getattr(self, "sanctions_divergence", None)
+        if (
+            isinstance(_sdiv, dict)
+            and _sdiv.get("matches", 0) > 0
+            and _sdiv.get("divergence_count", 0) >= 1
+        ):
+            lines.append("━━━ ⚖ Sanctions Divergence [OK] ━━━")
+            _listed = _sdiv.get("jurisdictions_listed") or []
+            _silent = _sdiv.get("jurisdictions_not_listed") or []
+            lines.append(f"Listed by: {', '.join(_listed) if _listed else '(none)'}")
+            lines.append(f"Silent on: {', '.join(_silent) if _silent else '(none)'}")
+            if _sdiv.get("narrative"):
+                lines.append(f"  • {str(_sdiv['narrative'])[:400]}")
+            lines.append("")
+
+        # 10. Forensic (Benford + TBML — R-F123, attached as instance attribute)
+        _fo = getattr(self, "forensic", None)
+        if isinstance(_fo, dict) and _fo:
+            lines.append("━━━ 🔬 Forensic [OK] ━━━")
+            _benf = _fo.get("benford") or {}
+            if _benf:
+                lines.append(
+                    f"Benford: n={_benf.get('n','?')}, "
+                    f"χ²={_benf.get('chi_square','?')}, "
+                    f"p={_benf.get('p_value','?')} → "
+                    f"{_benf.get('tier','?')}"
+                )
+                if _benf.get("narrative"):
+                    lines.append(f"  • {str(_benf['narrative'])[:400]}")
+            _tbml = _fo.get("tbml") or {}
+            if _tbml:
+                lines.append(
+                    f"TBML: {_tbml.get('transactions_analysed', 0)} txns analysed, "
+                    f"{_tbml.get('high_anomalies', 0)} HIGH anomaly"
+                )
+            lines.append("")
+
         # 6. Synthesis
         lines.append(_sec_header("🧠", "Synthesis", self.synthesis.meta))
         if self.synthesis.ghost_classification and not _is_person:
