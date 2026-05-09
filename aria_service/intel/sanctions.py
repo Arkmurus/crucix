@@ -141,7 +141,14 @@ def _generate_variants(name: str) -> list[str]:
 
     # Whole-string transformations
     variants.add(n.translate(_CYRILLIC_TO_LATIN))   # Cyrillic→Latin
-    variants.add(n.lower())
+    # R-F62 (2026-05-09): dropped the n.lower() variant. OpenSanctions
+    # match is case-insensitive at the API level, so the lowercase form
+    # adds zero discriminating value — but for multi-word inputs like
+    # "DD on EDGE Group" → "dd on edge group" it RELIABLY trips the
+    # entity-name validator (lowercase non-stopwords), which then logs
+    # "rejecting non-entity input" every cycle. Live evidence 2026-05-09
+    # 11:18:34 (fly logs). Kept .upper() and .title() because some
+    # legitimate-looking corporate variants still differ usefully.
     variants.add(n.upper())
     variants.add(n.title())
 
