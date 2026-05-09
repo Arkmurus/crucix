@@ -179,6 +179,150 @@ _EU_DUAL_USE_CLAUSES: list[dict] = [
     },
 ]
 
+# R-F53 (2026-05-09): jurisdiction-specific clause add-ons. Each list is
+# small — three to five extra checks that distinguish a market's EUC
+# practice from the universal set. Patterns kept fuzzy on purpose so a
+# slightly-paraphrased official template still matches.
+
+_ISRAEL_CLAUSES: list[dict] = [
+    {
+        "id": "il_sibat_approval",
+        "label": "SIBAT / DECA approval reference",
+        "severity": "critical",
+        "patterns": [
+            r"sibat", r"deca", r"defen[cs]e\s+export\s+control(?:s)?\s+agency",
+            r"israel(?:i)?\s+ministry\s+of\s+defen[cs]e",
+        ],
+    },
+    {
+        "id": "il_wa_mtcr_compliance",
+        "label": "Wassenaar / MTCR adherence statement",
+        "severity": "important",
+        "patterns": [
+            r"wassenaar", r"mtcr", r"missile\s+technology\s+control\s+regime",
+        ],
+    },
+]
+
+_TURKEY_CLAUSES: list[dict] = [
+    {
+        "id": "tr_ssb_approval",
+        "label": "SSB / Presidency of Defence Industries approval",
+        "severity": "critical",
+        "patterns": [
+            r"ssb", r"savunma\s+sanayi(?:i)?\s+ba[sş]kanl[ıi][gğ][ıi]",
+            r"presidency\s+of\s+defen[cs]e\s+industries",
+        ],
+    },
+    {
+        "id": "tr_decision_2014_7",
+        "label": "Decision-Note 2014/7 retransfer reference",
+        "severity": "important",
+        "patterns": [r"2014/7", r"decision\s+note\s+2014"],
+    },
+]
+
+_INDIA_CLAUSES: list[dict] = [
+    {
+        "id": "in_dgft_dpp_approval",
+        "label": "DGFT / DDP approval reference",
+        "severity": "critical",
+        "patterns": [
+            r"dgft", r"directorate\s+general\s+of\s+foreign\s+trade",
+            r"ddp", r"department\s+of\s+defen[cs]e\s+production",
+        ],
+    },
+    {
+        "id": "in_scomet_classification",
+        "label": "SCOMET classification reference",
+        "severity": "important",
+        "patterns": [
+            r"scomet", r"special\s+chemicals,?\s+organisms,?\s+materials",
+        ],
+    },
+]
+
+_BRAZIL_CLAUSES: list[dict] = [
+    {
+        "id": "br_md_coadi_approval",
+        "label": "MD / COADI approval reference",
+        "severity": "critical",
+        "patterns": [
+            r"minist[éee]rio\s+da\s+defesa", r"\bmd\b", r"coadi",
+            r"comiss[ãa]o\s+de\s+coordena[çc][ãa]o",
+        ],
+    },
+    {
+        "id": "br_pne_decree_9607",
+        "label": "PNE / Decree 9607 reference",
+        "severity": "important",
+        "patterns": [
+            r"pne\b", r"pol[íi]tica\s+nacional\s+de\s+exporta[çc][ãa]o",
+            r"decreto\s+9\.?607", r"decree\s+9\.?607",
+        ],
+    },
+]
+
+_SAUDI_CLAUSES: list[dict] = [
+    {
+        "id": "sa_gami_approval",
+        "label": "GAMI / General Authority for Military Industries approval",
+        "severity": "critical",
+        "patterns": [
+            r"gami", r"general\s+authority\s+for\s+military\s+industries",
+            r"الهيئة\s+العامة\s+للصناعات\s+العسكرية",
+        ],
+    },
+    {
+        "id": "sa_no_transfer_yemen_iran",
+        "label": "No-transfer to designated states clause",
+        "severity": "important",
+        "patterns": [
+            r"shall\s+not\s+(?:be\s+)?transfer(?:red)?\s+to\s+(?:iran|yemen|hou)",
+            r"non[\s\-]?aligned\s+state\s+exclusion",
+        ],
+    },
+]
+
+_UAE_CLAUSES: list[dict] = [
+    {
+        "id": "ae_secc_approval",
+        "label": "SECC / Strategic Goods Export Committee approval",
+        "severity": "critical",
+        "patterns": [
+            r"secc", r"strategic\s+goods\s+export\s+committee",
+            r"executive\s+office\s+for\s+control\s+&?\s*non[\s\-]?proliferation",
+            r"اللجنة\s+الوطنية\s+لمراقبة\s+الصادرات",
+        ],
+    },
+    {
+        "id": "ae_federal_law_13_2007",
+        "label": "Federal Law 13/2007 reference",
+        "severity": "important",
+        "patterns": [r"federal\s+law\s+(?:no\.?\s*)?13[\s/-]?2007", r"13\s+of\s+2007"],
+    },
+]
+
+_SOUTH_AFRICA_CLAUSES: list[dict] = [
+    {
+        "id": "za_ncacc_approval",
+        "label": "NCACC approval reference",
+        "severity": "critical",
+        "patterns": [
+            r"ncacc", r"national\s+conventional\s+arms\s+control\s+committee",
+            r"act\s+(?:no\.?\s*)?41\s+of\s+2002",
+        ],
+    },
+    {
+        "id": "za_dceltc_classification",
+        "label": "DCEC / DCAC classification reference",
+        "severity": "important",
+        "patterns": [
+            r"dcec", r"dcac", r"directorate\s+conventional\s+arms\s+control",
+        ],
+    },
+]
+
 
 # ── Profiles ────────────────────────────────────────────────────────────────
 # A profile bundles the clause set required for a transaction type.
@@ -208,6 +352,42 @@ PROFILES: dict[str, dict] = {
         "label": "GCC End-User Certificate (UAE/Saudi/Qatar/Oman common pattern)",
         "regime": "Per-state strategic goods regime",
         "clauses": _UNIVERSAL_CLAUSES,
+    },
+    # R-F53: jurisdiction-specific profiles (10-market target).
+    "ISRAEL_SIBAT": {
+        "label": "Israel — SIBAT/DECA EUC",
+        "regime": "Israel Defense Export Control Law 5767-2007",
+        "clauses": _UNIVERSAL_CLAUSES + _ISRAEL_CLAUSES,
+    },
+    "TURKEY_SSB": {
+        "label": "Turkey — SSB EUC",
+        "regime": "Decision-Note 2014/7 + Law 7406",
+        "clauses": _UNIVERSAL_CLAUSES + _TURKEY_CLAUSES,
+    },
+    "INDIA_DGFT_DDP": {
+        "label": "India — DGFT/DDP EUC",
+        "regime": "FT(DR) Act 1992 + SCOMET",
+        "clauses": _UNIVERSAL_CLAUSES + _INDIA_CLAUSES,
+    },
+    "BRAZIL_MD_COADI": {
+        "label": "Brazil — MD/COADI EUC",
+        "regime": "PNE / Decree 9607",
+        "clauses": _UNIVERSAL_CLAUSES + _BRAZIL_CLAUSES,
+    },
+    "SAUDI_GAMI": {
+        "label": "Saudi Arabia — GAMI EUC",
+        "regime": "GAMI Regulations",
+        "clauses": _UNIVERSAL_CLAUSES + _SAUDI_CLAUSES,
+    },
+    "UAE_SECC": {
+        "label": "UAE — SECC EUC",
+        "regime": "Federal Law 13/2007",
+        "clauses": _UNIVERSAL_CLAUSES + _UAE_CLAUSES,
+    },
+    "SOUTH_AFRICA_NCACC": {
+        "label": "South Africa — NCACC EUC",
+        "regime": "Act 41 of 2002",
+        "clauses": _UNIVERSAL_CLAUSES + _SOUTH_AFRICA_CLAUSES,
     },
 }
 
@@ -286,12 +466,118 @@ _TEMPLATE_EU_TAIL = """\
    transfer of dual-use items.
 """
 
+_TEMPLATE_ISRAEL_TAIL = """\
+
+8. SIBAT / DECA AUTHORISATION
+   This export is authorised by [LICENCE NO.] issued by the Defense
+   Export Controls Agency (DECA) of the State of Israel under the
+   Defense Export Control Law 5767-2007. The end user undertakes to
+   comply with all conditions imposed by DECA / SIBAT.
+
+9. WASSENAAR / MTCR ADHERENCE
+   The end user confirms compliance with the Wassenaar Arrangement
+   and (where applicable) the Missile Technology Control Regime.
+"""
+
+_TEMPLATE_TURKEY_TAIL = """\
+
+8. SSB AUTHORISATION
+   This export is authorised by [İHRAÇ İZİN BELGESİ NO.] issued by
+   the Republic of Türkiye Presidency of Defence Industries (Savunma
+   Sanayi Başkanlığı / SSB) under Decision-Note 2014/7 and Law 7406.
+
+9. RETRANSFER RESTRICTION
+   The end user shall not retransfer the items to any third party
+   without prior written consent of SSB and the supplier government.
+"""
+
+_TEMPLATE_INDIA_TAIL = """\
+
+8. DGFT / DDP AUTHORISATION
+   This import is authorised by [LICENCE NO.] issued by the
+   Directorate General of Foreign Trade (DGFT) and / or the
+   Department of Defence Production (DDP), Ministry of Defence,
+   Government of India.
+
+9. SCOMET CLASSIFICATION
+   The items are classified under SCOMET category [X] / sub-class
+   [Y] of the Foreign Trade (Development & Regulation) Act, 1992
+   and Schedule 2 of the SCOMET list.
+"""
+
+_TEMPLATE_BRAZIL_TAIL = """\
+
+8. AUTORIZAÇÃO MD / COADI
+   Esta importação está autorizada por [Nº DA AUTORIZAÇÃO] emitida
+   pelo Ministério da Defesa (MD) através da Comissão de Coordenação
+   da Indústria de Material de Emprego Militar (COADI), em
+   conformidade com o Decreto 9.607 e a Política Nacional de
+   Exportação (PNE).
+
+9. NÃO RETRANSFERÊNCIA
+   O usuário final compromete-se a não retransferir os itens a
+   terceiros sem o consentimento prévio por escrito do MD/COADI.
+"""
+
+_TEMPLATE_SAUDI_TAIL = """\
+
+8. GAMI AUTHORISATION
+   This import is authorised by [LICENCE NO.] issued by the General
+   Authority for Military Industries (GAMI) of the Kingdom of Saudi
+   Arabia. The end user undertakes to comply with all GAMI
+   conditions and the Kingdom's strategic-goods regulations.
+
+9. NON-DIVERSION COMMITMENT
+   The end user confirms the items shall not be transferred to or
+   used in connection with any state or non-state actor designated
+   by GAMI as a restricted destination, including (without
+   limitation) any actor under UN Security Council sanctions.
+"""
+
+_TEMPLATE_UAE_TAIL = """\
+
+8. SECC AUTHORISATION
+   This import is authorised by [LICENCE NO.] issued by the
+   Strategic Goods Export Committee (SECC) of the United Arab
+   Emirates under Federal Law No. 13 of 2007 on Goods, Materials
+   and Equipment Subject to Import and Export Controls, and the
+   Executive Office for Control & Non-Proliferation (EOCN).
+
+9. NON-DIVERSION COMMITMENT
+   The end user shall not transfer the items to any third party
+   without prior written consent of the SECC.
+"""
+
+_TEMPLATE_SOUTH_AFRICA_TAIL = """\
+
+8. NCACC AUTHORISATION
+   This import is authorised by [PERMIT NO.] issued by the
+   National Conventional Arms Control Committee (NCACC) of the
+   Republic of South Africa under the National Conventional
+   Arms Control Act, 41 of 2002, and administered by the
+   Directorate Conventional Arms Control (DCAC).
+
+9. END-USE / NON-RETRANSFER UNDERTAKING
+   The end user undertakes to comply with all conditions imposed
+   by the NCACC, including the prohibition on retransfer without
+   prior NCACC approval and the obligation to permit on-site
+   end-use verification by representatives of the NCACC or the
+   supplier government.
+"""
+
 TEMPLATES: dict[str, str] = {
     "US_DSP83": _TEMPLATE_CORE + _TEMPLATE_DSP83_TAIL,
     "UK_GENERAL": _TEMPLATE_CORE,
     "EU_DUAL_USE": _TEMPLATE_CORE + _TEMPLATE_EU_TAIL,
     "WASSENAAR_GENERIC": _TEMPLATE_CORE,
     "GCC_GENERIC": _TEMPLATE_CORE,
+    "ISRAEL_SIBAT": _TEMPLATE_CORE + _TEMPLATE_ISRAEL_TAIL,
+    "TURKEY_SSB": _TEMPLATE_CORE + _TEMPLATE_TURKEY_TAIL,
+    "INDIA_DGFT_DDP": _TEMPLATE_CORE + _TEMPLATE_INDIA_TAIL,
+    "BRAZIL_MD_COADI": _TEMPLATE_CORE + _TEMPLATE_BRAZIL_TAIL,
+    "SAUDI_GAMI": _TEMPLATE_CORE + _TEMPLATE_SAUDI_TAIL,
+    "UAE_SECC": _TEMPLATE_CORE + _TEMPLATE_UAE_TAIL,
+    "SOUTH_AFRICA_NCACC": _TEMPLATE_CORE + _TEMPLATE_SOUTH_AFRICA_TAIL,
 }
 
 
