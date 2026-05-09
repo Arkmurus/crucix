@@ -425,6 +425,7 @@ function startNewConversation() {
   document.getElementById('welcome').style.display = '';
   Convos.setActive(null);
   setTitlebar('New conversation');
+  resetMsgIndex(0);
   ta.focus();
 }
 
@@ -508,11 +509,19 @@ function md(text) {
 // ── Scroll to bottom ──
 function bottom() { scroll.scrollTop = scroll.scrollHeight; }
 
+// ── Message index tracking ──
+// The Python session schema is messages: [{role, content}, ...]. Each
+// message we render has a `data-msg-index` matching its array index so
+// the audit-grade PDF export can address it on the server.
+var nextMsgIndex = 0;
+function resetMsgIndex(n) { nextMsgIndex = n || 0; }
+
 // ── Add user message ──
 function addUser(text) {
   document.getElementById('welcome').style.display = 'none';
   var d = document.createElement('div');
   d.className = 'msg msg-user';
+  d.dataset.msgIndex = String(nextMsgIndex++);
   d.innerHTML = '<div class="msg-user-bubble">' + escHtml(text) + '</div>';
   feed.appendChild(d);
   bottom();
@@ -522,6 +531,7 @@ function addUser(text) {
 function addAria(html, badge) {
   var d = document.createElement('div');
   d.className = 'msg msg-aria';
+  d.dataset.msgIndex = String(nextMsgIndex++);
   d.innerHTML =
     '<div class="msg-aria-header">' +
       '<div class="msg-aria-avatar">A</div>' +
@@ -531,9 +541,71 @@ function addAria(html, badge) {
     '<div class="msg-aria-body">' + html + '</div>' +
     '<div class="msg-actions">' +
       '<button class="msg-action-btn" onclick="copyMsg(this)" title="Copy"><i class="bi bi-clipboard"></i> Copy</button>' +
+      '<button class="msg-action-btn" onclick="exportMsgAsPdf(this)" title="Export as audit-grade PDF"><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>' +
     '</div>';
   feed.appendChild(d);
   bottom();
+}
+
+// ── Export message as audit-grade PDF ──
+async function exportMsgAsPdf(btn) {
+  var msgEl = btn.closest('.msg');
+  if (!msgEl) return;
+  var idx = parseInt(msgEl.dataset.msgIndex, 10);
+  if (!Number.isFinite(idx)) {
+    alert('Cannot export — message index missing.');
+    return;
+  }
+  var orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Generating…';
+  try {
+    var token = localStorage.getItem('crucix_token') || '';
+    var resp = await fetch('/api/reports/pdf', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify({
+        sessionId: SID,
+        messageIndex: idx,
+        classification: 'CONFIDENTIAL',
+      }),
+    });
+    if (!resp.ok) {
+      var data = await resp.json().catch(() => ({}));
+      alert('PDF export failed: ' + (data.error || resp.status));
+      return;
+    }
+    var blob = await resp.blob();
+    var disp = resp.headers.get('Content-Disposition') || '';
+    var nameMatch = disp.match(/filename="([^"]+)"/);
+    var filename = nameMatch ? nameMatch[1] : ('aria-report-' + idx + '.pdf');
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() {
+      URL.revokeObjectURL(url);
+      a.remove();
+    }, 1000);
+    var signed = resp.headers.get('X-Report-Signed') === '1';
+    btn.innerHTML = signed
+      ? '<i class="bi bi-check2 text-success"></i> Downloaded (signed)'
+      : '<i class="bi bi-exclamation-triangle"></i> Downloaded (UNSIGNED)';
+    setTimeout(function() {
+      btn.innerHTML = orig;
+      btn.disabled = false;
+    }, 2500);
+  } catch (err) {
+    console.error('[Export PDF]', err);
+    alert('Export error: ' + err.message);
+    btn.innerHTML = orig;
+    btn.disabled = false;
+  }
 }
 
 // ── Copy button ──
@@ -622,6 +694,7 @@ async function send(text, opts) {
   // Create the ARIA message block with an empty body that we'll fill progressively
   var ariaDiv = document.createElement('div');
   ariaDiv.className = 'msg msg-aria';
+  ariaDiv.dataset.msgIndex = String(nextMsgIndex++);
   ariaDiv.innerHTML =
     '<div class="msg-aria-header">' +
       '<div class="msg-aria-avatar">A</div>' +
@@ -695,10 +768,12 @@ async function send(text, opts) {
     streamBadge.remove();
     if (!fullText) streamBody.innerHTML = md('No response received.');
 
-    // Add copy + tool badge
+    // Add copy + export + tool badge
     var actions = document.createElement('div');
     actions.className = 'msg-actions';
-    actions.innerHTML = '<button class="msg-action-btn" onclick="copyMsg(this)" title="Copy"><i class="bi bi-clipboard"></i> Copy</button>';
+    actions.innerHTML =
+      '<button class="msg-action-btn" onclick="copyMsg(this)" title="Copy"><i class="bi bi-clipboard"></i> Copy</button>' +
+      '<button class="msg-action-btn" onclick="exportMsgAsPdf(this)" title="Export as audit-grade PDF"><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>';
     ariaDiv.appendChild(actions);
     if (toolUsed) {
       var tb = document.createElement('span');
@@ -938,6 +1013,7 @@ var Convos = (function() {
       // Render messages
       feed.querySelectorAll('.msg, .thinking').forEach(function(n) { n.remove(); });
       document.getElementById('welcome').style.display = 'none';
+      resetMsgIndex(0);
       var msgs = data.messages || [];
       msgs.forEach(function(m) {
         if (m.role === 'user') addUser(m.content || '');

@@ -38,6 +38,7 @@ import { screenDeal, getProductCategories } from './lib/compliance/screen.mjs';
 import { redisGet, redisSet, redisDel } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore } from './lib/auth/users.mjs';
 import { createBillingRouter } from './lib/billing/routes.mjs';
+import { createReportsRouter } from './lib/reports/routes.mjs';
 import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
 import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
@@ -3792,6 +3793,25 @@ app.use('/api/billing', createBillingRouter({
   findUserById,
   updateUser,
   listUsers,
+}));
+
+// ── Reports Routes (audit-grade PDF export — Lifter #3 from strategic review) ─
+//
+// Mounts /api/reports/{pdf,verify}. The PDF endpoint fetches canonical
+// content from the Python brain via the internal token, signs with
+// REPORT_SIGNING_KEY (or returns unsigned with a warning when unset),
+// and streams the PDF back. The verify endpoint is public so a third
+// party can confirm a PDF's integrity without an account.
+app.use('/api/reports', createReportsRouter({
+  requireAuth,
+  findUserById,
+  brainBaseUrl: (process.env.ARIA_FLY_URL
+    || process.env.ARIA_BRAIN_URL
+    || process.env.BRAIN_URL
+    || 'https://aria-intel.fly.dev').trim(),
+  brainInternalToken: (process.env.ARIA_INTERNAL_TOKEN
+    || process.env.ARIA_API_TOKEN
+    || '').trim(),
 }));
 
 // ── Push Notification Routes ──────────────────────────────────────────────────
