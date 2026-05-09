@@ -4,7 +4,7 @@
 
 This document is the canonical reference for how ARIA — Arkmurus's defence due-diligence intelligence platform — is wired together. It covers the two-server topology, every signal path into ARIA's brain, the persistence layers that make the system restart-safe, and the governance layer (23 constitutional clauses) that constrains every response.
 
-If you read one section, read **§4 — Brain interlinkage (the 12 entry points)**. That's where the architecture earns its keep.
+If you read one section, read **§4 — Brain interlinkage (the 15 entry points)**. That's where the architecture earns its keep.
 
 ---
 
@@ -100,7 +100,7 @@ Every cross-server call flows over HTTPS with an `ARIA_API_TOKEN` bearer header.
 - Hypothesis validation / deep research (fly-only)
 - Constitution enforcement (fly-only — Node side trivially short-circuits greetings via mirrored `trivialReply`)
 
-### Fly.io (`aria_service/` · Python 3.14 · uvicorn + FastAPI)
+### Fly.io (`aria_service/` · Python 3.13 · uvicorn + FastAPI)
 
 **Owns**:
 - The brain (knowledge, ledger, neural, RAG, brain_hook orchestration)
@@ -140,7 +140,7 @@ Graph of co-occurrence edges between entities. **10,509 neurons / 9,070 edge gro
 Chromadb vector store at `/data/aria_rag/`. **17,544 documents · 58,704 facts · 76,248 chunks**. Embedding model: `sentence-transformers/all-MiniLM-L6-v2` (384-dim, CPU). Used for semantic retrieval at chat time, and for verified-intel email search (R-F22).
 
 ### 3.5 Mistake ledger + calibration (`aria_service/intel/mistake_ledger.py`)
-Records every flagged mistake (manual operator feedback, automatic verification-gate fail, contradiction-detector hits) with the original output, the correction, and the lesson. The self-improvement scheduler reads from here to invalidate poisoned facts. Calibration review runs monthly to recompute the ECE.
+Records every flagged mistake (manual operator feedback, automatic verification-gate fail, contradiction-detector hits) with the original output, the correction, and the lesson. The self-improvement scheduler reads from here to invalidate poisoned facts. Calibration review fires daily via the `SELF-ASSESS` autonomous task at 22:00 UTC (aggregates self-assessment scores, gap counts, and per-tag accuracy into the ECE), with `calibration_auto_tune` adjusting mastery weights when consecutive-run streaks accumulate.
 
 ### Brain-hook glue (`aria_service/intel/brain_hook.py`)
 Every learning event is announced via:
@@ -164,7 +164,7 @@ That fan-out is the load-bearing pattern. **Every** module that learns something
 
 ---
 
-## 4. Brain interlinkage — the 12 entry points
+## 4. Brain interlinkage — the 15 entry points
 
 These are the **only** ways data enters the brain. If a path isn't listed here, it doesn't reach the brain. Every entry point converges on `brain_hook.absorb`.
 
@@ -184,18 +184,21 @@ These are the **only** ways data enters the brain. If a path isn't listed here, 
    ┌─────────────────────────────────────────────────────┐
    │  Entry points — every learning path lands here      │
    ├─────────────────────────────────────────────────────┤
-   │ 1. Web sweep ingest        seenode → /ingest        │
-   │ 2. Email reader            seenode → /read-document │
-   │ 3. WA message              seenode → /chat[/stream] │
-   │ 4. Web chat                seenode → /chat[/stream] │
-   │ 5. User upload             seenode → /read-document │
-   │ 6. Research scheduler      fly internal (30 min)    │
-   │ 7. Self-improve scheduler  fly internal (2 h)       │
-   │ 8. Student loops           fly internal             │
-   │ 9. Autonomous engine       fly internal (70 tasks)  │
-   │10. Watchlist re-screen     fly internal (daily)     │
-   │11. Tender monitor          fly internal (6 h)       │
-   │12. Adversarial suite       fly internal             │
+   │ 1.  Web sweep ingest         seenode → /ingest          │
+   │ 2.  Email reader             seenode → /read-document   │
+   │ 3.  WA message               seenode → /chat[/stream]   │
+   │ 4.  Web chat                 seenode → /chat[/stream]   │
+   │ 5.  User upload              seenode → /read-document   │
+   │ 6.  WA channel mirror        seenode → /channel/ingest  │
+   │ 7.  Counterparty claims      seenode → /claims/ingest   │
+   │ 8.  Manual RAG drop          operator → /rag/ingest     │
+   │ 9.  Research scheduler       fly internal (30 min)      │
+   │10.  Self-improve scheduler   fly internal (2 h)         │
+   │11.  Student loops            fly internal               │
+   │12.  Autonomous engine        fly internal (70 tasks)    │
+   │13.  Watchlist re-screen      fly internal (daily)       │
+   │14.  Tender monitor           fly internal (6 h)         │
+   │15.  Adversarial suite        fly internal               │
    └─────────────────────────────────────────────────────┘
 ```
 
@@ -224,22 +227,36 @@ These are the **only** ways data enters the brain. If a path isn't listed here, 
 **Source**: chat UI file picker, or WhatsApp document share.
 **Path**: file → seenode multipart parse → POST `/read-document` with base64 + mimetype → fly extracts (PyMuPDF for PDF, python-docx for DOCX, openpyxl for XLSX) → page-marker preservation → fire-and-forget `pdf_deep_ingest` background task (per-page RAG chunks + image OCR) → `read_document()` extraction → `knowledge_ingestor` brain_hook.
 
-### 4.6 — Research scheduler (every 30 min, fly-internal)
+### 4.6 — WhatsApp channel mirror (`POST /api/aria/channel/ingest`)
+**Source**: WhatsApp internal group mirror — silent ingestion (no reply).
+**Path**: WA mirror group message → seenode listener → POST `/channel/ingest` with body, sender_jid, deception_score → fly intel_ledger append (severity = warning when deception_score ≥ 0.50) → `channel_ingest` brain_hook.
+**Why separate from `/ingest`**: renamed 2026-04-26 to stop the strict `_IngestBody` schema from shadowing the sweep endpoint at main.py and 422-rejecting sweep payloads.
+
+### 4.7 — Counterparty claims (`POST /api/aria/claims/ingest`)
+**Source**: chat-time claims pipeline — extracts material counterparty assertions for contradiction detection.
+**Path**: chat message → POST `/claims/ingest` with text, counterparty, deal_id, channel, message_id → fly `ARIACounterpartyClaimLedger.ingest_message()` extracts claims → stores indexed by counterparty → contradiction-detector cross-checks against prior claims by the same party → `claim_ledger` brain_hook on contradictions.
+
+### 4.8 — Manual RAG drop (`POST /api/aria/rag/ingest`)
+**Source**: operator backfill, customer document drops, anything the team wants ARIA to remember.
+**Path**: text + source metadata → fly `rag_store.ingest_document()` → chunk + embed (all-MiniLM-L6-v2) → chromadb persistent volume → `rag_ingest` brain_hook.
+**Floor**: 50 chars minimum (vs 20 for `/read-document` — manual drops should be substantive).
+
+### 4.9 — Research scheduler (every 30 min, fly-internal)
 **Source**: `aria_service/intel/researcher.py:run_research_cycle()`.
 **Path**: pull RSS feeds (~30 sources, including R-F64 Breaking Defense via Google News fallback) → article-read with timeout → LLM extraction → hypothesis generation → backlog drain (8/cycle from R-F32) → `research_engine` brain_hook.
 **Today's typical**: "Research cycle complete: 197 scanned, 1 read, 16 facts, 1 hypothesis (147716ms)".
 
-### 4.7 — Self-improvement scheduler (every 2h)
+### 4.10 — Self-improvement scheduler (every 2h)
 **Source**: `aria_service/learning/self_improve.py`.
 **Path**: scan `mistake_ledger` → identify poisoned facts → invalidate → re-derive from sources → `self_improve` brain_hook.
 
-### 4.8 — Student loops (self-quiz 3h, reading 6h, library consolidate 24h)
+### 4.11 — Student loops (self-quiz 3h, reading 6h, library consolidate 24h)
 **Source**: `aria_service/student/*`.
 **Self-quiz path**: pull random fact → ask ARIA the inverse question → grade against original → record gap if missed (`no_symbolic_rule` capability gaps land in `aria.intel.capability_gaps` and feed the rule expansion loop).
 **Reading path**: pick weakest core-mastery tag → fetch fresh OSINT for it → ingest → re-test mastery.
 **Library consolidate**: run reasoning-library purge (unsafe + polluted entries dropped daily).
 
-### 4.9 — Autonomous engine (`autonomous/engine.py` + `tasks.yaml`)
+### 4.12 — Autonomous engine (`autonomous/engine.py` + `tasks.yaml`)
 **70 tasks** loaded at boot. Each task has `name, schedule, entity, dedupe_window, action`. Dedupe: `[autonomous safety] dedupe hit for <TASK_NAME> entity='<ENTITY>' — skipping`.
 **Examples** observed today:
 - `SPIDER-HOURLY` — knowledge spider every hour
@@ -250,15 +267,15 @@ These are the **only** ways data enters the brain. If a path isn't listed here, 
 
 Each task absorbs through its own module name in brain_hook.
 
-### 4.10 — Watchlist re-screen (daily)
+### 4.13 — Watchlist re-screen (daily)
 **Source**: list of monitored entities → re-run sanctions + adverse-media + officeholder check → flag changes → push notification (R-F51 web push; email/SMS pending in next session).
 **Today's run**: "5 entities, 4 changes, 0 errors, 4081ms" at 11:18:36.
 
-### 4.11 — Tender monitor (every 6h)
+### 4.14 — Tender monitor (every 6h)
 **Source**: 5 procurement portals (TED v3 via R-F33 OpenAPI migration; SAM.gov; UN Global; AfDB; Africa procurement).
 **Path**: pull active tenders → entity match against watchlist + arms-export tags → `tender_monitor` brain_hook for relevant matches.
 
-### 4.12 — Adversarial suite (R-F59: 23 attacks)
+### 4.15 — Adversarial suite (R-F59: 23 attacks)
 **Source**: `aria_service/intel/adversarial_challenge.py` — 23 attacks across 6 personas (broker / oem_export / government_acquisition / compliance / banking_insurance / journalist).
 **Path**: each attack is run as a chat message in adversarial mode → response evaluated against pass criteria (refusal + correct reasoning + source citation where required) → fail → record as capability gap → calibration review reads gap rate.
 **R-F57 dashboard** at `/sources.html` surfaces the per-cycle pass rate.
@@ -438,7 +455,9 @@ research    self-improve   student   library     tender   proactive
 
 Plus the **autonomous engine** running its own task graph (70 tasks) at 60s poll interval with 90s startup delay.
 
-**The metabolism is the moat**. A static knowledge base ages out fast. ARIA's compounds because every paid API call writes home, every adversarial attack records a gap, every successful chat is captured for training-data export, and every mistake re-derives the original source.
+**The metabolism is the moat**. A static knowledge base ages out fast. ARIA's compounds because every paid API call writes home, every adversarial attack records a gap, every chat turn is captured in the chat-audit log, and every mistake re-derives the original source.
+
+> **Open structural item — `output_harvester.py` not yet built**. The chat-audit log captures the raw turn history, but the *training-data export* path (assembling `(input, response, persona, confidence, user_feedback)` tuples into a JSONL corpus suitable for DPO/RLHF fine-tuning) is not yet wired. The scaffold exists in `autonomous/tasks.yaml` (training-data export task is loaded) but the harvester writes zero conversations as of EOD 2026-05-09. **Every persona-tailored compliance opinion produced today is a training pair that cannot be retrospectively reconstructed.** Sequenced for next session alongside R-F66 (GDELT timeout) — a minimal first cut is 30-60 minutes of work and starts the clock on training-data accumulation immediately.
 
 ---
 
