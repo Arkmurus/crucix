@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ARIA — Model Card & Capability Statement</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <link rel="stylesheet" href="css/crucix.css?v=3">
+  <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      background: #0c0919; margin: 0;
+      font-family: 'Gordita', system-ui, -apple-system, sans-serif;
+      color: rgba(255,255,255,0.85); line-height: 1.65;
+    }
+    .mc-shell { max-width: 880px; margin: 0 auto; padding: 56px 24px 80px; }
+    .mc-eyebrow { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(124,58,237,0.85); font-weight: 700; margin-bottom: 12px; }
+    .mc-title { font-size: 38px; line-height: 1.15; font-weight: 800; color: #fff; margin: 0 0 12px; letter-spacing: -0.02em; }
+    .mc-subtitle { font-size: 16px; color: rgba(255,255,255,0.55); margin: 0 0 36px; max-width: 640px; }
+    .mc-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 28px 0 44px; padding: 18px 22px; background: rgba(124,58,237,0.06); border: 1px solid rgba(124,58,237,0.18); border-radius: 12px; }
+    .mc-meta-cell { font-size: 13px; }
+    .mc-meta-cell-label { font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+    .mc-meta-cell-value { color: #fff; font-weight: 600; }
+
+    h2.mc-h2 { font-size: 22px; font-weight: 800; color: #fff; margin: 48px 0 14px; letter-spacing: -0.01em; }
+    h3.mc-h3 { font-size: 15px; font-weight: 700; color: #c4b5fd; margin: 28px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+    p { margin: 0 0 14px; font-size: 14.5px; }
+    p strong { color: #e9e3ff; }
+    ul, ol { padding-left: 22px; margin: 0 0 16px; }
+    li { margin: 6px 0; font-size: 14.5px; }
+    li strong { color: #e9e3ff; }
+
+    code { background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.18); padding: 1px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12.5px; color: #c4b5fd; }
+
+    .mc-callout {
+      padding: 16px 18px; border-radius: 10px; margin: 16px 0 24px;
+      border-left: 3px solid;
+    }
+    .mc-callout.purple { background: rgba(124,58,237,0.07); border-color: #7c3aed; }
+    .mc-callout.amber  { background: rgba(245,158,11,0.07); border-color: #f59e0b; }
+    .mc-callout.green  { background: rgba(34,197,94,0.07); border-color: #22c55e; }
+    .mc-callout.red    { background: rgba(239,68,68,0.07); border-color: #ef4444; }
+    .mc-callout p { margin: 0; font-size: 13.5px; color: rgba(255,255,255,0.78); }
+
+    .mc-table { width: 100%; border-collapse: collapse; margin: 14px 0 24px; font-size: 13.5px; }
+    .mc-table th { text-align: left; padding: 10px 12px; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.55); font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .mc-table td { padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: top; }
+    .mc-table tr:last-child td { border-bottom: none; }
+
+    .mc-pill {
+      display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px;
+      font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+    }
+    .mc-pill.green { background: rgba(34,197,94,0.18); color: #4ade80; }
+    .mc-pill.amber { background: rgba(245,158,11,0.18); color: #fbbf24; }
+    .mc-pill.red   { background: rgba(239,68,68,0.18); color: #fca5a5; }
+    .mc-pill.blue  { background: rgba(0,102,255,0.18);  color: #60a5fa; }
+
+    .mc-clauses { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin: 14px 0 24px; }
+    .mc-clause { padding: 14px 16px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; }
+    .mc-clause-num { font-size: 11px; color: rgba(124,58,237,0.85); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+    .mc-clause-title { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+    .mc-clause-text { font-size: 12.5px; color: rgba(255,255,255,0.65); line-height: 1.55; }
+
+    .mc-footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 12px; color: rgba(255,255,255,0.4); }
+    .mc-footer a { color: #c4b5fd; }
+  </style>
+</head>
+<body>
+<div class="mc-shell">
+
+  <div class="mc-eyebrow">Model card</div>
+  <h1 class="mc-title">ARIA — Capability &amp; Limitations Statement</h1>
+  <p class="mc-subtitle">A direct account of what ARIA can do, what it cannot, how it sources its claims, and what the audit trail looks like — for compliance officers, internal review boards, and anyone evaluating whether ARIA's output meets their bar of evidence.</p>
+
+  <div class="mc-meta">
+    <div class="mc-meta-cell">
+      <div class="mc-meta-cell-label">Operator</div>
+      <div class="mc-meta-cell-value">Arkmurus Limited</div>
+    </div>
+    <div class="mc-meta-cell">
+      <div class="mc-meta-cell-label">Hosting region</div>
+      <div class="mc-meta-cell-value">United Kingdom (LHR)</div>
+    </div>
+    <div class="mc-meta-cell">
+      <div class="mc-meta-cell-label">Constitution version</div>
+      <div class="mc-meta-cell-value">v23 — 23 clauses</div>
+    </div>
+    <div class="mc-meta-cell">
+      <div class="mc-meta-cell-label">Audit-log fingerprint</div>
+      <div class="mc-meta-cell-value" style="font-family:monospace;font-size:11.5px">a39f3328d92bffe4</div>
+    </div>
+  </div>
+
+  <h2 class="mc-h2">1. What ARIA is</h2>
+  <p>ARIA is a domain-specialised AI assistant for security and defence due-diligence work. It combines reasoning from large language models (Anthropic Claude, DeepSeek, OpenAI, and others in a fail-over chain) with a constrained domain layer: live sanctions data, corporate registries, defence procurement signals, intel ledger, and a 23-clause behavioural constitution that governs every response.</p>
+  <p>It is built for: defence brokers, OEM export-control officers, compliance teams at defence buyers, government acquisition cells, and the banking / insurance functions that screen defence-sector counterparties. It is <strong>not</strong> a general-purpose chatbot, an investment-advice tool, or a substitute for licensed legal advice.</p>
+
+  <h2 class="mc-h2">2. What ARIA does well</h2>
+  <ul>
+    <li><strong>Counterparty due-diligence</strong> — multi-source pipeline (registries → sanctions lists → media → adverse coverage → beneficial-ownership inference) producing a structured assessment with confidence tagging on every claim.</li>
+    <li><strong>Sanctions screening</strong> — live integration with OpenSanctions, OFAC SDN, UK OFSI, EU consolidated, UN Security Council, Swiss SECO, Canadian SEMA, and other consolidated lists. Daily sanctions-diff against a customer's watchlist.</li>
+    <li><strong>Document review</strong> — contract / RFQ / EUC parsing with clause-library comparison, deviation detection, and explicit partial-extraction discipline (a clause cannot be claimed missing if the parser truncated the document past it).</li>
+    <li><strong>Procurement &amp; tender intelligence</strong> — autonomous monitoring of TED (EU), SAM.gov (US), GESPI (Portugal), and 15+ regional portals; tender comparator on demand.</li>
+    <li><strong>Audit-grade output</strong> — every reply is signed into a hash-chained audit log (HMAC-SHA256, production fingerprint published below). Every claim carries inline citations to its source. Reports can be exported as PDF with a verifiable signature.</li>
+    <li><strong>Multi-language source coverage</strong> — Portuguese, French, Spanish, Arabic, Russian, Mandarin sources searched in their native language, not just English translations.</li>
+  </ul>
+
+  <h2 class="mc-h2">3. What ARIA does NOT do</h2>
+  <div class="mc-callout amber">
+    <p>The following limitations are deliberate. They are constitutional — encoded into the system prompt and enforced by output guards — not bugs.</p>
+  </div>
+  <ul>
+    <li><strong>ARIA does not provide legal advice.</strong> Outputs identifying compliance issues are <em>indicators</em>, not legal opinions. Final legal classification belongs to a licensed counsel in the relevant jurisdiction.</li>
+    <li><strong>ARIA does not invent verifiable facts.</strong> Company registration numbers, addresses, NACE/SIC codes, director names, contract values, treaty article numbers — when these aren't found in a tool result or document, ARIA refuses to fill the gap. (Constitution clause 14.)</li>
+    <li><strong>ARIA does not profile entities with no data.</strong> When a tool returns zero usable data on an entity, ARIA replies that it has no information; it does not infer from URL slugs, names, or family suffixes. (Clause 9.)</li>
+    <li><strong>ARIA does not promote propaganda-tier sources to confirmed.</strong> Telegram channels and state-aligned media are monitored but their content cannot reach <code>[CONFIRMED]</code>. (Clause 13b.)</li>
+    <li><strong>ARIA does not claim actions it did not perform.</strong> If a slash command did not execute in the current turn, ARIA does not claim it ran. (Clause 11.)</li>
+    <li><strong>ARIA does not review documents whose text was not parsed.</strong> If extraction failed or was truncated, ARIA refuses the review with an explicit message. (Clause 12.)</li>
+    <li><strong>ARIA is not a substitute for human compliance review.</strong> The audit log makes ARIA's reasoning replayable and challengeable, but the human is still the decision-maker.</li>
+  </ul>
+
+  <h2 class="mc-h2">4. Confidence taxonomy</h2>
+  <p>Every material claim ARIA produces is tagged with one of five confidence levels:</p>
+  <table class="mc-table">
+    <thead>
+      <tr><th style="width:160px">Tag</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="mc-pill green">[CONFIRMED]</span></td><td>Verified by a Tier 1a official source <em>or</em> two independent Tier 1b/2 sources in the current request context.</td></tr>
+      <tr><td><span class="mc-pill blue">[PROBABLE]</span></td><td>Single high-quality source; no contradicting evidence found.</td></tr>
+      <tr><td><span class="mc-pill amber">[ASSESSED]</span></td><td>ARIA's analytical reading; no direct source supports it but the inference chain is documented.</td></tr>
+      <tr><td><span class="mc-pill amber">[UNCERTAIN]</span></td><td>Material gap exists; the answer may change with more data.</td></tr>
+      <tr><td><span class="mc-pill red">[SPECULATIVE]</span></td><td>Conjecture, useful for hypothesis-formation only.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 class="mc-h2">5. Source-tier hierarchy</h2>
+  <p>Sources are classified into a five-tier hierarchy. ARIA's verification logic uses the tier to decide how many corroborating sources are needed before a fact reaches <code>[CONFIRMED]</code>.</p>
+  <table class="mc-table">
+    <thead>
+      <tr><th style="width:120px">Tier</th><th>Examples</th><th>Verification rule</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Tier 1a</strong><br><span class="mc-pill green">official</span></td><td>Official registries (Companies House, Registo Comercial), sanctions lists (OFAC, OFSI), gazettes, court judgments, regulatory filings</td><td>Single source sufficient for verification.</td></tr>
+      <tr><td><strong>Tier 1b</strong><br><span class="mc-pill blue">authoritative</span></td><td>Government statements, central-bank reports, multilateral institutions (UN, World Bank, OECD, NATO), defence ministries</td><td>Two independent Tier 1b/2 needed.</td></tr>
+      <tr><td><strong>Tier 2</strong><br><span class="mc-pill blue">established</span></td><td>Reuters, AP, AFP, FT, Bloomberg, Janes, regional papers of record</td><td>Two independent needed.</td></tr>
+      <tr><td><strong>Tier 3</strong><br><span class="mc-pill amber">secondary</span></td><td>Industry trade press, OSINT aggregators, think tanks, NGOs</td><td>Three independent needed.</td></tr>
+      <tr><td><strong>Tier 4</strong><br><span class="mc-pill amber">user-generated</span></td><td>Blogs, LinkedIn posts, Reddit, Twitter, forum threads</td><td>Cannot verify alone; routed to human approval.</td></tr>
+      <tr><td><strong>Tier D</strong><br><span class="mc-pill red">propaganda</span></td><td>State-aligned channels (intelslava, mod_russia, Ukrainian and Russian Telegram channels)</td><td>Monitored for OSINT value; <em>cannot</em> reach <code>[CONFIRMED]</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 class="mc-h2">6. Hallucination guards</h2>
+  <p>Generic large language models hallucinate — they invent registry numbers, fabricate quotes, and fill data gaps with statistically plausible nonsense. ARIA constrains this behaviour at the prompt layer and the output layer:</p>
+  <ul>
+    <li><strong>Constitution clause 14</strong> — verifiable facts (registration numbers, addresses, NACE codes, court citations, EIN/VAT, contract values, names of directors) cannot be stated unless quoted verbatim from a tool result, attached document, or RAG retrieval. Refusal is the safe fallback.</li>
+    <li><strong>Constitution clause 12</strong> — document review requires actual extracted text in context. A truncated PDF carries a <code>[!PARTIAL EXTRACTION]</code> banner; ARIA cannot claim a clause is absent from a section it never saw.</li>
+    <li><strong>Constitution clause 15</strong> — every tool-derived fact must carry an inline citation. The verifier flags ungrounded outputs as <code>no_citations</code>.</li>
+    <li><strong>Verification gate</strong> — replies tagged CRITICAL by classification logic are blocked from streaming until the verifier confirms grounded citations on every material claim.</li>
+    <li><strong>Output guards</strong> — officeholder, commitment, tool-claim, propaganda, and ground-truth guards run on every reply. Officeholder guard rejects unverified named appointments; commitment guard catches false promises ("I will deliver X by 4 AM"); tool-claim guard catches false action claims ("I have updated the watchlist").</li>
+    <li><strong>Adversarial test suite</strong> — 11 attack templates covering false-premise injection, authority spoofing, identity-spoof attacks, and gradual context manipulation. Run on every release; baseline reported alongside each launch.</li>
+  </ul>
+
+  <h2 class="mc-h2">7. Audit log specification</h2>
+  <p>Every output ARIA produces is appended to a hash-chained audit log:</p>
+  <ul>
+    <li>Each entry is a JSON object containing <code>{ ts, subject, claim, sources, confidence, tier_breakdown, prev_hash, hash }</code>.</li>
+    <li>Each entry's <code>hash</code> is <code>SHA-256(prev_hash || canonical(entry))</code>, forming a tamper-evident chain.</li>
+    <li>The chain is HMAC-signed at production cutoff; the production fingerprint is <strong><code>a39f3328d92bffe4</code></strong>, signed since <strong>2026-04-14T11:29:05Z</strong>.</li>
+    <li>Audit-grade PDF exports (R-F43) carry a derived HMAC signature of <code>(content_sha256 || user_id || session_id || message_index || generated_at)</code>. Third-party verification is via the public <code>POST /api/reports/verify</code> endpoint — a counterparty's compliance officer can confirm a forwarded PDF without an account.</li>
+  </ul>
+  <div class="mc-callout green">
+    <p><strong>Verifiable independently.</strong> A buyer's compliance team can extract any claim ARIA made, recompute its SHA-256, and confirm the chain. They can hold ARIA's output to the same standard they hold their own internal documents.</p>
+  </div>
+
+  <h2 class="mc-h2">8. Constitution — the 23 clauses (summary)</h2>
+  <p>The full constitution is loaded at the top of every conversation (see <code>aria_service/aria_engine.py</code>). It is incident-anchored — every clause cites the past failure that motivated it. Summary:</p>
+  <div class="mc-clauses">
+    <div class="mc-clause"><div class="mc-clause-num">Clause 1</div><div class="mc-clause-title">Epistemic honesty</div><div class="mc-clause-text">Tag every material claim with confidence. Never state uncertainty as fact.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 2</div><div class="mc-clause-title">Source integrity</div><div class="mc-clause-text">Every assessment traceable to a real source. No manufactured citations.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 3</div><div class="mc-clause-title">Compliance first</div><div class="mc-clause-text">Flag SITCL / OFAC / ITAR-EAR / EU dual-use / UN SC implications before any commercial recommendation.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 4</div><div class="mc-clause-title">Self-critical reasoning</div><div class="mc-clause-text">State the strongest counter-argument before committing.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 5</div><div class="mc-clause-title">Commercial realism</div><div class="mc-clause-text">Recommendations must be operationally achievable.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 6</div><div class="mc-clause-title">Intellectual courage</div><div class="mc-clause-text">Give a clear assessment under ambiguity — but never fabricate to fill gaps.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 7</div><div class="mc-clause-title">Knowing limits</div><div class="mc-clause-text">When outside knowledge, say so directly.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 8</div><div class="mc-clause-title">Memory &amp; continuity</div><div class="mc-clause-text">Maintain context across turns; reference prior points when relevant.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 9</div><div class="mc-clause-title">No profiling without data</div><div class="mc-clause-text">Zero data on an entity → "I have no information." No inference from name patterns or URL slugs.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 10</div><div class="mc-clause-title">Officeholder discipline</div><div class="mc-clause-text">Named officeholders need verification ≤12 months old, or are flagged <code>[UNCERTAIN — last known YYYY-MM]</code>.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 11</div><div class="mc-clause-title">Truth in action</div><div class="mc-clause-text">May only claim to have run a tool when a <code>[TOOL: ...]</code> block confirms it.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 12</div><div class="mc-clause-title">No document review without text</div><div class="mc-clause-text">Cannot review what wasn't parsed; <code>[!PARTIAL EXTRACTION]</code> banners govern truncated documents.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 13</div><div class="mc-clause-title">No CONFIRMED on uncited current events; no propaganda elevation; no topic bleed</div><div class="mc-clause-text">Three sub-rules; the strongest tag for a propaganda-tier source is <code>[ASSESSED — single channel]</code>.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 14</div><div class="mc-clause-title">No fabricated verifiable facts</div><div class="mc-clause-text">Reg numbers, addresses, NACE codes, contract values, named directors, treaty articles — quote verbatim or refuse.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 15</div><div class="mc-clause-title">Inline citation on tool-derived facts</div><div class="mc-clause-text">Every fact from a <code>[TOOL: ...]</code> block carries <code>[from &lt;url&gt;]</code> in the same sentence.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 16</div><div class="mc-clause-title">Counterparty deception awareness</div><div class="mc-clause-text">Apply validated linguistic + defence-sector deception indicators to counterparty communications.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 17</div><div class="mc-clause-title">Multi-source verification</div><div class="mc-clause-text">No fact reaches verified without ≥2 independent Tier 1b/2 sources OR 1 Tier 1a.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 18</div><div class="mc-clause-title">Source self-validation</div><div class="mc-clause-text">No source enters the trusted registry without passing the content-quality protocol.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 19</div><div class="mc-clause-title">Search doctrine</div><div class="mc-clause-text">Five disciplines: query construction, source evaluation, sequencing, synthesis, language.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 20</div><div class="mc-clause-title">No fabricated commitments / status inflation</div><div class="mc-clause-text">No false deliverables, no status inflation, no aspirational framing as fact.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 21</div><div class="mc-clause-title">Understand before act</div><div class="mc-clause-text">Comprehension gate confidence &lt; 0.7 → ask a specific clarification question.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 22</div><div class="mc-clause-title">Never fabricate ticket IDs</div><div class="mc-clause-text">Ticket IDs may only appear when returned by raise_ticket in the current turn.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 23</div><div class="mc-clause-title">No acceptance of user-asserted compliance premises</div><div class="mc-clause-text">A user-injected false fact ("Angola signed the ATT in 2015") must be corrected before answering.</div></div>
+  </div>
+
+  <h2 class="mc-h2">9. Data residency &amp; processing</h2>
+  <ul>
+    <li><strong>Hosting region:</strong> United Kingdom (fly.io London region).</li>
+    <li><strong>Persistence:</strong> chromadb RAG store and intel ledger live on a fly.io persistent volume mounted at <code>/data</code>. Daily off-host backups to operator email, with configurable retention.</li>
+    <li><strong>LLM processing:</strong> requests are routed through Anthropic, DeepSeek, OpenAI, and other providers; provider terms govern that data plane.</li>
+    <li><strong>Customer chats:</strong> stored under the customer's user id; deletable by the user via <code>DELETE /api/aria/conversations/:id</code>.</li>
+    <li><strong>Audit log:</strong> persisted on the fly.io volume; not exported to third parties.</li>
+  </ul>
+
+  <h2 class="mc-h2">10. Known limitations &amp; open work</h2>
+  <ul>
+    <li>Adversarial baseline 90.9% (last measured 2026-04-23). Target ≥95% before public launch.</li>
+    <li>Single-machine fly.io deployment trades HA for data coherence — re-architecture before higher-tier customers.</li>
+    <li>RU/ZH source coverage at floor; PT/ES/FR/AR are deep.</li>
+    <li>SOC 2 / ISO 27001 not yet certified; in roadmap.</li>
+    <li>Equipment ↔ ECCN/Wassenaar mapping currently prompt-augmented, not lookup-driven; in roadmap.</li>
+  </ul>
+
+  <h2 class="mc-h2">11. Reporting issues</h2>
+  <p>If ARIA produces an output that fails to meet the constitution above — particularly fabricated facts, false confirmation tags, or hallucinated citations — please report via:</p>
+  <ul>
+    <li>Email <code>support@arkmurus.com</code> with the conversation session id (visible in the chat URL or via <code>/api/aria/conversations</code>).</li>
+    <li>Or use the in-product <code>/feedback</code> command in the chat.</li>
+  </ul>
+  <p>Every report is added to the mistake ledger and used to harden the corresponding constitution clause. The audit log makes the failure replayable.</p>
+
+  <div class="mc-footer">
+    Model card last revised: 2026-05-09. Operator: Arkmurus Limited. Contact <a href="mailto:support@arkmurus.com">support@arkmurus.com</a>.
+    <br>
+    Companion documents: <a href="/status.html">Status page</a> · <a href="/account.html">Account &amp; billing</a>
+  </div>
+</div>
+</body>
+</html>
