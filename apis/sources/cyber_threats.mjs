@@ -29,10 +29,29 @@ async function fetchCriticalCVEs() {
       resultsPerPage: '20',
     });
 
-    const res = await fetch(`${NVD_API}?${params}`, {
-      headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
-      signal: AbortSignal.timeout(15000),
-    });
+    // R-F61 (2026-05-09): 15s was too tight — NVD has a known pattern
+    // of 8-25s response under load (NIST 2025 capacity issues). 1/2
+    // failures per cycle in seenode logs were timeouts, not 4xx/5xx.
+    // 30s primary + one 20s retry covers the slow path; on persistent
+    // timeout the cycle returns 0 CVEs (non-fatal — handled at line 73).
+    let res;
+    try {
+      res = await fetch(`${NVD_API}?${params}`, {
+        headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch (e) {
+      if (e?.name === 'TimeoutError' || /abort/i.test(e?.message || '')) {
+        // One retry at 20s before giving up — covers the case where the
+        // first connection stalled but a fresh socket succeeds.
+        res = await fetch(`${NVD_API}?${params}`, {
+          headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
+          signal: AbortSignal.timeout(20000),
+        });
+      } else {
+        throw e;
+      }
+    }
     if (!res.ok) throw new Error(`NVD API ${res.status}`);
     const data = await res.json();
     const cves  = data.vulnerabilities || [];

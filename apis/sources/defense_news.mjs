@@ -24,8 +24,14 @@ const FEEDS = [
     weight: 3,
   },
   {
+    // R-F61 (2026-05-09): direct breakingdefense.com/feed/ is Cloudflare-
+    // blocked from cloud-IP ranges (3 sweeps in a row showed 12/13
+    // attempts failing). The Google-News-RSS pattern that already works
+    // for ISS Africa / SIPRI / regional Google News searches sidesteps
+    // the block entirely — Google's edge fetches the feed and we
+    // consume the syndicated copy.
     name: 'Breaking Defense',
-    url:  'https://breakingdefense.com/feed/',
+    url:  'https://news.google.com/rss/search?q=site:breakingdefense.com&hl=en&gl=US&ceid=US:en',
     region: 'Global',
     weight: 2,
   },

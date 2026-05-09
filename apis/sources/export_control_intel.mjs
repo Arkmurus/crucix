@@ -30,10 +30,17 @@ const SOURCES = [
   // EU Council Sanctions (consilium.europa.eu) — consistently blocked on all proxies, removed.
   // EU Official Journal (op.europa.eu) — consistently blocked on all proxies, removed.
   // Reuters World/Business feeds — blocked by Render cloud IPs, removed.
-  // UK sanctions via GOV.UK search API (JSON, more reliable than Atom)
+  // UK sanctions via GOV.UK structured search API.
+  // R-F61 (2026-05-09): /search/all.json returns an HTML-embedded
+  // response shape (search_results is a string of <li>...</li>, no
+  // structured `results` array) — the existing parser at fetchSource
+  // returned [] every cycle ("3/4 failed" tally for 14 days). Switch
+  // to /api/search.json which returns {results: [{title, link,
+  // description, public_timestamp, ...}]}. Probed live 2026-05-09 —
+  // 200 OK with the expected shape.
   {
     name:   'UK FCDO Sanctions',
-    url:    'https://www.gov.uk/search/all.json?keywords=sanctions+export+controls&order=updated-newest&count=20',
+    url:    'https://www.gov.uk/api/search.json?q=sanctions+export+controls&order=-public_timestamp&count=20',
     type:   'govuk_json',
     weight: 'critical',
   },
@@ -191,7 +198,11 @@ function categorise(text) {
 const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
 
 async function fetchSource(src) {
-  // GOV.UK JSON search API — more reliable than Atom on cloud IPs
+  // GOV.UK JSON search API — more reliable than Atom on cloud IPs.
+  // R-F61 (2026-05-09): updated parser to consume /api/search.json
+  // shape (structured `results` array) rather than the legacy
+  // /search/all.json HTML-embedded shape. Falls back gracefully if
+  // either field shape is encountered.
   if (src.type === 'govuk_json') {
     try {
       const res = await fetch(src.url, {
@@ -200,11 +211,15 @@ async function fetchSource(src) {
       });
       if (res.ok) {
         const data = await res.json();
-        return (data.results || []).map(r => ({
-          title:       r.title || '',
-          link:        r.link ? `https://www.gov.uk${r.link}` : '',
-          description: r.description || r.title || '',
-          pubDate:     r.public_updated_at || r.updated_at || new Date().toISOString(),
+        const items = data.results || [];
+        return items.map(r => ({
+          title:       (r.title || r.name || '').toString().slice(0, 200),
+          link:        r.link
+            ? (r.link.startsWith('http') ? r.link : `https://www.gov.uk${r.link}`)
+            : '',
+          description: (r.description || r.indexable_content || r.title || '')
+            .toString().replace(/\s+/g, ' ').slice(0, 400),
+          pubDate:     r.public_timestamp || r.public_updated_at || r.updated_at || new Date().toISOString(),
         }));
       }
     } catch {}
