@@ -901,8 +901,20 @@ async def _run_identity(
                         confidence="ASSESSED",
                     ))
     except Exception as _e:
-        logger.warning("Identity: primary-source parallel screen failed: %s", _e)
-        report.identity.data_gaps.append("primary-source parallel screen did not complete")
+        # R-F118 (2026-05-09): surface the cause in the data_gap so the
+        # operator sees WHY in the DD report (and on the chat output)
+        # instead of only in fly logs. Previous message was just
+        # "did not complete" — operator had to dig fly logs to learn
+        # whether it was an import error, a network issue, or an arg
+        # mismatch.
+        logger.warning(
+            "Identity: primary-source parallel screen failed: %s: %s",
+            type(_e).__name__, _e, exc_info=True,
+        )
+        report.identity.data_gaps.append(
+            f"primary-source parallel screen did not complete: "
+            f"{type(_e).__name__}: {str(_e)[:160]}"
+        )
 
     # ── 1a2. Extract contact names from email / phone / explicit fields ──
     # When the user provides emails like branislav.takac@btg.sk or
@@ -3022,6 +3034,43 @@ async def orchestrate_dd(
         "synthesis":            report.synthesis.meta.cost_usd,
     }
     report.total_cost_usd = sum(report.layer_costs_usd.values())
+
+    # R-F119 (2026-05-09): the per-layer meta.cost_usd fields above are
+    # rarely populated by individual layers (DD layers don't track cost
+    # internally — they call the wrapped LLM and MeteredProvider records
+    # to cost_tracker out-of-band). Sum from cost_tracker by feature
+    # window so report.total_cost_usd reflects what was actually spent.
+    # Operator-visible fix: 'Cost: $0.0000' on every DD report (TARA
+    # AEROSPACE on 2026-05-09 was the trigger).
+    if report.total_cost_usd == 0:
+        try:
+            from . import cost_tracker as _ct
+            recent = await _ct.list_recent_calls(limit=200)
+            window_total = 0.0
+            window_calls = 0
+            for c in (recent or []):
+                if not isinstance(c, dict):
+                    continue
+                ts = c.get("ts") or 0
+                if ts < t_run_start:
+                    continue
+                feat = c.get("feature") or ""
+                if feat == "dd_orchestrator" or not feat or feat == "uncategorized":
+                    window_total += float(c.get("cost_usd") or 0.0)
+                    window_calls += 1
+            if window_total > 0:
+                report.total_cost_usd = round(window_total, 6)
+                # Stamp synthesis layer as the carrier for the aggregate
+                # since per-layer attribution isn't available
+                report.synthesis.meta.cost_usd = round(window_total, 6)
+                report.layer_costs_usd["synthesis"] = round(window_total, 6)
+                logger.info(
+                    "[dd_orchestrator] cost backfill from cost_tracker: "
+                    "$%.4f over %d calls in window",
+                    window_total, window_calls,
+                )
+        except Exception as _ce:
+            logger.debug("[dd_orchestrator] cost backfill failed: %s", _ce)
 
     # ── Persist + deliver ──
     await _persist_report(report)
