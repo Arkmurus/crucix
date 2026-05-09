@@ -347,6 +347,79 @@ _MODULES: list[dict] = [
         "endpoint_unauth_ok_codes": (401,),
         "critical": False,
     },
+    # ── R-F136 (2026-05-10) — register today's load-bearing modules ──
+    # so ARIA self-diagnoses the substrate her DD + search + counter-intel
+    # work depends on. Each entry exposes a smoke-callable so the
+    # SELF-DIAGNOSTIC-15MIN task surfaces breakage before operators do.
+    {
+        "name": "web_search",
+        "module": "aria_service.intel.web_search",
+        "entry": "search",
+        "brain_registered": True,
+        "critical": True,
+    },
+    {
+        "name": "intel_ledger",
+        "module": "aria_service.intel.intel_ledger",
+        "entry": "get_recent",  # R-F134 helper
+        "brain_registered": True,
+        "critical": True,
+    },
+    {
+        "name": "coverage_heatmap",
+        "module": "aria_service.intel.coverage_heatmap",
+        "entry": "build_heatmap",
+        "endpoint": "/api/aria/learning/coverage",
+        "endpoint_unauth_ok_codes": (200, 401),
+        "critical": False,
+    },
+    {
+        "name": "learning_progress",
+        "module": "aria_service.intel.learning_progress",
+        "entry": "record_refresh",
+        "critical": False,
+    },
+    {
+        "name": "counter_intelligence",
+        "module": "aria_service.intel.counter_intelligence",
+        "entry": "scan_entity",
+        "endpoint": "/api/aria/security/counter-intel/scan",
+        "endpoint_unauth_ok_codes": (200, 401, 422),
+        "critical": False,
+    },
+    {
+        "name": "sanctions_divergence",
+        "module": "aria_service.intel.sanctions_divergence",
+        "entry": "analyze_divergence",
+        "endpoint": "/api/aria/sanctions/divergence",
+        "endpoint_unauth_ok_codes": (200, 401, 422),
+        "critical": False,
+    },
+    {
+        "name": "forensic_benford",
+        "module": "aria_service.intel.forensic_benford",
+        "entry": "benford_test",
+        "endpoint": "/api/aria/forensic/benford",
+        "endpoint_unauth_ok_codes": (200, 401, 405, 422),
+        "critical": False,
+    },
+    {
+        "name": "tbml_detection",
+        "module": "aria_service.intel.tbml_detection",
+        "entry": "analyze_transaction",
+        "endpoint": "/api/aria/tbml/classify",
+        "endpoint_unauth_ok_codes": (200, 401, 405, 422),
+        "critical": False,
+    },
+    {
+        "name": "dd_orchestrator",
+        "module": "aria_service.intel.dd_orchestrator",
+        "entry": "orchestrate_dd",
+        "endpoint": "/api/aria/dd/reports",
+        "endpoint_unauth_ok_codes": (200, 401),
+        "brain_registered": True,
+        "critical": True,
+    },
 ]
 
 
