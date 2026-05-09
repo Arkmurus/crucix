@@ -118,6 +118,17 @@ def validate_url(url: str) -> tuple[bool, str]:
     if _is_auth_required_url(hostname, path_lower):
         return False, f"Auth-required URL (would redirect to login): {hostname}{path_lower[:50]}"
 
+    # R-F66b (2026-05-09): block known low-value navigational pages.
+    # Distinct from auth-required (which 302's to login) — these pages
+    # return 200 with real content, but the content is product-help
+    # boilerplate, not defence-DD intelligence. Live evidence 2026-05-09
+    # research cycle: linkedin.com/help/linkedin/answer/4788 and /answer/67
+    # were processed as 9-fact "articles" each email cycle, polluting the
+    # corpus with LinkedIn FAQ content. Blocking saves ~30s of Anthropic
+    # extraction per email cycle and keeps the knowledge base clean.
+    if _is_low_value_url(hostname, path_lower):
+        return False, f"Low-value navigational URL (product help / footer): {hostname}{path_lower[:50]}"
+
     return True, "OK"
 
 
@@ -133,9 +144,42 @@ _AUTH_REQUIRED_URL_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
+# R-F66b: hosts + path prefixes that return 200 with real but low-value
+# product-help content. These slip past the auth-required filter (no login
+# redirect) but produce only navigational/FAQ noise when ingested.
+_LOW_VALUE_URL_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
+    ("linkedin.com", ("/help/", "/legal/", "/psettings/", "/learning/")),
+    ("www.linkedin.com", ("/help/", "/legal/", "/psettings/", "/learning/")),
+    ("help.linkedin.com", ("/",)),
+    ("support.linkedin.com", ("/",)),
+    ("twitter.com", ("/help/", "/about/")),
+    ("x.com", ("/help/", "/about/")),
+    ("help.twitter.com", ("/",)),
+    ("help.x.com", ("/",)),
+    ("facebook.com", ("/help/", "/policies/")),
+    ("www.facebook.com", ("/help/", "/policies/")),
+]
+
+
 def _is_auth_required_url(hostname: str, path_lower: str) -> bool:
     """True when the URL is known to require auth and would redirect to a login page."""
     for host_pat, path_prefixes in _AUTH_REQUIRED_URL_PATTERNS:
+        if hostname == host_pat or hostname.endswith("." + host_pat):
+            for prefix in path_prefixes:
+                if prefix in path_lower:
+                    return True
+    return False
+
+
+def _is_low_value_url(hostname: str, path_lower: str) -> bool:
+    """True when the URL returns real content but it's product-help noise.
+
+    R-F66b: distinct from auth-required because these pages 200 with a
+    real-looking page that the article reader will happily extract 9 'facts'
+    from — none of them defence-DD intelligence. Block at the security layer
+    so the LLM never sees them.
+    """
+    for host_pat, path_prefixes in _LOW_VALUE_URL_PATTERNS:
         if hostname == host_pat or hostname.endswith("." + host_pat):
             for prefix in path_prefixes:
                 if prefix in path_lower:

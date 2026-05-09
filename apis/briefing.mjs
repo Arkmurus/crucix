@@ -113,6 +113,14 @@ import { AUTO_SOURCES } from './auto_sources.mjs';
 
 const SOURCE_TIMEOUT_MS = 30_000; // 30s max per individual source
 
+// R-F66 (2026-05-09): per-source timeout overrides for known-slow APIs.
+// Mirrors R-F64 NVD pattern. Anything not listed here uses the 30s default.
+// Live evidence 2026-05-09 12:22:39 sweep: GDELT timed out at 30s every
+// cycle, dropping the tally from 49/49 → 48/49.
+const SOURCE_TIMEOUT_OVERRIDES = {
+  GDELT: 45_000,  // GDELT v2 doc API responds in 25-40s under load
+};
+
 export async function runSource(name, fn, ...args) {
   // GAP 11: Skip suspended sources — with a probation probe so
   // auto-recovery can actually fire.
@@ -147,10 +155,11 @@ export async function runSource(name, fn, ...args) {
 
   const start = Date.now();
   let timer;
+  const effectiveTimeoutMs = SOURCE_TIMEOUT_OVERRIDES[name] ?? SOURCE_TIMEOUT_MS;
   try {
     const dataPromise = fn(...args);
     const timeoutPromise = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Source ${name} timed out after ${SOURCE_TIMEOUT_MS / 1000}s`)), SOURCE_TIMEOUT_MS);
+      timer = setTimeout(() => reject(new Error(`Source ${name} timed out after ${effectiveTimeoutMs / 1000}s`)), effectiveTimeoutMs);
     });
     const data = await Promise.race([dataPromise, timeoutPromise]);
 

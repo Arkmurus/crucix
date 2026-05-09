@@ -41,9 +41,14 @@ export async function fetchGDELT() {
       timespan:   '4h',
       sort:       'DateDesc',
     });
+    // R-F66 (2026-05-09): inner RSS timeout 20s → 30s so the GDELT v2 doc
+    // API has room to respond under load (live evidence: 25-40s typical
+    // under heavy GKG ingest cycles). Outer wrapper bumped to 45s in
+    // briefing.mjs SOURCE_TIMEOUT_OVERRIDES so a single RSS attempt fits
+    // comfortably without burning into the JSON fallback budget.
     const res = await fetch(`${GDELT_DOC_API}?${rssParams}`, {
       headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(30000),
     });
     if (res.ok) {
       const xml = await res.text();
