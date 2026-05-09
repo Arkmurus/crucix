@@ -530,32 +530,94 @@ def _detect_query_languages(query: str, base_lang: str = "en") -> list[str]:
                 extras.add(lang)
         except Exception:
             continue
-    # Entity-name + locale heuristics on the Latin-script portion
+    # Entity-name + locale heuristics on the Latin-script portion.
+    # R-F135 (2026-05-10): expanded to include English country names
+    # ("Turkey", "Brazil", "UAE", etc) so queries like "Assan Group Turkey"
+    # trigger Turkish fan-out. Without this, the only Turkish-language
+    # signal that activates fan-out is a native marker the operator
+    # rarely types in English DD prep. Live evidence: SAHA 2026 was
+    # caught by R-F125 (which detects "saha "), but "Assan Group Turkey"
+    # produced 12 Google-News results from English-only fan-out and
+    # missed Türkiye-press indexing of the espionage probe.
     q_lower = query.lower()
-    tr_markers = ("aş.", " a.ş.", " a.s.", " sti.", " ş.", " ltd.şti", "türk",
-                  "türkiye", "istanbul", "ankara", "saha ", "idef", "tusaş")
-    if any(m in q_lower for m in tr_markers):
+    # Word-boundary helper for short English country names so "uae"
+    # doesn't false-match "uaeu" / "guam" etc.
+    def _has_word(word: str, text: str) -> bool:
+        import re as _re_dl
+        return bool(_re_dl.search(rf"(^|[^a-z0-9]){_re_dl.escape(word)}($|[^a-z0-9])", text))
+
+    tr_markers_native = ("aş.", " a.ş.", " a.s.", " sti.", " ş.", " ltd.şti", "türk",
+                         "türkiye", "istanbul", "ankara", "saha ", "idef",
+                         "tusaş", "asisguard", "aselsan", "roketsan", "stm ")
+    tr_words = ("turkey", "turkish", "turkiye")
+    if any(m in q_lower for m in tr_markers_native) or any(_has_word(w, q_lower) for w in tr_words):
         extras.add("tr")
-    pt_markers = (" lda", " ltda", " s.a.", "brasil", "portugal", "lisboa",
-                  "angola", "moçambique", "moçamb", "lusofon", "embraer")
-    if any(m in q_lower for m in pt_markers):
+
+    pt_markers_native = (" lda", " ltda", " s.a.", "brasil", "portugal", "lisboa",
+                         "moçambique", "moçamb", "lusofon", "embraer", "luanda", "maputo")
+    pt_words = ("brazil", "brazilian", "portuguese", "angola", "angolan",
+                "mozambique", "mozambican", "lusophone")
+    if any(m in q_lower for m in pt_markers_native) or any(_has_word(w, q_lower) for w in pt_words):
         extras.add("pt")
-    es_markers = (" s.l.", "españa", "españ", "méxico", " mexico ", "argentina",
-                  "colombia", "indra ", "navantia")
-    if any(m in q_lower for m in es_markers):
+
+    es_markers_native = (" s.l.", "españa", "españ", "méxico", "indra ", "navantia",
+                         "buenos aires", "bogotá", "lima ", "caracas")
+    es_words = ("spain", "spanish", "mexico", "mexican", "argentina", "argentinian",
+                "colombia", "colombian", "peru", "peruvian", "venezuela", "venezuelan",
+                "chile", "chilean")
+    if any(m in q_lower for m in es_markers_native) or any(_has_word(w, q_lower) for w in es_words):
         extras.add("es")
-    fr_markers = (" s.a.r.l", " sarl", "société", "française", "côte d'ivoire",
-                  "sénégal", "burkina", "mali ", "thales", "naval group", "dassault")
-    if any(m in q_lower for m in fr_markers):
+
+    fr_markers_native = (" s.a.r.l", " sarl", "société", "française", "côte d'ivoire",
+                         "sénégal", "burkina", "thales", "naval group", "dassault",
+                         "dakar", "abidjan")
+    fr_words = ("france", "french", "senegal", "ivory coast", "ivorian", "moroccan",
+                "tunisian", "algerian")
+    if any(m in q_lower for m in fr_markers_native) or any(_has_word(w, q_lower) for w in fr_words):
         extras.add("fr")
-    de_markers = (" gmbh", " ag ", " kg ", "deutschland", "rheinmetall",
-                  "diehl", "krauss-maffei", "hensoldt")
-    if any(m in q_lower for m in de_markers):
+
+    de_markers_native = (" gmbh", " ag ", " kg ", "deutschland", "rheinmetall",
+                         "diehl", "krauss-maffei", "hensoldt", "münchen", "berlin")
+    de_words = ("germany", "german", "austrian", "austria", "swiss")
+    if any(m in q_lower for m in de_markers_native) or any(_has_word(w, q_lower) for w in de_words):
         extras.add("de")
-    ar_markers = ("idex", "wodaeen", "edge group", "abu dhabi", "riyadh",
-                  "kuwait", "qatar", "bahrain", "oman ", " uae ")
-    if any(m in q_lower for m in ar_markers):
+
+    ar_markers_native = ("idex", "navdex", "edge group", "abu dhabi", "riyadh", "doha",
+                         "manama", "kuwait city", "amman ")
+    ar_words = ("uae", "saudi", "qatar", "qatari", "bahrain", "bahraini",
+                "kuwait", "kuwaiti", "oman", "omani", "jordan", "jordanian",
+                "iraq", "iraqi", "lebanon", "lebanese", "egyptian", "egypt",
+                "emirates", "emirati")
+    if any(m in q_lower for m in ar_markers_native) or any(_has_word(w, q_lower) for w in ar_words):
         extras.add("ar")
+
+    # Asia-Pacific defence-supplier markets — Korean / Japanese / Chinese /
+    # Indian / Indonesian. English country names trigger fan-out so e.g.
+    # "Hanwha Aerospace Korea" probes ko-KR press alongside en-US.
+    ko_markers = ("hanwha", "kai aerospace", "lig nex1", "poongsan",
+                  "hyundai rotem", "seoul", "busan")
+    if any(m in q_lower for m in ko_markers) or _has_word("korea", q_lower) or _has_word("korean", q_lower):
+        extras.add("ko")
+    ja_markers = ("mitsubishi heavy", "kawasaki heavy", "ihi corp",
+                  "nec corp", "tokyo", "osaka", "subaru")
+    if any(m in q_lower for m in ja_markers) or _has_word("japan", q_lower) or _has_word("japanese", q_lower):
+        extras.add("ja")
+    zh_markers = ("norinco", "avic", "casc ", "casic", "cssc", "beijing",
+                  "shanghai", "shenzhen", "hikvision", "dahua",
+                  "cnsig", "hangzhou", "huawei")
+    if any(m in q_lower for m in zh_markers) or _has_word("china", q_lower) or _has_word("chinese", q_lower):
+        extras.add("zh")
+    # Russian — Wagner / Rosoboronexport / etc. Cyrillic script
+    # detection (above) catches native spellings; this catches Latin.
+    ru_markers = ("rosoboronexport", "almaz-antey", "kalashnikov", "moscow",
+                  "rostec", "rosatom", "wagner group", "wagner pmc",
+                  "uralvagonzavod", "sukhoi")
+    if any(m in q_lower for m in ru_markers) or _has_word("russia", q_lower) or _has_word("russian", q_lower):
+        extras.add("ru")
+    hi_markers = ("hal aerospace", "drdo", "tata defence", "bharat dynamics",
+                  "mumbai", "delhi", "bengaluru", "hyderabad")
+    if any(m in q_lower for m in hi_markers) or _has_word("india", q_lower) or _has_word("indian", q_lower):
+        extras.add("hi")
     # Strip the base language so we only return the fan-out additions
     extras.discard((base_lang or "en").lower())
     return sorted(extras)
