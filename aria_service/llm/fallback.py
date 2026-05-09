@@ -426,6 +426,22 @@ def create_fallback_chain(
         ("gemini",    os.getenv("GEMINI_API_KEY", ""),    "gemini-2.5-flash"),
     ]
 
+    # R-F87 (2026-05-09): self-hosted local LLM via Ollama / vLLM.
+    # When OLLAMA_URL is set, register the local provider as an
+    # additional fallback option. The tier-router (R-F87a) decides
+    # which calls actually go to local vs cloud — this just makes
+    # local available as a fallback in the chain.
+    # Phase 1 of the independence roadmap.
+    _ollama_url = (os.getenv("OLLAMA_URL") or "").strip()
+    if _ollama_url:
+        # Use a sentinel API key so create_llm_provider treats this as
+        # configured (Ollama itself doesn't need an API key).
+        fallback_configs.append((
+            "ollama",
+            "local",
+            (os.getenv("OLLAMA_MODEL") or "llama3.1:8b-instruct"),
+        ))
+
     # Also check explicit fallback keys
     if fallback_keys:
         for name, key in fallback_keys.items():
@@ -441,7 +457,17 @@ def create_fallback_chain(
         if not key:
             _dropped.append((name, "missing API key"))
             continue
-        fb = create_llm_provider(name, key, model)
+        # R-F87: ollama needs the OLLAMA_URL forwarded so the factory
+        # can build the OpenAI-compatible base_url. Other providers
+        # ignore the ollama_url arg.
+        if name == "ollama":
+            fb = create_llm_provider(
+                name, key, model,
+                ollama_url=_ollama_url,
+                ollama_model=model,
+            )
+        else:
+            fb = create_llm_provider(name, key, model)
         if fb and fb.is_configured:
             providers.append(fb)
         else:
