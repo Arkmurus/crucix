@@ -282,6 +282,27 @@ async def knowledge_reseed_ep(request: Request, force: bool = True):
     return {"ok": True, "forced": force, "result": result}
 
 
+# R-F141 (2026-05-10) — knowledge pack seed for the heatmap weak cells.
+# Lifts LatAm-non-Lusophone (51%) + Asia-Pacific (52% on compliance/finance)
+# from the heatmap floor by injecting curated, source-cited facts.
+@router.post("/knowledge/seed-latam-asia")
+async def knowledge_seed_latam_asia_ep(force: bool = False):
+    """Seed the LatAm + Asia-Pacific knowledge pack.
+
+    Idempotent — checks for the marker fact and skips if already
+    applied unless force=true. Returns {ok, added, errors, total}.
+    """
+    from ..intel.knowledge_packs import latam_asia_pac_seed as _pack
+    return await _pack.seed_facts(skip_if_seeded=not force)
+
+
+@router.get("/knowledge/seed-latam-asia/catalogue")
+async def knowledge_seed_latam_asia_catalogue_ep():
+    """Return the read-only catalogue of facts in the LatAm+APAC pack."""
+    from ..intel.knowledge_packs import latam_asia_pac_seed as _pack
+    return _pack.catalogue()
+
+
 # ── ARK-DD Orchestrator endpoints ──────────────────────────────────────
 # 7-layer due-diligence orchestrator. Composes sanctions, companies_house,
 # network_walker, ghost-score, risk_indices, export-control classifier,
