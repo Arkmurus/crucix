@@ -81,6 +81,65 @@ _TOPIC_SEVERITY: dict[str, str] = {
 
 SEVERITY_RANK = {"info": 0, "amber": 1, "red": 2, "hard_stop": 3}
 
+# R-F55 (2026-05-09): defence-DD-relevant restricted-entity lists. Keys
+# are OpenSanctions dataset slug substrings (lowercased contains-match);
+# values are (severity, human_label). When a match's `lists` / `datasets`
+# array contains any of these, the match is escalated to the listed
+# severity AND the per-match output carries the friendly label. This
+# turns opaque slugs like `us_dod_chinese_military_companies` into
+# "NDAA Sec 1260H Chinese Military Companies" in the DD report — what
+# a compliance officer actually wants to see.
+#
+# Lists chosen for the substring-match are the load-bearing ones for
+# defence-DD work: 1260H + 1233 + CMIC variants + BIS Entity List + EU
+# restrictive measures + UK FCDO. Other OpenSanctions datasets fall
+# through to topic-based classification unchanged.
+_DEFENCE_LIST_LABELS: dict[str, tuple[str, str]] = {
+    # US DoD restricted-entity lists
+    "1260h":             ("hard_stop", "NDAA Sec 1260H — Chinese Military Companies (DoD)"),
+    "chinese_military":  ("hard_stop", "DoD Chinese Military Companies List"),
+    "1233":              ("hard_stop", "Sec 1233 — Russian Defence Companies (DoD)"),
+    "russian_defence":   ("hard_stop", "Russian Defence Companies (DoD)"),
+    # OFAC / Treasury Chinese / NS-CMIC
+    "cmic":              ("hard_stop", "Chinese Military-Industrial Complex (NS-CMIC)"),
+    "ns_cmic":           ("hard_stop", "Non-SDN Chinese Military-Industrial Complex (NS-CMIC)"),
+    # BIS Entity List — high-impact for export controls
+    "bis_entity":        ("hard_stop", "BIS Entity List (US Commerce)"),
+    "us_trade":          ("hard_stop", "BIS / US Trade Sanctions"),
+    "us_bis":            ("hard_stop", "BIS (US Commerce)"),
+    # OFAC SSI / unverified list
+    "us_ssi":            ("hard_stop", "OFAC Sectoral Sanctions Identifications"),
+    "us_unverified":     ("red", "BIS Unverified List"),
+    "us_mil_end_user":   ("hard_stop", "BIS Military End User List"),
+    # EU + UK
+    "eu_fsf":            ("hard_stop", "EU Financial Sanctions File"),
+    "eu_council":        ("hard_stop", "EU Council Restrictive Measures"),
+    "gb_hmt":            ("hard_stop", "HM Treasury Sanctions"),
+    "gb_fcdo":           ("hard_stop", "UK FCDO Sanctions List"),
+    "ofsi":              ("hard_stop", "OFSI / FCDO UK Sanctions"),
+    # UN
+    "un_sc_sanctions":   ("hard_stop", "UN Security Council Sanctions"),
+    "un_consolidated":   ("hard_stop", "UN Consolidated Sanctions"),
+}
+
+
+def _defence_list_hits(datasets: list) -> list[tuple[str, str, str]]:
+    """Return list of (slug, severity, label) tuples for defence-relevant
+    list matches in `datasets`. Each unique label is reported once."""
+    if not datasets:
+        return []
+    seen_labels: set[str] = set()
+    hits: list[tuple[str, str, str]] = []
+    for ds in datasets:
+        ds_lower = str(ds).lower()
+        for substr, (sev, label) in _DEFENCE_LIST_LABELS.items():
+            if substr in ds_lower and label not in seen_labels:
+                seen_labels.add(label)
+                hits.append((str(ds), sev, label))
+                break
+    return hits
+
+
 # Any match scoring below this floor is demoted to info regardless of
 # topic. Below 0.75 is fuzzy noise — wrong-entity-same-name collisions.
 SCORE_FLOOR_FOR_ESCALATION = 0.75
@@ -202,6 +261,14 @@ def classify_match(match: dict, query_name: str = "") -> str:
         severity = "hard_stop"
     elif "interpol" in ds_lower and SEVERITY_RANK["red"] > SEVERITY_RANK[severity]:
         severity = "red"
+    # R-F55: defence-DD-relevant lists (NDAA 1260H, DoD 1233, CMIC,
+    # NS-CMIC, BIS Entity, EU FSF / Council, UK FCDO / OFSI, UN SC).
+    # Escalation precedence matches the existing ICC/Interpol pattern:
+    # if ANY defence list matches, take the highest severity from
+    # _DEFENCE_LIST_LABELS, but only if it's higher than the current.
+    for _, _list_sev, _ in _defence_list_hits(datasets):
+        if SEVERITY_RANK[_list_sev] > SEVERITY_RANK[severity]:
+            severity = _list_sev
     # Score floor — if escalation-worthy but fuzzy, demote to info
     if SEVERITY_RANK[severity] >= 1 and score < SCORE_FLOOR_FOR_ESCALATION:
         severity = "info"
@@ -263,11 +330,14 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
         )
         if was_demoted:
             noise_filtered += 1
+        _ds = m.get("lists") or m.get("datasets") or []
+        _list_labels = [label for _, _, label in _defence_list_hits(_ds)]
         per_match.append({
             "name":     candidate_name,
             "score":    float(m.get("score") or 0.0),
             "topics":   m.get("topics") or [],
-            "datasets": m.get("lists") or m.get("datasets") or [],
+            "datasets": _ds,
+            "list_labels": _list_labels,  # R-F55: human-readable list names
             "severity": final_severity,
             "token_overlap": overlap,
             "noise_filtered": was_demoted,
@@ -281,7 +351,12 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
     parts: list[str] = []
     for pm in worst_matches[:3]:
         topics_str = ",".join(pm["topics"][:3]) or "untagged"
-        lists_str = ",".join(pm["datasets"][:2]) if pm["datasets"] else ""
+        # R-F55: prefer the human-readable list_labels when defence-DD
+        # lists matched; fall back to raw dataset slugs otherwise.
+        if pm.get("list_labels"):
+            lists_str = "; ".join(pm["list_labels"][:2])
+        else:
+            lists_str = ",".join(pm["datasets"][:2]) if pm["datasets"] else ""
         parts.append(
             f"{pm['name']} (score {pm['score']:.2f}, topics: {topics_str}"
             f"{', lists: ' + lists_str if lists_str else ''})"
