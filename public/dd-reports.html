@@ -78,6 +78,74 @@
     .dd-act-btn:hover { color: #fff; border-color: rgba(124,58,237,0.4); }
     .dd-act-btn.primary { background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff; border-color: transparent; }
 
+    /* ─── DD Pipeline Tools (audit 2026-05-09) ─────────────────────── */
+    .dd-pipeline {
+      margin-top: 36px; padding: 22px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.06); border-radius: 14px;
+    }
+    .dd-pipeline-head {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      margin-bottom: 18px; gap: 12px;
+    }
+    .dd-pipeline-toggle {
+      background: transparent; border: 1px solid rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.6); width: 32px; height: 32px;
+      border-radius: 7px; cursor: pointer; transition: all .15s;
+    }
+    .dd-pipeline-toggle:hover { color: #fff; border-color: rgba(124,58,237,0.4); }
+    .dd-pipeline-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px;
+    }
+    .dd-pipeline-grid.collapsed { display: none; }
+    .dd-tool {
+      background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 11px; padding: 14px 14px 12px; transition: all .15s;
+      display: flex; flex-direction: column;
+    }
+    .dd-tool:hover { border-color: rgba(124,58,237,0.32); }
+    .dd-tool-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+    .dd-tool-icon {
+      width: 32px; height: 32px; flex-shrink: 0;
+      border-radius: 7px; background: rgba(124,58,237,0.16);
+      display: flex; align-items: center; justify-content: center;
+      color: #c4b5fd; font-size: 15px;
+    }
+    .dd-tool-name { font-weight: 600; font-size: 13px; color: #fff; line-height: 1.25; }
+    .dd-tool-rfn { font-size: 10.5px; color: rgba(255,255,255,0.35); margin-top: 2px; }
+    .dd-tool-desc { font-size: 12px; color: rgba(255,255,255,0.55); line-height: 1.5; margin-bottom: 10px; }
+    .dd-tool-form { display: flex; flex-direction: column; gap: 6px; }
+    .dd-tool-form input, .dd-tool-form textarea {
+      background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08);
+      color: #fff; padding: 7px 10px; border-radius: 6px;
+      font-size: 12px; font-family: inherit; outline: none;
+      transition: border-color .15s;
+    }
+    .dd-tool-form textarea {
+      min-height: 56px; resize: vertical;
+      font-family: 'Cascadia Code', Consolas, 'SF Mono', monospace; font-size: 11.5px;
+    }
+    .dd-tool-form input:focus, .dd-tool-form textarea:focus {
+      border-color: rgba(124,58,237,0.5);
+    }
+    .dd-tool-run {
+      align-self: flex-end; margin-top: 4px;
+      background: linear-gradient(135deg, #7c3aed, #2563eb);
+      border: none; color: #fff; font-size: 11.5px; font-weight: 600;
+      padding: 6px 14px; border-radius: 6px; cursor: pointer;
+    }
+    .dd-tool-run:disabled { opacity: 0.5; cursor: wait; }
+    .dd-tool-output {
+      margin-top: 10px; padding: 9px 10px;
+      background: rgba(0,0,0,0.3); border-radius: 6px;
+      font-family: 'Cascadia Code', Consolas, 'SF Mono', monospace;
+      font-size: 11px; color: rgba(255,255,255,0.85); line-height: 1.55;
+      max-height: 280px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .dd-tool-output:empty { display: none; }
+    .dd-tool-output.error { color: #fca5a5; background: rgba(239,68,68,0.08); }
+
     .dd-md {
       font-size: 13.5px; line-height: 1.7; color: rgba(255,255,255,0.78);
       max-height: 60vh; overflow-y: auto; padding-right: 8px;
@@ -123,6 +191,33 @@
 
     <div id="dd-content">
       <div class="dd-loading">Loading reports…</div>
+    </div>
+
+    <!-- ──────────────────────────────────────────────────────────────────
+         DD Pipeline Tools (added 2026-05-09 by Web/UI audit)
+         Surfaces the 12 deterministic DD primitives shipped today
+         (R-F68/F70/F71/F72/F73/F74/F75/F76/F77/F78/F80/F84). Each tool
+         is one click — open the card, fill the small form, see the
+         structured output. Designed to drop directly into a DD report.
+         ────────────────────────────────────────────────────────────── -->
+    <div class="dd-pipeline" id="dd-pipeline">
+      <div class="dd-pipeline-head">
+        <div>
+          <div class="dd-eyebrow" style="margin-bottom:4px">Pipeline</div>
+          <h2 style="font-size:18px;font-weight:700;color:#fff;margin:0">
+            DD Pipeline Tools
+            <span style="font-weight:400;color:rgba(255,255,255,0.4);font-size:13px;margin-left:8px">
+              · 12 deterministic primitives, paste-ready output
+            </span>
+          </h2>
+        </div>
+        <button class="dd-pipeline-toggle" id="dd-pipeline-toggle"
+                aria-expanded="true" aria-controls="dd-pipeline-grid"
+                title="Collapse / expand">
+          <i class="bi bi-chevron-up"></i>
+        </button>
+      </div>
+      <div class="dd-pipeline-grid" id="dd-pipeline-grid"></div>
     </div>
 
   </div>
@@ -337,6 +432,329 @@ document.getElementById('dd-new-btn').addEventListener('click', () => {
 });
 
 loadReports();
+
+// ────────────────────────────────────────────────────────────────────
+// DD Pipeline Tools — surfaces the 12 deterministic primitives shipped
+// in this session. Each tool config: {id, name, icon, desc, fields[],
+// endpoint, method, transform(fields)→body, render(response)→html}.
+// ────────────────────────────────────────────────────────────────────
+(function() {
+  'use strict';
+  const TOKEN = localStorage.getItem('crucix_token') || '';
+  const HEADERS = {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + TOKEN,
+  };
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
+    );
+  }
+
+  // Renderers — each returns HTML for the output panel.
+  function renderJson(obj) {
+    return escapeHtml(JSON.stringify(obj, null, 2));
+  }
+  function renderNarrative(obj, extra) {
+    const narrative = obj.narrative || obj.error || '(no narrative)';
+    let out = '<div style="color:#c4b5fd;margin-bottom:6px;font-weight:600">' + escapeHtml(narrative) + '</div>';
+    if (extra) out += extra;
+    return out;
+  }
+
+  const TOOLS = [
+    {
+      id: 'sanctions-divergence',
+      name: 'Sanctions Divergence',
+      rfn: 'R-F68',
+      icon: 'bi-shield-exclamation',
+      desc: 'Cross-list lookup: where is the entity listed (US/UK/EU/UN/CA/CH/AU)?',
+      fields: [{key: 'name', label: 'Entity name', placeholder: 'Wagner Group', required: true}],
+      endpoint: function(f) { return '/api/aria/sanctions/divergence?name=' + encodeURIComponent(f.name); },
+      method: 'GET',
+      render: function(r) {
+        const listed = (r.jurisdictions_listed || []).join(', ') || '—';
+        const not = (r.jurisdictions_not_listed || []).join(', ') || '—';
+        return renderNarrative(r, '<div style="margin-top:6px"><b>Listed:</b> ' + escapeHtml(listed) + '</div><div><b>Not listed:</b> ' + escapeHtml(not) + '</div>');
+      },
+    },
+    {
+      id: 'sanctions-rca',
+      name: 'RCA / Relatives',
+      rfn: 'R-F76',
+      icon: 'bi-people',
+      desc: 'FATF Rec 12 — recursive screening through OpenSanctions relationships.',
+      fields: [{key: 'name', label: 'Subject name', placeholder: 'John Doe', required: true}],
+      endpoint: function(f) { return '/api/aria/sanctions/rca?name=' + encodeURIComponent(f.name) + '&depth=1'; },
+      method: 'GET',
+      render: function(r) {
+        const inh = (r.inherited_risks || []).length;
+        return renderNarrative(r, '<div style="margin-top:6px"><b>Inherited risks:</b> ' + inh + '</div>');
+      },
+    },
+    {
+      id: 'fatf-match',
+      name: 'FATF Typology Match',
+      rfn: 'R-F72',
+      icon: 'bi-diagram-3',
+      desc: 'Score a profile against 8 encoded FATF ML/TBML typologies.',
+      fields: [{key: 'profile', label: 'Profile JSON', placeholder: '{"jurisdictions":["BVI"],"ubo_disclosure":"undisclosed","payment_method":"USDT"}', textarea: true, required: true}],
+      endpoint: function() { return '/api/aria/fatf/match'; },
+      method: 'POST',
+      transform: function(f) { return JSON.parse(f.profile); },
+      render: function(r) {
+        const matched = (r.matches || []).map(m => m.id + ' (' + m.score + ')').join(', ') || 'none';
+        return renderNarrative(r, '<div style="margin-top:6px"><b>Matches:</b> ' + escapeHtml(matched) + '</div>');
+      },
+    },
+    {
+      id: 'dd-substance',
+      name: 'Economic Substance',
+      rfn: 'R-F77',
+      icon: 'bi-building',
+      desc: 'OECD BEPS / FATF substance test — distinguishes fronts from real entities.',
+      fields: [{key: 'profile', label: 'Profile JSON', placeholder: '{"employees":2,"claimed_revenue_usd":50000000,"paid_up_capital_usd":1000,"directors_count":1,"registered_address":"Suite 100, Regus, BVI"}', textarea: true, required: true}],
+      endpoint: function() { return '/api/aria/dd/substance'; },
+      method: 'POST',
+      transform: function(f) { return JSON.parse(f.profile); },
+      render: function(r) {
+        return renderNarrative(r, '<div style="margin-top:6px"><b>Grade:</b> ' + escapeHtml(r.grade || '—') + ' (score ' + (r.substance_score == null ? '?' : r.substance_score) + ')</div>');
+      },
+    },
+    {
+      id: 'tbml-classify',
+      name: 'TBML Classifier',
+      rfn: 'R-F73',
+      icon: 'bi-graph-up-arrow',
+      desc: 'Pure classifier — declared invoice value vs benchmark range. (No COMTRADE_API_KEY needed.)',
+      fields: [
+        {key: 'declared', label: 'Declared unit value', placeholder: '500000', required: true, type: 'number'},
+        {key: 'low', label: 'Benchmark low', placeholder: '50000', required: true, type: 'number'},
+        {key: 'high', label: 'Benchmark high', placeholder: '80000', required: true, type: 'number'},
+      ],
+      endpoint: function() { return '/api/aria/tbml/classify'; },
+      method: 'POST',
+      transform: function(f) { return {declared: parseFloat(f.declared), low: parseFloat(f.low), high: parseFloat(f.high)}; },
+      render: function(r) {
+        return renderNarrative(r, '<div style="margin-top:6px"><b>Grade:</b> ' + escapeHtml(r.grade || '—') + ', deviation ' + (r.deviation_pct == null ? '?' : r.deviation_pct) + '%</div>');
+      },
+    },
+    {
+      id: 'crypto-screen',
+      name: 'Crypto Wallet Screen',
+      rfn: 'R-F74',
+      icon: 'bi-currency-bitcoin',
+      desc: 'OpenSanctions wallet index lookup — supports BTC / ETH / TRON / Solana / etc.',
+      fields: [{key: 'address', label: 'Wallet address', placeholder: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1', required: true}],
+      endpoint: function(f) { return '/api/aria/crypto/screen?address=' + encodeURIComponent(f.address); },
+      method: 'GET',
+      render: function(r) {
+        const matched = r.matched ? 'YES — ' + (r.matches || []).length + ' match(es)' : 'no match';
+        return '<div style="color:#c4b5fd;margin-bottom:6px;font-weight:600">Chain: ' + escapeHtml(r.chain || '?') + '</div>' +
+               '<div><b>Sanctioned:</b> ' + matched + '</div>';
+      },
+    },
+    {
+      id: 'forensic-benford',
+      name: "Benford's Law",
+      rfn: 'R-F70',
+      icon: 'bi-bar-chart',
+      desc: 'Forensic-accounting flag for fabricated financial figures. Min 50 values, ≥10× span.',
+      fields: [{key: 'values', label: 'Values (comma or newline separated)', placeholder: '1234, 5678, 9012, 3456 ...', textarea: true, required: true}],
+      endpoint: function() { return '/api/aria/forensic/benford'; },
+      method: 'POST',
+      transform: function(f) {
+        const arr = f.values.split(/[,\n\s]+/).map(v => v.trim()).filter(Boolean);
+        return {values: arr};
+      },
+      render: function(r) {
+        return renderNarrative(r, '<div style="margin-top:6px"><b>Grade:</b> ' + escapeHtml(r.anomaly_grade || '—') + ', n=' + (r.n || 0) + ', χ²=' + (r.chi_squared == null ? '—' : r.chi_squared) + '</div>');
+      },
+    },
+    {
+      id: 'citation-verify',
+      name: 'Citation Audit',
+      rfn: 'R-F78',
+      icon: 'bi-link-45deg',
+      desc: 'Verify cited claims against actual source content. Returns citation_grounded_rate.',
+      fields: [{key: 'response', label: 'Response text (with inline URLs)', placeholder: 'Claim text. https://source.example/article ...', textarea: true, required: true}],
+      endpoint: function() { return '/api/aria/citations/verify'; },
+      method: 'POST',
+      transform: function(f) { return {response: f.response, max_urls: 8}; },
+      render: function(r) {
+        return renderNarrative(r, '<div style="margin-top:6px"><b>Audited:</b> ' + (r.citations_audited || 0) +
+                                 ' (S/P/U/UR: ' + (r.supported || 0) + '/' + (r.partial || 0) + '/' + (r.unsupported || 0) + '/' + (r.unreachable || 0) +
+                                 '), grounded ' + (r.citation_grounded_rate == null ? '—' : r.citation_grounded_rate) + '</div>');
+      },
+    },
+    {
+      id: 'counter-intel',
+      name: 'Counter-Intelligence Scan',
+      rfn: 'R-F84',
+      icon: 'bi-shield-shaded',
+      desc: 'Detect reputation washing / new-outlet burst / credibility anomaly for an entity.',
+      fields: [{key: 'entity', label: 'Entity name', placeholder: 'Wagner Group', required: true}],
+      endpoint: function(f) { return '/api/aria/security/counter-intel/scan?entity=' + encodeURIComponent(f.entity); },
+      method: 'GET',
+      render: function(r) {
+        const score = r.composite_score == null ? '—' : r.composite_score;
+        return renderNarrative(r, '<div style="margin-top:6px"><b>Composite:</b> ' + score + '</div>');
+      },
+    },
+    {
+      id: 'provenance-lineage',
+      name: 'Provenance Lineage',
+      rfn: 'R-F75',
+      icon: 'bi-diagram-2',
+      desc: 'Walk backwards from a knowledge node to find every source that contributed.',
+      fields: [{key: 'node_id', label: 'Node ID', placeholder: 'FACT-12345', required: true}],
+      endpoint: function(f) { return '/api/aria/provenance/lineage?node_id=' + encodeURIComponent(f.node_id); },
+      method: 'GET',
+      render: function(r) {
+        const inv = r.invalidated ? '<span style="color:#fca5a5">⚠ INVALIDATED</span>' : 'valid';
+        return '<div style="color:#c4b5fd;margin-bottom:6px;font-weight:600">Status: ' + inv + '</div>' +
+               '<div><b>Lineage edges:</b> ' + ((r.lineage || []).length) + '</div>';
+      },
+    },
+    {
+      id: 'prompt-injection',
+      name: 'Prompt-Injection Grade',
+      rfn: 'R-F80',
+      icon: 'bi-bug',
+      desc: 'Grade a chat response against an OWASP LLM01 attack ID. Useful for retrospective audit.',
+      fields: [
+        {key: 'attack_id', label: 'Attack ID', placeholder: 'PI-CONTEXT-LEAK', required: true},
+        {key: 'response', label: 'Response text', placeholder: 'I cannot share my system prompt...', textarea: true, required: true},
+      ],
+      endpoint: function() { return '/api/aria/security/prompt-injection/grade'; },
+      method: 'POST',
+      transform: function(f) { return {attack_id: f.attack_id, response: f.response}; },
+      render: function(r) {
+        return '<div style="color:#c4b5fd;margin-bottom:6px;font-weight:600">' + escapeHtml(r.verdict || r.error || '—') + '</div>' +
+               '<div><b>Refusal hits:</b> ' + ((r.refusal_markers_hit || []).length) +
+               ', <b>Leak hits:</b> ' + ((r.leak_markers_hit || []).length) + '</div>';
+      },
+    },
+    {
+      id: 'tier-router',
+      name: 'Tier Router',
+      rfn: 'R-F87a',
+      icon: 'bi-diagram-3-fill',
+      desc: 'Diagnostic — explain which LLM tier each intent maps to.',
+      fields: [{key: 'intent', label: 'Intent', placeholder: 'student_quiz', required: true}],
+      endpoint: function(f) { return '/api/aria/llm/tier-router/explain?intent=' + encodeURIComponent(f.intent); },
+      method: 'GET',
+      render: function(r) {
+        return '<div style="color:#c4b5fd;margin-bottom:6px;font-weight:600">' +
+               escapeHtml(r.intent || '—') + ' → ' + escapeHtml(r.chosen_provider || '—') + '</div>' +
+               '<div><b>Preferred tier:</b> ' + escapeHtml(r.preferred_tier || '—') +
+               (r.degraded ? ' <span style="color:#fbbf24">(degraded)</span>' : '') + '</div>';
+      },
+    },
+  ];
+
+  function renderTool(tool) {
+    const fieldsHtml = tool.fields.map(function(f) {
+      const tag = f.textarea ? 'textarea' : 'input';
+      const type = f.type || 'text';
+      const attrs = [
+        'id="tool-' + tool.id + '-' + f.key + '"',
+        'placeholder="' + escapeHtml(f.placeholder || '') + '"',
+        f.required ? 'required' : '',
+        f.textarea ? '' : 'type="' + type + '"',
+      ].filter(Boolean).join(' ');
+      const closing = f.textarea ? ('</textarea>') : '';
+      return '<label style="font-size:10.5px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.5px">' +
+             escapeHtml(f.label) + '</label>' +
+             '<' + tag + ' ' + attrs + (f.textarea ? '>' : '/>') + closing;
+    }).join('');
+    return (
+      '<div class="dd-tool" data-tool="' + tool.id + '">' +
+        '<div class="dd-tool-head">' +
+          '<div class="dd-tool-icon"><i class="bi ' + tool.icon + '"></i></div>' +
+          '<div>' +
+            '<div class="dd-tool-name">' + escapeHtml(tool.name) + '</div>' +
+            '<div class="dd-tool-rfn">' + escapeHtml(tool.rfn) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="dd-tool-desc">' + escapeHtml(tool.desc) + '</div>' +
+        '<div class="dd-tool-form">' + fieldsHtml +
+          '<button class="dd-tool-run" data-tool="' + tool.id + '">Run</button>' +
+        '</div>' +
+        '<div class="dd-tool-output" id="tool-' + tool.id + '-output"></div>' +
+      '</div>'
+    );
+  }
+
+  async function runTool(tool) {
+    const fieldVals = {};
+    for (const f of tool.fields) {
+      const el = document.getElementById('tool-' + tool.id + '-' + f.key);
+      if (!el) continue;
+      fieldVals[f.key] = el.value;
+      if (f.required && !el.value.trim()) {
+        showOutput(tool, '⚠ ' + f.label + ' required', true);
+        return;
+      }
+    }
+    const outEl = document.getElementById('tool-' + tool.id + '-output');
+    const btn = document.querySelector('.dd-tool-run[data-tool="' + tool.id + '"]');
+    btn.disabled = true; btn.textContent = 'Running…';
+    outEl.classList.remove('error');
+    outEl.innerHTML = '<span style="color:rgba(255,255,255,0.5)">Running…</span>';
+
+    try {
+      let url = tool.endpoint(fieldVals);
+      let opts = { method: tool.method || 'GET', headers: HEADERS };
+      if (tool.method === 'POST') {
+        opts.body = JSON.stringify(tool.transform ? tool.transform(fieldVals) : fieldVals);
+      }
+      const resp = await fetch(url, opts);
+      const data = await resp.json().catch(function() { return null; });
+      if (!resp.ok || !data) {
+        showOutput(tool, '✗ HTTP ' + resp.status + (data && data.error ? ': ' + data.error : ''), true);
+        return;
+      }
+      outEl.innerHTML = tool.render(data);
+    } catch (err) {
+      showOutput(tool, '✗ ' + err.message, true);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Run';
+    }
+  }
+
+  function showOutput(tool, text, isError) {
+    const outEl = document.getElementById('tool-' + tool.id + '-output');
+    outEl.textContent = text;
+    if (isError) outEl.classList.add('error');
+    else outEl.classList.remove('error');
+  }
+
+  // Render the grid
+  const grid = document.getElementById('dd-pipeline-grid');
+  if (grid) {
+    grid.innerHTML = TOOLS.map(renderTool).join('');
+    grid.addEventListener('click', function(e) {
+      const btn = e.target.closest('.dd-tool-run');
+      if (!btn) return;
+      const id = btn.getAttribute('data-tool');
+      const tool = TOOLS.find(function(t) { return t.id === id; });
+      if (tool) runTool(tool);
+    });
+  }
+
+  // Collapse / expand
+  const toggleBtn = document.getElementById('dd-pipeline-toggle');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', function() {
+      grid.classList.toggle('collapsed');
+      toggleBtn.setAttribute('aria-expanded', !grid.classList.contains('collapsed'));
+      toggleBtn.querySelector('i').className = grid.classList.contains('collapsed')
+        ? 'bi bi-chevron-down' : 'bi bi-chevron-up';
+    });
+  }
+})();
 </script>
 </body>
 </html>

@@ -2,10 +2,66 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="refresh" content="0; url=/signin.html">
-  <title>ARKMURUS</title>
+  <title>ARKMURUS Intelligence</title>
+  <link rel="icon" type="image/png" href="images/fav-icon/icon.png">
+  <style>
+    *,*::before,*::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; }
+    body {
+      background: #0c0919;
+      font-family: 'Gordita', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .splash { text-align: center; }
+    .logo-mark {
+      width: 56px; height: 56px; border-radius: 14px;
+      background: linear-gradient(135deg, #913BFF, #0066FF);
+      box-shadow: 0 0 30px rgba(145,59,255,.45);
+      margin: 0 auto 18px;
+    }
+    .brand {
+      font-size: 14px; font-weight: 700; letter-spacing: 5px;
+      text-transform: uppercase; color: #fff; margin-bottom: 24px;
+    }
+    .spinner {
+      width: 22px; height: 22px; margin: 0 auto;
+      border: 2px solid rgba(255,255,255,0.14);
+      border-top-color: #913BFF; border-radius: 50%;
+      animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .fallback {
+      margin-top: 18px; font-size: 12px; color: rgba(255,255,255,0.4);
+    }
+    .fallback a { color: #c4b5fd; text-decoration: none; }
+    .fallback a:hover { color: #fff; }
+  </style>
 </head>
 <body>
-  <script>window.location.replace('/signin.html');</script>
+  <div class="splash" role="status" aria-live="polite">
+    <div class="logo-mark" aria-hidden="true"></div>
+    <div class="brand">ARKMURUS</div>
+    <div class="spinner" aria-label="Loading"></div>
+    <noscript>
+      <p class="fallback">JavaScript is required. <a href="/signin.html">Continue manually</a>.</p>
+    </noscript>
+    <p class="fallback" id="fallback" style="display:none">
+      Taking too long? <a href="/signin.html">Click here</a>.
+    </p>
+  </div>
+  <script>
+    // Belt-and-braces: redirect via JS as soon as the script runs.
+    // The <meta refresh> handles JS-disabled browsers; this handles
+    // rare cases where meta-refresh is suppressed (e.g. Safari Reader).
+    window.location.replace('/signin.html');
+    // If we're still on this page after 1.5s, show the manual link.
+    setTimeout(function(){
+      var f = document.getElementById('fallback');
+      if (f) f.style.display = 'block';
+    }, 1500);
+  </script>
 </body>
 </html>

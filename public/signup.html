@@ -135,40 +135,45 @@
         <a href="/signin.html" class="sc-btn sc-btn-primary w-full">Back to Sign In</a>
       </div>
 
-      <!-- Registration form — 3 screens -->
-      <div id="register-screen">
+      <!-- Registration form — 3 screens. Audit fix 2026-05-09: wrap in
+           <form> so password managers (Bitwarden / 1Password / browser
+           built-ins) detect the email+password as a registration form
+           and offer "save password" prompts. Continue buttons remain
+           type="button" so they don't submit; final Create Account is
+           type="submit". -->
+      <form id="register-screen" autocomplete="on">
         <h2 class="auth-title">Create account</h2>
         <p class="auth-sub">Set up your analyst profile</p>
 
-        <div class="progress-dots">
+        <div class="progress-dots" aria-hidden="true">
           <div class="progress-dot active" id="dot-1"></div>
           <div class="progress-dot" id="dot-2"></div>
           <div class="progress-dot" id="dot-3"></div>
         </div>
 
-        <div id="error-msg" style="display:none;padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:16px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fca5a5"></div>
+        <div id="error-msg" role="alert" aria-live="polite" style="display:none;padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:16px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fca5a5"></div>
 
         <!-- Screen 1 — account fundamentals (required) -->
         <div id="step-1">
           <div class="sc-field">
-            <label>Full Name</label>
-            <input type="text" id="fullName" placeholder="John Smith" autocomplete="name">
+            <label for="fullName">Full Name</label>
+            <input type="text" id="fullName" name="fullName" placeholder="John Smith" autocomplete="name" required>
           </div>
           <div class="sc-field">
-            <label>Username</label>
-            <input type="text" id="username" placeholder="jsmith_analyst" autocomplete="username">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" placeholder="jsmith_analyst" autocomplete="username" required>
           </div>
           <div class="sc-field">
-            <label>Email address</label>
-            <input type="email" id="email" placeholder="you@organisation.com" autocomplete="email">
+            <label for="email">Email address</label>
+            <input type="email" id="email" name="email" placeholder="you@organisation.com" autocomplete="email" required>
           </div>
           <div class="sc-field">
-            <label>Password</label>
-            <input type="password" id="password" placeholder="Min. 8 characters" autocomplete="new-password">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" placeholder="Min. 8 characters" autocomplete="new-password" minlength="8" required>
           </div>
           <div class="sc-field">
-            <label>Confirm Password</label>
-            <input type="password" id="confirmPassword" placeholder="Re-enter password" autocomplete="new-password">
+            <label for="confirmPassword">Confirm Password</label>
+            <input type="password" id="confirmPassword" name="confirmPassword" placeholder="Re-enter password" autocomplete="new-password" minlength="8" required>
           </div>
           <div class="step-actions">
             <span></span>
@@ -325,12 +330,12 @@
           <div class="step-actions">
             <button type="button" class="btn-back" id="btn-step3-back">← Back</button>
             <div class="step-fwd">
-              <a class="skip" id="btn-step3-skip">Skip &amp; submit</a>
-              <button type="button" class="sc-btn sc-btn-primary" id="btn-step3-submit">Create Account</button>
+              <a class="skip" id="btn-step3-skip" role="button" tabindex="0">Skip &amp; submit</a>
+              <button type="submit" class="sc-btn sc-btn-primary" id="btn-step3-submit">Create Account</button>
             </div>
           </div>
         </div>
-      </div>
+      </form>
     </div>
   </div>
 </div>
@@ -414,7 +419,11 @@
 
   document.getElementById('btn-step3-back').addEventListener('click', function() { showStep(2); });
   document.getElementById('btn-step3-skip').addEventListener('click', function() { doSubmit(true); });
-  document.getElementById('btn-step3-submit').addEventListener('click', function() { doSubmit(false); });
+  // Audit fix 2026-05-09: form submit handler replaces direct button-click
+  // so password managers detect submission + native HTML5 validation fires.
+  document.getElementById('register-screen').addEventListener('submit', function(e) {
+    e.preventDefault(); doSubmit(false);
+  });
 
   async function doSubmit(skipped) {
     var btn = document.getElementById('btn-step3-submit');

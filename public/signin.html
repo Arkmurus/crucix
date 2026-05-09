@@ -108,35 +108,39 @@
       <h2 class="auth-title">Welcome back</h2>
       <p class="auth-sub">Sign in to your intelligence platform</p>
 
-      <div id="error-msg" style="display:none;padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:16px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fca5a5"></div>
+      <div id="error-msg" role="alert" aria-live="polite" style="display:none;padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:16px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);color:#fca5a5"></div>
 
-      <div id="step-credentials">
-        <div class="sc-field">
-          <label>Email address</label>
-          <input type="email" id="email" placeholder="you@organisation.com" autocomplete="email">
+      <!-- Audit fix 2026-05-09: wrap in <form> for password-manager auto-fill,
+           native Enter-to-submit, and "save password" prompts. -->
+      <form id="signin-form" autocomplete="on">
+        <div id="step-credentials">
+          <div class="sc-field">
+            <label for="email">Email address</label>
+            <input type="email" id="email" name="email" placeholder="you@organisation.com" autocomplete="email" required>
+          </div>
+          <div class="sc-field">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="current-password" required>
+          </div>
+          <div class="forgot-row">
+            <a href="forgot-password.html" class="auth-link">Forgot password?</a>
+          </div>
+          <button type="submit" class="sc-btn sc-btn-primary w-full" id="btn-login">Sign In</button>
+          <p class="auth-footer">Don't have an account? <a href="signup.html" class="auth-link">Create account</a></p>
         </div>
-        <div class="sc-field">
-          <label>Password</label>
-          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
-        </div>
-        <div class="forgot-row">
-          <a href="forgot-password.html" class="auth-link">Forgot password?</a>
-        </div>
-        <button type="button" class="sc-btn sc-btn-primary w-full" id="btn-login">Sign In</button>
-        <p class="auth-footer">Don't have an account? <a href="signup.html" class="auth-link">Create account</a></p>
-      </div>
 
-      <div id="step-2fa" style="display:none;text-align:center">
-        <div style="width:64px;height:64px;border-radius:16px;background:rgba(145,59,255,.15);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:30px">🔐</div>
-        <h4 style="color:#fff;margin-bottom:8px">Two-Factor Auth</h4>
-        <p style="color:rgba(255,255,255,.45);font-size:14px;margin-bottom:24px">Enter the 6-digit code from your authenticator app</p>
-        <div class="sc-field">
-          <label>Authenticator Code</label>
-          <input type="text" id="twofa-code" placeholder="000000" maxlength="6" inputmode="numeric" style="text-align:center;font-size:22px;letter-spacing:6px;font-weight:700">
+        <div id="step-2fa" style="display:none;text-align:center">
+          <div style="width:64px;height:64px;border-radius:16px;background:rgba(145,59,255,.15);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:30px" aria-hidden="true">🔐</div>
+          <h4 style="color:#fff;margin-bottom:8px">Two-Factor Auth</h4>
+          <p style="color:rgba(255,255,255,.45);font-size:14px;margin-bottom:24px">Enter the 6-digit code from your authenticator app</p>
+          <div class="sc-field">
+            <label for="twofa-code">Authenticator Code</label>
+            <input type="text" id="twofa-code" name="otp" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" style="text-align:center;font-size:22px;letter-spacing:6px;font-weight:700">
+          </div>
+          <button type="button" class="sc-btn sc-btn-primary w-full" id="btn-2fa" style="margin-top:8px">Verify Code</button>
+          <button type="button" class="sc-btn sc-btn-outline w-full" id="btn-back" style="margin-top:10px">← Back</button>
         </div>
-        <button type="button" class="sc-btn sc-btn-primary w-full" id="btn-2fa" style="margin-top:8px">Verify Code</button>
-        <button type="button" class="sc-btn sc-btn-outline w-full" id="btn-back" style="margin-top:10px">← Back</button>
-      </div>
+      </form>
     </div>
   </div>
 </div>
@@ -230,16 +234,23 @@
     hideError();
   }
 
-  // Wire up events after DOM is ready
-  document.getElementById('btn-login').addEventListener('click', doLogin);
+  // Wire up events. Form submission handles Enter-to-submit natively
+  // when the credentials step is showing; the 2FA step uses a non-submit
+  // button so we keep an explicit Enter-key handler for that step.
+  document.getElementById('signin-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    if (document.getElementById('step-2fa').style.display !== 'none') {
+      do2FA();
+    } else {
+      doLogin();
+    }
+  });
   document.getElementById('btn-2fa').addEventListener('click', do2FA);
   document.getElementById('btn-back').addEventListener('click', backToCredentials);
-
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') {
-      if (document.getElementById('step-2fa').style.display !== 'none') do2FA();
-      else doLogin();
-    }
+  // Enter-key still triggers 2FA verify when the 2FA step is shown
+  // (the OTP input doesn't submit the parent form by default).
+  document.getElementById('twofa-code').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); do2FA(); }
   });
 })();
 </script>
