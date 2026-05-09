@@ -1607,3 +1607,46 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: []
     mem0_tags: [learning, sources, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # R-F69 (2026-05-09): WEEKLY-FCPA-ENFORCEMENT
+  # DOJ FCPA enforcement monitoring — surfaces named intermediaries,
+  # individuals, and country exposures from recent settlements.
+  # Defence-DD desk gets early warning on counterparties named in
+  # FCPA cases involving Arkmurus's active markets. ~1 fly request
+  # per week; deterministic (no LLM cost) so cap is 0.
+  # ──────────────────────────────────────────────────────────────────
+  - id: WEEKLY-FCPA-ENFORCEMENT
+    name: DOJ FCPA enforcement scan
+    description: |
+      Every Monday 03:30 UTC, fetch the DOJ FCPA enforcement listing,
+      extract case titles + linked press releases, parse named entities
+      (companies, individuals, country exposures, penalty amounts), and
+      absorb priority-country cases into the knowledge base with
+      topic=enforcement_action and confidence=ASSESSED.
+
+      Why weekly: DOJ posts settlements in batches, typically 0-3 per
+      week. A weekly cadence catches everything without burning 7×
+      the bandwidth of a daily run.
+
+      Future iterations will add SEC FCPA, UK SFO, and France PNF as
+      additional sources.
+    cron: "30 3 * * 1"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 90
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: fcpa_enforcement_scan
+        days_back: 30
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if:
+      - "priority_count"
+      - "Angola"
+      - "Mozambique"
+      - "Nigeria"
+      - "Saudi Arabia"
+      - "UAE"
+      - "Brazil"
+    mem0_tags: [enforcement_action, fcpa, sanctions, weekly, autonomous]

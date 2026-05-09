@@ -451,6 +451,16 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         from ..intel import dd_orchestrator
         return await dd_orchestrator.rescreen_watchlist(llm=llm)
 
+    # R-F69 (2026-05-09): DOJ FCPA enforcement monitoring. Weekly sweep
+    # of the DOJ FCPA enforcement listing — extracts named entities
+    # (companies, individuals, country exposures, penalty amounts) from
+    # cases involving priority countries and writes them to the brain
+    # with topic=enforcement_action.
+    elif tool_kind == "fcpa_enforcement_scan":
+        from ..intel import fcpa_enforcement
+        days_back = int((task.tool_chain[0] or {}).get("days_back", 30))
+        return await fcpa_enforcement.monitor_doj_fcpa(days_back=days_back)
+
     elif tool_kind == "knowledge_freshness_audit":
         from ..intel import weekly_report
         return await weekly_report._audit_knowledge_freshness()
