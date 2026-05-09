@@ -3669,6 +3669,42 @@ app.post('/api/aria/report',
     });
   }}));
 
+// ── R-F110 (2026-05-09): catch-all /api/aria/* proxy ──────────────────────
+//
+// New fly endpoints shipped this session (R-F68 sanctions/divergence,
+// R-F76 sanctions/rca, R-F72 fatf/match, R-F77 dd/substance, R-F73
+// tbml/classify, R-F74 crypto/screen, R-F70 forensic/benford, R-F78
+// citations/verify, R-F84 security/counter-intel, R-F75 provenance/*,
+// R-F80 security/prompt-injection/*, R-F87a llm/tier-router, R-F88-90
+// learning/*, R-F104 cost/diagnostic, R-F67 harvest/stats, etc.) all
+// 404'd at seenode because no explicit proxy route existed. The DD
+// Pipeline Tools panel on /dd-reports.html surfaced this when operator
+// tried "Sanctions Divergence" → "✗ HTTP 404".
+//
+// Catch-all forwards any unmatched /api/aria/* path to fly with the
+// authenticated session's bearer header. Comes AFTER all explicit
+// routes so it only catches the gaps. Auth required; method-agnostic.
+//
+// New fly endpoints get UI access automatically — no per-endpoint
+// wiring on the seenode side.
+app.all('/api/aria/*', requireAuth, (req, res) => {
+  // Reconstruct the path including query string to forward verbatim
+  const fullPath = req.originalUrl.startsWith('/api/aria')
+    ? req.originalUrl
+    : `/api/aria${req.url}`;
+  ariaProxy(req, res, fullPath, {
+    method: req.method,
+    fallback: async ({ lastStatus, lastErr } = {}) => {
+      res.status(lastStatus || 503).json({
+        error: 'fly endpoint unavailable',
+        path: fullPath,
+        fly_status: lastStatus || 0,
+        fly_error: lastErr || '',
+      });
+    },
+  });
+});
+
 // ── Diagnostic: env-check for the seenode → fly.io proxy chain ─────────────
 // Past incident 2026-04-09: /forget proxy returned 503 because ARIA_API_TOKEN
 // was missing in server.mjs's process env on seenode (chat worked through a

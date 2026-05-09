@@ -461,6 +461,37 @@ body.sidebar-collapsed #app-header { left: 0; }
   color: var(--sc-muted); font-size: 14px;
 }
 
+/* ── R-F108 (2026-05-09): skeleton shimmer for loading states ────────
+   Apply .sc-skeleton to a div to render a placeholder block with
+   shimmer animation. Defaults to 18px height; override with inline
+   style or extend with .sc-skeleton-line / .sc-skeleton-block. */
+.sc-skeleton {
+  display: block; width: 100%; height: 18px;
+  margin-bottom: 8px; border-radius: 5px;
+  background: rgba(255,255,255,0.04);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.04) 0%,
+    rgba(255,255,255,0.10) 50%,
+    rgba(255,255,255,0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: sc-shimmer 1.4s ease-in-out infinite;
+}
+.sc-skeleton-block { height: 60px; border-radius: 8px; }
+.sc-skeleton-circle {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: inline-block; vertical-align: middle;
+}
+.sc-skeleton-text { height: 12px; max-width: 60%; }
+@keyframes sc-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sc-skeleton { animation: none; }
+}
+
 /* ── Grid ──────────────────────────────────────────────────────────── */
 .sc-grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 20px; }
 .sc-grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; }

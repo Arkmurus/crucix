@@ -118,7 +118,7 @@
   <div class="acct-shell">
 
     <h1 class="sc-page-title" style="margin-bottom: 6px"><i class="bi bi-person-circle"></i> Account & Billing</h1>
-    <p class="sc-page-sub" style="margin-bottom: 24px" id="acct-email">Loading…</p>
+    <p class="sc-page-sub" style="margin-bottom: 24px" id="acct-email"><span class="sc-skeleton sc-skeleton-text"></span></p>
 
     <div class="acct-banner info" id="acct-billing-disabled" style="display:none">
       <i class="bi bi-info-circle"></i>
@@ -144,11 +144,13 @@
     </div>
 
     <div class="acct-section-title">Today's usage</div>
-    <div class="acct-usage" id="acct-usage"><div style="grid-column:1/-1;color:rgba(255,255,255,0.35);font-size:13px">Loading…</div></div>
+    <div class="acct-usage" id="acct-usage" aria-busy="true" aria-live="polite">
+      <div style="grid-column:1/-1"><div class="sc-skeleton sc-skeleton-block"></div><div class="sc-skeleton sc-skeleton-block"></div><div class="sc-skeleton sc-skeleton-block"></div></div>
+    </div>
 
     <div class="acct-section-title">Plans</div>
     <div class="pricing-grid" id="pricing-grid">
-      <div style="grid-column:1/-1;color:rgba(255,255,255,0.35);font-size:13px">Loading plans…</div>
+      <div style="grid-column:1/-1" aria-busy="true"><div class="sc-skeleton sc-skeleton-block" style="height:200px"></div><div class="sc-skeleton sc-skeleton-block" style="height:200px"></div><div class="sc-skeleton sc-skeleton-block" style="height:200px"></div></div>
     </div>
 
     <!-- R-F42 API keys (only renders when ENABLE_PUBLIC_API=1 server-side) -->

@@ -321,7 +321,7 @@
 <div class="chat-shell">
 
   <div class="chat-titlebar" id="chat-titlebar">
-    <button class="convos-toggle" id="convos-toggle" title="Show conversations"><i class="bi bi-layout-sidebar"></i></button>
+    <button class="convos-toggle" id="convos-toggle" title="Show conversations" aria-label="Show conversations panel"><i class="bi bi-layout-sidebar" aria-hidden="true"></i></button>
     <div class="chat-title-text" id="chat-title-text">New conversation</div>
   </div>
 
@@ -347,11 +347,11 @@
     <div class="input-wrap" id="input-wrap">
       <textarea id="chat-input" placeholder="Message ARIA…" rows="1"></textarea>
       <div class="input-bar">
-        <button class="think-btn" id="think-btn" title="Deep analysis mode"><i class="bi bi-cpu"></i> Think</button>
-        <button class="new-btn" id="new-btn" title="New conversation"><i class="bi bi-plus-lg"></i> New</button>
-        <button class="upload-btn" id="upload-btn" title="Upload document"><i class="bi bi-paperclip"></i></button>
+        <button class="think-btn" id="think-btn" title="Deep analysis mode" aria-label="Toggle deep analysis mode"><i class="bi bi-cpu" aria-hidden="true"></i> Think</button>
+        <button class="new-btn" id="new-btn" title="New conversation" aria-label="Start new conversation"><i class="bi bi-plus-lg" aria-hidden="true"></i> New</button>
+        <button class="upload-btn" id="upload-btn" title="Upload document" aria-label="Upload document"><i class="bi bi-paperclip" aria-hidden="true"></i></button>
         <span class="input-hint">Enter to send · Drop files here</span>
-        <button class="send-btn" id="send-btn" disabled><i class="bi bi-arrow-up"></i></button>
+        <button class="send-btn" id="send-btn" disabled aria-label="Send message"><i class="bi bi-arrow-up" aria-hidden="true"></i></button>
       </div>
     </div>
   </div>
@@ -924,7 +924,7 @@ var Convos = (function() {
       '<div class="convo-meta">' + fmtTime(c.updatedAt || c.createdAt) +
         (c.messageCount ? ' · ' + c.messageCount + ' msg' : '') +
       '</div>' +
-      '<button class="convo-del" title="Delete"><i class="bi bi-trash"></i></button>';
+      '<button class="convo-del" title="Delete conversation" aria-label="Delete conversation"><i class="bi bi-trash" aria-hidden="true"></i></button>';
     row.addEventListener('click', function(e) {
       if (e.target.closest('.convo-del')) return;
       load(c.session_id);
