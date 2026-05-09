@@ -167,13 +167,23 @@ const Toast = {
     const container = document.getElementById('toast-container') || this._createContainer();
     const t = document.createElement('div');
     t.className = `crucix-toast toast-${type}`;
-    t.innerHTML = `<span>${msg}</span><button onclick="this.parentElement.remove()">✕</button>`;
+    // R-F113 (2026-05-09): screen-reader announce. role=alert for danger
+    // (interrupts), role=status for info/success/warn (polite). Each toast
+    // gets aria-live so it's spoken when injected.
+    t.setAttribute('role', type === 'danger' || type === 'error' ? 'alert' : 'status');
+    t.setAttribute('aria-live', type === 'danger' || type === 'error' ? 'assertive' : 'polite');
+    t.setAttribute('aria-atomic', 'true');
+    t.innerHTML = `<span>${msg}</span><button aria-label="Dismiss notification" onclick="this.parentElement.remove()">✕</button>`;
     container.appendChild(t);
     setTimeout(() => t.remove(), duration);
   },
   _createContainer() {
     const c = document.createElement('div');
     c.id = 'toast-container';
+    // Container itself is a live region so toasts announced even if the
+    // individual toasts re-use existing dom (rare; defence-in-depth).
+    c.setAttribute('aria-live', 'polite');
+    c.setAttribute('aria-atomic', 'false');
     document.body.appendChild(c);
     return c;
   }

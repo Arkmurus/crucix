@@ -313,8 +313,8 @@
     <span class="convos-title">Conversations</span>
     <button class="convos-new-btn" id="convos-new" title="New conversation"><i class="bi bi-plus-lg"></i> New</button>
   </div>
-  <div class="convos-list" id="convos-list">
-    <div class="convos-empty" id="convos-empty">Loading…</div>
+  <div class="convos-list" id="convos-list" role="listbox" aria-label="Conversation history">
+    <div class="convos-empty" id="convos-empty"><span class="sc-skeleton sc-skeleton-text" aria-label="Loading conversations"></span></div>
   </div>
 </aside>
 
@@ -919,6 +919,14 @@ var Convos = (function() {
     row.className = 'convo-item' + (c.session_id === activeSid ? ' active' : '');
     row.dataset.sid = c.session_id;
     var title = (c.title && c.title.trim()) || 'Untitled';
+    // R-F114 (2026-05-09): keyboard accessibility for the conversation list.
+    // role=option / parent listbox so screen readers announce "X of N
+    // conversations". tabindex=0 so each row is keyboard-focusable; the
+    // active row gets focus naturally on load.
+    row.setAttribute('role', 'option');
+    row.setAttribute('tabindex', '0');
+    row.setAttribute('aria-selected', c.session_id === activeSid ? 'true' : 'false');
+    row.setAttribute('aria-label', title + ', ' + fmtTime(c.updatedAt || c.createdAt));
     row.innerHTML =
       '<div class="convo-title-line">' + escHtml(title) + '</div>' +
       '<div class="convo-meta">' + fmtTime(c.updatedAt || c.createdAt) +
@@ -928,6 +936,42 @@ var Convos = (function() {
     row.addEventListener('click', function(e) {
       if (e.target.closest('.convo-del')) return;
       load(c.session_id);
+    });
+    // R-F114: keyboard handlers
+    //   Enter / Space  → load this conversation
+    //   ArrowDown      → focus next item
+    //   ArrowUp        → focus previous item
+    //   Home / End     → focus first / last
+    //   Delete / Backspace → delete (with confirmation prompt inside del())
+    row.addEventListener('keydown', function(e) {
+      var key = e.key;
+      if (key === 'Enter' || key === ' ') {
+        e.preventDefault();
+        load(c.session_id);
+      } else if (key === 'ArrowDown') {
+        e.preventDefault();
+        var next = row.nextElementSibling;
+        while (next && !next.classList.contains('convo-item')) next = next.nextElementSibling;
+        if (next) next.focus();
+      } else if (key === 'ArrowUp') {
+        e.preventDefault();
+        var prev = row.previousElementSibling;
+        while (prev && !prev.classList.contains('convo-item')) prev = prev.previousElementSibling;
+        if (prev) prev.focus();
+      } else if (key === 'Home') {
+        e.preventDefault();
+        var first = listEl.querySelector('.convo-item');
+        if (first) first.focus();
+      } else if (key === 'End') {
+        e.preventDefault();
+        var items = listEl.querySelectorAll('.convo-item');
+        if (items.length) items[items.length - 1].focus();
+      } else if (key === 'Delete' || (key === 'Backspace' && e.shiftKey)) {
+        // Plain Backspace might be triggered when typing — require Shift to
+        // make destructive intent explicit.
+        e.preventDefault();
+        del(c.session_id, title);
+      }
     });
     row.querySelector('.convo-del').addEventListener('click', function(e) {
       e.stopPropagation();
