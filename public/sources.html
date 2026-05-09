@@ -47,14 +47,24 @@
   </div>
 
   <div class="sc-card mt-24">
-    <div class="sc-card-header">
+    <div class="sc-card-header" style="display:flex;align-items:center;justify-content:space-between">
       <div class="sc-card-title"><i class="bi bi-cpu"></i> Python-side sources (fly brain)</div>
+      <button class="sc-btn sc-btn-sm" id="btn-run-pysrc"
+        style="background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);padding:5px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer"
+        title="Manually trigger source uptime ping (R-F102)">
+        <i class="bi bi-play-fill"></i> Run uptime ping
+      </button>
     </div>
     <div style="padding:0">
       <table class="sc-table" id="pysrc-table">
         <thead><tr><th>Source</th><th>Status</th><th>Last success</th><th>Last error</th><th>Suspended?</th></tr></thead>
         <tbody id="pysrc-body"><tr><td colspan="5" style="text-align:center;padding:40px"><div class="sc-spinner"></div></td></tr></tbody>
       </table>
+    </div>
+    <div style="padding:10px 22px 14px;font-size:11.5px;color:rgba(255,255,255,0.4);border-top:1px solid rgba(255,255,255,0.04)">
+      Source uptime ping fires automatically daily 02:00 UTC via the
+      <code style="background:rgba(124,58,237,0.13);padding:1px 5px;border-radius:4px;color:#c4b5fd">SOURCE-UPTIME-DAILY</code> autonomous task.
+      Empty list = ping hasn't fired yet (post-deploy / cold start) — click <em>Run uptime ping</em> to populate immediately.
     </div>
   </div>
 
@@ -281,6 +291,31 @@ async function loadAdversarial() {
     el.textContent = 'Adversarial stats load error: ' + e.message;
   }
 }
+
+// R-F102 (2026-05-09): manual trigger for the Python source uptime ping
+// so the operator can populate the table without waiting for daily cron.
+document.getElementById('btn-run-pysrc').addEventListener('click', async function() {
+  const btn = this;
+  if (!confirm('Run an uptime ping across all Python-side sources now? Takes ~30-60s.')) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Pinging…';
+  try {
+    const resp = await fetch('/api/aria/sources/uptime/run', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('crucix_token') || '') },
+    });
+    if (!resp.ok) {
+      alert('Ping failed (HTTP ' + resp.status + '). Check fly logs for details.');
+    } else {
+      await loadPythonSources();
+    }
+  } catch (err) {
+    alert('Ping error: ' + err.message);
+  }
+  btn.disabled = false;
+  btn.innerHTML = orig;
+});
 
 document.getElementById('btn-run-adv').addEventListener('click', async function() {
   const btn = this;
