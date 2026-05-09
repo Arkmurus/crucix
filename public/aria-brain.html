@@ -942,57 +942,80 @@ async function loadLlmCost() {
   const projected = d.projected_monthly_usd || 0;
   const projCls = projected > cap ? 'bad' : projected > cap * 0.8 ? 'warn' : 'good';
 
-  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">';
-  html += metricRow('Spent this month', `$${spent.toFixed(4)}`, utilCls);
-  html += metricRow('Cap', `$${cap.toFixed(2)}`, 'neutral');
-  html += metricRow('Remaining', `$${(d.remaining_usd || 0).toFixed(4)}`, utilCls);
-  html += metricRow('Utilisation', `${util.toFixed(1)}%`, utilCls);
-  html += metricRow('Projected month-end', `$${projected.toFixed(2)}`, projCls);
-  html += metricRow('Total calls', d.total_calls || 0, 'neutral');
+  // R-F132 (2026-05-10): denser layout. The previous render stacked
+  // three full-width tables on top of each other plus six metric tiles
+  // and looked cluttered. Now: top-row headline + utilisation bar,
+  // three breakdown panels side-by-side (provider | feature | top),
+  // top-calls collapsed by default with a toggle so the routine view
+  // is short and the deep-dive is one click away.
+  const utilWidth = Math.min(util, 100).toFixed(1);
+  const utilBarColour = util >= 80 ? 'var(--red)' : util >= 50 ? 'var(--yellow)' : 'var(--green)';
+  let html = '';
+  html += `<div style="display:flex;flex-wrap:wrap;gap:18px;align-items:baseline;margin-bottom:8px">`;
+  html += `<div><div style="font-size:0.78em;color:#8b949e">Spent this month</div>`;
+  html += `<div class="${utilCls}" style="font-size:1.6em;font-weight:600;line-height:1.1">$${spent.toFixed(2)}</div></div>`;
+  html += `<div><div style="font-size:0.78em;color:#8b949e">Projected month-end</div>`;
+  html += `<div class="${projCls}" style="font-size:1.2em;font-weight:600;line-height:1.1">$${projected.toFixed(2)}</div></div>`;
+  html += `<div><div style="font-size:0.78em;color:#8b949e">Total calls</div>`;
+  html += `<div class="neutral" style="font-size:1.2em;font-weight:600;line-height:1.1">${(d.total_calls||0).toLocaleString()}</div></div>`;
+  html += `<div style="margin-left:auto;font-size:0.78em;color:#8b949e">Cap $${cap.toFixed(0)} · ${util.toFixed(1)}% used</div>`;
+  html += `</div>`;
+  // Utilisation bar
+  html += `<div style="height:6px;background:#21262d;border-radius:3px;overflow:hidden;margin-bottom:14px">`;
+  html += `<div style="height:100%;width:${utilWidth}%;background:${utilBarColour};transition:width .3s"></div>`;
+  html += `</div>`;
   if (d.warn_only) {
-    html += metricRow('Mode', 'WARN-ONLY (cap will not block)', 'warn');
+    html += `<div class="warn" style="font-size:0.8em;margin-bottom:8px">⚠ WARN-ONLY mode — cap will not block</div>`;
   }
-  html += '</div>';
 
-  // Per-provider — this is the view that answers "which API is burning money?"
+  // Side-by-side breakdowns
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">';
+
+  // Per-provider
   const byProv = d.by_provider || {};
   const provRows = Object.entries(byProv).sort((a,b) => (b[1].cost_usd||0) - (a[1].cost_usd||0));
   if (provRows.length) {
-    html += '<div style="margin-top:12px"><div style="font-size:0.85em;color:#8b949e;margin-bottom:4px">By Provider</div>';
-    html += '<table><tr><th>Provider</th><th>Calls</th><th>Tokens</th><th>Cost</th><th>Share</th></tr>';
+    html += '<div><div style="font-size:0.85em;color:#8b949e;margin-bottom:4px">By Provider</div>';
+    html += '<table style="font-size:0.78em"><tr><th>Provider</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">%</th></tr>';
     for (const [name, row] of provRows) {
       const share = spent > 0 ? (row.cost_usd / spent * 100) : 0;
       const cls = share >= 50 ? 'warn' : 'neutral';
-      html += `<tr><td>${name}</td><td>${row.calls}</td><td>${(row.tokens||0).toLocaleString()}</td><td class="${cls}">$${(row.cost_usd||0).toFixed(4)}</td><td>${share.toFixed(1)}%</td></tr>`;
+      html += `<tr><td>${escapeHtml(name)}</td><td style="text-align:right">${(row.calls||0).toLocaleString()}</td><td class="${cls}" style="text-align:right">$${(row.cost_usd||0).toFixed(2)}</td><td style="text-align:right;color:#8b949e">${share.toFixed(0)}%</td></tr>`;
     }
     html += '</table></div>';
   }
 
-  // Per-feature — answers "which ARIA feature is burning money?"
+  // Per-feature (top 10)
   const byFeat = d.by_feature || {};
   const featRows = Object.entries(byFeat).sort((a,b) => (b[1].cost_usd||0) - (a[1].cost_usd||0)).slice(0, 10);
   if (featRows.length) {
-    html += '<div style="margin-top:12px"><div style="font-size:0.85em;color:#8b949e;margin-bottom:4px">By Feature (top 10)</div>';
-    html += '<table><tr><th>Feature</th><th>Calls</th><th>Tokens</th><th>Cost</th></tr>';
+    html += '<div><div style="font-size:0.85em;color:#8b949e;margin-bottom:4px">By Feature (top 10)</div>';
+    html += '<table style="font-size:0.78em"><tr><th>Feature</th><th style="text-align:right">Calls</th><th style="text-align:right">Cost</th><th style="text-align:right">%</th></tr>';
     for (const [name, row] of featRows) {
-      html += `<tr><td>${name}</td><td>${row.calls}</td><td>${(row.tokens||0).toLocaleString()}</td><td>$${(row.cost_usd||0).toFixed(4)}</td></tr>`;
+      const share = spent > 0 ? (row.cost_usd / spent * 100) : 0;
+      const fname = name.length > 22 ? name.slice(0, 21) + '…' : name;
+      const cls = name === 'uncategorized' ? 'warn' : '';
+      html += `<tr><td title="${escapeHtml(name)}" class="${cls}">${escapeHtml(fname)}</td><td style="text-align:right">${(row.calls||0).toLocaleString()}</td><td style="text-align:right">$${(row.cost_usd||0).toFixed(2)}</td><td style="text-align:right;color:#8b949e">${share.toFixed(0)}%</td></tr>`;
     }
     html += '</table></div>';
   }
 
-  // Top individual calls — answers "which specific request was unusually expensive?"
+  // Top individual calls (collapsed by default)
   const topCalls = d.top_calls || [];
   if (topCalls.length) {
-    html += '<div style="margin-top:12px"><div style="font-size:0.85em;color:#8b949e;margin-bottom:4px">Top 10 most expensive calls</div>';
-    html += '<table><tr><th>Time</th><th>Feature</th><th>Model</th><th>Tokens</th><th>Cost</th></tr>';
+    html += '<div><details><summary style="font-size:0.85em;color:#8b949e;cursor:pointer;margin-bottom:4px;outline:none">Top expensive calls (click to expand)</summary>';
+    html += '<table style="font-size:0.74em"><tr><th>Time</th><th>Feature</th><th style="text-align:right">Tk</th><th style="text-align:right">$</th></tr>';
     for (const c of topCalls.slice(0, 10)) {
-      const when = c.ts ? new Date(c.ts * 1000).toLocaleString() : '--';
-      html += `<tr><td style="font-size:0.75em">${when}</td><td>${c.feature||'?'}</td><td>${c.model||'?'}</td><td>${(c.total_tokens||0).toLocaleString()}</td><td>$${(c.cost_usd||0).toFixed(4)}</td></tr>`;
+      const when = c.ts ? new Date(c.ts * 1000).toLocaleString([], {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '--';
+      const fname = (c.feature||'?').length > 16 ? (c.feature||'?').slice(0,15) + '…' : (c.feature||'?');
+      html += `<tr><td>${escapeHtml(when)}</td><td title="${escapeHtml(c.feature||'')}">${escapeHtml(fname)}</td><td style="text-align:right">${((c.total_tokens||0)/1000).toFixed(0)}k</td><td style="text-align:right">$${(c.cost_usd||0).toFixed(3)}</td></tr>`;
     }
-    html += '</table></div>';
+    html += '</table></details></div>';
   }
 
-  html += `<div style="margin-top:10px;font-size:0.75em;color:#6e7681">`;
+  html += '</div>';  // end side-by-side grid
+
+  html += `<div style="margin-top:10px;font-size:0.72em;color:#6e7681">`;
   html += `Month ${d.month || '--'} · `;
   html += `<a href="/api/aria/cost/monthly" style="color:#58a6ff">/cost/monthly</a> · `;
   html += `<a href="/api/aria/cost/cumulative" style="color:#58a6ff">/cost/cumulative</a> · `;

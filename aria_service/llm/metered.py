@@ -69,19 +69,34 @@ class MeteredProvider(LLMProvider):
             model = ""
             in_tk = 0
             out_tk = 0
+            routed_via = ""
             if result is not None:
                 model = getattr(result, "model", "") or getattr(self._inner, "model", "")
                 in_tk = int(getattr(result, "input_tokens", 0) or 0)
                 out_tk = int(getattr(result, "output_tokens", 0) or 0)
+                routed_via = getattr(result, "routed_via", "") or ""
             else:
                 model = getattr(self._inner, "model", "") or getattr(self._inner, "name", "")
+            # R-F131 (2026-05-10): the dashboard panel was showing
+            # 100% of spend attributed to "fallback" because the
+            # MeteredProvider wraps a FallbackProvider whose name
+            # is the literal string "fallback". The underlying
+            # provider that actually served the call is exposed via
+            # result.routed_via = "fallback:<name>". Extract the real
+            # provider so cost-by-provider reflects anthropic vs
+            # deepseek vs groq vs aria_llm spend distribution.
+            inner_name = getattr(self._inner, "name", "")
+            if routed_via.startswith("fallback:"):
+                provider_for_metric = routed_via.split(":", 1)[1].strip() or inner_name
+            else:
+                provider_for_metric = inner_name
             import asyncio as _aio
             task = _aio.create_task(cost_tracker.record_call(
                 model=model or "",
                 input_tokens=in_tk,
                 output_tokens=out_tk,
                 latency_ms=latency_ms,
-                provider_name=getattr(self._inner, "name", ""),
+                provider_name=provider_for_metric,
                 success=success,
                 error=error,
             ))
