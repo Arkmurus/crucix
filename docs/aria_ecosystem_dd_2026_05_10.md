@@ -146,7 +146,7 @@ All gated behind `ARIA_AUTONOMOUS_ENABLED` (default 0). When activated, the engi
 |---|---|---|---|
 | Set REPORT_SIGNING_KEY on seenode | 1 min (in progress as you read) | seenode dashboard | Value: `6bcb5ddbf4958c6a6abb72329c0a86edbfa8092546e0aefebc1bb59756c2603816ded69a91a40eae448f4642653f6dfa` (already generated and shared). Save to vault before forgetting. |
 | Register at acleddata.com → set ACLED_EMAIL + ACLED_PASSWORD on fly.io | 10 min | acleddata.com → fly.io secrets | Free non-commercial tier |
-| Register at worldbank.org developer portal → request FIRM360 access → set WORLDBANK_SUBSCRIPTION_KEY on fly.io | 1-3 days approval wait | datacatalog.worldbank.org | OpenSanctions provides aggregated coverage in the meantime — not blocking |
+| ~~Register at worldbank.org developer portal → request FIRM360 access~~ — **R-F155 correction (2026-05-10)**: there is no such portal. Firm360 is an internal AEM backend, not a registerable API. OpenSanctions aggregation via `wb_debarred` is the practical answer. | n/a — accept graceful degrade | n/a | DD signal preserved via OpenSanctions; only primary-source citation lost |
 | Set ARIA_OUTPUT_HARVEST_ENABLED=1 on fly.io | 30 sec — but wait 3-7d after first 3 above are live to validate harvest works on real chat-traffic | fly.io secrets | Per buildout doc — should NOT set today |
 
 ### Blocking gate #2

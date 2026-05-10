@@ -15,23 +15,39 @@ A defence contractor debarred by the World Bank cannot be proposed to
 buyers who finance procurement through MDB loans (a significant share
 of African + MENA + LatAm defence-adjacent procurement).
 
-Status — 2026-04-18 operational note
-────────────────────────────────────
-The WB has moved the `apigwext.worldbank.org/dvsvc/...` JSON endpoint
-behind an Azure API Management subscription key (returns HTTP 401
-"missing subscription key" without it). Free developer-portal signup
-is still possible but requires operator action.
+Status — 2026-05-10 operational note (R-F155 correction)
+─────────────────────────────────────────────────────────
+The `apigwext.worldbank.org/dvsvc/...` endpoint is an INTERNAL Adobe
+Experience Manager backend that powers the public debarred-firms
+search page (projects.worldbank.org/en/projects-operations/procurement/
+debarred-firms). It is NOT a publicly-registerable developer API:
 
-Until a WORLDBANK_SUBSCRIPTION_KEY is set, this module degrades honestly:
+  - apigwext.worldbank.org/ returns 403 (gated, no public landing)
+  - data.worldbank.org/about/data-catalog/api returns 404
+  - The public debarred-firms page itself has ZERO mention of API access,
+    developer portals, or programmatic-access registration
+
+There is no self-service signup. Earlier guidance suggesting "register
+at datacatalog.worldbank.org → request FIRM360" was incorrect — that
+path does not exist. To attempt access, the only known route is to
+email data@worldbank.org or the Integrity Vice Presidency directly
+and ask. Expect 1-3 weeks for any response, with low probability of
+self-service-style API enablement (WB does not advertise this as a
+data product).
+
+Until a WORLDBANK_SUBSCRIPTION_KEY is somehow obtained, this module
+degrades honestly:
   - `lookup()` returns an error_result with the capability_gap reason
   - `is_available()` returns False
   - `dd_orchestrator` flags the gap in the report's data_gaps list
 
-OpenSanctions already aggregates WB debarments (dataset `wb_debarred`),
-so the DD pipeline doesn't lose the signal — it just loses the
-primary-source citation until someone registers for a WB API key.
+OpenSanctions aggregates WB debarments (dataset `wb_debarred`) and
+serves as the practical replacement — the DD signal is preserved,
+only primary-source citation is lost. For DD purposes, OpenSanctions
+attribution (which itself cites WB as upstream) is acceptable.
 
-Fallback mode — if the env var is set, we try the authenticated endpoint.
+Fallback mode — if the env var IS set (e.g. WB grants enterprise access),
+we try the authenticated endpoint.
 """
 from __future__ import annotations
 
