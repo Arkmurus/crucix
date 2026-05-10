@@ -3152,6 +3152,113 @@ async def orchestrate_dd(
     # ── BLUF + assembly ──
     await _assemble_bluf(report)
 
+    # ── R-F157: discipline coverage check (Stage A wiring per ecosystem-audit) ──
+    # Per dd_disciplines.py framework — for every entity_type, a defined set
+    # of disciplines should be covered by a complete DD. This block surfaces
+    # which were covered + which weren't so the operator + downstream consumer
+    # see the gaps explicitly. NOT a blocker: even if coverage is partial,
+    # the report still ships — gaps surface in `report.discipline_coverage`.
+    try:
+        from . import dd_disciplines as _dd_disc
+        from . import regulated_commodity_pack as _rcp
+
+        # Heuristic entity-type detection. Conservative: defaults to
+        # defence_broker (ARIA's primary positioning); switches to
+        # commodity_broker when commodity heuristics fire on the target.
+        _is_commodity, _commodity_class = _rcp.is_commodity_dd_target(
+            entity_name=report.identity.entity_name or target.get("name", "") or "",
+            url=target.get("website") or target.get("url", "") or "",
+            sector_hint=target.get("sector", "") or "",
+        )
+        if _is_commodity and _commodity_class == "lng":
+            _entity_type = "commodity_broker_oil_lng"
+        elif _is_commodity and _commodity_class in ("crude_oil", "refined_products", "natural_gas"):
+            _entity_type = "commodity_broker_crude"
+        elif _is_commodity:
+            _entity_type = "commodity_broker_oil_lng"  # default for ambiguous commodity
+        else:
+            _entity_type = "defence_broker"
+
+        # Map executed layers → covered disciplines. Conservative: a layer
+        # that ran AND produced findings or non-empty meta counts as covering
+        # its core disciplines. Layers that ran but returned empty (no data
+        # found) still count as covered (the absence-of-findings is itself
+        # a finding) but are tagged for transparency.
+        _covered: list[str] = []
+
+        def _section_active(section) -> bool:
+            if not section:
+                return False
+            if getattr(section, "findings", None):
+                return True
+            if getattr(section, "data_gaps", None):
+                return True
+            meta = getattr(section, "meta", None)
+            if meta and getattr(meta, "status", "") in ("OK", "ok", "completed"):
+                return True
+            return False
+
+        if _section_active(report.identity):
+            _covered.extend(["identity_verification", "sanctions_screening", "ubo_chain"])
+            # PEP screen typically rides on identity sub-calls
+            _covered.append("pep_screening")
+        if _section_active(report.network):
+            _covered.extend(["ubo_chain", "operational_substance"])
+        if _section_active(report.verification):
+            _covered.extend(["adverse_media"])  # partial — Stage B will deepen
+        if _section_active(report.compliance):
+            _covered.extend([
+                "jurisdiction_country_risk", "anti_bribery_corruption",
+                "regulatory_enforcement", "litigation_history",
+            ])
+            # Defence-specific compliance layers (when running defence DD)
+            if _entity_type in ("defence_broker", "defence_oem"):
+                _covered.extend([
+                    "end_use_verification", "reexport_diversion_risk",
+                    "technology_classification",
+                ])
+        if _section_active(report.digital):
+            _covered.extend(["adverse_media", "reputational_intelligence"])
+        # Commercial coherence layer (5c) covers contractual structure when commodity
+        if getattr(report, "commercial_coherence", None) and _section_active(report.commercial_coherence):
+            if _entity_type.startswith("commodity_"):
+                _covered.extend(["contractual_structure", "price_cap_attestation"])
+        if _section_active(report.synthesis):
+            # Synthesis touches financial soundness via aggregation
+            _covered.append("financial_soundness")
+
+        # De-dup
+        _covered = sorted(set(_covered))
+
+        _coverage = _dd_disc.discipline_coverage_check(_covered, _entity_type)
+        # Annotate the report with the coverage result. Use a plain dict
+        # attribute since ARKDDReport schema may not have a dedicated field;
+        # downstream serialisation includes attributes via __dict__.
+        report.discipline_coverage = {
+            "entity_type_detected": _entity_type,
+            "commodity_classification": _commodity_class if _is_commodity else None,
+            "result": _coverage,
+            "framework_version": "dd_disciplines.py R-F152",
+            "note": (
+                "Stage A wiring (R-F157) — coverage based on which orchestrator "
+                "layers ran. Stage B (adverse-media query templates → real deep "
+                "search) will refine the adverse_media coverage signal from "
+                "'partial' to 'verified'. Stage C will tighten commodity discipline "
+                "matching when entity type is detected with higher confidence."
+            ),
+        }
+        logger.info(
+            "[R-F157] discipline coverage: entity_type=%s covered=%d/%d (%.1f%%) gate_passes=%s",
+            _entity_type, len(_coverage["covered"]), len(_coverage["required"]),
+            _coverage["coverage_pct"], _coverage["gate_passes"],
+        )
+    except Exception as _cov_err:
+        logger.debug("[R-F157] discipline coverage check failed (non-fatal): %s", _cov_err)
+        try:
+            report.discipline_coverage = {"error": str(_cov_err)[:200], "framework_version": "dd_disciplines.py R-F152"}
+        except Exception:
+            pass
+
     # ── Verification gate (2026-04-18) ──
     # On RED verdicts, run a second-opinion pass through a different
     # provider and compare the structured decision. If they disagree
