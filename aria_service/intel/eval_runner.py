@@ -58,7 +58,7 @@ RUNS_TTL = 90 * 86400
 
 PASS_THRESHOLD = 0.75
 WARN_THRESHOLD = 0.50
-DEFAULT_MAX_GOLDEN = 200
+DEFAULT_MAX_GOLDEN = 600  # Lifted from 200 → 600 for Phase A gate #6 (500-Q eval set + drift headroom)
 
 
 # ── Golden set CRUD ────────────────────────────────────────────────────────

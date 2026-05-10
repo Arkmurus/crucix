@@ -102,7 +102,7 @@ from ..intel import proactive
 from ..intel import rag_store
 from ..intel import research_tasks
 from ..intel import feedback as feedback_store
-from ..intel import eval_runner
+from ..intel import eval_runner, eval_golden_seed
 from ..intel import source_verifier
 from ..intel import cost_tracker
 from ..intel import trace_stream
@@ -1143,6 +1143,22 @@ async def eval_run_get_ep(run_id: str):
     if not run:
         raise HTTPException(status_code=404, detail="run not found")
     return run
+
+
+@router.post("/eval/seed/load")
+async def eval_seed_load_ep(force: bool = False):
+    """Load the v1 500-Q seed (eval_golden_seed.SEED_ENTRIES) into the
+    golden set. Idempotent on seed_id — re-runs add only missing entries
+    unless force=True. Phase A gate #6 closer."""
+    return await eval_golden_seed.seed_golden_set(force=force)
+
+
+@router.get("/eval/coverage")
+async def eval_coverage_ep():
+    """Per-category counts vs the 500-Q taxonomy targets. Surfaces what
+    the operator still owes to close Phase A gate #6."""
+    items = await eval_runner.get_golden_set()
+    return eval_golden_seed.coverage_report(items)
 
 
 # ── Source verification: deterministic citation grounding check ──────────
