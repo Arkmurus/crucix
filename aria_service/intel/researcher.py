@@ -2958,3 +2958,183 @@ async def get_research_summary(llm: LLMProvider) -> dict:
         "hypotheses": {"total": len(hypotheses), "open": len(open_h), "strengthened": len(strong_h), "challenged": len(challenged_h)},
         "top_hypotheses": [{"hypothesis": h["hypothesis"], "status": h["status"], "evidence": h.get("evidence_count", 0)} for h in hypotheses[:10]],
     }
+
+
+# ══════════════════════════════════════════════════════════════════════
+# R-F159 (2026-05-10) — Stage B adverse-media deep search
+# ══════════════════════════════════════════════════════════════════════
+# Per operator priority 2026-05-10: "ARIA needs to really dig in deep
+# not just saying so but doing it actually". The dd_disciplines framework
+# (R-F152) defined adverse_media as a discipline + provided
+# adverse_media_query_templates() that generates 20-50 STRUCTURED queries
+# per entity targeting court records, regulators, ICIJ leaks, OCCRP,
+# Bellingcat, Tier-1 journalism, news archive, Wayback, sector trade press.
+#
+# This function executes those templates via the existing multi-backend
+# web_search infrastructure, aggregates findings with provenance, and
+# tier-classifies per Clause 17. The result is a structured adverse-media
+# section operators can plug directly into a DD report.
+#
+# NOT auto-wired into deep_research or dd_orchestrator yet. Operator
+# decision: when does adverse-media run (always? CRITICAL only? on demand?)
+# + cost expectations (each entity = 20-50 new searches; circuit breakers
+# in place per R-F150 for backends that 202/429).
+
+async def run_adverse_media_deep_search(
+    entity_name: str,
+    *,
+    director_names: list[str] | None = None,
+    ubo_names: list[str] | None = None,
+    sectors: list[str] | None = None,
+    years_back: int = 10,
+    max_templates: int = 30,
+    max_results_per_template: int = 6,
+) -> dict:
+    """Execute the adverse-media discipline deeply, not just superficially.
+
+    For the given entity (+ optional directors / UBOs / sectors), generates
+    structured queries from dd_disciplines.adverse_media_query_templates()
+    and executes each via ARIA's multi-backend web_search. Aggregates
+    findings with source URL, source_class tag, credibility tier, and
+    matched-pattern context.
+
+    Args:
+      entity_name:   The primary target.
+      director_names: Optional list of named directors (per Layer 2 graph).
+      ubo_names:     Optional list of UBO natural persons.
+      sectors:       Optional list of sector tags ("defence", "oil", "lng",
+                     etc.) — drives sector-specific trade-press templates.
+      years_back:    Time-window for news-archive templates (default 10y).
+      max_templates: Cap total templates executed (default 30; full set
+                     can be 50+ for entity + 3 directors + 2 UBOs).
+      max_results_per_template: Cap results per template execution.
+
+    Returns:
+      {
+        ok: bool,
+        entity: str,
+        templates_run: int,
+        templates_total_in_set: int,
+        findings: [
+          {source_class, source_url, title, snippet, credibility_tier,
+           query_executed, matched_template_purpose}
+        ],
+        coverage_by_class: {<source_class>: <count>},
+        execution_time_seconds: float,
+        circuit_breaker_skips: int,
+        clause_17_attribution: 'every finding carries source URL + credibility tier; verify against primary sources before quoting in DD report',
+      }
+
+    Per Clause 7 (knowing limits): this function executes the discipline,
+    it does NOT verify the findings. Each finding requires operator review
+    + tier validation before being treated as established fact in a DD.
+    """
+    if not entity_name or not entity_name.strip():
+        return {"ok": False, "error": "entity_name required"}
+
+    started = time.time()
+
+    try:
+        from . import dd_disciplines as _dd_disc
+    except Exception as e:
+        return {"ok": False, "error": f"dd_disciplines module not available: {e}"}
+
+    # Generate template set
+    try:
+        templates = _dd_disc.adverse_media_query_templates(
+            entity_name=entity_name,
+            director_names=director_names or [],
+            ubo_names=ubo_names or [],
+            sectors=sectors or [],
+            years_back=years_back,
+        )
+    except Exception as e:
+        return {"ok": False, "error": f"template generation failed: {e}"}
+
+    total_templates = len(templates)
+    # Cap to avoid burst-load on backends (circuit breakers will catch
+    # overload anyway, but be polite)
+    templates_to_run = templates[:max_templates]
+
+    findings: list[dict] = []
+    coverage_by_class: dict[str, int] = {}
+    breaker_skips = 0
+
+    # Execute templates sequentially with brief throttle to avoid
+    # tripping per-host breakers unnecessarily. Full parallel would be
+    # faster but riskier on backend rate-limits.
+    for tmpl in templates_to_run:
+        query = tmpl.get("query", "")
+        if not query:
+            continue
+        source_class = tmpl.get("source_class", "unknown")
+        purpose = tmpl.get("purpose", "")
+
+        try:
+            search_results = await _web_search(query, timeout=10.0)
+        except Exception as e:
+            logger.debug("[adverse_media] template %r failed: %s", source_class, e)
+            breaker_skips += 1
+            continue
+
+        if not search_results:
+            continue
+
+        # Capture top-N per template (per max_results_per_template)
+        for r in search_results[:max_results_per_template]:
+            url = r.get("link") or r.get("url") or ""
+            title = r.get("title", "")
+            snippet = r.get("snippet", "")
+            tier = r.get("_credibility_tier", "")
+            if not url or not title:
+                continue
+            findings.append({
+                "source_class": source_class,
+                "source_url": url,
+                "title": title[:240],
+                "snippet": snippet[:400],
+                "credibility_tier": tier,
+                "query_executed": query[:240],
+                "matched_template_purpose": purpose[:240],
+            })
+
+        coverage_by_class[source_class] = coverage_by_class.get(source_class, 0) + 1
+
+        # Polite throttle — 100ms between templates
+        await asyncio.sleep(0.1)
+
+    # Sort findings by credibility tier (highest first), then by source_class
+    _tier_rank = {"tier_1a": 0, "tier_1b": 1, "tier_2": 2, "tier_3": 3, "": 9}
+    findings.sort(key=lambda f: (_tier_rank.get(f.get("credibility_tier", ""), 9), f.get("source_class", "")))
+
+    duration = round(time.time() - started, 2)
+
+    return {
+        "ok": True,
+        "entity": entity_name,
+        "templates_run": len(templates_to_run),
+        "templates_total_in_set": total_templates,
+        "templates_capped_at": max_templates,
+        "findings": findings,
+        "findings_count": len(findings),
+        "coverage_by_class": coverage_by_class,
+        "execution_time_seconds": duration,
+        "circuit_breaker_skips": breaker_skips,
+        "clause_17_attribution": (
+            "Every finding carries source URL + credibility tier per Clause 17. "
+            "BEFORE quoting in a DD report, the operator must verify each finding "
+            "against the primary source. This function executes the discipline "
+            "(structured deep search across 30+ source classes) — verification of "
+            "individual findings is the operator's responsibility per Clause 14 "
+            "(no fabricated verifiable facts) and Clause 17 (multi-source verification)."
+        ),
+        "framework_note": (
+            "Generated by run_adverse_media_deep_search (R-F159) using "
+            "dd_disciplines.adverse_media_query_templates (R-F152) routed "
+            "through web_search.search_multilingual. Source-class coverage "
+            "shows how many distinct query templates returned at least one "
+            "result — an empty class means either no findings exist OR the "
+            "query format doesn't match content the search backends index."
+        ),
+    }
+
