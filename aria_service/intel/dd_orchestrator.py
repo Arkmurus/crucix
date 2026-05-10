@@ -2586,6 +2586,34 @@ def _validate_entity_name(name: str) -> tuple[bool, str]:
     if not re.search(r"[A-Za-z0-9]", s):
         return False, "no alphanumeric characters"
 
+    # R-F153 (2026-05-10) — sentence-fragment / prompt-fragment detection.
+    # The DD library was storing names like "this company, which has nothing
+    # to do" because the LLM tool-call extracted the literal user-phrase
+    # rather than the company name. The aria.sanctions module already
+    # rejected these in screening but the report library still stored them
+    # as entity_name (live: dd_d38befa3fd4 on 2026-05-10 12:39). Catch the
+    # pattern here so the report's entity field is always meaningful.
+    _s_lower = s.lower()
+    _fragment_starts = (
+        "this company", "that company", "the company", "a company",
+        "this entity", "that entity", "the entity",
+        "this person", "that person", "the person",
+        "this business", "that business",
+        "this firm", "that firm", "the firm",
+        "this organisation", "this organization",
+    )
+    for _fi in _fragment_starts:
+        if _s_lower.startswith(_fi):
+            return False, f"looks like a prompt fragment starting with '{_fi}', not a real entity name"
+    _fragment_phrases = (
+        " which has ", " which is ", " that has ", " that is ",
+        " can you ", " could you ", " please ", " do a full ",
+        " has nothing to do ", " is being ", " was being ",
+    )
+    for _pp in _fragment_phrases:
+        if _pp in _s_lower:
+            return False, f"contains prompt-fragment phrase '{_pp.strip()}'; not a real entity name"
+
     # Very short all-lowercase strings with no spaces — likely garbage
     # (single words like 'http', 'com', 'www'). Real entity names are
     # usually capitalised OR longer than 4 chars. Domain names are
@@ -2642,20 +2670,57 @@ async def orchestrate_dd(
     if not target or not (target.get("name") or target.get("entity") or target.get("query")):
         raise ValueError("target must include 'name', 'entity', or 'query'")
 
-    # ── Entity-name sanity gate (2026-04-17 21:40 fix) ──
-    # Tonight's F3 incident: DD ran on entity "https" because the intent
-    # regex captured "https:" from a URL. The 7-layer pipeline then
-    # produced a 5-match "sanctions hit" (noise matches on the string
-    # "https") and that defective result was ingested into mem0 as
-    # confirmed evidence. Gate it here so garbage names never run.
+    # ── Entity-name sanity gate (2026-04-17 21:40 fix; extended R-F153 2026-05-10) ──
+    # Original: rejected URL scheme fragments ("https") that came from the
+    # intent regex stripping at `/`. Extended: rejects prompt-fragment names
+    # ("this company, which has nothing to do") AND derives a usable name
+    # from intent.website when the explicit name fails validation. Without
+    # the website fallback the only option was raise → operator gets nothing
+    # back from a chat that DID have a real URL embedded.
     _raw_name = (target.get("name") or target.get("entity") or target.get("query", "")).strip()
     _is_valid, _reject_reason = _validate_entity_name(_raw_name)
     if not _is_valid:
-        raise ValueError(
-            f"Refusing DD on malformed entity name {_raw_name!r}: {_reject_reason}. "
-            f"If this came from URL parsing, pass the domain (e.g. 'f3ir.com') "
-            f"instead of the scheme."
-        )
+        # R-F153 — fallback: try deriving entity name from intent.website /
+        # intent.url before refusing. The 2026-05-10 12:39 dd_d38befa3fd4
+        # case: intent had name='this company, which has nothing to do'
+        # AND website='lngtradinginternationalpanamasa.com'. The website
+        # is a perfectly good entity name; use it.
+        _website = (target.get("website") or target.get("url") or "").strip()
+        if _website:
+            try:
+                from urllib.parse import urlparse as _urlparse
+                _seed = _website if "://" in _website else f"https://{_website}"
+                _host = (_urlparse(_seed).hostname or "").lower().strip(".")
+                if _host.startswith("www."):
+                    _host = _host[4:]
+                if _host:
+                    _is_valid_host, _ = _validate_entity_name(_host)
+                    if _is_valid_host:
+                        logger.info(
+                            "[dd_orchestrator] R-F153 entity-name fallback: explicit name %r "
+                            "failed validation (%s); using website hostname %r",
+                            _raw_name, _reject_reason, _host,
+                        )
+                        # Mutate target so downstream layers + report storage
+                        # see the corrected name. Preserve original name in a
+                        # supplementary field for audit.
+                        target = {
+                            **target,
+                            "name": _host,
+                            "_original_name_rejected": _raw_name,
+                            "_name_derivation": "website_hostname_fallback_R-F153",
+                        }
+                        _raw_name = _host
+                        _is_valid = True
+            except Exception:
+                logger.debug("R-F153 website-fallback parse failed", exc_info=True)
+        if not _is_valid:
+            raise ValueError(
+                f"Refusing DD on malformed entity name {_raw_name!r}: {_reject_reason}. "
+                f"If this came from URL parsing, pass the domain (e.g. 'f3ir.com') "
+                f"instead of the scheme. If you have a URL, pass it as `website` "
+                f"or `url` and the orchestrator will derive the entity name from it."
+            )
 
     cost_cap = cost_cap_usd if cost_cap_usd is not None else DEFAULT_COST_CAP_USD
     t_run_start = time.time()
