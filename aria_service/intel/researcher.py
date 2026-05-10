@@ -616,6 +616,14 @@ _KNOWN_PAYWALL_DOMAINS = (
     "papers.ssrn.com",
     "www.ssrn.com",
     "ssrn.com",
+    # R-F150 2026-05-10: tearline.mil rate-limits aggressively on its own
+    # — fetched once and immediately 429s on retry. Live evidence
+    # 2026-05-10 11:28:47: GET /snapshot/russia-planned-naval-base...
+    # → 301 → 429 (Too Many Requests). Skip direct fetch; archive
+    # fallback can still try (tearline.mil snapshots are indexed by
+    # archive.is when relevant).
+    "www.tearline.mil",
+    "tearline.mil",
 )
 
 # F91 fix 2026-04-29: DOI prefixes that consistently resolve via

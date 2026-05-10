@@ -397,7 +397,20 @@ async def _search_duckduckgo(query: str, max_results: int = 10) -> list[SearchRe
     no rate limit hard cap, hits the same general-web index Brave does.
     Critical fallback when Brave billing exhausts (circuit OPEN) and no
     SearXNG instance is configured. Live coverage of trade shows, contract
-    signings, defence press releases that academic backends miss."""
+    signings, defence press releases that academic backends miss.
+
+    R-F150 (2026-05-10): per-host circuit breaker. Live log 2026-05-10
+    11:28:01 showed every DDG POST returning 202 (queued/rate-limited)
+    rather than 200. The function correctly returned [] but burned 5
+    requests per chat-turn against a backend that wasn't going to answer.
+    Add an explicit 202 path that records a failure and an early-return
+    when the breaker is open. Cooldown 10 min = enough for DDG to clear
+    its rate-limit window without burning more probes than needed.
+    """
+    from .circuit_breaker import get_breaker
+    cb = get_breaker("search:duckduckgo", failure_threshold=5, cooldown_seconds=600)
+    if cb.is_open():
+        return []
     encoded = urllib.parse.quote_plus(query)
     url = f"https://html.duckduckgo.com/html/?q={encoded}"
     try:
@@ -409,7 +422,16 @@ async def _search_duckduckgo(query: str, max_results: int = 10) -> list[SearchRe
                     "Content-Type": "application/x-www-form-urlencoded",
                 },
             )
+            if resp.status_code == 202:
+                # R-F150: DDG returns 202 Accepted when queued or rate-
+                # limited. Surface it explicitly so the production log
+                # shows the breaker reason (was being silently swallowed
+                # at debug level before).
+                logger.info("DuckDuckGo returned 202 (rate-limited/queued) for %r", query[:60])
+                cb.record_failure()
+                return []
             if resp.status_code != 200:
+                cb.record_failure()
                 return []
             html = resp.text
             results: list[SearchResult] = []
@@ -438,9 +460,11 @@ async def _search_duckduckgo(query: str, max_results: int = 10) -> list[SearchRe
                 ))
                 if len(results) >= max_results:
                     break
+            cb.record_success()
             logger.debug("DuckDuckGo: %d results for %r", len(results), query[:60])
             return results
     except Exception as e:
+        cb.record_failure()
         logger.debug("DuckDuckGo search failed: %s", e)
         return []
 

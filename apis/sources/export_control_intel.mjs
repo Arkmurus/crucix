@@ -6,18 +6,18 @@
 // Critical for Arkmurus brokering obligations under Export Control Order 2008
 
 const SOURCES = [
-  // BIS (Bureau of Industry and Security) — Entity List & news
+  // BIS (Bureau of Industry and Security) — Entity List & news.
+  // R-F150 2026-05-10: was 2 duplicate RSS entries — both returned
+  // "all attempts blocked" every sweep (live: 2026-05-10 11:35:49
+  // ExportControlIntel(3/4 failed:Federal Register Export)). The RSS
+  // endpoint appears to be IP-blocked from the seenode region across
+  // direct + rss2json + allorigins paths. Switched to the JSON API
+  // (federalregister.gov/api/v1/articles.json), consolidated to ONE
+  // entry, parsed via the new `federalregister_json` type below.
   {
     name:   'Federal Register Export',
-    url:    'https://www.federalregister.gov/api/v1/articles.rss?conditions%5Bagencies%5D%5B%5D=industry-and-security-bureau',
-    type:   'rss',
-    weight: 'high',
-  },
-  // US Federal Register — export control rules
-  {
-    name:   'Federal Register Export',
-    url:    'https://www.federalregister.gov/api/v1/articles.rss?conditions%5Bagencies%5D%5B%5D=industry-and-security-bureau&conditions%5Bterm%5D=export+control',
-    type:   'rss',
+    url:    'https://www.federalregister.gov/api/v1/articles.json?conditions%5Bagencies%5D%5B%5D=industry-and-security-bureau&order=newest&per_page=20',
+    type:   'federalregister_json',
     weight: 'high',
   },
   // UK GOV export controls news
@@ -198,6 +198,38 @@ function categorise(text) {
 const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
 
 async function fetchSource(src) {
+  // R-F150 2026-05-10: Federal Register JSON API direct.
+  // The RSS endpoint at federalregister.gov/api/v1/articles.rss has been
+  // returning "all attempts blocked" through direct + rss2json + allorigins
+  // for at least 14 days (live: 2026-05-10 11:35:49 sweep, was R-F34
+  // partial-tally finding). The JSON API at /articles.json is the
+  // documented sibling endpoint and is more proxy-friendly. Schema:
+  //   { "count": N, "results": [{title, abstract, html_url, publication_date,
+  //     agencies, document_number, ...}] }
+  if (src.type === 'federalregister_json') {
+    try {
+      const res = await fetch(src.url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'Accept':     'application/json',
+        },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const items = data.results || [];
+        return items.slice(0, 20).map(r => ({
+          title:       (r.title || '').toString().slice(0, 200),
+          link:        r.html_url || '',
+          description: (r.abstract || r.title || '').toString().replace(/\s+/g, ' ').slice(0, 400),
+          pubDate:     r.publication_date || new Date().toISOString(),
+        }));
+      }
+    } catch {}
+    // Don't fall through to RSS path — JSON API was already the fallback.
+    return [];
+  }
+
   // GOV.UK JSON search API — more reliable than Atom on cloud IPs.
   // R-F61 (2026-05-09): updated parser to consume /api/search.json
   // shape (structured `results` array) rather than the legacy

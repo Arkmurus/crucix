@@ -1144,10 +1144,19 @@ async def _run_identity(
                     f" — ARIA has Companies House coverage for GB only. "
                     f"Manual action: {jur_hint}"
                 )
-                # Track as capability gap
+                # Track as capability gap.
+                # R-F150 2026-05-10: removed local `import asyncio` here.
+                # Python's local-binding rule treats any `import X` inside
+                # a function as a marker that X is local FOR THE WHOLE
+                # FUNCTION — so this import shadowed the module-level
+                # `import asyncio` at line 46, and the earlier reference
+                # at line 732 (asyncio.gather in primary-source parallel
+                # screen) raised UnboundLocalError. Live evidence
+                # 2026-05-10 11:39:28: dd_orchestrator.py:732 traceback.
+                # Same pattern as F28 (lifespan_smoke_test_required.md).
+                # Module-level import is sufficient — no re-import needed.
                 try:
                     from . import capability_gaps
-                    import asyncio
                     _t = asyncio.create_task(capability_gaps.record_gap(
                         gap_type="registry_lookup",
                         detail=f"No automated registry adapter for {jurisdiction_iso2 or jurisdiction or 'unknown'}",
