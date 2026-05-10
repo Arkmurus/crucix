@@ -881,6 +881,48 @@ async def research_cleanup_stale_ep(max_age_seconds: int = 900):
     return await research_tasks.cleanup_stale_tasks(max_age_seconds)
 
 
+# ── R-F160 (2026-05-10) — Adverse-media deep search (Stage B on-demand) ──
+# The same function fires automatically on RED-classification DDs (per
+# R-F160 wiring in dd_orchestrator). This endpoint exposes it for operator-
+# initiated runs on entities that haven't gone through DD yet, OR to deepen
+# adverse-media on a GREEN/AMBER entity where the operator wants the depth.
+class AdverseMediaRequest(BaseModel):
+    entity_name: str
+    director_names: list[str] = []
+    ubo_names: list[str] = []
+    sectors: list[str] = []
+    years_back: int = 10
+    max_templates: int = 30
+    max_results_per_template: int = 6
+
+
+@router.post("/dd/adverse-media-search")
+async def dd_adverse_media_search_ep(req: AdverseMediaRequest):
+    """Run structured adverse-media deep search on an entity.
+
+    Uses dd_disciplines.adverse_media_query_templates() to generate 20-50
+    structured queries across court records, regulators, ICIJ leaks, OCCRP/
+    Bellingcat journalism, news archive, Wayback, sector trade press —
+    then executes each via web_search with R-F150 circuit-breaker protection.
+
+    Returns: { ok, entity, templates_run, findings, coverage_by_class,
+               execution_time_seconds, clause_17_attribution }
+
+    Per Clause 7: this function executes the discipline; verification of
+    individual findings is operator responsibility per Clauses 14 + 17.
+    """
+    from ..intel import researcher as _res
+    return await _res.run_adverse_media_deep_search(
+        entity_name=req.entity_name,
+        director_names=req.director_names,
+        ubo_names=req.ubo_names,
+        sectors=req.sectors,
+        years_back=req.years_back,
+        max_templates=req.max_templates,
+        max_results_per_template=req.max_results_per_template,
+    )
+
+
 # ── Brave Answers — single-call AI answer with citations ──────────────────
 # Separate product from Web Search. Pricey (~$0.04/call against the $10/mo
 # cap), so exposed explicitly rather than auto-invoked from every web_search.

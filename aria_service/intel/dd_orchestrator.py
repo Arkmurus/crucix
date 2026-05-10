@@ -1328,7 +1328,7 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
     t0 = time.time()
     report.compliance.meta.started_at = datetime.now(timezone.utc).isoformat()
 
-    # ── 4a. Country risk ──
+    # ── 4a. Country risk (qualitative — risk_indices) ──
     try:
         from . import risk_indices
         iso2 = report.identity.jurisdiction_iso2 or target.get("destination_iso2")
@@ -1348,6 +1348,77 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
     except Exception as e:
         logger.warning("Compliance: country risk failed: %s", e)
         report.compliance.data_gaps.append(f"country risk lookup failed: {str(e)[:120]}")
+
+    # ── 4a-bis. Country macro overlay (quantitative — World Bank Indicators v2) ──
+    # R-F160 (2026-05-10) — wires the WB Indicators v2 + Data360 adapter
+    # (R-F158) into the jurisdiction_country_risk discipline (R-F152). Free
+    # endpoint, no auth, complements the qualitative risk_indices output
+    # with quantitative macro context (GDP, debt/GDP, military spend, WGI
+    # governance scores). Only fires when an ISO code is available — for
+    # entities with no jurisdiction (Layer 1 inferred to UNKNOWN), this
+    # block is skipped per Clause 7 (knowing limits).
+    try:
+        from .sources import worldbank_indicators as _wbi
+        iso2_for_overlay = report.identity.jurisdiction_iso2 or target.get("destination_iso2")
+        if iso2_for_overlay:
+            overlay = await _wbi.country_risk_overlay(iso2_for_overlay)
+            if overlay.get("ok"):
+                report.compliance.macro_overlay = overlay
+                report.compliance.meta.subcalls += 1
+                # Surface anomalous values as findings
+                _gov = overlay.get("governance_wgi", {}) or {}
+                _macro = overlay.get("macro", {}) or {}
+                _defence = overlay.get("defence", {}) or {}
+                # WGI <-1.0 = below 16th percentile globally on that dimension
+                for _wgi_key, _wgi_val in _gov.items():
+                    if isinstance(_wgi_val, (int, float)) and _wgi_val < -1.0:
+                        report.compliance.findings.append(Finding(
+                            severity="amber",
+                            title=f"WGI low: {_wgi_key} = {_wgi_val:.2f}",
+                            detail=(
+                                f"World Bank Worldwide Governance Indicator '{_wgi_key}' for "
+                                f"{iso2_for_overlay} is {_wgi_val:.2f} (below -1.0 = bottom 16% "
+                                f"globally). Indicates structural governance weakness on this "
+                                f"dimension — adds context to country-risk assessment."
+                            ),
+                            source=f"worldbank_indicators.country_risk_overlay [from {overlay.get('primary_source_url','')}]",
+                            confidence="CONFIRMED",
+                        ))
+                # Debt/GDP > 100% = elevated sovereign-stress signal
+                _debt = _macro.get("debt_to_gdp_pct")
+                if isinstance(_debt, (int, float)) and _debt > 100:
+                    report.compliance.findings.append(Finding(
+                        severity="amber",
+                        title=f"Sovereign debt elevated: {_debt:.1f}% of GDP",
+                        detail=(
+                            f"Central government debt for {iso2_for_overlay} = {_debt:.1f}% of GDP "
+                            f"(WB threshold for fiscal-stress concern: ~100%). Adds context for "
+                            f"sovereign-counterparty + payment-currency risk."
+                        ),
+                        source=f"worldbank_indicators.country_risk_overlay [from {overlay.get('primary_source_url','')}]",
+                        confidence="CONFIRMED",
+                    ))
+                # Military spend > 5% of GDP = elevated militarisation signal
+                _mil = _defence.get("military_spend_pct_gdp")
+                if isinstance(_mil, (int, float)) and _mil > 5.0:
+                    report.compliance.findings.append(Finding(
+                        severity="amber",
+                        title=f"Military spend elevated: {_mil:.1f}% of GDP",
+                        detail=(
+                            f"Military expenditure for {iso2_for_overlay} = {_mil:.1f}% of GDP "
+                            f"(global average ~2-2.5%). Defence-sector context for procurement "
+                            f"DD; not necessarily adverse but informs market-sizing + sanctions "
+                            f"context."
+                        ),
+                        source=f"worldbank_indicators.country_risk_overlay [from {overlay.get('primary_source_url','')}]",
+                        confidence="CONFIRMED",
+                    ))
+            elif overlay.get("error"):
+                report.compliance.data_gaps.append(
+                    f"WB Indicators overlay unavailable for {iso2_for_overlay}: {str(overlay.get('error'))[:120]}"
+                )
+    except Exception as e:
+        logger.debug("Compliance: WB Indicators overlay failed (non-fatal): %s", e)
 
     # ── 4b. Export control classification ──
     product_text = target.get("product_description") or target.get("goods") or ""
@@ -3256,6 +3327,70 @@ async def orchestrate_dd(
         logger.debug("[R-F157] discipline coverage check failed (non-fatal): %s", _cov_err)
         try:
             report.discipline_coverage = {"error": str(_cov_err)[:200], "framework_version": "dd_disciplines.py R-F152"}
+        except Exception:
+            pass
+
+    # ── R-F160: adverse-media deep search on RED-classification (Stage B wiring policy) ──
+    # Per operator decision 2026-05-10: adverse-media deep search (Stage B
+    # function from R-F159) fires automatically on RED / HARD_STOP / NO-GO
+    # verdicts. Rationale: the marginal cost (30-50 search-backend calls per
+    # DD) is justified for high-risk classifications where the operator most
+    # needs depth. GREEN / AMBER DDs use the existing Layer 5 web_search +
+    # deep_research only — no extra cost. On-demand path also exposed via
+    # POST /api/aria/dd/adverse-media-search for operator-initiated runs.
+    # Findings appended to report as report.adverse_media (separate from
+    # report.digital so dashboards can render the depth distinctly).
+    try:
+        _risk_for_am = (report.risk_classification or "").upper()
+        if _risk_for_am in ("RED", "HARD_STOP", "NO-GO"):
+            from . import researcher as _res
+            # Pull director/UBO names from the network layer if present
+            _director_names: list[str] = []
+            _ubo_names: list[str] = []
+            try:
+                for n in getattr(report.network, "directors", []) or []:
+                    _name = getattr(n, "name", None) or (n.get("name") if isinstance(n, dict) else None)
+                    if _name:
+                        _director_names.append(_name)
+                for u in getattr(report.network, "ubo_chain", []) or []:
+                    _name = getattr(u, "name", None) or (u.get("name") if isinstance(u, dict) else None)
+                    if _name:
+                        _ubo_names.append(_name)
+            except Exception:
+                pass
+            # Sector hint from target dict
+            _sectors: list[str] = []
+            _sec_hint = (target.get("sector") or "").lower()
+            if _sec_hint:
+                _sectors.append(_sec_hint)
+            # If commodity entity detected earlier, add commodity sector tag
+            try:
+                if report.discipline_coverage and report.discipline_coverage.get("commodity_classification"):
+                    _sectors.append("oil")  # generic commodity hint for trade-press templates
+            except Exception:
+                pass
+            if not _sectors:
+                _sectors = ["defence"]  # ARIA's default vertical
+            _am_result = await _res.run_adverse_media_deep_search(
+                entity_name=report.identity.entity_name,
+                director_names=_director_names[:3],  # cap to 3 to bound search cost
+                ubo_names=_ubo_names[:2],            # cap to 2
+                sectors=_sectors,
+                years_back=10,
+                max_templates=30,
+                max_results_per_template=5,
+            )
+            report.adverse_media = _am_result
+            logger.info(
+                "[R-F160] adverse-media deep search (RED-trigger): %d findings across %d source classes in %.1fs",
+                _am_result.get("findings_count", 0),
+                len(_am_result.get("coverage_by_class", {}) or {}),
+                _am_result.get("execution_time_seconds", 0),
+            )
+    except Exception as _am_err:
+        logger.debug("[R-F160] adverse-media deep search failed (non-fatal): %s", _am_err)
+        try:
+            report.adverse_media = {"error": str(_am_err)[:200], "framework_version": "researcher.run_adverse_media_deep_search R-F159"}
         except Exception:
             pass
 

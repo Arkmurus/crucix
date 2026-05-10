@@ -2636,11 +2636,46 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
   //
   // R-F156 (2026-05-10) — F8 Stage 1: the existing result.warning field was
   // invisible to WhatsApp users (the listener at waListener.mjs:2596 pulls
-  // data.response only). The 11:43:27 incident showed a 5414-char unguarded
-  // reply going to a counterparty-facing channel without any visual warning.
-  // Stage 1 fix: prepend visible banner to response text + ERROR-level log +
-  // module-level counter so frequency is trackable. Stage 2 (refuse / queue
-  // / SSE rewrite — architectural decision) is still operator-pending.
+  // data.response only). Stage 1 added visible banner + ERROR log + counter.
+  //
+  // R-F160 (2026-05-10) — F8 Stage 2 (operator authorised): refuse DD-style
+  // queries on fallback path. The unguarded local LLM is acceptable for
+  // chitchat / liveness / quick lookups — it is NOT acceptable for compliance
+  // /  due-diligence / sanctions / counterparty-investigation queries which
+  // require the full fly.io guard chain (constitution + output guards + DD
+  // orchestrator + verification gate + sanctions claim guard + citation
+  // enforcement). Refuse-with-honest-explanation > unguarded-but-polished.
+  const _ddIntentPattern = /\b(due\s+diligence|\bdd\b|investigate|background\s+check|compliance\s+check|sanctions?\s+(?:check|screen)|verify\s+(?:this|the)\s+(?:company|entity|person)|kyc|aml|vetting|risk\s+(?:assessment|profile)|run\s+(?:a\s+)?(?:full\s+)?(?:dd|check)|screen\s+(?:this|the)|trace\s+(?:ubo|ownership)|adverse\s+media)\b|https?:\/\//i;
+  if (_ddIntentPattern.test(message)) {
+    globalThis.__ariaUnguardedFallbackCount = (globalThis.__ariaUnguardedFallbackCount || 0) + 1;
+    globalThis.__ariaUnguardedFallbackLast = new Date().toISOString();
+    globalThis.__ariaUnguardedFallbackRefusedCount = (globalThis.__ariaUnguardedFallbackRefusedCount || 0) + 1;
+    console.error(
+      `[ARIA] ⚠ UNGUARDED FALLBACK REFUSED — fly.io brain unreachable AND message contains ` +
+      `DD/compliance/investigation intent. Refusing rather than producing unguarded reply. ` +
+      `Cumulative refused: ${globalThis.__ariaUnguardedFallbackRefusedCount}. ` +
+      `Message preview: ${message.slice(0, 120)}`
+    );
+    return res.json({
+      response: (
+        '⚠ I cannot answer this query right now.\n\n' +
+        'Your message looks like a due-diligence / compliance / investigation ' +
+        'request — those queries need to run through fly.io ARIA so the constitutional ' +
+        'guards, sanctions checks, DD orchestrator, citation enforcement and verification ' +
+        'gate can fire. fly.io ARIA is currently unreachable, and I will NOT produce a ' +
+        'compliance/DD response from the unguarded local fallback (the response would ' +
+        'bypass every safety control and could quote fabricated facts about real entities).\n\n' +
+        'Please retry in 60-90 seconds — fly.io is usually back within a minute. ' +
+        'If the issue persists for >5 minutes, check fly.io status: ' +
+        '`fly status -a aria-intel`.'
+      ),
+      service: 'local',
+      engine: 'node-fallback-refused',
+      refused: true,
+      refused_reason: 'dd_compliance_intent_detected_on_unguarded_fallback',
+      warning: 'F8 Stage 2 (R-F160): unguarded fallback refused for DD/compliance intent',
+    });
+  }
   globalThis.__ariaUnguardedFallbackCount = (globalThis.__ariaUnguardedFallbackCount || 0) + 1;
   globalThis.__ariaUnguardedFallbackLast = new Date().toISOString();
   console.error(
