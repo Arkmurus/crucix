@@ -374,6 +374,50 @@ ARTICLES_READ_KEY = "crucix:aria:articles_read"
 # above the ~1/cycle generation rate so the backlog actually shrinks.
 _HYPOTHESIS_ATTEMPT_CAP = 5
 
+# R-F161 (2026-05-10) — TIME-based stale cap. The R-F32 attempt-cap above
+# only ages hypotheses that get *picked*. Hypotheses that sit at the back
+# of the OPEN queue and never get picked stay OPEN indefinitely. Live
+# evidence 2026-05-10: backlog grew 118→122 over ~5h despite 50% verifier
+# resolution rate, with malformed hypothesis text ("Iraqs denial defence
+# Bahadlis job scope indicate deliberate") burning verifier cycles.
+#
+# Fix: any hypothesis with status='OPEN' AND created_at older than this
+# threshold gets auto-promoted to status='STALE' on the next _load_hypotheses
+# call. STALE entries are excluded from validate_hypothesis picker (which
+# filters for status=='OPEN'). They remain in the store for audit but stop
+# burning verification compute. Operator can manually promote a STALE entry
+# back to OPEN if they decide it's worth re-investigating.
+#
+# 14 days = generous enough that legitimate slow-moving hypotheses (waiting
+# for natural-language news to surface evidence) still get a fair attempt
+# window, but tight enough that fragment-pollution drains within ~2 weeks.
+_HYPOTHESIS_STALE_DAYS = 14
+
+
+def _is_stale_hypothesis(h: dict, max_age_days: int = _HYPOTHESIS_STALE_DAYS) -> bool:
+    """R-F161 — return True if this OPEN hypothesis is older than the
+    stale threshold. Uses created_at (YYYY-MM-DD) for the comparison —
+    other date fields are optional and may be absent on legacy entries."""
+    if not isinstance(h, dict):
+        return False
+    if h.get("status") != "OPEN":
+        return False
+    created_at = h.get("created_at") or ""
+    if not created_at or not isinstance(created_at, str):
+        return False
+    try:
+        # created_at is stored as YYYY-MM-DD (per line 1443 of this file);
+        # parse defensively so a legacy ISO timestamp also works.
+        from datetime import datetime as _dt, timezone as _tz
+        if "T" in created_at:
+            _created = _dt.fromisoformat(created_at.replace("Z", "+00:00"))
+        else:
+            _created = _dt.strptime(created_at[:10], "%Y-%m-%d").replace(tzinfo=_tz.utc)
+        _age_days = (_dt.now(_tz.utc) - _created).total_seconds() / 86400
+        return _age_days > max_age_days
+    except Exception:
+        return False
+
 
 _INVALID_HYPOTHESIS_TEXTS = {"", "null", "none", "undefined", "nan", "n/a"}
 
@@ -409,12 +453,35 @@ async def _load_hypotheses() -> list[dict]:
     # filtered any out, persist the cleaned list back so the next
     # boot sees a clean slate.
     cleaned = [h for h in raw if _is_valid_hypothesis_text(h.get("hypothesis"))]
-    if len(cleaned) != len(raw):
-        try:
-            logger.info(
-                "[hypotheses] filtered %d invalid entries on load (kept %d of %d)",
-                len(raw) - len(cleaned), len(cleaned), len(raw),
+
+    # R-F161 — opportunistic stale-marking on every load. Mutate in-place,
+    # tracking how many flipped from OPEN→STALE this cycle. Persist if
+    # anything changed (combined with F90 prune below into a single write).
+    _stale_marked = 0
+    for h in cleaned:
+        if _is_stale_hypothesis(h):
+            h["status"] = "STALE"
+            h["staled_at"] = datetime.now(timezone.utc).isoformat()
+            h["staled_reason"] = (
+                f"Auto-staled by R-F161: created_at {h.get('created_at','?')} "
+                f"is older than {_HYPOTHESIS_STALE_DAYS} days and validation "
+                f"never resolved it. Backlog drain — re-OPEN manually if worth "
+                f"re-investigating."
             )
+            _stale_marked += 1
+
+    if len(cleaned) != len(raw) or _stale_marked > 0:
+        try:
+            if len(cleaned) != len(raw):
+                logger.info(
+                    "[hypotheses] filtered %d invalid entries on load (kept %d of %d)",
+                    len(raw) - len(cleaned), len(cleaned), len(raw),
+                )
+            if _stale_marked > 0:
+                logger.info(
+                    "[hypotheses] R-F161 marked %d entries STALE on load (>%dd OPEN without resolution)",
+                    _stale_marked, _HYPOTHESIS_STALE_DAYS,
+                )
             await rs.set_json(HYPOTHESIS_KEY, cleaned[:200])
         except Exception as e:
             logger.debug("hypothesis cleanup persist failed: %s", e)
@@ -2951,11 +3018,30 @@ async def get_research_summary(llm: LLMProvider) -> dict:
     open_h = [h for h in hypotheses if h.get("status") == "OPEN"]
     strong_h = [h for h in hypotheses if h.get("status") == "STRENGTHENED"]
     challenged_h = [h for h in hypotheses if h.get("status") == "CHALLENGED"]
+    # R-F161 — surface stale + insufficient-evidence buckets so backlog
+    # drain is visible in the dashboard. STALE = aged out via R-F161
+    # time-cap; INSUFFICIENT_EVIDENCE = aged out via R-F32 attempt-cap.
+    stale_h = [h for h in hypotheses if h.get("status") == "STALE"]
+    insufficient_h = [h for h in hypotheses if h.get("status") == "INSUFFICIENT_EVIDENCE"]
 
     return {
         "knowledge_base_facts": kb_size,
         "intel_ledger_signals": ledger_size,
-        "hypotheses": {"total": len(hypotheses), "open": len(open_h), "strengthened": len(strong_h), "challenged": len(challenged_h)},
+        "hypotheses": {
+            "total": len(hypotheses),
+            "open": len(open_h),
+            "strengthened": len(strong_h),
+            "challenged": len(challenged_h),
+            "stale": len(stale_h),
+            "insufficient_evidence": len(insufficient_h),
+        },
+        "drain_indicators_R_F161": {
+            "stale_threshold_days": _HYPOTHESIS_STALE_DAYS,
+            "stale_count": len(stale_h),
+            "attempt_cap": _HYPOTHESIS_ATTEMPT_CAP,
+            "insufficient_evidence_count": len(insufficient_h),
+            "open_actively_being_verified": len(open_h),
+        },
         "top_hypotheses": [{"hypothesis": h["hypothesis"], "status": h["status"], "evidence": h.get("evidence_count", 0)} for h in hypotheses[:10]],
     }
 
