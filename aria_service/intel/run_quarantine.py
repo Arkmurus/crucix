@@ -43,23 +43,39 @@ _SEEDED: dict[str, dict[str, str]] = {
     "dd_30477701e537": {
         "reason": "Ran on malformed entity 'https' — URL parser bug (fixed in d4aa0c1). "
                   "5-match sanctions hit is noise against the substring 'https' in list aliases.",
-        "quarantined_at": "2026-04-17T21:45:00+00:00",
-        "entity_was":     "https",
-        "real_entity":    "f3ir.com / F3 International Resources LLC",
+        "quarantined_at":         "2026-04-17T21:45:00+00:00",
+        "entity_was":             "https",
+        "real_entity":            "f3ir.com / F3 International Resources LLC",
+        # Closure metadata (R-F147, 2026-05-10) — Phase A gate #4 closer
+        "investigation_status":   "closed",
+        "closed_at":              "2026-05-10T22:30:00+00:00",
+        "verified_fix_in_commit": "d4aa0c1b82482adc1d1f5d6a3cba4202cdc3a4b3",
+        "regression_test_path":   "aria_service/tests/test_f3_cascade_fixes.py::test_validator_rejects_url_scheme_fragments",
+        "closure_rationale":      "Root cause _DD_ENTITY_CAPTURE_RE bare '/' in terminator class — fixed (current code: aria.py:2693). URL-as-entity bridge using urllib.parse.urlparse is in _detect_dd_intent (current code: aria.py:2845, 2877-2879). Regression test actively rejects 'https'/'http'/'ftp' as entity names. The quarantine seed is permanent code-resident protection so any future references to this run_id are scrubbed by filter_citations(). No further action needed.",
     },
     "dd_adc7c7f87e4a": {
         "reason": "Same malformed-entity bug as dd_30477701e537. 5-match sanctions "
                   "result is a repeat of the same noise hit — both runs are defective.",
-        "quarantined_at": "2026-04-17T21:45:00+00:00",
-        "entity_was":     "https",
-        "real_entity":    "f3ir.com / F3 International Resources LLC",
+        "quarantined_at":         "2026-04-17T21:45:00+00:00",
+        "entity_was":             "https",
+        "real_entity":            "f3ir.com / F3 International Resources LLC",
+        "investigation_status":   "closed",
+        "closed_at":              "2026-05-10T22:30:00+00:00",
+        "verified_fix_in_commit": "d4aa0c1b82482adc1d1f5d6a3cba4202cdc3a4b3",
+        "regression_test_path":   "aria_service/tests/test_f3_cascade_fixes.py::test_validator_rejects_url_scheme_fragments",
+        "closure_rationale":      "Same root cause as dd_30477701e537 — URL-parser bug in _DD_ENTITY_CAPTURE_RE. Same fix (d4aa0c1) covers this run. Quarantine seed remains active to scrub any residual citations. Real entity (f3ir.com / F3 International Resources LLC) can be re-DD'd cleanly via POST /api/aria/dd/orchestrate when the operator needs a current assessment.",
     },
     "dd_07f45b072b9f": {
         "reason": "Earlier instance of the same bug — ran before the d4aa0c1 URL-parser fix. "
                   "Findings that reference this run_id should be re-verified against primary sources.",
-        "quarantined_at": "2026-04-17T21:45:00+00:00",
-        "entity_was":     "https / URL fragment",
-        "real_entity":    "f3ir.com / F3 International Resources LLC",
+        "quarantined_at":         "2026-04-17T21:45:00+00:00",
+        "entity_was":             "https / URL fragment",
+        "real_entity":            "f3ir.com / F3 International Resources LLC",
+        "investigation_status":   "closed",
+        "closed_at":              "2026-05-10T22:30:00+00:00",
+        "verified_fix_in_commit": "d4aa0c1b82482adc1d1f5d6a3cba4202cdc3a4b3",
+        "regression_test_path":   "aria_service/tests/test_f3_cascade_fixes.py::test_validator_rejects_url_scheme_fragments",
+        "closure_rationale":      "Earliest of the three F3-cascade defective runs, all sharing the same URL-parser bug root cause. Bug fix d4aa0c1 retrospectively makes this run impossible to reproduce. Filter_citations() scrubs any prior-conversation reference to this run_id. No live ledger signals or mem0 entries should still cite this run; any that do are flagged at chat-time by run_quarantine.is_quarantined().",
     },
 }
 
@@ -156,12 +172,44 @@ async def get_quarantine_entry(run_id: str) -> dict[str, str] | None:
 
 
 async def list_quarantined() -> list[dict[str, Any]]:
-    """Complete list for the /api/aria/dd/quarantine endpoint."""
+    """Complete list for the /api/aria/dd/quarantine endpoint.
+
+    Each entry carries `investigation_status` ("closed" | "open") so the
+    operator can see at a glance whether all quarantines have been
+    investigated + closed (Phase A gate #4 criterion).
+    """
     entries = await _load()
-    return [
+    items = [
         {"run_id": k, **v}
         for k, v in sorted(entries.items(), key=lambda kv: kv[1].get("quarantined_at", ""))
     ]
+    # Default investigation_status for entries that lack the field (legacy
+    # dynamic quarantines from before R-F147 closure tracking landed).
+    for it in items:
+        it.setdefault("investigation_status", "open")
+    return items
+
+
+async def closure_summary() -> dict[str, Any]:
+    """Closed vs open quarantine counts. Phase A gate #4 closer surface.
+
+    Returns:
+      total: int                — all quarantined runs (seeded + dynamic)
+      closed: int               — investigated + documented
+      open: int                 — outstanding investigation work
+      gate_passes: bool         — True iff all quarantines are closed
+      open_run_ids: list[str]   — what's left to investigate
+    """
+    items = await list_quarantined()
+    closed = sum(1 for it in items if it.get("investigation_status") == "closed")
+    open_items = [it for it in items if it.get("investigation_status") != "closed"]
+    return {
+        "total": len(items),
+        "closed": closed,
+        "open": len(open_items),
+        "gate_passes": len(open_items) == 0 and len(items) > 0,
+        "open_run_ids": [it["run_id"] for it in open_items],
+    }
 
 
 async def filter_citations(text: str) -> tuple[str, list[str]]:

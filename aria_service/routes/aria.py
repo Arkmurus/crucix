@@ -14367,6 +14367,18 @@ async def dd_quarantine_add_ep(request: Request):
     return result
 
 
+@router.get("/dd/quarantine/closure-summary")
+async def dd_quarantine_closure_summary_ep():
+    """Closed vs open quarantine counts. Phase A gate #4 surface.
+
+    Gate criterion: 'all quarantined DDs investigated + closed'. This
+    endpoint returns the live verdict — gate_passes=True when all
+    quarantine entries carry investigation_status='closed'.
+    """
+    from ..intel import run_quarantine
+    return await run_quarantine.closure_summary()
+
+
 # ── Verification gate (2026-04-18) ────────────────────────────────────────
 # On CRITICAL outputs (RED DD verdicts, sanctions yes/no, client-facing
 # drafts), run the same decision through two independent providers and
