@@ -31,6 +31,15 @@ BRAIN_HOOK_ENABLED = os.environ.get("ARIA_BRAIN_HOOK_ENABLED", "1") == "1"
 # Topic mapping: module name → student mastery topics it touches
 _MODULE_TOPICS: dict[str, list[str]] = {
     "dd_orchestrator":      ["compliance", "osint", "finance", "relationships"],
+    # R-F154 (2026-05-10): added intel_ledger — was missing from the map and
+    # showing as ⚠ on /aria-brain System Health ("not in brain_hook._MODULE_TOPICS
+    # — signals from this module will file under 'gen[eric]'"). intel_ledger is
+    # the permanent signal store that aggregates EVERY significant signal by
+    # country/product/OEM (~20K+ signals as of 2026-05-10). Topic mapping is
+    # deliberately broad because the ledger is a super-aggregator; specific
+    # producers register their own topic sets, but ledger-routed signals need
+    # all major topic axes to land correctly in mastery rollups.
+    "intel_ledger":         ["compliance", "geopolitics", "market_intel", "procurement", "relationships", "osint"],
     "compliance_workflow":  ["compliance", "legal"],
     "contract_intelligence": ["legal", "procurement"],
     "tender_monitor":       ["procurement", "market_intel"],
