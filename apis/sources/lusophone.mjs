@@ -16,8 +16,23 @@ const SOURCES = [
     weight: 'high',
   },
   {
+    // R-F151 2026-05-10: switched URL from au.int/en/rss.xml to
+    // peaceau.org/en/rss. Two fixes in one:
+    //   (a) au.int RSS was IP-blocked from seenode region across ALL
+    //       6 fetch fallbacks (live: 11:46:29 — direct=err / jina=err
+    //       / rss2json=429 / allorigins=err / corsproxy=err / codetabs=400).
+    //       Cascading 30s timeout was failing the Lusophone aggregator
+    //       (47/49 sources OK instead of 48/49).
+    //   (b) au.int/en/rss.xml is the GENERAL AU news feed (Chairperson
+    //       reports etc.), not the Peace and Security Council. The
+    //       canonical PSC feed lives at peaceau.org/en/rss — ARIA's
+    //       source name was "African Union PSC" but the URL was wrong.
+    //       Probed live: peaceau.org/en/rss returns the right content
+    //       (PSC briefings, communiqués 1333-1342, conflict prevention,
+    //       Mali/CAR/Somalia mission updates) — exactly the defence-
+    //       security feed the source name promised.
     name:   'African Union PSC',
-    url:    'https://au.int/en/rss.xml',
+    url:    'https://www.peaceau.org/en/rss',
     type:   'rss',
     region: 'Africa',
     weight: 'high',
