@@ -598,6 +598,122 @@ class TestNoScaffoldWrite:
         asyncio.run(_t())
 
 
+class TestNoScaffoldWriteExpanded:
+    """R-F268 — extend the no-scaffold-write rule to three more caches that
+    share the same anti-pattern: student._regional_cache (regional heatmap),
+    reasoning_router._stats_cache (routing counters), reasoning_library._meta_cache
+    (case-library lookup stats). Each must skip persistence when the cache
+    contains only scaffolded defaults, and persist exactly once after a real
+    mutation marks it dirty."""
+
+    def _patch_rs(self, module):
+        """Stub the module's redis_store handles. Returns the writes list."""
+        writes: list = []
+
+        async def fake_set_json(key, value, ex=None):
+            writes.append((key, value, ex))
+
+        async def fake_get_json(key):
+            return None  # simulate empty backend
+
+        module.rs.get_json = fake_get_json
+        module.rs.set_json = fake_set_json
+        return writes
+
+    # ── student._regional_cache ──────────────────────────────────────────
+    def test_regional_save_skipped_when_only_scaffolded(self):
+        from aria_service.intel import student
+        student._regional_cache = None
+        student._regional_dirty = False
+        writes = self._patch_rs(student)
+
+        async def _t():
+            cache = await student._load_regional_mastery()
+            assert cache == {}
+            assert student._regional_dirty is False
+            await student._save_regional_mastery()
+            assert writes == [], "scaffold-only regional cache must not persist"
+        asyncio.run(_t())
+
+    def test_regional_save_writes_when_dirty(self):
+        from aria_service.intel import student
+        student._regional_cache = None
+        student._regional_dirty = False
+        writes = self._patch_rs(student)
+
+        async def _t():
+            await student._load_regional_mastery()
+            student._mark_regional_dirty()
+            await student._save_regional_mastery()
+            assert len(writes) == 1, "dirty regional cache must persist once"
+            assert student._regional_dirty is False
+            await student._save_regional_mastery()
+            assert len(writes) == 1, "no-op after dirty flag reset"
+        asyncio.run(_t())
+
+    # ── reasoning_router._stats_cache ────────────────────────────────────
+    def test_router_stats_save_skipped_when_only_scaffolded(self):
+        from aria_service.intel import reasoning_router as rr
+        rr._stats_cache = None
+        rr._stats_dirty = False
+        writes = self._patch_rs(rr)
+
+        async def _t():
+            stats = await rr._load_stats()
+            assert "total_queries" in stats and stats["total_queries"] == 0
+            assert rr._stats_dirty is False
+            await rr._save_stats()
+            assert writes == [], "scaffold-only stats must not persist"
+        asyncio.run(_t())
+
+    def test_router_stats_save_writes_after_record_routing(self):
+        """_record_routing marks dirty + calls _save_stats internally; the
+        save flushes and resets the flag in one round. Verify by counting
+        writes, since the flag is False both before AND after the cycle."""
+        from aria_service.intel import reasoning_router as rr
+        rr._stats_cache = None
+        rr._stats_dirty = False
+        writes = self._patch_rs(rr)
+
+        async def _t():
+            await rr._record_routing("symbolic_reasoner")
+            assert len(writes) == 1, "real routing must persist exactly once"
+            assert rr._stats_dirty is False, "flag must reset after save"
+            # A second save without further routing must be a no-op
+            await rr._save_stats()
+            assert len(writes) == 1, "no-op when dirty flag is False"
+        asyncio.run(_t())
+
+    # ── reasoning_library._meta_cache ────────────────────────────────────
+    def test_library_meta_save_skipped_when_only_scaffolded(self):
+        from aria_service.intel import reasoning_library as rl
+        rl._meta_cache = None
+        rl._meta_dirty = False
+        writes = self._patch_rs(rl)
+
+        async def _t():
+            meta = await rl._load_meta()
+            assert meta["total_cases"] == 0
+            assert rl._meta_dirty is False
+            await rl._save_meta()
+            assert writes == [], "scaffold-only meta must not persist"
+        asyncio.run(_t())
+
+    def test_library_meta_save_writes_when_dirty(self):
+        from aria_service.intel import reasoning_library as rl
+        rl._meta_cache = None
+        rl._meta_dirty = False
+        writes = self._patch_rs(rl)
+
+        async def _t():
+            await rl._load_meta()
+            rl._mark_meta_dirty()
+            await rl._save_meta()
+            assert len(writes) == 1
+            assert rl._meta_dirty is False
+        asyncio.run(_t())
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"

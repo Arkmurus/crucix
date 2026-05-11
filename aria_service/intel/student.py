@@ -1137,6 +1137,18 @@ _REGION_PATTERNS: list[tuple[str, re.Pattern]] = [
 REGIONAL_MASTERY_KEY = "crucix:aria:student:regional_mastery"
 _regional_cache: dict | None = None
 
+# R-F268 (2026-05-11) — no-scaffold-write rule mirroring R-F267. Empty-
+# scaffold `{}` should never be persisted; only real regional-mastery
+# updates qualify. Prevents heatmap data wipe across backend flips.
+_regional_dirty: bool = False
+
+
+def _mark_regional_dirty() -> None:
+    """Flip the dirty flag — call from code that mutates _regional_cache
+    with actual regional-mastery data (not scaffold initialisation)."""
+    global _regional_dirty
+    _regional_dirty = True
+
 
 def detect_regions(text: str) -> list[str]:
     """Detect which regions a text relates to."""
@@ -1162,8 +1174,15 @@ async def _load_regional_mastery() -> dict:
 
 
 async def _save_regional_mastery() -> None:
-    if _regional_cache is not None:
-        await rs.set_json(REGIONAL_MASTERY_KEY, _regional_cache, ex=180 * 86400)
+    """R-F268 (2026-05-11): skip-when-not-dirty. Same rule as _save_mastery —
+    scaffold-only caches must never overwrite the destination backend's
+    real data across a flip. Persists only when actual regional-mastery
+    updates have landed since the last load."""
+    global _regional_dirty
+    if _regional_cache is None or not _regional_dirty:
+        return
+    await rs.set_json(REGIONAL_MASTERY_KEY, _regional_cache, ex=180 * 86400)
+    _regional_dirty = False
 
 
 async def update_regional_mastery(
@@ -1186,6 +1205,7 @@ async def update_regional_mastery(
             entry["score"] = entry["score"] + alpha * (obs - entry["score"])
             entry["samples"] = entry.get("samples", 0) + 1
     _regional_cache.update(rm)
+    _mark_regional_dirty()  # R-F268 — actual regional-mastery update
     await _save_regional_mastery()
 
 

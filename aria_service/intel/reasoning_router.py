@@ -81,6 +81,18 @@ _SELF_INFRA_INTROSPECTION_RE = _sid.SELF_INFRA_INTROSPECTION_RE
 
 _stats_cache: dict | None = None
 
+# R-F268 (2026-05-11) — no-scaffold-write rule. Stats are scaffolded with
+# zero-counter defaults when the backend is empty. Without this guard, the
+# scaffolded zeros would overwrite real counter data on the destination
+# backend across a flip. Same pattern as R-F267 _mastery_dirty.
+_stats_dirty: bool = False
+
+
+def _mark_stats_dirty() -> None:
+    global _stats_dirty
+    _stats_dirty = True
+
+
 async def _load_stats() -> dict:
     global _stats_cache
     if _stats_cache is not None:
@@ -101,8 +113,12 @@ async def _load_stats() -> dict:
     return _stats_cache
 
 async def _save_stats() -> None:
-    if _stats_cache is not None:
-        await rs.set_json(ROUTER_STATS_KEY, _stats_cache, ex=30 * 86400)
+    """R-F268: persist only when actual routing has occurred since the last load."""
+    global _stats_dirty
+    if _stats_cache is None or not _stats_dirty:
+        return
+    await rs.set_json(ROUTER_STATS_KEY, _stats_cache, ex=30 * 86400)
+    _stats_dirty = False
 
 async def _record_routing(source: str) -> None:
     stats = await _load_stats()
@@ -110,6 +126,7 @@ async def _record_routing(source: str) -> None:
     by_source = stats.setdefault("by_source", {})
     by_source[source] = by_source.get(source, 0) + 1
     stats["last_query"] = time.time()
+    _mark_stats_dirty()  # R-F268 — actual routing observation
     await _save_stats()
 
 

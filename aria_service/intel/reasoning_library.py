@@ -184,6 +184,16 @@ _DOMAIN_TOKENS = frozenset({
 _meta_cache: dict | None = None
 _index_cache: list[dict] | None = None  # in-memory mirror of the index
 
+# R-F268 (2026-05-11) — no-scaffold-write rule. Meta is scaffolded with
+# zero-counter defaults; without the dirty flag, those defaults could
+# overwrite the destination backend across a flip. Same pattern as R-F267.
+_meta_dirty: bool = False
+
+
+def _mark_meta_dirty() -> None:
+    global _meta_dirty
+    _meta_dirty = True
+
 
 # ── Normalisation ───────────────────────────────────────────────────────────
 
@@ -305,8 +315,14 @@ async def _load_meta() -> dict:
 
 
 async def _save_meta() -> None:
-    if _meta_cache is not None:
-        await rs.set_json(META_KEY, _meta_cache, ex=TTL_SECONDS)
+    """R-F268: persist only when meta has been touched by actual writes/lookups
+    since the last load. Scaffold-only caches are kept in memory but not
+    flushed to the active backend, preventing default-overwrite across flips."""
+    global _meta_dirty
+    if _meta_cache is None or not _meta_dirty:
+        return
+    await rs.set_json(META_KEY, _meta_cache, ex=TTL_SECONDS)
+    _meta_dirty = False
 
 
 def _case_key(case_id: str) -> str:
@@ -583,6 +599,7 @@ async def record_response(
     meta["total_cases"] = len(index)
     meta["total_writes"] = meta.get("total_writes", 0) + 1
     meta["last_write"] = time.time()
+    _mark_meta_dirty()  # R-F268
     await _save_meta()
 
     return {"recorded": True, "id": case_id, "confidence": confidence_tag}
@@ -641,6 +658,7 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
     # A single salient token can't safely identify a question — bail out
     # rather than risk an exact_normalised collision against an unrelated case.
     if len(normalised.split()) < MIN_SALIENT_TOKENS:
+        _mark_meta_dirty()  # R-F268
         await _save_meta()
         return {"match": False, "score": 0, "case": None, "method": "skipped_too_few_tokens", "threshold": threshold}
     query_tokens = _token_set(question)
@@ -679,6 +697,7 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
                 best_score, best_idx, best_method = blended, entry, "lexical_jaccard"
 
     if best_idx is None or best_score < threshold:
+        _mark_meta_dirty()  # R-F268
         await _save_meta()
         return {"match": False, "score": best_score, "case": None, "method": best_method, "threshold": threshold}
 
@@ -699,6 +718,7 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
     await _save_index()
 
     meta["total_hits"] = meta.get("total_hits", 0) + 1
+    _mark_meta_dirty()  # R-F268
     await _save_meta()
 
     return {
@@ -811,6 +831,7 @@ async def purge_polluted_cases(*, dry_run: bool = False) -> dict:
         meta["total_cases"] = len(keep)
         meta["last_purge"] = time.time()
         meta["last_purge_removed"] = n_removed
+        _mark_meta_dirty()  # R-F268
         await _save_meta()
 
     return {
@@ -908,6 +929,7 @@ async def purge_by_keywords(
         meta["total_cases"] = len(keep)
         meta["last_purge"] = time.time()
         meta["last_purge_removed"] = n_removed
+        _mark_meta_dirty()  # R-F268
         await _save_meta()
         logger.warning(
             "reasoning_library.purge_by_keywords: removed %d cases matching %s",
@@ -1017,6 +1039,7 @@ async def purge_unsafe_cases() -> dict:
         meta["total_cases"] = len(new_index)
         meta["last_purge"] = time.time()
         meta["last_purge_count"] = purged
+        _mark_meta_dirty()  # R-F268
         await _save_meta()
         logger.info("reasoning_library purge: removed %d unsafe cases (<%d salient tokens), %d remain",
                     purged, MIN_SALIENT_TOKENS, len(new_index))
@@ -1060,6 +1083,7 @@ async def consolidate() -> dict:
     meta = await _load_meta()
     meta["total_cases"] = len(new_index)
     meta["last_consolidate"] = now
+    _mark_meta_dirty()  # R-F268
     await _save_meta()
 
     logger.info("reasoning_library consolidated: pruned %d, remaining %d", pruned, len(new_index))
