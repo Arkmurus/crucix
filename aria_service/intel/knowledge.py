@@ -43,9 +43,19 @@ KEY = "crucix:aria:knowledge"
 # Permanent memory — no TTL, 1M-entry caps (was 30k/20k/10k on 180d TTL).
 # Operator explicitly asked for forever memory; disk footprint at current
 # ingest is ~50 MB/yr, well inside standard Redis provisioning.
-MAX_FACTS = 1_000_000
-MAX_QUERIES = 1_000_000
-MAX_LEARNINGS = 1_000_000
+# R-F239 (2026-05-11) — these are WARN THRESHOLDS, not hard caps.
+# Per the "ARIA has infinite memory" operator rule
+# (memory/aria_infinite_memory.md), ARIA must never forget anything.
+# The store-truncation at MAX_*-overflow was a regression that's been
+# replaced with a warn-only path. The sentinel value is set high
+# enough (100M) that real growth wouldn't trip it for years; if it
+# does, the operator gets a brain_hook absorb prompting offload to
+# cold storage, NOT deletion of the data.
+MAX_FACTS = 100_000_000     # was 1M with truncation; now warn-only at 100M
+MAX_QUERIES = 100_000_000   # was 1M with truncation; now warn-only at 100M
+MAX_LEARNINGS = 100_000_000 # was 1M with truncation; now warn-only at 100M
+WARN_FACTS = int(os.getenv("ARIA_KB_WARN_FACTS", "1000000"))
+_kb_warn_throttle = 0
 
 _cache: dict[str, list] | None = None
 
@@ -620,8 +630,22 @@ async def store_fact(topic: str, content: str, source: str = "user",
     if verified_meta:
         new_record.update(verified_meta)
     db["facts"].insert(0, new_record)
-    if len(db["facts"]) > MAX_FACTS:
-        db["facts"] = db["facts"][:MAX_FACTS]
+    # R-F239 (2026-05-11) — warn-only at WARN_FACTS, no truncation at MAX_FACTS.
+    # Pre-R-F239 the truncation `db["facts"] = db["facts"][:MAX_FACTS]` dropped
+    # the OLDEST facts (insert(0,...) puts newest at index 0, slice keeps
+    # newest 1M, oldest get forgotten). That violates the infinite-memory
+    # rule. Now we never truncate; instead, warn the operator at the soft
+    # threshold so they can plan cold-storage offload.
+    _fact_count = len(db["facts"])
+    if _fact_count > WARN_FACTS:
+        global _kb_warn_throttle
+        _kb_warn_throttle += 1
+        if _kb_warn_throttle % 100 == 1:  # log once per 100 over-threshold writes
+            logger.warning(
+                "[knowledge] R-F239 — fact count %d > warn threshold %d. "
+                "NOT truncating (infinite-memory rule). Plan cold-storage offload.",
+                _fact_count, WARN_FACTS,
+            )
     await _save()
     # Index for semantic search — runs sync model.encode() under the hood,
     # which holds the GIL. Must be off the event loop or it will block the
@@ -716,8 +740,8 @@ async def record_query(query: str, summary: str, market: str = "", category: str
         "category": category,
         "createdAt": datetime.now(timezone.utc).isoformat(),
     })
-    if len(db["queries"]) > MAX_QUERIES:
-        db["queries"] = db["queries"][:MAX_QUERIES]
+    # R-F239 (2026-05-11) — no truncation; queries persist forever per the
+    # infinite-memory rule. MAX_QUERIES is a warn sentinel only.
     await _save()
 
 
@@ -729,8 +753,8 @@ async def store_learning(correction: str, context: str = "") -> None:
         "context": context,
         "createdAt": datetime.now(timezone.utc).isoformat(),
     })
-    if len(db["learnings"]) > MAX_LEARNINGS:
-        db["learnings"] = db["learnings"][:MAX_LEARNINGS]
+    # R-F239 (2026-05-11) — no truncation; learnings persist forever per
+    # the infinite-memory rule.
     await _save()
 
 

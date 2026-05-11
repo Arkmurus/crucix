@@ -41,8 +41,16 @@ from . import redis_store as rs
 logger = logging.getLogger("aria.intel.ledger")
 
 KEY = "crucix:intel_ledger"
-MAX_SIGNALS = 1_000_000
+# R-F239 (2026-05-11) — MAX_SIGNALS is a WARN THRESHOLD, not a hard cap.
+# Per the infinite-memory rule (memory/aria_infinite_memory.md), signals
+# persist forever. Pre-R-F239 the truncation at line 339 dropped oldest
+# signals beyond 1M — that's forgetting, forbidden. Now the sentinel is
+# raised to 100M (real growth wouldn't trip it for ~100 years at current
+# rate) and _prune() no longer truncates; it just warns.
+MAX_SIGNALS = 100_000_000
+WARN_SIGNALS = int(os.getenv("ARIA_LEDGER_WARN_SIGNALS", "1000000"))
 RETENTION_DAYS = 36500  # 100 years — effectively permanent
+_signal_warn_throttle = 0
 
 # R-F36 (2026-05-06): mirrors F111's knowledge-snapshot fix. The 10-min
 # Redis snapshot of the ledger crossed Upstash's 4 MB warn threshold at
@@ -331,12 +339,28 @@ async def _load() -> dict:
 
 
 def _prune() -> None:
+    # R-F239 (2026-05-11) — warn-only path. Pre-R-F239 this function
+    # truncated _cache["signals"] at MAX_SIGNALS (1M cap), dropping the
+    # oldest entries. That violates the infinite-memory rule. The
+    # RETENTION_DAYS-based age cutoff is preserved BUT set to 100 years
+    # (effectively permanent — line 50), so no signal is ever actually
+    # aged out under realistic timescales. Only the size-based truncation
+    # is gone. If the warn threshold trips, operator gets a log line
+    # prompting cold-storage offload.
     if not _cache:
         return
     cutoff = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat()
     _cache["signals"] = [s for s in _cache["signals"] if s.get("ts", "") >= cutoff]
-    if len(_cache["signals"]) > MAX_SIGNALS:
-        _cache["signals"] = _cache["signals"][:MAX_SIGNALS]
+    sig_count = len(_cache["signals"])
+    if sig_count > WARN_SIGNALS:
+        global _signal_warn_throttle
+        _signal_warn_throttle += 1
+        if _signal_warn_throttle % 100 == 1:
+            logger.warning(
+                "[intel_ledger] R-F239 — signal count %d > warn threshold %d. "
+                "NOT truncating (infinite-memory rule). Plan cold-storage offload.",
+                sig_count, WARN_SIGNALS,
+            )
 
 
 async def _save() -> None:
