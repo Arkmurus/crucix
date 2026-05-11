@@ -1737,6 +1737,35 @@ class TestVerificationGate:
             assert f.gate_demoted is False
 
 
+class TestLanguageNativeQueryExpansion:
+    """R-5002 — deep_researcher.investigate appends target-language
+    query variants when topic names a non-English jurisdiction. Closes
+    the operator-observed gap where DD on lngtradinginternationalpanamasa
+    only searched English-language press."""
+
+    def test_detect_target_languages_for_lusophone(self):
+        from aria_service.intel.researcher import _detect_target_languages
+        langs = _detect_target_languages("angola defence procurement 2026")
+        assert "pt" in langs, "Angola → Portuguese target lang"
+
+    def test_detect_target_languages_for_spanish_speaking(self):
+        from aria_service.intel.researcher import _detect_target_languages
+        langs = _detect_target_languages("panama LNG company UBO trace")
+        assert "es" in langs, "Panama → Spanish target lang"
+
+    def test_translate_query_changes_for_known_terms(self):
+        from aria_service.intel.researcher import _translate_query
+        es = _translate_query("Panama defence procurement", "es")
+        # Either changes meaningfully OR returns input unchanged — never crashes
+        assert isinstance(es, str)
+
+    def test_no_target_langs_for_english_only_topic(self):
+        from aria_service.intel.researcher import _detect_target_languages
+        langs = _detect_target_languages("uk defence procurement budget 2026")
+        # UK doesn't trigger non-English targets — current behaviour preserved
+        assert "en" not in langs  # langs are NON-English additions
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"

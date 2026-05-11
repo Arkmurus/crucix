@@ -613,6 +613,39 @@ async def investigate(
     except Exception as _e:
         logger.debug("query_decomposer failed, falling through to LLM: %s", _e)
 
+    # R-5002 (2026-05-11) — language-native query expansion. Operator
+    # complaint: DD reports are shallow because hypothesis-generation
+    # was English-only despite the topic naming non-English jurisdictions.
+    # Existing `_detect_target_languages` + `_translate_query` in
+    # researcher.py already provide the translation; we just plumb them
+    # into the deep-researcher's query list. For topics naming a non-
+    # English country, we append translated versions of the top queries
+    # so press coverage in the target language is searched alongside
+    # English. This closes the gap that made `lngtradinginternational
+    # panamasa.com` only get English-language results in the WhatsApp DD.
+    def _expand_with_target_languages(qs: list[str]) -> list[str]:
+        if not qs:
+            return qs
+        try:
+            from .researcher import _detect_target_languages, _translate_query
+        except Exception:
+            return qs
+        target_langs = _detect_target_languages(topic)
+        if not target_langs:
+            return qs
+        expanded = list(qs)
+        # Translate at most the top third of queries, cap at 2 extra langs
+        translate_count = max(1, len(qs) // 3)
+        for q in qs[:translate_count]:
+            for lang in target_langs[:2]:
+                try:
+                    tq = _translate_query(q, lang)
+                except Exception:
+                    continue
+                if tq and tq != q and tq not in expanded:
+                    expanded.append(tq)
+        return expanded[:max_searches * 2]  # allow up to 2× for multilingual
+
     # Step 1b: If decomposer couldn't handle it, fall back to the LLM.
     if not queries:
         angle_prompt = f"""You are ARIA planning a deep intelligence investigation on: "{topic}"
@@ -651,6 +684,12 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
                 f"{topic} export compliance",
                 f"{topic} competitive landscape",
             ]
+
+    # R-5002 (2026-05-11) — expand with target-language variants when
+    # topic names a non-English jurisdiction. Translated queries are
+    # appended to the existing English query list so the parallel search
+    # in step 2 catches press coverage in the target language too.
+    queries = _expand_with_target_languages(queries)
 
     # Step 2: Search and read articles for each angle
     #

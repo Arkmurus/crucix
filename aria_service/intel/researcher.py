@@ -1109,14 +1109,77 @@ _LANG_PROFILES = {
 }
 
 # Country → relevant languages to search in
+# R-5002 (2026-05-11) — extended coverage. Was missing Panama, Russia,
+# Turkey, China, Iran, Ukraine, and most of LatAm + East Asia / CIS.
+# Operator's WhatsApp DD on lngtradinginternationalpanamasa.com missed
+# Spanish-language press because "panama" wasn't in this map.
 _COUNTRY_LANGS = {
-    "angola": ["pt"], "mozambique": ["pt"], "guinea-bissau": ["pt"], "cape verde": ["pt"], "brazil": ["pt"],
-    "senegal": ["fr"], "mali": ["fr"], "burkina faso": ["fr"], "niger": ["fr"], "chad": ["fr"],
-    "ivory coast": ["fr"], "côte d'ivoire": ["fr"], "cameroon": ["fr"], "morocco": ["fr", "ar"],
+    # Lusophone
+    "angola": ["pt"], "mozambique": ["pt"], "guinea-bissau": ["pt"],
+    "cape verde": ["pt"], "brazil": ["pt"], "portugal": ["pt"],
+    "são tomé": ["pt"], "east timor": ["pt"], "timor-leste": ["pt"],
+    "macau": ["pt", "zh"],
+    # Francophone
+    "senegal": ["fr"], "mali": ["fr"], "burkina faso": ["fr"],
+    "niger": ["fr"], "chad": ["fr"], "ivory coast": ["fr"],
+    "côte d'ivoire": ["fr"], "cameroon": ["fr"], "morocco": ["fr", "ar"],
     "algeria": ["fr", "ar"], "tunisia": ["fr", "ar"],
-    "egypt": ["ar"], "saudi arabia": ["ar"], "uae": ["ar"], "iraq": ["ar"], "jordan": ["ar"],
-    "lebanon": ["ar", "fr"], "libya": ["ar"], "yemen": ["ar"], "syria": ["ar"], "qatar": ["ar"],
-    "spain": ["es"], "colombia": ["es"], "peru": ["es"], "mexico": ["es"], "venezuela": ["es"],
+    "france": ["fr"], "belgium": ["fr"], "switzerland": ["fr", "de"],
+    "luxembourg": ["fr"], "djibouti": ["fr", "ar"],
+    "madagascar": ["fr"], "rwanda": ["fr"], "burundi": ["fr"],
+    "togo": ["fr"], "benin": ["fr"], "guinea": ["fr"],
+    "congo": ["fr"], "democratic republic of congo": ["fr"],
+    "central african republic": ["fr"], "mauritania": ["fr", "ar"],
+    "haiti": ["fr"], "quebec": ["fr"],
+    # Hispanophone (LatAm + Spain — was severely under-covered)
+    "spain": ["es"], "colombia": ["es"], "peru": ["es"], "mexico": ["es"],
+    "venezuela": ["es"], "panama": ["es"], "argentina": ["es"],
+    "chile": ["es"], "ecuador": ["es"], "bolivia": ["es"],
+    "paraguay": ["es"], "uruguay": ["es"], "costa rica": ["es"],
+    "honduras": ["es"], "guatemala": ["es"], "nicaragua": ["es"],
+    "cuba": ["es"], "dominican republic": ["es"], "el salvador": ["es"],
+    "puerto rico": ["es"], "equatorial guinea": ["es", "pt"],
+    # Arabic-speaking
+    "egypt": ["ar"], "saudi arabia": ["ar"], "uae": ["ar"], "iraq": ["ar"],
+    "jordan": ["ar"], "lebanon": ["ar", "fr"], "libya": ["ar"],
+    "yemen": ["ar"], "syria": ["ar"], "qatar": ["ar"], "bahrain": ["ar"],
+    "oman": ["ar"], "kuwait": ["ar"], "palestine": ["ar"],
+    "sudan": ["ar"], "somalia": ["ar"],
+    # CIS / Russophone
+    "russia": ["ru"], "belarus": ["ru"], "kazakhstan": ["ru"],
+    "kyrgyzstan": ["ru"], "tajikistan": ["ru"], "turkmenistan": ["ru"],
+    "uzbekistan": ["ru"], "armenia": ["ru"], "azerbaijan": ["ru"],
+    "moldova": ["ru", "ro"], "ukraine": ["uk", "ru"],
+    "georgia": ["ka", "ru"],
+    # East Asia
+    "china": ["zh"], "taiwan": ["zh"], "hong kong": ["zh"],
+    "singapore": ["zh"],
+    "japan": ["ja"], "korea": ["ko"], "south korea": ["ko"],
+    "north korea": ["ko"],
+    # South / Southeast Asia
+    "thailand": ["th"], "vietnam": ["vi"], "indonesia": ["id"],
+    "malaysia": ["ms"], "philippines": ["tl"],
+    "myanmar": ["my"], "cambodia": ["km"], "laos": ["lo"],
+    # South Asia
+    "india": ["hi"], "pakistan": ["ur"], "bangladesh": ["bn"],
+    "sri lanka": ["si"], "nepal": ["ne"],
+    # Turkic
+    "turkey": ["tr"], "türkiye": ["tr"],
+    # Persian
+    "iran": ["fa"], "afghanistan": ["fa", "ps"],
+    # Sub-Saharan Africa (English-second languages also tracked)
+    "ethiopia": ["am"], "eritrea": ["ti"], "tanzania": ["sw"],
+    "kenya": ["sw"], "uganda": ["sw"],
+    # Central / Northern Europe
+    "germany": ["de"], "austria": ["de"], "netherlands": ["nl"],
+    "poland": ["pl"], "czech republic": ["cs"], "slovakia": ["sk"],
+    "hungary": ["hu"], "romania": ["ro"], "bulgaria": ["bg"],
+    "greece": ["el"], "serbia": ["sr"], "croatia": ["hr"],
+    "slovenia": ["sl"], "bosnia": ["bs"], "montenegro": ["sr"],
+    "macedonia": ["mk"], "albania": ["sq"],
+    "italy": ["it"], "denmark": ["da"], "sweden": ["sv"],
+    "norway": ["no"], "finland": ["fi"], "iceland": ["is"],
+    "estonia": ["et"], "latvia": ["lv"], "lithuania": ["lt"],
 }
 
 
