@@ -504,6 +504,100 @@ class TestWebhookRateLimiter:
         assert allowed is True
 
 
+class TestNoScaffoldWrite:
+    """R-F267 — _save_mastery must NOT persist when the cache was only
+    scaffolded (never touched by actual learning). Across a backend flip
+    (sqlite ↔ upstash), this prevents bootstrap-defaults from overwriting
+    real data on the destination backend."""
+
+    def _fresh_student(self):
+        """Reset module-level mastery state for deterministic tests."""
+        from aria_service.intel import student
+        student._mastery_cache = None
+        student._mastery_dirty = False
+        return student
+
+    def test_save_skipped_when_only_scaffolded(self):
+        """Load mastery (scaffolds defaults), call _save_mastery without
+        any learning update — write should be skipped."""
+        student = self._fresh_student()
+        writes = []
+
+        async def fake_set_json(key, value, ex=None):
+            writes.append((key, value, ex))
+
+        async def fake_get_json(key):
+            return None  # simulate empty backend
+
+        async def _t():
+            # Patch rs in student module
+            student.rs.get_json = fake_get_json
+            student.rs.set_json = fake_set_json
+            cache = await student._load_mastery()
+            assert cache  # scaffolded
+            assert student._mastery_dirty is False
+            await student._save_mastery()
+            assert writes == [], "scaffold-only cache must not be persisted"
+
+        asyncio.run(_t())
+
+    def test_save_writes_when_dirty(self):
+        """After _mark_mastery_dirty(), _save_mastery should persist once."""
+        student = self._fresh_student()
+        writes = []
+
+        async def fake_set_json(key, value, ex=None):
+            writes.append((key, value, ex))
+
+        async def fake_get_json(key):
+            return None
+
+        async def _t():
+            student.rs.get_json = fake_get_json
+            student.rs.set_json = fake_set_json
+            await student._load_mastery()
+            student._mark_mastery_dirty()
+            await student._save_mastery()
+            assert len(writes) == 1, "dirty cache must persist exactly once"
+            assert student._mastery_dirty is False, "dirty flag must reset after save"
+            # Second save without re-marking dirty should be a no-op
+            await student._save_mastery()
+            assert len(writes) == 1, "save must be no-op after flag reset"
+
+        asyncio.run(_t())
+
+    def test_load_does_not_set_dirty(self):
+        """Loading from an EMPTY backend scaffolds + leaves _dirty=False.
+        Loading from a backend WITH data also leaves _dirty=False.
+        Only update_mastery / recalibrate / lift can flip _dirty."""
+        student = self._fresh_student()
+
+        async def fake_get_json_empty(key):
+            return None
+
+        async def fake_get_json_with_data(key):
+            return {"sanctions": {"score": 0.87, "samples": 42,
+                                  "correct": 36, "wrong": 6,
+                                  "last_practiced": 1000.0}}
+
+        async def fake_set_json(key, value, ex=None):
+            pass
+
+        async def _t():
+            student.rs.get_json = fake_get_json_empty
+            student.rs.set_json = fake_set_json
+            await student._load_mastery()
+            assert student._mastery_dirty is False
+            # Reset and try with data
+            student._mastery_cache = None
+            student._mastery_dirty = False
+            student.rs.get_json = fake_get_json_with_data
+            await student._load_mastery()
+            assert student._mastery_dirty is False
+
+        asyncio.run(_t())
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"

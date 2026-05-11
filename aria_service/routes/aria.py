@@ -14458,9 +14458,46 @@ async def health_check_ep():
     breakers = cb.get_all_breakers()
     open_breakers = [b for b in breakers if b["state"] == "OPEN"]
 
-    healthy = redis_ok and rag_ok and mode == "NORMAL"
+    # R-F266 (2026-05-11) — honest status reasoning.
+    # The pre-R-F266 logic returned "healthy" iff redis+rag connected and
+    # mode==NORMAL. That ignored every operational-state signal: an empty
+    # adversarial ledger, null grounded_rate, scaffold-only mastery were
+    # all reported as "healthy" because the infra was up. Operator caught
+    # this on 2026-05-11 ("status page divorced from reality").
+    #
+    # New rule: status is "healthy" only when BOTH infra is up AND every
+    # operational-state signal is intact. "degraded" otherwise, with a
+    # degraded_reasons list explaining which signal failed so the operator
+    # can act surgically instead of guessing.
+    #
+    # The thresholds are intentionally conservative — INITIAL_MASTERY (0.5)
+    # treated as "no learning data" because the scaffolded floor never
+    # represents an answered question. A real mastery value diverges from
+    # 0.5 the moment update_mastery() lands once.
+    from ..intel.student import INITIAL_MASTERY as _INIT_M
+    degraded_reasons: list[str] = []
+    if not redis_ok:
+        degraded_reasons.append("redis_unavailable")
+    if not rag_ok:
+        degraded_reasons.append("rag_unavailable")
+    if mode != "NORMAL":
+        degraded_reasons.append(f"mode_{mode.lower()}")
+    if grounded is None:
+        degraded_reasons.append("grounded_rate_unknown")
+    if adversarial is None:
+        degraded_reasons.append("adversarial_no_recent_run")
+    core_breakdown = mastery.get("core_breakdown", {}) or {}
+    if core_breakdown:
+        scaffolded_core = sum(
+            1 for v in core_breakdown.values()
+            if isinstance(v, (int, float)) and abs(v - _INIT_M) < 1e-6
+        )
+        if scaffolded_core == len(core_breakdown) and scaffolded_core > 0:
+            degraded_reasons.append("core_mastery_all_scaffolded")
+    healthy = not degraded_reasons
     return {
         "status": "healthy" if healthy else "degraded",
+        "degraded_reasons": degraded_reasons,
         "operating_mode": mode,
         "infra": {"redis": redis_ok, "rag": rag_ok},
         "quality": {
@@ -14478,6 +14515,7 @@ async def health_check_ep():
             "total": len(breakers),
             "open": len(open_breakers),
             "open_backends": [b["name"] for b in open_breakers],
+            "registry_empty": len(breakers) == 0,  # disambiguate "0 problems" from "no registry data"
         },
     }
 

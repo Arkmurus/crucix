@@ -292,6 +292,25 @@ def detect_topics(text: str) -> list[str]:
 
 _mastery_cache: dict | None = None
 
+# R-F267 (2026-05-11) — no-scaffold-write rule. _save_mastery only persists
+# when the cache has been TOUCHED by actual learning, never when it contains
+# only scaffolded INITIAL_MASTERY defaults. Across a backend flip (sqlite ↔
+# upstash), this prevents the bootstrap path from overwriting real data on
+# the destination backend with placeholder values.
+#
+# Pattern: _load_mastery() initialises scaffolded entries with _dirty=False;
+# update_mastery() and lift_all_topics() flip _mastery_dirty=True; only then
+# does _save_mastery() write to the active backend.
+_mastery_dirty: bool = False
+
+
+def _mark_mastery_dirty() -> None:
+    """Flip the dirty flag — call from any code path that mutates _mastery_cache
+    with actual learning data (not scaffold initialisation)."""
+    global _mastery_dirty
+    _mastery_dirty = True
+
+
 async def _load_mastery() -> dict:
     global _mastery_cache
     if _mastery_cache is not None:
@@ -317,12 +336,28 @@ async def _load_mastery() -> dict:
         if t not in _mastery_cache:
             _mastery_cache[t] = {"score": INITIAL_MASTERY, "samples": 0,
                                  "correct": 0, "wrong": 0, "last_practiced": 0}
+    # NOTE: _load_mastery never sets _mastery_dirty=True. Scaffolding is
+    # not learning. Only update_mastery / lift_all_topics flip the flag.
     return _mastery_cache
 
 
 async def _save_mastery() -> None:
-    if _mastery_cache is not None:
-        await rs.set_json(MASTERY_KEY, _mastery_cache, ex=180 * 86400)
+    """Persist mastery to the active state backend.
+
+    R-F267 (2026-05-11): no-scaffold-write rule. Returns silently when the
+    cache hasn't been touched by actual learning since the last load. This
+    prevents the boot-time scaffold from overwriting real data on a different
+    backend after a flip. If actual learning has occurred (_mastery_dirty=True),
+    we persist AND reset the dirty flag — next save() requires another learning
+    update to be a no-op.
+    """
+    global _mastery_dirty
+    if _mastery_cache is None:
+        return
+    if not _mastery_dirty:
+        return
+    await rs.set_json(MASTERY_KEY, _mastery_cache, ex=180 * 86400)
+    _mastery_dirty = False
 
 
 async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) -> None:
@@ -371,6 +406,7 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
         else:
             m.pop("below_floor", None)
             m.pop("floor", None)
+    _mark_mastery_dirty()  # R-F267 — actual learning, persist
     await _save_mastery()
 
     # Log remediation needs so the weekly report and proactive loop
@@ -410,6 +446,7 @@ async def reset_mastery_scores() -> dict:
             mastery[topic]["score"] = INITIAL_MASTERY
         mastery[topic].pop("below_floor", None)
         mastery[topic].pop("floor", None)
+    _mark_mastery_dirty()  # R-F267 — recalibration is genuine state change, persist
     await _save_mastery()
     return {t: round(mastery[t]["score"], 3) for t in mastery}
 
@@ -1399,6 +1436,7 @@ async def lift_all_topics(bump: float) -> dict[str, float]:
         m["last_calibration_lift_bump"] = round(bump, 4)
         new_scores[topic] = new_score
     _mastery_cache.update(mastery)
+    _mark_mastery_dirty()  # R-F267 — calibration lift is genuine state change, persist
     await _save_mastery()
     logger.info(
         "Calibration-driven mastery %s: %+.3f on %d topics",
