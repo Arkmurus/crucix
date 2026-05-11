@@ -507,6 +507,17 @@ async def store_fact(topic: str, content: str, source: str = "user",
     _content_hash = _hashlib.sha1(
         (content[:300] or "").strip().lower().encode("utf-8")
     ).hexdigest()[:16]
+    # R-F217 (2026-05-11) — only stamp source_domain when the source
+    # has a URL or `:`-delimited prefix (a domain-shaped identifier).
+    # Pre-R-F217, bare sources like "user" / "teach" / "aria_auto_
+    # verified" collapsed source_domain to the whole source string.
+    # Combined with content_hash, two distinct user-taught facts with
+    # similar 300-char prefixes would collide on the (hash, "user")
+    # tuple and the second would be silently "duplicate_skipped" —
+    # bypassing contradiction detection entirely. Now domain stamping
+    # is reserved for sources that ARE domain-shaped; bare sources
+    # leave domain="" and the dedup short-circuit cannot fire (the
+    # tuple match requires non-empty domain by symmetry).
     _source_domain = ""
     try:
         _src_lower = (source or "").lower()
@@ -514,26 +525,32 @@ async def store_fact(topic: str, content: str, source: str = "user",
             from urllib.parse import urlparse as _up
             _source_domain = (_up(_src_lower).hostname or "").strip(".")
         elif ":" in _src_lower:
-            # Source format like "reading:Asia Times" — use the prefix
+            # Source format like "reading:Asia Times" — use the suffix
             _source_domain = _src_lower.split(":", 1)[1].strip()[:60]
-        else:
-            _source_domain = _src_lower[:60]
+        # else: bare source (user/teach/aria_auto_verified) → leave
+        # _source_domain empty so the dedup check below cannot match.
     except Exception:
         _source_domain = ""
-    for f in db["facts"]:
-        if (
-            f.get("content_hash") == _content_hash
-            and f.get("source_domain", "") == _source_domain
-            and _content_hash
-        ):
-            f["accessCount"] = f.get("accessCount", 0) + 1
-            f["last_seen_at"] = now
-            await _save()
-            return {
-                "action": "duplicate_skipped",
-                "fact_id": f["id"],
-                "reason": "content_hash_match_R-F174",
-            }
+    # R-F217 (2026-05-11) — require BOTH content_hash AND source_domain
+    # to be non-empty for the short-circuit to fire. Pre-R-F217 the
+    # `f.get("source_domain", "")` default would match against an empty
+    # `_source_domain` (bare-source case) — so two user-taught facts
+    # with the same 300-char prefix collided. Now both fields must
+    # carry real values; bare sources skip the short-circuit entirely.
+    if _content_hash and _source_domain:
+        for f in db["facts"]:
+            if (
+                f.get("content_hash") == _content_hash
+                and f.get("source_domain") == _source_domain
+            ):
+                f["accessCount"] = f.get("accessCount", 0) + 1
+                f["last_seen_at"] = now
+                await _save()
+                return {
+                    "action": "duplicate_skipped",
+                    "fact_id": f["id"],
+                    "reason": "content_hash_match_R-F174",
+                }
 
     # ── Dedup by topic ────────────────────────────────────────────────────
     for f in db["facts"]:
@@ -874,7 +891,14 @@ async def extract_facts_from_reading(
         for m in re.finditer(pat, article_text):
             text = m.group(1).strip()[:300]
             if len(text) > 20:
-                topic = (title[:60] or text[:60]).rstrip(".")
+                # R-F207 (2026-05-11) — use PER-TAG distinct topic, not
+                # the article title. Pre-R-F207 every tag in an article
+                # used the same `title[:60]` topic, so the topic-dedup
+                # branch in store_fact overwrote previously-stored
+                # content in place. Function returned n=5 but only the
+                # last tag survived. Matches the sibling auto_extract_
+                # facts pattern: `text[:60]` per tag.
+                topic = text[:60].rstrip(".")
                 try:
                     await store_fact(topic, text, source, conf, source_url=url[:500])
                     n += 1

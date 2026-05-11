@@ -288,6 +288,23 @@ async def prepare_weak_topics(llm=None) -> int:
         rest = [t for t in studyable if t not in recent_signals]
         studyable = boosted + rest
 
+        # R-F211 (2026-05-11) — filter studyable against live dedup
+        # sentinels BEFORE slicing. Pre-R-F211, studyable[:5] could
+        # contain 5 tags all in their 6h dedup window — each would
+        # silently no-op, queued=[] but the alert still names them.
+        # Now we drop already-queued tags before the slice so the
+        # announced top-3 reflects genuinely new work.
+        _live_studyable = []
+        for t in studyable:
+            try:
+                dkey = READING_DEDUPE_KEY.format(topic=t.lower().replace(" ", "_")[:80])
+                if await rs.get(dkey):
+                    continue  # already queued in last 6h
+            except Exception:
+                pass
+            _live_studyable.append(t)
+        studyable = _live_studyable
+
         # Queue up to 5 studyable tags so reading_session has work to do.
         queued = []
         for t in studyable[:5]:
@@ -313,11 +330,15 @@ async def prepare_weak_topics(llm=None) -> int:
                 "queued=%d studyable=%d starved=%d",
                 len(queued), len(studyable), len(starved),
             )
-            # Still rate-limit so we don't recompute hourly.
+            # R-F211 (2026-05-11) — short rate-limit (1h instead of 6h)
+            # on suppression so the hourly tick CAN re-check if mastery
+            # moved. Pre-R-F211 we wrote a 6h TTL even on suppress and
+            # the function effectively blacked out for 6h even though
+            # nothing was announced. Hourly recheck is what we want.
             await rs.set_json(
                 LAST_MASTERY_PREP_KEY,
                 {"ts": now, "weak": weak, "suppressed": True},
-                ex=14 * 86400,
+                ex=3600,
             )
             return len(queued)
 
@@ -367,9 +388,17 @@ async def prepare_weak_topics(llm=None) -> int:
         except Exception:
             pass
 
-        return len(queued) or len(weak)
+        # R-F211 (2026-05-11) — return ONLY actually-queued count.
+        # Pre-R-F211 we did `len(queued) or len(weak)`, so a tick that
+        # queued nothing returned len(weak) — operator log line then
+        # claimed "N weak topic(s) flagged" misleadingly.
+        return len(queued)
     except Exception as e:
         logger.warning("prepare_weak_topics failed: %s", e)
+        # R-F211 — must return int per signature; pre-R-F211 the except
+        # implicitly returned None and any caller summing the result
+        # would TypeError.
+        return 0
 
 
 async def _collect_recent_activity_signals() -> set[str]:
@@ -406,10 +435,19 @@ async def _collect_recent_activity_signals() -> set[str]:
 
     try:
         from . import chat_audit_log
+        from .student import detect_topics as _detect_topics_h
         # Last-100 audit entries — chat_audit_log.get_recent doesn't take
         # an hours filter, so we cap at 100 entries (typical 24-48h window
         # at current chat volume). Tag patterns from there indicate what
         # the operator actually queried recently.
+        # R-F213 (2026-05-11) — chat_audit_log entries store
+        # `user_message` (when ARIA_CHAT_TRAIN_CAPTURE_TEXT=1) but NO
+        # `tags`/`topics` field. Pre-R-F213 the recent-activity branch
+        # always returned empty because no chat entry ever carried
+        # those keys. Now we derive topics from the user_message
+        # directly using student.detect_topics — the same patterns
+        # that drive mastery elsewhere, so signals match the studyable
+        # tag space.
         recent = await chat_audit_log.get_recent(limit=100)
         cutoff = time.time() - 48 * 3600
         for ent in recent or []:
@@ -421,10 +459,22 @@ async def _collect_recent_activity_signals() -> set[str]:
                     continue
             except Exception:
                 pass
+            # Prefer existing tag fields if a future schema carries them
             tags = ent.get("tags") or ent.get("topics") or []
-            if isinstance(tags, list):
+            if isinstance(tags, list) and tags:
                 for t in tags:
                     if isinstance(t, str):
+                        signals.add(t)
+                continue
+            # R-F213 fallback: derive topics from the raw user message.
+            msg = ent.get("user_message") or ent.get("message") or ""
+            if isinstance(msg, str) and msg.strip():
+                try:
+                    detected = _detect_topics_h(msg[:1000])
+                except Exception:
+                    detected = []
+                for t in detected or []:
+                    if isinstance(t, str) and t != "general":
                         signals.add(t)
     except Exception as e:
         logger.debug("_collect_recent_activity_signals: chat audit failed: %s", e)
@@ -548,9 +598,24 @@ async def drain_reading_queue(consumed_topics: list[str]) -> int:
             if topic and topic in consumed:
                 removed += 1
                 continue
-            kept.append(r if isinstance(r, str) else _json.dumps(entry, default=str))
+            # R-F212 (2026-05-11) — always coerce kept entries to string
+            # BEFORE storing them for the lpush re-population. Pre-R-F212
+            # the kept-fallback in the except branch could push a non-
+            # string (dict / bytes) to lpush, which redis_store's lpush
+            # then rejected → silent data loss.
+            if isinstance(r, str):
+                kept.append(r)
+            elif isinstance(entry, dict):
+                kept.append(_json.dumps(entry, default=str))
+            else:
+                kept.append(_json.dumps({"_raw": str(r)[:500]}, default=str))
         except Exception:
-            kept.append(r)  # malformed — leave it; preserves audit
+            # Malformed entry — preserve it as a stringified placeholder
+            # rather than losing it on a non-string lpush downstream.
+            try:
+                kept.append(_json.dumps({"_raw": str(r)[:500]}, default=str))
+            except Exception:
+                pass  # truly unrecoverable — drop
     if removed == 0:
         return 0
 

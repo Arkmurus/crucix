@@ -13492,7 +13492,14 @@ async def adversarial_amendments_approve_ep(req: Request):
     key_approved = "aria:adversarial:approved_amendments"
 
     queue = await rs.get_json(key_queue) or []
-    matched = [n for n in queue if (n.get("attack_id") or "") == attack_id]
+    # R-F215 (2026-05-11) — guard against non-dict entries. A legacy /
+    # corrupted snapshot could carry a string or other type; without
+    # the isinstance check, `n.get` would raise AttributeError and
+    # 500 the whole endpoint.
+    matched = [
+        n for n in queue
+        if isinstance(n, dict) and (n.get("attack_id") or "") == attack_id
+    ]
     if not matched:
         raise HTTPException(
             status_code=404,
@@ -13555,7 +13562,12 @@ async def adversarial_amendments_approve_ep(req: Request):
         raise HTTPException(status_code=500, detail=f"stage_improvement failed: {staged_res['error']}")
 
     # Move the amendment off the queue into the approved bin.
-    kept = [n for n in queue if (n.get("attack_id") or "") != attack_id]
+    # R-F215 (2026-05-11) — same isinstance guard as above; keep non-
+    # dict legacy entries intact rather than crashing the endpoint.
+    kept = [
+        n for n in queue
+        if not isinstance(n, dict) or (n.get("attack_id") or "") != attack_id
+    ]
     approved = await rs.get_json(key_approved) or []
     record = dict(amendment)
     record["approved_at"] = _dt.now(_tz.utc).isoformat()
@@ -14686,10 +14698,25 @@ async def learning_stats_ep():
         _log.debug("learning/stats harvester failed: %s", e)
 
     # Quarantine list (seed + operator-added)
+    # R-F216 (2026-05-11) — compute open/closed counts on the FULL list,
+    # not just the truncated slice. Pre-R-F216 the frontend (aria-brain.
+    # html R-F180) filtered the 10-entry slice and could mis-report the
+    # open-vs-closed split when >10 quarantines existed. The frontend
+    # now reads `open_count` + `closed_count` directly.
     try:
         from ..intel import run_quarantine
         items = await run_quarantine.list_quarantined()
-        out["quarantine"] = {"count": len(items), "items": items[:10]}
+        open_count = sum(
+            1 for it in items
+            if isinstance(it, dict) and it.get("investigation_status") != "closed"
+        )
+        closed_count = len(items) - open_count
+        out["quarantine"] = {
+            "count": len(items),
+            "open_count": open_count,
+            "closed_count": closed_count,
+            "items": items[:10],
+        }
     except Exception as e:
         _log.debug("learning/stats quarantine failed: %s", e)
 

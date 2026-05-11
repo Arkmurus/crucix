@@ -310,28 +310,43 @@ async def lifespan(app: FastAPI):
                     # -0.6/cycle so the backlog actually clears.
                     processed = 0
                     flipped = 0
+                    # R-F205 (2026-05-11) — guard hypothesis validation against
+                    # the R-F195 no-LLM degraded path. Without this, every
+                    # validate_hypothesis call returns {"error": "..."} (no
+                    # new_status), the `!= "OPEN"` check evaluates True (None
+                    # != "OPEN"), `flipped` increments for all 8 picks, and
+                    # the operator log shows phantom verdicts. Skip the whole
+                    # validation pass when LLM is absent — hypotheses stay
+                    # OPEN until the next cycle with a working LLM.
+                    _llm_ok = bool(llm and getattr(llm, "is_configured", False))
+                    if not _llm_ok:
+                        logger.info(
+                            "[Research] LLM unavailable — skipping hypothesis "
+                            "validation pass (R-F205)"
+                        )
                     try:
-                        hypotheses = await get_hypotheses()
-                        open_hyps = [h for h in hypotheses if h.get("status") == "OPEN"]
-                        open_hyps.sort(key=lambda h: h.get("created_at") or "")
-                        for h in open_hyps[:8]:
-                            hyp_text = h.get("hypothesis", "")
-                            if not hyp_text:
-                                continue
-                            vr = await validate_hypothesis(llm, hyp_text)
-                            processed += 1
-                            if vr.get("new_status") != "OPEN":
-                                flipped += 1
-                                logger.info("[Research] Hypothesis %s: %s → %s",
-                                            hyp_text[:50],
-                                            "OPEN", vr.get("new_status"))
-                        if open_hyps:
-                            logger.info(
-                                "[Research] Hypothesis validation: %d processed this cycle, "
-                                "%d reached a verdict, %d still OPEN in backlog",
-                                processed, flipped,
-                                max(0, len(open_hyps) - flipped),
-                            )
+                        if _llm_ok:
+                            hypotheses = await get_hypotheses()
+                            open_hyps = [h for h in hypotheses if h.get("status") == "OPEN"]
+                            open_hyps.sort(key=lambda h: h.get("created_at") or "")
+                            for h in open_hyps[:8]:
+                                hyp_text = h.get("hypothesis", "")
+                                if not hyp_text:
+                                    continue
+                                vr = await validate_hypothesis(llm, hyp_text)
+                                processed += 1
+                                if vr.get("new_status") != "OPEN":
+                                    flipped += 1
+                                    logger.info("[Research] Hypothesis %s: %s → %s",
+                                                hyp_text[:50],
+                                                "OPEN", vr.get("new_status"))
+                            if open_hyps:
+                                logger.info(
+                                    "[Research] Hypothesis validation: %d processed this cycle, "
+                                    "%d reached a verdict, %d still OPEN in backlog",
+                                    processed, flipped,
+                                    max(0, len(open_hyps) - flipped),
+                                )
                     except Exception as e:
                         logger.warning("[Research] Hypothesis validation failed (%d processed before error): %s",
                                        processed, e)

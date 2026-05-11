@@ -188,15 +188,20 @@ async def run_calibration_review() -> dict:
         else:
             calibration_status = "underconfident"
 
+    # R-F208 (2026-05-11) — `if x else None` collapses legitimate 0.0
+    # values to None. A real 0% honesty score / 0% adversarial / 0
+    # mistake rate would render as missing data on the dashboard.
+    # Use `if x is not None` (the canonical form already used for
+    # eval_pass_rate at R-F169) everywhere.
     review = {
         "overall_mastery": round(overall_mastery, 4),
-        "estimated_accuracy": round(estimated_accuracy, 4) if estimated_accuracy else None,
+        "estimated_accuracy": round(estimated_accuracy, 4) if estimated_accuracy is not None else None,
         "calibration_delta": calibration_delta,
         "calibration_status": calibration_status,
         "signals": {
-            "honesty_accuracy": round(honesty_accuracy, 4) if honesty_accuracy else None,
-            "adversarial_accuracy": round(adversarial_accuracy, 4) if adversarial_accuracy else None,
-            "mistake_rate": round(mistake_rate, 4) if mistake_rate else None,
+            "honesty_accuracy": round(honesty_accuracy, 4) if honesty_accuracy is not None else None,
+            "adversarial_accuracy": round(adversarial_accuracy, 4) if adversarial_accuracy is not None else None,
+            "mistake_rate": round(mistake_rate, 4) if mistake_rate is not None else None,
             # R-F169 — surface the eval pass_rate so the dashboard /
             # operator can see which signal is pulling the average.
             "eval_pass_rate": round(eval_pass_rate, 4) if eval_pass_rate is not None else None,

@@ -953,6 +953,11 @@ async def record_divergence(
     # incident from weight=0.7 penalties). But if the SAME topic sees
     # ≥5 low-similarity divergences in a 24h window, apply a stronger
     # corrective update once — the signal is no longer noise.
+    # R-F210 (2026-05-11) — race-condition fix. The read→filter→append→
+    # write sequence is not atomic; concurrent low-similarity calls
+    # could all observe len>=5 and EACH fire weight=0.25 → multi-
+    # penalty. Gate the corrective behind a Redis lock-style key with
+    # 1h TTL; first caller wins, rest see the lock and skip.
     if similarity < 0.4 and topics:
         try:
             # Per-topic rolling counter for the last 24h.
@@ -965,6 +970,16 @@ async def record_divergence(
                 streak_raw.append(now)
                 await rs.set_json(key, streak_raw, ex=86400 * 2)
                 if len(streak_raw) >= 5:
+                    # R-F210: acquire single-fire lock with 1h TTL.
+                    # rs.set has no NX semantic exposed; we approximate
+                    # with get-check-set guarded by a short window.
+                    lock_key = f"crucix:student:divergence_fire:{topic}"
+                    held = await rs.get(lock_key)
+                    if held:
+                        # Another caller already fired the corrective
+                        # for this topic in the last hour. Skip.
+                        continue
+                    await rs.set(lock_key, str(now), ex=3600)
                     # Strong corrective update — only fires when 5+ low-
                     # similarity events accumulate in a day, so it can't
                     # repeat the catastrophic 2026-04-21 collapse.
@@ -1352,7 +1367,15 @@ async def lift_all_topics(bump: float) -> dict[str, float]:
     catastrophic; the floor is the recoverable starting point for
     organic re-learning.
     """
-    if bump == 0:
+    # R-F206 (2026-05-11) — guard NaN/inf. `nan == 0` is False AND
+    # `nan > 0` is False, so a bump=nan would fall into the else branch
+    # below, max(floor, old + nan) returns nan, and every topic's score
+    # becomes nan — poisoning the mastery dict (which then serialises as
+    # invalid JSON for any strict parser, and corrupts all downstream
+    # calibration / dashboard rendering). One bad calibration write
+    # kills the dashboard. Catch it here.
+    import math as _math_b
+    if not bump or _math_b.isnan(bump) or _math_b.isinf(bump):
         return {}
     mastery = await _load_mastery()
     new_scores: dict[str, float] = {}

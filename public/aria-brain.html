@@ -893,8 +893,16 @@ async function loadLearning() {
   // quarantined" headline was a constant for weeks because all three
   // seed entries (F3-incident, 2026-04-17) are closed. Surface the
   // open count separately so the number that matters is honest.
-  const qnOpen = (qn.items || []).filter(q => q.investigation_status !== 'closed').length;
-  const qnClosed = (qn.items || []).filter(q => q.investigation_status === 'closed').length;
+  // R-F216 (2026-05-11): read server-computed open_count/closed_count
+  // (computed on full list, not the 10-entry slice). Falls back to
+  // filtering the slice if the server response doesn't carry the
+  // new fields (older backend).
+  const qnOpen = (qn.open_count != null)
+    ? qn.open_count
+    : (qn.items || []).filter(q => q.investigation_status !== 'closed').length;
+  const qnClosed = (qn.closed_count != null)
+    ? qn.closed_count
+    : (qn.items || []).filter(q => q.investigation_status === 'closed').length;
   html += metricRow('DD runs quarantined — open', qnOpen,
                     qnOpen > 0 ? 'warn' : 'good');
   if (qnClosed > 0) {

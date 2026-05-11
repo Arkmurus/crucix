@@ -1139,25 +1139,33 @@ async def search(
         _brave_breaker_open = get_breaker("brave_search").is_open()
         _ddg_breaker_open = get_breaker("search:duckduckgo").is_open()
         _searxng_configured = _sx_h.is_configured()
+        # R-F214 (2026-05-11) — gate on `not final`. Pre-R-F214 the
+        # R-F189 alert fired with success=False even when `final` had
+        # results from academic/news/memory — mis-attributing a
+        # degraded-but-working search as a backend failure to the
+        # brain_hook stats panel. Now only fires when the search
+        # ACTUALLY produced no results AND the general-web layer is
+        # down. The "search succeeded via fallback" case stays silent.
         if (
-            (_brave_sticky or _brave_breaker_open)
+            not final
+            and (_brave_sticky or _brave_breaker_open)
             and _ddg_breaker_open
             and not _searxng_configured
         ):
             from . import brain_hook as _bh_h
             await _bh_h.absorb(
                 module="web_search",
-                summary="R-F189: ALL general-web backends down (brave + ddg + no searxng)",
+                summary="R-F189: ALL general-web backends down AND search returned 0",
                 detail=(
-                    "Search is degraded — only news (Bing/Google News) "
-                    "+ academic (Semantic Scholar/OpenAlex/CrossRef) are "
-                    "returning results. Operator action: top up Brave OR "
-                    "set SEARXNG_URL to a self-hosted instance. Memory-"
-                    "first hits unaffected."
+                    "Search is degraded — brave + ddg + searxng all "
+                    "unavailable AND academic/news returned nothing for "
+                    f"'{query[:80]}'. Operator action: top up Brave OR "
+                    "set SEARXNG_URL to a self-hosted instance. "
+                    "Memory-first hits unaffected."
                 ),
                 success=False,
                 gap_type="all_general_web_dead",
-                gap_detail="brave+ddg+searxng all unavailable",
+                gap_detail="brave+ddg+searxng all unavailable, zero results",
             )
     except Exception:
         pass

@@ -229,9 +229,24 @@ def main() -> None:
         # Harvest
         for hp in _iter_harvest_files(args.harvest_dir):
             for raw in _load_jsonl(hp):
-                if float(raw.get("score", 0)) < args.min_score:
-                    counts["rejected_score"] += 1
-                    continue
+                # R-F209 (2026-05-11) — defeated by pre-filter. R-F201
+                # extended _iter_harvest_files to also yield training_
+                # export YYYY-MM-DD.jsonl files, but their records have
+                # `grounded_rate` not `score`, so this hard-cut rejected
+                # 100% of them BEFORE _harvest_to_sft could normalise.
+                # Read both keys with fall-through, then let _harvest_to_sft
+                # apply the well_formed lower bar (R-F201).
+                _pre_score = float(
+                    raw.get("score")
+                    or raw.get("grounded_rate")
+                    or 0
+                )
+                if _pre_score < args.min_score:
+                    # Skip the hard cut ONLY when verification_status
+                    # is "well_formed" (the R-F201 lower-bar accept).
+                    if (raw.get("verification_status") or "").lower() != "well_formed":
+                        counts["rejected_score"] += 1
+                        continue
                 rec = _harvest_to_sft(raw, args.min_score)
                 if not rec:
                     counts["rejected_other"] += 1
