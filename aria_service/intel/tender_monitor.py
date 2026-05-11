@@ -774,12 +774,37 @@ async def _crawl_ungm(client: httpx.AsyncClient, max_results: int = 20) -> list[
         # Extract notice blocks — UNGM renders notice cards with title/deadline/org
         # Pattern: look for notice titles and associated metadata
         # The page structure varies, so we use multiple regex strategies
+        #
+        # R-F274 (2026-05-11) — the single regex previously used here
+        # (`href="/Public/Notice/(\d+)"`) was finding 0 matches every sweep
+        # despite the page itself being 137 KB. Root cause: UNGM rendered
+        # links under different URL shapes (`/Public/Notice/Details/<id>`,
+        # absolute URLs, sometimes inside data-* attributes). Now we try
+        # FOUR patterns and stop at the first one that yields matches.
+        # If all four still find 0, we log a diagnostic 200-char window
+        # around the first "Notice" occurrence so the next iteration of
+        # this code can target whatever pattern UNGM is currently using.
 
-        # Strategy 1: Look for notice links with IDs
-        notice_pattern = re.compile(
-            r'href=["\'](?:/Public/Notice/(\d+))["\'][^>]*>([^<]+)</a>',
-            re.IGNORECASE,
-        )
+        # Strategy 1: Look for notice links with IDs (multi-pattern)
+        notice_patterns = [
+            re.compile(
+                r'href=["\']/Public/Notice/(\d+)["\'][^>]*>([\s\S]*?)</a>',
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r'href=["\']/Public/Notice/Details?/(\d+)["\'][^>]*>([\s\S]*?)</a>',
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r'href=["\']https?://www\.ungm\.org/Public/Notice/(\d+)["\'][^>]*>([\s\S]*?)</a>',
+                re.IGNORECASE,
+            ),
+            # Fallback: bare notice-id in href without "/Public/" prefix
+            re.compile(
+                r'href=["\'][^"\']*/Notice/(\d{4,})["\'][^>]*>([\s\S]*?)</a>',
+                re.IGNORECASE,
+            ),
+        ]
         deadline_pattern = re.compile(
             r'(?:deadline|closing\s*date)[:\s]*([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})',
             re.IGNORECASE,
@@ -797,13 +822,47 @@ async def _crawl_ungm(client: httpx.AsyncClient, max_results: int = 20) -> list[
             "patrol", "protection force", "armed", "explosive",
         ]
 
-        matches = notice_pattern.findall(html)
+        # Try each pattern; stop at first one with hits.
+        matches: list[tuple[str, str]] = []
+        matched_pattern_idx = -1
+        for idx, p in enumerate(notice_patterns):
+            matches = p.findall(html)
+            if matches:
+                matched_pattern_idx = idx
+                break
+
         deadlines_found = deadline_pattern.findall(html)
         orgs_found = org_pattern.findall(html)
-        logger.info("[UNGM] Page fetched (%d chars), regex found %d notice links", len(html), len(matches))
 
-        for i, (notice_id, title) in enumerate(matches[:max_results * 2]):
-            title = title.strip()
+        if matches:
+            logger.info(
+                "[UNGM] Page fetched (%d chars), regex found %d notice links (pattern #%d)",
+                len(html), len(matches), matched_pattern_idx,
+            )
+        else:
+            # Diagnostic: log a 200-char window around the first "Notice"
+            # occurrence so the next iteration can target the live HTML.
+            sample = ""
+            try:
+                lower = html.lower()
+                idx = lower.find("notice")
+                if idx >= 0:
+                    sample = html[max(0, idx - 40):idx + 200]
+                    # Collapse whitespace for log readability
+                    sample = re.sub(r"\s+", " ", sample).strip()[:240]
+            except Exception:
+                sample = "(diagnostic-window-build-failed)"
+            logger.warning(
+                "[UNGM] Page fetched (%d chars) but 0 notice links matched any of %d patterns. "
+                "Diagnostic sample around first 'Notice': %r",
+                len(html), len(notice_patterns), sample or "(not found)",
+            )
+
+        # Strip inner HTML tags from title capture (anchors may wrap a span)
+        _tag_re = re.compile(r"<[^>]+>")
+
+        for i, (notice_id, raw_title) in enumerate(matches[:max_results * 2]):
+            title = _tag_re.sub("", raw_title).strip()
             title_lower = title.lower()
             if not any(kw in title_lower for kw in ungm_keywords):
                 continue

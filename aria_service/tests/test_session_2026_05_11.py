@@ -973,6 +973,68 @@ class TestBrowserFingerprintHeaders:
         assert len(seen) >= 3, "expected rotation across multiple UAs over 50 calls"
 
 
+class TestUNGMNoticePatterns:
+    """R-F274 — UNGM scraper now tries 4 URL patterns; previously the
+    single pattern found 0 matches across every sweep. Verify each
+    pattern matches the URL shape it claims to."""
+
+    def _patterns(self):
+        # Re-build the patterns inline to test them in isolation without
+        # importing the whole tender_monitor module (which pulls in chromadb
+        # and other heavy deps).
+        return [
+            re.compile(r'href=["\']/Public/Notice/(\d+)["\'][^>]*>([\s\S]*?)</a>', re.IGNORECASE),
+            re.compile(r'href=["\']/Public/Notice/Details?/(\d+)["\'][^>]*>([\s\S]*?)</a>', re.IGNORECASE),
+            re.compile(r'href=["\']https?://www\.ungm\.org/Public/Notice/(\d+)["\'][^>]*>([\s\S]*?)</a>', re.IGNORECASE),
+            re.compile(r'href=["\'][^"\']*/Notice/(\d{4,})["\'][^>]*>([\s\S]*?)</a>', re.IGNORECASE),
+        ]
+
+    def test_pattern_1_relative_url(self):
+        html = '<a href="/Public/Notice/123456" class="x">Tender title</a>'
+        matches = self._patterns()[0].findall(html)
+        assert matches == [("123456", "Tender title")]
+
+    def test_pattern_2_details_path(self):
+        # UNGM sometimes uses /Public/Notice/Details/<id> or /Detail/
+        html_s = '<a href="/Public/Notice/Details/789012">Peacekeeping supplies</a>'
+        html_no_s = '<a href="/Public/Notice/Detail/789012">Peacekeeping supplies</a>'
+        for html in (html_s, html_no_s):
+            matches = self._patterns()[1].findall(html)
+            assert matches == [("789012", "Peacekeeping supplies")]
+
+    def test_pattern_3_absolute_url(self):
+        html = '<a href="https://www.ungm.org/Public/Notice/42">Border patrol equipment</a>'
+        matches = self._patterns()[2].findall(html)
+        assert matches == [("42", "Border patrol equipment")]
+        # Also matches http://
+        html_http = '<a href="http://www.ungm.org/Public/Notice/42">x</a>'
+        assert self._patterns()[2].findall(html_http) == [("42", "x")]
+
+    def test_pattern_4_short_form(self):
+        # Bare /Notice/<id> without /Public/ prefix (4+ digit id only,
+        # to avoid matching unrelated /Notice/1 type URLs)
+        html = '<a href="/some/path/Notice/1234567">Demining equipment</a>'
+        matches = self._patterns()[3].findall(html)
+        assert matches == [("1234567", "Demining equipment")]
+
+    def test_anchor_with_inner_span_tags(self):
+        """Real UNGM HTML wraps the title in a <span> — the pattern uses
+        [\\s\\S]*? to capture across tags, and the consumer strips them."""
+        html = '<a href="/Public/Notice/55555"><span class="title">Military supplies</span></a>'
+        matches = self._patterns()[0].findall(html)
+        assert len(matches) == 1
+        notice_id, raw_title = matches[0]
+        assert notice_id == "55555"
+        # The pattern captures raw_title with the span tag; strip it
+        stripped = re.sub(r"<[^>]+>", "", raw_title).strip()
+        assert stripped == "Military supplies"
+
+    def test_no_match_on_unrelated_anchor(self):
+        html = '<a href="/About/Contact">Contact us</a>'
+        for p in self._patterns():
+            assert p.findall(html) == []
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"
