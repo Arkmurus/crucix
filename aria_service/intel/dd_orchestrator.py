@@ -166,6 +166,90 @@ def _infer_jurisdiction(target: dict, name: str, reg_number: str | None) -> str 
     return None
 
 
+# R-F295: UK-entity detector for post-link-tree CH backfill. The DD identity
+# layer's jurisdiction inference fires before the link-tree pulls page text,
+# so a UK Ltd/plc/LLP subsidiary referenced only on the corporate website is
+# invisible to the CH gate. This helper scans the link-tree output for the
+# pair (UK-style entity-name suffix, UK address signal) and returns the
+# extracted name + evidence quote so the orchestrator can fire CH manually.
+_UK_ENTITY_NAME_RE = re.compile(
+    r"\b([A-Z][A-Za-z0-9.&'\- ]{1,80}?\s+"
+    r"(?:Ltd|Limited|plc|PLC|p\.l\.c\.|LLP|Llp|UK\s+Ltd))\b",
+)
+_UK_POSTCODE_RE = re.compile(
+    r"\b(?:[A-Z]{1,2}[0-9][A-Z0-9]?\s*[0-9][A-Z]{2})\b",
+)
+_UK_CITY_SIGNALS = (
+    "london", "manchester", "birmingham", "edinburgh", "glasgow",
+    "bristol", "leeds", "liverpool", "sheffield", "newcastle",
+    "cardiff", "belfast", "oxford", "cambridge", "united kingdom",
+    "england", "scotland", "wales", "northern ireland",
+)
+
+
+def _detect_uk_entity_in_link_tree(tree) -> tuple[str | None, str]:
+    """Scan a LinkTreeResult for a UK-Ltd entity name paired with a UK
+    address signal. Returns (entity_name, evidence_quote) on hit, else
+    (None, "")."""
+    if not tree:
+        return None, ""
+
+    # Pool all text we can look at: fused fact values + contexts, plus
+    # per-page titles and fact contexts. Keep it bounded.
+    haystack_parts: list[str] = []
+    for ff in (getattr(tree, "fused_facts", None) or [])[:50]:
+        if getattr(ff, "value", ""):
+            haystack_parts.append(str(ff.value))
+        if getattr(ff, "first_context", ""):
+            haystack_parts.append(str(ff.first_context))
+    for page in (getattr(tree, "pages", None) or [])[:30]:
+        if getattr(page, "title", ""):
+            haystack_parts.append(str(page.title))
+        for fact in (getattr(page, "facts", None) or [])[:20]:
+            if getattr(fact, "value", ""):
+                haystack_parts.append(str(fact.value))
+            if getattr(fact, "context", ""):
+                haystack_parts.append(str(fact.context))
+
+    if not haystack_parts:
+        return None, ""
+
+    haystack = " | ".join(haystack_parts)[:60000]
+    haystack_lower = haystack.lower()
+
+    # UK address signal required to avoid HK/SG/IN/AU "Limited" false-positives.
+    has_uk_address = (
+        _UK_POSTCODE_RE.search(haystack) is not None
+        or any(sig in haystack_lower for sig in _UK_CITY_SIGNALS)
+    )
+    if not has_uk_address:
+        return None, ""
+
+    # Take the FIRST plausible UK entity-name match.
+    for m in _UK_ENTITY_NAME_RE.finditer(haystack):
+        name = m.group(1).strip()
+        # Filter out obvious non-entity matches: too short, dictionary-only,
+        # or pure-lowercase prefix (the regex requires an initial capital
+        # already, but defence in depth).
+        if len(name) < 6 or len(name) > 100:
+            continue
+        # Discard if the leading token is a generic English word that
+        # frequently precedes "Limited" in marketing text but isn't a name
+        # (e.g., "Time Limited", "Stock Limited").
+        first_token = name.split()[0].lower()
+        if first_token in {
+            "time", "stock", "edition", "supply", "supplies",
+            "quantity", "quantities", "offer", "offers",
+        }:
+            continue
+        start = max(0, m.start() - 80)
+        end = min(len(haystack), m.end() + 80)
+        evidence = haystack[start:end].replace("\n", " ").strip()
+        return name, evidence
+
+    return None, ""
+
+
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, "") or default)
@@ -1765,6 +1849,75 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             confidence="ASSESSED",
                         ))
                 report.digital.meta.subcalls += 1
+
+                # R-F295: post-link-tree UK detection + CH backfill.
+                # The live modirumgespi.com DD (2026-05-11) missed the UK
+                # subsidiary `Modirum Defence Consultancy Ltd` because the
+                # identity layer's jurisdiction inference fires BEFORE the
+                # link-tree runs, so the UK signals on the company page are
+                # never seen by the CH gate. Scan fused facts + page titles
+                # now; if we find a UK Ltd/plc/LLP suffix paired with a UK
+                # address signal AND the identity layer didn't already run
+                # CH, fire a deferred CH lookup using the discovered name.
+                try:
+                    uk_name, uk_evidence = _detect_uk_entity_in_link_tree(tree)
+                    if uk_name and not report.identity.registration_number:
+                        from . import companies_house as _ch
+                        ch_result = await _ch.investigate_uk_entity(
+                            company_name=uk_name,
+                        )
+                        report.digital.meta.subcalls += 1
+                        if isinstance(ch_result, dict) and ch_result.get("profile"):
+                            profile = ch_result.get("profile") or {}
+                            report.identity.registration_number = (
+                                profile.get("company_number")
+                                or report.identity.registration_number
+                            )
+                            report.identity.registration_status = (
+                                profile.get("company_status")
+                                or report.identity.registration_status
+                            )
+                            report.identity.incorporation_date = (
+                                profile.get("date_of_creation")
+                                or report.identity.incorporation_date
+                            )
+                            _addr = profile.get("registered_office_address")
+                            if isinstance(_addr, dict):
+                                report.identity.registered_address = (
+                                    _addr.get("address_snippet")
+                                    or report.identity.registered_address
+                                )
+                            elif _addr and not report.identity.registered_address:
+                                report.identity.registered_address = _addr
+                            if not report.identity.directors:
+                                report.identity.directors = ch_result.get("officers") or []
+                            if not report.identity.shareholders:
+                                report.identity.shareholders = ch_result.get("psc") or []
+                            if not report.identity.jurisdiction_iso2:
+                                report.identity.jurisdiction_iso2 = "GB"
+                                report.identity.jurisdiction = (
+                                    report.identity.jurisdiction or "United Kingdom"
+                                )
+                            report.identity.findings.append(Finding(
+                                severity="info",
+                                title=(
+                                    f"R-F295: UK entity '{uk_name}' identified via "
+                                    f"link-tree backfill — CH={profile.get('company_number')}"
+                                ),
+                                detail=(
+                                    f"Evidence: {uk_evidence[:180]}. "
+                                    f"Companies House profile loaded post-digital-layer "
+                                    f"because identity layer ran before web content was fetched."
+                                ),
+                                source="dd_orchestrator.uk_backfill",
+                                confidence="PROBABLE",
+                            ))
+                            logger.info(
+                                "R-F295: UK entity backfilled via link-tree: %s → CH=%s",
+                                uk_name, profile.get("company_number"),
+                            )
+                except Exception as _ukfb_e:
+                    logger.debug("R-F295 UK backfill skipped: %s", _ukfb_e)
             except Exception as e:
                 logger.warning("Digital: link_investigator failed: %s", e)
                 report.digital.data_gaps.append(f"link_investigator failed: {str(e)[:120]}")
