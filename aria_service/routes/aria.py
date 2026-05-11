@@ -12546,7 +12546,21 @@ async def inbound_webhook_ep(source: str, request: Request):
     if not sig_header.startswith("sha256="):
         raise HTTPException(status_code=401, detail="missing or malformed X-ARIA-Signature header")
     expected = sig_header[len("sha256="):].lower()
+
+    # R-F250 (2026-05-11) — body-size cap. Verification protocol caught
+    # that we'd accept arbitrarily large bodies into RAM via request.json()
+    # after computing HMAC over them. 1 MB is generous for webhook
+    # payloads (Slack/Linear/Salesforce all stay well under) and bounds
+    # the memory footprint per request. Bigger payloads should chunk —
+    # operator can raise this with ARIA_WEBHOOK_MAX_BYTES.
+    max_bytes = int(_os_w.getenv("ARIA_WEBHOOK_MAX_BYTES", "1048576"))  # 1 MB
     body_bytes = await request.body()
+    if len(body_bytes) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"body exceeds {max_bytes} bytes; chunk the payload "
+                   f"or raise ARIA_WEBHOOK_MAX_BYTES",
+        )
     computed = hmac.new(
         secret.encode("utf-8"),
         body_bytes,
@@ -12569,7 +12583,8 @@ async def inbound_webhook_ep(source: str, request: Request):
     # ── Flow 1: intel_ledger signal ─────────────────────────────────────
     # intel_ledger.add_signal takes a single dict payload (verified at
     # intel_ledger.py:405). Returns a string id or "skipped:..." sentinel.
-    intel_signal_id = None
+    intel_accepted = False
+    intel_skip_reason: str | None = None
     try:
         from ..intel import intel_ledger
         summary_text = (
@@ -12586,8 +12601,13 @@ async def inbound_webhook_ep(source: str, request: Request):
             "type": "inbound_webhook",
         }
         sig_id = await intel_ledger.add_signal(sig_payload)
-        if isinstance(sig_id, str) and not sig_id.startswith("skipped:"):
-            intel_signal_id = sig_id
+        # R-F250 (2026-05-11) — honest response. add_signal returns
+        # "ok" / "skipped:propaganda" / "skipped:empty", NOT a unique id.
+        # The previous response claimed intel_signal_id=<the_id> which
+        # was misleading when callers got the literal string "ok".
+        # Now we return a boolean intel_accepted flag.
+        intel_accepted = isinstance(sig_id, str) and not sig_id.startswith("skipped:")
+        intel_skip_reason = sig_id if (isinstance(sig_id, str) and sig_id.startswith("skipped:")) else None
     except Exception as e:
         _log.warning("[webhook] R-F249 intel_ledger.add_signal failed: %s", e)
 
@@ -12633,7 +12653,8 @@ async def inbound_webhook_ep(source: str, request: Request):
         "ok": True,
         "source": src,
         "accepted": True,
-        "intel_signal_id": intel_signal_id,
+        "intel_accepted": intel_accepted,
+        "intel_skip_reason": intel_skip_reason,
         "rag_ingested": len(long_text) > 200 if isinstance(long_text, str) else False,
     }
 
