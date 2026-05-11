@@ -1103,6 +1103,55 @@ def _sync_correlation_context(message: str) -> str:
 # three layers (chat router, retrieval, reasoning router) all read from
 # one canonical regex. Extending the patterns now updates everywhere.
 from .intel.self_infra_detector import SELF_INFRA_INTROSPECTION_RE as _SELF_INFRA_INTROSPECTION_RE
+
+# R-F245 (2026-05-11) — inventory-query detection. When the operator
+# asks ARIA "what do you know about X" or similar, we want to retrieve
+# via tag-aware match (knowledge.facts_by_tag) in addition to the
+# default word-match search_knowledge. The captured group is the TAG —
+# typically a snake_case/kebab-case identifier or a short noun phrase.
+# Keeps the match deliberately narrow so it only fires for genuine
+# inventory questions (not "what about X" or "tell me X" — those
+# don't imply 'enumerate from my stored knowledge').
+import re as _re_inv
+_INVENTORY_QUERY_RE = _re_inv.compile(
+    r"(?:"
+    r"what\s+do\s+you\s+(?:know|have|remember)\s+about\s+|"
+    r"show\s+(?:me\s+)?(?:everything|all)\s+(?:you\s+)?(?:know|have)\s+(?:about|on)\s+|"
+    r"list\s+everything\s+(?:about|on|you\s+know\s+about)\s+|"
+    r"inventory\s+(?:on|of)\s+|"
+    r"what\s+(?:facts|data|signals|intel)\s+(?:do\s+you\s+have\s+)?(?:about|on)\s+"
+    r")"
+    r"([A-Za-z0-9][A-Za-z0-9_\-\s]{2,60}?)"
+    r"(?:\?|$|\.|,|\n)",
+    _re_inv.IGNORECASE,
+)
+
+
+def _build_tag_inventory_context(tag: str) -> str:
+    """R-F245 (2026-05-11) — render a compact inventory block for the
+    chat-build prompt. Pulls up to 30 tag-matched facts via
+    knowledge.facts_by_tag and renders them as confidence-tagged bullets.
+    Returns "" if nothing matches so the LLM doesn't see a misleading
+    empty inventory section."""
+    try:
+        from .intel.knowledge import facts_by_tag as _fbt
+        rows = _fbt(tag, limit=30)
+        if not rows:
+            return ""
+        lines = [
+            f"\n[INVENTORY — tag-matched facts for '{tag}' "
+            f"(R-F245, {len(rows)} hit{'s' if len(rows) != 1 else ''})]:"
+        ]
+        for f in rows:
+            conf = (f.get("confidence") or "ASSESSED").upper()
+            topic = (f.get("topic") or "")[:80]
+            content = (f.get("content") or "")[:240]
+            src = (f.get("source") or "")[:60]
+            lines.append(f"  [{conf}] {topic} — {content} (source: {src})")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.debug("R-F245 inventory render failed: %s", e)
+        return ""
 _SELF_INFRA_QUARANTINE_NOTE = (
     "[SELF-INFRA QUARANTINE]\n"
     "The user is asking about their own deployment / infrastructure. "
@@ -1185,12 +1234,28 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
             ("gtm",         lambda: get_gtm_context(message)),
         ]
     else:
+        # R-F245 (2026-05-11) — inventory-mode detection. When the
+        # operator asks "what do you know about X" / "show me what you
+        # have on X" / "list everything on X", we ALSO retrieve via
+        # tag-aware match (knowledge.facts_by_tag) so the response
+        # includes facts whose topic/content matches the tag components
+        # but whose literal substring doesn't appear (e.g.
+        # "angola_procurement" finds facts containing both "angola"
+        # AND "procurement"). search_knowledge still runs for word-
+        # match retrieval; tag retrieval ADDS to the result, never
+        # replaces.
+        _inv_match = _INVENTORY_QUERY_RE.search(message or "") if message else None
+        _inv_tag = _inv_match.group(1).strip() if _inv_match else None
         primary_layers = [
             ("rag",         lambda: _sync_rag_context(message)),
             ("knowledge",   lambda: search_knowledge(message)),
             ("live_intel",  lambda: _build_intel_context(intel_data, message)),
             ("correlation", lambda: _sync_correlation_context(message)),
         ]
+        if _inv_tag:
+            primary_layers.append(
+                ("inventory_tag", lambda t=_inv_tag: _build_tag_inventory_context(t))
+            )
         # Layers that carry cross-session recall / narrative memory. In
         # document-grounded mode they are quarantined behind a fence line
         # so the LLM does not blend them into attached-document claims.

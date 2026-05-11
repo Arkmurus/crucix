@@ -777,6 +777,78 @@ def all_facts() -> list[dict]:
     return list(facts) if isinstance(facts, list) else []
 
 
+def facts_by_tag(tag: str, limit: int = 50) -> list[dict]:
+    """R-F245 (2026-05-11): tag-aware fact retrieval.
+
+    Pre-R-F245 the only retrieval path was `search_knowledge(query)`
+    which did word-tokenised keyword search. Inventory questions like
+    "what do you know about angola_procurement" missed most relevant
+    facts because:
+      - knowledge facts about Angola don't literally contain the
+        string "angola_procurement"
+      - The query words "angola_procurement" tokenise as a single
+        17-char word (no underscore split), missing the actual
+        Angola/procurement word matches
+
+    This accessor matches a TAG against the topic, source, source_domain,
+    and content fields of every fact, returning the top-`limit` matches
+    sorted by recency. Tag-shaped queries (snake_case, kebab-case,
+    short labels) hit this; free-text queries continue to use
+    search_knowledge.
+
+    Matches:
+      - The literal tag string (case-insensitive)
+      - Each underscore- or hyphen-split component (e.g.
+        "angola_procurement" → ["angola", "procurement"]) — at least
+        ONE component must appear in topic/content for the fact to
+        count as a tag hit
+
+    Returns a list of fact dicts (not a formatted string) so callers
+    can render however they need.
+    """
+    if not _cache:
+        return []
+    facts = _cache.get("facts") if isinstance(_cache, dict) else None
+    if not isinstance(facts, list):
+        return []
+    tag_lower = (tag or "").strip().lower()
+    if not tag_lower:
+        return []
+    # Tokenise the tag — accept snake_case, kebab-case, or plain
+    components = [
+        c for c in re.split(r"[_\-\s]+", tag_lower) if len(c) >= 3
+    ]
+    if not components:
+        components = [tag_lower]
+
+    matches: list[dict] = []
+    for f in facts:
+        if not isinstance(f, dict):
+            continue
+        text_blob = " ".join(str(f.get(k) or "") for k in
+                             ("topic", "content", "source",
+                              "source_domain", "entity_name")).lower()
+        if not text_blob:
+            continue
+        # Literal tag match OR all-components match (AND across components)
+        if tag_lower in text_blob:
+            matches.append(f)
+            continue
+        # Sub-component match — require ALL non-trivial components to
+        # appear so the result is genuinely tag-relevant (a fact about
+        # "Angola tourism" won't match "angola_procurement" because
+        # "procurement" is missing).
+        if len(components) >= 2 and all(c in text_blob for c in components):
+            matches.append(f)
+
+    # Sort by recency (updatedAt or createdAt fall-through)
+    matches.sort(
+        key=lambda f: f.get("updatedAt") or f.get("createdAt") or "",
+        reverse=True,
+    )
+    return matches[: max(1, min(limit, 200))]
+
+
 def search_knowledge(query: str) -> str:
     """Synchronous search for prompt injection. Returns formatted string."""
     if not _cache:

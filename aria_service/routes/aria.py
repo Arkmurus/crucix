@@ -12492,6 +12492,49 @@ async def constitution_pending_ep():
     }
 
 
+@router.get("/knowledge/inventory")
+async def knowledge_inventory_ep(tag: str = "", limit: int = 50):
+    """R-F245 (2026-05-11): operator-facing inventory endpoint.
+
+    Returns up to `limit` facts matching the supplied tag, with the
+    tag-aware matcher (knowledge.facts_by_tag) — splits snake_case /
+    kebab-case, requires all non-trivial components to appear, sorted
+    by recency. Useful for:
+      - Operator-side audit: "what do I have on angola_procurement"
+      - Coverage-gap analysis (zero hits → starved tag)
+      - Building the upcoming /aria-brain inventory panel
+
+    Returns:
+        { tag, hits, facts: [{topic, content, confidence, source, ...}] }
+    """
+    tag = (tag or "").strip()
+    if not tag:
+        raise HTTPException(status_code=400, detail="tag required")
+    try:
+        from ..intel.knowledge import facts_by_tag as _fbt
+        rows = _fbt(tag, limit=max(1, min(int(limit or 50), 200)))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"inventory lookup failed: {e}")
+    return {
+        "tag": tag,
+        "hits": len(rows),
+        "facts": [
+            {
+                "id": f.get("id"),
+                "topic": f.get("topic"),
+                "content": (f.get("content") or "")[:500],
+                "confidence": f.get("confidence"),
+                "source": f.get("source"),
+                "source_domain": f.get("source_domain"),
+                "createdAt": f.get("createdAt"),
+                "updatedAt": f.get("updatedAt"),
+                "accessCount": f.get("accessCount", 0),
+            }
+            for f in rows
+        ],
+    }
+
+
 @router.get("/constitution/version")
 async def constitution_version_ep():
     """R-F221 (2026-05-11): publish the live ARIA_SYSTEM_PROMPT version
