@@ -14,6 +14,13 @@ openpyxl>=3.1.0
 xlrd>=2.0.1  # legacy .xls (BIFF) fallback; openpyxl only reads .xlsx/.xlsm
 PyYAML>=6.0  # corpus_registry.yaml loader
 
+# ── R-F235 (2026-05-11) — SQLite state backend ──────────────────────────
+# Replaces Upstash Redis on single-instance fly.io. state_store.py uses
+# aiosqlite for the async API surface. ARIA_STATE_BACKEND=sqlite env var
+# activates it; default still 'upstash' so existing deploys are untouched.
+# See docs/dependency_minimisation_2026_05_11.md.
+aiosqlite>=0.19.0
+
 # ── HTML structured extraction (Track C, 2026-04-18) ─────────────────────
 # BeautifulSoup + lxml back the new extractors/structured.py module which
 # replaces per-page LLM extraction with pure-Python parsing of tables,
