@@ -1121,8 +1121,16 @@ _INVENTORY_QUERY_RE = _re_inv.compile(
     r"inventory\s+(?:on|of)\s+|"
     r"what\s+(?:facts|data|signals|intel)\s+(?:do\s+you\s+have\s+)?(?:about|on)\s+"
     r")"
-    r"([A-Za-z0-9][A-Za-z0-9_\-\s]{2,60}?)"
-    r"(?:\?|$|\.|,|\n)",
+    # R-F246 (2026-05-11) — accept periods INSIDE the tag (e.g.
+    # "u.s. sanctions", "sam.gov", "fy2026.q1"). Pre-R-F246 the
+    # capture allowed only [A-Za-z0-9_\-\s] which already excluded
+    # `.`, but the terminator class included a bare `\.` which then
+    # truncated "u.s. sanctions" to "u". Now we accept dots inside
+    # the tag and terminate ONLY on sentence-ending punctuation —
+    # `\.\s` (period-then-whitespace), `\.$` (period at end of input),
+    # `?`, `,`, newline, or end-of-string.
+    r"([A-Za-z0-9][A-Za-z0-9_.\-\s]{2,60}?)"
+    r"(?:\?|,|\n|\.\s|\.$|$)",
     _re_inv.IGNORECASE,
 )
 

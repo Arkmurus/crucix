@@ -814,9 +814,14 @@ def facts_by_tag(tag: str, limit: int = 50) -> list[dict]:
     tag_lower = (tag or "").strip().lower()
     if not tag_lower:
         return []
-    # Tokenise the tag — accept snake_case, kebab-case, or plain
+    # Tokenise the tag — accept snake_case, kebab-case, dot-separated,
+    # plain whitespace. R-F246 (2026-05-11): added `.` to the splitter
+    # so "u.s. sanctions" → ["u","s","sanctions"] (then ≥3-char filter
+    # drops "u"/"s") and "sam.gov" → ["sam","gov"]. The literal-tag
+    # check above still catches "sam.gov" verbatim when content contains
+    # it, so split-and-AND is purely additive recall.
     components = [
-        c for c in re.split(r"[_\-\s]+", tag_lower) if len(c) >= 3
+        c for c in re.split(r"[_\-\s.]+", tag_lower) if len(c) >= 3
     ]
     if not components:
         components = [tag_lower]
