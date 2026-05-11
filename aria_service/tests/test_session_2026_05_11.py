@@ -1323,6 +1323,59 @@ class TestPromptClause20BUpdate:
             "clause 20(b) must mandate explicit no-visibility fallback"
 
 
+class TestPromptClause24ConfidenceTagDecay:
+    """R-F284 — new Clause 24 forbids [CONFIRMED] on single-source
+    self-reported data. Operator's WhatsApp DD at 16:23 emitted
+    `*🪪 ENTITY IDENTITY* [CONFIRMED — from extraction of <url>]`
+    on data read entirely from the company's own website (single source,
+    not Tier-1a). The new clause requires [ASSESSED — single source]
+    or [PROBABLE — single source] for such data, and mandates that
+    section headers reflect the WEAKEST confidence of body claims."""
+
+    def _aria_engine_source(self):
+        import pathlib
+        path = pathlib.Path(__file__).resolve().parents[1] / "aria_engine.py"
+        return path.read_text(encoding="utf-8", errors="replace")
+
+    def test_clause_24_exists(self):
+        src = self._aria_engine_source()
+        assert "24. CONFIDENCE-TAG DECAY ON SINGLE-SOURCE SELF-REPORTED DATA" in src
+
+    def test_clause_24_forbids_confirmed_on_self_reported(self):
+        src = self._aria_engine_source()
+        c24_idx = src.find("24. CONFIDENCE-TAG DECAY")
+        assert c24_idx > 0
+        c24 = src[c24_idx:c24_idx + 3000]
+        # Must explicitly forbid [CONFIRMED] on single-source non-Tier-1a
+        forbidden_pattern_hits = [
+            "CANNOT be `[CONFIRMED]`" in c24 or "cannot be [CONFIRMED]" in c24.lower(),
+            "single source" in c24.lower(),
+            "non-Tier-1a" in c24 or "non-tier-1a" in c24.lower() or
+                "Tier-1a" in c24,
+        ]
+        assert all(forbidden_pattern_hits), \
+            f"clause 24 must forbid [CONFIRMED] on single-source non-Tier-1a; checks: {forbidden_pattern_hits}"
+
+    def test_clause_24_header_weakest_confidence_rule(self):
+        """Header tags must reflect WEAKEST confidence of body claims."""
+        src = self._aria_engine_source()
+        c24_idx = src.find("24. CONFIDENCE-TAG DECAY")
+        c24 = src[c24_idx:c24_idx + 3000]
+        assert "WEAKEST" in c24 or "weakest" in c24.lower(), \
+            "clause 24 must mandate header reflects WEAKEST body confidence"
+
+    def test_clause_24_enumerates_tier_1a_sources(self):
+        """Must list which sources CAN be [CONFIRMED] from a single fetch."""
+        src = self._aria_engine_source()
+        c24_idx = src.find("24. CONFIDENCE-TAG DECAY")
+        c24 = src[c24_idx:c24_idx + 3000]
+        tier_1a_markers = ["government registries", "OFAC", "OFSI", "regulatory filings",
+                           "treaty depositary"]
+        hits = [m for m in tier_1a_markers if m in c24]
+        assert len(hits) >= 3, \
+            f"clause 24 must enumerate Tier-1a sources; found: {hits}"
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"
