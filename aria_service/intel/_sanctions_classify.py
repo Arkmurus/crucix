@@ -193,6 +193,69 @@ _STOPWORDS: set[str] = {
     "a", "an", "with", "or", "new", "old",
 }
 
+# R-F277 (2026-05-11) — geographic / country tokens. Two entities sharing
+# a country name in their corporate name is NOT evidence of relationship
+# (both legally registered there, that's all). Pre-R-F277 a query like
+# "LNG TRADING INTERNATIONAL PANAMA SA" hit "EBANO PETROLEUM PANAMA SA"
+# via the shared "panama" token (everything else was stripped as a corp
+# suffix or stopword), passing the token-overlap demotion gate and
+# producing a false-positive HARD_STOP. Geographic tokens MUST be filtered
+# the same way corp suffixes are: they are name-shape filler, not name-
+# identity tokens.
+#
+# Conservative scope — country / region names + common geographic
+# adjectives. Cities are NOT included (city names can be discriminating —
+# "Belgrade Industries" vs "Sofia Industries" — keep them as evidence).
+_GEOGRAPHIC_TOKENS: set[str] = {
+    # Country names (ISO common forms, lowercase)
+    "afghanistan", "albania", "algeria", "andorra", "angola", "argentina",
+    "armenia", "australia", "austria", "azerbaijan", "bahamas", "bahrain",
+    "bangladesh", "barbados", "belarus", "belgium", "belize", "benin",
+    "bhutan", "bolivia", "bosnia", "botswana", "brazil", "brunei", "bulgaria",
+    "burkina", "burundi", "cambodia", "cameroon", "canada", "chad", "chile",
+    "china", "colombia", "comoros", "congo", "croatia", "cuba", "cyprus",
+    "czech", "denmark", "djibouti", "dominica", "ecuador", "egypt",
+    "eritrea", "estonia", "ethiopia", "fiji", "finland", "france", "gabon",
+    "gambia", "georgia", "germany", "ghana", "greece", "grenada",
+    "guatemala", "guinea", "guyana", "haiti", "honduras", "hungary",
+    "iceland", "india", "indonesia", "iran", "iraq", "ireland", "israel",
+    "italy", "jamaica", "japan", "jordan", "kazakhstan", "kenya", "kiribati",
+    "korea", "kosovo", "kuwait", "kyrgyzstan", "laos", "latvia", "lebanon",
+    "lesotho", "liberia", "libya", "lithuania", "luxembourg", "macedonia",
+    "madagascar", "malawi", "malaysia", "maldives", "mali", "malta",
+    "mauritania", "mauritius", "mexico", "micronesia", "moldova", "monaco",
+    "mongolia", "montenegro", "morocco", "mozambique", "myanmar", "namibia",
+    "nauru", "nepal", "netherlands", "nicaragua", "niger", "nigeria",
+    "norway", "oman", "pakistan", "palau", "palestine", "panama", "papua",
+    "paraguay", "peru", "philippines", "poland", "portugal", "qatar",
+    "romania", "russia", "rwanda", "samoa", "saudi", "senegal", "serbia",
+    "seychelles", "singapore", "slovakia", "slovenia", "somalia",
+    "spain", "sudan", "suriname", "swaziland", "sweden", "switzerland",
+    "syria", "taiwan", "tajikistan", "tanzania", "thailand", "togo",
+    "tonga", "trinidad", "tunisia", "turkey", "turkmenistan", "tuvalu",
+    "uganda", "ukraine", "uruguay", "uzbekistan", "vanuatu", "venezuela",
+    "vietnam", "yemen", "zambia", "zimbabwe",
+    # United Kingdom / United States / United Arab Emirates short forms
+    "uk", "united", "usa", "uae", "kingdom", "states", "america", "emirates",
+    "britain", "england", "scotland", "wales", "ireland",
+    # Major regional descriptors
+    "european", "african", "asian", "american", "atlantic", "pacific",
+    "mediterranean", "caribbean", "balkan", "balkans", "baltic", "iberian",
+    "nordic", "scandinavian", "eurasian", "eurasia", "latam", "mena",
+    # Adjective forms of common DD jurisdictions
+    "panamanian", "swiss", "russian", "chinese", "japanese", "korean",
+    "iranian", "iraqi", "turkish", "german", "french", "italian", "spanish",
+    "portuguese", "brazilian", "indian", "pakistani", "nigerian", "kenyan",
+    "egyptian", "saudi", "emirati", "lebanese", "syrian", "yemeni",
+    "ukrainian", "polish", "czech", "romanian", "bulgarian", "greek",
+    "british", "english", "american", "canadian", "mexican", "venezuelan",
+    "colombian", "argentinian", "chilean", "peruvian", "indonesian",
+    "vietnamese", "malaysian", "thai", "filipino", "australian", "moroccan",
+    "algerian", "libyan", "sudanese", "ethiopian", "somali", "south",
+    "north", "east", "west", "central", "northern", "southern", "eastern",
+    "western",
+}
+
 
 def _tokenize_entity_name(name: str) -> set[str]:
     """Split a company / person name into meaningful lowercase tokens.
@@ -218,6 +281,7 @@ def _tokenize_entity_name(name: str) -> set[str]:
         if len(t) >= 3
         and t not in _CORP_SUFFIXES
         and t not in _STOPWORDS
+        and t not in _GEOGRAPHIC_TOKENS  # R-F277: shared country names ≠ identity evidence
         and not t.isdigit()
     }
 

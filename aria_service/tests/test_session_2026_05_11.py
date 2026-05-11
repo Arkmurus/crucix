@@ -1035,6 +1035,79 @@ class TestUNGMNoticePatterns:
             assert p.findall(html) == []
 
 
+class TestSanctionsGeographicFilter:
+    """R-F277 — token-overlap demotion in _sanctions_classify must NOT
+    count shared country/geographic tokens as identity evidence. The
+    operator-observed EBANO false-positive on lngtradinginternationalpanamasa
+    is the regression scenario: two unrelated companies both with
+    'PANAMA' in their name should NOT overlap-match each other."""
+
+    def test_country_only_overlap_demoted(self):
+        from aria_service.intel._sanctions_classify import _name_overlap
+        # Query: LNG broker in Panama. Candidate: Petroleum entity in Panama.
+        # Pre-R-F277 these shared "panama" → overlap=1 → match upheld.
+        # Post-R-F277 "panama" is geographic → overlap=0 → match demoted.
+        overlap = _name_overlap(
+            "LNG TRADING INTERNATIONAL PANAMA SA",
+            "EBANO PETROLEUM PANAMA SA",
+        )
+        assert overlap == 0, "country-only overlap must demote to zero"
+
+    def test_real_entity_token_overlap_preserved(self):
+        """Two entities sharing a REAL identifying token (not just country)
+        should still register overlap."""
+        from aria_service.intel._sanctions_classify import _name_overlap
+        overlap = _name_overlap(
+            "Rosoboronexport JSC",
+            "Rosoboronexport Holdings",
+        )
+        assert overlap >= 1
+
+    def test_corp_suffix_overlap_demoted(self):
+        """Existing behaviour preserved — corp suffixes don't count as overlap."""
+        from aria_service.intel._sanctions_classify import _name_overlap
+        overlap = _name_overlap("Foo LTD", "Bar LTD")
+        assert overlap == 0
+
+    def test_geographic_filter_covers_common_dd_jurisdictions(self):
+        """Specific countries the operator's WhatsApp DD touched: panama,
+        switzerland, russia, ukraine, venezuela, colombia. All must filter."""
+        from aria_service.intel._sanctions_classify import _tokenize_entity_name
+        for country in ("panama", "switzerland", "russia", "ukraine",
+                        "venezuela", "colombia", "kenya", "angola"):
+            tokens = _tokenize_entity_name(f"Acme {country.title()} Holdings")
+            assert country not in tokens, f"{country} should be filtered"
+            # "acme" is a real identifying token AND not in any filter set
+            assert "acme" in tokens, "discriminating token must survive"
+
+    def test_adjective_country_filter(self):
+        """'Swiss', 'Russian' etc. are also geographic descriptors."""
+        from aria_service.intel._sanctions_classify import _tokenize_entity_name
+        for adj in ("swiss", "russian", "panamanian", "iranian", "saudi"):
+            tokens = _tokenize_entity_name(f"Foo {adj.title()} Industries")
+            assert adj not in tokens, f"{adj} should be filtered as geographic"
+
+    def test_city_names_still_count(self):
+        """Cities are NOT in the geographic filter (city names can be
+        identifying — 'Belgrade Industries' ≠ 'Sofia Industries')."""
+        from aria_service.intel._sanctions_classify import _tokenize_entity_name
+        for city in ("belgrade", "sofia", "warsaw", "tehran", "moscow"):
+            tokens = _tokenize_entity_name(f"Foo {city.title()} Industries")
+            assert city in tokens, f"{city} should be preserved as discriminating"
+
+    def test_classify_match_demotes_country_only_overlap(self):
+        """End-to-end: a HARD-STOP topic match with only country overlap
+        must be demoted to 'info'."""
+        from aria_service.intel._sanctions_classify import classify_match
+        match = {
+            "score": 0.85,
+            "topics": ["sanction"],  # would be hard_stop topic
+            "name": "EBANO PETROLEUM PANAMA SA",
+        }
+        severity = classify_match(match, query_name="LNG TRADING INTERNATIONAL PANAMA SA")
+        assert severity == "info", "country-only-overlap match must demote to info"
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"
