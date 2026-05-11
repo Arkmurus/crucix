@@ -6989,21 +6989,39 @@ async def read_document_ep(request: Request):
                     from openpyxl import load_workbook
                     wb = load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
                     rows = []
+                    # R-F232 (2026-05-11) — capture full sheet-name list AND
+                    # the names of dropped sheets. Pre-R-F232 the banner just
+                    # said "first 3 of N sheets" — operator never learned
+                    # WHICH sheets 4..N were. Now the banner lists them so
+                    # the operator can decide whether to re-upload with
+                    # explicit sheet selection.
+                    _all_sheet_names = [ws.title for ws in wb.worksheets]
                     _xlsx_total_sheets = len(wb.worksheets)
                     _xlsx_truncated_rows = False
+                    _truncated_sheets: list[str] = []
                     for ws in wb.worksheets[:3]:
                         rows.append(f"--- Sheet: {ws.title} ---")
                         if ws.max_row and ws.max_row > 500:
                             _xlsx_truncated_rows = True
+                            _truncated_sheets.append(ws.title)
                         for row in ws.iter_rows(max_row=500, max_col=40, values_only=True):
                             rows.append(",".join(str(c or "") for c in row))
                     wb.close()
                     _full_xlsx = "\n".join(rows)
                     _xlsx_caps: list[str] = []
                     if _xlsx_total_sheets > 3:
-                        _xlsx_caps.append(f"openpyxl showed only the first 3 of {_xlsx_total_sheets} sheets")
+                        _dropped_sheets = _all_sheet_names[3:]
+                        _dropped_preview = ", ".join(_dropped_sheets[:8])
+                        if len(_dropped_sheets) > 8:
+                            _dropped_preview += f" (+{len(_dropped_sheets) - 8} more)"
+                        _xlsx_caps.append(
+                            f"openpyxl showed only the first 3 of {_xlsx_total_sheets} sheets — "
+                            f"DROPPED: {_dropped_preview} (R-F232)"
+                        )
                     if _xlsx_truncated_rows:
-                        _xlsx_caps.append("rows past 500 were dropped from at least one sheet")
+                        _xlsx_caps.append(
+                            f"rows past 500 dropped from sheet(s): {', '.join(_truncated_sheets)}"
+                        )
                     if len(_full_xlsx) > MAX_DOC_CHARS:
                         _xlsx_caps.append(f"text totalled {len(_full_xlsx)} chars; only the first {MAX_DOC_CHARS} are below")
                     extracted = _stamp_partial_extraction(

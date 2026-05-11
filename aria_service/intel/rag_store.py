@@ -367,17 +367,70 @@ async def ingest_document(
             if isinstance(v, (str, int, float, bool)):
                 base_meta[str(k)[:50]] = v if not isinstance(v, str) else v[:300]
 
+    # R-F225 (2026-05-11) — content-hash dedup. Pre-R-F225 _hash_id
+    # was `hash(chunk + source)` — the SAME RSS article fetched from
+    # two different URLs created TWO chunks because `source` was part
+    # of the ID. With ~46 ingest callers writing the same content from
+    # different paths, RAG was accumulating duplicates indefinitely.
+    # Fix: compute a content-only hash, query chromadb for existing
+    # chunks carrying that hash, skip the upsert if any match. Source
+    # provenance is preserved in metadata of the first write.
+    import asyncio as _aio
     ids = []
     metadatas = []
     documents = []
+    # Build per-chunk content_hash; later check chromadb for collisions.
+    content_hashes = []
     for i, chunk in enumerate(chunks):
         cid = _hash_id(chunk, source)
+        chash = hashlib.sha1(chunk.strip().encode("utf-8")).hexdigest()[:16]
         meta = dict(base_meta)
         meta["chunk_index"] = i
         meta["chunk_count"] = len(chunks)
+        meta["content_hash"] = chash
         ids.append(cid)
         metadatas.append(meta)
         documents.append(chunk)
+        content_hashes.append(chash)
+
+    # R-F225: drop chunks whose content_hash already exists in RAG.
+    # chromadb's get(where={"content_hash": {"$in": [...]}}) returns
+    # any rows matching the hash; we skip those indices.
+    try:
+        if content_hashes:
+            existing = await _aio.to_thread(
+                _documents_collection.get,
+                where={"content_hash": {"$in": content_hashes}},
+                include=["metadatas"],
+            )
+            existing_hashes: set[str] = set()
+            for m in (existing.get("metadatas") or []):
+                if isinstance(m, dict) and m.get("content_hash"):
+                    existing_hashes.add(m["content_hash"])
+            if existing_hashes:
+                keep_ids, keep_metas, keep_docs = [], [], []
+                skipped_dup = 0
+                for i, ch in enumerate(content_hashes):
+                    if ch in existing_hashes:
+                        skipped_dup += 1
+                        continue
+                    keep_ids.append(ids[i])
+                    keep_metas.append(metadatas[i])
+                    keep_docs.append(documents[i])
+                if skipped_dup > 0:
+                    logger.info(
+                        "[rag] R-F225 dedup: skipping %d of %d chunks (content already in RAG) for %s",
+                        skipped_dup, len(chunks), source,
+                    )
+                ids, metadatas, documents = keep_ids, keep_metas, keep_docs
+        if not ids:
+            return {
+                "ingested": False,
+                "reason": "all_chunks_already_in_rag_R-F225",
+                "duplicate_chunks_skipped": len(content_hashes),
+            }
+    except Exception as _de:
+        logger.debug("R-F225 dedup probe failed (non-fatal, proceeding): %s", _de)
 
     try:
         # chromadb upsert is idempotent — same ID → overwrite.

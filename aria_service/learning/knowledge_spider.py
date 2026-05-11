@@ -10,7 +10,11 @@ Design:
     URLs + entity names + document identifiers
   - Deduplicate via content hash — never re-fetch a URL we've ingested
   - Rate-limited: 1 fetch per 3 seconds, max 50 fetches per run
-  - Respects robots.txt via httpx + a simple disallow cache
+  - Robots.txt: NOT YET IMPLEMENTED. The _REDIS_ROBOTS_CACHE_KEY constant
+    was declared 2026-04-15 but no code reads/writes it. R-F233
+    (2026-05-11) removed the false "respects robots.txt" claim from
+    this docstring. For legal-defensibility on commercial crawls, the
+    cache + parsing path needs to be wired before high-volume runs.
   - Bounded depth (default 3 hops) — a new chunk discovered at hop 2
     spawns further queue entries at hop 3 only, not beyond
   - LLM-free: regex URL extraction + BeautifulSoup-free text extraction

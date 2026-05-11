@@ -135,6 +135,70 @@ async def run_daily_backup() -> dict[str, Any]:
         logger.warning("backup dir create failed %s: %s", _BACKUP_DIR, exc)
         return {"error": f"cannot create {_BACKUP_DIR}: {exc}"}
 
+    # R-F224 (2026-05-11) — snapshot the disk-resident knowledge files
+    # too. Pre-R-F224, /data/aria_knowledge.json, /data/aria_signals.json
+    # had ZERO backup despite the F87/F88 disk-first migration. These
+    # are the three largest stores (knowledge 1M cap, ledger 1M cap,
+    # RAG chromadb ~80K chunks). Without snapshotting them, a fly.io
+    # machine loss wipes ALL learned facts even though the daily backup
+    # runs. RAG chromadb is a directory of binary files — we list its
+    # size + filenames but don't inline it (too big); operator should
+    # add a separate `fly ssh sftp` step. Knowledge + Signals JSON are
+    # small enough to inline as base64-gzipped blobs.
+    snapshot["disk_files"] = {}
+    import base64 as _b64
+    for disk_label, disk_path in (
+        ("knowledge", "/data/aria_knowledge.json"),
+        ("signals", "/data/aria_signals.json"),
+    ):
+        try:
+            _p = Path(disk_path)
+            if _p.exists() and _p.is_file():
+                raw = _p.read_bytes()
+                # gzip+base64 so the file inlines into the JSON without
+                # binary issues. ~3-4x compression on JSON payloads.
+                gz_blob = gzip.compress(raw, compresslevel=6)
+                snapshot["disk_files"][disk_label] = {
+                    "path": disk_path,
+                    "raw_bytes": len(raw),
+                    "gz_bytes": len(gz_blob),
+                    "gz_b64": _b64.b64encode(gz_blob).decode("ascii"),
+                    "captured_at": datetime.now(timezone.utc).isoformat(),
+                }
+            else:
+                snapshot["disk_files"][disk_label] = {
+                    "path": disk_path,
+                    "missing": True,
+                }
+        except Exception as exc:
+            snapshot["disk_files"][disk_label] = {
+                "path": disk_path,
+                "error": str(exc)[:200],
+            }
+
+    # RAG chromadb — too large to inline; record size + file list only
+    try:
+        rag_dir = Path("/data/aria_rag")
+        if rag_dir.exists() and rag_dir.is_dir():
+            files = list(rag_dir.rglob("*"))
+            total_bytes = sum(f.stat().st_size for f in files if f.is_file())
+            snapshot["disk_files"]["rag_chromadb"] = {
+                "path": str(rag_dir),
+                "file_count": len([f for f in files if f.is_file()]),
+                "total_bytes": total_bytes,
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "note": "Directory contents NOT inlined (too large). "
+                        "Operator must separately snapshot via fly ssh sftp "
+                        "to truly back this up.",
+            }
+        else:
+            snapshot["disk_files"]["rag_chromadb"] = {
+                "path": str(rag_dir),
+                "missing": True,
+            }
+    except Exception as exc:
+        snapshot["disk_files"]["rag_chromadb"] = {"error": str(exc)[:200]}
+
     today = datetime.now(timezone.utc).date().isoformat()
     out_file = _BACKUP_DIR / f"{today}.json.gz"
     payload = json.dumps(snapshot, ensure_ascii=False, default=str).encode("utf-8")
