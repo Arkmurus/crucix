@@ -475,6 +475,25 @@ def _score_link(
         candidate.score -= 2
         candidate.reasons.append("off_host_non_authoritative(-2)")
 
+    # R-F323 (2026-05-11): heavy penalty for PDF / DOCX / academic-paper
+    # files UNLESS the URL is on an authoritative domain (gov filings,
+    # registry extracts). Live evidence 21:44 modirumgespi.com DD: the
+    # crawler pulled "Entropy-Based Evaluation of DNS Activity for Threat
+    # Hunting" PDF instead of the marketing site. PDFs hosted on a
+    # corporate domain are usually whitepapers / research, not the
+    # commercial identity content we need for DD.
+    _path_lower = lower.split("?", 1)[0]
+    if (_path_lower.endswith((".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"))
+            or "/pdf/" in _path_lower
+            or "/papers/" in _path_lower
+            or "/publications/" in _path_lower):
+        if best_auth_bonus == 0:
+            # Non-authoritative document — heavy penalty
+            candidate.score -= 6
+            candidate.reasons.append("document_file_non_authoritative(-6)")
+            if candidate.kind in ("other", ""):
+                candidate.kind = "document_skip"
+
     return candidate
 
 

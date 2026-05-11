@@ -3396,10 +3396,25 @@ def _detect_dd_intent(message: str) -> dict | None:
 
     # Mode hint — "deep/comprehensive/full DD" → mode=deep unlocks
     # deep_researcher depth=thorough + Phase 2 link_investigator tree walk.
+    # R-F326 (2026-05-11): regex was missing common natural phrasings
+    # the operator actually uses: "full investigation", "deep dive on",
+    # "thorough investigation", "background check on". Live evidence
+    # 21:48 — "Aria, do a full investigation on https://X" resolved to
+    # standard mode because "investigation" wasn't in the noun list.
+    # Extended noun list: dd / due diligence / background / ark-dd /
+    # investigation / dive / research / look.
     _resolved_mode = "standard"
-    if re.search(r"\b(?:deep|comprehensive|thorough|exhaustive|full)\s+(?:dd|due\s+diligence|background|ark[\-_]?dd)\b", message, re.IGNORECASE):
+    if re.search(
+        r"\b(?:deep|comprehensive|thorough|exhaustive|full|in[\-\s]?depth)\s+"
+        r"(?:dd|due\s+diligence|background|ark[\-_]?dd|investigation|dive|research|look(?:[\-\s]?into)?|review|analysis)\b",
+        message, re.IGNORECASE,
+    ):
         _resolved_mode = "deep"
-    elif re.search(r"\b(?:quick|fast|rapid|short)\s+(?:dd|due\s+diligence|background)\b", message, re.IGNORECASE):
+    elif re.search(
+        r"\b(?:quick|fast|rapid|short|brief)\s+"
+        r"(?:dd|due\s+diligence|background|investigation|look|check)\b",
+        message, re.IGNORECASE,
+    ):
         _resolved_mode = "quick"
     # R-F296: when the operator passes a URL, default to deep mode. The
     # link_investigator (and R-F292/293/295 fixes that ride on it) only
