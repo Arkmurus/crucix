@@ -370,6 +370,22 @@ class ARKDDReport:
     # when the gate didn't fire (GREEN/AMBER or no secondary available).
     verification_gate: dict = field(default_factory=dict)
 
+    # R-F298: confidence-gate stamping. When AMBER-LIGHT was reached
+    # purely because the data was too thin to issue GREEN (NOT because of
+    # a real amber risk finding), `confidence_gate_triggered=True` so the
+    # BLUF reads "INSUFFICIENT EVIDENCE" instead of "can proceed".
+    confidence_gate_triggered: bool = False
+    confidence_gate_reasons: list[str] = field(default_factory=list)
+
+    # R-F305: ecosystem awareness — populated by _emit_ecosystem_status()
+    # at end of run with per-layer activity + wired-but-silent flags so
+    # the dashboard / self_diagnostic can flag dormant code paths.
+    ecosystem_status: dict = field(default_factory=dict)
+
+    # R-F295 backfill bookkeeping (and any future post-link-tree backfill).
+    discipline_coverage: dict = field(default_factory=dict)
+    adverse_media: dict = field(default_factory=dict)
+
     # ── Serialisation helpers ────────────────────────────────────────────
 
     def as_dict(self) -> dict:

@@ -164,15 +164,40 @@ async def walk_network(
         officers = await _directors_uk(registration_number)
         stats["data_sources_used"].append("companies_house")
     else:
+        # R-F303: previously emitted "Companies House coverage for GB
+        # only" data_gap whenever jurisdiction wasn't GB — but ARIA has
+        # adapters for 20+ jurisdictions via registry_adapters. Try
+        # those FIRST. Only fall back to the manual-action hint if no
+        # adapter exists or returns nothing. (Defensive duplicate of
+        # what the identity layer should already have done — if the
+        # identity layer succeeded, pre_resolved_officers wins above.)
         try:
-            from .dd_orchestrator import _national_registry_hint
-            hint = _national_registry_hint(jurisdiction_iso2, None)
-        except Exception:
-            hint = "run a manual search of the target country's national corporate registry"
-        data_gaps.append(
-            f"Directors unavailable — ARIA has Companies House coverage for GB only. "
-            f"Manual action for {jurisdiction_iso2 or 'this jurisdiction'}: {hint}"
-        )
+            from . import registry_adapters as _ra
+            seed_name_for_ra = entity_name or ""
+            ra_result = await _ra.lookup_entity(
+                name=seed_name_for_ra,
+                jurisdiction_iso2=jurisdiction_iso2 or "",
+                registration_number=registration_number,
+            )
+            ra_officers = (ra_result or {}).get("officers") or []
+            if ra_officers:
+                officers = list(ra_officers)
+                stats["data_sources_used"].append(
+                    f"registry_adapter:{jurisdiction_iso2}"
+                )
+        except Exception as _ra_err:
+            logger.debug("registry_adapter fallback failed: %s", _ra_err)
+
+        if not officers:
+            try:
+                from .dd_orchestrator import _national_registry_hint
+                hint = _national_registry_hint(jurisdiction_iso2, None)
+            except Exception:
+                hint = "run a manual search of the target country's national corporate registry"
+            data_gaps.append(
+                f"Directors unavailable for {jurisdiction_iso2 or 'this jurisdiction'} "
+                f"— no registry adapter returned data. Manual action: {hint}"
+            )
     if not officers and jurisdiction_iso2 == "GB":
         data_gaps.append(f"Companies House returned no officers for {registration_number}")
 

@@ -3239,6 +3239,17 @@ def _detect_dd_intent(message: str) -> dict | None:
         _resolved_mode = "deep"
     elif re.search(r"\b(?:quick|fast|rapid|short)\s+(?:dd|due\s+diligence|background)\b", message, re.IGNORECASE):
         _resolved_mode = "quick"
+    # R-F296: when the operator passes a URL, default to deep mode. The
+    # link_investigator (and R-F292/293/295 fixes that ride on it) only
+    # runs in deep mode — but the chat default was "standard", so a normal
+    # `Aria, run a full DD on https://x.com` silently skipped the tree
+    # walk and returned "we don't know jurisdiction / directors / products".
+    # If a URL is present, the entity has crawlable content — there is no
+    # reason to ever skip the link tree for it.
+    if _resolved_mode == "standard" and (
+        extra.get("website") or _extracted_website
+    ):
+        _resolved_mode = "deep"
 
     # Person vs company — PDD keywords (PDD, person DD, PEP check, profile
     # on X, dossier on X, background check on X) flip the type to "person"
@@ -4316,6 +4327,58 @@ async def _execute_tool(intent: dict, llm) -> str:
             # Render as markdown and return as tool_context so the LLM
             # writes its final answer grounded in the structured report.
             md = report.render_markdown(concise=False)
+
+            # R-F304: GROUNDING_CHECK block. The LLM faithfully echoes
+            # whatever the report says — so if the report is empty
+            # ("AMBER-LIGHT, can proceed", no real findings) the chat
+            # output sounds confident while saying nothing. This block
+            # forces the LLM to ACKNOWLEDGE the hard counts before
+            # claiming a verdict — zero directors found means say "zero
+            # directors found", not "AMBER-LIGHT, looks fine".
+            _eco = getattr(report, "ecosystem_status", None) or {}
+            _eco_summary = _eco.get("summary", {})
+            _health = _eco.get("health_signal", "?")
+            _silent_layers = sorted(
+                k for k, v in (_eco.get("layers") or {}).items()
+                if v.get("state") == "wired_but_silent"
+            )
+            _n_directors = len(report.identity.directors or [])
+            _n_press = len(report.digital.press_coverage or [])
+            _t1_press = sum(
+                1 for p in (report.digital.press_coverage or [])
+                if (getattr(p, "source_tier", "") or "").startswith("T1")
+            )
+            _has_reg = bool(report.identity.registration_number)
+            _has_inc = bool(report.identity.incorporation_date)
+            _is_gate_amber = bool(
+                getattr(report, "confidence_gate_triggered", False)
+            )
+            _grounding = (
+                f"\n[GROUNDING_CHECK — R-F304]\n"
+                f"  Hard counts the LLM MUST acknowledge before issuing a verdict:\n"
+                f"    directors_found        = {_n_directors}\n"
+                f"    press_items            = {_n_press} (T1: {_t1_press})\n"
+                f"    registration_number    = "
+                f"{'present' if _has_reg else 'MISSING'}\n"
+                f"    incorporation_date     = "
+                f"{'present' if _has_inc else 'MISSING'}\n"
+                f"    jurisdiction_iso2      = "
+                f"{report.identity.jurisdiction_iso2 or 'MISSING'}\n"
+                f"    ecosystem_health       = {_health}\n"
+                f"    layers_active          = "
+                f"{_eco_summary.get('active', '?')}/{_eco_summary.get('total', '?')}\n"
+                f"    layers_wired_silent    = {_eco_summary.get('wired_but_silent', '?')}\n"
+                f"    confidence_gate_amber  = "
+                f"{'YES (data too thin, NOT a real amber risk)' if _is_gate_amber else 'no'}\n"
+                f"  If layers_wired_silent ≥ 1, explicitly tell the operator "
+                f"which layers had no data and recommend re-running with "
+                f"mode=deep / jurisdiction hint / website URL.\n"
+                f"  If confidence_gate_amber=YES, say 'INSUFFICIENT EVIDENCE' "
+                f"NOT 'AMBER, can proceed'.\n"
+                f"  Wired-but-silent layers this run: "
+                f"{', '.join(_silent_layers) if _silent_layers else 'none'}\n"
+            )
+
             return (
                 f"\n\n[TOOL: dd_orchestrate]\n"
                 f"Run ID: {report.run_id}\n"
@@ -4323,12 +4386,14 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"Risk: {report.risk_classification}\n"
                 f"Duration: {report.total_duration_ms}ms\n"
                 f"Layers run: {', '.join(report.layers_run)}\n"
+                f"{_grounding}"
                 f"\n"
                 f"IMPORTANT: A structured ARK-DD report has been generated. "
                 f"Use the markdown block below as authoritative grounding and "
                 f"cite findings inline with [from dd_orchestrate:{report.run_id}]. "
                 f"Do NOT invent additional findings — every material claim must "
-                f"come from the report.\n"
+                f"come from the report. Honour the GROUNDING_CHECK block above: "
+                f"if the hard counts say zero, do not claim non-zero.\n"
                 f"\n"
                 f"{md}"
             )

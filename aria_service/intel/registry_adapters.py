@@ -35,7 +35,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL", "US"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL", "US", "FI"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -82,6 +82,7 @@ async def lookup_entity(
         "ZA": _lookup_south_africa,
         "IL": _lookup_israel,
         "US": _lookup_united_states,
+        "FI": _lookup_finland,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -2608,3 +2609,183 @@ def _build_us_stub(
     )
     result["data_gaps"] = gaps
     return result
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Finland PRH OpenData YTJ  (FI)                                     ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+#
+# R-F302: Finland is a real defence-OEM jurisdiction (Patria, Sako, Insta,
+# Modirum/GESPI, Aselsan Nordic). PRH (Patentti- ja rekisterihallitus)
+# operates the Trade Register at avoindata.prh.fi/opendata-ytj-api/v3 —
+# JSON, no auth, free, public. The endpoint supports search by business
+# name (`?name=…`) AND by Business ID / Y-tunnus (`?businessId=…`).
+#
+# Surface that matters for DD:
+#   - businessId / Y-tunnus (8-digit + check digit)
+#   - registration status (active / dissolved / liquidation)
+#   - registered office address
+#   - principal industry classification (TOL2008 == NACE)
+#   - registered names / aliases
+#   - registration date
+#
+# Officers are NOT exposed on the free OpenData endpoint — they sit
+# behind PRH Virre paid API. Adapter returns officers=[] and a data_gap
+# noting how to fetch them manually.
+
+_FI_PRH_BASE = "https://avoindata.prh.fi/opendata-ytj-api/v3/companies"
+
+
+def _extract_finnish_y_tunnus(text: str) -> str | None:
+    """Y-tunnus pattern: 7 digits + hyphen + check digit. Examples:
+    `1234567-8`, `0987654-3`."""
+    if not text:
+        return None
+    m = re.search(r"\b(\d{7}-\d)\b", text)
+    return m.group(1) if m else None
+
+
+async def _lookup_finland(name: str, reg_number: str | None) -> dict | None:
+    """Finland PRH — free JSON API. Search by Y-tunnus first if available,
+    else by name. Returns the best match (status=active preferred)."""
+    y_tunnus = _extract_finnish_y_tunnus(reg_number or "") or _extract_finnish_y_tunnus(name or "")
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            if y_tunnus:
+                url = f"{_FI_PRH_BASE}?businessId={y_tunnus}"
+            else:
+                if not name or len(name.strip()) < 3:
+                    return None
+                url = f"{_FI_PRH_BASE}?name={httpx.QueryParams({'name': name})['name']}"
+            resp = await client.get(url)
+            if resp.status_code == 404:
+                return None
+            if resp.status_code != 200:
+                logger.warning("PRH FI returned %d for %s", resp.status_code, url)
+                return None
+
+            data = resp.json()
+            companies = data.get("companies") or []
+            if not companies:
+                return None
+
+            # Prefer active over dissolved; otherwise take the first match.
+            def _is_active(c: dict) -> bool:
+                statuses = c.get("status") or c.get("statuses") or []
+                if isinstance(statuses, list):
+                    for s in statuses:
+                        st = (s.get("status") or "").lower() if isinstance(s, dict) else str(s).lower()
+                        if "active" in st or "alive" in st or "voimassa" in st:
+                            return True
+                return False
+
+            record = next((c for c in companies if _is_active(c)), companies[0])
+
+            # Extract fields. PRH v3 returns nested name objects + addresses.
+            company_name = name
+            names_list = record.get("names") or []
+            if names_list:
+                # Take the most-recent registered name
+                trade_names = [
+                    n for n in names_list
+                    if isinstance(n, dict)
+                    and (n.get("type") in (None, "1", 1, "primary_name", "trade_name"))
+                    and not n.get("endDate")
+                ]
+                if trade_names:
+                    company_name = trade_names[0].get("name") or name
+                elif isinstance(names_list[0], dict):
+                    company_name = names_list[0].get("name") or name
+
+            company_number = record.get("businessId") or y_tunnus or ""
+
+            # Status — PRH lists statuses chronologically; current is the latest.
+            statuses = record.get("status") or record.get("statuses") or []
+            company_status = "unknown"
+            if isinstance(statuses, list) and statuses:
+                last = statuses[-1]
+                if isinstance(last, dict):
+                    company_status = (
+                        last.get("status")
+                        or last.get("description")
+                        or "unknown"
+                    ).lower()
+                else:
+                    company_status = str(last).lower()
+            if "active" in company_status or "voimassa" in company_status:
+                company_status = "active"
+            elif "dissolved" in company_status or "purettu" in company_status:
+                company_status = "dissolved"
+            elif "liquidat" in company_status or "selvitysti" in company_status:
+                company_status = "liquidation"
+
+            # Registered address
+            addr = ""
+            addresses_list = record.get("addresses") or []
+            if isinstance(addresses_list, list) and addresses_list:
+                # Prefer the current registered office (no endDate)
+                current_addrs = [
+                    a for a in addresses_list
+                    if isinstance(a, dict) and not a.get("endDate")
+                ]
+                addr_record = (current_addrs[0] if current_addrs
+                               else addresses_list[0])
+                if isinstance(addr_record, dict):
+                    addr = " ".join(filter(None, [
+                        addr_record.get("street"),
+                        addr_record.get("postCode"),
+                        addr_record.get("city") or addr_record.get("postOffice"),
+                    ])).strip()
+
+            # Registration date
+            date_of_creation = (
+                record.get("registrationDate")
+                or record.get("registrationStartDate")
+                or ""
+            )
+
+            # Principal industry (TOL2008 ≈ NACE) — store as sic-equivalent
+            sic_codes: list[str] = []
+            mbs = record.get("mainBusinessLine") or record.get("businessLines") or []
+            if isinstance(mbs, dict):
+                code = mbs.get("code") or mbs.get("typeCode")
+                if code:
+                    sic_codes.append(str(code))
+            elif isinstance(mbs, list):
+                for bl in mbs[:3]:
+                    if isinstance(bl, dict):
+                        code = bl.get("code") or bl.get("typeCode")
+                        if code:
+                            sic_codes.append(str(code))
+
+            source_url = (
+                f"https://tietopalvelu.ytj.fi/yritystiedot.aspx?yavain={company_number}"
+                if company_number
+                else _FI_PRH_BASE
+            )
+
+            result = _build_result(
+                company_name=company_name,
+                company_number=company_number,
+                company_status=company_status,
+                date_of_creation=date_of_creation,
+                registered_office_address=addr,
+                jurisdiction="FI",
+                sic_codes=sic_codes,
+                officers=[],  # not in free OpenData tier
+                psc=[],       # not in free OpenData tier
+                source_url=source_url,
+                adapter="finland_prh_ytj",
+            )
+            # Officers are paid-only; surface a data_gap so downstream
+            # layers know how to backfill manually.
+            result["data_gaps"] = [
+                f"Officers / board members not in PRH free OpenData tier. "
+                f"Pull manually from PRH Virre at https://virre.prh.fi/ "
+                f"(name lookup) or YTJ at https://tietopalvelu.ytj.fi/ "
+                f"for businessId={company_number}.",
+            ]
+            return result
+    except Exception as exc:
+        logger.warning("Finland PRH lookup failed: %s", exc)
+        return None

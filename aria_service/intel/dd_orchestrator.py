@@ -250,6 +250,220 @@ def _detect_uk_entity_in_link_tree(tree) -> tuple[str | None, str]:
     return None, ""
 
 
+# R-F301: jurisdiction-by-city detection from link-tree page text. The
+# identity layer's `_infer_jurisdiction` runs BEFORE the link-tree fetches
+# the website, so a company HQ stated only on its website is invisible.
+# This map maps strong city + country tokens → ISO2. Restricted to defence
+# / finance / tech / commercial centres that ARIA encounters in DD work.
+_LINK_TREE_CITY_TO_ISO2 = {
+    # United Kingdom (already covered by UK detector but mirror here for
+    # the generic backfill code path)
+    "london": "GB", "manchester": "GB", "birmingham": "GB",
+    "edinburgh": "GB", "glasgow": "GB", "bristol": "GB",
+    "leeds": "GB", "liverpool": "GB",
+    "united kingdom": "GB", "england": "GB", "scotland": "GB", "wales": "GB",
+    # Finland (Modirum HQ — direct miss on the 2026-05-11 DD)
+    "helsinki": "FI", "tampere": "FI", "espoo": "FI", "turku": "FI",
+    "oulu": "FI", "vantaa": "FI", "finland": "FI",
+    # Other Nordic
+    "stockholm": "SE", "gothenburg": "SE", "malmö": "SE", "malmo": "SE",
+    "sweden": "SE",
+    "copenhagen": "DK", "aarhus": "DK", "denmark": "DK",
+    "oslo": "NO", "bergen": "NO", "norway": "NO",
+    "reykjavík": "IS", "reykjavik": "IS", "iceland": "IS",
+    # DACH
+    "berlin": "DE", "munich": "DE", "münchen": "DE", "frankfurt": "DE",
+    "hamburg": "DE", "stuttgart": "DE", "cologne": "DE", "köln": "DE",
+    "germany": "DE", "deutschland": "DE",
+    "vienna": "AT", "wien": "AT", "graz": "AT", "salzburg": "AT", "austria": "AT",
+    "zurich": "CH", "zürich": "CH", "geneva": "CH", "basel": "CH",
+    "bern": "CH", "prilly": "CH", "lausanne": "CH", "switzerland": "CH",
+    # Baltic
+    "tallinn": "EE", "tartu": "EE", "estonia": "EE",
+    "riga": "LV", "latvia": "LV",
+    "vilnius": "LT", "lithuania": "LT",
+    # Western EU
+    "paris": "FR", "lyon": "FR", "marseille": "FR", "toulouse": "FR",
+    "france": "FR",
+    "amsterdam": "NL", "rotterdam": "NL", "the hague": "NL",
+    "eindhoven": "NL", "netherlands": "NL", "holland": "NL",
+    "brussels": "BE", "antwerp": "BE", "belgium": "BE",
+    "madrid": "ES", "barcelona": "ES", "valencia": "ES", "spain": "ES", "españa": "ES",
+    "lisbon": "PT", "porto": "PT", "portugal": "PT",
+    "rome": "IT", "milan": "IT", "turin": "IT", "naples": "IT",
+    "florence": "IT", "italy": "IT", "italia": "IT",
+    "dublin": "IE", "cork": "IE", "ireland": "IE", "eire": "IE",
+    # Central / Eastern EU
+    "warsaw": "PL", "kraków": "PL", "krakow": "PL", "gdansk": "PL",
+    "wrocław": "PL", "wroclaw": "PL", "poland": "PL", "polska": "PL",
+    "prague": "CZ", "praha": "CZ", "brno": "CZ", "czech": "CZ", "czechia": "CZ",
+    "bratislava": "SK", "košice": "SK", "kosice": "SK", "slovakia": "SK",
+    "budapest": "HU", "hungary": "HU",
+    "bucharest": "RO", "cluj": "RO", "romania": "RO",
+    "sofia": "BG", "bulgaria": "BG",
+    "zagreb": "HR", "croatia": "HR",
+    "ljubljana": "SI", "slovenia": "SI",
+    "belgrade": "RS", "beograd": "RS", "serbia": "RS",
+    "skopje": "MK", "macedonia": "MK", "north macedonia": "MK",
+    # Americas
+    "são paulo": "BR", "sao paulo": "BR", "rio de janeiro": "BR",
+    "são josé dos campos": "BR", "sao jose dos campos": "BR",
+    "cruzeiro": "BR", "santa rita do sapucaí": "BR",
+    "brasília": "BR", "brasilia": "BR", "brazil": "BR", "brasil": "BR",
+    "buenos aires": "AR", "argentina": "AR",
+    "santiago": "CL", "chile": "CL",
+    "lima": "PE", "peru": "PE",
+    "bogotá": "CO", "bogota": "CO", "colombia": "CO",
+    "mexico city": "MX", "ciudad de mexico": "MX", "guadalajara": "MX",
+    "mexico": "MX", "méxico": "MX",
+    # USA
+    "new york": "US", "washington": "US", "san francisco": "US",
+    "los angeles": "US", "houston": "US", "chicago": "US",
+    "paeonian springs": "US", "virginia": "US", "california": "US",
+    "united states": "US", "usa": "US",
+    # Canada
+    "toronto": "CA", "vancouver": "CA", "montreal": "CA", "ottawa": "CA",
+    "canada": "CA",
+    # Middle East / Gulf
+    "dubai": "AE", "abu dhabi": "AE", "sharjah": "AE", "fujairah": "AE",
+    "united arab emirates": "AE", "uae": "AE",
+    "riyadh": "SA", "jeddah": "SA", "saudi arabia": "SA",
+    "doha": "QA", "qatar": "QA",
+    "kuwait city": "KW", "kuwait": "KW",
+    "manama": "BH", "bahrain": "BH",
+    "muscat": "OM", "oman": "OM",
+    "tel aviv": "IL", "jerusalem": "IL", "haifa": "IL", "israel": "IL",
+    # Turkey
+    "istanbul": "TR", "ankara": "TR", "izmir": "TR", "türkiye": "TR", "turkey": "TR",
+    # Africa
+    "lagos": "NG", "abuja": "NG", "nigeria": "NG",
+    "nairobi": "KE", "kenya": "KE",
+    "cape town": "ZA", "johannesburg": "ZA", "pretoria": "ZA",
+    "south africa": "ZA",
+    "luanda": "AO", "angola": "AO",
+    "accra": "GH", "ghana": "GH",
+    # Asia
+    "singapore": "SG",
+    "tokyo": "JP", "osaka": "JP", "japan": "JP",
+    "seoul": "KR", "south korea": "KR",
+    "shanghai": "CN", "beijing": "CN", "shenzhen": "CN", "china": "CN",
+    "hong kong": "HK",
+    "taipei": "TW", "taiwan": "TW",
+    "mumbai": "IN", "delhi": "IN", "bangalore": "IN", "bengaluru": "IN",
+    "chennai": "IN", "india": "IN",
+    # Oceania
+    "sydney": "AU", "melbourne": "AU", "canberra": "AU", "brisbane": "AU",
+    "australia": "AU",
+    "auckland": "NZ", "wellington": "NZ", "new zealand": "NZ",
+}
+
+_ISO2_TO_COUNTRY_HINT = {
+    "GB": "United Kingdom", "FI": "Finland", "SE": "Sweden",
+    "DK": "Denmark", "NO": "Norway", "IS": "Iceland",
+    "DE": "Germany", "AT": "Austria", "CH": "Switzerland",
+    "EE": "Estonia", "LV": "Latvia", "LT": "Lithuania",
+    "FR": "France", "NL": "Netherlands", "BE": "Belgium",
+    "ES": "Spain", "PT": "Portugal", "IT": "Italy", "IE": "Ireland",
+    "PL": "Poland", "CZ": "Czechia", "SK": "Slovakia",
+    "HU": "Hungary", "RO": "Romania", "BG": "Bulgaria",
+    "HR": "Croatia", "SI": "Slovenia", "RS": "Serbia", "MK": "North Macedonia",
+    "BR": "Brazil", "AR": "Argentina", "CL": "Chile", "PE": "Peru",
+    "CO": "Colombia", "MX": "Mexico", "US": "United States", "CA": "Canada",
+    "AE": "United Arab Emirates", "SA": "Saudi Arabia", "QA": "Qatar",
+    "KW": "Kuwait", "BH": "Bahrain", "OM": "Oman", "IL": "Israel",
+    "TR": "Turkey", "NG": "Nigeria", "KE": "Kenya", "ZA": "South Africa",
+    "AO": "Angola", "GH": "Ghana",
+    "SG": "Singapore", "JP": "Japan", "KR": "South Korea", "CN": "China",
+    "HK": "Hong Kong", "TW": "Taiwan", "IN": "India",
+    "AU": "Australia", "NZ": "New Zealand",
+}
+
+
+def _detect_jurisdiction_in_link_tree(tree) -> tuple[str | None, str]:
+    """R-F301: scan a LinkTreeResult for city + country tokens → ISO2.
+    Returns (iso2, evidence_quote) on hit, else (None, "")."""
+    if not tree:
+        return None, ""
+
+    haystack_parts: list[str] = []
+    for ff in (getattr(tree, "fused_facts", None) or [])[:60]:
+        if getattr(ff, "value", ""):
+            haystack_parts.append(str(ff.value))
+        if getattr(ff, "first_context", ""):
+            haystack_parts.append(str(ff.first_context))
+    for page in (getattr(tree, "pages", None) or [])[:30]:
+        if getattr(page, "title", ""):
+            haystack_parts.append(str(page.title))
+        for fact in (getattr(page, "facts", None) or [])[:25]:
+            if getattr(fact, "value", ""):
+                haystack_parts.append(str(fact.value))
+            if getattr(fact, "context", ""):
+                haystack_parts.append(str(fact.context))
+    if not haystack_parts:
+        return None, ""
+
+    haystack_lower = (" | ".join(haystack_parts))[:80000].lower()
+
+    # Vote — count token hits per ISO2. The country-name tokens
+    # (e.g. "finland") count double to anchor the verdict.
+    votes: dict[str, int] = {}
+    for token, iso2 in _LINK_TREE_CITY_TO_ISO2.items():
+        if token in haystack_lower:
+            weight = 2 if token == _ISO2_TO_COUNTRY_HINT.get(iso2, "").lower() else 1
+            votes[iso2] = votes.get(iso2, 0) + weight
+    if not votes:
+        return None, ""
+
+    winner = max(votes.items(), key=lambda kv: kv[1])
+    iso2_hit, score = winner
+    # Require at least 2 points (one strong country token OR two cities)
+    if score < 2:
+        return None, ""
+
+    # Build evidence quote — first matching token's surrounding text
+    for token, iso2 in _LINK_TREE_CITY_TO_ISO2.items():
+        if iso2 != iso2_hit:
+            continue
+        idx = haystack_lower.find(token)
+        if idx >= 0:
+            start = max(0, idx - 60)
+            end = min(len(haystack_lower), idx + len(token) + 60)
+            haystack = " | ".join(haystack_parts)[:80000]
+            evidence = haystack[start:end].replace("\n", " ").strip()
+            return iso2_hit, evidence
+    return iso2_hit, ""
+
+
+def _brandify_name_for_search(name: str, target: dict) -> str:
+    """R-F299: derive a search-friendly brand string from a name that may
+    have been set from a hostname by the R-F153 fallback. If the name was
+    NOT derived from a domain, return as-is.
+
+    Examples:
+      "modirumgespi.com"          → "modirumgespi"
+      "duma-engineering.com"      → "duma engineering"
+      "f3ir.uk"                   → "f3ir"
+      "Modirum GESPI"             → "Modirum GESPI"   (untouched — has space)
+    """
+    if not name:
+        return name
+    derivation = target.get("_name_derivation") or ""
+    looks_like_host = (
+        "." in name
+        and " " not in name
+        and not name.startswith("(")
+    )
+    if not (looks_like_host or "hostname" in derivation):
+        return name
+    # Strip TLD (the last .xx / .xxx)
+    stripped = re.sub(r"\.[A-Za-z]{2,6}$", "", name)
+    # Hyphens and underscores become spaces
+    stripped = re.sub(r"[-_]+", " ", stripped)
+    # Collapse repeated whitespace
+    stripped = re.sub(r"\s+", " ", stripped).strip()
+    return stripped or name
+
+
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, "") or default)
@@ -1586,11 +1800,19 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
     report.digital.meta.started_at = datetime.now(timezone.utc).isoformat()
     name = report.identity.entity_name or target.get("query", "")
 
+    # R-F299: when name was derived from a hostname (R-F153 fallback) the
+    # search query "modirumgespi.com defence procurement" returns nothing
+    # useful — same-domain mentions only. Derive a brand-friendly form by
+    # stripping the TLD and converting separators to spaces, then run the
+    # search against THAT. The original hostname is still preserved in
+    # target["name"] for storage/audit.
+    name_for_search = _brandify_name_for_search(name, target)
+
     # ── 5a. Multilingual web search ──
     try:
         from . import web_search
         hits = await web_search.search_multilingual(
-            f"{name} defence procurement",
+            f"{name_for_search} defence procurement",
             max_results=12,
         )
         # Convert SearchResult objects to Evidence dataclasses where possible
@@ -1849,6 +2071,76 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             confidence="ASSESSED",
                         ))
                 report.digital.meta.subcalls += 1
+
+                # R-F301: post-link-tree jurisdiction detection. If the
+                # identity layer couldn't infer jurisdiction (no phone,
+                # no address, no email, no reg-num pattern), the website
+                # text often contains the answer. Set jurisdiction_iso2
+                # + country name from the link-tree page text so any
+                # downstream layer (Layer 4 country-risk, registry
+                # adapters, etc.) can use them.
+                try:
+                    if not report.identity.jurisdiction_iso2:
+                        _jur_iso2, _jur_ev = _detect_jurisdiction_in_link_tree(tree)
+                        if _jur_iso2:
+                            report.identity.jurisdiction_iso2 = _jur_iso2
+                            if not report.identity.jurisdiction:
+                                report.identity.jurisdiction = (
+                                    _ISO2_TO_COUNTRY_HINT.get(_jur_iso2, _jur_iso2)
+                                )
+                            report.identity.findings.append(Finding(
+                                severity="info",
+                                title=(
+                                    f"R-F301: jurisdiction inferred from link-tree "
+                                    f"→ {_jur_iso2} "
+                                    f"({_ISO2_TO_COUNTRY_HINT.get(_jur_iso2, '?')})"
+                                ),
+                                detail=f"Evidence: {_jur_ev[:200]}",
+                                source="dd_orchestrator.jurisdiction_backfill",
+                                confidence="ASSESSED",
+                            ))
+                            logger.info(
+                                "R-F301: jurisdiction backfilled via link-tree: %s (%s)",
+                                _jur_iso2, _ISO2_TO_COUNTRY_HINT.get(_jur_iso2, "?"),
+                            )
+                            # If a registry adapter exists for this
+                            # jurisdiction, try it now to backfill
+                            # directors + incorporation date.
+                            try:
+                                from . import registry_adapters as _ra
+                                ra_result = await _ra.lookup_entity(
+                                    name=name,
+                                    jurisdiction_iso2=_jur_iso2,
+                                    registration_number=None,
+                                )
+                                if ra_result and (ra_result.get("profile") or ra_result.get("found")):
+                                    _ra_profile = ra_result.get("profile") or {}
+                                    if not report.identity.directors:
+                                        report.identity.directors = (
+                                            ra_result.get("officers") or []
+                                        )
+                                    if not report.identity.registration_number:
+                                        report.identity.registration_number = (
+                                            _ra_profile.get("company_number")
+                                            or ra_result.get("registration_number")
+                                        )
+                                    if not report.identity.incorporation_date:
+                                        report.identity.incorporation_date = (
+                                            _ra_profile.get("date_of_creation")
+                                            or ra_result.get("incorporation_date")
+                                        )
+                                    if not report.identity.registered_address:
+                                        report.identity.registered_address = (
+                                            _ra_profile.get("registered_office_address")
+                                            or report.identity.registered_address
+                                        )
+                            except Exception as _ra_e:
+                                logger.debug(
+                                    "R-F301 registry-adapter backfill failed: %s",
+                                    _ra_e,
+                                )
+                except Exception as _jur_e:
+                    logger.debug("R-F301 jurisdiction backfill skipped: %s", _jur_e)
 
                 # R-F295: post-link-tree UK detection + CH backfill.
                 # The live modirumgespi.com DD (2026-05-11) missed the UK
@@ -2170,6 +2462,15 @@ async def _run_synthesis(target: dict, report: ARKDDReport) -> None:
                 source="dd_orchestrator.confidence_gate",
                 confidence="ASSESSED",
             ))
+            # R-F298: stamp the report so the BLUF assembly can tell the
+            # difference between "AMBER because of a real risk finding"
+            # and "AMBER because the data was too thin to issue GREEN".
+            # The current AMBER-LIGHT BLUF says "can proceed with enhanced
+            # DD" — that's wrong for confidence-gate-only AMBER, where
+            # the honest reading is "INSUFFICIENT EVIDENCE, can't issue
+            # a verdict either way".
+            report.confidence_gate_triggered = True
+            report.confidence_gate_reasons = list(_gate_reasons)
             _entity_name = report.identity.entity_name or target.get("name", "?")
             logger.info("Confidence gate: GREEN → AMBER for %s (%s)", _entity_name, "; ".join(_gate_reasons))
 
@@ -2512,19 +2813,50 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
             "Re-run orchestrator weekly via watchlist until risk tier improves",
         ]
     elif risk == RiskClassification.AMBER_LIGHT.value:
-        report.bottom_line = (
-            f"🟡 AMBER — {name} can proceed with enhanced due diligence. "
-            "Resolve the gaps flagged below before contracting."
-        )
-        report.recommendation = (
-            "Proceed with enhanced DD: require EUC, verify signatory identity, "
-            "escalate any new red flag to RED. Close data gaps before contracting."
-        )
-        report.next_actions = [
-            "Close the data gaps listed under residual unknowns",
-            "Require EUC before any binding commitment",
-            "Verify signatory identity via at least one independent source",
-        ]
+        # R-F298: when AMBER was reached purely via the confidence gate
+        # (data too thin to issue GREEN, NOT because of a real risk
+        # finding), the honest BLUF is "INSUFFICIENT EVIDENCE", not "can
+        # proceed with enhanced DD". Otherwise we paper over data-empty
+        # DDs as if they had been investigated.
+        if getattr(report, "confidence_gate_triggered", False):
+            _gate_reasons = getattr(report, "confidence_gate_reasons", []) or []
+            _reasons_str = "; ".join(_gate_reasons) if _gate_reasons else "insufficient verification"
+            report.bottom_line = (
+                f"🟡 INSUFFICIENT EVIDENCE — {name}: the DD did not gather "
+                f"enough data to issue a verdict. AMBER is a placeholder, "
+                f"not a substantive amber risk finding. "
+                f"Gate-triggered by: {_reasons_str}."
+            )
+            report.recommendation = (
+                "Re-run the DD in DEEP mode (or supply jurisdiction / "
+                "registration number / website hints) before treating "
+                "this as 'can proceed'. The current run did not exercise "
+                "the layers that produce the registry / director / press "
+                "evidence needed for a real classification."
+            )
+            report.next_actions = [
+                "Re-run with mode=deep (or include the word 'deep' / "
+                "'comprehensive' / 'full DD' in the request)",
+                "Supply jurisdiction_iso2 if known",
+                "Supply a website URL if not already provided — this "
+                "unlocks the link-tree investigation path",
+                "Resolve each data gap listed below; gate will lift once "
+                "registry data + directors + incorporation date are present",
+            ]
+        else:
+            report.bottom_line = (
+                f"🟡 AMBER — {name} can proceed with enhanced due diligence. "
+                "Resolve the gaps flagged below before contracting."
+            )
+            report.recommendation = (
+                "Proceed with enhanced DD: require EUC, verify signatory identity, "
+                "escalate any new red flag to RED. Close data gaps before contracting."
+            )
+            report.next_actions = [
+                "Close the data gaps listed under residual unknowns",
+                "Require EUC before any binding commitment",
+                "Verify signatory identity via at least one independent source",
+            ]
     else:
         report.bottom_line = (
             f"🟢 GREEN — {name} passes baseline due diligence. "
@@ -3468,15 +3800,58 @@ async def orchestrate_dd(
         _covered: list[str] = []
 
         def _section_active(section) -> bool:
+            """R-F297: a layer counts as 'covered' only if it produced REAL
+            data, not just an OK status with empty findings. Previously any
+            section with status=OK was treated as covered even when its
+            findings list was empty and its only data_gap was "manual
+            registry lookup unavailable" — this caused the discipline
+            framework to claim 'ubo_chain covered' / 'adverse_media
+            covered' on runs where nothing was actually retrieved, which
+            in turn made the BLUF / chat summary read 'AMBER-LIGHT, looks
+            fine' on data-empty runs.
+
+            New rule — a section is active iff AT LEAST ONE of:
+              (a) a non-info finding (severity in red/amber/hard_stop)
+              (b) an info finding whose detail is substantive (>40 chars)
+              (c) a populated structured field (directors / press /
+                  country_risk / shareholders / etc.)
+            Empty findings + only 'unavailable' data_gaps → INACTIVE.
+            """
             if not section:
                 return False
-            if getattr(section, "findings", None):
+
+            # (a) Any non-info finding counts
+            findings = getattr(section, "findings", None) or []
+            for f in findings:
+                sev = (getattr(f, "severity", "") or "").lower()
+                if sev in ("red", "amber", "hard_stop", "hard-stop", "no-go"):
+                    return True
+                # (b) info finding with substantive detail
+                detail = getattr(f, "detail", "") or ""
+                if len(detail) >= 40:
+                    return True
+                # info with a substantive title also counts (some layers
+                # store the meat in the title, e.g. CH backfill)
+                title = getattr(f, "title", "") or ""
+                if len(title) >= 60:
+                    return True
+
+            # (c) populated structured fields
+            for fname in (
+                "directors", "shareholders", "press_coverage",
+                "officer_links", "psc_chain", "ubo_chain",
+                "sanctions_matches", "country_risk", "regulatory_enforcement",
+                "registration_number", "incorporation_date",
+                "registered_address", "declared_activity",
+            ):
+                fv = getattr(section, fname, None)
+                if not fv:
+                    continue
+                # Skip stub structures (e.g. empty dict, empty list)
+                if isinstance(fv, (list, dict, set, tuple)) and len(fv) == 0:
+                    continue
                 return True
-            if getattr(section, "data_gaps", None):
-                return True
-            meta = getattr(section, "meta", None)
-            if meta and getattr(meta, "status", "") in ("OK", "ok", "completed"):
-                return True
+
             return False
 
         if _section_active(report.identity):
@@ -3552,7 +3927,27 @@ async def orchestrate_dd(
     # report.digital so dashboards can render the depth distinctly).
     try:
         _risk_for_am = (report.risk_classification or "").upper()
-        if _risk_for_am in ("RED", "HARD_STOP", "NO-GO"):
+        # R-F300: previously fired only on RED / HARD_STOP / NO-GO. But the
+        # exact population that benefits MOST from adverse-media depth is
+        # AMBER runs where the confidence gate down-rated a thin GREEN —
+        # we have weak data, so we should go deeper, not give up. Extended
+        # trigger: any AMBER variant plus any run where the discipline
+        # coverage came back below 60% (per R-F157 framework).
+        _coverage_pct = 100.0
+        try:
+            if report.discipline_coverage:
+                _coverage_pct = float(
+                    (report.discipline_coverage.get("result") or {})
+                    .get("coverage_pct", 100.0)
+                )
+        except Exception:
+            pass
+        _should_run_am = (
+            _risk_for_am in ("RED", "HARD_STOP", "NO-GO")
+            or _risk_for_am.startswith("AMBER")
+            or _coverage_pct < 60.0
+        )
+        if _should_run_am:
             from . import researcher as _res
             # Pull director/UBO names from the network layer if present
             _director_names: list[str] = []
@@ -3808,6 +4203,28 @@ async def orchestrate_dd(
     except Exception as e:
         logger.warning("dd_orchestrator: brain_hook failed (non-fatal): %s", e)
 
+    # R-F305: ecosystem awareness. Before returning, stamp the report with
+    # a per-layer activity snapshot so the chat/dashboard/self_diagnostic
+    # can SEE which layers actually produced data versus which ran but
+    # returned empty (wired-but-silent — the failure mode that drove the
+    # 2026-05-11 operator complaint "ARIA going backwards").
+    try:
+        report.ecosystem_status = _build_ecosystem_status(report)
+        # Surface a top-level WARNING-severity finding if ≥2 layers were
+        # wired-but-silent — that's a signal something upstream went wrong
+        # (e.g. mode=standard skipped link-tree, registry adapter offline).
+        silent = [
+            k for k, v in report.ecosystem_status.get("layers", {}).items()
+            if v.get("state") == "wired_but_silent"
+        ]
+        if len(silent) >= 2:
+            logger.warning(
+                "[R-F305] %d DD layers wired-but-silent on run %s: %s",
+                len(silent), report.run_id, silent,
+            )
+    except Exception as _eco_e:
+        logger.debug("R-F305 ecosystem_status emit failed: %s", _eco_e)
+
     logger.info(
         "[dd_orchestrator] run %s complete — entity=%s risk=%s cost=$%.4f duration=%dms layers=%s",
         report.run_id,
@@ -3818,6 +4235,114 @@ async def orchestrate_dd(
         ",".join(report.layers_run),
     )
     return report
+
+
+def _build_ecosystem_status(report) -> dict:
+    """R-F305: build a per-layer activity snapshot for ecosystem awareness.
+
+    For each DD section, classify state:
+      "active"             — produced real data (findings or structured fields)
+      "wired_but_silent"   — ran (status=OK) but returned nothing useful
+      "skipped"            — meta.status SKIPPED/DISABLED
+      "errored"            — meta.status ERROR
+      "not_run"            — never started (no meta.started_at)
+    """
+    sections_by_name = {
+        "identity": getattr(report, "identity", None),
+        "network": getattr(report, "network", None),
+        "verification": getattr(report, "verification", None),
+        "compliance": getattr(report, "compliance", None),
+        "digital": getattr(report, "digital", None),
+        "commercial_coherence": getattr(report, "commercial_coherence", None),
+        "synthesis": getattr(report, "synthesis", None),
+    }
+    layers: dict[str, dict] = {}
+    for sname, section in sections_by_name.items():
+        if section is None:
+            layers[sname] = {"state": "not_run", "findings": 0, "data_gaps": 0}
+            continue
+        meta = getattr(section, "meta", None)
+        status = (getattr(meta, "status", "") or "").upper() if meta else ""
+        started = getattr(meta, "started_at", "") if meta else ""
+        n_findings = len(getattr(section, "findings", []) or [])
+        n_gaps = len(getattr(section, "data_gaps", []) or [])
+
+        if not started:
+            state = "not_run"
+        elif status in ("SKIPPED", "DISABLED"):
+            state = "skipped"
+        elif status in ("ERROR", "ERRORED"):
+            state = "errored"
+        else:
+            # Re-use the same honesty rule as _section_active (R-F297).
+            real_data = False
+            for fd in (getattr(section, "findings", []) or []):
+                sev = (getattr(fd, "severity", "") or "").lower()
+                if sev in ("red", "amber", "hard_stop", "hard-stop", "no-go"):
+                    real_data = True
+                    break
+                detail = getattr(fd, "detail", "") or ""
+                if len(detail) >= 40:
+                    real_data = True
+                    break
+                title = getattr(fd, "title", "") or ""
+                if len(title) >= 60:
+                    real_data = True
+                    break
+            if not real_data:
+                for fname in (
+                    "directors", "shareholders", "press_coverage",
+                    "officer_links", "psc_chain", "ubo_chain",
+                    "sanctions_matches", "country_risk",
+                    "regulatory_enforcement", "registration_number",
+                    "incorporation_date", "registered_address",
+                    "declared_activity",
+                ):
+                    fv = getattr(section, fname, None)
+                    if not fv:
+                        continue
+                    if isinstance(fv, (list, dict, set, tuple)) and len(fv) == 0:
+                        continue
+                    real_data = True
+                    break
+            state = "active" if real_data else "wired_but_silent"
+
+        layers[sname] = {
+            "state": state,
+            "status": status.lower() if status else "",
+            "findings": n_findings,
+            "data_gaps": n_gaps,
+        }
+
+    # Aggregate health summary
+    n_active = sum(1 for v in layers.values() if v["state"] == "active")
+    n_silent = sum(1 for v in layers.values() if v["state"] == "wired_but_silent")
+    n_skipped = sum(1 for v in layers.values() if v["state"] == "skipped")
+    n_error = sum(1 for v in layers.values() if v["state"] == "errored")
+    n_not_run = sum(1 for v in layers.values() if v["state"] == "not_run")
+
+    return {
+        "layers": layers,
+        "summary": {
+            "active": n_active,
+            "wired_but_silent": n_silent,
+            "skipped": n_skipped,
+            "errored": n_error,
+            "not_run": n_not_run,
+            "total": len(layers),
+        },
+        "health_signal": (
+            "DEGRADED" if (n_error or n_silent >= 3)
+            else "PARTIAL" if (n_silent >= 1 or n_not_run >= 2)
+            else "HEALTHY"
+        ),
+        "interpretation": (
+            "wired_but_silent layers are the 'going backwards' signal: code "
+            "ran but produced nothing. Check whether the orchestrator was in "
+            "the right mode (deep vs standard) and whether the registry / "
+            "search adapters reached their endpoints."
+        ),
+    }
 
 
 # =============================================================================

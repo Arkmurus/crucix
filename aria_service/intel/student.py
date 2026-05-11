@@ -574,6 +574,45 @@ async def get_curriculum() -> dict:
     }
 
 
+# ── R-F306: Cost-free learning contract ────────────────────────────────────
+# Operator directive 2026-05-11: ARIA mirrors Claude. The learning loops
+# (self_quiz + reading_session + library_consolidate) must run at $0 —
+# no Brave, no paid web_search, no LLM call necessary for the loop to
+# make progress. They are allowed to OPTIONALLY consume LLM if passed,
+# but the loop's correctness MUST NOT depend on it.
+#
+# This is enforced two ways:
+#   (1) Documentary: this constant + the "no LLM required" assertion in
+#       the docstrings.
+#   (2) Test contract: test_dd_ecosystem_rf296_rf305 (R-F306 capability)
+#       monkey-patches the paid modules and asserts zero calls during a
+#       learning cycle. If a future commit wires a paid path into the
+#       learning loop, that test breaks loudly.
+LEARNING_MODE_COST_FREE_INVARIANT: dict = {
+    "self_quiz_cost_usd": 0.0,
+    "reading_session_cost_usd": 0.0,
+    "library_consolidate_cost_usd": 0.0,
+    "rationale": (
+        "Per aria_mirrors_claude memory: Claude Code does not depend on "
+        "Brave / Upstash / paid persistence for self-improvement; ARIA "
+        "must mirror that. Brave deprecated. Upstash being phased out "
+        "by R-F235 (→ SQLite). Learning runs on local data + free RSS + "
+        "free article fetch + local reasoning library."
+    ),
+    "approved_data_sources": (
+        "RESEARCH_FEEDS (RSS), Crossref, OpenAlex, Semantic Scholar, "
+        "Bing News RSS, Google News RSS, DuckDuckGo (free tier, "
+        "rate-limited but free), local reasoning_library, "
+        "local knowledge store, local neural memory, local mastery.",
+    ),
+    "forbidden_in_learning_loop": (
+        "brave_answers, brave_search, paid LLM completions as required "
+        "path, paid Upstash writes specifically for learning state, "
+        "OpenSanctions paid tier, paid registry adapters.",
+    ),
+}
+
+
 # ── Self-quiz ──────────────────────────────────────────────────────────────
 
 async def self_quiz(num_questions: int = 5) -> dict:
