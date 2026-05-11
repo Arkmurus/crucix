@@ -7669,6 +7669,64 @@ async def admin_migrate_state_ep(request: Request):
     return {"ok": True, **result}
 
 
+# R-F263 (2026-05-11) — Phase A exit gate #3 closer. Aggregates the
+# error_log ring buffer maintained by error_log_handler.py into a
+# summary the operator can verify against the gate criterion: "0
+# ERROR-level fly logs in last 7 days". Uses self_improve.
+# get_recent_errors() so the source-of-truth is the same record set
+# autonomous self-improvement uses for bug-detection.
+@router.get("/admin/logs/error-summary")
+async def admin_logs_error_summary_ep(hours: int = 168):
+    """Aggregate the error-ledger into a gate-checkable summary.
+
+    Args:
+        hours: window in hours (default 168 = 7 days, matching Phase A
+               gate #3 criterion). Operator can pass smaller windows
+               (24) to focus on recent regressions.
+
+    Returns:
+        {
+          window_hours, total_errors, gate_passes,
+          by_type:     {error_type: count, ...},
+          by_file:     {file: count, ...},
+          recent:      [<last 10 entries, full payload>]
+        }
+
+    gate_passes is True iff total_errors == 0 for the requested window.
+    For the 168h window this is the Phase A gate #3 verdict — note
+    that the underlying ring buffer (error_log_handler.py) mirrors
+    WARNING+ records, so gate_passes is STRICTER than the gate's
+    plain-text criterion ("0 ERROR-level fly logs"). This is the
+    conservative-safe direction: gate_passes=True implies zero warnings
+    too. For a strict-ERROR-only count, filter by_type for "log:error".
+    """
+    from ..intel import self_improve as _si
+    try:
+        hours = max(1, int(hours))
+    except (TypeError, ValueError):
+        hours = 168
+    errors = await _si.get_recent_errors(hours=hours)
+    by_type: dict[str, int] = {}
+    by_file: dict[str, int] = {}
+    for e in errors:
+        t = (e.get("type") or "unknown").strip() or "unknown"
+        by_type[t] = by_type.get(t, 0) + 1
+        f = (e.get("file") or "").strip() or "(no-file)"
+        by_file[f] = by_file.get(f, 0) + 1
+    # Sort by count desc for operator readability
+    by_type_sorted = dict(sorted(by_type.items(), key=lambda kv: -kv[1]))
+    by_file_sorted = dict(sorted(by_file.items(), key=lambda kv: -kv[1]))
+    recent = sorted(errors, key=lambda e: e.get("timestamp", 0), reverse=True)[:10]
+    return {
+        "window_hours": hours,
+        "total_errors": len(errors),
+        "gate_passes": len(errors) == 0,
+        "by_type": by_type_sorted,
+        "by_file": by_file_sorted,
+        "recent": recent,
+    }
+
+
 @router.get("/admin/absorption-quarantine/list")
 async def absorption_quarantine_list_ep(limit: int = 100):
     """List pending absorption attempts in the quarantine queue.
@@ -12616,6 +12674,54 @@ async def constitution_pending_ep():
     }
 
 
+# R-F262 (2026-05-11) — per-source token-bucket rate-limit for the inbound
+# webhook. R-F249 pass-1 verification flagged that an authorised source
+# (compromised Linear API key, misconfigured n8n flow looping on itself,
+# replay attack with valid signatures) could flood the ingest pipeline and
+# overwhelm intel_ledger + brain_hook + read_document. Default 60 req/min
+# per source covers normal SaaS webhook patterns (Linear emits ~5/min on a
+# busy team, Slack maybe 20/min on a noisy channel) with 3x headroom. Env-
+# tunable for operator: ARIA_WEBHOOK_RATE_CAP (default 60), ARIA_WEBHOOK_
+# RATE_REFILL (tokens per second, default 1.0).
+_webhook_buckets: dict[str, dict[str, float]] = {}
+
+
+def _consume_webhook_token(src: str) -> tuple[bool, float, float]:
+    """Token-bucket consume. Returns (allowed, tokens_remaining, retry_after_s).
+
+    First call for a source primes the bucket at full capacity minus the
+    one token being consumed (so a fresh source can immediately accept
+    bursts up to ARIA_WEBHOOK_RATE_CAP). Subsequent calls refill at
+    ARIA_WEBHOOK_RATE_REFILL tokens/sec, capped at the bucket capacity.
+    """
+    import os as _os_rb
+    import time as _time_rb
+    try:
+        cap = float(_os_rb.getenv("ARIA_WEBHOOK_RATE_CAP", "60"))
+    except (TypeError, ValueError):
+        cap = 60.0
+    try:
+        refill = float(_os_rb.getenv("ARIA_WEBHOOK_RATE_REFILL", "1.0"))
+    except (TypeError, ValueError):
+        refill = 1.0
+    now = _time_rb.time()
+    bucket = _webhook_buckets.get(src)
+    if bucket is None:
+        bucket = {"tokens": cap - 1.0, "last": now}
+        _webhook_buckets[src] = bucket
+        return True, bucket["tokens"], 0.0
+    elapsed = now - bucket["last"]
+    bucket["tokens"] = min(cap, bucket["tokens"] + elapsed * refill)
+    bucket["last"] = now
+    if bucket["tokens"] < 1.0:
+        # How many seconds until 1 full token is available
+        deficit = 1.0 - bucket["tokens"]
+        retry_after = max(1.0, deficit / refill if refill > 0 else 60.0)
+        return False, bucket["tokens"], retry_after
+    bucket["tokens"] -= 1.0
+    return True, bucket["tokens"], 0.0
+
+
 @router.post("/inbound/{source}")
 async def inbound_webhook_ep(source: str, request: Request):
     """R-F249 (2026-05-11) — generic inbound webhook receiver.
@@ -12652,7 +12758,8 @@ async def inbound_webhook_ep(source: str, request: Request):
     if not src or len(src) > 40:
         raise HTTPException(status_code=400, detail="invalid source slug")
 
-    # Look up per-source secret
+    # Look up per-source secret BEFORE consuming a rate-limit token. Unknown
+    # sources 401 immediately without polluting the bucket map (R-F262).
     env_name = f"ARIA_WEBHOOK_SECRET_{src.upper().replace('-', '_')}"
     secret = (_os_w.getenv(env_name) or "").strip()
     if not secret:
@@ -12661,6 +12768,17 @@ async def inbound_webhook_ep(source: str, request: Request):
         raise HTTPException(
             status_code=401,
             detail=f"webhook unauthorised — no secret configured for {src}",
+        )
+
+    # R-F262 (2026-05-11) — per-source rate-limit. Returns 429 with
+    # Retry-After when the source exhausts its token bucket. Tuned via
+    # ARIA_WEBHOOK_RATE_CAP / ARIA_WEBHOOK_RATE_REFILL env vars.
+    allowed, tokens_left, retry_after = _consume_webhook_token(src)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"rate limit exceeded for {src}; retry after ~{int(retry_after)}s",
+            headers={"Retry-After": str(int(retry_after))},
         )
 
     # Verify HMAC signature

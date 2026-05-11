@@ -442,6 +442,68 @@ class TestNaNGuard:
 # Smoke marker — operator should see this when the run completes
 # ─────────────────────────────────────────────────────────────────────────
 
+class TestWebhookRateLimiter:
+    """R-F262 token-bucket rate-limiter for /api/aria/inbound/{source}.
+
+    Pure unit test of `_consume_webhook_token` — exercises the bucket
+    state machine without spinning up FastAPI.
+    """
+
+    def _fresh_buckets(self):
+        """Reset the module-global bucket dict."""
+        from aria_service.routes import aria as _aria
+        _aria._webhook_buckets.clear()
+        # Force-set tight envs so the test is fast + deterministic
+        os.environ["ARIA_WEBHOOK_RATE_CAP"] = "3"
+        os.environ["ARIA_WEBHOOK_RATE_REFILL"] = "1.0"
+        return _aria
+
+    def test_first_call_allowed(self):
+        aria = self._fresh_buckets()
+        allowed, left, retry = aria._consume_webhook_token("linear")
+        assert allowed is True
+        assert left == 2.0  # cap=3, consumed 1 → 2 remain
+        assert retry == 0.0
+
+    def test_burst_within_cap_allowed(self):
+        aria = self._fresh_buckets()
+        for _ in range(3):
+            allowed, _, _ = aria._consume_webhook_token("slack")
+            assert allowed is True
+
+    def test_exhausted_bucket_returns_429_signal(self):
+        aria = self._fresh_buckets()
+        # Drain the bucket
+        for _ in range(3):
+            aria._consume_webhook_token("salesforce")
+        allowed, left, retry = aria._consume_webhook_token("salesforce")
+        assert allowed is False
+        assert left < 1.0
+        assert retry >= 1.0  # at least 1 second to refill one token
+
+    def test_per_source_isolation(self):
+        """Source A draining its bucket must not affect source B."""
+        aria = self._fresh_buckets()
+        for _ in range(3):
+            aria._consume_webhook_token("source_a")
+        allowed_a, _, _ = aria._consume_webhook_token("source_a")
+        allowed_b, _, _ = aria._consume_webhook_token("source_b")
+        assert allowed_a is False
+        assert allowed_b is True  # B's bucket is untouched
+
+    def test_refill_recovers_capacity(self):
+        """After waiting > 1s, an exhausted bucket gets a fresh token."""
+        import time as _time
+        aria = self._fresh_buckets()
+        for _ in range(3):
+            aria._consume_webhook_token("hubspot")
+        # 1.5s margin (refill=1.0 tokens/sec, deficit=1.0 → need 1.0s minimum).
+        # 0.5s extra absorbs GIL pauses / GC stalls on loaded CI runners.
+        _time.sleep(1.5)
+        allowed, _, _ = aria._consume_webhook_token("hubspot")
+        assert allowed is True
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"
