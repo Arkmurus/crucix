@@ -458,9 +458,22 @@ def _score_link(
                 candidate.reasons.append(f"query_match:{tok}(+2)")
                 break
 
-    # Same-domain baseline (already 0, but explicit for clarity)
+    # R-F292: same-host bias. Before this fix the same-domain baseline was
+    # +0, so any external link with a keyword match (+1/+2) outscored same-
+    # host pages. On the modirumgespi.com live DD 2026-05-11 this caused the
+    # crawler to drift to an unrelated academic "Rat Trading" paper instead
+    # of the actual /company /products /news pages. Same-host now gets a
+    # +3 baseline — authoritative external (gov / registry / sanctions) at
+    # +3..+5 still wins, but random keyword-bearing off-domain links no
+    # longer outrank the seed site's own pages.
     if netloc == base_netloc:
-        candidate.reasons.append("same_domain")
+        candidate.score += 3
+        candidate.reasons.append("same_host(+3)")
+    elif best_auth_bonus == 0:
+        # Off-domain AND non-authoritative — penalise so the crawler stays
+        # on-mission unless the link is to a real registry / OFAC / etc.
+        candidate.score -= 2
+        candidate.reasons.append("off_host_non_authoritative(-2)")
 
     return candidate
 
@@ -527,7 +540,14 @@ _RULE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(?:VAT|TIN|EIN)\s*:?\s*([A-Z0-9]{5,20})\b", re.IGNORECASE), "registration"),
     # Date (YYYY-MM-DD + common formats)
     (re.compile(r"\b(19[0-9]{2}|20[0-9]{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12][0-9]|3[01])\b"), "date"),
-    (re.compile(r"\b([12][0-9]{3})\b"), "year"),
+    # R-F293: year regex previously matched ANY 4-digit starting with 1 or 2,
+    # which captured 1001 / 1031 / 1892 etc. as years from page numbers /
+    # version strings on modirumgespi.com (live DD 2026-05-11). Restrict to
+    # 1900-2049 — modern-active-entity range. Pre-1900 founding years are
+    # vanishingly rare for live commercial counterparties and the explicit
+    # "founded in YYYY" phrase regex below catches the legitimate edge
+    # cases without polluting the generic year extractor.
+    (re.compile(r"\b(19[0-9]{2}|20[0-4][0-9])\b"), "year"),
     # UK / EU / US phone number — anchored to tel:/phone:/Tel./etc. labels
     # to avoid false positives on JS asset IDs, tracking tokens, etc.
     (re.compile(
@@ -537,9 +557,9 @@ _RULE_PATTERNS: list[tuple[re.Pattern, str]] = [
     ), "phone"),
     # Amount (£, $, €) with optional M / B suffix
     (re.compile(r"[£$€]\s?[0-9,]+(?:\.[0-9]+)?\s?(?:million|billion|M|B|thousand|k)?", re.IGNORECASE), "amount"),
-    # "founded in YYYY" / "established YYYY"
-    (re.compile(r"\b(?:founded|established|incorporated)\s+(?:in\s+)?([12][0-9]{3})\b", re.IGNORECASE), "founding_year"),
-    (re.compile(r"\bsince\s+([12][0-9]{3})\b", re.IGNORECASE), "founding_year"),
+    # "founded in YYYY" / "established YYYY" — R-F293 tightened range
+    (re.compile(r"\b(?:founded|established|incorporated)\s+(?:in\s+)?(1[89][0-9]{2}|20[0-4][0-9])\b", re.IGNORECASE), "founding_year"),
+    (re.compile(r"\bsince\s+(1[89][0-9]{2}|20[0-4][0-9])\b", re.IGNORECASE), "founding_year"),
     (re.compile(r"\b([0-9]{1,3})\s+years?\s+of\s+experience\b", re.IGNORECASE), "years_experience_claim"),
 ]
 
