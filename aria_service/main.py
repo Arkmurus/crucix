@@ -212,6 +212,76 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning(f"LLM provider not configured — set LLM_PROVIDER + LLM_API_KEY")
 
+    # ── R-F248 (2026-05-11) — startup state snapshot ──────────────────────
+    # Log a single "ARIA state at boot" line with the size of every
+    # persistent store. This is the FIRST line operators should see if
+    # any data was lost on the deploy (knowledge / RAG / mem0 / neural /
+    # ledger should all match the previous boot ± natural growth).
+    # If a count drops by more than ~5% across restarts, something
+    # truncated or corrupted state and the operator needs to investigate
+    # before traffic resumes.
+    async def _log_boot_state():
+        # Defer a few seconds so all stores have finished their lazy
+        # init (chromadb + knowledge + ledger + neural all warm up
+        # asynchronously after lifespan starts).
+        await asyncio.sleep(10)
+        snapshot = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        try:
+            from .intel import knowledge as _kb
+            snapshot["knowledge_facts"] = len(_kb.all_facts())
+        except Exception as e:
+            snapshot["knowledge_facts"] = f"err:{str(e)[:40]}"
+        try:
+            from .intel import intel_ledger as _il
+            sigs = await _il.recent_signals(limit=10**9)
+            snapshot["ledger_signals"] = len(sigs) if isinstance(sigs, list) else "err"
+        except Exception as e:
+            snapshot["ledger_signals"] = f"err:{str(e)[:40]}"
+        try:
+            from .intel import rag_store as _rs
+            rs_stats = await _rs.get_stats()
+            snapshot["rag_chunks"] = rs_stats.get("documents_indexed", "err")
+            snapshot["rag_facts"] = rs_stats.get("facts_indexed", "err")
+        except Exception as e:
+            snapshot["rag_chunks"] = f"err:{str(e)[:40]}"
+        try:
+            from .intel import chat_audit_log as _cal
+            cal_stats = await _cal.get_stats()
+            snapshot["chat_audit_total"] = cal_stats.get("total_entries", 0)
+        except Exception as e:
+            snapshot["chat_audit_total"] = f"err:{str(e)[:40]}"
+        try:
+            from .intel import neural_memory as _nm
+            if hasattr(_nm, "get_stats"):
+                nm_stats = await _nm.get_stats()
+                snapshot["neural_neurons"] = nm_stats.get("total_neurons", "n/a")
+                snapshot["neural_edges"] = nm_stats.get("total_edges", "n/a")
+            else:
+                snapshot["neural_neurons"] = "n/a"
+        except Exception as e:
+            snapshot["neural_neurons"] = f"err:{str(e)[:40]}"
+        try:
+            from .intel import state_store as _ss
+            ss = await _ss.stats()
+            snapshot["state_backend"] = ss.get("backend", "unknown")
+            snapshot["state_keys"] = ss.get("key_count", "n/a")
+        except Exception:
+            snapshot["state_backend"] = "upstash-or-memory"
+
+        logger.warning(
+            "[R-F248] ARIA STATE AT BOOT — %s",
+            " · ".join(f"{k}={v}" for k, v in snapshot.items()),
+        )
+        # Also persist the snapshot for diff-on-next-boot
+        try:
+            from .intel import redis_store as _rs_b
+            await _rs_b.lpush("crucix:aria:boot_snapshots",
+                              __import__("json").dumps(snapshot, default=str))
+            await _rs_b.ltrim("crucix:aria:boot_snapshots", 0, 49)
+        except Exception:
+            pass
+    asyncio.create_task(_log_boot_state())
+
     # ── OCR pre-warm ────────────────────────────────────────────────────
     # Load OCR backends in a background task so the first user image
     # doesn't pay the cold-start cost mid-request. Tesseract is cheap to

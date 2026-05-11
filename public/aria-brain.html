@@ -155,6 +155,30 @@ Sidebar.init('brain');
     <div id="audit-metrics" class="loading">Loading...</div>
   </div>
 
+  <!-- R-F247 (2026-05-11): Knowledge Inventory panel — operator types
+       a tag and ARIA returns every fact she has indexed under it.
+       Uses the R-F245 /api/aria/knowledge/inventory endpoint. The tag
+       matcher splits snake_case/kebab-case/dotted tags into components
+       and requires ALL to appear, so "angola_procurement" finds facts
+       about Angola AND procurement (not just one or the other). -->
+  <div class="card wide">
+    <h2>Knowledge Inventory <span style="font-size:11px;font-weight:400;color:rgba(255,255,255,0.45)">· tag-aware fact lookup (R-F245/F247)</span></h2>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <input id="inv-tag" type="text" placeholder="tag (e.g. angola_procurement, sam.gov, wagner)"
+             style="flex:1;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);
+                    color:#fff;padding:7px 10px;border-radius:6px;font-size:13px;outline:none"
+             onkeydown="if(event.key==='Enter')runInventory()">
+      <button onclick="runInventory()"
+              style="background:linear-gradient(135deg,#7c3aed,#2563eb);color:#fff;border:0;
+                     padding:7px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
+        Lookup
+      </button>
+    </div>
+    <div id="inv-results" style="font-size:12px;color:#8b949e">
+      Enter a tag to see every fact ARIA has indexed under it.
+    </div>
+  </div>
+
   <!-- Mastery Heat Map -->
   <div class="card wide">
     <h2>Mastery Heat Map (Topic x Region)</h2>
@@ -524,6 +548,56 @@ async function approveAmendment(attackId) {
     );
   }
   await loadAmendments();
+}
+
+// R-F247 (2026-05-11) — Knowledge Inventory panel handler.
+// Calls /api/aria/knowledge/inventory?tag=X and renders the result as
+// a table. Empty result is honest ("0 hits"), not "loading…" forever.
+async function runInventory() {
+  const tag = (document.getElementById('inv-tag').value || '').trim();
+  const out = document.getElementById('inv-results');
+  if (!tag) {
+    out.innerHTML = '<span class="neutral">Enter a tag first.</span>';
+    return;
+  }
+  out.innerHTML = '<span class="neutral">Loading…</span>';
+  const r = await fetchJson('/knowledge/inventory?tag=' + encodeURIComponent(tag) + '&limit=50');
+  if (!r) {
+    out.innerHTML = '<span class="bad">Endpoint unreachable. Check fly.io health.</span>';
+    return;
+  }
+  if (!r.facts || r.facts.length === 0) {
+    out.innerHTML = `<span class="warn">0 hits for "${tag}".</span><br>` +
+      `<span style="font-size:11px;color:#8b949e">Either this is a starved tag (no facts ingested yet) ` +
+      `or the tag components don't match anything. Tag splits on _/-/space/dot; ALL ≥3-char components ` +
+      `must appear in topic/content/source.</span>`;
+    return;
+  }
+  let html = `<div style="margin-bottom:6px"><span class="good">${r.hits} fact${r.hits === 1 ? '' : 's'}</span> for "<code>${escapeHtml(r.tag)}</code>":</div>`;
+  html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.1)">'
+        + '<th style="text-align:left;padding:5px 8px;color:#8b949e;font-weight:600">Topic</th>'
+        + '<th style="text-align:left;padding:5px 8px;color:#8b949e;font-weight:600">Content</th>'
+        + '<th style="text-align:left;padding:5px 8px;color:#8b949e;font-weight:600;white-space:nowrap">Conf</th>'
+        + '<th style="text-align:left;padding:5px 8px;color:#8b949e;font-weight:600">Source</th>'
+        + '<th style="text-align:left;padding:5px 8px;color:#8b949e;font-weight:600;white-space:nowrap">Updated</th>'
+        + '</tr></thead><tbody>';
+  for (const f of r.facts) {
+    const updated = (f.updatedAt || f.createdAt || '').slice(0, 10);
+    const confClass = f.confidence === 'CONFIRMED' ? 'good'
+                    : f.confidence === 'PROBABLE'  ? 'neutral'
+                    : 'warn';
+    html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">'
+          + '<td style="padding:5px 8px;vertical-align:top">' + escapeHtml((f.topic || '').slice(0, 80)) + '</td>'
+          + '<td style="padding:5px 8px;vertical-align:top;color:rgba(255,255,255,0.65)">'
+              + escapeHtml((f.content || '').slice(0, 200)) + (f.content && f.content.length > 200 ? '…' : '') + '</td>'
+          + '<td style="padding:5px 8px;vertical-align:top;white-space:nowrap"><span class="' + confClass + '" style="font-size:10px;font-weight:600">' + escapeHtml(f.confidence || '?') + '</span></td>'
+          + '<td style="padding:5px 8px;vertical-align:top;font-size:11px;color:rgba(255,255,255,0.5)">' + escapeHtml((f.source || '').slice(0, 40)) + '</td>'
+          + '<td style="padding:5px 8px;vertical-align:top;font-size:11px;color:rgba(255,255,255,0.5);white-space:nowrap">' + escapeHtml(updated) + '</td>'
+          + '</tr>';
+  }
+  html += '</tbody></table>';
+  out.innerHTML = html;
 }
 
 async function loadLayer5c() {
