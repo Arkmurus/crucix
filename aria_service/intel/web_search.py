@@ -188,6 +188,21 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
     """
     if not BRAVE_API_KEY:
         return []
+    # R-F171 (2026-05-11) — billing-exhaustion sticky disable. When the
+    # account is out of credit, every probe hits 402 and re-arms the
+    # circuit breaker every 30 min indefinitely (91 errors in 24h on
+    # the production deploy). Once we've seen 5 consecutive 402s, set
+    # a 24h sticky disable in Redis so we skip even the breaker probe.
+    # Operator clears it by topping up Brave (cron) or by deleting the
+    # key. Keeps the breaker semantics for genuine transient failures
+    # (timeouts, 5xx) but stops the credit-card-dead log spam.
+    try:
+        from . import redis_store as _rs_brave
+        sentinel = await _rs_brave.get("crucix:brave_search:billing_exhausted")
+        if sentinel:
+            return []
+    except Exception:
+        pass
     from .circuit_breaker import get_breaker
     cb = get_breaker("brave_search", failure_threshold=3, cooldown_seconds=1800)
     if cb.is_open():
@@ -206,6 +221,37 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
                 # the real cause. Brave 402 = subscription/credit dead;
                 # logging it as "timeout" sent triage to the wrong place.
                 cb.record_failure(reason=_classify_http_status(resp.status_code))
+                # R-F171: on 402, increment a consecutive-billing counter.
+                # 5 in a row → set the 24h sticky disable above.
+                if resp.status_code == 402:
+                    try:
+                        from . import redis_store as _rs_b2
+                        n_raw = await _rs_b2.get("crucix:brave_search:402_streak")
+                        n = int(n_raw) if n_raw else 0
+                        n += 1
+                        await _rs_b2.set("crucix:brave_search:402_streak", str(n), ex=24 * 3600)
+                        if n >= 5:
+                            await _rs_b2.set(
+                                "crucix:brave_search:billing_exhausted",
+                                "402",
+                                ex=24 * 3600,
+                            )
+                            logger.warning(
+                                "[brave] R-F171 sticky-disabled for 24h after %d "
+                                "consecutive 402s. Top up Brave or unset "
+                                "BRAVE_SEARCH_API_KEY to clear.",
+                                n,
+                            )
+                    except Exception:
+                        pass
+                else:
+                    # Non-402 failure — reset the 402 streak so transient
+                    # errors don't lead to false-positive sticky-disables.
+                    try:
+                        from . import redis_store as _rs_b3
+                        await _rs_b3.delete("crucix:brave_search:402_streak")
+                    except Exception:
+                        pass
                 # R-F139: record failed Brave call (zero cost) so the
                 # operator dashboard sees attempt count + error rate
                 # alongside successful spend.
@@ -260,7 +306,14 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
 
 async def _search_searxng(query: str, max_results: int = 10, language: str = "en") -> list[SearchResult]:
     """SearXNG — free meta-search engine, tries multiple instances.
-    Circuit breaker per instance — skips instances that are DOWN."""
+    Circuit breaker per instance — skips instances that are DOWN.
+
+    R-F178 (2026-05-11): instance list has been empty since 2026-04-20 (5
+    public instances all dead). Short-circuit immediately so the parallel
+    backend gather doesn't waste a coroutine + log line every search.
+    """
+    if not SEARXNG_INSTANCES:
+        return []
     from .circuit_breaker import get_breaker
     for instance in SEARXNG_INSTANCES:
         cb = get_breaker(f"searx:{instance.split('//')[1].split('/')[0]}", cooldown_seconds=600)

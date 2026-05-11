@@ -40,6 +40,11 @@ _CORRECT_THRESHOLD = 0.10   # only act when |delta| > 10pp
 _CORRECT_FRACTION  = 0.50   # close 50% of the gap per correction
 _CORRECT_CAP       = 0.08   # never lift more than 8pp in one run
 _CORRECT_COOLDOWN  = 3600   # seconds — once per hour max
+# R-F166 (2026-05-11): bidirectional correction. Downward path is gated
+# tighter so honest gaps stay surfaced for at least a few cycles before
+# mastery follows reality down — but the gap eventually CAN close.
+_CORRECT_DROP_THRESHOLD = 0.15  # only drop when |delta| > 15pp
+_CORRECT_DROP_CAP       = 0.03  # never drop more than 3pp in one run
 
 
 async def run_calibration_review() -> dict:
@@ -175,12 +180,21 @@ async def run_calibration_review() -> dict:
         except Exception:
             pass
 
-    # ── Self-calibration correction ──
-    # When ground-truth accuracy is consistently higher than self-assessed
-    # mastery, pull mastery toward reality. Only fires for UNDERCONFIDENT
-    # (pulling mastery UP is safe — reality says she's better). Never
-    # fires for overconfident because that would mask real gaps.
-    # Rate-limited to once per hour so dashboard polling doesn't compound.
+    # ── Self-calibration correction (R-F166 2026-05-11 — bidirectional) ──
+    # Original (pre-R-F166): only fired for UNDERCONFIDENT. Result: when
+    # mastery sat at 88% while accuracy was 45% (the production case
+    # observed for weeks), nothing happened. The 42pp gap was visible on
+    # the dashboard but the loop had no mechanism to close it.
+    #
+    # R-F166 makes the correction symmetric:
+    #   * Underconfident → lift up (existing behaviour, capped 8pp/run)
+    #   * Overconfident  → drop down (new path, capped 3pp/run, gate
+    #     |delta| > _CORRECT_DROP_THRESHOLD = 15pp, never below 10% floor)
+    #
+    # The downward cap is tighter (3pp vs 8pp) so honest gaps stay
+    # surfaced for at least a few cycles before mastery follows reality
+    # down. Rate-limited to once per hour so dashboard polling doesn't
+    # compound.
     if (
         calibration_status == "underconfident"
         and calibration_delta is not None
@@ -228,6 +242,59 @@ async def run_calibration_review() -> dict:
         except Exception as exc:
             logger.warning("self-calibration correction failed: %s", exc)
             review["correction_applied"] = {"error": str(exc)[:160]}
+
+    # ── R-F166 (2026-05-11) — overconfident downward correction ──
+    elif (
+        calibration_status == "overconfident"
+        and calibration_delta is not None
+        and calibration_delta > _CORRECT_DROP_THRESHOLD
+        and estimated_accuracy is not None
+    ):
+        try:
+            from . import redis_store as rs
+            now_ts = time.time()
+            last = await rs.get(_K_LAST_CORRECTION)
+            last_ts = float(last) if last is not None else 0.0
+            if now_ts - last_ts >= _CORRECT_COOLDOWN:
+                gap = calibration_delta
+                drop = min(gap * _CORRECT_FRACTION, _CORRECT_DROP_CAP)
+                from . import student
+                new_scores = await student.lift_all_topics(-drop)
+                await rs.set(_K_LAST_CORRECTION, str(now_ts))
+                review["correction_applied"] = {
+                    "drop_pp": round(drop * 100, 2),
+                    "gap_before_pp": round(gap * 100, 2),
+                    "topics_lowered": len(new_scores or {}),
+                    "reason": "overconfident — self-assessed mastery materially above ground-truth accuracy",
+                    "direction": "down",
+                }
+                logger.warning(
+                    "[calibration] OVERCONFIDENT by %.1fpp — lowered mastery on %d topics by -%.1fpp (R-F166)",
+                    gap * 100, len(new_scores or {}), drop * 100,
+                )
+                try:
+                    from . import brain_hook as _bh3
+                    await _bh3.absorb(
+                        module="calibration_review",
+                        summary=(
+                            f"Self-calibration: lowered mastery on {len(new_scores or {})} topics "
+                            f"by -{drop * 100:.1f}pp (was overconfident by {gap * 100:.1f}pp). "
+                            f"R-F166 — bidirectional correction now active."
+                        ),
+                        success=True,
+                    )
+                except Exception:
+                    pass
+            else:
+                review["correction_applied"] = {
+                    "drop_pp": 0.0,
+                    "skipped": "cooldown",
+                    "minutes_until_next": int((_CORRECT_COOLDOWN - (now_ts - last_ts)) / 60),
+                    "direction": "down",
+                }
+        except Exception as exc:
+            logger.warning("R-F166 overconfident correction failed: %s", exc)
+            review["correction_applied"] = {"error": str(exc)[:160], "direction": "down"}
 
     return review
 

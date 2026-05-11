@@ -1320,12 +1320,26 @@ async def _upstash_usage_probe() -> dict:
     Cluster: adapted-ostrich-92296 (per upstash_redis_provider memory).
     Fail-open — every error returns configured=False so the dashboard
     has something to render."""
-    rest_url = (os.getenv("UPSTASH_REST_URL") or "").strip()
-    rest_token = (os.getenv("UPSTASH_REST_TOKEN") or "").strip()
+    # R-F172 (2026-05-11): read both env-var names. The Node side (server.mjs,
+    # redisAdapter.mjs, dedup.mjs) uses UPSTASH_REDIS_URL / UPSTASH_REDIS_TOKEN
+    # — that's the production set the operator already has configured. The
+    # legacy UPSTASH_REST_* names are kept as a fallback so anyone with the
+    # old config still works. Without this fix the panel rendered "Not
+    # configured" forever even though Upstash WAS configured.
+    rest_url = (
+        os.getenv("UPSTASH_REDIS_URL")
+        or os.getenv("UPSTASH_REST_URL")
+        or ""
+    ).strip()
+    rest_token = (
+        os.getenv("UPSTASH_REDIS_TOKEN")
+        or os.getenv("UPSTASH_REST_TOKEN")
+        or ""
+    ).strip()
     if not rest_url or not rest_token:
         return {
             "configured": False,
-            "hint": "Set UPSTASH_REST_URL + UPSTASH_REST_TOKEN env vars to enable live usage panel",
+            "hint": "Set UPSTASH_REDIS_URL + UPSTASH_REDIS_TOKEN env vars to enable live usage panel",
         }
     out: dict = {"configured": True}
     try:

@@ -496,6 +496,45 @@ async def store_fact(topic: str, content: str, source: str = "user",
     # ── Detect contradictions BEFORE storing ──────────────────────────────
     contradictions = _detect_contradictions(topic, content, db["facts"])
 
+    # ── R-F174 (2026-05-11) content-hash dedup ────────────────────────────
+    # Pre-R-F174: dedup was ONLY by topic. reading_session uses title[:80]
+    # as the topic, so every fresh RSS title produced a brand-new fact even
+    # when the body was a near-duplicate of an existing fact. Knowledge
+    # grew linearly with reading volume, not with new information. Now
+    # also check: same content prefix (300 chars) + same source-domain
+    # → treat as a duplicate hit on the existing fact.
+    import hashlib as _hashlib
+    _content_hash = _hashlib.sha1(
+        (content[:300] or "").strip().lower().encode("utf-8")
+    ).hexdigest()[:16]
+    _source_domain = ""
+    try:
+        _src_lower = (source or "").lower()
+        if "://" in _src_lower:
+            from urllib.parse import urlparse as _up
+            _source_domain = (_up(_src_lower).hostname or "").strip(".")
+        elif ":" in _src_lower:
+            # Source format like "reading:Asia Times" — use the prefix
+            _source_domain = _src_lower.split(":", 1)[1].strip()[:60]
+        else:
+            _source_domain = _src_lower[:60]
+    except Exception:
+        _source_domain = ""
+    for f in db["facts"]:
+        if (
+            f.get("content_hash") == _content_hash
+            and f.get("source_domain", "") == _source_domain
+            and _content_hash
+        ):
+            f["accessCount"] = f.get("accessCount", 0) + 1
+            f["last_seen_at"] = now
+            await _save()
+            return {
+                "action": "duplicate_skipped",
+                "fact_id": f["id"],
+                "reason": "content_hash_match_R-F174",
+            }
+
     # ── Dedup by topic ────────────────────────────────────────────────────
     for f in db["facts"]:
         if f["topic"].lower() == topic.lower():
@@ -555,6 +594,11 @@ async def store_fact(topic: str, content: str, source: str = "user",
         "updatedAt": now,
         "accessCount": 0,
         "contradictions_detected": len(contradictions),
+        # R-F174 (2026-05-11): stamp content_hash + source_domain on every
+        # new fact so the next ingest of the same content from the same
+        # source short-circuits via the dedup check above.
+        "content_hash": _content_hash,
+        "source_domain": _source_domain,
     }
     if verified_meta:
         new_record.update(verified_meta)

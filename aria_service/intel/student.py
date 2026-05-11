@@ -820,6 +820,19 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         except Exception as _bre:
             logger.warning("[student] starved-tag branch failed: %s", _bre)
 
+    # R-F167 (2026-05-11): drain the queue for topics we actually
+    # consumed this session. Without this the same tags re-surface every
+    # 6h forever — both from the queue itself and from the proactive
+    # alert that re-derives weak_topics from mastery (which moved
+    # slightly but may still be below threshold for one more cycle).
+    consumed_now = list({*queued_topics, *starved_queue_topics})
+    if consumed_now:
+        try:
+            from . import proactive as _prc2
+            await _prc2.drain_reading_queue(consumed_now)
+        except Exception as _de:
+            logger.debug("[student] reading_session queue drain failed: %s", _de)
+
     # Log the session
     log = await rs.get_json(READING_LOG_KEY) or []
     log.append({
@@ -827,6 +840,7 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         "articles_read": len(studied) + len(starved_studied),
         "topics_focused": weak_topics,
         "starved_studied": [s["tag"] for s in starved_studied],
+        "queue_drained": consumed_now,
     })
     log = log[-100:]
     await rs.set_json(READING_LOG_KEY, log, ex=180 * 86400)
@@ -898,6 +912,37 @@ async def record_divergence(
     else:
         # Reasonable similarity or local answered — positive signal
         await update_mastery(topics, correct=True, weight=0.1)
+
+    # R-F179 (2026-05-11) — persistent-disagreement rollup. Per-event
+    # weights stay low (don't repeat the 2026-04-21 mastery-collapse
+    # incident from weight=0.7 penalties). But if the SAME topic sees
+    # ≥5 low-similarity divergences in a 24h window, apply a stronger
+    # corrective update once — the signal is no longer noise.
+    if similarity < 0.4 and topics:
+        try:
+            # Per-topic rolling counter for the last 24h.
+            now = time.time()
+            cutoff = now - 86400
+            for topic in topics:
+                key = f"crucix:student:divergence_streak:{topic}"
+                streak_raw = await rs.get_json(key) or []
+                streak_raw = [ts for ts in streak_raw if isinstance(ts, (int, float)) and ts > cutoff]
+                streak_raw.append(now)
+                await rs.set_json(key, streak_raw, ex=86400 * 2)
+                if len(streak_raw) >= 5:
+                    # Strong corrective update — only fires when 5+ low-
+                    # similarity events accumulate in a day, so it can't
+                    # repeat the catastrophic 2026-04-21 collapse.
+                    await update_mastery([topic], correct=False, weight=0.25)
+                    logger.info(
+                        "[student] R-F179 persistent-divergence correction on %s "
+                        "(%d low-sim events in 24h)",
+                        topic, len(streak_raw),
+                    )
+                    # Reset the streak so we don't fire twice off the same window
+                    await rs.set_json(key, [now], ex=86400 * 2)
+        except Exception as _rfe:
+            logger.debug("R-F179 streak update failed: %s", _rfe)
 
 
 async def compare_local_silently(question: str, cloud_response: str) -> dict:
@@ -1255,43 +1300,50 @@ async def mastery_to_prompt_addendum(message: str) -> str:
 
 
 async def lift_all_topics(bump: float) -> dict[str, float]:
-    """Directly add `bump` to every topic's mastery score.
+    """Adjust every topic's mastery score by `bump`. Positive = lift up,
+    negative = pull down (R-F166, 2026-05-11).
 
-    Used by the self-calibration correction in calibration_review when
-    ground-truth accuracy is consistently higher than self-assessed
-    mastery. This is the "reality pulls self-perception up" feedback
-    loop — not organic learning, but it keeps the scores useful when
-    the EWMA lags the evidence.
+    Original (pre-R-F166): only supported `bump > 0` and was used by
+    calibration_review's UNDERCONFIDENT branch. That meant the loop was
+    one-way — if reality says mastery is too high (the production case:
+    88% claimed vs 45% accurate, 42pp overconfident), nothing happened.
+    Headline mastery sat at 88% for weeks.
 
-    Capped at MASTERY_CEILING per topic. Returns the new scores keyed
-    by topic name.
+    R-F166 extends the function to accept negative bumps. Calibration
+    now passes a negative bump on OVERCONFIDENT (capped to keep changes
+    bounded — caller enforces -3pp/run, |delta|>0.15 gate).
 
-    Safety: only called when calibration_review detects UNDERCONFIDENT
-    (delta < -10pp). Never pulls scores DOWN — that path stays with
-    the organic negative learning rate so real gaps surface honestly.
+    Floor: 0.10 — mastery cannot go below 10% even if reality is
+    catastrophic; the floor is the recoverable starting point for
+    organic re-learning.
     """
-    if bump <= 0:
+    if bump == 0:
         return {}
     mastery = await _load_mastery()
     new_scores: dict[str, float] = {}
     now = time.time()
+    direction = "lift" if bump > 0 else "drop"
+    floor = 0.10
     for topic in TOPICS:
         if topic not in mastery:
             mastery[topic] = {"score": INITIAL_MASTERY, "samples": 0,
                                "correct": 0, "wrong": 0, "last_practiced": 0}
         m = mastery[topic]
         old_score = m.get("score", INITIAL_MASTERY)
-        new_score = min(MASTERY_CEILING, old_score + bump)
+        if bump > 0:
+            new_score = min(MASTERY_CEILING, old_score + bump)
+        else:
+            new_score = max(floor, old_score + bump)
         m["score"] = new_score
         m["last_practiced"] = now
-        # Record that this lift was calibration-driven, NOT organic
+        # Record that this change was calibration-driven, NOT organic
         m["last_calibration_lift_at"] = now
         m["last_calibration_lift_bump"] = round(bump, 4)
         new_scores[topic] = new_score
     _mastery_cache.update(mastery)
     await _save_mastery()
     logger.info(
-        "Calibration-driven mastery lift: +%.3f on %d topics",
-        bump, len(new_scores),
+        "Calibration-driven mastery %s: %+.3f on %d topics",
+        direction, bump, len(new_scores),
     )
     return new_scores

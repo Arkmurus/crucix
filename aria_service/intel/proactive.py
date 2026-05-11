@@ -5,7 +5,7 @@ The default ARIA pattern is REACTIVE: she answers when asked. This module
 makes her PROACTIVE: she watches the live data stream, identifies things
 the team would want to know about before they ask, and prepares briefings.
 
-Five behaviours, all running on background loops:
+Four behaviours, all running on background loops:
 
 1. ANOMALY WATCH
    Scans the latest sweep for unusual signals — sudden spike in mentions
@@ -14,21 +14,22 @@ Five behaviours, all running on background loops:
 
 2. KNOWLEDGE GAP DETECTION
    Watches conversation patterns. If users keep asking about a topic ARIA
-   doesn't have strong knowledge on, she autonomously triggers a research
-   cycle to fill the gap.
+   doesn't have strong knowledge on, she autonomously queues a reading
+   session (R-F170, 2026-05-11).
 
 3. MASTERY-DRIVEN PREPARATION
-   Looks at her own student mastery scores. For weak topics, she triggers
-   reading sessions BEFORE the next conversation lands on those topics.
+   Looks at her own student mastery scores. For weak topics, she queues
+   reading sessions BEFORE the next conversation lands on those topics
+   (queue producer/consumer wired in R-F163; drain in R-F167).
 
-4. RELATIONSHIP WINDOW ALERTS
-   Tracks contact tenure (when a minister was appointed). When a window
-   closes (e.g. 90 days into a new role = peak influenceability period
-   ending), pushes an alert.
-
-5. DAILY INTELLIGENCE BRIEFING
+4. DAILY INTELLIGENCE BRIEFING
    At a scheduled time each morning, generates and pushes a digest of
    the most important intel from the past 24h.
+
+Removed 2026-05-11 (R-F182): "Relationship window alerts" claim. The
+behaviour was documented but never implemented — no contact-tenure
+tracking code lives in this module. If/when the feature ships, it
+should land here as behaviour 5 with a real backing implementation.
 
 These behaviours run as asyncio tasks in main.py and post their findings
 to a Redis queue that the WhatsApp listener can poll and surface.
@@ -197,6 +198,18 @@ async def detect_knowledge_gaps(question: str) -> None:
                 mastery_report = await student.get_mastery_report()
                 topic_score = mastery_report.get("topics", {}).get(topic, {}).get("score", 0.5)
                 if topic_score < 0.65:
+                    # R-F170 (2026-05-11): actually queue the reading
+                    # work. Pre-R-F170 this branch only pushed an alert
+                    # claiming "Triggering a focused reading session" —
+                    # but no queueing happened, so the claim was theatre.
+                    try:
+                        await queue_reading_session(
+                            topic,
+                            reason="chat_repetition_R-F170",
+                            severity="MEDIUM",
+                        )
+                    except Exception as _qe:
+                        logger.debug("R-F170 chat-gap queue failed for %s: %s", topic, _qe)
                     await push_alert({
                         "type": "knowledge_gap",
                         "title": f"📚 Knowledge gap: {topic}",
@@ -204,7 +217,7 @@ async def detect_knowledge_gaps(question: str) -> None:
                         "body": (
                             f"The team has asked about *{topic}* {entry['count']} times "
                             f"recently and ARIA's mastery is only {int(topic_score * 100)}%. "
-                            f"Triggering a focused reading session."
+                            f"Queued a focused reading session (R-F170)."
                         ),
                         "metadata": {"topic": topic, "asked_count": entry["count"], "mastery": topic_score},
                     })
@@ -500,6 +513,73 @@ async def get_reading_queue(limit: int = 50) -> list[dict]:
         except Exception:
             continue
     return out
+
+
+async def drain_reading_queue(consumed_topics: list[str]) -> int:
+    """R-F167 (2026-05-11): remove queue entries whose `topic` matches any
+    of the supplied consumed topics. Without this drain, student.reading_
+    session reads the queue every 6h, studies the topics, but the entries
+    never go away — so the same starved tags keep re-surfacing in alerts
+    and the queue grows unboundedly.
+
+    Implementation: read the full queue (cap 200 per writer), filter out
+    matching entries, rewrite. lpush + ltrim semantics from the producer
+    side are preserved (newest-first ordering, 200-cap).
+
+    Returns the number of entries removed."""
+    if not consumed_topics:
+        return 0
+    consumed = {t.strip() for t in consumed_topics if t and t.strip()}
+    if not consumed:
+        return 0
+    import json as _json
+    try:
+        raw = await rs.lrange(READING_QUEUE_KEY, 0, 199)
+    except Exception as e:
+        logger.debug("drain_reading_queue read failed: %s", e)
+        return 0
+
+    kept: list[str] = []
+    removed = 0
+    for r in raw or []:
+        try:
+            entry = _json.loads(r) if isinstance(r, str) else r
+            topic = (entry.get("topic") or "").strip() if isinstance(entry, dict) else ""
+            if topic and topic in consumed:
+                removed += 1
+                continue
+            kept.append(r if isinstance(r, str) else _json.dumps(entry, default=str))
+        except Exception:
+            kept.append(r)  # malformed — leave it; preserves audit
+    if removed == 0:
+        return 0
+
+    try:
+        await rs.delete(READING_QUEUE_KEY)
+        # lpush pushes to head; to preserve newest-first ordering we push
+        # the kept entries in reverse so the head ends up newest.
+        for entry_raw in reversed(kept):
+            try:
+                await rs.lpush(READING_QUEUE_KEY, entry_raw)
+            except Exception:
+                pass
+        await rs.ltrim(READING_QUEUE_KEY, 0, 199)
+        logger.info(
+            "[proactive] R-F167 drained reading queue: removed=%d kept=%d for topics=%s",
+            removed, len(kept), sorted(consumed),
+        )
+        # Also clear the per-topic dedupe sentinels so a NEW signal in the
+        # next 6h is allowed to re-queue (otherwise drain just leaves a
+        # silent gap until the dedup TTL expires).
+        for t in consumed:
+            try:
+                dkey = READING_DEDUPE_KEY.format(topic=t.lower().replace(" ", "_")[:80])
+                await rs.delete(dkey)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning("[proactive] R-F167 drain write-back failed: %s", e)
+    return removed
 
 
 # ── Behaviour 4: Daily intelligence briefing ───────────────────────────────

@@ -139,7 +139,7 @@ Sidebar.init('brain');
 
   <!-- Predictor -->
   <div class="card">
-    <h2>Predictor Gate</h2>
+    <h2>Predictor Forecasts <span style="font-size:11px;font-weight:400;color:rgba(255,255,255,0.45)">· advisory only — does not block tasks (R-F181)</span></h2>
     <div id="predictor-metrics" class="loading">Loading...</div>
   </div>
 
@@ -822,7 +822,7 @@ async function loadLearning() {
   html += '<div>';
   html += '<div style="font-weight:600;color:#79c0ff;margin-bottom:6px">🧠 24/7 Learning Loop</div>';
   const totalExamples = te.total_examples ?? 0;
-  html += metricRow('Training examples',
+  html += metricRow('Training examples staged',
                     totalExamples,
                     totalExamples > 1000 ? 'good' : totalExamples > 100 ? 'warn' : 'neutral');
   if (te.by_source) {
@@ -835,6 +835,11 @@ async function loadLearning() {
       html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">${sources}</div>`;
     }
   }
+  // R-F176 (2026-05-11): honest qualifier — staged examples are NOT
+  // consumed by any live model. They're corpus for the future R-F92
+  // fine-tune run (RunPod, ~$30-45). Without this caveat the headline
+  // implied "active learning" when the JSONL files are inert until SFT.
+  html += `<div style="margin-top:4px;font-size:0.78em;color:rgba(255,255,255,0.42);font-style:italic">corpus for R-F92 fine-tune — no model currently consumes these</div>`;
   html += metricRow('Spider fetches 24h',       sp.fetches_24h ?? 0, 'neutral');
   html += metricRow('Spider ingests 24h',       sp.ingests_24h ?? 0,
                     (sp.ingests_24h ?? 0) > 0 ? 'good' : 'neutral');
@@ -884,11 +889,24 @@ async function loadLearning() {
       .join(', ');
     html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Top: ${topCodes}</div>`;
   }
-  html += metricRow('DD runs quarantined', qn.count ?? 0,
-                    (qn.count ?? 0) > 0 ? 'warn' : 'good');
-  if ((qn.items || []).length) {
-    const recentQ = qn.items.slice(0, 2).map(q => q.run_id).join(', ');
-    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">Recent: ${recentQ}</div>`;
+  // R-F180 (2026-05-11): split open vs closed counts. The "3
+  // quarantined" headline was a constant for weeks because all three
+  // seed entries (F3-incident, 2026-04-17) are closed. Surface the
+  // open count separately so the number that matters is honest.
+  const qnOpen = (qn.items || []).filter(q => q.investigation_status !== 'closed').length;
+  const qnClosed = (qn.items || []).filter(q => q.investigation_status === 'closed').length;
+  html += metricRow('DD runs quarantined — open', qnOpen,
+                    qnOpen > 0 ? 'warn' : 'good');
+  if (qnClosed > 0) {
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#8b949e">+ ${qnClosed} closed (seed, F3-incident)</div>`;
+  }
+  if (qnOpen > 0) {
+    const openIds = (qn.items || [])
+      .filter(q => q.investigation_status !== 'closed')
+      .slice(0, 2)
+      .map(q => q.run_id)
+      .join(', ');
+    html += `<div style="margin-top:4px;font-size:0.8em;color:#fbbf24">Open: ${openIds}</div>`;
   }
   html += metricRow('Sanctions OEMs tracked', sx.oems_covered ?? 0, 'good');
   const sl = d.style_learner || {};
