@@ -723,7 +723,7 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
     expanded_queries: list[str] = []
     for q in queries[:max_searches]:
         expanded_queries.extend(_chunk_long_query(q))
-    # Dedupe while preserving order, keep only max_searches after expansion
+    # Dedupe while preserving order
     seen: set[str] = set()
     dedup: list[str] = []
     for q in expanded_queries:
@@ -731,7 +731,17 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
         if k and k not in seen:
             seen.add(k)
             dedup.append(q)
-    queries_to_run = dedup[:max_searches]
+    # R-W10 (2026-05-11): when the original queries list was expanded
+    # for multilingual fan-out (R-5002 + R-W6's 40+ language profiles),
+    # the post-expansion list can be 2x-4x the original. Capping at
+    # max_searches clipped most translated queries off — defeating the
+    # whole point of the fan-out. New cap: max_searches * 2 when the
+    # expanded list is larger than the original (indicating fan-out
+    # happened); otherwise the original cap applies.
+    _effective_cap = max_searches
+    if len(dedup) > max_searches:
+        _effective_cap = max_searches * 2
+    queries_to_run = dedup[:_effective_cap]
 
     article_jobs: list[tuple[str, dict]] = []  # (query, article)
     for query in queries_to_run:

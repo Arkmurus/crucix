@@ -38,6 +38,28 @@ from .ua_rotation import random_ua
 
 logger = logging.getLogger("aria.web_search")
 
+# R-W5 (2026-05-11): per-call ecosystem snapshot for the most-recent
+# search() invocation. Operator / chat layer / dashboard reads via
+# get_last_search_ecosystem() to see which backends fired vs silent
+# vs errored — the wired-but-silent detector applied at the search
+# layer, mirroring R-F305's pattern for the DD orchestrator.
+_LAST_SEARCH_ECOSYSTEM: dict = {}
+
+
+def get_last_search_ecosystem() -> dict:
+    """R-W5: read the per-backend ecosystem snapshot of the most-recent
+    search() call. Returns:
+        {
+          "query": str, "language": str,
+          "backends": [{name, state, results_count, error_reason?}, ...],
+          "summary": {active_backends, silent_backends, errored_backends, total_backends},
+          "health_signal": "HEALTHY" | "PARTIAL" | "DEGRADED" | "DEAD",
+          "total_duration_ms": int,
+        }
+    Empty dict if no search has run since boot."""
+    return dict(_LAST_SEARCH_ECOSYSTEM)
+
+
 # ── Configuration ───────────────────────────────────────────────────────────
 
 BRAVE_API_KEY = (os.getenv("BRAVE_SEARCH_API_KEY") or os.getenv("BRAVE_API_KEY") or "").strip()
@@ -865,12 +887,73 @@ async def search(
                 return mem_first[:max_results]
         except Exception as _se:
             logger.debug("R-F185 shortcut probe failed: %s", _se)
+    # R-W5 (2026-05-11): per-backend ecosystem snapshot. Track which
+    # backends fired, errored, returned 0, or returned data — operator
+    # / chat layer / dashboard can read this via get_last_search_ecosystem()
+    # to see ACTUAL backend health for the most-recent search.
+    _backend_names = (
+        ["memory"]
+        + ["brave", "searxng", "duckduckgo", "google_news", "bing_news",
+           "academic", "defence_event"]
+        + [f"brave[{l}]" for l in extra_langs[:3]]
+        + [f"google_news[{l}]" for l in extra_langs[:3]]
+    )
+    import time as _t_ws
+    _ws_t0 = _t_ws.monotonic()
     raw_results_list = await asyncio.gather(
         _query_memory(query, max_results=max_results),
         *backend_tasks,
         return_exceptions=True,
     )
     raw_results = list(raw_results_list)
+    _ws_elapsed_ms = int((_t_ws.monotonic() - _ws_t0) * 1000)
+
+    # R-W5: build the per-backend snapshot
+    _backend_snapshot: list[dict] = []
+    for _i, _batch in enumerate(raw_results):
+        _name = _backend_names[_i] if _i < len(_backend_names) else f"backend_{_i}"
+        if isinstance(_batch, Exception):
+            _backend_snapshot.append({
+                "name": _name,
+                "state": "errored",
+                "results_count": 0,
+                "error_reason": str(_batch)[:200],
+            })
+        elif _batch:
+            _backend_snapshot.append({
+                "name": _name,
+                "state": "active",
+                "results_count": len(_batch),
+            })
+        else:
+            _backend_snapshot.append({
+                "name": _name,
+                "state": "silent",
+                "results_count": 0,
+            })
+    _n_active = sum(1 for b in _backend_snapshot if b["state"] == "active")
+    _n_silent = sum(1 for b in _backend_snapshot if b["state"] == "silent")
+    _n_errored = sum(1 for b in _backend_snapshot if b["state"] == "errored")
+    _health = (
+        "DEAD" if _n_active == 0
+        else "DEGRADED" if _n_errored >= 2
+        else "PARTIAL" if _n_silent >= 2
+        else "HEALTHY"
+    )
+    _LAST_SEARCH_ECOSYSTEM.clear()
+    _LAST_SEARCH_ECOSYSTEM.update({
+        "query": query[:200],
+        "language": language,
+        "backends": _backend_snapshot,
+        "summary": {
+            "active_backends": _n_active,
+            "silent_backends": _n_silent,
+            "errored_backends": _n_errored,
+            "total_backends": len(_backend_snapshot),
+        },
+        "health_signal": _health,
+        "total_duration_ms": _ws_elapsed_ms,
+    })
 
     # Flatten and deduplicate by URL
     seen_urls: dict[str, SearchResult] = {}

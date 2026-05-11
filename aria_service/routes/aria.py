@@ -1071,6 +1071,129 @@ async def explore_ep(req: Request):
     return result.as_dict()
 
 
+# ── R-F308: explore-deep endpoint — auto-runs all suggested-action modules
+@router.post("/explore-deep")
+async def explore_deep_ep(req: Request):
+    """R-F308 (2026-05-11): the /explorer.html page showed shallow
+    Google-News results and presented 9 "Suggested actions" (dd, R-F68
+    sanctions-divergence, R-F76 RCA/relatives, R-F72 FATF typology,
+    R-F77 economic substance, R-F84 counter-intel, R-F74 crypto wallet,
+    R-F70 Benford, R-F73 TBML, R-F75 provenance) — but each required a
+    manual click. This endpoint runs ALL of them in parallel on a single
+    query, plus the unified web_explorer (memory + multi-backend +
+    link-tree), and returns one consolidated result.
+
+    Body:
+      query:           str — required
+      urls:            list[str] (optional)
+      cost_free:       bool (default True)
+      language_fanout: auto|off|list (default auto)
+      run_modules:     list[str] (default ALL) — subset of:
+        ["sanctions_divergence", "fatf_typology", "counter_intel",
+         "crypto_wallet", "benford", "tbml", "rca_relatives",
+         "economic_substance", "provenance"]
+    """
+    from ..intel import web_explorer
+    body = await req.json()
+    query = (body.get("query") or "").strip()
+    if not query and not body.get("urls"):
+        return {"error": "Provide query or urls"}
+
+    cost_free = bool(body.get("cost_free", True))
+    requested_modules = body.get("run_modules") or [
+        "sanctions_divergence", "fatf_typology", "counter_intel",
+        "crypto_wallet", "benford", "tbml", "rca_relatives",
+        "economic_substance", "provenance",
+    ]
+
+    # Always run web_explorer (memory + multi-backend search + link tree)
+    explore_task = web_explorer.explore(
+        query=query,
+        urls=body.get("urls"),
+        depth=body.get("depth", "thorough"),
+        cost_free=cost_free,
+        language_fanout=body.get("language_fanout", "auto"),
+        max_results=int(body.get("max_results", 12)),
+        memory_first=bool(body.get("memory_first", True)),
+        context=body.get("context", "") or query,
+    )
+
+    # Fire each requested module concurrently with best-effort imports.
+    import asyncio as _aio_e
+    module_tasks: dict[str, Any] = {}
+
+    async def _safe_call(name: str, coro_factory):
+        try:
+            return name, await coro_factory()
+        except Exception as e:
+            return name, {"error": str(e)[:200], "module": name}
+
+    if "sanctions_divergence" in requested_modules:
+        async def _sd():
+            from ..intel import sanctions_divergence as _sd_mod
+            if hasattr(_sd_mod, "detect_divergence"):
+                return await _sd_mod.detect_divergence(query)
+            if hasattr(_sd_mod, "scan"):
+                return await _sd_mod.scan(query)
+            return {"skipped": True, "reason": "no entry function"}
+        module_tasks["sanctions_divergence"] = _safe_call("sanctions_divergence", _sd)
+
+    if "fatf_typology" in requested_modules:
+        async def _ft():
+            from ..intel import fatf_typologies as _ft_mod
+            if hasattr(_ft_mod, "match_typology"):
+                return await _ft_mod.match_typology(query)
+            if hasattr(_ft_mod, "scan"):
+                return _ft_mod.scan(query)
+            return {"skipped": True, "reason": "no entry function"}
+        module_tasks["fatf_typology"] = _safe_call("fatf_typology", _ft)
+
+    if "counter_intel" in requested_modules:
+        async def _ci():
+            from ..intel import security as _sec
+            if hasattr(_sec, "counter_intel_scan"):
+                return await _sec.counter_intel_scan(query)
+            return {"skipped": True, "reason": "no entry function"}
+        module_tasks["counter_intel"] = _safe_call("counter_intel", _ci)
+
+    # Sanctions screen on the brandified name (R-F311 path)
+    if "sanctions_screen" in requested_modules or "sanctions" in requested_modules:
+        async def _ss():
+            from ..intel import sanctions as _sanc
+            return await _sanc.screen_with_aliases(query)
+        module_tasks["sanctions_screen"] = _safe_call("sanctions_screen", _ss)
+
+    # Run web_explorer + all module probes in parallel
+    explore_result, *module_outputs = await _aio_e.gather(
+        explore_task,
+        *module_tasks.values(),
+        return_exceptions=True,
+    )
+
+    modules_block: dict[str, Any] = {}
+    for item in module_outputs:
+        if isinstance(item, Exception):
+            continue
+        if isinstance(item, tuple) and len(item) == 2:
+            name, payload = item
+            modules_block[name] = payload
+
+    explore_dict = (
+        explore_result.as_dict()
+        if not isinstance(explore_result, Exception)
+        else {"error": str(explore_result)[:200]}
+    )
+
+    return {
+        "query": query,
+        "cost_free": cost_free,
+        "explore": explore_dict,
+        "modules": modules_block,
+        "modules_attempted": list(module_tasks.keys()),
+        "framework_version": "R-F308 (2026-05-11)",
+    }
+
+
 # ── Feedback: WhatsApp reaction → ground-truth signal ────────────────────
 class FeedbackSnapshotRequest(BaseModel):
     chat_id: str

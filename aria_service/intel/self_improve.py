@@ -1226,7 +1226,63 @@ RULES:
             text = re.sub(r"^```\w*\n?", "", text)
             text = re.sub(r"\n?```$", "", text)
 
-        parsed = json.loads(text)
+        # R-F321 (2026-05-11): JSON parse failure was the #1 self-improve
+        # noise source. The LLM returns {"fixed_code": "..."} but the
+        # embedded Python content (triple-quoted docstrings, JSON
+        # examples in prompts, etc.) breaks naive json.loads with
+        # "Unterminated string starting at: line N column M". Live log
+        # at 20:32:46 showed this fail on researcher.py.
+        # Recovery path: if json.loads fails, regex-extract the three
+        # keys directly (diagnosis, fix_description, fixed_code) using
+        # a non-greedy match. Better than dropping the whole diagnosis.
+        try:
+            parsed = json.loads(text)
+        except (json.JSONDecodeError, ValueError) as _je:
+            logger.info(
+                "[Self-Improve] R-F321 JSON parse failed (%s) — trying regex recovery",
+                str(_je)[:100],
+            )
+            try:
+                # Find the fixed_code value (handles unescaped quotes
+                # inside by matching to the next "key": pattern OR
+                # the closing brace of the JSON object).
+                m_code = re.search(
+                    r'"fixed_code"\s*:\s*"((?:[^"\\]|\\.)*)"',
+                    text, re.DOTALL,
+                )
+                m_diag = re.search(
+                    r'"diagnosis"\s*:\s*"((?:[^"\\]|\\.)*)"',
+                    text, re.DOTALL,
+                )
+                m_desc = re.search(
+                    r'"fix_description"\s*:\s*"((?:[^"\\]|\\.)*)"',
+                    text, re.DOTALL,
+                )
+                if m_code:
+                    fixed_code = m_code.group(1)
+                    # Unescape common JSON escape sequences
+                    fixed_code = (
+                        fixed_code
+                        .replace('\\n', '\n')
+                        .replace('\\t', '\t')
+                        .replace('\\"', '"')
+                        .replace('\\\\', '\\')
+                    )
+                    parsed = {
+                        "fixed_code": fixed_code,
+                        "diagnosis": (m_diag.group(1) if m_diag else "").replace('\\n', '\n').replace('\\"', '"'),
+                        "fix_description": (m_desc.group(1) if m_desc else "R-F321 regex recovery").replace('\\n', '\n').replace('\\"', '"'),
+                    }
+                    logger.info(
+                        "[Self-Improve] R-F321 regex recovery succeeded for %s",
+                        file_path,
+                    )
+                else:
+                    # No fixed_code found even with regex — give up
+                    raise _je
+            except Exception:
+                raise _je  # re-raise original to outer handler
+
         if not parsed.get("fixed_code"):
             return None
 

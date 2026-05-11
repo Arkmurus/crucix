@@ -1106,6 +1106,143 @@ _LANG_PROFILES = {
            "translate": {"defence procurement": "Rüstungsbeschaffung",
                          "tender": "Ausschreibung", "contract": "Vertrag",
                          "armed forces": "Streitkräfte", "ministry of defence": "Verteidigungsministerium"}},
+    # R-W6 (2026-05-11): expanded from 11 → 40+ languages. Previously
+    # the _COUNTRY_LANGS map promised codes (uk, ka, th, vi, id, ms, tl,
+    # ur, bn, fa, sw, am, ti, nl, pl, it, etc.) that had no _LANG_PROFILES
+    # entry — _translate_query silently no-op'd and queries went out in
+    # English regardless. Each new entry has the same shape (hl/gl/ceid
+    # + 5 defence translations). Locale codes verified against Google
+    # News supported list.
+    "uk": {"hl": "uk", "gl": "UA", "ceid": "UA:uk",
+           "translate": {"defence procurement": "оборонні закупівлі",
+                         "tender": "тендер", "contract": "контракт",
+                         "armed forces": "збройні сили", "ministry of defence": "міністерство оборони"}},
+    "pl": {"hl": "pl", "gl": "PL", "ceid": "PL:pl",
+           "translate": {"defence procurement": "zamówienia obronne",
+                         "tender": "przetarg", "contract": "kontrakt",
+                         "armed forces": "siły zbrojne", "ministry of defence": "ministerstwo obrony"}},
+    "it": {"hl": "it", "gl": "IT", "ceid": "IT:it",
+           "translate": {"defence procurement": "appalti per la difesa",
+                         "tender": "gara d'appalto", "contract": "contratto",
+                         "armed forces": "forze armate", "ministry of defence": "ministero della difesa"}},
+    "nl": {"hl": "nl", "gl": "NL", "ceid": "NL:nl",
+           "translate": {"defence procurement": "defensie-aanbestedingen",
+                         "tender": "aanbesteding", "contract": "contract",
+                         "armed forces": "strijdkrachten", "ministry of defence": "ministerie van defensie"}},
+    "sv": {"hl": "sv", "gl": "SE", "ceid": "SE:sv",
+           "translate": {"defence procurement": "försvarsupphandling",
+                         "tender": "upphandling", "contract": "kontrakt",
+                         "armed forces": "försvarsmakten", "ministry of defence": "försvarsdepartementet"}},
+    "no": {"hl": "no", "gl": "NO", "ceid": "NO:no",
+           "translate": {"defence procurement": "forsvarsanskaffelse",
+                         "tender": "anbud", "contract": "kontrakt",
+                         "armed forces": "forsvaret", "ministry of defence": "forsvarsdepartementet"}},
+    "da": {"hl": "da", "gl": "DK", "ceid": "DK:da",
+           "translate": {"defence procurement": "forsvarsindkøb",
+                         "tender": "udbud", "contract": "kontrakt",
+                         "armed forces": "forsvaret", "ministry of defence": "forsvarsministeriet"}},
+    "fi": {"hl": "fi", "gl": "FI", "ceid": "FI:fi",
+           "translate": {"defence procurement": "puolustushankinta",
+                         "tender": "tarjouspyyntö", "contract": "sopimus",
+                         "armed forces": "puolustusvoimat", "ministry of defence": "puolustusministeriö"}},
+    "cs": {"hl": "cs", "gl": "CZ", "ceid": "CZ:cs",
+           "translate": {"defence procurement": "obranné zakázky",
+                         "tender": "veřejná zakázka", "contract": "smlouva",
+                         "armed forces": "ozbrojené síly", "ministry of defence": "ministerstvo obrany"}},
+    "sk": {"hl": "sk", "gl": "SK", "ceid": "SK:sk",
+           "translate": {"defence procurement": "obranné obstarávanie",
+                         "tender": "verejná súťaž", "contract": "zmluva",
+                         "armed forces": "ozbrojené sily", "ministry of defence": "ministerstvo obrany"}},
+    "hu": {"hl": "hu", "gl": "HU", "ceid": "HU:hu",
+           "translate": {"defence procurement": "védelmi beszerzés",
+                         "tender": "pályázat", "contract": "szerződés",
+                         "armed forces": "fegyveres erők", "ministry of defence": "honvédelmi minisztérium"}},
+    "ro": {"hl": "ro", "gl": "RO", "ceid": "RO:ro",
+           "translate": {"defence procurement": "achiziții pentru apărare",
+                         "tender": "licitație", "contract": "contract",
+                         "armed forces": "forțele armate", "ministry of defence": "ministerul apărării"}},
+    "bg": {"hl": "bg", "gl": "BG", "ceid": "BG:bg",
+           "translate": {"defence procurement": "отбранителни поръчки",
+                         "tender": "обществена поръчка", "contract": "договор",
+                         "armed forces": "въоръжени сили", "ministry of defence": "министерство на отбраната"}},
+    "hr": {"hl": "hr", "gl": "HR", "ceid": "HR:hr",
+           "translate": {"defence procurement": "javne nabave za obranu",
+                         "tender": "natječaj", "contract": "ugovor",
+                         "armed forces": "oružane snage", "ministry of defence": "ministarstvo obrane"}},
+    "sr": {"hl": "sr", "gl": "RS", "ceid": "RS:sr",
+           "translate": {"defence procurement": "одбрамбене набавке",
+                         "tender": "тендер", "contract": "уговор",
+                         "armed forces": "оружане снаге", "ministry of defence": "министарство одбране"}},
+    "el": {"hl": "el", "gl": "GR", "ceid": "GR:el",
+           "translate": {"defence procurement": "αμυντικές προμήθειες",
+                         "tender": "διαγωνισμός", "contract": "σύμβαση",
+                         "armed forces": "ένοπλες δυνάμεις", "ministry of defence": "υπουργείο εθνικής άμυνας"}},
+    "he": {"hl": "iw", "gl": "IL", "ceid": "IL:iw",
+           "translate": {"defence procurement": "רכש ביטחוני",
+                         "tender": "מכרז", "contract": "חוזה",
+                         "armed forces": "צה\"ל", "ministry of defence": "משרד הביטחון"}},
+    "fa": {"hl": "fa", "gl": "IR", "ceid": "IR:fa",
+           "translate": {"defence procurement": "تدارکات دفاعی",
+                         "tender": "مناقصه", "contract": "قرارداد",
+                         "armed forces": "نیروهای مسلح", "ministry of defence": "وزارت دفاع"}},
+    "ur": {"hl": "ur", "gl": "PK", "ceid": "PK:ur",
+           "translate": {"defence procurement": "دفاعی خریداری",
+                         "tender": "ٹینڈر", "contract": "معاہدہ",
+                         "armed forces": "مسلح افواج", "ministry of defence": "وزارت دفاع"}},
+    "bn": {"hl": "bn", "gl": "BD", "ceid": "BD:bn",
+           "translate": {"defence procurement": "প্রতিরক্ষা ক্রয়",
+                         "tender": "দরপত্র", "contract": "চুক্তি",
+                         "armed forces": "সশস্ত্র বাহিনী", "ministry of defence": "প্রতিরক্ষা মন্ত্রণালয়"}},
+    "th": {"hl": "th", "gl": "TH", "ceid": "TH:th",
+           "translate": {"defence procurement": "การจัดซื้อด้านกลาโหม",
+                         "tender": "การประมูล", "contract": "สัญญา",
+                         "armed forces": "กองทัพ", "ministry of defence": "กระทรวงกลาโหม"}},
+    "vi": {"hl": "vi", "gl": "VN", "ceid": "VN:vi",
+           "translate": {"defence procurement": "mua sắm quốc phòng",
+                         "tender": "đấu thầu", "contract": "hợp đồng",
+                         "armed forces": "lực lượng vũ trang", "ministry of defence": "bộ quốc phòng"}},
+    "id": {"hl": "id", "gl": "ID", "ceid": "ID:id",
+           "translate": {"defence procurement": "pengadaan pertahanan",
+                         "tender": "tender", "contract": "kontrak",
+                         "armed forces": "angkatan bersenjata", "ministry of defence": "kementerian pertahanan"}},
+    "ms": {"hl": "ms", "gl": "MY", "ceid": "MY:ms",
+           "translate": {"defence procurement": "perolehan pertahanan",
+                         "tender": "tender", "contract": "kontrak",
+                         "armed forces": "angkatan tentera", "ministry of defence": "kementerian pertahanan"}},
+    "tl": {"hl": "tl", "gl": "PH", "ceid": "PH:tl",
+           "translate": {"defence procurement": "pagkuha ng depensa",
+                         "tender": "tender", "contract": "kontrata",
+                         "armed forces": "sandatahang lakas", "ministry of defence": "kagawaran ng tanggulan"}},
+    "sw": {"hl": "sw", "gl": "KE", "ceid": "KE:sw",
+           "translate": {"defence procurement": "ununuzi wa ulinzi",
+                         "tender": "zabuni", "contract": "mkataba",
+                         "armed forces": "jeshi", "ministry of defence": "wizara ya ulinzi"}},
+    "am": {"hl": "am", "gl": "ET", "ceid": "ET:am",
+           "translate": {"defence procurement": "የመከላከያ ግዢ",
+                         "tender": "ጨረታ", "contract": "ውል",
+                         "armed forces": "የመከላከያ ኃይል", "ministry of defence": "የመከላከያ ሚኒስቴር"}},
+    "ka": {"hl": "ka", "gl": "GE", "ceid": "GE:ka",
+           "translate": {"defence procurement": "თავდაცვის შესყიდვები",
+                         "tender": "ტენდერი", "contract": "ხელშეკრულება",
+                         "armed forces": "შეიარაღებული ძალები", "ministry of defence": "თავდაცვის სამინისტრო"}},
+    # Locale-only entries (translations left to English fallback) — Google
+    # News still serves more relevant local content because of `hl/gl/ceid`
+    # even if the query stays English.
+    "lv": {"hl": "lv", "gl": "LV", "ceid": "LV:lv", "translate": {}},
+    "lt": {"hl": "lt", "gl": "LT", "ceid": "LT:lt", "translate": {}},
+    "et": {"hl": "et", "gl": "EE", "ceid": "EE:et", "translate": {}},
+    "sl": {"hl": "sl", "gl": "SI", "ceid": "SI:sl", "translate": {}},
+    "mk": {"hl": "mk", "gl": "MK", "ceid": "MK:mk", "translate": {}},
+    "sq": {"hl": "sq", "gl": "AL", "ceid": "AL:sq", "translate": {}},
+    "ti": {"hl": "ti", "gl": "ER", "ceid": "ER:ti", "translate": {}},
+    "ps": {"hl": "ps", "gl": "AF", "ceid": "AF:ps", "translate": {}},
+    "si": {"hl": "si", "gl": "LK", "ceid": "LK:si", "translate": {}},
+    "ne": {"hl": "ne", "gl": "NP", "ceid": "NP:ne", "translate": {}},
+    "my": {"hl": "my", "gl": "MM", "ceid": "MM:my", "translate": {}},
+    "km": {"hl": "km", "gl": "KH", "ceid": "KH:km", "translate": {}},
+    "lo": {"hl": "lo", "gl": "LA", "ceid": "LA:lo", "translate": {}},
+    "bs": {"hl": "bs", "gl": "BA", "ceid": "BA:bs", "translate": {}},
+    "is": {"hl": "is", "gl": "IS", "ceid": "IS:is", "translate": {}},
 }
 
 # Country → relevant languages to search in
@@ -2583,19 +2720,55 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
                 "duration_ms": int((time.time() - t0) * 1000),
             }
 
+    # R-W2 (2026-05-11): when static fetch returned thin content (likely
+    # JS-rendered SPA), try Lightpanda/headless BEFORE the early-return.
+    # extract_url_text used to give up here with "fetched content too
+    # short or empty" — extract_url_deep relies on this function, so
+    # this single fix unblocks both. Mirrors _fetch_article_text:1029.
+    if not html or len(html) < 100:
+        try:
+            from . import headless as _headless
+            if hasattr(_headless, "fetch_rendered_html"):
+                logger.info(
+                    "R-W2: static fetch thin/empty for %s, trying headless render",
+                    url[:80],
+                )
+                rendered = await _headless.fetch_rendered_html(url, timeout=20)
+                if rendered and len(rendered) >= 100:
+                    html = rendered
+        except Exception as _hl_e:
+            logger.debug("R-W2 headless fallback failed for %s: %s", url[:80], _hl_e)
+
     if not html or len(html) < 100:
         return {
             "url": url, "extraction_ok": False,
-            "error": "fetched content too short or empty", "text": "",
+            "error": "fetched content too short or empty (R-W2 headless also returned thin)",
+            "text": "",
             "duration_ms": int((time.time() - t0) * 1000),
         }
 
     extracted = _extract_structured_html(html)
     text = extracted.get("text", "") or ""
     if not text or len(text) < 50:
-        # Static fetcher returned thin content (likely JS-rendered site).
-        # Surface what little we got via meta tags + JSON-LD so the LLM
-        # has SOMETHING to quote from, plus an explicit warning.
+        # R-W2: also try headless when html had content but extraction
+        # yielded nothing (real SPA where JS-rendered text is needed).
+        try:
+            from . import headless as _headless
+            if hasattr(_headless, "fetch_rendered_html"):
+                logger.info(
+                    "R-W2: extraction thin for %s, trying headless render",
+                    url[:80],
+                )
+                rendered = await _headless.fetch_rendered_html(url, timeout=20)
+                if rendered and len(rendered) > len(html or ""):
+                    extracted = _extract_structured_html(rendered)
+                    text = extracted.get("text", "") or ""
+        except Exception as _hl_e:
+            logger.debug("R-W2 headless fallback failed for %s: %s", url[:80], _hl_e)
+
+    if not text or len(text) < 50:
+        # Even after headless still thin — surface meta tags + JSON-LD
+        # so the LLM has SOMETHING to quote from, plus an explicit warning.
         meta_bits = []
         if extracted.get("title"):
             meta_bits.append(f"TITLE: {extracted['title']}")
@@ -2611,7 +2784,7 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
         else:
             return {
                 "url": url, "extraction_ok": False,
-                "error": "fetched but extraction returned no usable text — likely a JS-rendered SPA",
+                "error": "fetched but extraction returned no usable text — likely a JS-rendered SPA (R-W2 headless also returned thin)",
                 "text": "",
                 "duration_ms": int((time.time() - t0) * 1000),
             }

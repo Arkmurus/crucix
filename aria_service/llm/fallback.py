@@ -444,13 +444,28 @@ def create_fallback_chain(
     # access, ALL of the configured providers would have to fail at once.
     # Added groq 2026-04-17: 14,400 req/day free tier on Llama-3.1-70B
     # widens the "never wipes out" floor.
+    # R-F322 (2026-05-11): Anthropic moved to OPT-IN. Live fly logs at
+    # 20:32:06 showed HTTP 400 "credit balance too low" with HARD
+    # cooldown 1800s — Anthropic has been billing-exhausted for weeks
+    # per memory, and every cycle still probes it before the fallback
+    # cascades to DeepSeek. DeepSeek serves the load fine.
+    # Default behaviour: Anthropic DISABLED unless ARIA_ANTHROPIC_ENABLED=1.
+    # Operator tops up + sets the env to re-enable.
+    _anthropic_enabled = (
+        os.getenv("ARIA_ANTHROPIC_ENABLED", "").lower() in ("1", "true", "yes")
+    )
     fallback_configs = [
-        ("anthropic", os.getenv("ANTHROPIC_API_KEY", ""), "claude-sonnet-4-6"),
         ("deepseek",  os.getenv("DEEPSEEK_API_KEY", ""),  "deepseek-chat"),
         ("groq",      os.getenv("GROQ_API_KEY", ""),      "llama-3.3-70b-versatile"),
         ("openai",    os.getenv("OPENAI_API_KEY", ""),    "gpt-4o-mini"),
         ("gemini",    os.getenv("GEMINI_API_KEY", ""),    "gemini-2.5-flash"),
     ]
+    if _anthropic_enabled:
+        # Operator explicitly re-enabled — prepend at the head
+        fallback_configs.insert(
+            0,
+            ("anthropic", os.getenv("ANTHROPIC_API_KEY", ""), "claude-sonnet-4-6"),
+        )
 
     # R-F87 (2026-05-09): self-hosted local LLM via Ollama / vLLM.
     # When OLLAMA_URL is set, register the local provider as an
