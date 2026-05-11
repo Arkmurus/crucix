@@ -295,7 +295,11 @@ function renderTable(reports) {
     // first three keys were never populated. Read `risk` last so old
     // entries surface their classification (GREEN / AMBER / RED /
     // HARD_STOP) until they expire.
-    const sev = r.severity || r.worst_severity || r.status || r.risk || r.risk_classification || '';
+    // R-F226 (2026-05-11): DROP `r.status` from the fallback chain.
+    // r.status is a workflow state ("completed") not a risk grade,
+    // and was rendering meaningless pills. Only risk-grade fields
+    // belong here.
+    const sev = r.severity || r.worst_severity || r.risk || r.risk_classification || '';
     // R-F144 (2026-05-10): generated_at fallback. Existing index
     // entries from before R-F130 only have `generated_at`, not
     // `created_at` — the table was leaving the Created column empty

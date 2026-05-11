@@ -164,7 +164,11 @@ document.getElementById('btn-test-email').addEventListener('click', async functi
   }
 });
 
-function showMsg(msg, type='success') {
+// R-F228 (2026-05-11) — renamed to avoid shadowing the alerter-test
+// showMsg(kind, text) declared earlier at line 87. Pre-R-F228 this
+// declaration silently overwrote it, so Telegram/Email test buttons
+// passing showMsg('ok', '...') routed here with mismatched signature.
+function showAlert(msg, type='success') {
   const el = document.getElementById('msg-bar');
   el.className = `sc-alert sc-alert-${type}`;
   el.textContent = msg; el.style.display = 'flex';
@@ -228,29 +232,29 @@ document.addEventListener('click', async function(e) {
     try {
       var r = await fetch('/api/admin/users/' + id + '/approve', { method: 'POST', headers: headers, body: '{}' });
       var d = {}; try { d = await r.json(); } catch(x) {}
-      if (r.ok) { showMsg('User approved — welcome email sent'); loadUsers(); }
-      else { showMsg((d.error || 'Failed — HTTP ' + r.status), 'error'); btn.textContent = 'Approve'; btn.disabled = false; }
-    } catch (x) { showMsg('Network error', 'error'); btn.textContent = 'Approve'; btn.disabled = false; }
+      if (r.ok) { showAlert('User approved — welcome email sent'); loadUsers(); }
+      else { showAlert((d.error || 'Failed — HTTP ' + r.status), 'error'); btn.textContent = 'Approve'; btn.disabled = false; }
+    } catch (x) { showAlert('Network error', 'error'); btn.textContent = 'Approve'; btn.disabled = false; }
   }
   else if (action === 'reject') {
     if (!confirm('Reject and remove this user?')) return;
     try {
       var r2 = await fetch('/api/admin/users/' + id + '/reject', { method: 'POST', headers: headers, body: '{}' });
-      if (r2.ok) { showMsg('User rejected'); loadUsers(); } else showMsg('Reject failed', 'error');
-    } catch (x) { showMsg('Network error', 'error'); }
+      if (r2.ok) { showAlert('User rejected'); loadUsers(); } else showAlert('Reject failed', 'error');
+    } catch (x) { showAlert('Network error', 'error'); }
   }
   else if (action === 'force-logout') {
     try {
       var r3 = await fetch('/api/admin/users/' + id + '/force-logout', { method: 'POST', headers: headers, body: '{}' });
-      if (r3.ok) showMsg('User logged out'); else showMsg('Failed', 'error');
-    } catch (x) { showMsg('Network error', 'error'); }
+      if (r3.ok) showAlert('User logged out'); else showAlert('Failed', 'error');
+    } catch (x) { showAlert('Network error', 'error'); }
   }
   else if (action === 'delete') {
     if (!confirm('Permanently delete this user?')) return;
     try {
       var r4 = await fetch('/api/admin/users/' + id, { method: 'DELETE', headers: headers });
-      if (r4.ok) { showMsg('User deleted'); loadUsers(); } else showMsg('Delete failed', 'error');
-    } catch (x) { showMsg('Network error', 'error'); }
+      if (r4.ok) { showAlert('User deleted'); loadUsers(); } else showAlert('Delete failed', 'error');
+    } catch (x) { showAlert('Network error', 'error'); }
   }
 });
 
@@ -264,8 +268,8 @@ document.addEventListener('change', async function(e) {
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('crucix_token') },
       body: JSON.stringify({ role: role })
     });
-    if (r.ok) showMsg('Role updated to ' + role); else showMsg('Role change failed', 'error');
-  } catch (x) { showMsg('Network error', 'error'); }
+    if (r.ok) showAlert('Role updated to ' + role); else showAlert('Role change failed', 'error');
+  } catch (x) { showAlert('Network error', 'error'); }
 });
 
 async function loadAudit() {

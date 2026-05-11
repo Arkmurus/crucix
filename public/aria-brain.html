@@ -109,7 +109,7 @@ Sidebar.init('brain');
 
   <!-- Mastery -->
   <div class="card">
-    <h2>Mastery (88% overall)</h2>
+    <h2 id="mastery-title">Mastery</h2>
     <div id="mastery-metrics" class="loading">Loading...</div>
   </div>
 
@@ -400,7 +400,16 @@ async function loadAmendments() {
     const clauses = (a.anchor_clauses || []).join(', ');
     const staged = (a.staged_at || '').slice(0, 16).replace('T', ' ');
     const safeAttackId = attackId.replace(/[^A-Za-z0-9_.-]/g, '');
-    const action = `<button onclick="rejectAmendment('${safeAttackId}')" `
+    // R-F230 (2026-05-11) — Approve button wired to /adversarial/
+    // amendments/approve (R-F168 endpoint). Confirm-phrase gate
+    // prevents accidental clicks. After approve, the staged
+    // improvement still needs operator-side `POST /api/aria/self/
+    // deploy/{id}` to actually apply — that's the safety gate per
+    // aria_autonomy_doctrine.md.
+    const action = `<button onclick="approveAmendment('${safeAttackId}')" `
+                 + `style="background:#1f4f2c;color:#fff;border:0;padding:3px 10px;`
+                 + `border-radius:3px;cursor:pointer;font-size:0.85em;white-space:nowrap;margin-right:4px">Approve</button>`
+                 + `<button onclick="rejectAmendment('${safeAttackId}')" `
                  + `style="background:#6e2c2c;color:#fff;border:0;padding:3px 10px;`
                  + `border-radius:3px;cursor:pointer;font-size:0.85em;white-space:nowrap">Reject</button>`;
     html += `<tr>`
@@ -468,6 +477,51 @@ async function rejectAmendment(attackId) {
   if (!resp || !resp.ok) {
     alert('Reject failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'));
     return;
+  }
+  await loadAmendments();
+}
+
+// R-F230 (2026-05-11) — approve amendment via R-F168 endpoint.
+// Requires explicit confirm-phrase ("APPROVE") + operator notes.
+// On success, surfaces the staged_improvement_id and reminds the
+// operator that the constitution change is STAGED only — manual
+// deploy via /api/aria/self/deploy/{id} is the actual application
+// step (the operator-only safety gate per autonomy doctrine).
+async function approveAmendment(attackId) {
+  if (!attackId) return;
+  const confirmPhrase = prompt(
+    `APPROVE amendment ${attackId}?\n\n`
+    + `This stages a constitution change in self_improve. The change is\n`
+    + `NOT live until you separately POST /api/aria/self/deploy/{id} from\n`
+    + `the CLI (the safety gate).\n\n`
+    + `Type "APPROVE" to confirm:`
+  );
+  if (confirmPhrase !== 'APPROVE') {
+    if (confirmPhrase != null) alert('Approval cancelled — confirm phrase must be exactly "APPROVE".');
+    return;
+  }
+  const notes = prompt(`Operator approval notes for ${attackId}?\n(Required — will be audit-logged.)`);
+  if (!notes || !notes.trim()) {
+    alert('Approval cancelled — notes required.');
+    return;
+  }
+  const resp = await API.post(
+    '/api/aria/adversarial/amendments/approve',
+    { attack_id: attackId, notes: notes.trim() },
+  );
+  if (!resp || !resp.ok) {
+    alert('Approve failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'));
+    return;
+  }
+  const stagedId = resp.data && resp.data.staged_improvement_id;
+  if (stagedId) {
+    alert(
+      `Amendment ${attackId} APPROVED + staged.\n\n`
+      + `Staged improvement ID: ${stagedId}\n\n`
+      + `To apply to live ARIA:\n`
+      + `  POST /api/aria/self/deploy/${stagedId}\n\n`
+      + `Until you do that, the constitution is unchanged.`
+    );
   }
   await loadAmendments();
 }
@@ -606,6 +660,21 @@ async function loadDLQ() {
 async function loadMastery() {
   const d = await fetchJson('/student/mastery');
   if (!d) { document.getElementById('mastery-metrics').innerHTML = '<span class="neutral">Loading...</span>'; return; }
+  // R-F218 (2026-05-11) — dynamic title. Pre-R-F218 the h2 was
+  // hard-coded "Mastery (88% overall)" which lied as soon as the
+  // value moved. Render headline_mastery (the honest min of overall+core)
+  // when available, fall back to overall_mastery, then to "Mastery".
+  const titleEl = document.getElementById('mastery-title');
+  if (titleEl) {
+    const headline = (d.headline_mastery != null) ? d.headline_mastery
+                   : (d.overall_mastery != null) ? d.overall_mastery
+                   : null;
+    if (headline != null) {
+      titleEl.textContent = `Mastery (${pct(headline)} headline)`;
+    } else {
+      titleEl.textContent = 'Mastery';
+    }
+  }
   let html = '';
   const topics = d.topics || d.mastery || {};
   if (typeof topics === 'object') {
@@ -624,13 +693,23 @@ async function loadComposite() {
   const d = await fetchJson('/autonomy/composite');
   if (!d || !d.composite_score) { document.getElementById('composite-metrics').innerHTML = '<span class="neutral">No data yet</span>'; return; }
   const cb = document.getElementById('composite-badge');
-  cb.textContent = `SCORE: ${pct(d.composite_score)} ${d.tier_name}`;
-  const cls = d.tier >= 4 ? 'badge-green' : d.tier >= 3 ? 'badge-green' : d.tier >= 2 ? 'badge-yellow' : 'badge-red';
+
+  // R-F227 (2026-05-11) — cap displayed tier on signal-pending. The
+  // composite score uses 50% as the neutral prior for null signals;
+  // pre-R-F227 a score with 2 of 4 signals at default still rendered
+  // as HIGH (3). Now if ≥25% of signals are placeholders, cap the
+  // displayed tier at MEDIUM and surface the caveat prominently.
+  const signals = d.signals || {};
+  const totalSig = Object.keys(signals).length || 1;
+  const pending = Object.values(signals).filter(v => v == null).length;
+  const pendingFrac = pending / totalSig;
+  const tierEffective = (pendingFrac >= 0.25 && d.tier > 2) ? 2 : d.tier;
+  const tierNameEff = (pendingFrac >= 0.25 && d.tier > 2) ? 'MEDIUM (capped — signal-pending)' : d.tier_name;
+  cb.textContent = `SCORE: ${pct(d.composite_score)} ${tierNameEff}`;
+  const cls = tierEffective >= 4 ? 'badge-green' : tierEffective >= 3 ? 'badge-green' : tierEffective >= 2 ? 'badge-yellow' : 'badge-red';
   cb.className = `badge ${cls}`;
 
-  // Count pending signals for status bar accuracy
-  const signals = d.signals || {};
-  const pending = Object.values(signals).filter(v => v == null).length;
+  // Pending note for the row metric (already shown to operator).
   const pendingNote = pending > 0 ? ` (${pending} signal${pending > 1 ? 's' : ''} pending)` : '';
 
   let html = metricRow('Composite Score', pct(d.composite_score) + pendingNote, scoreClass(d.composite_score, 0.7, 0.5));

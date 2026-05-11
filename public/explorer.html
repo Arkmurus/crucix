@@ -263,8 +263,8 @@
           <button class="ex-tab active" data-tab="overview"><i class="bi bi-grid"></i> Overview <span class="ex-tab-badge" id="bdg-overview">·</span></button>
           <button class="ex-tab" data-tab="web"><i class="bi bi-globe2"></i> Web &amp; News <span class="ex-tab-badge" id="bdg-web">0</span></button>
           <button class="ex-tab" data-tab="sanctions"><i class="bi bi-shield-exclamation"></i> Sanctions <span class="ex-tab-badge" id="bdg-sanctions">0</span></button>
-          <button class="ex-tab" data-tab="enforcement"><i class="bi bi-hammer"></i> Enforcement <span class="ex-tab-badge" id="bdg-enforcement">0</span></button>
-          <button class="ex-tab" data-tab="network"><i class="bi bi-diagram-3"></i> Network <span class="ex-tab-badge" id="bdg-network">0</span></button>
+          <button class="ex-tab" data-tab="enforcement"><i class="bi bi-hammer"></i> Enforcement (keyword filter) <span class="ex-tab-badge" id="bdg-enforcement">0</span></button>
+          <button class="ex-tab" data-tab="network"><i class="bi bi-diagram-3"></i> Name matches <span class="ex-tab-badge" id="bdg-network">0</span></button>
           <button class="ex-tab" data-tab="counter"><i class="bi bi-shield-shaded"></i> Counter-Intel <span class="ex-tab-badge" id="bdg-counter">0</span></button>
         </div>
 
@@ -624,7 +624,7 @@ Sidebar.init('explorer');
       </div>`);
     }
     if (!out.length) {
-      panel.innerHTML = `<div class="ex-state"><i class="bi bi-shield-check"></i>No direct sanctions matches found for "${escapeHtml(q)}". <br><span style="font-size:12px;color:rgba(255,255,255,0.3)">Cleared on direct screening — counter-intel and substance checks remain on the suggested-actions rail.</span></div>`;
+      panel.innerHTML = `<div class="ex-state"><i class="bi bi-shield-check"></i>No direct sanctions matches found for "${escapeHtml(q)}". <br><span style="font-size:12px;color:#fbbf24"><strong>NOT A CLEARANCE</strong> — OpenSanctions divergence returned zero only. Counter-intel, RCA, and substance checks (suggested-actions rail) MUST run before treating this as cleared. R-F219.</span></div>`;
     } else {
       panel.innerHTML = out.join('');
     }
@@ -637,32 +637,46 @@ Sidebar.init('explorer');
       (r.title || '') + ' ' + (r.summary || r.text || '')
     ));
     setBadge('enforcement', results.length, results.length ? 'warn' : '');
+    // R-F220 (2026-05-11) — honest banner. The Enforcement tab is NOT
+    // a real DOJ/SEC/SFO feed — it's keyword-filtered web_search.
+    // For real enforcement records, use /api/aria/dd/orchestrate with
+    // the entity name; the dd_orchestrator runs the actual sanctions/
+    // OFAC/FCDO adapters. Until a dedicated enforcement endpoint
+    // exists, this tab is a heuristic and operator must treat results
+    // as leads, not verified enforcement findings.
+    const honestBanner = `<div class="ex-state" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);color:#fbbf24;font-size:12px;padding:10px;margin-bottom:12px"><i class="bi bi-info-circle"></i> <strong>NOT a DOJ/SEC/SFO feed</strong> — this tab is a keyword filter (FCPA/indict/guilty/etc) over generic web_search results. For verified enforcement findings, run a full DD via /dd/orchestrate. R-F220.</div>`;
     if (!results.length) {
-      panel.innerHTML = `<div class="ex-state"><i class="bi bi-hammer"></i>No enforcement records found in the indexed corpus. <br><span style="font-size:12px;color:rgba(255,255,255,0.3)">DOJ FCPA / SEC / SFO autonomous sweeps fire weekly (R-F69).</span></div>`;
+      panel.innerHTML = honestBanner + `<div class="ex-state"><i class="bi bi-hammer"></i>No keyword matches in web_search results for "${escapeHtml(data && data._q || 'entity')}".</div>`;
       return;
     }
-    panel.innerHTML = results.slice(0, 15).map(r => renderCard(r, 'enforcement')).join('');
+    panel.innerHTML = honestBanner + results.slice(0, 15).map(r => renderCard(r, 'enforcement')).join('');
   }
 
   function renderNetwork(data) {
     const panel = $('#panel-network');
     const ents = (data && (data.entities || data.results)) || [];
     setBadge('network', ents.length);
+    // R-F220 (2026-05-11) — honest banner. This tab uses the autocomplete
+    // endpoint, NOT a relationship graph. Network analysis (UBO /
+    // shareholdings / officer overlaps) requires the DD orchestrator's
+    // network_walker, exposed at /dd/orchestrate (not here).
+    const honestBanner = `<div class="ex-state" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);color:#fbbf24;font-size:12px;padding:10px;margin-bottom:12px"><i class="bi bi-info-circle"></i> <strong>NOT a relationship graph</strong> — this tab shows name-match entities from the autocomplete index, not UBO/shareholding/officer overlaps. For real network analysis, run /dd/orchestrate which fires network_walker against company registries. R-F220.</div>`;
     if (!ents.length) {
-      panel.innerHTML = `<div class="ex-state"><i class="bi bi-diagram-3"></i>No connected entities in the neural network yet. <br><span style="font-size:12px;color:rgba(255,255,255,0.3)">As ARIA's neural memory grows (10,500+ neurons today), connected entities will surface here.</span></div>`;
-      // Related entities rail also empty
+      panel.innerHTML = honestBanner + `<div class="ex-state"><i class="bi bi-diagram-3"></i>No name-match entities in the autocomplete index.</div>`;
       $('#ex-related-card').style.display = 'none';
       return;
     }
-    panel.innerHTML = ents.slice(0, 25).map(e => `
+    panel.innerHTML = honestBanner;
+    // R-F220: append cards AFTER the honest banner (already set above)
+    panel.innerHTML += ents.slice(0, 25).map(e => `
       <div class="ex-card">
         <div class="ex-card-head">
-          <div class="ex-card-source">${escapeHtml(e.type || 'Entity')}</div>
+          <div class="ex-card-source">${escapeHtml(e.type || 'Entity (name match)')}</div>
           ${e.country ? `<span class="ex-card-meta">${escapeHtml(e.country)}</span>` : ''}
         </div>
         <div class="ex-card-title">${escapeHtml(e.name || e.entity || '—')}</div>
         ${e.summary ? `<div class="ex-card-body">${escapeHtml(truncate(e.summary, 220))}</div>` : ''}
-        ${e.score != null ? `<div class="ex-card-tags"><span class="ex-card-tag tier-2">connection ${e.score}</span></div>` : ''}
+        ${e.score != null ? `<div class="ex-card-tags"><span class="ex-card-tag tier-2">name-match score ${e.score}</span></div>` : ''}
       </div>
     `).join('');
     // Surface top 5 related entities in the rail
@@ -723,13 +737,32 @@ Sidebar.init('explorer');
     setBadge('overview', '·');
 
     // Verdict pill
-    let verdict = { cls: 'green', icon: 'bi-check-circle', headline: 'Cleared on initial screening', text: '' };
+    // R-F219 (2026-05-11) — gate the green "Cleared" verdict on
+    // multi-source agreement. Pre-R-F219, sancHits=0 + counterScore<0.5
+    // rendered GREEN "Cleared on initial screening" — but that's only
+    // ONE tool (OpenSanctions). The 'cleared' verdict could ship a DD
+    // on a name the broader corpus (RCA, counter-intel, web) would
+    // have flagged. Now the green-clear requires:
+    //   sancHits==0 AND counterScore<0.5 AND inhRisk==0 AND enfCount==0
+    //   AND webCount>0 (at least SOMETHING was found, not a name-not-
+    //   indexed-anywhere case which is also amber).
+    // Otherwise amber: "Initial screen clean — broader checks pending".
+    let verdict = { cls: 'amber', icon: 'bi-info-circle',
+                    headline: 'Initial screen clean — broader checks pending',
+                    text: '' };
     if (sancHits > 0 || counterScore >= 0.5) {
       verdict = { cls: 'red',   icon: 'bi-exclamation-triangle', headline: 'Material risk signals detected',  text: '' };
     } else if (inhRisk > 0 || enfCount > 0) {
       verdict = { cls: 'amber', icon: 'bi-info-circle',          headline: 'Indirect risk signals — review',   text: '' };
+    } else if (
+      sancHits === 0 && counterScore < 0.5 && inhRisk === 0
+      && enfCount === 0 && webCount > 3
+    ) {
+      // Conservative green: only when MULTIPLE checks ran AND nothing
+      // flagged AND the entity was actually found in some corpus.
+      verdict = { cls: 'green', icon: 'bi-check-circle', headline: 'Initial screen clean (multi-source)', text: '' };
     }
-    verdict.text = `<strong>${webCount}</strong> web/news result${webCount===1?'':'s'}, <strong>${sancHits}</strong> direct sanctions match${sancHits===1?'':'es'}, <strong>${inhRisk}</strong> inherited risk${inhRisk===1?'':'s'}, <strong>${enfCount}</strong> enforcement record${enfCount===1?'':'s'}, <strong>${netCount}</strong> related entit${netCount===1?'y':'ies'}, counter-intel composite <strong>${counterScore}</strong>.`;
+    verdict.text = `<strong>${webCount}</strong> web/news result${webCount===1?'':'s'}, <strong>${sancHits}</strong> direct sanctions match${sancHits===1?'':'es'}, <strong>${inhRisk}</strong> inherited risk${inhRisk===1?'':'s'}, <strong>${enfCount}</strong> enforcement record${enfCount===1?'':'s'}, <strong>${netCount}</strong> related entit${netCount===1?'y':'ies'}, counter-intel composite <strong>${counterScore}</strong>. <em style="opacity:0.8">A green verdict requires multi-source agreement — single-tool zero is amber by default (R-F219).</em>`;
 
     let html = `<div class="ex-verdict ${verdict.cls}">
       <div class="ex-verdict-icon"><i class="bi ${verdict.icon}"></i></div>

@@ -156,6 +156,28 @@ function renderCard(title, meta, summary, nextstep, url, shareTextFn) {
   </div>`;
 }
 
+// R-F229 (2026-05-11) — freshness pill helper. Renders "X min/hr/d ago"
+// from any of the common timestamp fields. Returns empty string when no
+// timestamp is available so cards from legacy data don't render "—".
+function freshnessPill(item) {
+  if (!item || typeof item !== 'object') return '';
+  var ts = item.fetchedAt || item.fetched_at || item.timestamp || item.ts
+        || item.discovered_at || item.published_at || item.publishedAt
+        || item.created_at || item.createdAt || null;
+  if (!ts) return '';
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  var diffMs = Date.now() - d.getTime();
+  if (diffMs < 0) return '';  // future timestamps — skip
+  var mins = Math.floor(diffMs / 60000);
+  var label, colour;
+  if (mins < 60) { label = mins + 'm ago'; colour = '#4ade80'; }
+  else if (mins < 24 * 60) { label = Math.floor(mins / 60) + 'h ago'; colour = '#86efac'; }
+  else if (mins < 7 * 24 * 60) { label = Math.floor(mins / (24 * 60)) + 'd ago'; colour = '#fbbf24'; }
+  else { label = Math.floor(mins / (24 * 60)) + 'd ago'; colour = '#fca5a5'; }
+  return '<span style="font-size:11px;color:' + colour + ';margin-left:8px;padding:1px 6px;background:rgba(255,255,255,0.05);border-radius:4px">' + label + '</span>';
+}
+
 async function load() {
   var data = await API.get('/api/bd-intelligence');
   if (!data) { document.getElementById('bd-sub').textContent = 'No data — run a sweep first'; return; }
@@ -246,7 +268,7 @@ async function load() {
     var qCol = l.leadQuality==='HOT'?'#ef4444':l.leadQuality==='WARM'?'#FF7A41':'#913BFF';
     var qBadge = l.leadQuality==='HOT'?'sc-badge-prime':l.leadQuality==='WARM'?'sc-badge-orange':'sc-badge-muted';
     return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
-      escHtml(l.market||'Global') + '</div>' + chip(l.leadQuality||'LEAD',qBadge) + '<button class="ic-share" data-sharetext="' + escHtml((l.leadQuality||'LEAD') + ' — ' + (l.market||'') + ': ' + (l.title||l.lead||'') + (l.nextStep ? '\nNext step: ' + l.nextStep : '')) + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
+      escHtml(l.market||'Global') + freshnessPill(l) + '</div>' + chip(l.leadQuality||'LEAD',qBadge) + '<button class="ic-share" data-sharetext="' + escHtml((l.leadQuality||'LEAD') + ' — ' + (l.market||'') + ': ' + (l.title||l.lead||'') + (l.nextStep ? '\nNext step: ' + l.nextStep : '')) + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px"><div style="font-size:28px;font-weight:800;color:'+qCol+'">' + escHtml(l.leadQuality||'—') + '</div>' +
       (l.type ? '<div style="font-size:11px;color:rgba(255,255,255,.4)">'+escHtml(l.type)+'</div>' : '') +
       (l.source==='Brain'?'<span class="sc-badge sc-badge-muted" style="font-size:10px">AI</span>':'') + '</div>' +
@@ -261,7 +283,7 @@ async function load() {
   document.getElementById('panel-tenders').innerHTML = tenders.length ? '<div class="sc-grid-3">' + tenders.map(function(t) {
     var qBadge = t.leadQuality==='HOT'?'sc-badge-prime':t.leadQuality==='WARM'?'sc-badge-orange':'sc-badge-muted';
     return '<div class="sc-card"><div class="sc-card-header"><div class="sc-card-title" style="font-size:15px">' +
-      escHtml(t.market||'Global') + '</div>' + chip(t.type||'TENDER','sc-badge-blue') + '<button class="ic-share" data-sharetext="' + escHtml((t.type||'TENDER') + ' — ' + (t.market||'') + ': ' + (t.title||'') + ' (Score: ' + (t.score||0) + ')') + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
+      escHtml(t.market||'Global') + freshnessPill(t) + '</div>' + chip(t.type||'TENDER','sc-badge-blue') + '<button class="ic-share" data-sharetext="' + escHtml((t.type||'TENDER') + ' — ' + (t.market||'') + ': ' + (t.title||'') + ' (Score: ' + (t.score||0) + ')') + '"><i class="bi bi-share"></i></button></div><div class="sc-card-body">' +
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
       '<div style="font-size:28px;font-weight:800;color:#913BFF">' + (t.score||0) + '</div>' +
       '<div style="font-size:11px;color:rgba(255,255,255,.4)">/ 100<br>Score</div></div>' +
