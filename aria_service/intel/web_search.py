@@ -178,145 +178,23 @@ def _score_relevance(result: SearchResult, query: str) -> float:
 # ── Backend: Brave Search API ───────────────────────────────────────────────
 
 async def _search_brave(query: str, max_results: int = 10, language: str = "en") -> list[SearchResult]:
-    """Brave Search API — best quality, requires API key.
+    """R-F320 (2026-05-11): Brave Search REMOVED. Permanent stub.
 
-    Wrapped with a circuit breaker (F15 fix, 2026-04-27): the live key
-    was returning 402 Payment Required on every call (~9 wasted POSTs
-    per research cycle). After 3 consecutive 4xx/5xx the breaker opens
-    for 30 minutes; ARIA stops attempting Brave until the cooldown
-    expires, then a single probe request decides whether to re-enable.
+    Operator directive 2026-05-11: "please remove brave then... lets
+    focus reducing dependency". Per aria_mirrors_claude memory, Brave
+    is deprecated; the free-tier multilingual aggregator (Google News
+    + Bing News + DuckDuckGo + Crossref + OpenAlex + Semantic Scholar)
+    covers Brave's ground with richer fan-out and zero cost.
+
+    The function is kept as a stub returning [] so existing callers
+    that import `_search_brave` don't break. The body (circuit
+    breaker, billing-exhaustion sticky, 402 streak counter, request
+    code) is gone — Brave does not execute.
+
+    To restore Brave (not recommended), revert R-F320 in
+    aria_service/intel/web_search.py.
     """
-    if not BRAVE_API_KEY:
-        return []
-    # R-F236 (2026-05-11) — explicit operator opt-out. Per the "ARIA
-    # mirrors Claude" rule (aria_mirrors_claude.md feedback memory),
-    # Brave is deprecated. Setting ARIA_BRAVE_DISABLED=1 disables the
-    # backend WITHOUT requiring the env var BRAVE_SEARCH_API_KEY to be
-    # unset. This keeps the key around for the migration window while
-    # search routes entirely through the free backends. Once the
-    # subscription is cancelled, the env var can be removed.
-    # R-F319 (2026-05-11): default flipped from "0" to "1". Live
-    # dashboard observation showed 5 calls / 5 errors per cycle on
-    # Brave even though memory says it's deprecated. Brave now OFF by
-    # default; operator must set ARIA_BRAVE_DISABLED=0 (or "false") to
-    # re-enable. Matches the aria_mirrors_claude memory directive.
-    _brave_dis_env = os.getenv("ARIA_BRAVE_DISABLED")
-    if _brave_dis_env is None:
-        _brave_dis_env = "1"  # R-F319 default: disabled
-    if _brave_dis_env.lower() in ("1", "true", "yes"):
-        return []
-    # R-F171 (2026-05-11) — billing-exhaustion sticky disable. When the
-    # account is out of credit, every probe hits 402 and re-arms the
-    # circuit breaker every 30 min indefinitely (91 errors in 24h on
-    # the production deploy). Once we've seen 5 consecutive 402s, set
-    # a 24h sticky disable in Redis so we skip even the breaker probe.
-    # Operator clears it by topping up Brave (cron) or by deleting the
-    # key. Keeps the breaker semantics for genuine transient failures
-    # (timeouts, 5xx) but stops the credit-card-dead log spam.
-    try:
-        from . import redis_store as _rs_brave
-        sentinel = await _rs_brave.get("crucix:brave_search:billing_exhausted")
-        if sentinel:
-            return []
-    except Exception:
-        pass
-    from .circuit_breaker import get_breaker
-    cb = get_breaker("brave_search", failure_threshold=3, cooldown_seconds=1800)
-    if cb.is_open():
-        return []
-    _t_brave_start = time.time()
-    try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.get(
-                "https://api.search.brave.com/res/v1/web/search",
-                params={"q": query, "count": min(max_results, 20), "search_lang": _normalise_brave_lang(language)},
-                headers={"X-Subscription-Token": BRAVE_API_KEY, "Accept": "application/json"},
-            )
-            if resp.status_code != 200:
-                logger.debug("Brave search %d: %s", resp.status_code, resp.text[:200])
-                # F94: classify the failure so the capability_gap reflects
-                # the real cause. Brave 402 = subscription/credit dead;
-                # logging it as "timeout" sent triage to the wrong place.
-                cb.record_failure(reason=_classify_http_status(resp.status_code))
-                # R-F171: on 402, increment a consecutive-billing counter.
-                # 5 in a row → set the 24h sticky disable above.
-                if resp.status_code == 402:
-                    try:
-                        from . import redis_store as _rs_b2
-                        n_raw = await _rs_b2.get("crucix:brave_search:402_streak")
-                        n = int(n_raw) if n_raw else 0
-                        n += 1
-                        await _rs_b2.set("crucix:brave_search:402_streak", str(n), ex=24 * 3600)
-                        if n >= 5:
-                            await _rs_b2.set(
-                                "crucix:brave_search:billing_exhausted",
-                                "402",
-                                ex=24 * 3600,
-                            )
-                            logger.warning(
-                                "[brave] R-F171 sticky-disabled for 24h after %d "
-                                "consecutive 402s. Top up Brave or unset "
-                                "BRAVE_SEARCH_API_KEY to clear.",
-                                n,
-                            )
-                    except Exception:
-                        pass
-                else:
-                    # Non-402 failure — reset the 402 streak so transient
-                    # errors don't lead to false-positive sticky-disables.
-                    try:
-                        from . import redis_store as _rs_b3
-                        await _rs_b3.delete("crucix:brave_search:402_streak")
-                    except Exception:
-                        pass
-                # R-F139: record failed Brave call (zero cost) so the
-                # operator dashboard sees attempt count + error rate
-                # alongside successful spend.
-                try:
-                    from . import cost_tracker as _ct
-                    await _ct.record_brave_call(
-                        operation="search",
-                        success=False,
-                        latency_ms=int((time.time() - _t_brave_start) * 1000),
-                        cost_per_call_usd=0.0,
-                    )
-                except Exception:
-                    pass
-                return []
-            cb.record_success()
-            # R-F139: successful Brave call → record at the configured
-            # per-call cost (default $0.005 / call on Pro plan; operator
-            # override via BRAVE_COST_PER_CALL_USD env var).
-            try:
-                from . import cost_tracker as _ct
-                await _ct.record_brave_call(
-                    operation="search",
-                    success=True,
-                    latency_ms=int((time.time() - _t_brave_start) * 1000),
-                )
-            except Exception:
-                pass
-            data = resp.json()
-            results = []
-            for item in (data.get("web", {}).get("results", []))[:max_results]:
-                r = SearchResult(
-                    title=item.get("title", ""),
-                    url=item.get("url", ""),
-                    snippet=item.get("description", ""),
-                    source="brave",
-                    credibility_tier=_score_credibility(item.get("url", "")),
-                )
-                results.append(r)
-            logger.debug("Brave: %d results for %r", len(results), query[:60])
-            return results
-    except httpx.TimeoutException as e:
-        logger.debug("Brave search timeout: %s", e)
-        cb.record_failure(reason="timeout")
-        return []
-    except Exception as e:
-        logger.debug("Brave search failed: %s", e)
-        cb.record_failure()
-        return []
+    return []
 
 
 # ── Backend: SearXNG (free meta-search) ─────────────────────────────────────
@@ -889,20 +767,13 @@ async def _search_defence_event(query: str, max_results: int = 10) -> list[Searc
     enriched = f"{entry.get('enrich', query)} site:{site}"
     out: list[SearchResult] = []
     try:
-        # Run both Brave (if creds) and DDG against the site-scoped query
-        brave_results, ddg_results = await asyncio.gather(
-            _search_brave(enriched, max_results, entry.get("lang", "en")),
-            _search_duckduckgo(enriched, max_results),
-            return_exceptions=True,
-        )
-        for batch in (brave_results, ddg_results):
-            if isinstance(batch, Exception):
-                continue
-            for r in batch:
-                # Tag with defence-event source and tier-2 (institutional)
-                r.source = f"defence_event:{entry['key']}"
-                r.credibility_tier = 2
-                out.append(r)
+        # R-F320: Brave removed; run DDG only against the site-scoped query
+        ddg_results = await _search_duckduckgo(enriched, max_results)
+        for r in ddg_results or []:
+            # Tag with defence-event source and tier-2 (institutional)
+            r.source = f"defence_event:{entry['key']}"
+            r.credibility_tier = 2
+            out.append(r)
     except Exception as _ee:
         logger.debug("defence-event search failed (non-fatal): %s", _ee)
     return out
@@ -1150,22 +1021,13 @@ async def search(
     # start asking why entity searches return only news headlines.
     try:
         from .circuit_breaker import get_breaker
-        from . import redis_store as _rs_h
         from . import search_searxng as _sx_h
-        _brave_sticky = await _rs_h.get("crucix:brave_search:billing_exhausted")
-        _brave_breaker_open = get_breaker("brave_search").is_open()
+        # R-F320 (2026-05-11): Brave removed. General-web dead-state
+        # now checks DDG breaker + searxng config only.
         _ddg_breaker_open = get_breaker("search:duckduckgo").is_open()
         _searxng_configured = _sx_h.is_configured()
-        # R-F214 (2026-05-11) — gate on `not final`. Pre-R-F214 the
-        # R-F189 alert fired with success=False even when `final` had
-        # results from academic/news/memory — mis-attributing a
-        # degraded-but-working search as a backend failure to the
-        # brain_hook stats panel. Now only fires when the search
-        # ACTUALLY produced no results AND the general-web layer is
-        # down. The "search succeeded via fallback" case stays silent.
         if (
             not final
-            and (_brave_sticky or _brave_breaker_open)
             and _ddg_breaker_open
             and not _searxng_configured
         ):
@@ -1174,15 +1036,14 @@ async def search(
                 module="web_search",
                 summary="R-F189: ALL general-web backends down AND search returned 0",
                 detail=(
-                    "Search is degraded — brave + ddg + searxng all "
-                    "unavailable AND academic/news returned nothing for "
-                    f"'{query[:80]}'. Operator action: top up Brave OR "
-                    "set SEARXNG_URL to a self-hosted instance. "
-                    "Memory-first hits unaffected."
+                    "Search is degraded — ddg breaker open AND searxng "
+                    "not configured AND academic/news returned nothing for "
+                    f"'{query[:80]}'. Operator action: set SEARXNG_URL to a "
+                    "self-hosted instance. Memory-first hits unaffected."
                 ),
                 success=False,
                 gap_type="all_general_web_dead",
-                gap_detail="brave+ddg+searxng all unavailable, zero results",
+                gap_detail="ddg+searxng unavailable, zero results",
             )
     except Exception:
         pass
@@ -1547,12 +1408,17 @@ async def search_multilingual(
 # ── Stats and health ────────────────────────────────────────────────────────
 
 async def get_search_health() -> dict:
-    """Check which search backends are available."""
+    """Check which search backends are available.
+
+    R-F320 (2026-05-11): Brave removed. Health report no longer includes
+    a brave key — the dashboard panel and any operator code reading this
+    should treat absence as "Brave is gone, not down".
+    """
     health = {
-        "brave": bool(BRAVE_API_KEY),
         "searxng": False,
         "google_news": False,
         "bing_news": False,
+        "duckduckgo": True,  # always tried, may be rate-limited
     }
     # Quick probe of SearXNG
     try:
