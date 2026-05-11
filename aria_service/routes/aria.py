@@ -7031,6 +7031,148 @@ async def read_document_ep(request: Request):
                 except Exception as e:
                     _log.warning("Excel extraction failed: %s — mime=%s name=%s", e, mime_lower, fname_lower)
 
+        # R-F242 (2026-05-11) — PowerPoint (.pptx) extraction. Common
+        # in defence-DD work: executive briefings, vendor decks, MoD
+        # capability summaries. Pre-R-F242 these fell through to raw
+        # OCR which is low-confidence on slide layouts. Now python-pptx
+        # walks every slide + every text frame; output stamps the
+        # PARTIAL EXTRACTION banner when truncated.
+        elif "presentation" in mime_lower or fname_lower.endswith((".pptx", ".pptm")):
+            try:
+                import io
+                from pptx import Presentation as _Pptx
+                prs = _Pptx(io.BytesIO(raw_bytes))
+                slides_text: list[str] = []
+                _ppt_total = len(prs.slides)
+                _ppt_truncated_slides = _ppt_total > 100
+                _ppt_truncated_notes = False
+                for s_idx, slide in enumerate(prs.slides):
+                    if s_idx >= 100:
+                        break
+                    parts: list[str] = [f"--- Slide {s_idx + 1} ---"]
+                    for shape in slide.shapes:
+                        # Text frames (titles, bullets, bodies)
+                        if shape.has_text_frame:
+                            for para in shape.text_frame.paragraphs:
+                                txt = "".join(run.text for run in para.runs).strip()
+                                if txt:
+                                    parts.append(txt)
+                        # Tables (commonly contains the actual data)
+                        if shape.has_table:
+                            for row in shape.table.rows:
+                                row_text = " | ".join(
+                                    cell.text_frame.text.strip()
+                                    for cell in row.cells
+                                )
+                                if row_text.strip():
+                                    parts.append(row_text)
+                    # Speaker notes
+                    if slide.has_notes_slide:
+                        notes_txt = (slide.notes_slide.notes_text_frame.text or "").strip()
+                        if notes_txt:
+                            if len(notes_txt) > 500:
+                                _ppt_truncated_notes = True
+                            parts.append(f"[Notes] {notes_txt[:500]}")
+                    slides_text.append("\n".join(parts))
+                _full_ppt = "\n\n".join(slides_text)
+                _ppt_caps: list[str] = []
+                if _ppt_truncated_slides:
+                    _ppt_caps.append(f"showing first 100 of {_ppt_total} slides")
+                if _ppt_truncated_notes:
+                    _ppt_caps.append("speaker notes truncated past 500 chars on some slides")
+                if len(_full_ppt) > MAX_DOC_CHARS:
+                    _ppt_caps.append(
+                        f"text totalled {len(_full_ppt)} chars; only the "
+                        f"first {MAX_DOC_CHARS} are below"
+                    )
+                extracted = _stamp_partial_extraction(
+                    _full_ppt[:MAX_DOC_CHARS], "; ".join(_ppt_caps),
+                )
+            except ImportError:
+                _log.warning("R-F242 PPTX extraction: python-pptx not installed")
+            except Exception as e:
+                _log.warning("PPTX extraction failed: %s — mime=%s name=%s",
+                             e, mime_lower, fname_lower)
+
+        # R-F243 (2026-05-11) — email (.eml / .msg) extraction. Compliance
+        # teams routinely forward emails to ARIA for review. Pre-R-F243
+        # these fell through to raw OCR. Now we parse with stdlib `email`
+        # so the headers + body + attachment metadata flow into knowledge.
+        # Attachments themselves are NOT recursively extracted yet — that
+        # requires a separate ingest_eml endpoint (TODO). For now the
+        # attachment filenames + sizes go into the body so the operator
+        # can see what was sent.
+        elif "rfc822" in mime_lower or "message" in mime_lower or fname_lower.endswith((".eml",)):
+            try:
+                import io
+                from email import message_from_bytes
+                from email.policy import default as _email_default
+                msg = message_from_bytes(raw_bytes, policy=_email_default)
+                parts: list[str] = []
+                # Headers
+                for hdr in ("From", "To", "Cc", "Subject", "Date", "Message-ID"):
+                    val = msg.get(hdr)
+                    if val:
+                        parts.append(f"{hdr}: {val}")
+                parts.append("")
+                # Body — prefer plain text part, fall back to HTML stripped.
+                body_text = ""
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        ctype = part.get_content_type()
+                        disp = (part.get_content_disposition() or "").lower()
+                        if disp == "attachment":
+                            continue
+                        if ctype == "text/plain":
+                            body_text += (part.get_content() or "") + "\n"
+                        elif ctype == "text/html" and not body_text:
+                            import re as _re_eml
+                            html = part.get_content() or ""
+                            body_text = _re_eml.sub(r"<[^>]+>", " ", html)
+                else:
+                    try:
+                        body_text = msg.get_content() or ""
+                    except Exception:
+                        body_text = (msg.get_payload(decode=True) or b"").decode(
+                            errors="ignore"
+                        )
+                parts.append(body_text.strip())
+                # Attachment manifest (names + sizes only — body not extracted)
+                attachments: list[str] = []
+                for part in msg.walk():
+                    disp = (part.get_content_disposition() or "").lower()
+                    if disp == "attachment":
+                        att_name = part.get_filename() or "(unnamed)"
+                        payload = part.get_payload(decode=True) or b""
+                        attachments.append(f"  - {att_name} ({len(payload)} bytes)")
+                if attachments:
+                    parts.append("")
+                    parts.append(f"Attachments ({len(attachments)}):")
+                    parts.extend(attachments)
+                    parts.append("")
+                    parts.append(
+                        "[!ARIA NOTE — attachment BODIES are not extracted by .eml "
+                        "ingest. Forward each attachment separately for full review.]"
+                    )
+                _full_eml = "\n".join(parts)
+                _eml_caps: list[str] = []
+                if len(_full_eml) > MAX_DOC_CHARS:
+                    _eml_caps.append(
+                        f"email totalled {len(_full_eml)} chars; only the first "
+                        f"{MAX_DOC_CHARS} are below"
+                    )
+                if attachments:
+                    _eml_caps.append(
+                        f"{len(attachments)} attachment bodies NOT extracted — "
+                        "forward each separately"
+                    )
+                extracted = _stamp_partial_extraction(
+                    _full_eml[:MAX_DOC_CHARS], "; ".join(_eml_caps),
+                )
+            except Exception as e:
+                _log.warning("EML extraction failed: %s — mime=%s name=%s",
+                             e, mime_lower, fname_lower)
+
         if not extracted or len(extracted) < 30:
             llm = get_llm(request)
             ocr_result = await aria_ocr.extract_text_from_image(raw_bytes, filename, context, llm)
