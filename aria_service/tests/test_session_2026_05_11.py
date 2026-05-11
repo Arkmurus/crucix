@@ -926,6 +926,53 @@ class TestSelfImproveObservability:
             self_improve._diagnose_and_fix = original_diagnose
 
 
+class TestBrowserFingerprintHeaders:
+    """R-F273 — random_headers() now returns browser-fingerprint-grade
+    headers so anti-bot systems (Cloudflare, AWS WAF, Akamai) don't
+    trivially identify the request as non-browser. AfDB + SEACE Peru
+    were both returning 403 with the bare UA+Accept pair."""
+
+    def test_returns_dict_with_user_agent(self):
+        from aria_service.intel.ua_rotation import random_headers
+        h = random_headers()
+        assert isinstance(h, dict)
+        assert "User-Agent" in h and h["User-Agent"].startswith("Mozilla/")
+
+    def test_includes_sec_fetch_headers(self):
+        """Sec-Fetch-* headers are the #1 modern anti-bot tripwire."""
+        from aria_service.intel.ua_rotation import random_headers
+        h = random_headers()
+        assert h.get("Sec-Fetch-Dest") == "document"
+        assert h.get("Sec-Fetch-Mode") == "navigate"
+        assert h.get("Sec-Fetch-Site") == "none"
+        assert h.get("Sec-Fetch-User") == "?1"
+
+    def test_includes_dnt_and_upgrade_insecure(self):
+        from aria_service.intel.ua_rotation import random_headers
+        h = random_headers()
+        assert h.get("DNT") == "1"
+        assert h.get("Upgrade-Insecure-Requests") == "1"
+
+    def test_includes_keep_alive(self):
+        from aria_service.intel.ua_rotation import random_headers
+        h = random_headers()
+        assert h.get("Connection") == "keep-alive"
+
+    def test_accept_supports_avif_webp(self):
+        """Modern browsers advertise avif/webp support — the Accept header
+        should reflect that or anti-bot rules will flag it as stale."""
+        from aria_service.intel.ua_rotation import random_headers
+        h = random_headers()
+        accept = h.get("Accept", "")
+        assert "image/avif" in accept or "image/webp" in accept
+
+    def test_ua_rotation_still_random(self):
+        """Confirm we didn't accidentally pin to one UA when enriching headers."""
+        from aria_service.intel.ua_rotation import random_headers
+        seen = {random_headers()["User-Agent"] for _ in range(50)}
+        assert len(seen) >= 3, "expected rotation across multiple UAs over 50 calls"
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"

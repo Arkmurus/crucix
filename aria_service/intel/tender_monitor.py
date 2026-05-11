@@ -957,8 +957,21 @@ async def _crawl_seace_peru(client: httpx.AsyncClient, max_results: int = 20) ->
         # Override the shared client's SSL context for this single host.
         # The shared `client` arg is reused across all portals, so we open
         # a dedicated client here rather than mutate the shared one.
+        #
+        # R-F273 (2026-05-11) — the dedicated client must inherit the
+        # browser-fingerprint headers from the shared pool, otherwise
+        # SEACE answers 403 to a bare-httpx-default User-Agent. The
+        # initial R-F273 enrichment of random_headers() ONLY benefits
+        # crawlers using the shared client; this one builds its own
+        # AsyncClient and was bypassing the header set entirely.
+        from .ua_rotation import random_headers as _seace_headers
         ssl_ctx = _build_seace_ssl_context()
-        async with httpx.AsyncClient(verify=ssl_ctx, timeout=_HTTP_TIMEOUT, follow_redirects=True) as seace_client:
+        async with httpx.AsyncClient(
+            verify=ssl_ctx,
+            timeout=_HTTP_TIMEOUT,
+            follow_redirects=True,
+            headers=_seace_headers(),
+        ) as seace_client:
             resp = await seace_client.get(url)
         if resp.status_code != 200:
             _log_portal_failure("SEACE Peru", resp.status_code, f"Returned {resp.status_code}")

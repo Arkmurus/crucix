@@ -46,12 +46,35 @@ def random_ua() -> str:
 
 
 def random_headers() -> dict:
-    """Return common browser headers with a random UA."""
+    """Return common browser headers with a random UA.
+
+    R-F273 (2026-05-11) — enriched with Sec-Fetch-* + DNT +
+    Upgrade-Insecure-Requests + Connection so anti-bot fingerprinters
+    (Cloudflare/AWS WAF/Akamai) don't trivially identify the request as
+    non-browser. AfDB and SEACE Peru were both returning 403 with the
+    bare User-Agent + Accept pair; adding the realistic header set
+    pushes through most "Default-deny anything that isn't a browser"
+    rules. These additions are safe for APIs (REST endpoints ignore
+    Sec-Fetch-* headers entirely) so the existing TED/SAM.gov/Crossref
+    callers continue to work unchanged.
+    """
     return {
         "User-Agent": random_ua(),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
+        # Browser-fingerprint hardening (R-F273)
+        "Connection": "keep-alive",
+        "DNT": "1",
+        "Upgrade-Insecure-Requests": "1",
+        # Sec-Fetch-* — every Chrome/Firefox HTML request sends these.
+        # Absence is the most common anti-bot trip signal in 2025+.
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        # Cache-Control matches a fresh navigation, not a stale fetch
+        "Cache-Control": "max-age=0",
     }
 
 
