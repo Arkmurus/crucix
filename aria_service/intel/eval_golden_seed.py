@@ -2509,6 +2509,202 @@ SEED_ENTRIES: list[dict[str, str]] = [
         "question": "Kwa Kiswahili: Rwanda ina jukumu gani katika usalama wa kanda ya Maziwa Makuu, na hii inaathiri vipi DD ya makampuni ya ulinzi ya Rwanda?",
         "expected_answer": "Rwanda ina jukumu kubwa la kijeshi katika eneo la Maziwa Makuu, lakini jukumu hilo lina utata: (1) Rwanda Defence Force (RDF) imepelekewa Msumbiji (Cabo Delgado) tangu 2021 kwa mwaliko wa serikali ya Msumbiji — operesheni hii imefadhiliwa kwa sehemu na EU na inakubaliwa kimataifa; (2) Hata hivyo, Rwanda imeshtumiwa na ripoti mbalimbali za UN Group of Experts (2022, 2023, 2024) za kusaidia kikundi cha M23 nchini DRC — madai ambayo Rwanda inakanusha; (3) Vikwazo: US, UK na EU vimeweka vikwazo vinavyolengwa kwa baadhi ya maafisa wa RDF kwa kuhusiana na DRC. Kwa DD ya makampuni ya ulinzi ya Rwanda: (a) kagua orodha za UN, OFAC, OFSI, EU kwa wamiliki wa msingi na maafisa; (b) jichunge na biashara inayohusiana na rasilimali za madini (coltan, kobalti) iliyochotwa kwa njia za makinikia za Mashariki ya DRC — hii ni red-flag muhimu chini ya Section 1502 (Dodd-Frank) na EU Conflict Minerals Regulation.",
     },
+
+    # ── DD Layer 8 — Counter-Intelligence (R-F121, wired 2026-05-10) ──────
+    # R-F264 (2026-05-11): closes Phase A gate #6 for dd_layer_8 (0/10 → 10/10).
+    # Layer 8 sweeps recent intel_ledger signals about the entity for
+    # narrative-shift / coordinated-press / tier-contradiction patterns
+    # that none of the prior layers can see. Fail-open; 30-day window;
+    # composite_score>=0.5 triggers brain-absorb of a HIGH alert.
+    {
+        "seed_id": "seed_dd_layer_8_001",
+        "category": "dd_layer_8",
+        "question": "What does DD Layer 8 (counter-intelligence) do?",
+        "expected_answer": "Layer 8 (counter_intelligence) sweeps recent intel_ledger signals about the entity over the last 30 days for three patterns invisible to prior layers: (1) narrative-shift — positive press timed against a negative event; (2) coordinated press — three or more tier-3 sources publishing similar content in the same window; (3) tier contradiction — tier-1 source listing the entity as sanctioned while a tier-3 source describes the same entity as clean. Result attaches to report.counter_intelligence; composite_score >= 0.5 logs a WARNING and absorbs to brain_hook for predictor learning. Layer 8 is fail-open — it never blocks DD progression on its own errors.",
+    },
+    {
+        "seed_id": "seed_dd_layer_8_002",
+        "category": "dd_layer_8",
+        "question": "When does DD Layer 8 fire a WARNING-level log?",
+        "expected_answer": "When composite_score >= 0.5. The log line shape is `[dd_orchestrator] COUNTER-INTEL alert on <entity>: score=<value> patterns=<top-3 keys>`. Below 0.5 the layer still executes and attaches its result to the report but produces no WARNING — the data is available for synthesis (Layer 6) without polluting the error-ledger ring buffer.",
+    },
+    {
+        "seed_id": "seed_dd_layer_8_003",
+        "category": "dd_layer_8",
+        "question": "How is Layer 8 different from Layer 1 sanctions screening?",
+        "expected_answer": "Layer 1 asks 'is this entity directly listed by any sanctioned-entity authority right now?' against canonical lists (OFAC SDN, EU consolidated, UK OFSI, UN SC). Layer 8 asks 'does the recent press / intel-ledger record reveal a counter-intelligence signal that contradicts what Layer 1 found?' — e.g., entity passed Layer 1 clean but five tier-3 outlets published positive coverage during the same week the entity's parent company entered restructuring. Layer 1 is a direct list check; Layer 8 is a behavioural narrative check.",
+    },
+    {
+        "seed_id": "seed_dd_layer_8_004",
+        "category": "dd_layer_8",
+        "question": "What happens when Layer 8 times out?",
+        "expected_answer": "Layer 8 has an 8-second timeout via asyncio.wait_for in dd_orchestrator. On TimeoutError it logs `counter-intel timed out (non-fatal)` at WARNING level and continues to Layer 9. The DD report.counter_intelligence field stays unset (no result attached). This is by-design fail-open behaviour: a slow intel-ledger scan must never block sanctions-divergence (L9) or forensic (L10) from running.",
+    },
+    {
+        "seed_id": "seed_dd_layer_8_005",
+        "category": "dd_layer_8",
+        "question": "Give a concrete example of a tier-contradiction pattern.",
+        "expected_answer": "A Russian arms-trade entity (Rosoboronexport subsidiary) shows up on OFAC SDN (tier-1 authoritative) but a tier-3 Russian-language defence outlet recently published a positive procurement-modernisation story naming the same entity as a 'reliable partner'. Layer 1 flags the SDN hit and HARD-STOPs DD. Layer 8 separately observes that the tier-3 source is publishing in a way that contradicts the authoritative listing — likely a narrative-laundering attempt. The pattern feeds the predictor so similar timing patterns elevate suspicion in future DD runs.",
+    },
+    {
+        "seed_id": "seed_dd_layer_8_006",
+        "category": "dd_layer_8",
+        "question": "What does narrative-shift detect?",
+        "expected_answer": "Narrative-shift fires when positive press coverage of the entity coincides within a tight window (typically 7-14 days) with a negative event observed elsewhere — e.g., the entity issued a glossy procurement-win press release in the same week one of its directors was added to a sanctions watchlist, OR in the same week the entity's parent company filed an 8-K disclosing a SEC investigation. Counter-intel logic doesn't claim causation; it surfaces the temporal coincidence so the synthesis layer can weight it.",
+    },
+    {
+        "seed_id": "seed_dd_layer_8_007",
+        "category": "dd_layer_8",
+        "question": "What is coordinated press in Layer 8?",
+        "expected_answer": "Coordinated press fires when three or more tier-3 sources publish similar (or identical) content about the entity within a short window — distinct outlets, near-identical phrasing, no clear primary source. This is the signature of paid-placement campaigns or astroturfed reputation-laundering. Tier-3 here means publications below the verified-fact-checking threshold (typical examples: trade-press syndication networks, low-quality news aggregators, sponsored content masquerading as editorial).",
+    },
+    {
+        "seed_id": "seed_dd_layer_8_008",
+        "category": "dd_layer_8",
+        "question": "Does Layer 8 contribute to the final risk classification (Layer 6 synthesis)?",
+        "expected_answer": "Yes — report.counter_intelligence is one of the inputs the Layer 6 ACH (Analysis of Competing Hypotheses) matrix consumes. A high composite_score raises the prior on hypotheses like 'this entity is concealing material risk via reputation management', which in turn pushes the final risk classification toward MEDIUM or HIGH even when L1-L4 returned clean. Layer 8 contribution is additive, not blocking — a clean L8 doesn't override an L1 HARD_STOP.",
+    },
+    {
+        "seed_id": "seed_dd_layer_8_009",
+        "category": "dd_layer_8",
+        "question": "Why does Layer 8 run after the digital layer (Layer 5) rather than before?",
+        "expected_answer": "Layer 5 (Digital) is the broad collection layer — web search, RAG retrieval, neural memory, deep_research LLM. Layer 8 needs the intel_ledger to already contain recent signals about the entity, which Layer 5's RAG ingest and brain_hook absorption populate. Running Layer 8 BEFORE Layer 5 would mean fewer recent signals to analyse and lower-quality narrative-shift / coordinated-press detection. The order is observation (L5) before behavioural analysis (L8).",
+    },
+    {
+        "seed_id": "seed_dd_layer_8_010",
+        "category": "dd_layer_8",
+        "question": "What is the operator-visible side-effect when Layer 8 detects a HIGH alert?",
+        "expected_answer": "Three side-effects: (1) WARNING log line `[dd_orchestrator] COUNTER-INTEL alert on <entity>: score=<v> patterns=<top-3>` (visible in fly logs); (2) brain_hook.absorb is called with the alert summary, which propagates the pattern into the neural memory + capability_gaps tracker so the predictor learns to flag similar timing patterns in future DD runs; (3) the alert is attached to the final ARK-DD report (Layer 7) so the human reviewer sees it inline rather than buried in trace data.",
+    },
+
+    # ── DD Layer 9 — Sanctions Divergence (R-F122, wired 2026-05-10) ──────
+    # Cross-jurisdiction listed vs silent. Compliance-officer ground-truth.
+    # 10s timeout, fail-open, informational layer (no block).
+    {
+        "seed_id": "seed_dd_layer_9_001",
+        "category": "dd_layer_9",
+        "question": "What does DD Layer 9 (sanctions divergence) do?",
+        "expected_answer": "Layer 9 (sanctions_divergence) compares the entity's presence across multiple authoritative sanctions lists and reports the DIVERGENCE — e.g., listed on OFAC but silent on OFSI, or listed by EU 833/2014 Annex while UN SC has taken no action. Layer 1 reports presence/absence per source; Layer 9 reports the *meaning* of the pattern — which jurisdictions are aligned and which are silent. Result attaches to report.sanctions_divergence.",
+    },
+    {
+        "seed_id": "seed_dd_layer_9_002",
+        "category": "dd_layer_9",
+        "question": "When does Layer 9 fire a WARNING log?",
+        "expected_answer": "When the result dict has matches>0 AND divergence_count>=1. The log shape is `[dd_orchestrator] SANCTIONS DIVERGENCE on <entity>: listed=<jurisdictions_listed>, silent=<jurisdictions_not_listed>`. Below those thresholds the layer attaches its result silently — a fully-aligned listing (every jurisdiction listed) or a fully-clean entity (every jurisdiction silent) is not log-worthy.",
+    },
+    {
+        "seed_id": "seed_dd_layer_9_003",
+        "category": "dd_layer_9",
+        "question": "Concrete example: OFAC SDN lists an entity but UK OFSI does not. What does Layer 9 conclude?",
+        "expected_answer": "Layer 9 reports divergence_count=1 with jurisdictions_listed=['OFAC'] and jurisdictions_not_listed=['OFSI']. The DD report will inform the compliance officer that for a UK-domiciled transaction, OFSI silence does NOT make the entity transactable — secondary sanctions risk applies because (a) any USD-clearing leg touches US persons regulated by OFAC, (b) the UK's OFSI typically aligns with OFAC within 30-90 days on equivalent designations, and (c) the operator should run a fresh OFSI check on the live date before any commercial commitment.",
+    },
+    {
+        "seed_id": "seed_dd_layer_9_004",
+        "category": "dd_layer_9",
+        "question": "What does UN SC silence vs EU action mean?",
+        "expected_answer": "UN Security Council sanctions require P5 consensus, so the absence of a UN listing on an entity that the EU has sanctioned typically means a P5 member (Russia or China) vetoed UN action — most commonly on entities related to Russian, Chinese, North Korean, or Iranian proliferation networks. Operationally for a defence broker: an entity sanctioned by EU 833/2014 but NOT by UN SC is still legally restricted for EU persons and any EU-jurisdiction transaction, but you may encounter willing counterparties from non-EU jurisdictions who cite UN silence as cover. Layer 9 surfaces the divergence so the operator knows which legal regime governs which leg of the deal.",
+    },
+    {
+        "seed_id": "seed_dd_layer_9_005",
+        "category": "dd_layer_9",
+        "question": "Does Layer 9 block the DD progression?",
+        "expected_answer": "No — Layer 9 is INFORMATIONAL. It attaches sanctions_divergence to the report and emits a WARNING log when divergence is observed, but it never causes a HARD_STOP. The hard-stop decision lives in Layer 1 (any direct sanctions hit on a primary authority where the deal jurisdiction applies). Layer 9's value is in informing the Layer 6 synthesis matrix and the human reviewer; it changes how the answer reads, not whether the DD continues.",
+    },
+    {
+        "seed_id": "seed_dd_layer_9_006",
+        "category": "dd_layer_9",
+        "question": "What happens when Layer 9 times out?",
+        "expected_answer": "Layer 9 has a 10-second timeout via asyncio.wait_for. On TimeoutError it logs `sanctions divergence timed out (non-fatal)` at WARNING level and continues to Layer 10. The DD report.sanctions_divergence field stays unset. This is fail-open behaviour — slow OpenSanctions or external screen lookups must never prevent Layer 10's forensic analysis from running.",
+    },
+    {
+        "seed_id": "seed_dd_layer_9_007",
+        "category": "dd_layer_9",
+        "question": "What's the cross-jurisdiction USD-clearing implication for a Layer 9 finding?",
+        "expected_answer": "Any USD-denominated transaction is processed through US correspondent banking, which means OFAC has effective extraterritorial reach over the payment. So even if the deal is structured between non-US parties under non-US law, if the payment leg touches USD clearing, an OFAC SDN listing on either counterparty makes the transaction prohibited for the US correspondent bank — they will reject the payment and may file a SAR. Layer 9 surfacing 'OFAC listed, others silent' is therefore a hard signal for USD-leg redesign (EUR / GBP / non-USD currency) or deal kill.",
+    },
+    {
+        "seed_id": "seed_dd_layer_9_008",
+        "category": "dd_layer_9",
+        "question": "How does Layer 9 differ from Layer 1's multi-source sanctions screen?",
+        "expected_answer": "Layer 1 runs a parallel screen across multiple sources and reports each result independently — 'OFAC: HIT 95% confidence, EU: NO HIT, OFSI: HIT 80% confidence, UN SC: NO HIT'. Layer 9 takes that population of per-source results and produces a divergence verdict — '3 listed, 1 silent, divergence_count=1, jurisdictions_listed=[OFAC, OFSI, EU], jurisdictions_not_listed=[UN_SC]'. Layer 1 is parallel screening; Layer 9 is meta-analysis of the screen population.",
+    },
+    {
+        "seed_id": "seed_dd_layer_9_009",
+        "category": "dd_layer_9",
+        "question": "What's the operator-relevant action when Layer 9 reports jurisdictions_listed = ['OFAC'] and jurisdictions_not_listed = ['EU', 'OFSI', 'UN_SC']?",
+        "expected_answer": "A 1-of-4 OFAC-only listing is the highest-divergence pattern Layer 9 reports. Operator action: (a) verify the OFAC listing is current via SDN search by exact reference number; (b) check whether OFAC issued a recent press release explaining the rationale — sometimes US designations precede EU/UK alignment by 30-90 days, so this may be a leading indicator; (c) for a UK-based transaction, treat the entity as effectively sanctioned because OFSI typically follows OFAC and secondary-sanctions risk on USD legs applies regardless; (d) for an EU-based transaction without USD touch, the entity is legally transactable but the OFAC outlier is a material disclosure point the operator must surface in the commercial brief.",
+    },
+    {
+        "seed_id": "seed_dd_layer_9_010",
+        "category": "dd_layer_9",
+        "question": "Why is Layer 9 the 'compliance-officer ground-truth' question?",
+        "expected_answer": "Compliance officers don't ask 'is this entity sanctioned' — they ask 'in which of MY operating jurisdictions is this entity sanctioned, and what is the secondary-sanctions risk on the payment path?'. Layer 1's binary 'listed/not listed per source' answers the first half. Layer 9 answers the second half by composing the per-source results into a jurisdictional risk map. This is the question the compliance officer would ask a human analyst, and Layer 9 is the layer that answers it in the ARK-DD report directly.",
+    },
+
+    # ── DD Layer 10 — Forensic (Benford + TBML, R-F123, wired 2026-05-10) ──
+    # Apply Benford's Law to financial figures (≥50 distinct values gate)
+    # and TBML transaction classifier (transactions list required gate).
+    # Conservative: self-skips silently when neither gate fires.
+    {
+        "seed_id": "seed_dd_layer_10_001",
+        "category": "dd_layer_10",
+        "question": "What does DD Layer 10 (forensic) do?",
+        "expected_answer": "Layer 10 (forensic) applies two financial-forensic techniques over data collected in prior layers: (1) Benford's Law analysis on the first-digit distribution of financial figures associated with the entity — procurement values, contract amounts, etc.; (2) a TBML (trade-based money laundering) transaction classifier over caller-provided transaction line items. Both are conservative-gated: Benford only runs with ≥50 distinct values, TBML only runs if a transactions list is provided. When neither gate fires the layer self-skips silently (no log noise).",
+    },
+    {
+        "seed_id": "seed_dd_layer_10_002",
+        "category": "dd_layer_10",
+        "question": "What is the Benford's Law gate in Layer 10?",
+        "expected_answer": "Benford analysis requires at least 50 distinct financial values to produce a statistically meaningful chi-square test. Below 50 distinct values the test is too noisy (small-sample chi-square is over-confident). When the gate fails, no Benford block is added to the forensic output and the layer log line will note 'benford skipped: insufficient values'. The 50-value threshold is conservative — many forensic auditors use 1000+ for high-confidence analysis, but 50 is the floor where the test has any signal at all.",
+    },
+    {
+        "seed_id": "seed_dd_layer_10_003",
+        "category": "dd_layer_10",
+        "question": "What is the TBML transaction classifier gate?",
+        "expected_answer": "The TBML classifier requires the caller to provide a transactions list (line-item shape: amount, counterparty, jurisdiction, commodity, currency, date). It analyses for known typologies: over-invoicing (export price >2x reasonable benchmark), under-invoicing (import price <0.5x benchmark), phantom shipments (no goods movement), multiple invoicing, and round-tripping. Without a transactions input the layer cannot run TBML — DD orchestrator does not synthesise transactions; only the caller (typically the verified-intel pipeline ingesting customer-provided invoices) has them.",
+    },
+    {
+        "seed_id": "seed_dd_layer_10_004",
+        "category": "dd_layer_10",
+        "question": "What happens when neither Benford nor TBML gate fires for an entity?",
+        "expected_answer": "The forensic layer self-skips silently — no log noise, no report.forensic block added, no contribution to the final risk classification from this layer. This is by-design conservative gating: most entities in a typical DD batch don't have 50+ procurement values OR a transactions list, so noisy 'forensic skipped' logs on every DD run would drown signal. The layer only speaks when it has data to say something meaningful about.",
+    },
+    {
+        "seed_id": "seed_dd_layer_10_005",
+        "category": "dd_layer_10",
+        "question": "What output fields does the Benford analysis produce?",
+        "expected_answer": "The Benford block in report.forensic contains: (1) n — number of distinct values analysed; (2) chi_square — the chi-square statistic comparing observed first-digit distribution to Benford's expected distribution; (3) p_value — the probability of observing this chi_square if the data were truly Benford-distributed; (4) tier — categorical verdict (LOW / MEDIUM / HIGH) based on p_value thresholds; (5) narrative — a human-readable explanation of the verdict for the ARK-DD report. A HIGH tier with p_value < 0.01 is a strong forensic red flag.",
+    },
+    {
+        "seed_id": "seed_dd_layer_10_006",
+        "category": "dd_layer_10",
+        "question": "What does a HIGH-tier Benford anomaly mean operationally?",
+        "expected_answer": "A HIGH-tier Benford anomaly means the first-digit distribution of the entity's financial figures deviates from Benford's expected log-distribution at p<0.01 — i.e., the chance of seeing this pattern in honest data is less than 1%. Operationally this is a red flag for fabricated or manipulated financial values: round-number bias (too many values starting with 5/9), suspicious clustering at thresholds (just below reporting limits), or systematic rounding. Layer 10 logs `BENFORD anomaly on <entity>: chi2=<v>, p=<v>, n=<v>` at WARNING level and contributes to the Layer 6 synthesis as evidence for the 'financial-manipulation' hypothesis.",
+    },
+    {
+        "seed_id": "seed_dd_layer_10_007",
+        "category": "dd_layer_10",
+        "question": "What's the rationale for Layer 10's conservative gating?",
+        "expected_answer": "Forensic statistics are powerful but easy to misapply. Benford on <50 values produces false-positive HIGH tiers ~30% of the time (small-sample chi-square over-rejects). TBML on synthesised / hypothetical transactions produces typology hits with no real-world counterpart. The conservative gates (≥50 distinct values for Benford, real transactions list for TBML) prevent the forensic layer from contributing low-confidence noise to the synthesis matrix — Layer 6 already has L1-L5 evidence; Layer 10 should only add findings the operator can defend to a compliance audit. Better to skip silently than to publish a chi-square the auditor will throw out.",
+    },
+    {
+        "seed_id": "seed_dd_layer_10_008",
+        "category": "dd_layer_10",
+        "question": "How does Layer 10 contribute to the final risk classification?",
+        "expected_answer": "When the gates fire and produce findings, Layer 10's forensic block feeds the Layer 6 ACH (Analysis of Competing Hypotheses) matrix as evidence for hypotheses like 'this entity has fabricated financial records' (Benford HIGH) or 'this entity is engaged in trade-based money laundering' (TBML typology hit). These hypotheses raise the prior on overall risk classification — a Benford HIGH on a counterparty with otherwise-clean L1 and weak L4 compliance signals can move the final verdict from MEDIUM to HIGH or HARD_STOP. When gates don't fire, Layer 10 contributes nothing — the verdict is set by L1-L9 alone.",
+    },
+    {
+        "seed_id": "seed_dd_layer_10_009",
+        "category": "dd_layer_10",
+        "question": "What is Layer 10's failure mode if the forensic_benford module raises an exception?",
+        "expected_answer": "Layer 10 is fail-open like the other supplementary layers. An exception inside forensic_benford or the TBML classifier is caught at the dd_orchestrator level, logged at DEBUG (non-fatal) with the error truncated, and DD progression continues to Layer 11 / Layer 7 (report assembly). The report.forensic field stays unset for that run. A complete DD report cannot be blocked by a forensic-statistics library bug.",
+    },
+    {
+        "seed_id": "seed_dd_layer_10_010",
+        "category": "dd_layer_10",
+        "question": "Why are Benford and TBML grouped into one DD layer rather than separate layers?",
+        "expected_answer": "Both are forensic-statistics techniques applied to financial-flow data once the entity has been identified (L1), networked (L2), verified (L3), and compliance-checked (L4). They share the same caller — the DD orchestrator after all standard checks — and they share the same conservative-gate philosophy. Splitting them would add a layer number without adding analytical depth (Layer 11 = TBML, Layer 12 = Benford would be cosmetic). The grouped layer also means the report has a single 'forensic' block that the human reviewer can read as one section rather than two separate layers reporting on the same conceptual question.",
+    },
 ]
 
 
