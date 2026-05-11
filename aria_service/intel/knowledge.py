@@ -673,6 +673,25 @@ async def store_learning(correction: str, context: str = "") -> None:
     await _save()
 
 
+def all_facts() -> list[dict]:
+    """R-F164 (2026-05-11): expose the raw fact list to callers that need
+    structured access. coverage_heatmap._count_facts_for_cell was using
+    `hasattr(_k, "search")` then calling _k.search(query) — but knowledge
+    has no `search` function (only `search_knowledge`, which returns a
+    formatted string for prompt injection, not a list). The hasattr check
+    silently evaluated False, and every coverage cell returned fact_count=0,
+    leaving the dashboard heatmap at 867/867 absent indefinitely. This
+    accessor returns a snapshot so the heatmap matcher can iterate.
+
+    Returns the full in-memory fact list as a *new* list. Mutations on
+    the result don't affect the cache (each fact dict is still shared by
+    reference — callers must treat them as read-only)."""
+    if not _cache:
+        return []
+    facts = _cache.get("facts") if isinstance(_cache, dict) else None
+    return list(facts) if isinstance(facts, list) else []
+
+
 def search_knowledge(query: str) -> str:
     """Synchronous search for prompt injection. Returns formatted string."""
     if not _cache:

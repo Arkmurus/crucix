@@ -357,6 +357,9 @@ async function toggleDetail(row, runId) {
           '<i class="bi bi-chat-dots"></i> Discuss in chat</a>' +
         '<button class="dd-act-btn" data-action="copy">' +
           '<i class="bi bi-clipboard"></i> Copy markdown</button>' +
+        '<button class="dd-act-btn" data-action="delete" data-run-id="' + escAttr(runId) + '" ' +
+          'style="margin-left:auto;color:#fca5a5" title="Delete this report (R-F162)">' +
+          '<i class="bi bi-trash"></i> Delete report</button>' +
       '</div>' +
       '<div class="dd-md">' + mdRender(md) + '</div>';
 
@@ -367,6 +370,26 @@ async function toggleDetail(row, runId) {
         btn.innerHTML = '<i class="bi bi-check2"></i> Copied';
         setTimeout(() => { btn.innerHTML = orig; }, 1500);
       });
+    });
+    detailRow.querySelector('[data-action="delete"]').addEventListener('click', async (e) => {
+      const b = e.currentTarget;
+      const rid = b.getAttribute('data-run-id');
+      if (!confirm('Delete report ' + (rid || '').slice(0, 14) + '? This removes it from the library and Redis. Cannot be undone.')) return;
+      const orig = b.innerHTML;
+      b.disabled = true;
+      b.innerHTML = '<i class="bi bi-hourglass-split"></i> Deleting…';
+      try {
+        const r = await authed('/api/aria/dd/report/' + encodeURIComponent(rid), { method: 'DELETE' });
+        if (!r.ok) {
+          alert('Delete failed (HTTP ' + r.status + ').');
+          b.disabled = false; b.innerHTML = orig;
+          return;
+        }
+        await loadReports();
+      } catch (err) {
+        alert('Delete error: ' + err.message);
+        b.disabled = false; b.innerHTML = orig;
+      }
     });
     detailRow.querySelector('[data-action="rerun"]').addEventListener('click', async (e) => {
       const b = e.currentTarget;

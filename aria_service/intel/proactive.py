@@ -59,6 +59,11 @@ MASTERY_PREP_INTERVAL_S = 6 * 3600
 READING_QUEUE_KEY = "crucix:aria:proactive:reading_queue"
 READING_DEDUPE_KEY = "crucix:aria:proactive:reading_dedupe:{topic}"
 READING_DEDUPE_TTL_S = 6 * 3600
+# R-F163 (2026-05-11): de-dup alert text so we don't show the same
+# 'studying weak topics' three times across 14h. The same sorted set
+# of weak tags will hash to the same key; we only fire when the set
+# (or its top-3 head) actually changes.
+LAST_MASTERY_PREP_HASH_KEY = "crucix:aria:proactive:last_mastery_prep_hash"
 
 
 # ── Alert queue ─────────────────────────────────────────────────────────────
@@ -216,7 +221,27 @@ async def detect_knowledge_gaps(question: str) -> None:
 # ── Behaviour 3: Mastery-driven preparation ────────────────────────────────
 
 async def prepare_weak_topics(llm=None) -> int:
-    """Look at student mastery, find the weakest topics, trigger reading.
+    """Look at student mastery, find the weakest topics, queue + announce.
+
+    R-F163 (2026-05-11): the previous implementation only pushed an alert
+    naming the weak topics, while `student.reading_session()` separately
+    picked from `TOPICS + CORE_MASTERY_TAGS` and ignored anything else.
+    Result: region-specific tags like `angola_procurement`, `uk_compliance`,
+    `uk_export_control` were announced as 'studying' every 6h but never
+    actually studied, so they stayed stuck at 47% forever and the same
+    alert text repeated indefinitely.
+
+    Three corrections:
+      1. Split weak tags into 'studyable' (in TOPICS + CORE_MASTERY_TAGS,
+         so reading_session can lift them) vs 'starved' (everything else).
+      2. Bias the ordering by RECENT WORK — recent DD jurisdictions / chat
+         topics get pushed up so today's queue reflects what the operator
+         actually touched, not just the global mastery floor.
+      3. QUEUE the topics into READING_QUEUE_KEY (which reading_session
+         now drains via R-F163's consumer side). Announce the queued list
+         in the alert, NOT the un-actionable starved list.
+      4. De-dup the alert: if the studyable top-3 hasn't changed since
+         the last fire, skip the push (we still do the queueing work).
 
     Caller (`_proactive_loop`) ticks hourly so `daily_briefing_check` can fire
     near 06:00 UTC, but the mastery-prep alert claims a 6h cadence. Without an
@@ -231,32 +256,167 @@ async def prepare_weak_topics(llm=None) -> int:
             return 0
 
         mastery_report = await student.get_mastery_report()
-        weak = mastery_report.get("weak_topics", [])
+        weak = mastery_report.get("weak_topics", []) or []
         if not weak:
             return 0
 
-        # Push an alert summarising the prep work
+        # Split by studyability. reading_session() picks from this pool:
+        studyable_pool = set(student.TOPICS) | set(student.CORE_MASTERY_TAGS)
+        studyable = [t for t in weak if t in studyable_pool]
+        starved = [t for t in weak if t not in studyable_pool]
+
+        # ── Recent-activity boost ──
+        # Pull last-48h DD entities + chat-audit topics so today's queue
+        # reflects what the operator actually worked on, not the global
+        # mastery floor. Each priority tag found in recent work is moved
+        # to the front of the studyable list.
+        recent_signals = await _collect_recent_activity_signals()
+        boosted = [t for t in studyable if t in recent_signals]
+        rest = [t for t in studyable if t not in recent_signals]
+        studyable = boosted + rest
+
+        # Queue up to 5 studyable tags so reading_session has work to do.
+        queued = []
+        for t in studyable[:5]:
+            try:
+                r = await queue_reading_session(
+                    t, reason="mastery_prep_R-F163", severity="MEDIUM"
+                )
+                if r.get("queued"):
+                    queued.append(t)
+            except Exception as _qe:
+                logger.debug("queue_reading_session failed for %s: %s", t, _qe)
+
+        # De-dup the alert: hash the announced set (top-3 studyable).
+        import hashlib as _hl
+        announce_list = studyable[:3] if studyable else (starved[:3] if starved else [])
+        ann_hash = _hl.sha1(
+            ",".join(sorted(announce_list)).encode("utf-8")
+        ).hexdigest()[:12]
+        last_hash = (await rs.get(LAST_MASTERY_PREP_HASH_KEY) or "").strip()
+        if ann_hash == last_hash:
+            logger.info(
+                "[proactive] R-F163 mastery_prep alert suppressed (same as last fire); "
+                "queued=%d studyable=%d starved=%d",
+                len(queued), len(studyable), len(starved),
+            )
+            # Still rate-limit so we don't recompute hourly.
+            await rs.set_json(
+                LAST_MASTERY_PREP_KEY,
+                {"ts": now, "weak": weak, "suppressed": True},
+                ex=14 * 86400,
+            )
+            return len(queued)
+
+        # Build alert text that ONLY names tags reading_session can lift.
+        body_parts = []
+        if studyable:
+            body_parts.append(
+                "Studying " + ", ".join(studyable[:5])
+                + (f" (+{len(studyable) - 5} more)" if len(studyable) > 5 else "")
+                + "."
+            )
+        if starved:
+            body_parts.append(
+                "Tags reading_session can't lift directly (region-specific): "
+                + ", ".join(starved[:5])
+                + (f" (+{len(starved) - 5} more)" if len(starved) > 5 else "")
+                + ". A targeted web_search branch (R-F163) ingests these."
+            )
+        body_parts.append("Cadence: every 6h.")
+
+        title = (
+            f"🎓 Studying: {', '.join(announce_list)}"
+            if announce_list else "🎓 Mastery prep tick"
+        )
+
         await push_alert({
             "type": "mastery_prep",
-            "title": f"🎓 Studying weak topics: {', '.join(weak[:3])}",
+            "title": title,
             "severity": "info",
-            "body": (
-                f"ARIA is auto-prepping reading sessions on her weakest topics: "
-                f"{', '.join(weak)}. This happens autonomously every 6h."
-            ),
-            "metadata": {"weak_topics": weak},
+            "body": " ".join(body_parts),
+            "metadata": {
+                "weak_topics": weak,
+                "studyable": studyable,
+                "starved": starved,
+                "queued": queued,
+                "recent_signals": list(recent_signals),
+            },
         })
 
         await rs.set_json(
             LAST_MASTERY_PREP_KEY,
-            {"ts": now, "weak": weak},
+            {"ts": now, "weak": weak, "queued": queued},
             ex=14 * 86400,
         )
+        try:
+            await rs.set(LAST_MASTERY_PREP_HASH_KEY, ann_hash, ex=14 * 86400)
+        except Exception:
+            pass
 
-        # Actual reading session is triggered separately by the student loop
-        return len(weak)
+        return len(queued) or len(weak)
     except Exception as e:
         logger.warning("prepare_weak_topics failed: %s", e)
+
+
+async def _collect_recent_activity_signals() -> set[str]:
+    """R-F163: scan last-48h DD reports + chat audit for topic/tag signals
+    we can use to bias the weak-topic queue. Returns a set of tag strings
+    that intersect with student.TOPICS + CORE_MASTERY_TAGS.
+
+    Cheap & best-effort — never raises. If both lookups fail, returns
+    empty and the caller falls back to mastery-only ordering.
+    """
+    signals: set[str] = set()
+    try:
+        from . import dd_orchestrator
+        reports = await dd_orchestrator.list_reports(limit=20)
+        # Tag jurisdictions onto market_intel / geopolitics — these are
+        # the studyable tags whose RSS pool already covers the regions
+        # named in DD jurisdictions.
+        for r in reports or []:
+            j = (r.get("jurisdiction") or "").lower()
+            if not j:
+                continue
+            if any(k in j for k in ("angola", "mozambique", "brazil", "portugal", "cape verde", "são tomé", "guinea-bissau", "lusophone")):
+                signals.update({"market_intel", "geopolitics", "lang:pt"})
+            if any(k in j for k in ("russia", "ukraine", "belarus")):
+                signals.update({"geopolitics", "lang:ru", "sanctions"})
+            if any(k in j for k in ("china", "taiwan", "hong kong")):
+                signals.update({"geopolitics", "lang:zh", "strategic_geography"})
+            if any(k in j for k in ("turkey", "türkiye", "syria")):
+                signals.update({"geopolitics", "nato_standards"})
+            if any(k in j for k in ("saudi", "uae", "gulf", "iran", "qatar", "oman", "egypt")):
+                signals.update({"geopolitics", "lang:ar", "strategic_geography"})
+    except Exception as e:
+        logger.debug("_collect_recent_activity_signals: DD scan failed: %s", e)
+
+    try:
+        from . import chat_audit_log
+        # Last-100 audit entries — chat_audit_log.get_recent doesn't take
+        # an hours filter, so we cap at 100 entries (typical 24-48h window
+        # at current chat volume). Tag patterns from there indicate what
+        # the operator actually queried recently.
+        recent = await chat_audit_log.get_recent(limit=100)
+        cutoff = time.time() - 48 * 3600
+        for ent in recent or []:
+            ts = ent.get("ts") or ent.get("timestamp") or 0
+            try:
+                if isinstance(ts, str):
+                    ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+                if ts and ts < cutoff:
+                    continue
+            except Exception:
+                pass
+            tags = ent.get("tags") or ent.get("topics") or []
+            if isinstance(tags, list):
+                for t in tags:
+                    if isinstance(t, str):
+                        signals.add(t)
+    except Exception as e:
+        logger.debug("_collect_recent_activity_signals: chat audit failed: %s", e)
+
+    return signals
         return 0
 
 

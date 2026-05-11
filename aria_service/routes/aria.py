@@ -405,6 +405,18 @@ async def dd_reports_index_ep(limit: int = 50):
     return {"reports": await dd_orchestrator.list_reports(limit=limit)}
 
 
+@router.delete("/dd/report/{run_id}")
+async def dd_report_delete_ep(run_id: str):
+    """R-F162 (2026-05-11): drop a single DD report + its index entry.
+    Needed so operators can clean up bad reports (the 2026-05-10 12:39
+    'this company...' case) the validator couldn't catch retroactively."""
+    from ..intel import dd_orchestrator
+    try:
+        return await dd_orchestrator.delete_report(run_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/dd/layer-5c/stats")
 async def dd_layer_5c_stats_ep(limit: int = 200):
     """Layer 5c (commercial coherence) tier distribution + most-flagged

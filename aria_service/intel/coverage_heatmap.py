@@ -200,20 +200,27 @@ async def _count_facts_for_cell(domain: str, jurisdiction: str) -> tuple[int, in
 
     try:
         from . import knowledge as _k
-        query = f"{domain.replace('_', ' ')} {jurisdiction}"
-        if hasattr(_k, "search"):
-            results = _k.search(query, limit=500)
-            if hasattr(results, "__await__"):
-                results = await results
-            if isinstance(results, list):
-                for fact in results:
-                    if not isinstance(fact, dict):
-                        continue
-                    text = " ".join(str(fact.get(k) or "") for k in
-                                    ("entity", "topic", "summary",
-                                     "detail", "source")).lower()
-                    if _matches_cell(text, dom_tokens, jur_synonyms):
-                        fact_count += 1
+        # R-F164 (2026-05-11): knowledge has no `search` function — the
+        # previous hasattr probe silently failed for every cell, so fact_
+        # count was 0/867 forever. Use the new `all_facts()` accessor and
+        # iterate locally. With ~20k facts × 867 cells this is O(N*M), but
+        # the matcher short-circuits hard on jurisdiction-synonym misses
+        # (fact_text rarely contains the country) so most cells stop after
+        # the synonym check. Cached for 1h via the routes layer.
+        facts = _k.all_facts() if hasattr(_k, "all_facts") else []
+        for fact in facts:
+            if not isinstance(fact, dict):
+                continue
+            # Include `content` — facts store the body there. The previous
+            # field list (entity, topic, summary, detail, source) missed
+            # the actual fact body so even a "Saudi Arabia OFAC sanctions"
+            # fact stored at `content` was scored as 0-match.
+            text = " ".join(
+                str(fact.get(k) or "") for k in
+                ("entity", "topic", "content", "summary", "detail", "source")
+            ).lower()
+            if _matches_cell(text, dom_tokens, jur_synonyms):
+                fact_count += 1
     except Exception as e:
         logger.debug("coverage knowledge query failed for %s/%s: %s",
                      domain, jurisdiction, e)
@@ -279,7 +286,14 @@ async def build_heatmap(
         matrix[d] = {}
         for j in juris_list:
             fact_count, signal_count = await _count_facts_for_cell(d, j)
-            tier = density_tier(fact_count)
+            # R-F164: tier off the combined density. Signal_count was being
+            # collected but never used in the grade, so a cell with 200
+            # intel_ledger signals but 0 fact-store hits still rendered
+            # 'absent'. Weight signals at 0.5 (they're noisier than curated
+            # facts) so cells with strong ledger coverage but thin curated
+            # knowledge still surface as moderate / strong.
+            combined = fact_count + int(signal_count * 0.5)
+            tier = density_tier(combined)
             # freshness for the domain (jurisdiction-specific freshness
             # would require finer-grained tagging — defer to next iter)
             domain_freshness = freshness_records.get(d, {})

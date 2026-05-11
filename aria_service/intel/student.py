@@ -631,7 +631,41 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
     weak_topics = sorted(
         weak_pool, key=lambda t: mastery.get(t, {}).get("score", INITIAL_MASTERY)
     )[:5]
-    logger.info("[student] reading session — focused on weak topics: %s", weak_topics)
+
+    # R-F163 (2026-05-11): drain the proactive reading queue first. When
+    # `proactive.prepare_weak_topics` or `ecosystem_reassess` enqueue a
+    # topic, that's a stronger signal than the global mastery score —
+    # the operator's recent work, or detected drift, said "study this".
+    # Queue topics that ARE in weak_pool get promoted to the front of
+    # weak_topics; queue topics that are NOT (region-specific tags like
+    # angola_procurement, uk_compliance) are handed to a targeted web
+    # search branch lower in this function so they actually get studied.
+    queued_topics: list[str] = []
+    starved_queue_topics: list[str] = []
+    try:
+        from . import proactive as _prc
+        queue_entries = await _prc.get_reading_queue(limit=10)
+        for q in queue_entries or []:
+            t = (q.get("topic") if isinstance(q, dict) else "") or ""
+            t = t.strip()
+            if not t or t in queued_topics or t in starved_queue_topics:
+                continue
+            if t in weak_pool:
+                queued_topics.append(t)
+            else:
+                starved_queue_topics.append(t)
+        # Promote queued tags to the front, then dedupe by appending the
+        # mastery-driven weak set behind. Cap at 5 so the reading session
+        # remains time-bounded.
+        if queued_topics:
+            weak_topics = (queued_topics + [t for t in weak_topics if t not in queued_topics])[:5]
+    except Exception as _qe:
+        logger.debug("[student] reading_session queue drain failed: %s", _qe)
+    logger.info(
+        "[student] reading session — focused on weak topics: %s "
+        "(queued=%d, starved_queue=%d)",
+        weak_topics, len(queued_topics), len(starved_queue_topics),
+    )
 
     # Get fresh articles from a rotating set of feeds.
     # Boost: when a CORE_MASTERY_TAG is weak, force at least one
@@ -734,21 +768,79 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
             "chars_read": len(body),
         })
 
+    # ── R-F163 (2026-05-11) targeted branch for starved queue topics ──
+    # Tags like `angola_procurement`, `uk_compliance`, `uk_export_control`
+    # aren't in TOPICS or CORE_MASTERY_TAGS, so the RSS-based selection
+    # above cannot lift their mastery. Those tags came in via the
+    # proactive reading queue (region-specific weak signals). Hand each
+    # one to web_search with a topic-shaped query and ingest the top 2
+    # results so the mastery score for the SPECIFIC tag actually moves.
+    starved_studied: list[dict] = []
+    if starved_queue_topics:
+        try:
+            from . import researcher as _res
+            from . import knowledge as _kb
+            for stag in starved_queue_topics[:3]:
+                # Tag-name shape: 'angola_procurement' -> 'angola procurement'
+                pretty = stag.replace("_", " ").replace(":", " ")
+                query = f"{pretty} defence procurement news 2026"
+                try:
+                    resp = await _res.web_search(query=query, max_results=3)
+                except Exception as _se:
+                    logger.debug("[student] starved-tag web_search failed for %s: %s", stag, _se)
+                    continue
+                results = (resp or {}).get("results", []) if isinstance(resp, dict) else []
+                for hit in (results or [])[:2]:
+                    if not isinstance(hit, dict):
+                        continue
+                    url = hit.get("url") or hit.get("link") or ""
+                    title = hit.get("title") or ""
+                    snippet = hit.get("snippet") or hit.get("description") or ""
+                    if not url or not title:
+                        continue
+                    try:
+                        await _kb.store_fact(
+                            topic=title[:80],
+                            content=(snippet or title)[:800],
+                            source=f"reading_starved:{stag}",
+                            confidence="ASSESSED",
+                        )
+                    except Exception as _ke:
+                        logger.debug("[student] starved-tag kb store failed: %s", _ke)
+                    # Lift mastery on the exact starved tag (not the
+                    # auto-detected ones — that would re-write to lang:*
+                    # or compliance, and we explicitly need the named tag
+                    # to move so the proactive alert stops repeating).
+                    await update_mastery([stag], correct=True, weight=0.2)
+                    starved_studied.append({
+                        "tag": stag,
+                        "title": title[:120],
+                        "url": url,
+                    })
+        except Exception as _bre:
+            logger.warning("[student] starved-tag branch failed: %s", _bre)
+
     # Log the session
     log = await rs.get_json(READING_LOG_KEY) or []
     log.append({
         "ts": time.time(),
-        "articles_read": len(studied),
+        "articles_read": len(studied) + len(starved_studied),
         "topics_focused": weak_topics,
+        "starved_studied": [s["tag"] for s in starved_studied],
     })
     log = log[-100:]
     await rs.set_json(READING_LOG_KEY, log, ex=180 * 86400)
 
-    logger.info("[student] reading session complete: %d articles studied", len(studied))
+    logger.info(
+        "[student] reading session complete: %d articles (incl. %d starved-tag hits)",
+        len(studied) + len(starved_studied),
+        len(starved_studied),
+    )
     return {
-        "articles_read": len(studied),
+        "articles_read": len(studied) + len(starved_studied),
         "weak_topics_studied": weak_topics,
         "studied": studied,
+        "starved_studied": starved_studied,
     }
 
 

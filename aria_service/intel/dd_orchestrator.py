@@ -3653,9 +3653,141 @@ async def get_report(run_id: str) -> dict | None:
 
 
 async def list_reports(limit: int = 50) -> list[dict]:
+    """Return the report index, opportunistically repairing entries whose
+    stored entity_name fails the current validator. R-F162 (2026-05-11)
+    extends R-F153: when an index entry has a bad name (e.g. the live
+    2026-05-10 12:39 'this company, which has nothing to do' case), try
+    to derive a usable name from the stored target_input.website / url
+    on the full report blob. If repair succeeds the index entry AND the
+    report blob's identity.entity_name are both updated in place."""
     from . import redis_store as rs
     index = await rs.get_json(REPORT_INDEX_KEY) or []
+    if not index:
+        return []
+
+    _changed = False
+    for i, entry in enumerate(index[:limit]):
+        if not isinstance(entry, dict):
+            continue
+        name = (entry.get("entity_name") or "").strip()
+        if not name:
+            continue
+        _ok, _ = _validate_entity_name(name)
+        if _ok:
+            continue
+        # Bad name in index — try to repair from the full report blob.
+        run_id = entry.get("run_id")
+        if not run_id:
+            continue
+        try:
+            blob = await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))
+        except Exception:
+            blob = None
+        if not isinstance(blob, dict):
+            continue
+        # Probe candidates: ARKDDReport already stores the raw trigger
+        # input as `target`, so we read website / url / domain from there
+        # first. Fall back to the legacy `target_input` key (some older
+        # entries may not have target).
+        cand_sources = []
+        for src_key in ("target", "target_input"):
+            ti = blob.get(src_key) if isinstance(blob.get(src_key), dict) else None
+            if not ti:
+                continue
+            for k in ("website", "url", "domain"):
+                v = (ti.get(k) or "").strip() if ti else ""
+                if v:
+                    cand_sources.append(v)
+        # Fallback: scan identity.findings for any URL-shaped string.
+        ident = blob.get("identity") or {}
+        for fld in ("website", "url", "domain"):
+            v = (ident.get(fld) or "").strip() if isinstance(ident, dict) else ""
+            if v:
+                cand_sources.append(v)
+
+        new_name: str | None = None
+        for raw in cand_sources:
+            try:
+                from urllib.parse import urlparse as _urlparse
+                seed = raw if "://" in raw else f"https://{raw}"
+                host = (_urlparse(seed).hostname or "").lower().strip(".")
+                if host.startswith("www."):
+                    host = host[4:]
+                if not host:
+                    continue
+                ok2, _ = _validate_entity_name(host)
+                if ok2:
+                    new_name = host
+                    break
+            except Exception:
+                continue
+
+        if new_name:
+            logger.info(
+                "[dd_orchestrator] R-F162 retroactive rename: %s '%s' -> '%s'",
+                run_id, name, new_name,
+            )
+            entry["entity_name"] = new_name
+            entry["_original_name_rejected"] = name
+            entry["_name_derivation"] = "list_reports_repair_R-F162"
+            index[i] = entry
+            _changed = True
+            # Mirror into the stored report blob so /dd/report/{run_id}
+            # also reads the corrected name.
+            try:
+                if isinstance(blob.get("identity"), dict):
+                    blob["identity"]["entity_name"] = new_name
+                    blob["identity"]["_original_name_rejected"] = name
+                await rs.set_json(
+                    REPORT_REDIS_KEY.format(run_id=run_id),
+                    blob,
+                    ex=REPORT_TTL_SECONDS,
+                )
+            except Exception as e:
+                logger.debug("R-F162 blob mirror write failed: %s", e)
+
+    if _changed:
+        try:
+            await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
+        except Exception as e:
+            logger.debug("R-F162 index repair write failed: %s", e)
+
     return index[:limit]
+
+
+async def delete_report(run_id: str) -> dict:
+    """Remove a single DD report + its index entry. R-F162 (2026-05-11) —
+    the prior fix for the 'this company, which has nothing to do' case
+    relied on an operator-deletable surface that didn't exist. Operators
+    can now drop bad reports from the library directly."""
+    from . import redis_store as rs
+    if not run_id or not isinstance(run_id, str):
+        raise ValueError("run_id required")
+    blob_existed = False
+    try:
+        blob_existed = await rs.delete(REPORT_REDIS_KEY.format(run_id=run_id))
+    except Exception as e:
+        logger.warning("delete_report blob delete failed for %s: %s", run_id, e)
+    removed_from_index = 0
+    try:
+        index = await rs.get_json(REPORT_INDEX_KEY) or []
+        before = len(index)
+        index = [e for e in index if not (isinstance(e, dict) and e.get("run_id") == run_id)]
+        removed_from_index = before - len(index)
+        if removed_from_index:
+            await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
+    except Exception as e:
+        logger.warning("delete_report index write failed for %s: %s", run_id, e)
+    logger.info(
+        "[dd_orchestrator] R-F162 delete_report %s: blob=%s index_entries=%d",
+        run_id, blob_existed, removed_from_index,
+    )
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "blob_deleted": bool(blob_existed),
+        "index_entries_removed": removed_from_index,
+    }
 
 
 # =============================================================================
