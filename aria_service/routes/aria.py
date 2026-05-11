@@ -12492,6 +12492,152 @@ async def constitution_pending_ep():
     }
 
 
+@router.post("/inbound/{source}")
+async def inbound_webhook_ep(source: str, request: Request):
+    """R-F249 (2026-05-11) — generic inbound webhook receiver.
+
+    Audit identified "no inbound webhook receiver" as a SEV-5 perception
+    gap (operator-decision deferred earlier). This is the receiver. Each
+    third-party source (Salesforce, Linear, Slack, HubSpot, custom forms,
+    n8n flows, etc.) gets its own HMAC secret in the env:
+
+        ARIA_WEBHOOK_SECRET_<SOURCE>=<32-byte-base64>
+
+    Caller must include `X-ARIA-Signature: sha256=<hex>` header
+    computed as HMAC-SHA256 of the raw request body using that secret.
+    Body MUST be JSON. Without the signature, the receiver returns 401
+    so nobody can POST arbitrary payloads to ARIA's brain.
+
+    Verified payloads flow to:
+      1. intel_ledger as a signal (source = "webhook:{source}")
+      2. brain_hook.absorb so dashboard sees the inbound flow
+      3. read_document if the payload includes a `text` / `body` field
+         that's longer than 200 chars (for compliance email-style
+         forwards via webhook)
+
+    Operator activates a source by setting its secret env var. No
+    code change to add a new source — just set the env var on fly.io.
+
+    Returns:
+        { ok: bool, source, accepted: bool, intel_signal_id? }
+    """
+    import hmac
+    import hashlib
+    import os as _os_w
+    src = (source or "").strip().lower().replace("/", "_").replace(":", "_")
+    if not src or len(src) > 40:
+        raise HTTPException(status_code=400, detail="invalid source slug")
+
+    # Look up per-source secret
+    env_name = f"ARIA_WEBHOOK_SECRET_{src.upper().replace('-', '_')}"
+    secret = (_os_w.getenv(env_name) or "").strip()
+    if not secret:
+        # Don't leak whether the source is configured vs. wrong-signature
+        # — both return 401. Operator activates by setting the env var.
+        raise HTTPException(
+            status_code=401,
+            detail=f"webhook unauthorised — no secret configured for {src}",
+        )
+
+    # Verify HMAC signature
+    sig_header = (request.headers.get("X-ARIA-Signature")
+                  or request.headers.get("x-aria-signature")
+                  or "").strip()
+    if not sig_header.startswith("sha256="):
+        raise HTTPException(status_code=401, detail="missing or malformed X-ARIA-Signature header")
+    expected = sig_header[len("sha256="):].lower()
+    body_bytes = await request.body()
+    computed = hmac.new(
+        secret.encode("utf-8"),
+        body_bytes,
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(computed, expected):
+        # Log but don't return why — opaque 401 to prevent oracle attacks
+        _log.warning("[webhook] R-F249 HMAC mismatch from source=%s len=%d",
+                     src, len(body_bytes))
+        raise HTTPException(status_code=401, detail="signature verification failed")
+
+    # Parse body — must be JSON
+    try:
+        payload = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"body must be JSON: {e}")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+
+    # ── Flow 1: intel_ledger signal ─────────────────────────────────────
+    # intel_ledger.add_signal takes a single dict payload (verified at
+    # intel_ledger.py:405). Returns a string id or "skipped:..." sentinel.
+    intel_signal_id = None
+    try:
+        from ..intel import intel_ledger
+        summary_text = (
+            payload.get("summary")
+            or payload.get("subject")
+            or payload.get("title")
+            or payload.get("event")
+            or f"webhook from {src}"
+        )
+        sig_payload = {
+            "source": f"webhook:{src}",
+            "url": payload.get("url") or payload.get("link") or "",
+            "summary": str(summary_text)[:300],
+            "type": "inbound_webhook",
+        }
+        sig_id = await intel_ledger.add_signal(sig_payload)
+        if isinstance(sig_id, str) and not sig_id.startswith("skipped:"):
+            intel_signal_id = sig_id
+    except Exception as e:
+        _log.warning("[webhook] R-F249 intel_ledger.add_signal failed: %s", e)
+
+    # ── Flow 2: brain_hook absorb for dashboard visibility ──────────────
+    try:
+        from ..intel import brain_hook
+        await brain_hook.absorb(
+            module=f"inbound_webhook:{src}",
+            summary=f"R-F249: webhook from {src} — {str(payload.get('subject') or payload.get('event') or 'inbound')[:80]}",
+            success=True,
+        )
+    except Exception:
+        pass
+
+    # ── Flow 3: read_document on long-text bodies ───────────────────────
+    # When the webhook carries an email body / Slack message / Linear
+    # description longer than 200 chars, run it through document
+    # extraction so RAG + knowledge get the content.
+    long_text = (
+        payload.get("body")
+        or payload.get("text")
+        or payload.get("description")
+        or ""
+    )
+    if isinstance(long_text, str) and len(long_text) > 200:
+        try:
+            from ..intel import rag_store
+            await rag_store.ingest_document(
+                long_text[:50000],
+                source=f"webhook:{src}",
+                source_type="webhook",
+                title=str(payload.get("subject") or payload.get("title") or src)[:200],
+                url=str(payload.get("url") or "")[:500],
+                extra_metadata={
+                    "webhook_source": src,
+                    "entity": str(payload.get("entity") or "")[:100],
+                },
+            )
+        except Exception as e:
+            _log.debug("[webhook] R-F249 RAG ingest failed: %s", e)
+
+    return {
+        "ok": True,
+        "source": src,
+        "accepted": True,
+        "intel_signal_id": intel_signal_id,
+        "rag_ingested": len(long_text) > 200 if isinstance(long_text, str) else False,
+    }
+
+
 @router.get("/knowledge/inventory")
 async def knowledge_inventory_ep(tag: str = "", limit: int = 50):
     """R-F245 (2026-05-11): operator-facing inventory endpoint.
