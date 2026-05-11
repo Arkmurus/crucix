@@ -1059,7 +1059,21 @@ async def search(
                 _names = ["brave", "searxng", "ddg", "google_news",
                           "bing_news", "academic", "defence_event"]
                 _ord = backend_idx - 1
-                bname = _names[_ord] if 0 <= _ord < len(_names) else f"backend_{_ord}"
+                if 0 <= _ord < len(_names):
+                    bname = _names[_ord]
+                else:
+                    # R-F190 follow-up (2026-05-11 verification): extra-
+                    # language fan-out tasks at positions 8+ alternate
+                    # brave + google_news (see backend_tasks loop). Re-
+                    # attribute them to their underlying backend with a
+                    # `_lang` suffix so telemetry stays accurate rather
+                    # than bucketing as `backend_<n>`. Pattern: indices
+                    # 7,9,11 are brave; 8,10,12 are google_news.
+                    _post = _ord - len(_names)
+                    if _post % 2 == 0:
+                        bname = "brave_lang"
+                    else:
+                        bname = "google_news_lang"
             ok = (not isinstance(batch, Exception)) and bool(batch)
             metric = "ok" if ok else "fail"
             try:

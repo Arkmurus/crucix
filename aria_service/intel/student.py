@@ -747,6 +747,24 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         except Exception as e:
             logger.debug("[student] kb store failed: %s", e)
 
+        # R-F200 (2026-05-11) — local-only auto-extract from reading.
+        # Mines [CONFIRMED]/[PROBABLE]/[ASSESSED] tags from the article
+        # body. Wired here so the function actually runs (verification
+        # 2026-05-11 caught it as dead code in the first ship). The
+        # trust gate is the source family — RSS reading sources are
+        # tier-2 by definition, no LLM mediation, no brain-poisoning
+        # risk via untrusted prompts. Best-effort: never blocks the
+        # reading cycle if extraction fails.
+        try:
+            await kb.extract_facts_from_reading(
+                body[:6000],
+                source=f"reading:{art.get('feed_name','unknown')}",
+                title=title[:120],
+                url=url,
+            )
+        except Exception as e:
+            logger.debug("[student] R-F200 auto-extract failed: %s", e)
+
         try:
             # Use LLM extraction if available, regex if not
             await neural_memory.learn_from_text(

@@ -524,6 +524,37 @@ def create_fallback_chain(
         else:
             _dropped.append((name, "provider returned not-configured"))
 
+    # R-F194 follow-up (2026-05-11 verification): the insert(0) into
+    # fallback_configs above doesn't actually put ollama at position 0
+    # of the FINAL providers list because the configured primary
+    # (typically anthropic) was added separately at the top of this
+    # function (line ~439) before the fallback loop ran. So ollama
+    # always landed at position 2 (after ARIA-LLM + primary) regardless
+    # of which flag was set.
+    #
+    # Fix: when ARIA_LOCAL_LLM_PRIMARY=1, lift ollama to the front of
+    # providers AFTER ARIA-LLM (R-F93) — that's the closest the chain
+    # can come to "ollama is the front-line model" without rewriting
+    # the caller signature. Sovereign ARIA-LLM still wins when set.
+    if _ollama_url and _local_primary:
+        try:
+            ollama_idx = next(
+                (i for i, p in enumerate(providers) if getattr(p, "name", "") == "ollama"),
+                -1,
+            )
+            if ollama_idx > 0:
+                aria_llm_present = bool(providers) and getattr(providers[0], "name", "") == "aria_llm"
+                target_idx = 1 if aria_llm_present else 0
+                if ollama_idx != target_idx:
+                    p = providers.pop(ollama_idx)
+                    providers.insert(target_idx, p)
+                    logger.info(
+                        "R-F194 PRIMARY: moved ollama to position %d (after %d sovereign provider%s)",
+                        target_idx, target_idx, "s" if target_idx != 1 else "",
+                    )
+        except Exception as _re_e:
+            logger.debug("R-F194 primary reorder failed (non-fatal): %s", _re_e)
+
     # Loudly announce the final state — ops needs to see both what's
     # active and what got silently dropped, because a missing
     # ANTHROPIC_API_KEY used to hide itself until DeepSeek hit a 402.
