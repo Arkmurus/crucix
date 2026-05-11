@@ -586,7 +586,8 @@ async def self_quiz(num_questions: int = 5) -> dict:
     """
     index = await reasoning_library._load_index()
     if not index:
-        return {"quizzed": 0, "passed": 0, "note": "library empty"}
+        return {"quizzed": 0, "passed": 0, "score": 0.0,
+                "note": "library empty", "library_size": 0}
 
     # Pick stale cases — least recently used + lowest confidence
     candidates = sorted(
@@ -595,15 +596,26 @@ async def self_quiz(num_questions: int = 5) -> dict:
     )[:num_questions * 3]
     sample = random.sample(candidates, min(num_questions, len(candidates)))
 
+    # R-F291: track silent-skip causes so the 0/0 quiz outcome stops being
+    # diagnostically blind. Also self-heal orphan index entries on the spot
+    # rather than waiting up to 24h for the next consolidate() sweep.
     results = []
     passed = 0
+    orphan_ids: list[str] = []
+    skipped_no_question = 0
+    skipped_no_response = 0
     for entry in sample:
         case = await rs.get_json(reasoning_library._case_key(entry["id"]))
         if not case:
+            orphan_ids.append(entry["id"])
             continue
         question = case.get("question") or ""
         original_response = case.get("response") or ""
-        if not question or not original_response:
+        if not question:
+            skipped_no_question += 1
+            continue
+        if not original_response:
+            skipped_no_response += 1
             continue
 
         # Try the LOCAL reasoning stack (no cloud)
@@ -633,6 +645,26 @@ async def self_quiz(num_questions: int = 5) -> dict:
             "passed": passed_quiz,
         })
 
+    # R-F291: self-heal orphan index entries (case blob expired/purged but
+    # the index entry remained). Without this, quizzes keep sampling the
+    # same dead IDs every 3h and stay at 0/0 until the 24h consolidate.
+    healed = 0
+    if orphan_ids:
+        try:
+            orphan_set = set(orphan_ids)
+            new_index = [e for e in index if e["id"] not in orphan_set]
+            if len(new_index) != len(index):
+                reasoning_library._index_cache_set(new_index)
+                await reasoning_library._save_index()
+                healed = len(orphan_set)
+                logger.info(
+                    "[Student] R-F291: self-healed %d orphan index entries "
+                    "(library: %d → %d)",
+                    healed, len(index), len(new_index),
+                )
+        except Exception as e:
+            logger.warning("[Student] R-F291 orphan self-heal failed: %s", e)
+
     # Persist quiz history
     history = await rs.get_json(QUIZ_HISTORY_KEY) or []
     history.append({
@@ -649,6 +681,12 @@ async def self_quiz(num_questions: int = 5) -> dict:
         "passed": passed,
         "score": round(passed / max(len(results), 1), 3),
         "results": results,
+        "library_size": len(index),
+        "sample_size": len(sample),
+        "orphans": len(orphan_ids),
+        "orphans_healed": healed,
+        "skipped_no_question": skipped_no_question,
+        "skipped_no_response": skipped_no_response,
     }
 
 

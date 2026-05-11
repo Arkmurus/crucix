@@ -553,12 +553,29 @@ async def lifespan(app: FastAPI):
             _t = cost_tracker.set_feature("student_quiz")
             try:
                 result = await student.self_quiz(num_questions=5)
-                logger.info(
-                    "[Student] Quiz complete: %d/%d passed (score %.2f)",
-                    result.get("passed", 0),
-                    result.get("quizzed", 0),
-                    result.get("score", 0),
-                )
+                # R-F291: when quizzed==0 the previous log was diagnostically
+                # blind. Surface library_size + orphan + skip counts so the
+                # silent-skip root cause is visible on the next sweep.
+                if result.get("quizzed", 0) == 0:
+                    logger.info(
+                        "[Student] Quiz complete: 0/0 passed (score 0.00) — "
+                        "note=%s library_size=%d sample=%d orphans=%d healed=%d "
+                        "no_question=%d no_response=%d",
+                        result.get("note", "all_sample_fell_through"),
+                        result.get("library_size", 0),
+                        result.get("sample_size", 0),
+                        result.get("orphans", 0),
+                        result.get("orphans_healed", 0),
+                        result.get("skipped_no_question", 0),
+                        result.get("skipped_no_response", 0),
+                    )
+                else:
+                    logger.info(
+                        "[Student] Quiz complete: %d/%d passed (score %.2f)",
+                        result.get("passed", 0),
+                        result.get("quizzed", 0),
+                        result.get("score", 0),
+                    )
             except Exception as e:
                 logger.warning("[Student] Quiz failed: %s", e)
             finally:
