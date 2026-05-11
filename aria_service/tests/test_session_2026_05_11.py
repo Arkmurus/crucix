@@ -1108,6 +1108,119 @@ class TestSanctionsGeographicFilter:
         assert severity == "info", "country-only-overlap match must demote to info"
 
 
+class TestPerSourceVerification:
+    """R-F287 — derive_verified_sources(matches) returns explicit per-source
+    status so the DD report renderer can NEVER fabricate 'NOT CHECKED'
+    claims for sources that OpenSanctions actually queried.
+
+    Operator's WhatsApp DD output claimed:
+      'UK OFSI: NOT CHECKED — OFSI list was unavailable during the scan'
+    which was a fabrication — OpenSanctions had queried OFSI cleanly.
+    R-F287 ensures the structured output makes that fabrication
+    structurally impossible (the LLM gets explicit CLEAN/HIT/UNAVAILABLE
+    per source, no room to invent gaps)."""
+
+    def test_no_matches_all_sources_clean(self):
+        """A clean screen → every canonical source reports CLEAN."""
+        from aria_service.intel._sanctions_classify import (
+            derive_verified_sources, _CANONICAL_SANCTIONS_SOURCES,
+        )
+        out = derive_verified_sources(matches=[])
+        # Every canonical source must appear
+        assert set(out.keys()) == set(_CANONICAL_SANCTIONS_SOURCES.keys())
+        # All status CLEAN when screen succeeded but no matches
+        for src, status in out.items():
+            assert status["status"] == "CLEAN", f"{src} should be CLEAN"
+            assert status["match_count"] == 0
+            assert status["matched_entities"] == []
+
+    def test_screen_failed_all_sources_unavailable(self):
+        """When the whole sanctions screen failed (API down etc.) →
+        every canonical source must report UNAVAILABLE, not CLEAN.
+        Saying CLEAN when we didn't actually check would be the
+        worst-class false negative."""
+        from aria_service.intel._sanctions_classify import derive_verified_sources
+        out = derive_verified_sources(matches=[], screen_succeeded=False)
+        for src, status in out.items():
+            assert status["status"] == "UNAVAILABLE", f"{src} should be UNAVAILABLE"
+
+    def test_ofac_sdn_hit_resolved(self):
+        """A match with `lists: ['us_ofac_sdn']` → OFAC SDN reports HIT,
+        other sources report CLEAN."""
+        from aria_service.intel._sanctions_classify import derive_verified_sources
+        matches = [
+            {"name": "Rosoboronexport JSC", "score": 0.95,
+             "lists": ["us_ofac_sdn"], "topics": ["sanction"]},
+        ]
+        out = derive_verified_sources(matches)
+        assert out["OFAC SDN"]["status"] == "HIT"
+        assert out["OFAC SDN"]["match_count"] == 1
+        assert "Rosoboronexport JSC" in out["OFAC SDN"]["matched_entities"]
+        # Other sources should be CLEAN
+        assert out["UK OFSI / HMT"]["status"] == "CLEAN"
+        assert out["EU Consolidated"]["status"] == "CLEAN"
+        assert out["UN SC Consolidated"]["status"] == "CLEAN"
+
+    def test_multi_jurisdiction_hit(self):
+        """A match listed in multiple jurisdictions → each reports HIT."""
+        from aria_service.intel._sanctions_classify import derive_verified_sources
+        matches = [
+            {"name": "Wagner Group", "score": 1.0,
+             "lists": ["us_ofac_sdn", "eu_council", "gb_hmt", "un_sc_sanctions"]},
+        ]
+        out = derive_verified_sources(matches)
+        for src in ("OFAC SDN", "EU Consolidated", "UK OFSI / HMT", "UN SC Consolidated"):
+            assert out[src]["status"] == "HIT", f"{src} should be HIT"
+            assert "Wagner Group" in out[src]["matched_entities"]
+        # BIS Entity not listed → CLEAN
+        assert out["BIS Entity List"]["status"] == "CLEAN"
+
+    def test_datasets_alias_for_lists_field(self):
+        """OpenSanctions sometimes returns `datasets` instead of `lists`."""
+        from aria_service.intel._sanctions_classify import derive_verified_sources
+        matches = [
+            {"name": "Test Entity", "score": 0.9,
+             "datasets": ["us_ofac_sdn"]},  # different field name
+        ]
+        out = derive_verified_sources(matches)
+        assert out["OFAC SDN"]["status"] == "HIT"
+
+    def test_substring_slug_match(self):
+        """OpenSanctions slugs vary by version — substring contains match."""
+        from aria_service.intel._sanctions_classify import derive_verified_sources
+        # "us_bis_entity_list_v2" should still match BIS Entity List
+        matches = [
+            {"name": "Foo Corp", "score": 0.9,
+             "lists": ["us_bis_entity_list_v2"]},
+        ]
+        out = derive_verified_sources(matches)
+        assert out["BIS Entity List"]["status"] == "HIT"
+
+    def test_unrelated_match_doesnt_inflate_any_source(self):
+        """A match on a non-canonical list → ALL canonical sources CLEAN.
+        E.g., a PEP-only hit shouldn't make OFAC SDN look HIT."""
+        from aria_service.intel._sanctions_classify import derive_verified_sources
+        matches = [
+            {"name": "Some Politician", "score": 0.8,
+             "lists": ["everypolitician"], "topics": ["role.pep"]},
+        ]
+        out = derive_verified_sources(matches)
+        for src, status in out.items():
+            assert status["status"] == "CLEAN", \
+                f"{src} should be CLEAN despite PEP-only match"
+
+    def test_canonical_sources_include_all_operator_jurisdictions(self):
+        """Operator's mandate: OFAC + OFSI + EU + UN SC + BIS at minimum."""
+        from aria_service.intel._sanctions_classify import _CANONICAL_SANCTIONS_SOURCES
+        names = set(_CANONICAL_SANCTIONS_SOURCES.keys())
+        # All five must be present
+        assert "OFAC SDN" in names
+        assert "UK OFSI / HMT" in names
+        assert "EU Consolidated" in names
+        assert "UN SC Consolidated" in names
+        assert "BIS Entity List" in names
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"

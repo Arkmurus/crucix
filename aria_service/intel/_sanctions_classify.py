@@ -123,6 +123,132 @@ _DEFENCE_LIST_LABELS: dict[str, tuple[str, str]] = {
 }
 
 
+# R-F287 (2026-05-11) — Canonical sanctions sources that EVERY DD search
+# must report per-source status for. Operator mandate: "ensure all the
+# sanctions sources are always verified on any DD search — not fabricate".
+# The pre-R-F287 chat-output was fabricating "UK OFSI: NOT CHECKED"
+# claims even when OpenSanctions had successfully queried that exact
+# dataset. The fix is structural: derive_verified_sources() returns an
+# explicit dict mapping each canonical source to {status, match_count,
+# matched_entity, dataset_slug} so the renderer NEVER has to invent a
+# per-source verdict.
+#
+# Each entry: (display_label, [opensanctions_slug_substrings_to_match]).
+# Substrings are lowercase contains-match against the `lists`/`datasets`
+# field on each OpenSanctions match.
+_CANONICAL_SANCTIONS_SOURCES: dict[str, tuple[str, list[str]]] = {
+    "OFAC SDN": (
+        "US Treasury — Office of Foreign Assets Control · SDN List",
+        ["us_ofac_sdn", "ofac_sdn", "us_sdn"],
+    ),
+    "OFAC NS-CMIC": (
+        "US Treasury — Non-SDN Chinese Military-Industrial Complex",
+        ["ns_cmic", "us_cmic", "us_nscmic"],
+    ),
+    "OFAC SSI": (
+        "US Treasury — Sectoral Sanctions Identifications",
+        ["us_ssi", "ofac_ssi"],
+    ),
+    "BIS Entity List": (
+        "US Commerce — Bureau of Industry and Security Entity List",
+        ["bis_entity", "us_bis_entity", "us_bis"],
+    ),
+    "BIS Military End User": (
+        "US Commerce — Military End User List",
+        ["us_mil_end_user", "us_meu"],
+    ),
+    "UK OFSI / HMT": (
+        "HM Treasury Office of Financial Sanctions Implementation",
+        ["gb_hmt", "ofsi", "gb_fcdo"],
+    ),
+    "EU Consolidated": (
+        "EU Financial Sanctions Database / Council Restrictive Measures",
+        ["eu_fsf", "eu_council", "eu_consolidated"],
+    ),
+    "UN SC Consolidated": (
+        "UN Security Council Consolidated Sanctions List",
+        ["un_sc_sanctions", "un_consolidated", "un_sc"],
+    ),
+    "NDAA Sec 1260H": (
+        "DoD — Chinese Military Companies List (FY21 NDAA §1260H)",
+        ["1260h", "chinese_military"],
+    ),
+    "DoD Sec 1233 Russia": (
+        "DoD — Russian Defence Companies List (Sec 1233)",
+        ["1233", "russian_defence"],
+    ),
+}
+
+
+def derive_verified_sources(
+    matches: list[dict],
+    *,
+    screen_succeeded: bool = True,
+) -> dict[str, dict]:
+    """Per-canonical-source verification status for the DD report.
+
+    R-F287 (2026-05-11) — the chat-output layer was fabricating per-source
+    "NOT CHECKED" claims (e.g., "UK OFSI: NOT CHECKED — list unavailable")
+    on sources that OpenSanctions HAD queried but returned no match for.
+    OpenSanctions is an aggregator: a clean response means "all underlying
+    sources queried, none hit", NOT "those sources weren't checked".
+
+    Args:
+        matches: The raw matches list from sanctions screening
+            (e.g., result["matches"] from fuzzy_screen()).
+        screen_succeeded: False ONLY when the entire OpenSanctions call
+            failed (network error, 401, 429). When True (the normal case),
+            every canonical source is reported as either HIT or CLEAN.
+
+    Returns:
+        {
+          "OFAC SDN": {
+            "label": "US Treasury — Office of Foreign Assets Control · SDN List",
+            "status": "CLEAN" | "HIT" | "UNAVAILABLE",
+            "match_count": int,
+            "matched_entities": [str, ...],  # candidate names that hit this list
+          },
+          ...
+        }
+    """
+    out: dict[str, dict] = {}
+    if not screen_succeeded:
+        # Whole screen failed → every canonical source is unavailable
+        for src_name, (label, _slugs) in _CANONICAL_SANCTIONS_SOURCES.items():
+            out[src_name] = {
+                "label": label,
+                "status": "UNAVAILABLE",
+                "match_count": 0,
+                "matched_entities": [],
+            }
+        return out
+
+    # Build a flat list of (lowercased dataset slug, match_dict) pairs
+    matches_safe = matches or []
+    for src_name, (label, slugs) in _CANONICAL_SANCTIONS_SOURCES.items():
+        hit_count = 0
+        hit_entities: list[str] = []
+        for m in matches_safe:
+            if not isinstance(m, dict):
+                continue
+            datasets = m.get("lists") or m.get("datasets") or []
+            ds_lower = " ".join(str(d).lower() for d in datasets)
+            for slug in slugs:
+                if slug in ds_lower:
+                    hit_count += 1
+                    cand = m.get("name") or m.get("caption") or ""
+                    if cand and cand not in hit_entities:
+                        hit_entities.append(cand)
+                    break  # one slug-hit per match per source is enough
+        out[src_name] = {
+            "label": label,
+            "status": "HIT" if hit_count > 0 else "CLEAN",
+            "match_count": hit_count,
+            "matched_entities": hit_entities[:5],  # cap renderer output
+        }
+    return out
+
+
 def _defence_list_hits(datasets: list) -> list[tuple[str, str, str]]:
     """Return list of (slug, severity, label) tuples for defence-relevant
     list matches in `datasets`. Each unique label is reported once."""

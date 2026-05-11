@@ -291,10 +291,19 @@ async def _run_identity_person(
             except Exception as _e:
                 logger.warning("Person screen failed for variant '%s': %s", variant, _e)
 
-        # Store the aggregate screen result on the report for renderers
+        # Store the aggregate screen result on the report for renderers.
+        # R-F287 (2026-05-11): include explicit per-source verified-status
+        # so the LLM renderer can NEVER fabricate "NOT CHECKED" claims for
+        # sources OpenSanctions actually queried. screen_succeeded reflects
+        # whether AT LEAST ONE variant was screened — if all variants
+        # crashed, the screen genuinely failed and per-source UNAVAILABLE
+        # is the honest answer.
+        from ._sanctions_classify import derive_verified_sources as _dvs
+        _screen_ok = len(screened_variants) > 0
         report.identity.sanctions_screen = {
             "matches": all_matches,
             "variants_screened": screened_variants,
+            "verified_sources": _dvs(all_matches, screen_succeeded=_screen_ok),
         }
 
         classified = _cm(all_matches, query_name=name)
@@ -637,10 +646,23 @@ async def _run_identity(
         else:
             screen = {"error": "no sanctions module entrypoint"}
             report.identity.data_gaps.append("sanctions module not exposing expected API")
+
+        # R-F287 (2026-05-11) — attach explicit per-source verification
+        # status so the renderer NEVER fabricates "NOT CHECKED" gaps for
+        # sources OpenSanctions did query. A screen with no "error" key
+        # AND with a "matches" array (even empty) counts as succeeded.
+        from ._sanctions_classify import (
+            classify_matches,
+            derive_verified_sources as _dvs_co,
+        )
+        _matches_for_dvs = screen.get("matches") or []
+        _screen_ok_co = not screen.get("error") and isinstance(_matches_for_dvs, list)
+        screen["verified_sources"] = _dvs_co(
+            _matches_for_dvs, screen_succeeded=_screen_ok_co,
+        )
         report.identity.sanctions_screen = screen
         report.identity.meta.subcalls += 1
 
-        from ._sanctions_classify import classify_matches
         matches = screen.get("matches") or []
         classified = classify_matches(matches, query_name=name)
         # The overall severity is the worst single match.
