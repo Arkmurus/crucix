@@ -241,6 +241,14 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
     results: list[dict] = []
     pass_n = warn_n = fail_n = 0
     total_score = 0.0
+    # R-F197 (2026-05-11): degraded-mode detection. If the LLM is dead
+    # and _aria_chat_session returns "" for every entry, the cosine
+    # score is 0 → pass_rate=0 → R-F169 feeds 0% into calibration →
+    # R-F166 fires downward 3pp/run → mastery drops to 10% floor in
+    # ~30h. We detect ≥80% empty responses and mark the run as degraded.
+    # Degraded runs are PERSISTED so the operator audit trail shows
+    # them, but R-F199 keeps them out of the calibration signal mean.
+    empty_resp_count = 0
 
     for entry in items:
         q = entry.get("question", "")
@@ -261,6 +269,10 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
             })
             fail_n += 1
             continue
+
+        # R-F197: empty / very-short response = LLM didn't actually answer.
+        if not (actual or "").strip() or len((actual or "").strip()) < 20:
+            empty_resp_count += 1
 
         # Wrapped in to_thread: _cosine_score makes 2 sync model.encode()
         # calls per entry, which would freeze the event loop for the duration
@@ -286,6 +298,10 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
         })
 
     n = len(results)
+    # R-F197: degraded flag. ≥80% empty responses → the LLM was effec-
+    # tively offline for this run; score data is meaningless for
+    # calibration purposes.
+    degraded = bool(n > 0 and empty_resp_count >= int(n * 0.80))
     summary = {
         "total": n,
         "pass": pass_n,
@@ -294,7 +310,15 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
         "pass_rate": round(pass_n / n, 3) if n else 0,
         "mean_score": round(total_score / n, 3) if n else 0,
         "duration_ms": int((time.time() - started) * 1000),
+        "empty_response_count": empty_resp_count,
+        "degraded": degraded,
     }
+    if degraded:
+        logger.warning(
+            "[eval_runner] R-F197 — run marked DEGRADED (%d/%d empty responses). "
+            "Calibration loop will skip this run's pass_rate.",
+            empty_resp_count, n,
+        )
 
     # Regression delta vs previous run
     prev_runs = await get_recent_runs(limit=1)

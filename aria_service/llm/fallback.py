@@ -460,13 +460,38 @@ def create_fallback_chain(
     # Phase 1 of the independence roadmap.
     _ollama_url = (os.getenv("OLLAMA_URL") or "").strip()
     if _ollama_url:
-        # Use a sentinel API key so create_llm_provider treats this as
-        # configured (Ollama itself doesn't need an API key).
-        fallback_configs.append((
+        # R-F194 (2026-05-11) — independence posture controls.
+        # ARIA_LOCAL_LLM_PRIMARY=1 → local LLM goes to the FRONT of the
+        # fallback chain (right after sovereign ARIA-LLM if configured).
+        # ARIA_LOCAL_LLM_PREFERRED=1 → local LLM goes ahead of paid
+        # providers but behind the primary (e.g. Anthropic stays first).
+        # Default → local stays at the back as break-glass.
+        #
+        # This is the operator-visible knob the independence roadmap
+        # called for: "60-80% of LLM calls served by local/free providers"
+        # (Phase 1 exit criterion). With ARIA_LOCAL_LLM_PREFERRED=1, all
+        # student / research / autonomous tool dispatch goes local first.
+        _local_primary = (os.getenv("ARIA_LOCAL_LLM_PRIMARY") or "").lower() in ("1", "true", "yes")
+        _local_preferred = (os.getenv("ARIA_LOCAL_LLM_PREFERRED") or "").lower() in ("1", "true", "yes")
+        _ollama_tuple = (
             "ollama",
             "local",
             (os.getenv("OLLAMA_MODEL") or "llama3.1:8b-instruct"),
-        ))
+        )
+        if _local_primary:
+            # Goes to position 0 of fallback_configs — even ahead of
+            # the legacy primary in the post-sort. If primary IS ollama,
+            # the dedupe loop below catches it.
+            fallback_configs.insert(0, _ollama_tuple)
+            logger.info("R-F194: ollama set as PRIMARY (ARIA_LOCAL_LLM_PRIMARY=1)")
+        elif _local_preferred:
+            # Position right after Anthropic. Anthropic stays customer-
+            # facing chat / audit-grade; ollama serves the high-volume
+            # autonomous + student + research workload first.
+            fallback_configs.insert(1, _ollama_tuple)
+            logger.info("R-F194: ollama PREFERRED over deepseek/groq/openai/gemini (ARIA_LOCAL_LLM_PREFERRED=1)")
+        else:
+            fallback_configs.append(_ollama_tuple)
 
     # Also check explicit fallback keys
     if fallback_keys:

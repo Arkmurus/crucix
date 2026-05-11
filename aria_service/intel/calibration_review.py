@@ -86,7 +86,18 @@ async def run_calibration_review() -> dict:
         from . import adversarial_challenge as ac
         adv = await ac.stats()
         last = adv.get("last_run") or {}
-        adversarial_accuracy = last.get("overall_score")
+        # R-F199 (2026-05-11): skip degraded runs. When LLM was dead,
+        # the run records degraded=True; feeding overall_score=0.0 into
+        # calibration would collapse mastery via R-F166 in ~30h. The
+        # signal isn't a real adversarial result — it's an outage echo.
+        if last.get("degraded") or last.get("invalid"):
+            logger.warning(
+                "[calibration] R-F199 — skipping adversarial signal: "
+                "last run is degraded (%s)",
+                last.get("invalid_reason") or "empty-response cluster",
+            )
+        else:
+            adversarial_accuracy = last.get("overall_score")
     except Exception:
         pass
 
@@ -127,7 +138,18 @@ async def run_calibration_review() -> dict:
             if last_run:
                 _summary = last_run.get("summary") or last_run
                 _pr = _summary.get("pass_rate")
-                if isinstance(_pr, (int, float)) and 0.0 <= float(_pr) <= 1.0:
+                # R-F199 (2026-05-11): skip degraded eval runs (R-F197).
+                # Same reasoning as the adversarial-skip above — an empty-
+                # response run produces pass_rate=0 which is an outage
+                # signal, not a learning signal.
+                if _summary.get("degraded"):
+                    logger.warning(
+                        "[calibration] R-F199 — skipping eval signal: "
+                        "last run is degraded (%d/%d empty responses)",
+                        _summary.get("empty_response_count", 0),
+                        _summary.get("total", 0),
+                    )
+                elif isinstance(_pr, (int, float)) and 0.0 <= float(_pr) <= 1.0:
                     eval_pass_rate = float(_pr)
     except Exception:
         pass
@@ -143,9 +165,14 @@ async def run_calibration_review() -> dict:
     if eval_pass_rate is not None:
         ground_truth_signals.append(eval_pass_rate)
 
+    # R-F199 (2026-05-11): require ≥2 valid signals before computing
+    # an accuracy estimate. With only 1 signal a single outage / data-
+    # source failure can drive the entire calibration loop. Two signals
+    # provide cross-check; if there aren't two we mark insufficient_data
+    # rather than committing to a one-source estimate.
     estimated_accuracy = (
         sum(ground_truth_signals) / len(ground_truth_signals)
-        if ground_truth_signals else None
+        if len(ground_truth_signals) >= 2 else None
     )
 
     calibration_delta = None

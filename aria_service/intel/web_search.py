@@ -311,7 +311,41 @@ async def _search_searxng(query: str, max_results: int = 10, language: str = "en
     R-F178 (2026-05-11): instance list has been empty since 2026-04-20 (5
     public instances all dead). Short-circuit immediately so the parallel
     backend gather doesn't waste a coroutine + log line every search.
+
+    R-F183 (2026-05-11): when the R-F86 self-host adapter is configured
+    (SEARXNG_URL env set, search_searxng.is_configured()=True) use it
+    instead. That adapter is the independence-roadmap path: a Fly.io
+    machine running the SearXNG Docker image returns free search results
+    at $0 marginal cost AND doesn't share an IP with public instances
+    that rate-limit aggressively. Operator activates by deploying the
+    SearXNG container and setting SEARXNG_URL.
     """
+    # R-F183: prefer the self-host adapter when configured.
+    try:
+        from . import search_searxng as _sx
+        if _sx.is_configured():
+            res = await _sx.search(query, count=max_results, lang=language or "en")
+            if res.get("ok") and res.get("results"):
+                out: list[SearchResult] = []
+                for item in res["results"]:
+                    url = (item.get("url") or "").strip()
+                    if not url:
+                        continue
+                    out.append(SearchResult(
+                        title=(item.get("title") or "")[:300],
+                        url=url,
+                        snippet=(item.get("snippet") or "")[:500],
+                        source=f"searxng:{item.get('engine') or 'self-host'}",
+                        credibility_tier=_score_credibility(url),
+                    ))
+                if out:
+                    logger.debug("SearXNG (self-host R-F183): %d results for %r", len(out), query[:60])
+                    return out
+            # If self-host returned no results / error, fall through to
+            # the legacy public-instance loop (currently empty); the path
+            # is harmless and lets us add public instances later.
+    except Exception as _sx_e:
+        logger.debug("R-F183 searxng self-host probe failed: %s", _sx_e)
     if not SEARXNG_INSTANCES:
         return []
     from .circuit_breaker import get_breaker
@@ -935,6 +969,80 @@ async def search(
                 sum(len(b) for b in raw_results if not isinstance(b, Exception)))
 
     final = results[:max_results]
+
+    # ── R-F184 (2026-05-11) — pay-once-remember-forever ingest ──
+    # Every credibility-tier-1/2/3 result is embedded into the RAG store
+    # so the next identical-or-similar query hits memory at $0. Pre-R-F184
+    # only brave_answers ingested. Now web_search results (Brave + DDG +
+    # Bing News + Google News + Academic + SearXNG) all flow into RAG.
+    # Tier 4+ (low credibility, suspected disinfo) deliberately excluded
+    # so we don't poison the embedding space.
+    try:
+        from . import rag_store as _rs_rag
+        for r in final[:max_results]:
+            try:
+                if r.credibility_tier >= 4:
+                    continue
+                body_for_rag = (
+                    (r.title or "")
+                    + "\n\n"
+                    + (r.snippet or "")
+                ).strip()
+                if len(body_for_rag) < 40:
+                    continue
+                await _rs_rag.ingest_document(
+                    body_for_rag,
+                    source=f"web_search:{r.source}",
+                    source_type="search_result",
+                    title=r.title[:200],
+                    url=r.url[:500],
+                    extra_metadata={
+                        "search_query": query[:200],
+                        "credibility_tier": r.credibility_tier,
+                        "language": language,
+                    },
+                )
+            except Exception as _ie:
+                logger.debug("R-F184 RAG ingest skipped for %s: %s", r.url[:60], _ie)
+    except Exception as _re:
+        logger.debug("R-F184 RAG ingest pass failed: %s", _re)
+
+    # ── R-F189 (2026-05-11) — all-general-web-dead capability gap ──
+    # When Brave is sticky-disabled (R-F171 24h sentinel) AND DuckDuckGo
+    # breaker is open AND SearXNG isn't configured, the general-web
+    # layer is silently dead and search degrades to news-only + academic.
+    # Surface this as a capability_gap so operator sees it before users
+    # start asking why entity searches return only news headlines.
+    try:
+        from .circuit_breaker import get_breaker
+        from . import redis_store as _rs_h
+        from . import search_searxng as _sx_h
+        _brave_sticky = await _rs_h.get("crucix:brave_search:billing_exhausted")
+        _brave_breaker_open = get_breaker("brave_search").is_open()
+        _ddg_breaker_open = get_breaker("search:duckduckgo").is_open()
+        _searxng_configured = _sx_h.is_configured()
+        if (
+            (_brave_sticky or _brave_breaker_open)
+            and _ddg_breaker_open
+            and not _searxng_configured
+        ):
+            from . import brain_hook as _bh_h
+            await _bh_h.absorb(
+                module="web_search",
+                summary="R-F189: ALL general-web backends down (brave + ddg + no searxng)",
+                detail=(
+                    "Search is degraded — only news (Bing/Google News) "
+                    "+ academic (Semantic Scholar/OpenAlex/CrossRef) are "
+                    "returning results. Operator action: top up Brave OR "
+                    "set SEARXNG_URL to a self-hosted instance. Memory-"
+                    "first hits unaffected."
+                ),
+                success=False,
+                gap_type="all_general_web_dead",
+                gap_detail="brave+ddg+searxng all unavailable",
+            )
+    except Exception:
+        pass
 
     # ── Brain hook: feed search outcomes to learning ──
     try:

@@ -37,11 +37,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 
 def _iter_harvest_files(harvest_dir: Path) -> Iterator[Path]:
-    """Yield every JSONL file in the harvest directory."""
+    """Yield every JSONL file in the harvest directory.
+
+    R-F201 (2026-05-11): accept TWO file-naming conventions —
+    `harvest-YYYY-MM-DD.jsonl` from output_harvester (R-F67) AND
+    `YYYY-MM-DD.jsonl` from training_export.run_daily_export (R-F69).
+    Pre-R-F201 only the harvest-*.jsonl glob was honoured, so the
+    365 staged examples written by training_export to /data/aria_training/
+    were invisible to the fine-tune harness. Now both flow in.
+    """
     if not harvest_dir.exists():
         return
+    seen = set()
     for p in sorted(harvest_dir.glob("harvest-*.jsonl")):
-        yield p
+        if p not in seen:
+            seen.add(p)
+            yield p
+    # training_export's daily export — date-stamped JSONL without prefix
+    for p in sorted(harvest_dir.glob("[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].jsonl")):
+        if p not in seen:
+            seen.add(p)
+            yield p
 
 
 def _load_jsonl(path: Path) -> Iterator[dict[str, Any]]:
@@ -57,29 +73,64 @@ def _load_jsonl(path: Path) -> Iterator[dict[str, Any]]:
 
 
 def _harvest_to_sft(record: dict[str, Any], min_score: float) -> dict[str, Any] | None:
-    """Convert one harvest record (output_harvester JSONL line) into
-    SFT format if it passes the quality threshold."""
-    score = float(record.get("score", 0))
-    if score < min_score:
-        return None
-    user_msg = record.get("user_msg") or ""
-    response = record.get("response") or ""
+    """Convert one harvest record into SFT format if it passes the
+    quality threshold.
+
+    R-F201 (2026-05-11): accepts BOTH formats —
+      * output_harvester (R-F67): fields `user_msg`, `response`, `score`
+      * training_export.run_daily_export (R-F69): fields `user_message`,
+        `response`, `grounded_rate`, `verification_status`
+    Records are normalised to a common shape before quality gating.
+    """
+    # Format detection — training_export uses `user_message`; harvest
+    # uses `user_msg`. If neither is present, the record isn't usable.
+    user_msg = (
+        record.get("user_msg")
+        or record.get("user_message")
+        or record.get("message")
+        or ""
+    )
+    response = (
+        record.get("response")
+        or record.get("reply")
+        or record.get("output")
+        or ""
+    )
     if not user_msg or not response:
         return None
     if len(response) < 100:
         return None  # too short to teach anything
+
+    # Quality score — harvest uses `score`; training_export uses
+    # `grounded_rate` (verified-claim ratio). Both 0-1 scaled.
+    score = float(
+        record.get("score")
+        or record.get("grounded_rate")
+        or 0
+    )
+    if score < min_score:
+        # R-F201: training_export's "well_formed" tier is honest
+        # discipline below 0.80 grounded_rate. Accept it on a lower
+        # bar so the 365 staged examples don't ALL get rejected.
+        verdict = (record.get("verification_status") or "").lower()
+        if verdict == "well_formed" and score >= max(0.5, min_score - 0.30):
+            pass  # let it through at the lower bar
+        else:
+            return None
+
     meta = record.get("meta") or {}
     return {
         "input":  user_msg,
         "output": response,
         "meta": {
-            "source":      "harvest",
+            "source":      "harvest" if "user_msg" in record else "training_export",
             "score":       score,
+            "verdict":     record.get("verification_status") or meta.get("verdict"),
             "user_id":     meta.get("user_id"),
             "sector":      meta.get("sector"),
             "model":       meta.get("model"),
             "session_id":  meta.get("session_id"),
-            "ts":          record.get("ts"),
+            "ts":          record.get("ts") or record.get("timestamp"),
         },
     }
 

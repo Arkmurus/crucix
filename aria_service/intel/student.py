@@ -760,6 +760,23 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
         # Reading is reinforcement — small positive mastery bump
         await update_mastery(topics, correct=True, weight=0.3)
 
+        # R-F196 (2026-05-11): also write topic×region mastery from
+        # the reading session. Pre-R-F196 regional_mastery only flowed
+        # from chat (aria_engine.py callers), so the research_engine
+        # _pick_weakest_cells path starved whenever chat was quiet
+        # (R-F175 surfaced 0 ticks/24h as the symptom). Now every
+        # article that touches both a topic AND a detected region
+        # contributes to the regional heatmap → research engine has
+        # weak cells to attack autonomously.
+        try:
+            regions_in_text = detect_regions(f"{title} {body[:1500]}")
+            if topics and regions_in_text:
+                await update_regional_mastery(
+                    topics, regions_in_text, correct=True, weight=0.3,
+                )
+        except Exception as _rre:
+            logger.debug("R-F196 regional mastery update failed: %s", _rre)
+
         studied.append({
             "title": title[:120],
             "url": url,

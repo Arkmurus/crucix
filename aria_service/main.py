@@ -261,7 +261,11 @@ async def lifespan(app: FastAPI):
     research_enabled = (_os.getenv("ARIA_AUTONOMOUS_RESEARCH_ENABLED", "1") or "1").lower() not in ("0", "false", "no")
     if not research_enabled:
         logger.info("Research scheduler DISABLED via ARIA_AUTONOMOUS_RESEARCH_ENABLED=0")
-    if llm and llm.is_configured and research_enabled:
+    # R-F195 (2026-05-11): start research loop even when LLM is
+    # unavailable. The degraded path in researcher.research_and_learn
+    # still fetches RSS + ingests into RAG; only the LLM-driven fact
+    # extraction is skipped. Air-gap independence depends on this.
+    if research_enabled:
         async def _research_loop():
             # 15-minute startup delay (was 5 min). Staggered far from
             # self-improve (10min) and student (20/25min) to prevent

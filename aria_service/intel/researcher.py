@@ -995,10 +995,13 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
             })
             if resp.status_code == 200:
                 html = resp.text
-            elif resp.status_code in (401, 402, 403, 404, 410, 451, 500, 502, 503, 504):
+            elif resp.status_code in (401, 402, 403, 404, 410, 429, 451, 500, 502, 503, 504):
                 # R-F126 (2026-05-10): widen wayback fallback (mirrors
                 # the same fix in extract_url_text) — 404/410/5xx
                 # commonly occur on rotated CMS URLs of post-event PR.
+                # R-F187 (2026-05-11): added 429 — dominant rate-limit
+                # response across providers; pre-R-F187 the article fell
+                # through to return "" leaving caller blind to the cause.
                 logger.info("Article %s returned %d — trying archive", url[:80], resp.status_code)
                 html = await _try_archive_fallbacks(url, timeout=timeout)
             else:
@@ -2410,10 +2413,12 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
             })
             if resp.status_code == 200:
                 html = resp.text
-            elif resp.status_code in (401, 402, 403, 404, 410, 451, 500, 502, 503, 504):
+            elif resp.status_code in (401, 402, 403, 404, 410, 429, 451, 500, 502, 503, 504):
                 # R-F126 (2026-05-10): widen wayback fallback. Was only
                 # 401/402/403 — but contract-signing PR pages often return
                 # 404 / 410 once the org's CMS rotates content; 5xx is
+                # R-F187 (2026-05-11): added 429 (dominant rate-limit code)
+                # so rate-limited fetches try Wayback before giving up.
                 # equally common during high-traffic post-event windows.
                 # Trying archive.org's snapshot is the difference between
                 # surfacing the contract value vs returning "fetch failed".
@@ -2776,8 +2781,19 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
     4. Cross-reference with existing knowledge
     5. Generate and validate hypotheses
     """
-    if not llm or not llm.is_configured:
-        return {"error": "LLM not configured"}
+    # R-F195 (2026-05-11) — graceful degrade when no LLM is available.
+    # Pre-R-F195 we returned error and skipped the cycle entirely. That
+    # meant a cloud-LLM outage stopped ALL learning. Air-gap independence
+    # requires the RSS-read + RAG-ingest path to keep running even when
+    # no LLM is configured; only the LLM-driven fact extraction
+    # downstream is skipped. Knowledge still grows via reading +
+    # embedding-only ingestion.
+    _llm_available = bool(llm and getattr(llm, "is_configured", False))
+    if not _llm_available:
+        logger.warning(
+            "[research] LLM unavailable — running degraded cycle "
+            "(RSS fetch + RAG ingest only, no LLM extraction)"
+        )
 
     t_start = time.time()
     logger.info("ARIA research cycle starting (global scope)...")
@@ -2870,6 +2886,27 @@ async def research_and_learn(llm: LLMProvider, max_articles: int = 30) -> dict:
             article_text += f"Summary: {article['description']}\n"
         if body:
             article_text += f"Body: {body[:3500]}\n"
+
+        # R-F195: when no LLM, still ingest the article into RAG so
+        # mastery + future retrieval benefit. Skip the LLM-driven
+        # extraction step. Without this branch, a cloud outage stops
+        # all knowledge growth from research_and_learn.
+        if not _llm_available:
+            if body and len(body) > 200:
+                try:
+                    from . import rag_store as _rs_r
+                    await _rs_r.ingest_document(
+                        body[:6000],
+                        source=f"research_degraded:{article.get('source', 'unknown')}",
+                        source_type="article",
+                        title=article.get("title", "")[:200],
+                        url=article.get("link", "")[:500],
+                        extra_metadata={"degraded_no_llm": True},
+                    )
+                    facts_learned += 1  # RAG chunk counts as a fact for the cycle
+                except Exception as _ie:
+                    logger.debug("R-F195 RAG ingest failed: %s", _ie)
+            continue
 
         existing_kb = search_knowledge(article["title"])
         parsed = await _analyse_article(llm, article_text, article["source"], existing_kb, existing_hypotheses)
