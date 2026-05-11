@@ -81,22 +81,23 @@ MIN_CHUNK_SIZE = 100    # don't store chunks smaller than this
 DEFAULT_TOP_K = 8
 DEFAULT_MAX_CONTEXT_CHARS = 6000  # how much retrieved text to inject into LLM prompt
 
-# R-F173 (2026-05-11) — chunk cap + prune policy.
-# Pre-R-F173 the RAG store had NO cap, NO prune, NO eviction. Production
-# grew from ~5K chunks (2026-04) to 79K chunks in ~30 days. The fly.io
-# /data volume is 5 GB; at that growth rate it fills in 8-12 months
-# with no operator visibility. RAG search latency also degrades super-
-# linearly with chunk count.
+# R-F173 (2026-05-11) — REVERSED by R-F238 (same day).
+# Original R-F173 added an oldest-first PRUNE on cap overflow. That
+# violates the "ARIA has infinite memory" operator rule (see
+# memory/aria_infinite_memory.md) — she must never forget anything.
 #
-# Strategy: soft cap at 500K chunks. When count exceeds, prune the
-# oldest 10% by `ts_epoch` metadata. Triggered opportunistically from
-# `ingest_document` (every ~50 ingests check the count) so we don't add
-# a background loop.
-RAG_MAX_CHUNKS = int(os.getenv("ARIA_RAG_MAX_CHUNKS", "500000"))
-RAG_PRUNE_FRACTION = 0.10
+# R-F238 (2026-05-11) — replace prune with warn-only soft alert.
+# The threshold still exists so the operator gets visibility when
+# the volume fills, but data is NEVER deleted. Future work: offload-
+# to-cold via a second chromadb collection (aria_documents_cold) so
+# search latency stays bounded as the hot collection rotates — the
+# data still exists, just slower to query. That's the right answer
+# under the infinite-memory rule.
+RAG_WARN_CHUNKS = int(os.getenv("ARIA_RAG_WARN_CHUNKS", "500000"))
 # Check count every N ingests (cheap counter; chromadb count() is O(1))
 RAG_PRUNE_CHECK_EVERY = 50
 _rag_ingest_counter = 0
+_rag_overflow_warned_count = 0  # log throttle on the soft-alert
 
 
 # ── Lazy chromadb client ───────────────────────────────────────────────────
@@ -453,20 +454,49 @@ async def ingest_document(
         except Exception:
             total = -1
 
-        # R-F173 (2026-05-11): opportunistic prune. Every Nth ingest
-        # check if we're past the cap, and if so age out the oldest 10%.
-        # Without this the volume fills in 8-12 months with no warning.
-        global _rag_ingest_counter
+        # R-F238 (2026-05-11): warn-only overflow alert. Pre-R-F238 this
+        # called _prune_oldest_chunks which DELETED rows — violating the
+        # "ARIA has infinite memory" rule. Now the threshold is purely
+        # an operator-visibility signal: when crossed, brain_hook gets a
+        # capability_gap absorb so the dashboard surfaces "RAG growing
+        # past warn threshold, plan offload-to-cold storage." Operator
+        # action: extend the fly.io volume OR ship the cold-collection
+        # offload (future R-number). The data itself is never touched.
+        global _rag_ingest_counter, _rag_overflow_warned_count
         _rag_ingest_counter += 1
         if (
             total > 0
-            and total > RAG_MAX_CHUNKS
+            and total > RAG_WARN_CHUNKS
             and _rag_ingest_counter % RAG_PRUNE_CHECK_EVERY == 0
         ):
-            try:
-                await _prune_oldest_chunks(total)
-            except Exception as _pe:
-                logger.warning("RAG R-F173 prune failed: %s", _pe)
+            # Log-throttle: at most one warning per 50 over-cap ingests
+            _rag_overflow_warned_count += 1
+            if _rag_overflow_warned_count % 5 == 1:
+                logger.warning(
+                    "[rag] R-F238 — chunk count %d EXCEEDS warn threshold %d. "
+                    "NOT pruning (infinite-memory rule). Operator: plan "
+                    "cold-storage offload or extend /data volume.",
+                    total, RAG_WARN_CHUNKS,
+                )
+                try:
+                    from . import brain_hook as _bh_rag
+                    await _bh_rag.absorb(
+                        module="rag_store",
+                        summary=f"R-F238: RAG chunk count {total} > warn threshold {RAG_WARN_CHUNKS}",
+                        detail=(
+                            "ARIA's RAG store has crossed the warn threshold. "
+                            "Per the infinite-memory rule, NO chunks are being "
+                            "pruned. Operator decision: (a) extend the fly.io "
+                            "/data volume, OR (b) ship cold-collection offload "
+                            "so old chunks move to slower storage but stay "
+                            "queryable. The data is not at risk."
+                        ),
+                        success=True,  # not a failure — informational
+                        gap_type="rag_growth_warning",
+                        gap_detail=f"{total} chunks > {RAG_WARN_CHUNKS} threshold",
+                    )
+                except Exception:
+                    pass
 
         return {
             "ingested": True,
@@ -480,58 +510,20 @@ async def ingest_document(
         return {"ingested": False, "error": str(e)}
 
 
-async def _prune_oldest_chunks(current_total: int) -> dict:
-    """R-F173 (2026-05-11): age out the oldest chunks when chunk count
-    exceeds RAG_MAX_CHUNKS. Removes RAG_PRUNE_FRACTION (10%) at a time
-    so the operator has time to react if growth is faster than expected.
-
-    Strategy: query all chunks sorted by ts_epoch (oldest first), take
-    the bottom 10%, delete by ID. chromadb has no native sort-by-metadata,
-    so we fetch the full ID + metadata list in one call and sort in
-    Python (~80K IDs × 24-byte each = ~2 MB, acceptable)."""
-    import asyncio as _aio
-    target_remove = max(1, int(current_total * RAG_PRUNE_FRACTION))
-    try:
-        # chromadb's `.get()` with no IDs returns all rows. include
-        # only metadata + ID — we don't need the embeddings or docs.
-        rows = await _aio.to_thread(
-            _documents_collection.get,
-            include=["metadatas"],
-        )
-    except Exception as e:
-        logger.warning("RAG prune fetch failed: %s", e)
-        return {"pruned": 0, "error": str(e)[:200]}
-    ids = rows.get("ids") or []
-    metas = rows.get("metadatas") or []
-    if not ids or len(ids) != len(metas):
-        return {"pruned": 0, "reason": "rows_mismatch"}
-
-    # Pair, sort by ts_epoch ascending, take oldest target_remove.
-    paired = [
-        (ids[i], (metas[i] or {}).get("ts_epoch") or 0)
-        for i in range(len(ids))
-    ]
-    paired.sort(key=lambda p: p[1] if isinstance(p[1], (int, float)) else 0)
-    to_delete = [p[0] for p in paired[:target_remove]]
-    if not to_delete:
-        return {"pruned": 0, "reason": "no_old_chunks"}
-
-    try:
-        await _aio.to_thread(_documents_collection.delete, ids=to_delete)
-    except Exception as e:
-        logger.warning("RAG prune delete failed: %s", e)
-        return {"pruned": 0, "error": str(e)[:200]}
-
-    logger.warning(
-        "[rag] R-F173 PRUNED %d oldest chunks (was %d, target cap %d). "
-        "Operator: check ARIA_RAG_MAX_CHUNKS if growth is intentional.",
-        len(to_delete), current_total, RAG_MAX_CHUNKS,
-    )
-    return {
-        "pruned": len(to_delete),
-        "previous_total": current_total,
-        "cap": RAG_MAX_CHUNKS,
-    }
+# R-F238 (2026-05-11) — _prune_oldest_chunks was DELETED.
+# The function used to delete the oldest 10% of RAG chunks when chunk
+# count exceeded a cap. That violates the "ARIA has infinite memory"
+# operator rule (memory/aria_infinite_memory.md): she must never lose
+# data. The function has been removed; the overflow path now warns the
+# operator instead.
+#
+# Future replacement: `_offload_oldest_to_cold(current_total)` that
+# MOVES the oldest chunks from `aria_documents` to a second collection
+# `aria_documents_cold` so the hot-search latency stays bounded while
+# the data remains queryable via a separate retrieval call. Until that
+# ships, the hot collection grows unbounded — operator is warned via
+# brain_hook absorb when crossing the threshold so they can extend the
+# fly.io volume.
 
 
 async def ingest_fact(
