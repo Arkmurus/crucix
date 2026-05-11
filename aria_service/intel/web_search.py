@@ -404,10 +404,14 @@ async def _search_academic(
     `language` is currently ignored — academic APIs default to English
     and translation-aware search is out of scope for this integration.
     """
-    # Academic endpoints return mostly English results; skip quietly for
-    # non-English queries so they don't dilute the Brave multilingual path.
-    if language and language not in ("en", "english"):
-        return []
+    # R-F193 (2026-05-11): no longer skip non-English. OpenAlex /
+    # CrossRef / Semantic Scholar index plenty of non-English titles
+    # with English metadata. Pre-R-F193 the 3-extra-langs branch in
+    # the multilingual fan-out wasted 3 coroutine slots on early-
+    # return; now the academic backend contributes English-language
+    # papers about foreign-language entity queries (e.g. searching
+    # "savunma sanayii baskanligi" still surfaces English papers
+    # about the SSB).
     from .sources import academic as _ac
     try:
         raw = await _ac.search_all(query, max_results_per_api=max_results)
@@ -805,14 +809,53 @@ DEFENCE_EVENTS: dict[str, dict[str, str]] = {
 }
 
 
+# R-F192 (2026-05-11) — aliases per event so the full name + common
+# rephrasings match. Pre-R-F192 the matcher was substring-only on the
+# abbreviation key, so "Defence & Security Equipment International"
+# didn't match the "dsei" key (no overlap). Now full names + organiser
+# names + variant spellings all route to the right event.
+DEFENCE_EVENT_ALIASES: dict[str, list[str]] = {
+    "saha":               ["saha expo", "sahaexpo", "saha istanbul"],
+    "idex":               ["international defence exhibition", "abu dhabi defence"],
+    "navdex":             ["naval defence and security"],
+    "eurosatory":         ["salon eurosatory", "paris defence exhibition", "défense paris"],
+    "dsei":               ["defence and security equipment international",
+                           "defence security equipment international",
+                           "excel london defence"],
+    "ausa":               ["association of the united states army", "ausa meeting"],
+    "dubai airshow":      ["dubai air show"],
+    "le bourget":         ["paris air show", "siae paris", "salon du bourget"],
+    "indo defence":       ["indo defence jakarta"],
+    "lima":               ["langkawi international maritime aerospace"],
+    "dx korea":           ["defence expo korea"],
+    "africa aerospace":   ["aad expo", "africa aerospace and defence"],
+    "expodefensa":        ["expodefensa colombia"],
+    "lima maritime":      ["langkawi maritime"],
+    "world defense show": ["wds riyadh"],
+    "ila berlin":         ["ila aerospace berlin", "internationale luftfahrtausstellung"],
+}
+
+
 def _detect_defence_event(query: str) -> dict[str, str] | None:
-    """Return the calendar entry for any known defence event mentioned."""
+    """Return the calendar entry for any known defence event mentioned.
+
+    R-F192: matches the canonical key, every alias, AND uses word-
+    boundary regex so 'dsei' doesn't false-match the middle of an
+    unrelated identifier. Pre-R-F192 was substring-only on the key.
+    """
     if not query:
         return None
     q = query.lower()
+    import re as _re_d
     for key, entry in DEFENCE_EVENTS.items():
-        if key in q:
-            return {"key": key, **entry}
+        candidates = [key] + DEFENCE_EVENT_ALIASES.get(key, [])
+        for c in candidates:
+            # Word-boundary match. Escape since names contain spaces/&
+            try:
+                if _re_d.search(rf"\b{_re_d.escape(c)}\b", q):
+                    return {"key": key, **entry}
+            except Exception:
+                continue
     return None
 
 
@@ -909,6 +952,31 @@ async def search(
     # out to the web. If memory carries strong recent hits we still run
     # web (fresh data), but memory gets a relevance bonus so repeated
     # queries on the same topic surface cached intel first.
+    #
+    # R-F185 (2026-05-11): when ARIA_MEMORY_FIRST_SHORTCUT=1, query
+    # memory FIRST as a separate await. If it returns ≥max_results
+    # strong hits, return immediately without firing any web backends
+    # (full pay-once-remember-forever — $0 marginal cost per repeat
+    # query). Default behaviour unchanged for safety; flip the env
+    # when memory is dense enough.
+    _shortcut = (os.getenv("ARIA_MEMORY_FIRST_SHORTCUT") or "").lower() in ("1", "true", "yes")
+    if _shortcut:
+        try:
+            mem_first = await _query_memory(query, max_results=max_results)
+            if mem_first and len(mem_first) >= max_results:
+                logger.info(
+                    "R-F185 memory-first shortcut: %d strong hits for %r — "
+                    "skipping all web backends ($0 cost)",
+                    len(mem_first), query[:60],
+                )
+                # Skip the parallel gather entirely. Stamp the source
+                # so dashboards can count shortcut hits.
+                for r in mem_first:
+                    if not r.source.startswith("memory_shortcut:"):
+                        r.source = f"memory_shortcut:{r.source}"
+                return mem_first[:max_results]
+        except Exception as _se:
+            logger.debug("R-F185 shortcut probe failed: %s", _se)
     raw_results_list = await asyncio.gather(
         _query_memory(query, max_results=max_results),
         *backend_tasks,
@@ -967,6 +1035,42 @@ async def search(
                 query[:60], min(len(results), max_results),
                 sum(1 for b in raw_results if not isinstance(b, Exception) and b),
                 sum(len(b) for b in raw_results if not isinstance(b, Exception)))
+
+    # R-F190 (2026-05-11) — per-backend success-rate telemetry.
+    # Pre-R-F190 there was no per-backend counter for ok-vs-fail, so
+    # operators could only grep logs to see which backend was contri-
+    # buting. Now each search round writes ok/fail counters per backend
+    # per day under crucix:search:backend:<name>:<ok|fail>:YYYY-MM-DD.
+    # Dashboard surface comes via /api/aria/search/backends/stats.
+    try:
+        from . import redis_store as _rs_t
+        import datetime as _dt_t
+        _today = _dt_t.datetime.now(_dt_t.timezone.utc).strftime("%Y-%m-%d")
+        # raw_results[0] is _query_memory; backends are [1:].
+        for backend_idx, batch in enumerate(raw_results):
+            # Identify backend by position: 0=memory then the
+            # backend_tasks list in order. The names map mirrors the
+            # asyncio.gather order at the call site.
+            if backend_idx == 0:
+                bname = "memory"
+            else:
+                # backend_tasks order:
+                # brave, searxng, ddg, google_news, bing_news, academic, defence_event
+                _names = ["brave", "searxng", "ddg", "google_news",
+                          "bing_news", "academic", "defence_event"]
+                _ord = backend_idx - 1
+                bname = _names[_ord] if 0 <= _ord < len(_names) else f"backend_{_ord}"
+            ok = (not isinstance(batch, Exception)) and bool(batch)
+            metric = "ok" if ok else "fail"
+            try:
+                key = f"crucix:search:backend:{bname}:{metric}:{_today}"
+                cur = await _rs_t.get(key)
+                nxt = int(cur or 0) + 1
+                await _rs_t.set(key, str(nxt), ex=14 * 86400)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     final = results[:max_results]
 

@@ -146,10 +146,65 @@ def _url_hash(url: str) -> str:
 # Seed collection — find URLs in recent signals to queue up
 # ═══════════════════════════════════════════════════════════════════════
 
+_TIER1_FRONTIER_URLS: list[str] = [
+    # R-F191 (2026-05-11) — tier-1 defence-DD frontier seeds. Without
+    # these the spider only spiders URLs ARIA already saw (chat / RAG /
+    # verified_intel). If a domain never came up organically she never
+    # touched it. These domains are the load-bearing tier-1 sources
+    # named throughout the corpus + roadmap; seeding them at every
+    # collect ensures coverage of the defence-DD source surface.
+    # Sanctions + export-control
+    "https://sanctionssearch.ofac.treas.gov/",
+    "https://www.gov.uk/government/publications/the-uk-sanctions-list",
+    "https://www.consilium.europa.eu/en/policies/sanctions/",
+    "https://www.un.org/securitycouncil/content/un-sc-consolidated-list",
+    "https://www.bis.doc.gov/index.php/policy-guidance/lists-of-parties-of-concern",
+    "https://www.pmddtc.state.gov/ddtc_public",
+    # Anti-financial-crime
+    "https://www.fatf-gafi.org/en/topics/methods-and-trends.html",
+    "https://www.justice.gov/criminal-fraud/foreign-corrupt-practices-act",
+    "https://www.sec.gov/spotlight/foreign-corrupt-practices-act.shtml",
+    # Defence procurement portals
+    "https://sam.gov/",
+    "https://www.contractsfinder.service.gov.uk/Search",
+    "https://ted.europa.eu/",
+    "https://www.nspa.nato.int/business/procurement",
+    # Defence intelligence / research
+    "https://www.sipri.org/databases",
+    "https://ucdp.uu.se/",
+    "https://www.rusi.org/explore-our-research",
+    "https://www.iiss.org/research/",
+    # OEM listings (counterparty discovery)
+    "https://www.defensenews.com/top-100/",
+    "https://www.janes.com/defence-news",
+]
+
+
 async def _collect_seeds() -> list[dict[str, Any]]:
     """Pull URLs referenced in recent RAG chunks / chat audit / verified intel.
+    Plus R-F191 tier-1 frontier seeds.
     Returns list of {url, depth=0, source} entries to queue."""
     seeds: list[dict[str, Any]] = []
+
+    # R-F191: tier-1 frontier (always seeded — small list, deduped at end)
+    for url in _TIER1_FRONTIER_URLS:
+        seeds.append({"url": url, "depth": 0, "source": "frontier_R-F191"})
+
+    # Source: recent intel_ledger signals (carry source URLs from sweeps)
+    try:
+        from ..intel import intel_ledger as _il
+        if hasattr(_il, "recent_signals"):
+            for s in (await _il.recent_signals(limit=200)) or []:
+                if not isinstance(s, dict):
+                    continue
+                for url in _URL_RE.findall(
+                    (s.get("source") or "")
+                    + " " + (s.get("summary") or "")
+                    + " " + (s.get("detail") or "")
+                ):
+                    seeds.append({"url": url, "depth": 0, "source": "intel_ledger"})
+    except Exception as exc:
+        logger.debug("intel_ledger seed collection failed: %s", exc)
 
     # Source 1: recent chat audit entries (user pasted URLs or LLM cited them)
     try:

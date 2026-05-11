@@ -829,6 +829,60 @@ async def auto_extract_facts(
                 asyncio.create_task(store_fact(topic, text, "aria_auto_verified", conf))
 
 
+async def extract_facts_from_reading(
+    article_text: str,
+    *,
+    source: str,
+    title: str = "",
+    url: str = "",
+) -> int:
+    """R-F200 (2026-05-11) — local-only auto-extract path for student
+    reading-session outputs.
+
+    Pre-R-F200, knowledge.auto_extract_facts was the only auto-mining
+    path AND it required (tool_context + grounded verifier) — but
+    callers always passed tool_context=None, so it was dead. Reading
+    session was contributing nothing to permanent knowledge auto-mining.
+
+    This separate path mines [CONFIRMED]/[PROBABLE] tags from RSS
+    article bodies ONLY (source starts with 'reading:' or
+    'research_degraded:'). The trust gate is the SOURCE itself — RSS
+    feeds are tier-2 by definition; no LLM mediation is involved so
+    the brain-poisoning concern doesn't apply.
+
+    Returns the number of facts extracted.
+    """
+    if not article_text or not isinstance(article_text, str):
+        return 0
+    # Trust gate: source must be a reading/research-derived source.
+    src_lower = (source or "").lower()
+    if not (
+        src_lower.startswith("reading:")
+        or src_lower.startswith("research_degraded:")
+        or src_lower.startswith("research:")
+    ):
+        return 0
+    # Tag-mining patterns — same shape as auto_extract_facts but no
+    # verifier gate (reading source IS the trust).
+    patterns = [
+        (r"\[CONFIRMED\]\s*(.+?)(?:\n|$)", "PROBABLE"),  # demoted
+        (r"\[PROBABLE\]\s*(.+?)(?:\n|$)", "PROBABLE"),
+        (r"\[ASSESSED\]\s*(.+?)(?:\n|$)", "ASSESSED"),
+    ]
+    n = 0
+    for pat, conf in patterns:
+        for m in re.finditer(pat, article_text):
+            text = m.group(1).strip()[:300]
+            if len(text) > 20:
+                topic = (title[:60] or text[:60]).rstrip(".")
+                try:
+                    await store_fact(topic, text, source, conf, source_url=url[:500])
+                    n += 1
+                except Exception:
+                    pass
+    return n
+
+
 async def consolidate_facts() -> dict:
     """Merge near-duplicate facts and prune stale ones."""
     from datetime import datetime, timezone

@@ -1503,6 +1503,41 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
         report.digital.press_coverage = press[:15]
         report.digital.source_tier_breakdown = tier_counts
         report.digital.meta.subcalls += 1
+        # R-F188 (2026-05-11): when web_search returned 0 hits, run a
+        # RAG-only fallback so the report still has SOMETHING for the
+        # digital layer rather than rendering "no press coverage" as if
+        # the entity were invisible. Tagged MEMORY_ONLY so the caller
+        # can see the evidence came from cached memory, not live web.
+        if not hits:
+            try:
+                from . import rag_store as _rs_dd
+                rag_results = await _rs_dd.search(name, top_k=10)
+                if rag_results:
+                    memory_press: list[Evidence] = []
+                    for hit in rag_results[:10]:
+                        if not isinstance(hit, dict):
+                            continue
+                        memory_press.append(Evidence(
+                            source=hit.get("source", "rag_memory"),
+                            source_tier="MEMORY_ONLY",
+                            url=hit.get("url"),
+                            snippet=(hit.get("text") or hit.get("excerpt") or "")[:400],
+                            retrieved_at=datetime.now(timezone.utc).isoformat(),
+                        ))
+                    report.digital.press_coverage = memory_press
+                    tier_counts["MEMORY_ONLY"] = len(memory_press)
+                    report.digital.source_tier_breakdown = tier_counts
+                    report.digital.data_gaps.append(
+                        "R-F188: live web returned 0 — served from RAG memory only"
+                    )
+                    # Flag on meta so report consumers see degradation
+                    setattr(report.digital.meta, "degraded_search", True)
+                    logger.info(
+                        "[dd] R-F188 RAG-only fallback for %s — %d memory hits",
+                        name[:60], len(memory_press),
+                    )
+            except Exception as _rfe:
+                logger.debug("R-F188 RAG fallback failed: %s", _rfe)
     except Exception as e:
         logger.warning("Digital: web_search failed: %s", e)
         report.digital.data_gaps.append(f"web_search failed: {str(e)[:120]}")

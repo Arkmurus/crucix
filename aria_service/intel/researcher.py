@@ -1073,6 +1073,39 @@ _LANG_PROFILES = {
            "translate": {"defence procurement": "مشتريات دفاعية",
                          "tender": "مناقصة", "contract": "عقد",
                          "armed forces": "القوات المسلحة", "ministry of defence": "وزارة الدفاع"}},
+    # R-F186 (2026-05-11) — expanded fallback to 11 languages to match
+    # the web_search._detect_query_languages claim. Pre-R-F186 the
+    # legacy researcher path was limited to 4 langs, so Turkish /
+    # Russian / Chinese / Japanese / Korean / Hindi / German queries
+    # silently skipped the language-specific Google News profiles.
+    "tr": {"hl": "tr", "gl": "TR", "ceid": "TR:tr",
+           "translate": {"defence procurement": "savunma tedarik",
+                         "tender": "ihale", "contract": "sözleşme",
+                         "armed forces": "silahlı kuvvetler", "ministry of defence": "savunma bakanlığı"}},
+    "ru": {"hl": "ru", "gl": "RU", "ceid": "RU:ru",
+           "translate": {"defence procurement": "оборонный заказ",
+                         "tender": "тендер", "contract": "контракт",
+                         "armed forces": "вооружённые силы", "ministry of defence": "министерство обороны"}},
+    "zh": {"hl": "zh-CN", "gl": "CN", "ceid": "CN:zh-Hans",
+           "translate": {"defence procurement": "国防采购",
+                         "tender": "招标", "contract": "合同",
+                         "armed forces": "武装部队", "ministry of defence": "国防部"}},
+    "ja": {"hl": "ja", "gl": "JP", "ceid": "JP:ja",
+           "translate": {"defence procurement": "防衛調達",
+                         "tender": "入札", "contract": "契約",
+                         "armed forces": "軍隊", "ministry of defence": "防衛省"}},
+    "ko": {"hl": "ko", "gl": "KR", "ceid": "KR:ko",
+           "translate": {"defence procurement": "국방조달",
+                         "tender": "입찰", "contract": "계약",
+                         "armed forces": "군대", "ministry of defence": "국방부"}},
+    "hi": {"hl": "hi", "gl": "IN", "ceid": "IN:hi",
+           "translate": {"defence procurement": "रक्षा खरीद",
+                         "tender": "निविदा", "contract": "अनुबंध",
+                         "armed forces": "सशस्त्र बल", "ministry of defence": "रक्षा मंत्रालय"}},
+    "de": {"hl": "de", "gl": "DE", "ceid": "DE:de",
+           "translate": {"defence procurement": "Rüstungsbeschaffung",
+                         "tender": "Ausschreibung", "contract": "Vertrag",
+                         "armed forces": "Streitkräfte", "ministry of defence": "Verteidigungsministerium"}},
 }
 
 # Country → relevant languages to search in
