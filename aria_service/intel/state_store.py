@@ -37,8 +37,13 @@ Public API mirrors aria_service.intel.redis_store exactly:
     zadd / zrevrange / zrem / zcard
     hset / hgetall / scan_keys
 
-All operations are coroutines. Internal lock serialises mutations so
-the in-process view is consistent without WAL-mode SQLite issues.
+All operations are coroutines. Single-SQL ops rely on aiosqlite's
+single worker thread for serialisation; compound read-modify-write
+ops (lpush/ltrim/incr/incrbyfloat/zadd/zrem/hset) hold a Python-level
+asyncio.Lock around the read+modify+write trio to keep the JSON-blob
+view atomic. The lock is lazy-bound (created on first acquire inside
+the running loop) so pytest's per-test `asyncio.run()` loops each get
+a fresh lock after `connect()`'s `_reset_lock()` call.
 
 Performance: at ARIA's scale (~1-5 writes/second peak, ~100 reads/min)
 the JSON-blob-per-list approach is fine. For DLQ (100K-entry cap) the
@@ -65,7 +70,31 @@ logger = logging.getLogger("aria.state_store")
 
 _DB_PATH: Path | None = None
 _conn = None  # aiosqlite.Connection — lazy init
-_lock = asyncio.Lock()  # serialises writes to keep blob ops atomic
+# Lazy lock — bound to whatever loop first acquires it. Required because the
+# module is imported BEFORE any event loop exists, and pytest spins up a new
+# loop per `asyncio.run(...)` test. Single-SQL operations don't need this
+# lock (aiosqlite already serialises through one worker thread); only the
+# compound read-modify-write paths (lpush/ltrim/incr/incrbyfloat/zadd/zrem/hset)
+# acquire it to keep the JSON-blob RMW atomic at the Python layer.
+_lock: asyncio.Lock | None = None
+
+
+def _get_lock() -> asyncio.Lock:
+    """Return the module-global lock, creating it inside the running loop
+    on first call. Each test's asyncio.run() resets _conn but reuses _lock;
+    if the lock was bound to a closed loop, the next test's connect() calls
+    _reset_lock() to bind it to the new loop."""
+    global _lock
+    if _lock is None:
+        _lock = asyncio.Lock()
+    return _lock
+
+
+def _reset_lock() -> None:
+    """Drop the lock so the next _get_lock() call rebinds to the current loop.
+    Called from connect() to handle pytest's per-test loops cleanly."""
+    global _lock
+    _lock = None
 
 
 def _now() -> float:
@@ -89,6 +118,7 @@ async def connect(db_path: str | None = None) -> bool:
     on success. Caller (main.py) should fall back to in-memory dict if
     False (matches redis_store.connect contract)."""
     global _conn, _DB_PATH
+    _reset_lock()
     try:
         import aiosqlite
     except ImportError:
@@ -160,20 +190,19 @@ async def sweep_expired() -> int:
     deleted. Run periodically from a background task."""
     if _conn is None:
         return 0
-    async with _lock:
-        try:
-            cur = await _conn.execute(
-                "DELETE FROM state WHERE expires_at IS NOT NULL AND expires_at <= ?",
-                (_now(),),
-            )
-            await _conn.commit()
-            n = cur.rowcount or 0
-            if n > 0:
-                logger.debug("state_store: swept %d expired rows", n)
-            return n
-        except Exception as e:
-            logger.warning("state_store: sweep failed: %s", e)
-            return 0
+    try:
+        cur = await _conn.execute(
+            "DELETE FROM state WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            (_now(),),
+        )
+        await _conn.commit()
+        n = cur.rowcount or 0
+        if n > 0:
+            logger.debug("state_store: swept %d expired rows", n)
+        return n
+    except Exception as e:
+        logger.warning("state_store: sweep failed: %s", e)
+        return 0
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -200,13 +229,14 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
         return None
     value, kind, expires_at = row
     if _expired(expires_at):
-        # Lazy expiry — drop the row on read
-        async with _lock:
-            try:
-                await _conn.execute("DELETE FROM state WHERE key = ?", (key,))
-                await _conn.commit()
-            except Exception:
-                pass
+        # Lazy expiry — drop the row on read. No python-level lock needed:
+        # aiosqlite serialises through a single worker thread, and DELETE
+        # is idempotent so a parallel sweep_expired() can't double-fault.
+        try:
+            await _conn.execute("DELETE FROM state WHERE key = ?", (key,))
+            await _conn.commit()
+        except Exception:
+            pass
         return None
     if expected_kind and kind != expected_kind:
         logger.debug("state_store: kind mismatch on %s — wanted %s, got %s",
@@ -217,29 +247,31 @@ async def _row(key: str, expected_kind: str | None = None) -> tuple[str, str, fl
 
 async def _upsert(key: str, value: str, kind: str, expires_at: float | None,
                   keepttl: bool = False) -> None:
+    # No python-level lock: this is a single SQL statement and aiosqlite
+    # serialises through one worker thread. Compound RMW ops (lpush etc.)
+    # hold _get_lock() themselves to keep their read+write atomic.
     if _conn is None:
         return
-    async with _lock:
-        try:
-            if keepttl and expires_at is None:
-                # Preserve existing expires_at; only update value
-                await _conn.execute(
-                    "INSERT INTO state(key, value, kind, expires_at) "
-                    "VALUES(?, ?, ?, NULL) "
-                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value, kind = excluded.kind",
-                    (key, value, kind),
-                )
-            else:
-                await _conn.execute(
-                    "INSERT INTO state(key, value, kind, expires_at) "
-                    "VALUES(?, ?, ?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
-                    "kind = excluded.kind, expires_at = excluded.expires_at",
-                    (key, value, kind, expires_at),
-                )
-            await _conn.commit()
-        except Exception as e:
-            logger.warning("state_store: UPSERT %s failed: %s", key, e)
+    try:
+        if keepttl and expires_at is None:
+            # Preserve existing expires_at; only update value
+            await _conn.execute(
+                "INSERT INTO state(key, value, kind, expires_at) "
+                "VALUES(?, ?, ?, NULL) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, kind = excluded.kind",
+                (key, value, kind),
+            )
+        else:
+            await _conn.execute(
+                "INSERT INTO state(key, value, kind, expires_at) "
+                "VALUES(?, ?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "kind = excluded.kind, expires_at = excluded.expires_at",
+                (key, value, kind, expires_at),
+            )
+        await _conn.commit()
+    except Exception as e:
+        logger.warning("state_store: UPSERT %s failed: %s", key, e)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -260,14 +292,13 @@ async def set(key: str, value: str, ex: int | None = None,
 async def delete(key: str) -> bool:
     if _conn is None:
         return False
-    async with _lock:
-        try:
-            cur = await _conn.execute("DELETE FROM state WHERE key = ?", (key,))
-            await _conn.commit()
-            return (cur.rowcount or 0) > 0
-        except Exception as e:
-            logger.warning("state_store: DELETE %s failed: %s", key, e)
-            return False
+    try:
+        cur = await _conn.execute("DELETE FROM state WHERE key = ?", (key,))
+        await _conn.commit()
+        return (cur.rowcount or 0) > 0
+    except Exception as e:
+        logger.warning("state_store: DELETE %s failed: %s", key, e)
+        return False
 
 
 async def get_json(key: str) -> Any:
@@ -299,7 +330,7 @@ async def _read_list(key: str) -> tuple[list, float | None]:
 
 
 async def lpush(key: str, value: str) -> None:
-    async with _lock:
+    async with _get_lock():
         lst, expires_at = await _read_list(key)
         lst.insert(0, value)
         await _upsert(key, json.dumps(lst, default=str), kind="list",
@@ -307,7 +338,7 @@ async def lpush(key: str, value: str) -> None:
 
 
 async def ltrim(key: str, start: int, stop: int) -> None:
-    async with _lock:
+    async with _get_lock():
         lst, expires_at = await _read_list(key)
         if not lst:
             return
@@ -332,8 +363,8 @@ async def lrange(key: str, start: int, stop: int) -> list[str]:
 # ── Counters ─────────────────────────────────────────────────────────────
 
 async def incr(key: str, amount: int = 1) -> int:
-    """Atomic integer increment (atomic due to the _lock + UPSERT)."""
-    async with _lock:
+    """Atomic integer increment (atomic due to the lock + UPSERT)."""
+    async with _get_lock():
         row = await _row(key, expected_kind="string")
         try:
             current = int(row[0]) if row else 0
@@ -348,7 +379,7 @@ async def incr(key: str, amount: int = 1) -> int:
 
 async def incrbyfloat(key: str, amount: float) -> float:
     """Atomic float increment."""
-    async with _lock:
+    async with _get_lock():
         row = await _row(key, expected_kind="string")
         try:
             current = float(row[0]) if row else 0.0
@@ -364,17 +395,16 @@ async def incrbyfloat(key: str, amount: float) -> float:
 async def expire(key: str, seconds: int) -> bool:
     if _conn is None:
         return False
-    async with _lock:
-        try:
-            cur = await _conn.execute(
-                "UPDATE state SET expires_at = ? WHERE key = ?",
-                (_ttl_to_expires(seconds), key),
-            )
-            await _conn.commit()
-            return (cur.rowcount or 0) > 0
-        except Exception as e:
-            logger.warning("state_store: EXPIRE %s failed: %s", key, e)
-            return False
+    try:
+        cur = await _conn.execute(
+            "UPDATE state SET expires_at = ? WHERE key = ?",
+            (_ttl_to_expires(seconds), key),
+        )
+        await _conn.commit()
+        return (cur.rowcount or 0) > 0
+    except Exception as e:
+        logger.warning("state_store: EXPIRE %s failed: %s", key, e)
+        return False
 
 
 # ── Sorted sets (JSON-blob; volumes are small) ──────────────────────────
@@ -392,7 +422,7 @@ async def _read_zset(key: str) -> tuple[list[tuple[float, str]], float | None]:
 
 
 async def zadd(key: str, score: float, member: str) -> None:
-    async with _lock:
+    async with _get_lock():
         entries, expires_at = await _read_zset(key)
         # Remove existing member, then re-insert with the new score
         entries = [(s, m) for s, m in entries if m != member]
@@ -410,7 +440,7 @@ async def zrevrange(key: str, start: int, stop: int) -> list[str]:
 
 
 async def zrem(key: str, member: str) -> bool:
-    async with _lock:
+    async with _get_lock():
         entries, expires_at = await _read_zset(key)
         before = len(entries)
         entries = [(s, m) for s, m in entries if m != member]
@@ -438,7 +468,7 @@ async def _read_hash(key: str) -> tuple[dict, float | None]:
 
 
 async def hset(key: str, mapping: dict) -> None:
-    async with _lock:
+    async with _get_lock():
         existing, expires_at = await _read_hash(key)
         existing.update(mapping)
         await _upsert(key, json.dumps(existing, default=str), kind="hash",
