@@ -187,57 +187,103 @@ export async function fetchTradeFLows() {
     { reporter: 'IN', partner: 'RU', label: 'India → Russia' },
   ];
 
-  // IMF DOTS annual data lags 12-18 months. In early 2026, 2025 data doesn't exist yet.
-  // Always request a 3-year window to guarantee 2+ observations for YoY comparison.
+  // R-F271 (2026-05-11) — operator-observed: every sweep logs
+  // `[Comtrade] 0 IMF DOTS trade flows · 0 anomalies`. Pre-R-F271 the
+  // function had FOUR silent-failure paths (`if (!res.ok) continue;`,
+  // `if (!series) continue;`, `if (vals.length >= 2)` skipped when only
+  // 1 observation existed, and `catch {}` swallowed every exception).
+  // Result: zero visibility into WHY 0 flows. The fix below:
+  //   1) widens the year window from 3 → 5 years (IMF DOTS data lag is
+  //      sometimes 18+ months on EM corridors — 3y window can yield
+  //      only 1 observation in May–Sep of any given year)
+  //   2) accepts 1-observation flows as informational (no YoY change),
+  //      so we always report what we have rather than silently drop
+  //   3) logs per-pair status (ok / non-200 / no-series / single-obs)
+  //      so next sweep tells operator exactly which corridor lags
+  //   4) named-catch with logging so transient API errors are visible
   const year = new Date().getFullYear() - 1;
+  const perPairStatus = [];
 
   try {
     for (const pair of COUNTRY_PAIRS.slice(0, 4)) { // limit calls
+      let status = 'ok';
       try {
-        // IMF DOTS compact data: exports (TXG_FOB_USD) between pair
-        const url = `https://dataservices.imf.org/REST/SDMX_JSON.svc/CompactData/DOT/A.${pair.reporter}.${pair.partner}.TXG_FOB_USD.?startPeriod=${year - 2}&endPeriod=${year}`;
+        // IMF DOTS compact data: exports (TXG_FOB_USD) between pair.
+        // R-F271: 5-year window for higher chance of ≥2 observations.
+        const url = `https://dataservices.imf.org/REST/SDMX_JSON.svc/CompactData/DOT/A.${pair.reporter}.${pair.partner}.TXG_FOB_USD.?startPeriod=${year - 4}&endPeriod=${year}`;
         const res = await fetch(url, {
           headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
           signal: AbortSignal.timeout(12000),
         });
-        if (!res.ok) continue;
+        if (!res.ok) {
+          status = `http_${res.status}`;
+          perPairStatus.push(`${pair.label}=${status}`);
+          continue;
+        }
 
         const data = await res.json();
         const series = data?.CompactData?.DataSet?.Series;
-        if (!series) continue;
+        if (!series) {
+          status = 'no_series';
+          perPairStatus.push(`${pair.label}=${status}`);
+          continue;
+        }
 
         const obs = Array.isArray(series.Obs) ? series.Obs : [series.Obs].filter(Boolean);
         const vals = obs.map(o => ({ period: o['@TIME_PERIOD'], value: parseFloat(o['@OBS_VALUE']) }))
                        .filter(o => !isNaN(o.value));
 
-        if (vals.length >= 2) {
-          const latest = vals[vals.length - 1];
-          const prior  = vals[vals.length - 2];
-          const pctChg = prior.value ? ((latest.value - prior.value) / prior.value) * 100 : 0;
-
-          results.flows.push({
-            label:     pair.label,
-            reporter:  pair.reporter,
-            partner:   pair.partner,
-            value_usd: latest.value * 1e6, // IMF reports in millions USD
-            period:    latest.period,
-            pctChange: Math.round(pctChg * 10) / 10,
-            type:      'trade_flow',
-          });
-
-          // Flag anomalies: >20% change YoY in monitored corridors
-          if (Math.abs(pctChg) > 20) {
-            results.anomalies.push({
-              text:      `${pair.label}: trade ${pctChg > 0 ? '+' : ''}${pctChg.toFixed(1)}% YoY ($${(latest.value / 1000).toFixed(1)}B)`,
-              severity:  Math.abs(pctChg) > 40 ? 'high' : 'medium',
-              type:      'trade_anomaly',
-            });
-          }
+        if (vals.length === 0) {
+          status = 'empty_obs';
+          perPairStatus.push(`${pair.label}=${status}`);
+          continue;
         }
-      } catch {}
+
+        const latest = vals[vals.length - 1];
+
+        // R-F271: report single-observation flows too (no YoY, but the
+        // latest value is still actionable). Anomaly-detection still
+        // requires 2 observations because pctChange needs a prior baseline.
+        let pctChg = null;
+        if (vals.length >= 2) {
+          const prior = vals[vals.length - 2];
+          pctChg = prior.value ? ((latest.value - prior.value) / prior.value) * 100 : 0;
+        }
+
+        results.flows.push({
+          label:     pair.label,
+          reporter:  pair.reporter,
+          partner:   pair.partner,
+          value_usd: latest.value * 1e6, // IMF reports in millions USD
+          period:    latest.period,
+          pctChange: pctChg === null ? null : Math.round(pctChg * 10) / 10,
+          type:      'trade_flow',
+        });
+
+        // Flag anomalies: >20% change YoY in monitored corridors
+        // (only when we have 2+ observations to compute pctChg).
+        if (pctChg !== null && Math.abs(pctChg) > 20) {
+          results.anomalies.push({
+            text:      `${pair.label}: trade ${pctChg > 0 ? '+' : ''}${pctChg.toFixed(1)}% YoY ($${(latest.value / 1000).toFixed(1)}B)`,
+            severity:  Math.abs(pctChg) > 40 ? 'high' : 'medium',
+            type:      'trade_anomaly',
+          });
+        }
+
+        status = vals.length >= 2 ? 'ok_yoy' : 'ok_single';
+        perPairStatus.push(`${pair.label}=${status}`);
+      } catch (innerErr) {
+        // R-F271: named catch with logging so transient API errors no
+        // longer silently drop the corridor.
+        status = `err:${(innerErr && innerErr.message || 'unknown').slice(0, 60)}`;
+        perPairStatus.push(`${pair.label}=${status}`);
+      }
     }
 
-    console.log(`[Comtrade] ${results.flows.length} IMF DOTS trade flows · ${results.anomalies.length} anomalies`);
+    console.log(
+      `[Comtrade] ${results.flows.length} IMF DOTS trade flows · ${results.anomalies.length} anomalies` +
+      (perPairStatus.length ? ` · per-pair: [${perPairStatus.join(', ')}]` : ''),
+    );
   } catch (err) {
     results.error = err.message;
     console.error('[Comtrade] Error:', err.message);
