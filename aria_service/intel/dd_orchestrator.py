@@ -381,9 +381,29 @@ _ISO2_TO_COUNTRY_HINT = {
 
 def _detect_jurisdiction_in_link_tree(tree) -> tuple[str | None, str]:
     """R-F301: scan a LinkTreeResult for city + country tokens → ISO2.
-    Returns (iso2, evidence_quote) on hit, else (None, "")."""
-    if not tree:
+    Returns (iso2, evidence_quote) of the WINNING jurisdiction on hit,
+    else (None, ""). For multi-jurisdiction inference (Modirum has FI HQ
+    + BR ops + UAE admin + ...), use `_detect_all_jurisdictions_in_link_tree`."""
+    all_juris = _detect_all_jurisdictions_in_link_tree(tree)
+    if not all_juris:
         return None, ""
+    # Winner is the highest-voted; evidence comes back from the all-list helper
+    winner = all_juris[0]
+    return winner["iso2"], winner["evidence"]
+
+
+def _detect_all_jurisdictions_in_link_tree(tree) -> list[dict]:
+    """R-F301 multi-jurisdiction follow-up (live observation 2026-05-11
+    on modirumgespi.com): the previous winner-only logic picked BR because
+    the page emphasises GESPI Brazil, but the Finnish PRH adapter (R-F302)
+    couldn't fire because FI was the second-place vote, not first. This
+    returns ALL jurisdictions ranked by vote so the caller can try
+    every registry adapter in order until one returns data.
+
+    Returns: [{iso2, country, score, evidence}, ...] sorted by score desc.
+    Empty list when no detection."""
+    if not tree:
+        return []
 
     haystack_parts: list[str] = []
     for ff in (getattr(tree, "fused_facts", None) or [])[:60]:
@@ -400,38 +420,43 @@ def _detect_jurisdiction_in_link_tree(tree) -> tuple[str | None, str]:
             if getattr(fact, "context", ""):
                 haystack_parts.append(str(fact.context))
     if not haystack_parts:
-        return None, ""
+        return []
 
-    haystack_lower = (" | ".join(haystack_parts))[:80000].lower()
+    haystack = " | ".join(haystack_parts)[:80000]
+    haystack_lower = haystack.lower()
 
-    # Vote — count token hits per ISO2. The country-name tokens
-    # (e.g. "finland") count double to anchor the verdict.
     votes: dict[str, int] = {}
     for token, iso2 in _LINK_TREE_CITY_TO_ISO2.items():
         if token in haystack_lower:
             weight = 2 if token == _ISO2_TO_COUNTRY_HINT.get(iso2, "").lower() else 1
             votes[iso2] = votes.get(iso2, 0) + weight
     if not votes:
-        return None, ""
+        return []
 
-    winner = max(votes.items(), key=lambda kv: kv[1])
-    iso2_hit, score = winner
-    # Require at least 2 points (one strong country token OR two cities)
-    if score < 2:
-        return None, ""
-
-    # Build evidence quote — first matching token's surrounding text
-    for token, iso2 in _LINK_TREE_CITY_TO_ISO2.items():
-        if iso2 != iso2_hit:
+    out: list[dict] = []
+    for iso2, score in sorted(votes.items(), key=lambda kv: -kv[1]):
+        # Require at least 2 points to make the list — discards single
+        # incidental mentions.
+        if score < 2:
             continue
-        idx = haystack_lower.find(token)
-        if idx >= 0:
-            start = max(0, idx - 60)
-            end = min(len(haystack_lower), idx + len(token) + 60)
-            haystack = " | ".join(haystack_parts)[:80000]
-            evidence = haystack[start:end].replace("\n", " ").strip()
-            return iso2_hit, evidence
-    return iso2_hit, ""
+        # Evidence quote — first matching token's surrounding text
+        evidence = ""
+        for token, t_iso2 in _LINK_TREE_CITY_TO_ISO2.items():
+            if t_iso2 != iso2:
+                continue
+            idx = haystack_lower.find(token)
+            if idx >= 0:
+                start = max(0, idx - 60)
+                end = min(len(haystack_lower), idx + len(token) + 60)
+                evidence = haystack[start:end].replace("\n", " ").strip()
+                break
+        out.append({
+            "iso2": iso2,
+            "country": _ISO2_TO_COUNTRY_HINT.get(iso2, iso2),
+            "score": score,
+            "evidence": evidence,
+        })
+    return out
 
 
 def _brandify_name_for_search(name: str, target: dict) -> str:
@@ -2081,64 +2106,118 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 # adapters, etc.) can use them.
                 try:
                     if not report.identity.jurisdiction_iso2:
-                        _jur_iso2, _jur_ev = _detect_jurisdiction_in_link_tree(tree)
-                        if _jur_iso2:
-                            report.identity.jurisdiction_iso2 = _jur_iso2
+                        # R-F301 follow-up (live ev. 2026-05-11): try ALL
+                        # detected jurisdictions, not just the winner.
+                        # Modirum GESPI page mentions BR + FI + AE + RS +
+                        # MK — winner was BR but the Finnish PRH adapter
+                        # never got asked. Now we try each adapter in
+                        # rank order; whichever returns data wins.
+                        all_juris = _detect_all_jurisdictions_in_link_tree(tree)
+                        winning_iso2 = None
+                        winning_evidence = ""
+                        adapter_attempts: list[dict] = []
+                        if all_juris:
+                            # Always set the highest-voted as the default
+                            # jurisdiction for the record (so country-risk
+                            # etc. have something to read), even if no
+                            # adapter returns data.
+                            winning_iso2 = all_juris[0]["iso2"]
+                            winning_evidence = all_juris[0]["evidence"]
+                            try:
+                                from . import registry_adapters as _ra
+                                for _candidate in all_juris[:4]:  # cap at top-4 jurisdictions
+                                    _cand_iso2 = _candidate["iso2"]
+                                    try:
+                                        ra_result = await _ra.lookup_entity(
+                                            name=name,
+                                            jurisdiction_iso2=_cand_iso2,
+                                            registration_number=None,
+                                        )
+                                    except Exception as _ra_inner:
+                                        adapter_attempts.append({
+                                            "iso2": _cand_iso2,
+                                            "status": "errored",
+                                            "reason": str(_ra_inner)[:120],
+                                        })
+                                        continue
+                                    found = bool(
+                                        ra_result and (
+                                            ra_result.get("profile")
+                                            or ra_result.get("found")
+                                        )
+                                    )
+                                    adapter_attempts.append({
+                                        "iso2": _cand_iso2,
+                                        "status": "found" if found else "no_match",
+                                    })
+                                    if found:
+                                        _ra_profile = ra_result.get("profile") or {}
+                                        # First adapter to return data WINS
+                                        # — it gets to set jurisdiction.
+                                        winning_iso2 = _cand_iso2
+                                        winning_evidence = _candidate["evidence"]
+                                        if not report.identity.directors:
+                                            report.identity.directors = (
+                                                ra_result.get("officers") or []
+                                            )
+                                        if not report.identity.registration_number:
+                                            report.identity.registration_number = (
+                                                _ra_profile.get("company_number")
+                                                or ra_result.get("registration_number")
+                                            )
+                                        if not report.identity.incorporation_date:
+                                            report.identity.incorporation_date = (
+                                                _ra_profile.get("date_of_creation")
+                                                or ra_result.get("incorporation_date")
+                                            )
+                                        if not report.identity.registered_address:
+                                            report.identity.registered_address = (
+                                                _ra_profile.get("registered_office_address")
+                                                or report.identity.registered_address
+                                            )
+                                        break
+                            except Exception as _ra_e:
+                                logger.debug(
+                                    "R-F301 multi-juris registry backfill failed: %s",
+                                    _ra_e,
+                                )
+
+                        if winning_iso2:
+                            report.identity.jurisdiction_iso2 = winning_iso2
                             if not report.identity.jurisdiction:
                                 report.identity.jurisdiction = (
-                                    _ISO2_TO_COUNTRY_HINT.get(_jur_iso2, _jur_iso2)
+                                    _ISO2_TO_COUNTRY_HINT.get(winning_iso2, winning_iso2)
                                 )
+                            _all_iso2s = ", ".join(
+                                f"{j['iso2']}({j['score']})" for j in all_juris[:6]
+                            )
+                            _attempt_summary = ", ".join(
+                                f"{a['iso2']}={a['status']}" for a in adapter_attempts
+                            )
                             report.identity.findings.append(Finding(
                                 severity="info",
                                 title=(
-                                    f"R-F301: jurisdiction inferred from link-tree "
-                                    f"→ {_jur_iso2} "
-                                    f"({_ISO2_TO_COUNTRY_HINT.get(_jur_iso2, '?')})"
+                                    f"R-F301: multi-jurisdiction backfill — "
+                                    f"all detected: {_all_iso2s}; winning: "
+                                    f"{winning_iso2} "
+                                    f"({_ISO2_TO_COUNTRY_HINT.get(winning_iso2, '?')})"
                                 ),
-                                detail=f"Evidence: {_jur_ev[:200]}",
+                                detail=(
+                                    f"Evidence: {winning_evidence[:200]}. "
+                                    f"Adapter attempts: "
+                                    f"{_attempt_summary or 'none'}"
+                                ),
                                 source="dd_orchestrator.jurisdiction_backfill",
                                 confidence="ASSESSED",
                             ))
                             logger.info(
-                                "R-F301: jurisdiction backfilled via link-tree: %s (%s)",
-                                _jur_iso2, _ISO2_TO_COUNTRY_HINT.get(_jur_iso2, "?"),
+                                "R-F301: multi-juris backfill: candidates=[%s] "
+                                "winner=%s (%s); adapter_attempts=[%s]",
+                                _all_iso2s,
+                                winning_iso2,
+                                _ISO2_TO_COUNTRY_HINT.get(winning_iso2, "?"),
+                                _attempt_summary or "none",
                             )
-                            # If a registry adapter exists for this
-                            # jurisdiction, try it now to backfill
-                            # directors + incorporation date.
-                            try:
-                                from . import registry_adapters as _ra
-                                ra_result = await _ra.lookup_entity(
-                                    name=name,
-                                    jurisdiction_iso2=_jur_iso2,
-                                    registration_number=None,
-                                )
-                                if ra_result and (ra_result.get("profile") or ra_result.get("found")):
-                                    _ra_profile = ra_result.get("profile") or {}
-                                    if not report.identity.directors:
-                                        report.identity.directors = (
-                                            ra_result.get("officers") or []
-                                        )
-                                    if not report.identity.registration_number:
-                                        report.identity.registration_number = (
-                                            _ra_profile.get("company_number")
-                                            or ra_result.get("registration_number")
-                                        )
-                                    if not report.identity.incorporation_date:
-                                        report.identity.incorporation_date = (
-                                            _ra_profile.get("date_of_creation")
-                                            or ra_result.get("incorporation_date")
-                                        )
-                                    if not report.identity.registered_address:
-                                        report.identity.registered_address = (
-                                            _ra_profile.get("registered_office_address")
-                                            or report.identity.registered_address
-                                        )
-                            except Exception as _ra_e:
-                                logger.debug(
-                                    "R-F301 registry-adapter backfill failed: %s",
-                                    _ra_e,
-                                )
                 except Exception as _jur_e:
                     logger.debug("R-F301 jurisdiction backfill skipped: %s", _jur_e)
 
@@ -3986,8 +4065,16 @@ async def orchestrate_dd(
                 max_results_per_template=5,
             )
             report.adverse_media = _am_result
+            # R-F300 follow-up: log now reflects R-F300 expanded triggers
+            # (AMBER variants + low-coverage), not just RED.
+            _trigger_reason = (
+                "RED" if _risk_for_am in ("RED", "HARD_STOP", "NO-GO")
+                else f"AMBER ({_risk_for_am})" if _risk_for_am.startswith("AMBER")
+                else f"low-coverage ({_coverage_pct:.0f}%)"
+            )
             logger.info(
-                "[R-F160] adverse-media deep search (RED-trigger): %d findings across %d source classes in %.1fs",
+                "[R-F160/F300] adverse-media deep search (%s-trigger): %d findings across %d source classes in %.1fs",
+                _trigger_reason,
                 _am_result.get("findings_count", 0),
                 len(_am_result.get("coverage_by_class", {}) or {}),
                 _am_result.get("execution_time_seconds", 0),

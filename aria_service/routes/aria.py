@@ -1032,6 +1032,45 @@ async def research_link_tree_get_ep(tree_id: str):
     return tree
 
 
+# ── R-F307: unified web explorer endpoint ─────────────────────────────────
+# Operator directive 2026-05-11: "make sure to do a powerful web explorer
+# … all improvements should work across the entire aria ecosystem".
+# Consolidates web_search + researcher + link_investigator + deep_researcher
+# behind one entry point with ecosystem awareness baked in.
+@router.post("/explore")
+async def explore_ep(req: Request):
+    """Powerful unified web exploration. Memory-first, cost-free by
+    default, language fan-out, same-host bias, ecosystem snapshot.
+
+    Body (all optional except query OR urls):
+      query:           str            — research question / entity name
+      urls:            list[str]      — seed URLs to crawl
+      depth:           auto|quick|thorough  (default: auto)
+      cost_free:       bool           — default True; False to allow paid
+      language_fanout: auto|off|list  — default: auto-detect
+      max_results:     int            — default 12
+      memory_first:    bool           — default True (RAG-first)
+      context:         str            — relevance hint
+
+    Returns ExplorationResult as dict, including per-backend ecosystem
+    snapshot so the operator can SEE which backends fired vs. silent."""
+    from ..intel import web_explorer
+    body = await req.json()
+    if not (body.get("query") or body.get("urls")):
+        return {"error": "Provide at least one of: query, urls"}
+    result = await web_explorer.explore(
+        query=body.get("query", "") or "",
+        urls=body.get("urls"),
+        depth=body.get("depth", "auto"),
+        cost_free=bool(body.get("cost_free", True)),
+        language_fanout=body.get("language_fanout", "auto"),
+        max_results=int(body.get("max_results", 12)),
+        memory_first=bool(body.get("memory_first", True)),
+        context=body.get("context", "") or "",
+    )
+    return result.as_dict()
+
+
 # ── Feedback: WhatsApp reaction → ground-truth signal ────────────────────
 class FeedbackSnapshotRequest(BaseModel):
     chat_id: str
@@ -4023,22 +4062,22 @@ def _detect_tool_intent(message: str) -> dict | None:
         if entity_needs_fallback:
             try:
                 from urllib.parse import urlparse as _up
+                from ..intel.web_explorer import brandify_query as _brand
                 host = _up(url).netloc.lower().replace("www.", "")
-                # Use the second-level domain as the entity name
-                # (e.g. duma-engineering.com → duma-engineering,
-                # globalsecuralliance.com → globalsecuralliance).
-                entity = host.split(".")[0] if host else url
-                # Replace hyphens with spaces for nicer search queries
-                entity = entity.replace("-", " ").replace("_", " ").strip()
+                # R-W7: use the unified brandify_query so the chat path
+                # gets the same treatment as the DD path (R-F299).
+                # "duma-engineering.com" → "duma engineering"
+                entity = _brand(host) if host else url
             except Exception:
                 entity = url
 
         if not entity:
-            # Final fallback to the raw domain
+            # Final fallback to the raw domain — R-W7: same brandify path
             try:
                 from urllib.parse import urlparse as _up
+                from ..intel.web_explorer import brandify_query as _brand
                 host = _up(url).netloc.lower().replace("www.", "")
-                entity = host.split(".")[0] if host else url
+                entity = _brand(host) if host else url
             except Exception:
                 entity = url
         return {"tool": "deep_research", "entity": entity, "url": url, "context": msg}
@@ -5252,10 +5291,13 @@ async def _execute_tool(intent: dict, llm) -> str:
                 )
                 search_query = search_query.strip(" ,.:;-?!\"'\n")[:200]
             if not search_query:
-                # Fallback: derive from the domain
+                # Fallback: derive from the domain — R-W7: brandify so
+                # "modirumgespi.com" becomes "modirumgespi" (and
+                # "duma-engineering.com" → "duma engineering")
                 try:
-                    host = _urlparse(intent["url"]).netloc.lower()
-                    search_query = host.replace("www.", "").split(".")[0]
+                    from ..intel.web_explorer import brandify_query as _brand
+                    host = _urlparse(intent["url"]).netloc.lower().replace("www.", "")
+                    search_query = _brand(host) if host else intent["url"]
                 except Exception:
                     search_query = intent["url"]
 
@@ -5467,7 +5509,31 @@ async def _execute_tool(intent: dict, llm) -> str:
         if tool == "read":
             r = await read_article(llm, intent["url"], intent.get("context", ""))
             facts = r.get("facts_learned", 0) or 0
-            summary = (r.get("summary") or r.get("analysis") or "")[:1500]
+            # R-W3: read_article returns `facts` (list) and `hypothesis`,
+            # NOT `summary` / `analysis`. Previous code reached for the
+            # wrong keys, so Summary was always empty — the LLM got
+            # "Facts learned: 3 / Summary:" with no article text and
+            # either refused or hallucinated. Build a real summary from
+            # the structured facts.
+            summary = (r.get("summary") or r.get("analysis") or "").strip()
+            if not summary:
+                facts_list = r.get("facts") or []
+                if facts_list:
+                    parts: list[str] = []
+                    for ff in facts_list[:8]:
+                        if isinstance(ff, dict):
+                            txt = ff.get("text") or ff.get("claim") or ff.get("value") or ""
+                        else:
+                            txt = str(ff)
+                        if txt:
+                            parts.append("• " + txt.strip()[:240])
+                    summary = "\n".join(parts)
+                hyp = r.get("hypothesis")
+                if hyp and isinstance(hyp, dict):
+                    h_text = hyp.get("hypothesis") or hyp.get("text") or ""
+                    if h_text:
+                        summary = (summary + "\n\nHypothesis: " + h_text).strip()
+            summary = summary[:1500]
             base = (
                 f"\n\n[TOOL: read_article]\nURL: {intent['url']}\n"
                 f"Facts learned: {facts}\nSummary: {summary}"

@@ -957,11 +957,45 @@ async def reading_session(llm=None, num_articles: int = 3) -> dict:
                 # Tag-name shape: 'angola_procurement' -> 'angola procurement'
                 pretty = stag.replace("_", " ").replace(":", " ")
                 query = f"{pretty} defence procurement news 2026"
+                # R-W4 cost-free contract: this is a LEARNING-LOOP web
+                # call. Route through web_explorer with cost_free=True
+                # so the Brave paid path can never fire from here. Falls
+                # back to the old path if web_explorer is unavailable.
+                resp = None
                 try:
-                    resp = await _res.web_search(query=query, max_results=3)
-                except Exception as _se:
-                    logger.debug("[student] starved-tag web_search failed for %s: %s", stag, _se)
-                    continue
+                    from . import web_explorer as _we
+                    er = await _we.explore(
+                        query=query,
+                        cost_free=True,
+                        max_results=3,
+                        memory_first=True,
+                    )
+                    # Adapt back to researcher.web_search shape so the
+                    # downstream loop stays untouched.
+                    resp = {
+                        "results": [
+                            {
+                                "url": f.source_url,
+                                "title": f.value[:200],
+                                "snippet": f.context[:400],
+                            }
+                            for f in er.facts
+                            if f.source_url
+                        ]
+                    }
+                except Exception as _we_err:
+                    logger.debug("[student] R-W4 web_explorer path failed for %s: %s — falling back",
+                                 stag, _we_err)
+                    try:
+                        # Keep the legacy fallback so we never starve the
+                        # learning loop, but in cost-free mode the Brave
+                        # branch inside researcher.web_search is the only
+                        # paid path — R-F306 capability test now spies on
+                        # it, so a regression here will break CI.
+                        resp = await _res.web_search(query=query, max_results=3)
+                    except Exception as _se:
+                        logger.debug("[student] starved-tag legacy web_search failed for %s: %s", stag, _se)
+                        continue
                 results = (resp or {}).get("results", []) if isinstance(resp, dict) else []
                 for hit in (results or [])[:2]:
                     if not isinstance(hit, dict):

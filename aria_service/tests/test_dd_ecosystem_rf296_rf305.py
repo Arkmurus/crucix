@@ -110,6 +110,33 @@ def test_rf301_requires_at_least_2_points():
     assert iso2 in (None, "FR"), f"unexpected: {iso2!r}"
 
 
+def test_rf301_multi_jurisdiction_returns_all_ranked():
+    """R-F301 follow-up (live evidence 2026-05-11): the previous
+    winner-only logic picked BR for modirumgespi.com because the page
+    emphasises GESPI Brazil, but the Finnish PRH adapter (R-F302) never
+    got tried because FI was second. The new
+    _detect_all_jurisdictions_in_link_tree returns ALL detected
+    jurisdictions ranked, so the orchestrator can try each adapter in
+    order until one returns data."""
+    from aria_service.intel import dd_orchestrator as ddo
+    tree = _fake_tree_with_facts([
+        ("Helsinki", "Modirum corporate HQ in Helsinki, Finland"),
+        ("Tampere", "Tampere engineering centre"),
+        ("São José dos Campos", "GESPI manufacturing in Brazil"),
+        ("Cruzeiro", "Cruzeiro facility in Brazil"),
+        ("Dubai", "Admin support office in Dubai, UAE"),
+    ])
+    all_juris = ddo._detect_all_jurisdictions_in_link_tree(tree)
+    iso_ranked = [j["iso2"] for j in all_juris]
+    # Finland AND Brazil must BOTH appear so the orchestrator can try
+    # both adapters. Order may vary by token count, but both present.
+    assert "FI" in iso_ranked, f"R-F301 multi-juris regression: FI missing. Got {iso_ranked}"
+    assert "BR" in iso_ranked, f"R-F301 multi-juris regression: BR missing. Got {iso_ranked}"
+    # Top-rank is one of the two (Brazil edges Finland on this fixture,
+    # but Finland edges Brazil on the actual page — both are valid)
+    assert iso_ranked[0] in ("FI", "BR")
+
+
 def test_rf301_capability_modirumgespi_finland_inferred():
     """Capability — given a tree shaped like the actual modirumgespi.com
     crawl (Helsinki HQ + Brazil + UAE + Finland mentions), the detector
@@ -539,12 +566,16 @@ def test_rf306_capability_self_quiz_never_calls_paid_modules(monkeypatch):
             )
         return _fn
 
-    # Try to patch optional paid modules. If they don't import, that's
-    # fine — the contract is that learning DOESN'T NEED them.
+    # R-W4: extended spy list. The original R-F306 patched only
+    # brave_answers + web_search.search_multilingual. But the learning
+    # loop ALSO has a `researcher.web_search` call path (starved-tag
+    # branch in student.py) which is paid-Brave-first when the API key
+    # is set — silent leak. Spy on it too.
     for mod_path, attr in (
         ("aria_service.intel.brave_answers", "fetch_answer"),
         ("aria_service.intel.brave_answers", "ask"),
         ("aria_service.intel.web_search", "search_multilingual"),
+        ("aria_service.intel.researcher", "web_search"),  # R-W4
     ):
         try:
             import importlib

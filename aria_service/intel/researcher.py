@@ -2073,12 +2073,21 @@ async def deep_research(
     # ── Step 3: aggregate + dedup snippets across all angles ──────────
     snippets_by_url: dict[str, dict] = {}
     snippet_count_per_provider: dict[str, int] = {}
-    snippet_count_per_angle: dict[str, int] = {}
+    # R-W9 honesty: initialise per-angle counters AND per-angle status to
+    # zero/ok BEFORE iteration so silent (returned 0) and errored (raised)
+    # angles are visible in the output. Previous code only added entries
+    # on snippet hit, so the operator/LLM couldn't tell whether an angle
+    # ran with zero results or never ran at all — same R-F297 failure
+    # mode applied to the research output.
+    snippet_count_per_angle: dict[str, int] = {a: 0 for a in angles}
+    angle_status: dict[str, str] = {a: "ok" for a in angles}
     for angle, sr in zip(angles, search_results_per_angle):
         if isinstance(sr, Exception):
             logger.debug("deep_research search angle %r failed: %s", angle, sr)
+            angle_status[angle] = f"errored: {type(sr).__name__}"
             continue
         if not isinstance(sr, dict) or not sr.get("ok"):
+            angle_status[angle] = "errored: backend_not_ok"
             continue
         provider = sr.get("provider", "?")
         snippet_count_per_provider[provider] = snippet_count_per_provider.get(provider, 0)
@@ -2100,7 +2109,10 @@ async def deep_research(
                 if angle not in snippets_by_url[url]["angles"]:
                     snippets_by_url[url]["angles"].append(angle)
             snippet_count_per_provider[provider] += 1
-            snippet_count_per_angle[angle] = snippet_count_per_angle.get(angle, 0) + 1
+            snippet_count_per_angle[angle] += 1
+        # If the angle came back ok but with 0 results, mark it silent
+        if angle_status[angle] == "ok" and snippet_count_per_angle[angle] == 0:
+            angle_status[angle] = "silent"
 
     all_snippets = list(snippets_by_url.values())
 
@@ -2176,6 +2188,7 @@ async def deep_research(
         "queries_run": angles,
         "snippet_count_per_provider": snippet_count_per_provider,
         "snippet_count_per_angle": snippet_count_per_angle,
+        "angle_status": angle_status,  # R-W9: per-angle ok/silent/errored
         "snippets_total": len(all_snippets),
         "snippets_top": all_snippets[:10],  # was 15 — context-budget cut
         "extracted_pages": extracted_pages,
