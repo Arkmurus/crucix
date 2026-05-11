@@ -77,6 +77,33 @@ _SEEDED: dict[str, dict[str, str]] = {
         "regression_test_path":   "aria_service/tests/test_f3_cascade_fixes.py::test_validator_rejects_url_scheme_fragments",
         "closure_rationale":      "Earliest of the three F3-cascade defective runs, all sharing the same URL-parser bug root cause. Bug fix d4aa0c1 retrospectively makes this run impossible to reproduce. Filter_citations() scrubs any prior-conversation reference to this run_id. No live ledger signals or mem0 entries should still cite this run; any that do are flagged at chat-time by run_quarantine.is_quarantined().",
     },
+    # ── R-F289 (2026-05-11) — EBANO false-positive incident on the
+    # WhatsApp DD chain. Operator-observed: lngtradinginternationalpanamasa.com
+    # returned HARD STOP based on a fabricated OFAC SDN match to "EBANO".
+    # Root cause was the geographic-token-overlap gap in _sanctions_classify
+    # — two unrelated entities sharing "panama" in their corporate name
+    # were treated as token-related. R-F277 (geographic token filter) +
+    # R-F287 (per-source verification status) + R-5005 (verification gate)
+    # all close this loop at independent layers. The original run is
+    # quarantined so its HARD_STOP verdict can NEVER be cited as evidence
+    # in chat or downstream pipelines; the dd-reports.html library will
+    # render it with the citation-scrub marker so the operator sees the
+    # legacy report but understands its findings are defective.
+    "dd_205e4ce82e9": {
+        "reason": "EBANO OFAC SDN false-positive — geographic-token-only "
+                  "overlap on 'panama' between query 'LNG TRADING INTERNATIONAL "
+                  "PANAMA SA' and a hypothetical SDN entity sharing the country "
+                  "name. Fix: R-F277 added _GEOGRAPHIC_TOKENS to the token-"
+                  "overlap demotion filter, killing country-only-overlap matches.",
+        "quarantined_at":         "2026-05-11T23:00:00+00:00",
+        "entity_was":             "lngtradinginternationalpanamasa.com / LNG TRADING INTERNATIONAL PANAMA SA",
+        "real_entity":            "lngtradinginternationalpanamasa.com (Panama LNG trading entity — separate entity from any sanctioned 'EBANO' designation)",
+        "investigation_status":   "closed",
+        "closed_at":              "2026-05-11T23:00:00+00:00",
+        "verified_fix_in_commit": "310115e (R-F277 geographic token filter) + 47d3f79 (R-F287 per-source verification status) + 1af2d32 (R-5005 code-level verification gate)",
+        "regression_test_path":   "aria_service/tests/test_session_2026_05_11.py::TestSanctionsGeographicFilter::test_classify_match_demotes_country_only_overlap",
+        "closure_rationale":      "Three-layer defence shipped 2026-05-11 evening: (a) R-F277 added _GEOGRAPHIC_TOKENS to _tokenize_entity_name so country-only overlap returns 0 (test confirms `_name_overlap('LNG TRADING INTERNATIONAL PANAMA SA', 'EBANO PETROLEUM PANAMA SA') == 0`); (b) R-F287 added explicit per-source verification status so the renderer can never fabricate 'OFAC SDN HIT' when no canonical-source match exists; (c) R-5005 added Finding.__post_init__ verification gate that demotes single-source non-Tier-1a [CONFIRMED] tags. Any re-run of DD on this entity post-2026-05-11 23:00 will return CLEAN through all three layers. The legacy report at dd_205e4ce82e9 is preserved in the library for audit purposes but its HARD_STOP verdict MUST NOT be cited as evidence — filter_citations() now scrubs references. Operator should re-run DD via POST /api/aria/dd/orchestrate to get a clean current assessment.",
+    },
 }
 
 

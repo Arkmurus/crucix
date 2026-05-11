@@ -1766,6 +1766,56 @@ class TestLanguageNativeQueryExpansion:
         assert "en" not in langs  # langs are NON-English additions
 
 
+class TestEBANOQuarantine:
+    """R-F289 — retroactive quarantine of dd_205e4ce82e9.
+    The DD run that produced the EBANO false-positive HARD_STOP on
+    lngtradinginternationalpanamasa.com is now in the seeded quarantine
+    so its findings can never be cited as evidence in downstream chat
+    or pipeline runs. Operator-observed report is preserved in the
+    library for audit but rendered with the citation-scrub marker.
+    """
+
+    def test_ebano_run_is_quarantined(self):
+        """The operator's WhatsApp DD run is marked defective."""
+        from aria_service.intel.run_quarantine import _SEEDED
+        assert "dd_205e4ce82e9" in _SEEDED
+        entry = _SEEDED["dd_205e4ce82e9"]
+        assert "EBANO" in entry["reason"]
+        assert entry["investigation_status"] == "closed"
+        assert "R-F277" in entry["verified_fix_in_commit"]
+        assert "R-F287" in entry["verified_fix_in_commit"]
+        assert "R-5005" in entry["verified_fix_in_commit"]
+
+    def test_is_quarantined_sync_recognises_ebano_run(self):
+        """The sync helper used by chat-context-building must catch
+        any reference to this run_id."""
+        from aria_service.intel.run_quarantine import is_quarantined_sync
+        assert is_quarantined_sync("dd_205e4ce82e9") is True
+        assert is_quarantined_sync("dd_205e4ce82e9 ") is True  # trailing whitespace
+        assert is_quarantined_sync("dd_completelyrandom") is False
+
+    def test_filter_citations_sync_scrubs_ebano_run(self):
+        """A chat reply citing dd_205e4ce82e9 must be scrubbed."""
+        from aria_service.intel.run_quarantine import filter_citations_sync
+        text = ("Based on [from dd_orchestrate:dd_205e4ce82e9] the entity "
+                "is on OFAC SDN with EBANO designation.")
+        cleaned, found = filter_citations_sync(text)
+        assert "dd_205e4ce82e9" in found
+        assert "CITATION-QUARANTINED" in cleaned
+
+    def test_regression_test_path_exists(self):
+        """The closure rationale references a regression test — verify
+        it actually exists (per the dd/quarantine/closure-summary
+        verification protocol)."""
+        import pathlib
+        from aria_service.intel.run_quarantine import _SEEDED
+        entry = _SEEDED["dd_205e4ce82e9"]
+        # Path is a pytest-style colon-separated test id; convert to file path
+        file_part = entry["regression_test_path"].split("::")[0]
+        path = pathlib.Path(__file__).resolve().parents[2] / file_part
+        assert path.exists(), f"regression test file must exist: {path}"
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"

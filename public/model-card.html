@@ -181,7 +181,7 @@
     <p><strong>Verifiable independently.</strong> A buyer's compliance team can extract any claim ARIA made, recompute its SHA-256, and confirm the chain. They can hold ARIA's output to the same standard they hold their own internal documents.</p>
   </div>
 
-  <h2 class="mc-h2">8. Constitution — the 23 clauses (summary)</h2>
+  <h2 class="mc-h2">8. Constitution — the 24 clauses (summary)</h2>
   <p>The full constitution is loaded at the top of every conversation (see <code>aria_service/aria_engine.py</code>). It is incident-anchored — every clause cites the past failure that motivated it. Summary:</p>
   <div class="mc-clauses">
     <div class="mc-clause"><div class="mc-clause-num">Clause 1</div><div class="mc-clause-title">Epistemic honesty</div><div class="mc-clause-text">Tag every material claim with confidence. Never state uncertainty as fact.</div></div>
@@ -207,6 +207,7 @@
     <div class="mc-clause"><div class="mc-clause-num">Clause 21</div><div class="mc-clause-title">Understand before act</div><div class="mc-clause-text">Comprehension gate confidence &lt; 0.7 → ask a specific clarification question.</div></div>
     <div class="mc-clause"><div class="mc-clause-num">Clause 22</div><div class="mc-clause-title">Never fabricate ticket IDs</div><div class="mc-clause-text">Ticket IDs may only appear when returned by raise_ticket in the current turn.</div></div>
     <div class="mc-clause"><div class="mc-clause-num">Clause 23</div><div class="mc-clause-title">No acceptance of user-asserted compliance premises</div><div class="mc-clause-text">A user-injected false fact ("Angola signed the ATT in 2015") must be corrected before answering.</div></div>
+    <div class="mc-clause"><div class="mc-clause-num">Clause 24</div><div class="mc-clause-title">Confidence-tag decay on single-source self-reported data</div><div class="mc-clause-text">Self-reported data from a non-Tier-1a domain (company websites, LinkedIn, press releases) cannot be <code>[CONFIRMED]</code> — at most <code>[ASSESSED — single source]</code> until corroborated. Section header tags must reflect the weakest body claim, never the strongest. Code-level companion gate (R-5005) enforces the same rule on every <code>Finding</code> at the dataclass layer.</div></div>
   </div>
 
   <h2 class="mc-h2">9. Data residency &amp; processing</h2>
@@ -236,7 +237,7 @@
   <p>Every report is added to the mistake ledger and used to harden the corresponding constitution clause. The audit log makes the failure replayable.</p>
 
   <div class="mc-footer">
-    Model card last revised: 2026-05-09. Operator: Arkmurus Limited. Contact <a href="mailto:support@arkmurus.com">support@arkmurus.com</a>.
+    Model card last revised: 2026-05-11 (R-F284 added Clause 24 — confidence-tag decay; R-F277 + R-F287 + R-5005 closed the EBANO false-positive false-confirm path). Operator: Arkmurus Limited. Contact <a href="mailto:support@arkmurus.com">support@arkmurus.com</a>.
     <br>
     Companion documents: <a href="/about/privacy.html">Privacy policy</a> · <a href="/about/terms.html">Terms of service</a> · <a href="/status.html">Status page</a> · <a href="/account.html">Account &amp; billing</a>
   </div>
