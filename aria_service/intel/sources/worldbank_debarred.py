@@ -193,13 +193,19 @@ async def lookup(
     )
 
     if not _subscription_key():
-        # Honest "capability-gap" signal so the orchestrator knows to
-        # lean on the OpenSanctions wb_debarred dataset for coverage.
+        # R-F279 (2026-05-11) — pre-R-F279 the error_result here misdirected
+        # the operator with a fabricated registration URL. Per R-F155
+        # (2026-05-10), the WB Firm360 API has no public registration path
+        # (apigwext.worldbank.org returns 403). The honest answer is:
+        # coverage flows via OpenSanctions's wb_debarred dataset aggregation.
+        # This message surfaces in the DD orchestrator's gap-list and is
+        # rendered into the report.
         return _common.error_result(
             _SOURCE, query,
-            "WORLDBANK_SUBSCRIPTION_KEY not configured — "
-            "register free at worldbank.org (developer portal). "
-            "Signal still available via OpenSanctions dataset wb_debarred.",
+            "World Bank Firm360 has no public registration path "
+            "(verified R-F155 2026-05-10 — apigwext.worldbank.org returns 403). "
+            "Debarment signal is covered via OpenSanctions wb_debarred dataset "
+            "aggregation; no operator action required.",
             auth=_AUTH, started_at=started,
         )
 

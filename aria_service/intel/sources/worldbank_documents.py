@@ -4,8 +4,11 @@ What this is (and isn't)
 ────────────────────────
 DIFFERENT from worldbank_debarred.py:
   - worldbank_debarred: compliance screen, "is this entity barred from
-    WB-financed contracts?" Requires WORLDBANK_SUBSCRIPTION_KEY.
-    Covers ~3k firms.
+    WB-financed contracts?" The official WB Firm360 API has no public
+    registration path (R-F155 / R-F279 verified the developer portal
+    does NOT exist). Coverage comes via OpenSanctions's `wb_debarred`
+    dataset aggregation — DD signal preserved, no operator action
+    required.
   - worldbank_documents (this file): RESEARCH. "What does the WB
     publish about procurement / governance / fraud investigations
     in this country or about this entity?" Free, no auth. Covers

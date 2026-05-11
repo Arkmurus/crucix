@@ -1221,6 +1221,44 @@ class TestPerSourceVerification:
         assert "BIS Entity List" in names
 
 
+class TestWorldBankGuidanceCorrection:
+    """R-F279 — purge stale 'register at WB developer portal' guidance.
+    Per R-F155 verified 2026-05-10: apigwext.worldbank.org → 403, no
+    public registration path exists. The DD orchestrator was emitting
+    'register free at worldbank.org developer portal' guidance to the
+    operator — a misleading instruction. Replace with the verified-true
+    OpenSanctions-aggregation fallback."""
+
+    def test_no_stale_developer_portal_guidance_in_error_msg(self):
+        """The lookup() function's error_result when no key is set must
+        NOT direct the operator to a non-existent registration portal."""
+        import inspect
+        from aria_service.intel.sources import worldbank_debarred
+        src = inspect.getsource(worldbank_debarred.lookup)
+        # The OLD stale guidance must not appear
+        assert "register free at worldbank.org" not in src, \
+            "stale 'register at worldbank.org developer portal' guidance must be purged"
+        assert "developer portal" not in src or "no public" in src.lower(), \
+            "any mention of 'developer portal' must contextualise it as non-existent"
+        # The NEW correct guidance must appear
+        assert "OpenSanctions" in src and "wb_debarred" in src, \
+            "fallback to OpenSanctions wb_debarred must be in the error message"
+
+    def test_vendor_registry_marks_wb_as_enterprise_only(self):
+        """vendor_registry must mark WB debarred as enterprise-only (not
+        self-signup-free) so the DD report doesn't surface a misleading
+        'sign up here' link."""
+        from aria_service.intel.vendor_registry import _default_registry
+        entries = _default_registry()
+        wb_entries = [v for v in entries if v.get("id") == "worldbank_debarred"]
+        assert len(wb_entries) == 1
+        wb = wb_entries[0]
+        assert wb["tier"] == "enterprise_only", \
+            "WB debarred tier must reflect R-F155 verified state"
+        assert wb["status"] == "covered_via_opensanctions"
+        assert "R-F155" in wb["notes"] or "no public" in wb["notes"].lower()
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"

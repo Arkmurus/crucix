@@ -169,19 +169,27 @@ def _default_registry() -> list[dict]:
         },
         {
             "id": "worldbank_debarred", "name": "World Bank debarred firms",
-            "tier": "self_signup_free", "status": "evaluating",
+            # R-F279 (2026-05-11) — tier changed: 'enterprise_only' (was
+            # 'self_signup_free'), reflecting verified state per R-F155:
+            # apigwext.worldbank.org returns 403, no public developer
+            # portal exists. WB Firm360 access is enterprise-direct
+            # only (data@worldbank.org / IVP), 1-3wk SLA, low probability.
+            "tier": "enterprise_only", "status": "covered_via_opensanctions",
             "coverage": ["sanctions", "adverse_media"],
             "monthly_cost_usd": 0.0,
             "api_key_env_var": "WORLDBANK_SUBSCRIPTION_KEY",
             "signup_url": "https://projects.worldbank.org/en/projects-operations/procurement/debarred-firms",
-            "docs_url": "https://developer.worldbank.org/",
+            "docs_url": "https://projects.worldbank.org/en/projects-operations/procurement/debarred-firms",
             "source_module": "aria_service.intel.sources.worldbank_debarred",
             "notes": "Cross-recognised by AfDB/AsDB/EBRD/IDB under MCEA 2010. "
-                     "Critical for MDB-financed defence-adjacent deals. WB moved "
-                     "the API behind an Azure APIM subscription key in 2024 — "
-                     "register at developer.worldbank.org (free). Meanwhile, "
-                     "OpenSanctions dataset 'wb_debarred' carries the same "
-                     "coverage via aggregation, so the DD signal is not lost.",
+                     "Critical for MDB-financed defence-adjacent deals. R-F155 "
+                     "(2026-05-10) verified that the WB developer portal does "
+                     "NOT exist for public registration (apigwext.worldbank.org "
+                     "returns 403). The only known access route is enterprise-"
+                     "direct via data@worldbank.org / Integrity VP (1-3wk SLA). "
+                     "OpenSanctions dataset 'wb_debarred' aggregates the same "
+                     "coverage and is the practical default — no operator action "
+                     "required.",
             "priority_to_buy": 2,
         },
         {
