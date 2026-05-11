@@ -814,10 +814,42 @@ async def search(
     # the event loop can continue serving other requests. chromadb's query
     # path re-embeds the query via sentence-transformers, which is sync
     # and GIL-bound.
+    #
+    # R-F257 (2026-05-11): include the cold collection. R-F252 wired the
+    # offload-on-overflow path but search() only read hot — every offloaded
+    # chunk became invisible to retrieval, violating the infinite-memory
+    # rule. Cold is always queried alongside hot; the final top_k clamp at
+    # the end limits the returned set so cold can't bloat output.
+    #
+    # Three collections (hot docs + cold docs + facts) are queried in PARALLEL
+    # via asyncio.gather. CPython list.append is atomic under the GIL so
+    # the shared `results` list is safe under concurrent worker appenders.
+    # Without parallelism we'd pay 3× embedding-compute latency per search.
+    query_tasks = []
     if include_documents:
-        await _aio.to_thread(_sync_query_collection, _documents_collection, "documents")
+        query_tasks.append(_aio.to_thread(_sync_query_collection, _documents_collection, "documents"))
+        query_tasks.append(_aio.to_thread(_sync_query_collection, _documents_cold_collection, "documents_cold"))
     if include_facts:
-        await _aio.to_thread(_sync_query_collection, _facts_collection, "facts")
+        query_tasks.append(_aio.to_thread(_sync_query_collection, _facts_collection, "facts"))
+    if query_tasks:
+        await _aio.gather(*query_tasks)
+
+    # R-F257 (2026-05-11): dedupe by chunk id. In the steady-state path
+    # the hot+cold collections are disjoint, but R-F252's recovery path
+    # leaves duplicates when hot-delete fails after cold-add succeeds.
+    # Cheap O(n) dedupe keeps search correct in that recovery state.
+    # First occurrence wins (preserves the hot result + its scoring).
+    if results:
+        seen_ids: set[str] = set()
+        deduped: list[dict] = []
+        for r in results:
+            rid = r.get("id") or ""
+            if rid and rid in seen_ids:
+                continue
+            if rid:
+                seen_ids.add(rid)
+            deduped.append(r)
+        results = deduped
 
     # ── Hybrid re-ranking: BM25-like lexical boost ──
     # Pure semantic search confuses entities with similar embeddings
