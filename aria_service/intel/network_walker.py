@@ -386,6 +386,13 @@ async def walk_network(
     }
 
     # ── Brain hook: feed network analysis to learning ──
+    # R-F288 (2026-05-11) — pre-R-F288 this block referenced `target.get(...)`
+    # but no `target` variable exists in scope. The function's seed name is
+    # `entity_name` (parameter). The bug was silently swallowed by the
+    # except clause below, meaning brain_hook NEVER actually absorbed
+    # network-walker signals. Brain's _MODULE_TOPICS["network_walker"]
+    # stayed stale across the entire fleet. Fixed by referencing the
+    # correct seed-entity variable.
     try:
         from . import brain_hook
         _nw_detail = "; ".join(f.get("title", "")[:100] for f in findings[:8])
@@ -393,7 +400,7 @@ async def walk_network(
             module="network_walker",
             summary=f"Network walk: {len(nodes)} directors, {len(cross_linked)} cross-linked, {len(pep_connections)} PEP, {len(sanctions_network)} sanctions, {len(findings)} findings",
             detail=_nw_detail or "no notable findings",
-            entity_name=target.get("name", ""),
+            entity_name=entity_name,
             success=True,
             confidence="PROBABLE",
             gap_type="knowledge_gap" if data_gaps else None,
