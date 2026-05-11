@@ -303,6 +303,14 @@ _mastery_cache: dict | None = None
 # does _save_mastery() write to the active backend.
 _mastery_dirty: bool = False
 
+# R-F270 (2026-05-11) — MASTERY HARD FLOOR warning rate-limiter. Each
+# entry maps a topic name to the unix-ts of the last warning fired for
+# it. Topics not breaching the floor are absent. Pure in-memory; resets
+# on process restart (acceptable — fresh boot legitimately needs the
+# first-hour visibility).
+_last_floor_warning: dict[str, float] = {}
+_FLOOR_WARN_INTERVAL_S: float = 3600.0  # one warning per (topic, hour)
+
 
 def _mark_mastery_dirty() -> None:
     """Flip the dirty flag — call from any code path that mutates _mastery_cache
@@ -411,11 +419,27 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
 
     # Log remediation needs so the weekly report and proactive loop
     # can act on them. Non-blocking fire-and-forget.
+    #
+    # R-F270 (2026-05-11) — rate-limit the warning to once per (topic, hour).
+    # Pre-R-F270 every update_mastery() call that touched a sub-floor topic
+    # produced a fresh WARNING line in fly logs; on a hot chat path that
+    # was tens of duplicate lines per minute, drowning real signal in the
+    # error_log_handler ring buffer. Each topic now logs at most once an
+    # hour; the underlying capability_gap is still recorded every breach
+    # (that's the actionable trail the weekly remediation loop reads).
     if remediation_needed:
-        logger.warning(
-            "MASTERY HARD FLOOR BREACH: %s — remediation flagged",
-            ", ".join(f"{t} ({mastery[t]['score']:.0%} < {HARD_FLOORS.get(t, 0.5):.0%})" for t in remediation_needed),
-        )
+        now_w = time.time()
+        fresh: list[str] = []
+        for _t in remediation_needed:
+            last = _last_floor_warning.get(_t, 0.0)
+            if now_w - last >= _FLOOR_WARN_INTERVAL_S:
+                fresh.append(_t)
+                _last_floor_warning[_t] = now_w
+        if fresh:
+            logger.warning(
+                "MASTERY HARD FLOOR BREACH: %s — remediation flagged",
+                ", ".join(f"{t} ({mastery[t]['score']:.0%} < {HARD_FLOORS.get(t, 0.5):.0%})" for t in fresh),
+            )
         try:
             from . import capability_gaps
             for topic in remediation_needed:

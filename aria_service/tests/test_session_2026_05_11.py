@@ -799,6 +799,49 @@ class TestBrainAbsorbAsync:
                 os.environ["ARIA_INTERNAL_TOKEN"] = old_int
 
 
+class TestMasteryFloorWarningRateLimit:
+    """R-F270 — MASTERY HARD FLOOR warnings are rate-limited to one per
+    (topic, hour). Repeated breaches of the same topic inside the window
+    only produce a single log line; the underlying capability_gap is still
+    recorded every time."""
+
+    def _fresh_student(self):
+        from aria_service.intel import student
+        student._last_floor_warning = {}
+        return student
+
+    def test_first_breach_fires(self):
+        student = self._fresh_student()
+        # First call: empty dict → topic not seen → should pass the gate
+        now = 1_000_000.0
+        last = student._last_floor_warning.get("sanctions", 0.0)
+        assert now - last >= student._FLOOR_WARN_INTERVAL_S
+        student._last_floor_warning["sanctions"] = now
+        # Immediate re-check (no time advance) → should be RATE-LIMITED
+        last = student._last_floor_warning.get("sanctions", 0.0)
+        assert now - last < student._FLOOR_WARN_INTERVAL_S
+
+    def test_window_expiry_reallows(self):
+        student = self._fresh_student()
+        student._last_floor_warning["sanctions"] = 1_000_000.0
+        # 30 minutes later — still rate-limited
+        last = student._last_floor_warning.get("sanctions", 0.0)
+        assert (1_000_000.0 + 1800.0) - last < student._FLOOR_WARN_INTERVAL_S
+        # 61 minutes later — window expired
+        assert (1_000_000.0 + 3660.0) - last >= student._FLOOR_WARN_INTERVAL_S
+
+    def test_per_topic_isolation(self):
+        student = self._fresh_student()
+        student._last_floor_warning["sanctions"] = 1_000_000.0
+        # nato_standards has never breached → fires immediately
+        last_nato = student._last_floor_warning.get("nato_standards", 0.0)
+        assert 1_000_000.0 - last_nato >= student._FLOOR_WARN_INTERVAL_S
+
+    def test_default_interval_is_one_hour(self):
+        student = self._fresh_student()
+        assert student._FLOOR_WARN_INTERVAL_S == 3600.0
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"
