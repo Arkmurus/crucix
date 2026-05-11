@@ -1617,6 +1617,126 @@ class TestUBOChainWalk:
         assert result["sanctioned_in_chain"][0]["severity"] == "hard_stop"
 
 
+class TestVerificationGate:
+    """R-5005 — Finding.__post_init__ enforces the verification gate:
+    [CONFIRMED] requires ≥2 sources OR a single Tier-1a source. Otherwise
+    automatically demoted to [ASSESSED] with gate_demoted=True marker.
+
+    Code-level companion to prompt Clause 24 (R-F284). Prompt-only
+    enforcement was leaky — LLM tagged single-source self-reported data
+    as [CONFIRMED] in WhatsApp DD output. This gate makes the wrong tag
+    structurally impossible at the Finding level."""
+
+    def test_confirmed_with_two_sources_passes(self):
+        from aria_service.intel.dd_schema import Finding
+        f = Finding(
+            severity="info", title="Test", confidence="CONFIRMED",
+            sources=["companies_house", "linkedin.com"],
+        )
+        assert f.confidence == "CONFIRMED"
+        assert f.gate_demoted is False
+
+    def test_confirmed_with_single_tier_1a_source_passes(self):
+        from aria_service.intel.dd_schema import Finding
+        for src in ("companies_house", "sec_edgar", "opensanctions",
+                    "ofac", "ofsi", "courtlistener", "bafin.de"):
+            f = Finding(
+                severity="hard_stop", title="Test", confidence="CONFIRMED",
+                source=src,
+            )
+            assert f.confidence == "CONFIRMED", f"single tier-1a source {src} must pass"
+            assert f.gate_demoted is False
+
+    def test_confirmed_with_single_non_tier_1a_source_demoted(self):
+        """The actual operator-observed bug pattern: single source from
+        a company's own website tagged [CONFIRMED]. Must demote."""
+        from aria_service.intel.dd_schema import Finding
+        f = Finding(
+            severity="info",
+            title="Director: Guillaume Ruff",
+            confidence="CONFIRMED",
+            source="lngtradinginternationalpanamasa.com",  # self-reported
+        )
+        assert f.confidence == "ASSESSED", "single self-reported source must demote"
+        assert f.gate_demoted is True
+        assert "R-5005" in f.gate_reason
+
+    def test_confirmed_with_no_source_demoted(self):
+        from aria_service.intel.dd_schema import Finding
+        f = Finding(severity="info", title="Test", confidence="CONFIRMED")
+        assert f.confidence == "ASSESSED"
+        assert f.gate_demoted is True
+        assert "no source" in f.gate_reason.lower()
+
+    def test_legacy_source_field_populates_sources_list(self):
+        """Backwards-compat: callers using only the legacy `source` field
+        must get sources=[source] auto-populated."""
+        from aria_service.intel.dd_schema import Finding
+        f = Finding(severity="info", title="x", source="companies_house",
+                    confidence="CONFIRMED")
+        assert f.sources == ["companies_house"]
+
+    def test_non_confirmed_findings_pass_through(self):
+        """[PROBABLE], [ASSESSED], [UNCERTAIN], [SPECULATIVE] are not gated."""
+        from aria_service.intel.dd_schema import Finding
+        for conf in ("PROBABLE", "ASSESSED", "UNCERTAIN", "SPECULATIVE"):
+            f = Finding(
+                severity="info", title="t", confidence=conf,
+                source="unverifiedsite.com",
+            )
+            assert f.confidence == conf
+            assert f.gate_demoted is False
+
+    def test_tier_1a_helper_recognises_canonical_sources(self):
+        from aria_service.intel.dd_schema import _is_tier_1a_source
+        # Positive cases
+        assert _is_tier_1a_source("companies_house")
+        assert _is_tier_1a_source("https://api.company-information.service.gov.uk/...")
+        assert _is_tier_1a_source("OpenSanctions /search")
+        assert _is_tier_1a_source("sanctionssearch.ofac.treas.gov")
+        assert _is_tier_1a_source("https://courtlistener.com/api/...")
+        # Negative cases (single-source self-reported)
+        assert not _is_tier_1a_source("lngtradinginternationalpanamasa.com")
+        assert not _is_tier_1a_source("linkedin.com")
+        assert not _is_tier_1a_source("twitter.com")
+        assert not _is_tier_1a_source("")
+
+    def test_renderer_can_detect_gate_demoted(self):
+        """Renderer-side use case: when gate demoted a finding, the
+        renderer can see it via gate_demoted + gate_reason."""
+        from aria_service.intel.dd_schema import Finding
+        f = Finding(
+            severity="info", title="x", confidence="CONFIRMED",
+            source="random-blog.com",
+        )
+        # Operator-visible signal
+        assert f.gate_demoted is True
+        assert f.gate_reason  # non-empty
+
+    def test_pre_existing_internal_labels_pass_gate(self):
+        """Two-pass-agent findings: orchestrator emits Finding() with
+        internal source labels like 'sanctions.director_screen' and
+        'dd_orchestrator.domain_ownership_verifier'. These wrap
+        Tier-1a engines (sanctions screen / RDAP) and must NOT be
+        demoted by the gate."""
+        from aria_service.intel.dd_schema import Finding
+        for src in (
+            "sanctions.director_screen",
+            "dd_orchestrator.domain_ownership_verifier",
+            "domain_ownership_verifier.rdap",
+            "registry_adapters.de_handelsregister",
+            "registry_adapters.fr_infogreffe",
+            "registry_adapters.us_sec_edgar",
+        ):
+            f = Finding(
+                severity="info", title="test", confidence="CONFIRMED",
+                source=src,
+            )
+            assert f.confidence == "CONFIRMED", \
+                f"internal Tier-1a label {src!r} must pass gate"
+            assert f.gate_demoted is False
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"

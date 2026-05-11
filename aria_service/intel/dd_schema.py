@@ -77,14 +77,109 @@ class SectionMeta:
     subcalls: int = 0
 
 
+# R-5005 (2026-05-11) — Tier-1a source allowlist for the verification gate
+# below. Findings citing a SINGLE source from this allowlist may be tagged
+# [CONFIRMED] without corroboration. Everything else requires ≥2 independent
+# sources OR the confidence is demoted to ASSESSED. Aligns with Clause 17
+# (multi-source verification) + Clause 24 (confidence-tag decay) at the
+# CODE level — prompt-only enforcement was insufficient (R-F284 showed
+# headers tagged [CONFIRMED] on single-source self-reported data despite
+# the constitutional rule).
+_TIER_1A_SOURCE_PREFIXES: tuple[str, ...] = (
+    # Government registries
+    "companies_house", "company-information.service.gov.uk",
+    "sec.gov", "sec_edgar",
+    # Official sanctions lists (aggregator counts: OpenSanctions queries
+    # OFAC SDN, OFSI, EU FSF, UN SC, BIS Entity, etc.)
+    "opensanctions", "sanctions.opensanctions",
+    "ofac", "sanctionssearch.ofac.treas.gov",
+    "ofsi", "gov.uk/government/publications/the-uk-sanctions-list",
+    "eu_fsf", "webgate.ec.europa.eu/fsd",
+    "un_sc", "un.org/securitycouncil",
+    "bis_entity", "bis.doc.gov",
+    # ARIA's internal sanctions-module labels (wrap OpenSanctions calls)
+    "sanctions.person_screen", "sanctions.screen_with_aliases",
+    "sanctions.fuzzy_screen", "sanctions.classify",
+    "sanctions.director_screen",  # same engine as person_screen, distinct label
+    # ARIA's network-walker (registry-backed) labels
+    "network_walker", "ubo_chain",
+    # Domain ownership verifier — RDAP is a single authoritative source
+    # for domain registration data (registrar / registrant / dates)
+    "domain_ownership_verifier", "rdap",
+    # Multi-jurisdiction registry adapter wrappers (covers SEC EDGAR US,
+    # Handelsregister DE, Infogreffe FR, etc.)
+    "registry_adapters",
+    # Regulatory filings (single official-source confirmations OK)
+    "fca.org.uk", "bafin.de", "cnmv.es",
+    # Court records (a court judgment is a single authoritative source)
+    "courtlistener", "bailii.org",
+    # Treaty / multilateral records
+    "un.org", "icrc.org", "icj-cij.org",
+)
+
+
+def _is_tier_1a_source(source: str) -> bool:
+    """True if `source` is an authoritative single-source. R-5005."""
+    if not source:
+        return False
+    s = source.lower()
+    return any(prefix in s for prefix in _TIER_1A_SOURCE_PREFIXES)
+
+
 @dataclass
 class Finding:
-    """A single structured finding inside any layer."""
+    """A single structured finding inside any layer.
+
+    R-5005 (2026-05-11) — added `sources: list[str]` for multi-source
+    corroboration tracking. The `__post_init__` enforces the verification
+    gate: a finding tagged [CONFIRMED] must have either (a) ≥2 sources,
+    or (b) a single source that's in the Tier-1a allowlist. Otherwise
+    the confidence is demoted to [ASSESSED] with a `_gate_demoted=True`
+    marker so the renderer can flag it. This is the CODE-level companion
+    to prompt Clause 24 (R-F284) — prompt-only enforcement was leaky.
+    """
     severity: str  # "info" | "amber" | "red" | "hard_stop"
     title: str
     detail: str = ""
     source: str = ""
     confidence: str = "ASSESSED"  # CONFIRMED | PROBABLE | ASSESSED | UNCERTAIN | SPECULATIVE
+    # R-5005: list of source identifiers backing this finding. Default
+    # empty list; __post_init__ populates from `source` for legacy callers.
+    sources: list[str] = field(default_factory=list)
+    # R-5005: whether the gate downgraded the original confidence.
+    # Set by __post_init__; renderers can surface this so operator
+    # sees that a stronger tag was demoted (not just a weak tag from
+    # the start).
+    gate_demoted: bool = False
+    gate_reason: str = ""
+
+    def __post_init__(self) -> None:
+        # Back-fill `sources` from legacy `source` field
+        if not self.sources and self.source:
+            self.sources = [self.source]
+        # Verification gate: [CONFIRMED] requires ≥2 sources OR single Tier-1a
+        if self.confidence == "CONFIRMED":
+            unique_sources = [s for s in (self.sources or []) if s]
+            if len(unique_sources) >= 2:
+                # Multi-source: gate passes
+                pass
+            elif len(unique_sources) == 1 and _is_tier_1a_source(unique_sources[0]):
+                # Single Tier-1a source: gate passes
+                pass
+            else:
+                # Demote to ASSESSED with reason marker
+                original = self.confidence
+                self.confidence = "ASSESSED"
+                self.gate_demoted = True
+                if len(unique_sources) == 1:
+                    self.gate_reason = (
+                        f"R-5005 demoted from {original}: single source "
+                        f"'{unique_sources[0]}' is not in Tier-1a allowlist"
+                    )
+                else:
+                    self.gate_reason = (
+                        f"R-5005 demoted from {original}: no source provided"
+                    )
 
 
 @dataclass
