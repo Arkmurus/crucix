@@ -186,16 +186,34 @@ export async function briefing() {
       const status   = proj.status || proj.STATUS || '';
       const value    = parseFloat(proj.ua_amount || proj.UA_AMOUNT || proj.amount || 0);
       const approved = proj.approval_date || proj.APPROVAL_DATE || '';
-      const countryName = PRIORITY_COUNTRIES[country] || proj.country_name || country;
 
-      if (!PRIORITY_COUNTRIES[country]) continue;
+      // R-F275 (2026-05-11) — silent-drop fix. Previously this loop did:
+      //   if (!PRIORITY_COUNTRIES[country]) continue;
+      // which dropped ~9 of every 10 AfDB items because most news titles
+      // don't name a specific country, _inferCountry() returns "", and
+      // the item gets tagged country='AF' (Africa multi-country) which
+      // isn't in the 17-country PRIORITY_COUNTRIES dict. Operator saw
+      // "[AfDB] 1 projects · 0 Lusophone · $0M UA" every sweep as a result.
+      //
+      // Now: keep ALL items (the upstream fetch already caps at 10).
+      // Priority is set per-item so Lusophone gets 'high', other priority
+      // countries get 'medium' when value>100, multi-country/regional
+      // items get 'normal'. The 10-item cap from fetchAfDBProjects() means
+      // there's no clutter risk — at most 10 updates per sweep, vs. the
+      // previous ~1 per sweep.
+      const isPriorityCountry = !!PRIORITY_COUNTRIES[country];
+      const countryName = isPriorityCountry
+        ? PRIORITY_COUNTRIES[country]
+        : (proj.country_name || (country === 'AF' ? 'Africa (Multi-country)' : (country || 'Africa')));
 
       const isLusophone = ['GW','AO','MZ','CV','ST'].includes(country);
       if (isLusophone) lusophoneCount++;
       if (value > 0) totalValue += value;
 
       const priority = isLusophone ? 'high' :
-                       value > 100 ? 'medium' : 'normal';
+                       (isPriorityCountry && value > 100) ? 'medium' :
+                       value > 200 ? 'medium' :
+                       'normal';
 
       results.updates.push({
         title:   `[AfDB] ${countryName}: ${name}`,
