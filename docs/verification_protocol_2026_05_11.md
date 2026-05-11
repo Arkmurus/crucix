@@ -1,43 +1,76 @@
 # ARIA Verification Protocol
-**Canonical · 2026-05-11 · Binding for all behavior-changing commits**
+**Canonical · 2026-05-11 · Binding for ALL commits — TWO-PASS, NO EXCEPTIONS**
 
-The map → fix → verify → patch → verify loop. Born from the 2026-05-11
-sweep that found a 29% defect rate (16 hidden bugs in 56 same-day fixes).
-Every commit that ships behavior changes runs this protocol BEFORE the
-operator-facing "shipped" claim. No exceptions; no overrides without
-explicit operator authorisation citing this doc.
+The map → fix → VERIFY → patch → RE-VERIFY → commit loop. Locked in
+2026-05-11 PM after the operator caught a real production regex bug
+on the SECOND verification pass — pass-1 had approved it. Two passes
+is the floor; more if either pass finds issues.
+
+Operator directives that made this binding:
+- "we cannot carry on making mistakes"
+- "nothing gets signed off before tested and re-tested only then gets
+  a green light"
+- "the whole chain needs to be test to ensure it produces what is asked"
+- "follow the rules and principals set on this project"
+
+NO EXCEPTIONS. NO OVERRIDES. Applies to:
+- Code changes (Python, Node, HTML/JS, shell)
+- Doc changes (URLs, command examples, paths)
+- Config changes (env vars, requirements, settings.json)
+- Test files (verify the test would catch the bug it claims to catch)
+- Memory/rule changes (verify the rule text matches the directive verbatim)
 
 ---
 
-## The Loop
+## The Loop (LOCKED 2026-05-11 PM)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  1. MAP        — area mapped, R-number assigned             │
-│  2. FIX        — code change committed                       │
-│  3. VERIFY     — agent reads actual call sites + signatures │
-│  4. PATCH      — every bug the agent finds → follow-up R-F  │
-│  5. VERIFY     — agent re-checks the patch + originals      │
-│  → repeat 4-5 until the agent reports clean                 │
+│  1. MAP            — area mapped, R-number assigned         │
+│  2. FIX            — code change lands in WORKING TREE       │
+│                      (NOT yet `git add`-ed)                 │
+│  3. VERIFY PASS 1  — agent reads actual call sites + sigs   │
+│  4. PATCH          — every bug pass-1 finds → fix in tree   │
+│  5. RE-VERIFY      — FRESH agent (no pass-1 context)        │
+│                      re-tests the whole file set            │
+│  6. (if pass-2 finds anything → patch → pass-3 → ...)       │
+│  7. COMMIT         — only after the latest pass is GREEN    │
+│  8. PUSH           — auto-deploy to fly.io + seenode        │
+│  9. SMOKE          — curl probes against the live deploy    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
+**CRITICAL: Steps 3 + 5 are BOTH mandatory.** Pass-1 catches the
+obvious; pass-2 catches what pass-1's patch introduced AND what
+pass-1's fixation missed. The 2026-05-11 PM session caught a real
+production regex bug on pass-2 that pass-1 had approved.
+
 Steps 1-2 are covered by `feedback_map_then_change`. This protocol
-defines steps 3-5.
+defines steps 3-9.
 
 ---
 
 ## When to run
 
-| Trigger | Verification required |
-|---|---|
-| Single-file Python change | YES — 1 agent on that file |
-| Multi-file commit (≥2 files) | YES — split into parallel agents by file slice |
-| Multi-fix commit (≥3 R-numbers) | YES — at least 1 agent per ~5 fixes |
-| HTML/CSS change | YES — verify selector / data-attribute / handler match |
-| Comment-only change | NO |
-| Test-only change | NO — but tests themselves must verify the fix they cover |
-| Doc-only change | NO |
+**TL;DR — ALWAYS run both passes. The only commits exempt from this
+protocol are commits to `MEMORY.md` and `*.pyc` files (auto-generated).**
+
+| Trigger | Pass 1 required | Pass 2 (RE-TEST) required |
+|---|---|---|
+| Single-file Python change | YES | YES |
+| Multi-file commit (≥2 files) | YES — split parallel | YES — split parallel |
+| Multi-fix commit (≥3 R-numbers) | YES — ≥1 agent per 5 fixes | YES |
+| HTML/CSS change | YES — selectors / handlers | YES |
+| Comment-only change | YES (verify comment matches code) | YES |
+| Test-only change | YES (tests must catch what they claim) | YES |
+| Doc change | YES (URLs / commands / paths must work) | YES |
+| Config change (requirements.txt etc.) | YES | YES |
+| Memory rule change | YES (rule text matches directive verbatim) | YES |
+| Hot-fix to production | YES — TIME IS NOT AN EXCUSE | YES |
+
+The 2026-05-11 doc-fix that caused R-F253 (operator hit a 404 because
+the triage doc said `run-weekly` but the route was `run_weekly`) was
+a DOC-ONLY commit that this protocol would have caught.
 
 ---
 
@@ -124,77 +157,123 @@ For every new `from X import Y`:
 
 ---
 
-## How to invoke
+## How to invoke (LOCKED 2026-05-11 PM — TWO PASSES, BEFORE COMMIT)
 
-Default invocation, after a commit:
+**Pass 1** — runs AFTER the fix lands in the working tree but BEFORE
+`git add`. Single agent for single-file changes; parallel agents
+split by file slice for ≥4-file commits.
 
 ```
 Agent(
-  description="Verify <commit short message>",
+  description="Pass 1: verify <change short summary>",
   subagent_type="general-purpose",
-  prompt="<paste the agent-prompt template below>"
+  prompt="<paste Pass 1 template below>"
 )
 ```
 
-For multi-file commits, split into parallel agents:
+**Pass 2 (RE-TEST)** — runs AFTER pass-1 patches land in the working
+tree, BEFORE `git add`. Fresh agent (no pass-1 context). Brief
+explicitly states "first pass already ran and caught X — now re-test
+the whole chain".
 
 ```
-Agent(slice 1: files A, B, C)  ┐
-Agent(slice 2: files D, E, F)  ├─ in a single message
-Agent(slice 3: files G, H)     ┘
+Agent(
+  description="Pass 2 RE-TEST: <change short summary>",
+  subagent_type="general-purpose",
+  prompt="<paste Pass 2 template below — emphasise whole-chain regress>"
+)
 ```
 
-### Agent prompt template
+If pass-2 finds anything → patch → pass-3 → loop until GREEN.
+
+### Pass 1 prompt template
 
 ```
-CRITICAL verification task. I shipped commit <hash> with the following
-fixes: <R-numbers>. Read the actual code at these files and verify
-each fix achieves what its claim says. Be brutal. No assumptions.
+PASS 1 verification per docs/verification_protocol_2026_05_11.md.
+Working tree changes NOT YET committed. Read the actual code at
+these files and verify each change achieves what its claim says.
 
 Working dir: C:\code\crucix
-Files to audit:
+Files to audit (working tree, not committed):
   1. <path>
   2. <path>
   ...
 
-For each fix, walk through the checklist in
-docs/verification_protocol_2026_05_11.md sections A-H. Report:
-  - PASS / FAIL / WARN per fix
+Walk the 8-section checklist (A-H) per the protocol doc. Report:
+  - PASS / FAIL / WARN per check
   - Exact file:line evidence
   - If FAIL: what's broken and how to fix
-  - If WARN: what's risky but might still work
 
-Total report under 800 words. Brutal honesty. The operator confirmed
-2026-05-11 that there is no room for mistakes here.
+Under 600 words. The operator wants every issue caught BEFORE the
+commit lands. Be brutal — there's no follow-up commit to clean up
+after; everything ships together or not at all.
+```
+
+### Pass 2 (RE-TEST) prompt template
+
+```
+PASS 2 RE-VERIFICATION per docs/verification_protocol_2026_05_11.md.
+Pass 1 already ran and caught: <summary of what pass 1 found>.
+The working tree now contains the patches. Re-test the WHOLE chain:
+the original change + the pass-1 patches together.
+
+Working dir: C:\code\crucix
+Files to re-audit:
+  1. <path>
+  2. <path>
+  ...
+
+Specifically check:
+1. The pass-1 patches actually do what they claim
+2. The patches didn't introduce NEW issues
+3. The wider chain hasn't regressed (look at modules that import the
+   changed code)
+4. Any edge cases pass-1 fixated past
+
+Under 500 words. GREEN ONLY — operator does not sign off on WARN.
+If you find anything, name it specifically.
 ```
 
 ---
 
 ## What to do with findings
 
-| Finding severity | Action |
+| Finding severity | Action (UNDER THE NEW TWO-PASS RULE) |
 |---|---|
-| FAIL — function not callable, dead code, type mismatch | Patch in follow-up commit (`R-F<N+1>`); re-verify |
-| WARN — edge case might fire | Add guard if low-cost; document if costly |
-| PASS | Move on |
+| FAIL — broken code | Patch in the WORKING TREE (NOT a follow-up commit); re-verify (next pass) |
+| WARN — edge case might fire | Either fix in working tree + re-verify, OR explicitly document with operator acknowledgement before commit |
+| PASS on both passes | Commit + push + smoke |
 
-Never amend the original commit. The audit trail must survive — future
-sessions need to see which commits caused which bugs to refine the
-process further.
+**The single-commit pattern (replaces follow-up-commit pattern):**
+Pre-2026-05-11-PM convention was to commit the original, run
+verification, then commit `R-F<N+1>` as a follow-up. That's OBSOLETE.
+Now the patches travel WITH the original change in ONE commit. The
+commit message documents BOTH verification passes and what each
+caught + confirmed.
+
+If pass-2 (or pass-3, pass-4) finds something, patch in the working
+tree and re-verify. The git index doesn't see the commit until both
+passes are GREEN.
 
 ---
 
 ## Commit message convention
 
-Every commit that ships behavior changes carries one of:
+Every commit that ships behavior changes carries:
 
-- `Verified-by: parallel-agents` (most common — agents ran after commit)
-- `Verified-by: manual-read` (small change, manual checklist sufficed)
-- `Verified-by: none — comment/doc only` (trivial change)
+- `Verified-by: parallel-agents (2 passes)` — when both pre-commit
+  passes ran clean OR the patches landed in the working tree before
+  commit
+- `Verified-by: manual-read (2 passes)` — when the change is small
+  enough for two manual readings (rare; usually agent-assisted)
 
-The trailer appears at the bottom of the commit message, above the
-Co-Authored-By line. Future audits grep for this trailer to validate
-the protocol was followed.
+The "1 pass" variant is GONE. Every commit needs at least two passes.
+
+Optional: include a brief `Verification trail:` block in the commit
+body documenting what pass-1 caught + what pass-2 confirmed.
+
+Trailer appears above the Co-Authored-By line. Future audits grep
+for `Verified-by: ` to confirm two-pass discipline was followed.
 
 ---
 
@@ -215,18 +294,33 @@ The math is clear: ALWAYS verify.
 
 ## Exceptions
 
-There are none. If the operator wants to skip verification on a specific
-commit, they must say so explicitly AND cite a reason that this doc
-rejects (e.g. "trivial typo fix"). The default is to verify.
+**There are none.** Both passes are mandatory. Operator-side override
+is unavailable; if a future operator says "skip the protocol for this
+quick fix", the correct response is: "the rule is no exceptions —
+let me run the two passes, which takes ~3 minutes, before pushing".
 
 If a verification agent finds zero bugs across a string of commits,
 that's a data point — the codebase or the discipline has matured. It
 is NOT a reason to skip verification.
 
+Hot-fix to production is NOT an exception. Time is not an excuse.
+The full two-pass round takes ~3-5 minutes total; any incident that
+gives the operator <5 minutes to ship is an architectural problem
+that needs solving separately, not a verification-skip licence.
+
 ---
 
 ## History
 
-- 2026-05-11 — protocol born after 56-fix sweep found 16 bugs (29% rate)
-- 2026-05-11 — operator authorisation: "we must have 100% verified proof"
-- Future entries appended here as the discipline produces results
+- 2026-05-11 AM — protocol born after 56-fix sweep found 16 bugs
+  (29% defect rate)
+- 2026-05-11 (mid) — operator authorisation: "we must have 100% verified
+  proof"
+- 2026-05-11 PM — LOCKED with two-pass requirement after pass-2 caught
+  a real production regex bug (R-F246's regex) that pass-1 had approved.
+  Operator directive: "nothing gets signed off before tested and
+  re-tested only then gets a green light...the whole chain needs to
+  be test to ensure it produces what is asked".
+- 2026-05-11 PM — "test and re-test is a new rule moving forward and
+  must be done no exception" — operator made the rule permanent.
+- Future entries appended here as the discipline produces results.
