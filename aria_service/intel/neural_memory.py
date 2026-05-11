@@ -49,8 +49,29 @@ NEURAL_META_KEY = "crucix:aria:neural_meta"
 # recall ("when did ARIA first hear about X?").
 MAX_NEURONS = 100_000_000          # was 50K with prune; now warn-only at 100M
 MAX_EDGES_PER_NEURON = 100_000     # was 200 with prune; now warn-only at 100K
-WARN_NEURONS = int(os.getenv("ARIA_NEURAL_WARN_NEURONS", "200000"))
-WARN_EDGES_PER_NEURON = int(os.getenv("ARIA_NEURAL_WARN_EDGES_PER_NEURON", "2000"))
+
+# R-F241 (2026-05-11) — env-var parse hardening. Pre-R-F241 a malformed
+# env value like ARIA_NEURAL_WARN_NEURONS=foo would crash module import
+# (verification agent flagged this). Now we fall back to the default
+# if the env value isn't a valid int.
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        # Logger isn't ready at module-load time — print to stderr
+        # so the operator sees the misconfig at boot.
+        import sys
+        sys.stderr.write(
+            f"[neural_memory] R-F241: {name}={raw!r} is not a valid int; "
+            f"falling back to default {default}\n"
+        )
+        return default
+
+WARN_NEURONS = _env_int("ARIA_NEURAL_WARN_NEURONS", 200000)
+WARN_EDGES_PER_NEURON = _env_int("ARIA_NEURAL_WARN_EDGES_PER_NEURON", 2000)
 MIN_EDGE_WEIGHT = 0.001            # floor — edges decay TO this, not below
 _neural_warn_throttle = 0
 DECAY_RATE = 0.997          # per-day decay (0.3% per day — memories last longer)
