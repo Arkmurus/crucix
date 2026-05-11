@@ -12335,6 +12335,55 @@ async def constitution_pending_ep():
     }
 
 
+@router.get("/constitution/version")
+async def constitution_version_ep():
+    """R-F221 (2026-05-11): publish the live ARIA_SYSTEM_PROMPT version
+    + numbered-clause count so model-card.html stops hard-coding
+    "v23 — 23 clauses". The version + count must reflect the actual
+    constitution as it stands NOW; pre-R-F221 the public model card
+    lied if anyone amended the prompt.
+
+    Returns:
+        version       — short label (e.g. "v23")
+        clause_count  — number of top-level numbered clauses (1. 2. 3.)
+        amendment_count — number of approved living-constitution amendments
+        last_amended_at — ISO timestamp of the most recent amendment
+    """
+    import re as _re_c
+    try:
+        from .. import aria_engine as _ae
+        src = _ae.ARIA_SYSTEM_PROMPT or ""
+    except Exception:
+        src = ""
+    # Count "N." entries at line starts (the numbered clause pattern
+    # used throughout aria_engine.py:46 onwards).
+    clause_nums = _re_c.findall(r"(?:^|\n)(\d+)\.\s", src)
+    clause_count = len({int(n) for n in clause_nums}) if clause_nums else 0
+    version = f"v{clause_count}" if clause_count else "unknown"
+
+    # Living constitution amendments (separate add-on system)
+    amendment_count = 0
+    last_amended_at = None
+    try:
+        c = _get_constitution()
+        active = c.get_active_clauses()
+        amendment_count = len(active)
+        # Most recent activation timestamp
+        for a in active:
+            ts = getattr(a, "activated_at", None)
+            if ts and (last_amended_at is None or ts > last_amended_at):
+                last_amended_at = ts
+    except Exception:
+        pass
+
+    return {
+        "version": version,
+        "clause_count": clause_count,
+        "amendment_count": amendment_count,
+        "last_amended_at": last_amended_at,
+    }
+
+
 @router.get("/constitution/active")
 async def constitution_active_ep():
     """All approved living-constitution clauses currently active."""

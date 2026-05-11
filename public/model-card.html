@@ -91,11 +91,11 @@
     </div>
     <div class="mc-meta-cell">
       <div class="mc-meta-cell-label">Constitution version</div>
-      <div class="mc-meta-cell-value">v23 — 23 clauses</div>
+      <div class="mc-meta-cell-value" id="mc-constitution-version">loading…</div>
     </div>
     <div class="mc-meta-cell">
       <div class="mc-meta-cell-label">Audit-log fingerprint</div>
-      <div class="mc-meta-cell-value" style="font-family:monospace;font-size:11.5px">a39f3328d92bffe4</div>
+      <div class="mc-meta-cell-value" id="mc-audit-fingerprint" style="font-family:monospace;font-size:11.5px">loading…</div>
     </div>
   </div>
 
@@ -220,7 +220,7 @@
 
   <h2 class="mc-h2">10. Known limitations &amp; open work</h2>
   <ul>
-    <li>Adversarial baseline 90.9% (last measured 2026-04-23). Target ≥95% before public launch.</li>
+    <li>Adversarial baseline <span id="mc-adversarial-baseline">loading…</span>. Target ≥95% before public launch.</li>
     <li>Single-machine fly.io deployment trades HA for data coherence — re-architecture before higher-tier customers.</li>
     <li>RU/ZH source coverage at floor; PT/ES/FR/AR are deep.</li>
     <li>SOC 2 / ISO 27001 not yet certified; in roadmap.</li>
@@ -253,6 +253,74 @@
   if (typeof Sidebar !== 'undefined' && Sidebar.init) {
     try { Sidebar.init('model-card'); } catch (e) { console.warn('Sidebar init failed:', e); }
   }
+
+  // R-F221 (2026-05-11) — hydrate the three previously-hardcoded fields
+  // from live endpoints. Pre-R-F221: "v23 — 23 clauses", audit-log
+  // fingerprint, and "90.9% adversarial baseline" were all literals.
+  // The first two lied immediately if the constitution evolved or the
+  // audit-log signing key rotated; the third was last measured 2026-04-23
+  // and got staler every day. All three now load from APIs and fall back
+  // to a clear "loading…/unavailable" label on error.
+  (async function hydrateModelCard() {
+    // ── Constitution version + clause count ──
+    try {
+      const r = await fetch('/api/aria/constitution/version', { method: 'GET' });
+      if (r.ok) {
+        const d = await r.json();
+        const el = document.getElementById('mc-constitution-version');
+        if (el) {
+          const ver = d.version || 'v?';
+          const n = d.clause_count != null ? d.clause_count : '?';
+          el.textContent = `${ver} — ${n} clauses`;
+        }
+      } else {
+        document.getElementById('mc-constitution-version').textContent = 'unavailable';
+      }
+    } catch (e) {
+      document.getElementById('mc-constitution-version').textContent = 'unavailable';
+    }
+
+    // ── Audit-log fingerprint ──
+    try {
+      const r = await fetch('/api/aria/chat-audit/stats', { method: 'GET' });
+      if (r.ok) {
+        const d = await r.json();
+        const el = document.getElementById('mc-audit-fingerprint');
+        if (el) {
+          const fp = (d.head_hash || '').slice(0, 16) || 'unavailable';
+          el.textContent = fp;
+        }
+      } else {
+        document.getElementById('mc-audit-fingerprint').textContent = 'unavailable';
+      }
+    } catch (e) {
+      document.getElementById('mc-audit-fingerprint').textContent = 'unavailable';
+    }
+
+    // ── Adversarial baseline (R-F221) ──
+    try {
+      const r = await fetch('/api/aria/adversarial/stats', { method: 'GET' });
+      if (r.ok) {
+        const d = await r.json();
+        const el = document.getElementById('mc-adversarial-baseline');
+        if (el) {
+          const last = d.last_run || {};
+          const score = last.overall_score;
+          const runAt = (last.run_at || '').slice(0, 10);
+          if (score != null && runAt) {
+            const pct = Math.round(score * 1000) / 10;
+            el.textContent = `${pct}% (last measured ${runAt})`;
+          } else {
+            el.textContent = 'no recent run';
+          }
+        }
+      } else {
+        document.getElementById('mc-adversarial-baseline').textContent = 'unavailable';
+      }
+    } catch (e) {
+      document.getElementById('mc-adversarial-baseline').textContent = 'unavailable';
+    }
+  })();
 </script>
 </body>
 </html>

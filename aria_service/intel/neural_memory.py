@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import re
 import time
 import uuid
@@ -38,8 +39,20 @@ NEURONS_KEY = "crucix:aria:neurons"
 EDGES_KEY = "crucix:aria:neural_edges"
 NEURAL_META_KEY = "crucix:aria:neural_meta"
 
-MAX_NEURONS = 50000
-MAX_EDGES_PER_NEURON = 200
+# R-F240 (2026-05-11) — WARN thresholds, not hard caps.
+# Per the "ARIA has infinite memory" rule (memory/aria_infinite_memory.md),
+# neurons and edges persist forever. Activation DECAY is fine (relevance
+# weighting fades with disuse — that's how the brain ranks recall), but
+# DELETION of weak neurons / edges is forbidden. Old neurons stay at
+# MIN_ACTIVATION; old edges stay at MIN_EDGE_WEIGHT — they're at the
+# bottom of any retrieval ranking but they still exist for forensic
+# recall ("when did ARIA first hear about X?").
+MAX_NEURONS = 100_000_000          # was 50K with prune; now warn-only at 100M
+MAX_EDGES_PER_NEURON = 100_000     # was 200 with prune; now warn-only at 100K
+WARN_NEURONS = int(os.getenv("ARIA_NEURAL_WARN_NEURONS", "200000"))
+WARN_EDGES_PER_NEURON = int(os.getenv("ARIA_NEURAL_WARN_EDGES_PER_NEURON", "2000"))
+MIN_EDGE_WEIGHT = 0.001            # floor — edges decay TO this, not below
+_neural_warn_throttle = 0
 DECAY_RATE = 0.997          # per-day decay (0.3% per day — memories last longer)
 MIN_ACTIVATION = 0.05       # neurons never fully die
 ACTIVATION_BOOST = 0.2      # each access boosts activation (faster learning)
@@ -151,9 +164,20 @@ def _find_or_create(concept: str, category: str = "general",
     _neurons[neuron["id"]] = neuron
     _meta["total_activations"] = _meta.get("total_activations", 0) + 1
 
-    # Prune if over limit (remove lowest activation neurons)
-    if len(_neurons) > MAX_NEURONS:
-        _prune_weakest(len(_neurons) - MAX_NEURONS + 100)
+    # R-F240 (2026-05-11) — warn-only at WARN_NEURONS, no pruning.
+    # Pre-R-F240 _prune_weakest deleted the lowest-activation neurons
+    # when count > 50K. That violates the infinite-memory rule. Now
+    # neurons accumulate forever; the warn-threshold gives operator
+    # visibility for cold-storage offload planning.
+    if len(_neurons) > WARN_NEURONS:
+        global _neural_warn_throttle
+        _neural_warn_throttle += 1
+        if _neural_warn_throttle % 500 == 1:
+            logger.warning(
+                "[neural] R-F240 — neuron count %d > warn threshold %d. "
+                "NOT pruning (infinite-memory rule). Plan cold-storage offload.",
+                len(_neurons), WARN_NEURONS,
+            )
 
     return neuron
 
@@ -168,32 +192,29 @@ def _strengthen_edge(from_id: str, to_id: str, boost: float = CO_OCCURRENCE_BOOS
     current_rev = _edges[to_id].get(from_id, 0.0)
     _edges[to_id][from_id] = min(1.0, current_rev + boost)
 
-    # Prune weak edges if too many
-    if len(_edges[from_id]) > MAX_EDGES_PER_NEURON:
-        _prune_edges(from_id)
+    # R-F240 (2026-05-11) — warn-only at WARN_EDGES_PER_NEURON; no pruning.
+    # Pre-R-F240 _prune_edges deleted the weakest edges when count > 200.
+    # That violates the infinite-memory rule. Now edges accumulate forever
+    # under MAX_EDGES_PER_NEURON (100K — effectively unbounded).
+    if len(_edges[from_id]) > WARN_EDGES_PER_NEURON:
+        global _neural_warn_throttle
+        _neural_warn_throttle += 1
+        if _neural_warn_throttle % 1000 == 1:
+            logger.warning(
+                "[neural] R-F240 — neuron %s has %d edges > warn threshold %d. "
+                "NOT pruning (infinite-memory rule).",
+                from_id[:12], len(_edges[from_id]), WARN_EDGES_PER_NEURON,
+            )
 
 
-def _prune_edges(neuron_id: str) -> None:
-    """Remove weakest edges from a neuron."""
-    edges = _edges[neuron_id]
-    if len(edges) <= MAX_EDGES_PER_NEURON:
-        return
-    sorted_edges = sorted(edges.items(), key=lambda x: x[1])
-    to_remove = len(edges) - MAX_EDGES_PER_NEURON + 5
-    for target_id, _ in sorted_edges[:to_remove]:
-        del edges[target_id]
-
-
-def _prune_weakest(count: int) -> None:
-    """Remove the weakest neurons."""
-    sorted_neurons = sorted(_neurons.values(), key=lambda n: n["activation"])
-    for n in sorted_neurons[:count]:
-        nid = n["id"]
-        del _neurons[nid]
-        _edges.pop(nid, None)
-        # Remove references from other neurons
-        for other_edges in _edges.values():
-            other_edges.pop(nid, None)
+# R-F240 (2026-05-11) — _prune_edges + _prune_weakest were DELETED.
+# Both functions removed neurons / edges from the in-memory store —
+# violating the "ARIA has infinite memory" operator rule
+# (memory/aria_infinite_memory.md). All callers have been switched
+# to warn-only paths in add() and _strengthen_edge() above. If
+# capacity becomes a real concern, the right answer is offload-to-
+# cold (move oldest-activation neurons to a separate slower store)
+# rather than deletion.
 
 
 _LAST_GLOBAL_DECAY = 0.0  # epoch seconds — protects against race condition on rapid recall
@@ -225,16 +246,24 @@ def _apply_decay() -> None:
         n["activation"] = max(MIN_ACTIVATION, n["activation"] * decay)
         n["last_decayed"] = now
 
-    # Decay edges proportional to elapsed time, not per-call
+    # Decay edges proportional to elapsed time, not per-call.
+    # R-F240 (2026-05-11) — floor weak edges at MIN_EDGE_WEIGHT instead
+    # of deleting. Pre-R-F240 edges below PRUNE_THRESHOLD (0.08) were
+    # `del edges[to_id]` — that's forgetting which neurons were once
+    # connected. Now edges decay TO MIN_EDGE_WEIGHT (0.001) and stay,
+    # so forensic "did ARIA ever associate X with Y?" still resolves.
+    # The recall ranking naturally suppresses 0.001-strength edges
+    # (they fall to the bottom of any sort by weight), so this has
+    # zero retrieval-quality impact.
     edge_decay = 0.998 ** days_since_global
     for from_id in list(_edges.keys()):
         edges = _edges[from_id]
         for to_id in list(edges.keys()):
-            edges[to_id] *= edge_decay
-            if edges[to_id] < PRUNE_THRESHOLD:
-                del edges[to_id]
-        if not edges:
-            del _edges[from_id]
+            edges[to_id] = max(MIN_EDGE_WEIGHT, edges[to_id] * edge_decay)
+        # Note: previously `if not edges: del _edges[from_id]` would
+        # remove an empty edge-map. Under R-F240 edges never reach zero
+        # so the map never empties — the dict entry persists with the
+        # neuron's connection history intact.
 
 
 # ── Concept Extraction ───────────────────────────────────────────────────────
