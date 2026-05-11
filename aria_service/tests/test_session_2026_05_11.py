@@ -714,6 +714,91 @@ class TestNoScaffoldWriteExpanded:
         asyncio.run(_t())
 
 
+class TestBrainAbsorbAsync:
+    """R-F269 — POST /api/aria/brain/absorb now returns 202 Accepted with a
+    background task instead of awaiting the absorb fan-out synchronously.
+    Closes the seenode → fly timeout reported on sources.html
+    ('Brain bridge Degraded: timeout'). Tests use FastAPI's TestClient to
+    exercise the request/response shape without touching brain_hook's
+    chromadb/embedding cold path."""
+
+    def test_returns_202_with_summary_hash(self):
+        from fastapi.testclient import TestClient
+        from aria_service.routes import aria as _aria
+
+        # Stub brain_hook.absorb so the test doesn't load chromadb/sentence-
+        # transformers. The background task should still RUN but the stub
+        # returns immediately.
+        from aria_service.intel import brain_hook
+        original_absorb = brain_hook.absorb
+        absorb_calls = []
+
+        async def fake_absorb(**kwargs):
+            absorb_calls.append(kwargs)
+            return {"ok": True, "topics_lifted": []}
+
+        brain_hook.absorb = fake_absorb
+        try:
+            from fastapi import FastAPI
+            app = FastAPI()
+            app.include_router(_aria.router)
+            client = TestClient(app)
+
+            # Clear ARIA_API_TOKEN / ARIA_INTERNAL_TOKEN env so auth is bypassed
+            # by the soft-rollout path (no tokens set → no enforcement).
+            old_api = os.environ.pop("ARIA_API_TOKEN", None)
+            old_int = os.environ.pop("ARIA_INTERNAL_TOKEN", None)
+            try:
+                r = client.post(
+                    "/api/aria/brain/absorb",
+                    json={"module": "test_mod", "summary": "test summary"},
+                )
+            finally:
+                if old_api is not None:
+                    os.environ["ARIA_API_TOKEN"] = old_api
+                if old_int is not None:
+                    os.environ["ARIA_INTERNAL_TOKEN"] = old_int
+
+            assert r.status_code == 202, f"expected 202 Accepted, got {r.status_code}: {r.text}"
+            body = r.json()
+            assert body["accepted"] is True
+            assert body["module"] == "test_mod"
+            assert "summary_hash" in body and len(body["summary_hash"]) == 16
+            # Background task should have fired by the time TestClient returns
+            assert len(absorb_calls) == 1
+            assert absorb_calls[0]["module"] == "test_mod"
+            assert absorb_calls[0]["summary"] == "test summary"
+        finally:
+            brain_hook.absorb = original_absorb
+
+    def test_returns_400_on_missing_fields(self):
+        from fastapi.testclient import TestClient
+        from aria_service.routes import aria as _aria
+        from fastapi import FastAPI
+        app = FastAPI()
+        app.include_router(_aria.router)
+        client = TestClient(app)
+
+        old_api = os.environ.pop("ARIA_API_TOKEN", None)
+        old_int = os.environ.pop("ARIA_INTERNAL_TOKEN", None)
+        try:
+            r = client.post(
+                "/api/aria/brain/absorb",
+                json={"module": "", "summary": "x"},
+            )
+            assert r.status_code == 400
+            r = client.post(
+                "/api/aria/brain/absorb",
+                json={"module": "x", "summary": ""},
+            )
+            assert r.status_code == 400
+        finally:
+            if old_api is not None:
+                os.environ["ARIA_API_TOKEN"] = old_api
+            if old_int is not None:
+                os.environ["ARIA_INTERNAL_TOKEN"] = old_int
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"

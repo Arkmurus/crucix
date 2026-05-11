@@ -8498,8 +8498,22 @@ async def self_recent_errors_ep(hours: int = 24):
 # ── Brain Hook API ──────────────────────────────────────────────────────────
 
 # 43b. POST /api/aria/brain/absorb — Feed learning from any module (incl. Node.js seenode)
+#
+# R-F269 (2026-05-11) — async background processing. Operator-observed:
+# the seenode → fly bridge was reporting "Degraded: timeout" on
+# sources.html because brain_hook.absorb performs synchronous chromadb
+# upserts + sentence-transformers embedding + neural memory writes that
+# legitimately exceed seenode's undici default 30s timeout under load.
+# Switching to BackgroundTasks lets the endpoint ack in ~10ms while the
+# absorb runs to completion in-process. Caller-visible contract: returns
+# 202 Accepted with `{accepted: true, module, summary_hash}` instead of
+# the full absorb result. Sweep-side code paths in server.mjs only check
+# response.ok and don't inspect the result body, so this is safe.
+from fastapi import BackgroundTasks as _BackgroundTasks  # local alias for clarity
+
+
 @router.post("/brain/absorb")
-async def brain_absorb_ep(request: Request):
+async def brain_absorb_ep(request: Request, background_tasks: _BackgroundTasks):
     """Central learning endpoint. Accepts output from any intel module and
     fans out to mastery, knowledge, neural memory, and capability gaps.
 
@@ -8511,28 +8525,58 @@ async def brain_absorb_ep(request: Request):
     rollups can bucket telemetry per-customer / per-persona without a
     re-ingest. Empty strings preserve the legacy behaviour for callers
     that haven't been updated yet.
+
+    R-F269 (2026-05-11): the absorb fan-out now runs in a FastAPI
+    BackgroundTask. The endpoint returns 202 Accepted immediately so
+    seenode's webhook-style client doesn't hit its 30s timeout on the
+    chromadb+embedding hot path. Errors during background absorb are
+    logged but never propagate to the caller — by design, since the
+    caller has already received an ack and won't be retried.
     """
     from ..intel import brain_hook
     body = await request.json()
-    module = body.get("module", "")
-    summary = body.get("summary", "")
+    module = (body.get("module") or "").strip()
+    summary = (body.get("summary") or "").strip()
     if not module or not summary:
         raise HTTPException(status_code=400, detail="module and summary required")
-    result = await brain_hook.absorb(
-        module=module,
-        summary=summary,
-        detail=body.get("detail", ""),
-        entity_name=body.get("entity_name", ""),
-        success=body.get("success", True),
-        gap_type=body.get("gap_type"),
-        gap_detail=body.get("gap_detail"),
-        extra_topics=body.get("extra_topics"),
-        source_id=body.get("source_id", ""),
-        confidence=body.get("confidence", "PROBABLE"),
-        user_id=body.get("user_id", ""),
-        sector=body.get("sector", ""),
+
+    # Snapshot every field BEFORE returning so the background task doesn't
+    # close over a request object that's about to be garbage-collected.
+    kwargs = {
+        "module": module,
+        "summary": summary,
+        "detail": body.get("detail", ""),
+        "entity_name": body.get("entity_name", ""),
+        "success": body.get("success", True),
+        "gap_type": body.get("gap_type"),
+        "gap_detail": body.get("gap_detail"),
+        "extra_topics": body.get("extra_topics"),
+        "source_id": body.get("source_id", ""),
+        "confidence": body.get("confidence", "PROBABLE"),
+        "user_id": body.get("user_id", ""),
+        "sector": body.get("sector", ""),
+    }
+
+    async def _bg_absorb() -> None:
+        try:
+            await brain_hook.absorb(**kwargs)
+        except Exception as e:
+            _log.warning(
+                "[brain_absorb_bg] module=%s summary=%r absorb failed: %s",
+                module, summary[:80], e,
+            )
+
+    background_tasks.add_task(_bg_absorb)
+
+    # 202 Accepted with a deterministic summary fingerprint so the caller
+    # can correlate the ack with a specific signal if they choose to.
+    import hashlib as _hash_r269
+    from fastapi.responses import JSONResponse as _JsonResp_r269
+    sig = _hash_r269.sha256(f"{module}|{summary}".encode("utf-8")).hexdigest()[:16]
+    return _JsonResp_r269(
+        status_code=202,
+        content={"accepted": True, "module": module, "summary_hash": sig},
     )
-    return result
 
 
 # 43c. GET /api/aria/brain/stats — Brain hook signal stats + per-module health
