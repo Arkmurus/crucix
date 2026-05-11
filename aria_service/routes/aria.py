@@ -4198,16 +4198,84 @@ def _detect_tool_intent(message: str) -> dict | None:
             or _looks_conversational(entity)
         )
         if entity_needs_fallback:
+            # R-F341 (2026-05-11): fetch the page <title> FIRST and use
+            # it as the entity. Live 23:06 evidence: operator pasted
+            # "https://assangroup.com.tr" with no entity name; the
+            # chat handler fell back to brandify(host) → "assangroup",
+            # then deep_research built angles like "assangroup ownership
+            # financial compliance" which matched zero real-world press.
+            # The actual page title at assangroup.com.tr is "Assan
+            # Group" — using THAT as the entity unlocks every downstream
+            # layer. Falls back to brandify(host) if title fetch fails
+            # (4xx, timeout, no <title>) — preserves the old path as
+            # a safety net.
             try:
-                from urllib.parse import urlparse as _up
-                from ..intel.web_explorer import brandify_query as _brand
-                host = _up(url).netloc.lower().replace("www.", "")
-                # R-W7: use the unified brandify_query so the chat path
-                # gets the same treatment as the DD path (R-F299).
-                # "duma-engineering.com" → "duma engineering"
-                entity = _brand(host) if host else url
+                import httpx as _httpx_e
+                import re as _re_e
+                _title_text = ""
+                try:
+                    # _detect_tool_intent is sync — use sync Client.
+                    with _httpx_e.Client(
+                        timeout=4.0, follow_redirects=True,
+                    ) as _cl_e:
+                        _r_e = _cl_e.get(url, headers={
+                            "User-Agent": "Mozilla/5.0 (compatible; "
+                                          "ARIA-DD/1.0)",
+                        })
+                        if _r_e.status_code == 200 and _r_e.text:
+                            _m_e = _re_e.search(
+                                r"<title[^>]*>(.*?)</title>",
+                                _r_e.text,
+                                _re_e.IGNORECASE | _re_e.DOTALL,
+                            )
+                            if _m_e:
+                                _title_text = _re_e.sub(
+                                    r"\s+", " ", _m_e.group(1),
+                                ).strip()[:120]
+                except Exception:
+                    pass
+
+                if _title_text and len(_title_text) >= 3:
+                    # Strip common "—" / "|" suffix tails after first
+                    # 4-char break ("Acme Corp | Defence Solutions" →
+                    # "Acme Corp"). Take the first meaningful chunk.
+                    _title_clean = _re_e.split(
+                        r"\s+[\|\-–—]+\s+", _title_text, maxsplit=1,
+                    )[0].strip()
+                    # R-F341 generic-title denylist — a fetched title of
+                    # "Homepage" / "Welcome" / "Index" etc. is noise,
+                    # not an entity name. Fall through to brandify(host)
+                    # in those cases.
+                    _generic_titles = {
+                        "homepage", "home", "home page", "welcome",
+                        "welcome page", "index", "untitled", "untitled page",
+                        "default page", "default", "page", "site",
+                        "main page", "main", "official site", "official",
+                        "loading", "redirect", "redirecting",
+                    }
+                    if (len(_title_clean) >= 3
+                            and _title_clean.lower() not in _generic_titles):
+                        _log.info(
+                            "R-F341: entity from page title — url=%r "
+                            "title=%r → entity=%r",
+                            url[:60], _title_text[:60], _title_clean[:60],
+                        )
+                        entity = _title_clean
+                    else:
+                        raise ValueError(
+                            f"title too short/generic: {_title_clean!r}"
+                        )
+                else:
+                    raise ValueError("no title fetched")
             except Exception:
-                entity = url
+                # Fallback to brandified hostname (R-W7 path)
+                try:
+                    from urllib.parse import urlparse as _up
+                    from ..intel.web_explorer import brandify_query as _brand
+                    host = _up(url).netloc.lower().replace("www.", "")
+                    entity = _brand(host) if host else url
+                except Exception:
+                    entity = url
 
         if not entity:
             # Final fallback to the raw domain — R-W7: same brandify path

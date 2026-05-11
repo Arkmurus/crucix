@@ -237,8 +237,12 @@ _LANG_FANOUT_TRIGGERS = {
 
 
 def brandify_query(query: str) -> str:
-    """R-F299 generalised: strip TLD + separators from any hostname-like
-    token in the query. Public so other modules can use it."""
+    """R-F299 generalised + R-F337 recursive TLD strip: strip TLD +
+    separators from any hostname-like token in the query. Repeats the
+    TLD strip until no more match — fixes compound TLDs like .com.tr,
+    .co.uk, .com.br, .org.uk. Live 21:55 evidence: 'assangroup.com.tr'
+    stripped once → 'assangroup.com' which still trips the sanctions
+    domain-token gate. Recursive strip yields 'assangroup'."""
     if not query:
         return query
     parts = query.split()
@@ -251,7 +255,19 @@ def brandify_query(query: str) -> str:
             and p.count(".") <= 4
         )
         if looks_like_host:
-            stripped = _BRANDIFY_TLD_RE.sub("", p)
+            # R-F337: iterate TLD strip until no more match.
+            # Limit to 4 iterations as a sanity cap (real hostnames have
+            # at most 4 segments; this never loops forever).
+            stripped = p
+            for _ in range(4):
+                new_stripped = _BRANDIFY_TLD_RE.sub("", stripped)
+                if new_stripped == stripped:
+                    break
+                stripped = new_stripped
+                # Don't strip past the last segment: if no '.' remains,
+                # we're at the brand and must stop.
+                if "." not in stripped:
+                    break
             stripped = _BRANDIFY_SEP_RE.sub(" ", stripped)
             stripped = re.sub(r"\s+", " ", stripped).strip()
             if stripped:

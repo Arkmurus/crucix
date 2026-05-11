@@ -2081,14 +2081,35 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 seed_url = "https://" + seed_url
             try:
                 from . import link_investigator
+                # R-F340 (2026-05-11): enable LLM-based fact extraction
+                # for prose-heavy corporate pages. The rule-based
+                # extractor only catches dates / amounts / emails /
+                # registration numbers — it can't read prose like
+                # "Mehmet Kibar, Chairman" or "Assan manufactures cold-
+                # rolled aluminum coils". Live 23:06 evidence:
+                # assangroup.com.tr DD fetched 6 corporate pages but
+                # the fact list was just "year:1959 amount:$0".
+                # When llm is available + we're in deep mode, pass it
+                # through with a $0.20 budget cap (40-50 pages of LLM
+                # extraction). Gated by ARIA_LINKTREE_LLM_ENABLED=0
+                # for cost-sensitive deploys.
+                _llm_for_linktree = None
+                _llm_budget = 0.0
+                if (llm is not None
+                        and (os.getenv("ARIA_LINKTREE_LLM_ENABLED", "1") or "1")
+                            .lower() not in ("0", "false", "no")):
+                    _llm_for_linktree = llm
+                    _llm_budget = _env_float(
+                        "ARIA_LINKTREE_LLM_BUDGET_USD", 0.20,
+                    )
                 tree = await link_investigator.investigate_link_tree(
                     seed_url=seed_url,
                     query_context=name,
                     max_depth=2,
                     max_pages=20,
-                    wall_budget_s=60,
-                    cost_budget_usd=0.0,  # rule-based only inside DD
-                    llm=None,
+                    wall_budget_s=90,  # +30s for LLM extraction
+                    cost_budget_usd=_llm_budget,
+                    llm=_llm_for_linktree,
                 )
                 report.digital.web_footprint = dict(report.digital.web_footprint or {})
                 report.digital.web_footprint["link_tree"] = {
