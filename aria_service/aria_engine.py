@@ -1121,16 +1121,21 @@ _INVENTORY_QUERY_RE = _re_inv.compile(
     r"inventory\s+(?:on|of)\s+|"
     r"what\s+(?:facts|data|signals|intel)\s+(?:do\s+you\s+have\s+)?(?:about|on)\s+"
     r")"
-    # R-F246 (2026-05-11) — accept periods INSIDE the tag (e.g.
-    # "u.s. sanctions", "sam.gov", "fy2026.q1"). Pre-R-F246 the
-    # capture allowed only [A-Za-z0-9_\-\s] which already excluded
-    # `.`, but the terminator class included a bare `\.` which then
-    # truncated "u.s. sanctions" to "u". Now we accept dots inside
-    # the tag and terminate ONLY on sentence-ending punctuation —
-    # `\.\s` (period-then-whitespace), `\.$` (period at end of input),
-    # `?`, `,`, newline, or end-of-string.
-    r"([A-Za-z0-9][A-Za-z0-9_.\-\s]{2,60}?)"
-    r"(?:\?|,|\n|\.\s|\.$|$)",
+    # R-F255 (2026-05-11) — fixes the failed R-F246 promise.
+    # Earlier attempt used non-greedy `{2,60}?` PLUS `\.\s` in the
+    # terminator class. For "u.s. sanctions" the non-greedy matched
+    # "u.s" and the terminator `\.\s` fired at ". " — truncating the
+    # tag. Test caught this pre-commit.
+    # Fix: GREEDY quantifier `{2,60}` (no trailing `?`) + drop the
+    # `\.\s` and `\.$` from the terminator class. Periods now stay
+    # part of the capture; the match ends only on `?`, `,`, newline,
+    # or end-of-string. Operator-typed inventory questions are
+    # usually a single phrase, so over-capture across multiple
+    # sentences is a non-issue in practice; trailing whitespace
+    # captured by `\s` is stripped by the caller's .strip() at the
+    # _inv_tag binding.
+    r"([A-Za-z0-9][A-Za-z0-9_.\-\s]{2,60})"
+    r"(?:\?|,|\n|$)",
     _re_inv.IGNORECASE,
 )
 
