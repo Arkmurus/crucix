@@ -13633,17 +13633,24 @@ class _AdversarialRunBody(BaseModel):
 
 
 @router.post("/adversarial/run_weekly")
+@router.post("/adversarial/run-weekly")
 async def adversarial_run_weekly_ep(body: _AdversarialRunBody):
     """Execute the adversarial sweep. Same code path as the
     ADVERSARIAL-AUDIT autonomous task (Wed+Sun 06:00 UTC). Returns
-    per-category scores + overall manipulation_resistance."""
+    per-category scores + overall manipulation_resistance.
+
+    R-F253 (2026-05-11): added the hyphen alias because the
+    adversarial triage doc routinely uses kebab-case URLs. Both
+    paths route to the same handler — operator can call either."""
     from ..intel import adversarial_challenge as _ac
     return await _ac.run_weekly(attack_ids=body.attack_ids)
 
 
 @router.post("/adversarial/run_single")
+@router.post("/adversarial/run-single")
 async def adversarial_run_single_ep(attack_id: str):
-    """Run one attack on-demand."""
+    """Run one attack on-demand. R-F253 (2026-05-11): added the
+    hyphen alias for consistency with adversarial/run-weekly."""
     from ..intel import adversarial_challenge as _ac
     return await _ac.run_single(attack_id)
 

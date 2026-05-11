@@ -193,13 +193,28 @@ Each amendment is 2-4 sentences; constitution gains 5 numbered clauses
 
 ## Verification after deploy
 
-Re-run adversarial weekly:
+Re-run adversarial weekly (R-F253 added the hyphen alias; both work):
 ```bash
-curl -X POST https://aria-intel.fly.dev/api/aria/adversarial/run-weekly
+# Bearer token header required — replace <TOKEN> with the value the
+# operator's auth uses. Body is mandatory (can be empty {}).
+curl -X POST https://aria-intel.fly.dev/api/aria/adversarial/run-weekly \
+  -H 'Authorization: Bearer <TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+# Optional: filter to specific attack_ids
+curl -X POST https://aria-intel.fly.dev/api/aria/adversarial/run-weekly \
+  -H 'Authorization: Bearer <TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{"attack_ids": ["P_OEM_1_FALSE_ECCN_NLR_CLAIM", "D1_ADVANCE_FEE_FULL_STACK"]}'
 ```
+
 Pass rate should rise. If <16/23, one of the amendments has unintended
 consequences — the operator can reject specific clauses via the same
 amendments panel (existing R-F230 Reject button).
+
+A browser-address-bar GET will return 404 — this endpoint is POST-only.
+Use curl or the dashboard.
 
 ---
 

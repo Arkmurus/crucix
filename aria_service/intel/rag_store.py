@@ -105,6 +105,13 @@ _rag_overflow_warned_count = 0  # log throttle on the soft-alert
 _client = None
 _documents_collection = None
 _facts_collection = None
+# R-F252 (2026-05-11) — cold-storage collection. When the hot collection
+# crosses WARN_CHUNKS, the oldest 10% gets MOVED here (not deleted).
+# Search() consults the cold collection at a lower priority (1.5x score
+# penalty) so hot results win on relevance but the data remains
+# recallable. Per the infinite-memory rule, this is the right answer
+# instead of pruning.
+_documents_cold_collection = None
 _chromadb_failed = False
 _init_lock = asyncio.Lock()
 
@@ -154,7 +161,7 @@ def _get_client():
     see `_client is not None` but hit `_documents_collection.upsert`
     against None, which is the production crash the audit fixed.
     """
-    global _client, _documents_collection, _facts_collection, _chromadb_failed
+    global _client, _documents_collection, _facts_collection, _documents_cold_collection, _chromadb_failed
     if _client is not None and _documents_collection is not None and _facts_collection is not None:
         return _client
     if _chromadb_failed:
@@ -195,9 +202,18 @@ def _get_client():
             embedding_function=embed_fn,
             metadata={"hnsw:space": "cosine"},
         )
+        # R-F252 (2026-05-11) — cold-storage collection. Created lazily
+        # so existing deployments don't pay an extra collection init
+        # until offload actually fires. Same embedding fn so queries
+        # against cold are byte-compatible with hot.
+        local_cold = local_client.get_or_create_collection(
+            name=DOCUMENTS_COLLECTION + "_cold",
+            embedding_function=embed_fn,
+            metadata={"hnsw:space": "cosine"},
+        )
         logger.info(
-            "RAG store ready at %s — documents: %d, facts: %d",
-            RAG_PATH, local_docs.count(), local_facts.count(),
+            "RAG store ready at %s — documents: %d, facts: %d, cold: %d",
+            RAG_PATH, local_docs.count(), local_facts.count(), local_cold.count(),
         )
     except ImportError:
         _chromadb_failed = True
@@ -212,6 +228,7 @@ def _get_client():
     _client = local_client
     _documents_collection = local_docs
     _facts_collection = local_facts
+    _documents_cold_collection = local_cold
     return _client
 
 

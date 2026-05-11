@@ -280,6 +280,61 @@ async def lifespan(app: FastAPI):
             await _rs_b.ltrim("crucix:aria:boot_snapshots", 0, 49)
         except Exception:
             pass
+
+        # R-F251 (2026-05-11) — regression detection. Diff this boot's
+        # snapshot against the PREVIOUS one (index 1 in the list). If any
+        # numeric counter dropped by >5%, that's silent state loss — log
+        # a LOUD warning AND absorb to brain_hook so the operator
+        # dashboard surfaces it. Per the infinite-memory rule a counter
+        # NEVER drops on a healthy deploy; if it does, the operator
+        # needs to know BEFORE traffic resumes.
+        try:
+            from .intel import redis_store as _rs_diff
+            import json as _json_diff
+            prior_raw = await _rs_diff.lrange("crucix:aria:boot_snapshots", 1, 1)
+            if prior_raw:
+                try:
+                    prior = _json_diff.loads(prior_raw[0]) if isinstance(prior_raw[0], str) else prior_raw[0]
+                except Exception:
+                    prior = None
+                if isinstance(prior, dict):
+                    drops: list[str] = []
+                    for k in ("knowledge_facts", "ledger_signals", "rag_chunks",
+                              "rag_facts", "chat_audit_total", "neural_neurons",
+                              "neural_edges", "state_keys"):
+                        cur_val = snapshot.get(k)
+                        prv_val = prior.get(k)
+                        if isinstance(cur_val, (int, float)) and isinstance(prv_val, (int, float)):
+                            if prv_val > 0 and cur_val < prv_val * 0.95:
+                                drop_pct = round((1 - cur_val / prv_val) * 100, 1)
+                                drops.append(f"{k}: {prv_val} → {cur_val} (-{drop_pct}%)")
+                    if drops:
+                        logger.error(
+                            "[R-F251] STATE REGRESSION DETECTED — counters dropped >5%% "
+                            "since previous boot: %s",
+                            "; ".join(drops),
+                        )
+                        try:
+                            from .intel import brain_hook as _bh_reg
+                            await _bh_reg.absorb(
+                                module="boot_diagnostic",
+                                summary="R-F251: state regression detected at boot",
+                                detail=(
+                                    "Per the infinite-memory rule, NO counter should "
+                                    "drop across restarts. The following counters fell "
+                                    f"by >5% since the previous boot: {'; '.join(drops)}. "
+                                    "Investigate disk volume mount, Redis fallback "
+                                    "behaviour, or recent code changes BEFORE traffic "
+                                    "resumes."
+                                ),
+                                success=False,
+                                gap_type="boot_state_regression",
+                                gap_detail="; ".join(drops),
+                            )
+                        except Exception:
+                            pass
+        except Exception as _diff_err:
+            logger.debug("R-F251 boot-diff failed: %s", _diff_err)
     asyncio.create_task(_log_boot_state())
 
     # ── OCR pre-warm ────────────────────────────────────────────────────
