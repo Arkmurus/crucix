@@ -200,6 +200,15 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> list[di
     # request (1 req/sec quota) before the /search guard caught the
     # follow-on call. Apply the same guard here so neither endpoint
     # wastes quota on prompt-text leaks.
+    # R-F311 (2026-05-11): brandify hostname inputs first.
+    if name and _DOMAIN_TOKEN_RE.search(name):
+        try:
+            from .web_explorer import brandify_query as _brand
+            brandified = _brand(name)
+            if brandified and brandified != name:
+                name = brandified
+        except Exception:
+            pass
     if not _looks_like_entity_name(name):
         logger.info(
             "_opensanctions_match: rejecting non-entity input %r "
@@ -246,6 +255,15 @@ async def _opensanctions_search(query: str, limit: int = 5) -> list[dict]:
     # long / not name-shaped). Same guard as screen_with_aliases now
     # gates the search endpoint too, so the only way bad input reaches
     # OpenSanctions is via direct internal call sites we control.
+    # R-F311 (2026-05-11): brandify hostname inputs first.
+    if query and _DOMAIN_TOKEN_RE.search(query):
+        try:
+            from .web_explorer import brandify_query as _brand
+            brandified = _brand(query)
+            if brandified and brandified != query:
+                query = brandified
+        except Exception:
+            pass
     if not _looks_like_entity_name(query):
         logger.info(
             "_opensanctions_search: rejecting non-entity input %r "
@@ -625,6 +643,33 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
     company name + former name) — passes each through the full fuzzy pipeline
     and returns the worst-case (highest-scoring) hit.
     """
+    # R-F311 (2026-05-11): when the operator-supplied name is a hostname
+    # ("modirumgespi.com"), brandify it BEFORE the entity-shape gate.
+    # The 21:11 live DD on modirumgespi.com had the screen rejected
+    # twice because `.com` triggered _DOMAIN_TOKEN_RE — the "CLEAN ✅"
+    # verdict in chat output was hollow. Now we brandify the hostname
+    # and proceed; the original hostname is added as an alias so the
+    # screen also probes the literal string.
+    original_name = name
+    if name and _DOMAIN_TOKEN_RE.search(name):
+        try:
+            from .web_explorer import brandify_query as _brand
+            brandified = _brand(name)
+            if brandified and brandified != name:
+                logger.info(
+                    "R-F311: screen_with_aliases brandified hostname %r → %r",
+                    name[:60], brandified[:60],
+                )
+                # Add original hostname as alias so we also probe the
+                # literal — sometimes the registrant or operating-name
+                # field on a sanctions list is the domain.
+                known_aliases = list(known_aliases or [])
+                if original_name not in known_aliases:
+                    known_aliases.append(original_name)
+                name = brandified
+        except Exception as _be:
+            logger.debug("R-F311 brandify failed for %r: %s", name[:60], _be)
+
     # Reject inputs that aren't entity names — caller passed a search
     # query / description by mistake. Returning early avoids hitting
     # OpenSanctions for 80+ wasted calls per cycle (F1+F2 fix 2026-04-27).
@@ -639,6 +684,7 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
             "matches": [],
             "blocked": False,
             "top_score": 0,
+            "original_name": original_name,
         }
 
     targets = [name] + (known_aliases or [])

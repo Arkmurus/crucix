@@ -4393,7 +4393,7 @@ async def _execute_tool(intent: dict, llm) -> str:
                 getattr(report, "confidence_gate_triggered", False)
             )
             _grounding = (
-                f"\n[GROUNDING_CHECK — R-F304]\n"
+                f"\n[GROUNDING_CHECK — R-F304/R-F315]\n"
                 f"  Hard counts the LLM MUST acknowledge before issuing a verdict:\n"
                 f"    directors_found        = {_n_directors}\n"
                 f"    press_items            = {_n_press} (T1: {_t1_press})\n"
@@ -4416,6 +4416,32 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"NOT 'AMBER, can proceed'.\n"
                 f"  Wired-but-silent layers this run: "
                 f"{', '.join(_silent_layers) if _silent_layers else 'none'}\n"
+                f"\n"
+                f"  R-F315 CONTENT-vs-ALLEGATION DISCIPLINE:\n"
+                f"  • A document / paper / page TITLE hosted on a domain is "
+                f"CONTENT, not BEHAVIOUR. You MUST NOT cite 'paper X about "
+                f"topic Y is hosted on the site' as evidence that the entity "
+                f"engages in topic Y. Examples that are WRONG:\n"
+                f"      ✗ 'Hosts an academic paper on Russian sanctions "
+                f"evasion → may be a platform for sanctions evasion'\n"
+                f"      ✗ 'PDF about cybercrime present → cybercrime risk'\n"
+                f"  • Cite content as a topic gap (you don't know what the "
+                f"entity does) ONLY if the page contents do not describe a "
+                f"distinct commercial activity. Never as an allegation.\n"
+                f"  • Allegations require: a sanctions hit, an enforcement "
+                f"finding, a court record, a regulatory action, or a "
+                f"verified press tier-1 source attributing the behaviour to "
+                f"the entity. Hosted documents do NOT satisfy any of these.\n"
+                f"\n"
+                f"  R-F318 RDAP REDACTION DISCIPLINE:\n"
+                f"  • REGISTRANT_UNAVAILABLE on a .com domain is the default "
+                f"under ICANN's post-GDPR redaction policy. It is NOT an "
+                f"owner-traceability red flag — most legitimate corporate "
+                f"domains are redacted. Render it as 'redacted at registrar "
+                f"(normal for .com post-GDPR)'.\n"
+                f"  • Only treat hidden registrant data as a risk signal "
+                f"when combined with OTHER red flags (sanctions hit, shell "
+                f"address, undeclared activity, etc.).\n"
             )
 
             return (
@@ -5061,8 +5087,23 @@ async def _execute_tool(intent: dict, llm) -> str:
             # block.
             entity = (intent.get("entity") or intent.get("query") or "").strip()
             primary_url = (intent.get("url") or "").strip()
+            # R-F310 (2026-05-11): depth propagation. When the parent DD
+            # call resolved to mode=deep (R-F296) or the operator used
+            # explicit deep keywords, the child deep_research call also
+            # needs to inherit the depth — previously it ran with the
+            # default 4 queries / 3 extracts even when the parent was
+            # deep. Live log evidence: `depth=quick, 3 search angles` on
+            # a mode=deep run. Now: deep → 8 queries / 6 extracts;
+            # otherwise → 4 / 3 (existing default).
+            _is_deep = (
+                str(intent.get("mode", "")).lower() == "deep"
+                or str(intent.get("depth", "")).lower() in ("thorough", "deep")
+            )
+            _max_q = 8 if _is_deep else 4
+            _max_e = 6 if _is_deep else 3
             r = await deep_research(
-                entity, primary_url=primary_url, max_queries=4, max_extracts=3,
+                entity, primary_url=primary_url,
+                max_queries=_max_q, max_extracts=_max_e,
             )
             if not r.get("ok"):
                 return (

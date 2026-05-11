@@ -195,7 +195,15 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
     # unset. This keeps the key around for the migration window while
     # search routes entirely through the free backends. Once the
     # subscription is cancelled, the env var can be removed.
-    if (os.getenv("ARIA_BRAVE_DISABLED") or "").lower() in ("1", "true", "yes"):
+    # R-F319 (2026-05-11): default flipped from "0" to "1". Live
+    # dashboard observation showed 5 calls / 5 errors per cycle on
+    # Brave even though memory says it's deprecated. Brave now OFF by
+    # default; operator must set ARIA_BRAVE_DISABLED=0 (or "false") to
+    # re-enable. Matches the aria_mirrors_claude memory directive.
+    _brave_dis_env = os.getenv("ARIA_BRAVE_DISABLED")
+    if _brave_dis_env is None:
+        _brave_dis_env = "1"  # R-F319 default: disabled
+    if _brave_dis_env.lower() in ("1", "true", "yes"):
         return []
     # R-F171 (2026-05-11) — billing-exhaustion sticky disable. When the
     # account is out of credit, every probe hits 402 and re-arms the

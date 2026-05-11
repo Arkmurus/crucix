@@ -1845,6 +1845,21 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
         tier_counts: dict[str, int] = {}
         for h in hits or []:
             tier = getattr(h, "source_tier", None) or "UNVERIFIED"
+            _url_for_tier = getattr(h, "url", None) or ""
+            # R-F316 (2026-05-11): apply web_explorer._classify_tier to
+            # every press URL. The 21:11 chat output reported 12 press
+            # items, ALL tagged UNVERIFIED — the search-aggregator was
+            # not classifying Reuters/BBC/Janes/etc. Now the tier
+            # classifier runs ON the URL even if the upstream backend
+            # didn't supply a source_tier.
+            if tier == "UNVERIFIED" and _url_for_tier:
+                try:
+                    from .web_explorer import _classify_tier as _ct
+                    _tier_guess = _ct(_url_for_tier)
+                    if _tier_guess and _tier_guess != "UNVERIFIED":
+                        tier = _tier_guess
+                except Exception:
+                    pass
             tier_counts[tier] = tier_counts.get(tier, 0) + 1
             press.append(Evidence(
                 source=getattr(h, "title", "") or getattr(h, "url", ""),
@@ -2218,6 +2233,96 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                 _ISO2_TO_COUNTRY_HINT.get(winning_iso2, "?"),
                                 _attempt_summary or "none",
                             )
+
+                            # R-F312 (2026-05-11): when the identity layer
+                            # ran with jurisdiction=None and the sanctions
+                            # screen got rejected because `modirumgespi.com`
+                            # looked like a hostname (R-F311), we never got
+                            # a real screen. Now that R-F301 has resolved
+                            # the entity, re-fire the sanctions screen with
+                            # the brandified name + UK Ltd alias (if we
+                            # also did R-F295 UK backfill on the same run).
+                            # This closes the "CLEAN ✅ but hollow" hole the
+                            # operator saw on the 21:11 modirumgespi run.
+                            try:
+                                _brand_name = _brandify_name_for_search(
+                                    name, target,
+                                )
+                                if _brand_name and _brand_name != name:
+                                    from . import sanctions as _sanc2
+                                    _refire = await _sanc2.screen_with_aliases(
+                                        _brand_name,
+                                        known_aliases=[name] if name else None,
+                                    )
+                                    if (_refire and not _refire.get("error")
+                                            and _refire.get("matches")):
+                                        # Promote findings into identity
+                                        from ._sanctions_classify import (
+                                            classify_matches as _cm_re,
+                                            SEVERITY_RANK as _sr_re,
+                                        )
+                                        _classified_re = _cm_re(
+                                            _refire["matches"],
+                                            query_name=_brand_name,
+                                        )
+                                        _worst_re = _classified_re["worst_severity"]
+                                        if _sr_re.get(_worst_re, 0) >= _sr_re.get("amber", 1):
+                                            report.identity.findings.append(Finding(
+                                                severity=_worst_re,
+                                                title=(
+                                                    f"R-F312: re-fired sanctions screen "
+                                                    f"on brandified name '{_brand_name}' "
+                                                    f"after R-F301 backfill — {_worst_re}"
+                                                ),
+                                                detail=_classified_re["summary"][:400],
+                                                source="sanctions.r_f312_refire",
+                                                confidence="PROBABLE",
+                                            ))
+                                            logger.info(
+                                                "R-F312: brandified sanctions re-fire "
+                                                "surfaced %s match on %r",
+                                                _worst_re, _brand_name,
+                                            )
+                                        else:
+                                            report.identity.findings.append(Finding(
+                                                severity="info",
+                                                title=(
+                                                    f"R-F312: re-fired sanctions screen "
+                                                    f"on brandified '{_brand_name}' — CLEAN"
+                                                ),
+                                                detail=(
+                                                    f"Original identity-layer screen was "
+                                                    f"rejected as 'not entity-shaped' "
+                                                    f"because the hostname was passed raw "
+                                                    f"(R-F311). After brandify the screen "
+                                                    f"ran and returned no risk matches."
+                                                ),
+                                                source="sanctions.r_f312_refire",
+                                                confidence="CONFIRMED",
+                                            ))
+                                    elif _refire and not _refire.get("error"):
+                                        # Clean — emit honest "screen ran"
+                                        # finding so chat output stops saying
+                                        # "CLEAN ✅" without explanation.
+                                        report.identity.findings.append(Finding(
+                                            severity="info",
+                                            title=(
+                                                f"R-F312: re-fired sanctions screen "
+                                                f"on brandified '{_brand_name}' — CLEAN"
+                                            ),
+                                            detail=(
+                                                f"Original identity-layer screen was "
+                                                f"rejected because the hostname was "
+                                                f"passed raw (R-F311 entity-shape gate). "
+                                                f"Brandified name screened CLEAN."
+                                            ),
+                                            source="sanctions.r_f312_refire",
+                                            confidence="CONFIRMED",
+                                        ))
+                            except Exception as _refire_e:
+                                logger.debug(
+                                    "R-F312 sanctions re-fire failed: %s", _refire_e,
+                                )
                 except Exception as _jur_e:
                     logger.debug("R-F301 jurisdiction backfill skipped: %s", _jur_e)
 
@@ -4343,6 +4448,50 @@ def _build_ecosystem_status(report) -> dict:
         "commercial_coherence": getattr(report, "commercial_coherence", None),
         "synthesis": getattr(report, "synthesis", None),
     }
+    # R-F317 (2026-05-11): synthesis layer label honesty. The chat run on
+    # modirumgespi.com (21:11) reported synthesis as "wired-but-silent"
+    # even though the BLUF + risk_classification + recommendation were
+    # all generated — because synthesis populates report.bottom_line etc.
+    # at the top level, not inside report.synthesis. If the report has a
+    # bottom_line + risk_classification, synthesis effectively ran and
+    # should not be flagged as silent. We patch its findings list here
+    # (read-only, before _section_active runs) to surface this.
+    try:
+        syn = sections_by_name.get("synthesis")
+        if syn is not None and not getattr(syn, "findings", None):
+            top_bluf = getattr(report, "bottom_line", "") or ""
+            top_rec = getattr(report, "recommendation", "") or ""
+            # R-F317: ONLY check bottom_line + recommendation (these are
+            # empty by default). risk_classification has a non-empty
+            # default ("green") so it would trigger active on every empty
+            # synthesis — which is wrong.
+            if top_bluf.strip() or top_rec.strip():
+                # Synthesis did produce output, just stored top-level.
+                # Add a synthetic finding for the ecosystem snapshot so it
+                # registers as active.
+                from .dd_schema import Finding as _F_syn
+                _top_risk = getattr(report, "risk_classification", "") or "?"
+                try:
+                    syn.findings = list(getattr(syn, "findings", []) or []) + [
+                        _F_syn(
+                            severity="info",
+                            title=(
+                                f"R-F317: synthesis produced BLUF="
+                                f"{_top_risk}: "
+                                f"{(top_bluf[:140] or '(empty)')}..."
+                            ),
+                            detail=(
+                                f"Risk classification: {_top_risk}; "
+                                f"Recommendation: {(top_rec or '(empty)')[:200]}"
+                            ),
+                            source="dd_orchestrator.synthesis_passthrough",
+                            confidence="ASSESSED",
+                        )
+                    ]
+                except Exception:
+                    pass
+    except Exception:
+        pass
     layers: dict[str, dict] = {}
     for sname, section in sections_by_name.items():
         if section is None:

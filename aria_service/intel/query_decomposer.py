@@ -293,6 +293,21 @@ def classify(query: str) -> QueryIntent:
         chosen = Intent.COMPANY_RESEARCH
         confidence = 0.5
 
+    # R-F309 (2026-05-11): when the operator pastes just a hostname
+    # (`modirumgespi.com`) the decomposer used to land on UNKNOWN, which
+    # routed deep_research to threat-intel framing ("malware phishing
+    # domain history cybercrime takedown"). For a chat target with a
+    # URL the right default is COMPANY_RESEARCH (commercial DD framing),
+    # not a cyber-threat investigation. The decomposer now treats any
+    # bare-hostname query that didn't match a pattern as company
+    # research at low confidence.
+    if chosen == Intent.UNKNOWN:
+        import re as _re_intent
+        # Hostname pattern: token with a dot + 2-6-char TLD, no spaces
+        if _re_intent.search(r"\b[a-z0-9][a-z0-9\-]{1,60}\.[a-z]{2,6}\b", query.lower()):
+            chosen = Intent.COMPANY_RESEARCH
+            confidence = 0.5
+
     # Bump confidence if multiple supporting signals
     if chosen == Intent.DD and entities:
         confidence = min(1.0, confidence + 0.05)

@@ -2048,7 +2048,38 @@ async def deep_research(
     # mean turn latency was 348s with deep_research, vs <90s target.
     logger.info("deep_research firing %d parallel web_search angles: %r", len(angles), angles)
     search_budget = max(8.0, overall_budget * 0.45)
-    search_tasks = [web_search(angle, max_results=6, timeout=timeout) for angle in angles]
+    # R-W1 (2026-05-11): use the multi-backend search_multilingual
+    # aggregator instead of single-backend web_search. The previous code
+    # only hit one provider per angle (Brave-or-DDG), missing
+    # Google News, Bing News, Crossref, OpenAlex, Semantic Scholar fan-
+    # out — and on dead-Brave nights returned single-backend noise.
+    # Wrap the multilingual call into web_search's expected dict shape
+    # so downstream aggregation stays untouched.
+    from . import web_search as _ws_mod
+    async def _search_one_angle(angle: str) -> dict:
+        try:
+            results_objs = await _ws_mod.search_multilingual(
+                angle, languages=None, max_results=8, translate_query=False,
+            )
+            results = []
+            backend_set = set()
+            for r in results_objs or []:
+                _bk = getattr(r, "backend", "") or getattr(r, "source", "") or "web"
+                backend_set.add(_bk)
+                results.append({
+                    "title": getattr(r, "title", "") or "",
+                    "url": getattr(r, "url", "") or "",
+                    "snippet": (getattr(r, "snippet", "") or "")[:400],
+                    "tier": getattr(r, "source_tier", None) or "UNVERIFIED",
+                })
+            return {
+                "ok": True,
+                "provider": ",".join(sorted(backend_set)) or "multilingual",
+                "results": results,
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:200], "provider": "multilingual"}
+    search_tasks = [_search_one_angle(angle) for angle in angles]
     try:
         search_results_per_angle = await asyncio.wait_for(
             asyncio.gather(*search_tasks, return_exceptions=True),

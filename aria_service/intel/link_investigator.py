@@ -1012,6 +1012,29 @@ async def investigate_link_tree(
     wall_deadline = t_start + wall_budget_s
     visited: set[str] = set()
 
+    # R-F313 / R-F314 (2026-05-11): deterministic seed-URL ordering.
+    # Same modirumgespi.com URL returned structurally different content
+    # on two consecutive runs because page-scoring randomly chose
+    # /publications over /about. Now we visit a fixed priority order of
+    # canonical seeds FIRST — /, /en, /about, /company, /products,
+    # /services, /contact — before letting page-scoring decide which
+    # of the remaining links to follow. Each candidate is tried; 404s
+    # are skipped quietly. Final crawl behaviour: priority seeds always
+    # visited if they exist, then the standard scoring takes over.
+    from urllib.parse import urlparse as _up_pri, urljoin as _uj_pri
+    _parsed_seed = _up_pri(seed_url)
+    _seed_base = f"{_parsed_seed.scheme}://{_parsed_seed.netloc}"
+    _priority_paths = ["/", "/en", "/about", "/about-us", "/company",
+                       "/products", "/services", "/contact", "/news"]
+    _priority_seeds = [_uj_pri(_seed_base, p) for p in _priority_paths]
+    # Always start with the operator-supplied seed_url; the priority
+    # list is a soft expansion. Dedup against seed_url.
+    _ordered_seeds: list[str] = [seed_url]
+    for _ps in _priority_seeds:
+        if _normalise_url(_ps) != _normalise_url(seed_url):
+            _ordered_seeds.append(_ps)
+
+    # Visit the operator-supplied seed first with full recursion
     await _visit(
         url=seed_url,
         depth=0,
@@ -1026,6 +1049,39 @@ async def investigate_link_tree(
         cost_budget_usd=cost_budget_usd,
         llm=llm,
     )
+
+    # Then visit the priority paths shallowly (depth=0 only, no recursion)
+    # to ensure /about, /company, /products are in the tree even if the
+    # scoring never selected them. Budget remaining only.
+    for _extra_seed in _ordered_seeds[1:]:
+        if time.time() >= wall_deadline:
+            break
+        if result.pages_fetched >= max_pages:
+            break
+        norm = _normalise_url(_extra_seed)
+        if norm in visited:
+            continue
+        try:
+            await _visit(
+                url=_extra_seed,
+                depth=0,
+                parent_url=None,
+                result=result,
+                visited=visited,
+                query_context=query_context,
+                # Depth 0 only — priority seeds are scaffolding, not
+                # branches; we want the FACTS from /about etc., not a
+                # recursive crawl through every link they contain.
+                max_depth=0,
+                max_links_per_page=0,
+                max_pages=max_pages,
+                wall_deadline_epoch=wall_deadline,
+                cost_budget_usd=cost_budget_usd,
+                llm=llm,
+            )
+        except Exception as _ps_e:
+            logger.debug("R-F313 priority-seed visit %s failed: %s",
+                         _extra_seed, _ps_e)
 
     _fuse_tree(result)
     result.duration_ms = int((time.time() - t_start) * 1000)
