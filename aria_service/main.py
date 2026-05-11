@@ -497,11 +497,30 @@ async def lifespan(app: FastAPI):
                 try:
                     logger.info("[Self-Improve] Starting autonomous improvement cycle...")
                     result = await self_improve.autonomous_improvement_cycle(llm)
+                    # R-F272 (2026-05-11) — honest cycle log. Operator was
+                    # alarmed by "160 errors, 0 bugs" and couldn't tell whether
+                    # the 0 meant no real bugs OR that every error was in a
+                    # non-MODIFIABLE_FILES path being silently skipped. The
+                    # cycle now reports both populations so the operator sees
+                    # the actual landscape.
+                    modifiable = result.get("errors_in_modifiable_files", {}) or {}
+                    external = result.get("errors_in_external_files", {}) or {}
+                    mod_sum = sum(modifiable.values())
+                    ext_sum = sum(external.values())
+                    # Top-3 external offenders for at-a-glance triage
+                    top_external = sorted(external.items(), key=lambda kv: -kv[1])[:3]
+                    top_external_str = ", ".join(f"{p}={n}" for p, n in top_external) or "none"
                     logger.info(
-                        "[Self-Improve] Cycle complete: %d errors, %d bugs, %d auto-deployed",
+                        "[Self-Improve] Cycle complete: %d errors total "
+                        "(%d in modifiable files, %d in external files), "
+                        "%d bugs auto-fixable, %d auto-deployed. "
+                        "Top external offenders: %s",
                         result.get("errors_analysed", 0),
+                        mod_sum,
+                        ext_sum,
                         result.get("bugs_detected", 0),
                         result.get("auto_deployed", 0),
+                        top_external_str,
                     )
                 except Exception as e:
                     logger.warning("[Self-Improve] Cycle failed: %s", e)

@@ -842,6 +842,90 @@ class TestMasteryFloorWarningRateLimit:
         assert student._FLOOR_WARN_INTERVAL_S == 3600.0
 
 
+class TestSelfImproveObservability:
+    """R-F272 — autonomous_improvement_cycle now reports errors split by
+    MODIFIABLE_FILES membership. Operator can tell whether 'X errors, 0 bugs'
+    means 'no real bugs found' or 'real bugs but in files the loop can't
+    auto-fix'."""
+
+    def test_results_dict_has_new_breakdown_fields(self):
+        """The new result keys must exist in the cycle output schema."""
+        from aria_service.intel import self_improve
+
+        # Stub get_recent_errors to return zero — cycle short-circuits but
+        # the results dict structure should still be initialised.
+        original_get_errors = self_improve.get_recent_errors
+
+        async def fake_get_errors(hours=6):
+            return []
+
+        self_improve.get_recent_errors = fake_get_errors
+
+        class FakeLLM:
+            is_configured = True
+
+        try:
+            async def _t():
+                return await self_improve.autonomous_improvement_cycle(FakeLLM())
+
+            result = asyncio.run(_t())
+            assert "errors_in_modifiable_files" in result
+            assert "errors_in_external_files" in result
+            assert "files_skipped_below_threshold" in result
+            assert isinstance(result["errors_in_modifiable_files"], dict)
+            assert isinstance(result["errors_in_external_files"], dict)
+        finally:
+            self_improve.get_recent_errors = original_get_errors
+
+    def test_splits_modifiable_vs_external(self):
+        """When errors come from a mix of modifiable + external files,
+        the result dict must put each file in the right bucket."""
+        from aria_service.intel import self_improve
+
+        # Build 4 fake errors per file (above the threshold of 3)
+        fake_errors = (
+            [{"file": "aria_service/intel/contacts.py", "type": "warn"}] * 4 +   # modifiable
+            [{"file": "aria_service/intel/student.py", "type": "warn"}] * 4 +    # external
+            [{"file": "aria_service/intel/rag_store.py", "type": "warn"}] * 4 +  # external
+            [{"file": "aria_service/intel/transient.py", "type": "warn"}] * 2     # below threshold
+        )
+        original_get_errors = self_improve.get_recent_errors
+        original_diagnose = self_improve._diagnose_and_fix
+
+        async def fake_get_errors(hours=6):
+            return fake_errors
+
+        async def fake_diagnose(llm, fp, errs):
+            return None  # skip LLM call
+
+        self_improve.get_recent_errors = fake_get_errors
+        self_improve._diagnose_and_fix = fake_diagnose
+
+        class FakeLLM:
+            is_configured = True
+
+        try:
+            async def _t():
+                return await self_improve.autonomous_improvement_cycle(FakeLLM())
+
+            result = asyncio.run(_t())
+            mod = result["errors_in_modifiable_files"]
+            ext = result["errors_in_external_files"]
+            assert "aria_service/intel/contacts.py" in mod
+            assert mod["aria_service/intel/contacts.py"] == 4
+            assert "aria_service/intel/student.py" in ext
+            assert ext["aria_service/intel/student.py"] == 4
+            assert "aria_service/intel/rag_store.py" in ext
+            assert ext["aria_service/intel/rag_store.py"] == 4
+            # transient.py had 2 errors → below threshold, neither bucket
+            assert "aria_service/intel/transient.py" not in mod
+            assert "aria_service/intel/transient.py" not in ext
+            assert result["files_skipped_below_threshold"] == 1
+        finally:
+            self_improve.get_recent_errors = original_get_errors
+            self_improve._diagnose_and_fix = original_diagnose
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"

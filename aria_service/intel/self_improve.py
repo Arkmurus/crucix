@@ -938,6 +938,19 @@ async def autonomous_improvement_cycle(llm) -> dict:
         "improvements_staged": 0,
         "auto_deployed": 0,
         "prompt_suggestions": 0,
+        # R-F272 (2026-05-11) — observability into the
+        # "160 errors, 0 bugs" pattern. Before this, an operator looking
+        # at the cycle log saw `bugs_detected=0` and couldn't tell whether
+        # the autonomous loop genuinely found no fixable bugs, or whether
+        # every observed error was in a non-MODIFIABLE_FILES path that
+        # got silently skipped at the gate below. These two counters split
+        # the population so the cycle log honestly reports the landscape.
+        # modifiable = files in MODIFIABLE_FILES (LLM may attempt auto-fix)
+        # external   = files OUTSIDE MODIFIABLE_FILES (auto-fix blocked
+        #              for safety; operator must look + fix manually)
+        "errors_in_modifiable_files": {},
+        "errors_in_external_files": {},
+        "files_skipped_below_threshold": 0,
     }
 
     # ── Step 1: Analyse recent errors ────────────────────────────────────
@@ -953,6 +966,18 @@ async def autonomous_improvement_cycle(llm) -> dict:
                 if key not in error_groups:
                     error_groups[key] = []
                 error_groups[key].append(err)
+
+            # R-F272: split the population so the cycle output is honest.
+            # Files with <3 errors are below the diagnosis threshold AND
+            # we count them so the operator sees the long-tail noise.
+            for file_path, file_errors in error_groups.items():
+                if len(file_errors) < 3:
+                    results["files_skipped_below_threshold"] += 1
+                    continue
+                if file_path in MODIFIABLE_FILES:
+                    results["errors_in_modifiable_files"][file_path] = len(file_errors)
+                else:
+                    results["errors_in_external_files"][file_path] = len(file_errors)
 
             # For files with 3+ errors, ask LLM to diagnose and fix
             for file_path, file_errors in error_groups.items():
