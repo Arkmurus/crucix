@@ -417,7 +417,6 @@ async def _collect_recent_activity_signals() -> set[str]:
         logger.debug("_collect_recent_activity_signals: chat audit failed: %s", e)
 
     return signals
-        return 0
 
 
 # ── Reading-session queue (called by ecosystem_reassess) ──────────────────
