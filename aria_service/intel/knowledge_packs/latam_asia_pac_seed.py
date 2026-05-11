@@ -10,10 +10,14 @@ These cells are at the heatmap floor because the corpus has very few
 facts tagged with those (region, topic) tuples — not because the
 analysis is wrong, but because there's nothing to analyse.
 
-This module ships a curated seed of ~120 high-confidence facts
-covering the export-control + procurement + sanctions context for the
-weak cells. Operator triggers seed via /api/aria/knowledge/seed-latam-asia
-or via the LATAM-ASIAPAC-KNOWLEDGE-SEED autonomous task.
+This module ships a curated seed of 37 high-confidence facts
+(16 LatAm non-Lusophone + 7 Asia-Pacific + 4 Southeast Asia + 4 South Asia
+ + 6 global cross-cutting) covering the export-control + procurement +
+sanctions context for the weak cells. Operator triggers seed via
+/api/aria/knowledge/seed-latam-asia or via the LATAM-ASIAPAC-KNOWLEDGE-SEED
+autonomous task. If 37 facts is insufficient to lift the heatmap weak
+cells to ≥70%, add more in the same _FACTS list shape — confidence
+should default to ASSESSED unless backed by a primary-source URL.
 
 Sources for every fact are public primary references — gov regulator
 pages, MDB sanctions portals, OEM corporate IR, etc — so the
