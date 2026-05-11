@@ -1,6 +1,22 @@
 """
 Redis persistence layer — shared across all intel modules.
 Falls back to in-memory dicts if Redis is unavailable.
+
+R-F235 (2026-05-11) — backend selector. ARIA_STATE_BACKEND picks:
+  upstash  — original Upstash Redis path (default, backwards compatible)
+  sqlite   — disk-resident SQLite via state_store.py (recommended)
+  memory   — in-process dict only (tests / break-glass)
+
+Per the "ARIA mirrors Claude" rule (aria_mirrors_claude.md feedback
+memory), the target architecture is files-on-disk + LLM, with Upstash
+as a deprecated convenience. SQLite at /data/aria_state.db replaces
+Redis without any caller-side changes — every public function in this
+module dispatches through `_backend` to either the legacy aioredis
+path or the new state_store path.
+
+The aioredis client is kept loaded so the legacy path remains
+functional for backwards-compatible deployments AND so the migration
+script (scripts/migrate_state.py) can read from both at once.
 """
 from __future__ import annotations
 
@@ -17,6 +33,20 @@ logger = logging.getLogger("aria.redis")
 _client: Optional[aioredis.Redis] = None
 _mem_store: dict[str, str] = {}
 
+# R-F235: backend selector. Default 'upstash' so existing deploys are
+# untouched. Operator flips to 'sqlite' (after running the migration
+# script) to drop Upstash. 'memory' is for tests + break-glass when
+# both Upstash and SQLite are unavailable.
+_BACKEND = (os.getenv("ARIA_STATE_BACKEND") or "upstash").strip().lower()
+
+
+def _use_sqlite() -> bool:
+    return _BACKEND == "sqlite"
+
+
+def _use_memory() -> bool:
+    return _BACKEND == "memory"
+
 # F51/F52 fix 2026-04-28: capture the main app loop on connect() so worker
 # threads can schedule redis-touching coroutines back onto it via
 # run_on_main_loop(). The aioredis client is loop-bound at construction;
@@ -29,11 +59,42 @@ _main_loop: Optional[asyncio.AbstractEventLoop] = None
 
 async def connect(redis_url: str) -> bool:
     global _client, _main_loop
+    _main_loop = asyncio.get_running_loop()
+
+    # R-F235 (2026-05-11) — SQLite backend dispatch. When
+    # ARIA_STATE_BACKEND=sqlite, route every operation through
+    # state_store.py. The Upstash client is intentionally NOT opened
+    # in this mode so we don't pay round-trips or take dependency on
+    # the Upstash subscription.
+    if _use_sqlite():
+        try:
+            from . import state_store as _ss
+            ok = await _ss.connect()
+            if ok:
+                logger.info("redis_store: dispatching to SQLite backend (R-F235)")
+                _client = None  # legacy path explicitly disabled
+                return True
+            logger.error(
+                "redis_store: SQLite backend failed to initialise; falling "
+                "back to in-memory fallback (data lost on restart)"
+            )
+            _client = None
+            return False
+        except Exception as e:
+            logger.error("redis_store: SQLite import/connect failed: %s", e)
+            _client = None
+            return False
+
+    if _use_memory():
+        logger.info("redis_store: memory-only backend (ARIA_STATE_BACKEND=memory)")
+        _client = None
+        return True
+
+    # Legacy: Upstash Redis path
     try:
-        _main_loop = asyncio.get_running_loop()
         _client = aioredis.from_url(redis_url, decode_responses=True)
         await _client.ping()
-        logger.info("Redis connected")
+        logger.info("Redis connected (Upstash backend)")
         return True
     except Exception as e:
         logger.warning(f"Redis unavailable, using in-memory fallback: {e}")
@@ -61,6 +122,9 @@ def run_on_main_loop(coro, timeout: float = 8.0):
 
 
 async def get(key: str) -> Optional[str]:
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.get(key)
     if _client:
         try:
             return await _client.get(key)
@@ -112,6 +176,10 @@ async def set(key: str, value: str, ex: int | None = None,
             "(%d). Plan a key split before this hits the tier cap.",
             key, val_len, _warn_bytes,
         )
+    if _use_sqlite():
+        from . import state_store as _ss
+        await _ss.set(key, value, ex=ex, keepttl=keepttl)
+        return
     if _client:
         try:
             if keepttl and ex is None:
@@ -127,6 +195,9 @@ async def set(key: str, value: str, ex: int | None = None,
 async def delete(key: str) -> bool:
     """Remove a key from Redis (or the in-memory fallback). Returns True if
     the key existed before the call. Used by purge / forget endpoints."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.delete(key)
     if _client:
         try:
             n = await _client.delete(key)
@@ -152,6 +223,10 @@ async def set_json(key: str, obj: Any, ex: int | None = None,
 
 
 async def lpush(key: str, value: str) -> None:
+    if _use_sqlite():
+        from . import state_store as _ss
+        await _ss.lpush(key, value)
+        return
     if _client:
         try:
             await _client.lpush(key, value)
@@ -164,6 +239,10 @@ async def lpush(key: str, value: str) -> None:
 
 
 async def ltrim(key: str, start: int, stop: int) -> None:
+    if _use_sqlite():
+        from . import state_store as _ss
+        await _ss.ltrim(key, start, stop)
+        return
     if _client:
         try:
             await _client.ltrim(key, start, stop)
@@ -174,6 +253,9 @@ async def ltrim(key: str, start: int, stop: int) -> None:
 
 async def llen(key: str) -> int:
     """Return the length of a Redis list."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.llen(key)
     if _client:
         try:
             return await _client.llen(key)
@@ -184,6 +266,9 @@ async def llen(key: str) -> int:
 
 
 async def lrange(key: str, start: int, stop: int) -> list[str]:
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.lrange(key, start, stop)
     if _client:
         try:
             return await _client.lrange(key, start, stop)
@@ -198,6 +283,9 @@ async def incr(key: str, amount: int = 1) -> int:
     similar counters where racing callers must not lose increments.
     Falls back to a non-atomic get+set on the in-memory store.
     """
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.incr(key, amount)
     if _client:
         try:
             return int(await _client.incrby(key, amount))
@@ -215,6 +303,9 @@ async def incrbyfloat(key: str, amount: float) -> float:
     autonomous engine cost cap so concurrent task cost writes don't
     race. Falls back to non-atomic get+set on the in-memory store.
     """
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.incrbyfloat(key, amount)
     if _client:
         try:
             return float(await _client.incrbyfloat(key, amount))
@@ -231,6 +322,9 @@ async def expire(key: str, seconds: int) -> bool:
     No-op on the in-memory store (no TTL implementation, but the
     next process restart clears everything anyway).
     """
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.expire(key, seconds)
     if _client:
         try:
             return bool(await _client.expire(key, seconds))
@@ -246,6 +340,10 @@ async def expire(key: str, seconds: int) -> bool:
 
 async def zadd(key: str, score: float, member: str) -> None:
     """Add or update a member in a sorted set."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        await _ss.zadd(key, score, member)
+        return
     if _client:
         try:
             await _client.zadd(key, {member: score})
@@ -262,6 +360,9 @@ async def zadd(key: str, score: float, member: str) -> None:
 
 async def zrevrange(key: str, start: int, stop: int) -> list[str]:
     """Return members in descending score order (highest first)."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.zrevrange(key, start, stop)
     if _client:
         try:
             return await _client.zrevrange(key, start, stop)
@@ -274,6 +375,9 @@ async def zrevrange(key: str, start: int, stop: int) -> list[str]:
 
 async def zrem(key: str, member: str) -> bool:
     """Remove a member from a sorted set. Returns True if removed."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.zrem(key, member)
     if _client:
         try:
             return bool(await _client.zrem(key, member))
@@ -288,6 +392,9 @@ async def zrem(key: str, member: str) -> bool:
 
 async def zcard(key: str) -> int:
     """Return the number of members in a sorted set."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.zcard(key)
     if _client:
         try:
             return await _client.zcard(key)
@@ -299,6 +406,10 @@ async def zcard(key: str) -> int:
 
 async def hset(key: str, mapping: dict) -> None:
     """Set multiple hash fields."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        await _ss.hset(key, mapping)
+        return
     if _client:
         try:
             await _client.hset(key, mapping=mapping)
@@ -312,6 +423,9 @@ async def hset(key: str, mapping: dict) -> None:
 
 async def hgetall(key: str) -> dict:
     """Get all hash fields."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.hgetall(key)
     if _client:
         try:
             return await _client.hgetall(key)
@@ -322,6 +436,9 @@ async def hgetall(key: str) -> dict:
 
 async def scan_keys(pattern: str, count: int = 200) -> list[str]:
     """Return keys matching a glob pattern (uses SCAN for Redis, filter for in-memory)."""
+    if _use_sqlite():
+        from . import state_store as _ss
+        return await _ss.scan_keys(pattern, count)
     if _client:
         try:
             keys: list[str] = []

@@ -188,6 +188,15 @@ async def _search_brave(query: str, max_results: int = 10, language: str = "en")
     """
     if not BRAVE_API_KEY:
         return []
+    # R-F236 (2026-05-11) — explicit operator opt-out. Per the "ARIA
+    # mirrors Claude" rule (aria_mirrors_claude.md feedback memory),
+    # Brave is deprecated. Setting ARIA_BRAVE_DISABLED=1 disables the
+    # backend WITHOUT requiring the env var BRAVE_SEARCH_API_KEY to be
+    # unset. This keeps the key around for the migration window while
+    # search routes entirely through the free backends. Once the
+    # subscription is cancelled, the env var can be removed.
+    if (os.getenv("ARIA_BRAVE_DISABLED") or "").lower() in ("1", "true", "yes"):
+        return []
     # R-F171 (2026-05-11) — billing-exhaustion sticky disable. When the
     # account is out of credit, every probe hits 402 and re-arms the
     # circuit breaker every 30 min indefinitely (91 errors in 24h on
