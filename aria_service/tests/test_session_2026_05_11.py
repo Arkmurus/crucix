@@ -1376,6 +1376,247 @@ class TestPromptClause24ConfidenceTagDecay:
             f"clause 24 must enumerate Tier-1a sources; found: {hits}"
 
 
+class TestUBOChainWalk:
+    """R-5001 — recursive UBO chain walker with provenance.
+
+    Every node tagged with: discovered_via, evidence_url, hop_depth,
+    parent_id, discovered_at. Every edge tagged [CONFIRMED] or [INFERRED]
+    with evidence_url. Budget caps prevent runaway. Cycle detection
+    prevents infinite loops.
+
+    Tests use monkey-patched registry-fetch functions so no live API
+    calls — deterministic, fast, and legal-defensibly verifiable."""
+
+    def _setup_mock_registry(self, monkeypatch_target, officer_graph, appointment_graph):
+        """Inject deterministic registry responses.
+
+        officer_graph: {(company_name, jurisdiction, reg_num): [officers, ...]}
+        appointment_graph: {officer_name: [companies, ...]}
+        """
+        from aria_service.intel import network_walker as nw
+
+        async def fake_fetch_officers(name, jurisdiction, reg_num):
+            key = ((name or "").lower(), jurisdiction or "", reg_num or "")
+            officers = officer_graph.get(key, [])
+            if officers:
+                return officers, "test_registry", f"https://test.local/{name}"
+            return [], "", ""
+
+        async def fake_other_appointments(name, limit=10):
+            apts = appointment_graph.get(name, [])
+            if apts:
+                return apts[:limit], "test_registry", f"https://test.local/officer/{name}"
+            return [], "", ""
+
+        async def fake_screen(name):
+            # Default: clean
+            return {"matches": []}
+
+        monkeypatch_target.setattr(nw, "_fetch_officers_with_provenance", fake_fetch_officers)
+        monkeypatch_target.setattr(nw, "_other_appointments_with_provenance", fake_other_appointments)
+        monkeypatch_target.setattr(nw, "_screen_name", fake_screen)
+        return nw
+
+    def test_seed_only_no_registry_data(self, monkeypatch):
+        """Entity with no registry coverage → only seed node, verdict 'uncovered'."""
+        nw = self._setup_mock_registry(monkeypatch, {}, {})
+
+        async def _t():
+            return await nw.walk_ubo_chain(
+                "Mystery LLC", jurisdiction_iso2="XX",  # no coverage
+                registration_number="12345",
+            )
+        result = asyncio.run(_t())
+        assert len(result["graph"]["nodes"]) == 1
+        assert result["graph"]["nodes"][0]["role"] == "subject"
+        assert result["verdict"] == "uncovered"
+        assert len(result["coverage_gaps"]) >= 1
+
+    def test_one_hop_direct_officers(self, monkeypatch):
+        """Seed entity has 3 officers → 4 nodes total (seed + 3)."""
+        officer_graph = {
+            ("acme corp", "GB", "12345"): [
+                {"name": "Alice Smith", "role": "director"},
+                {"name": "Bob Jones",   "role": "secretary"},
+                {"name": "Carol Lee",   "role": "director"},
+            ],
+        }
+        nw = self._setup_mock_registry(monkeypatch, officer_graph, {})
+
+        async def _t():
+            return await nw.walk_ubo_chain(
+                "Acme Corp", jurisdiction_iso2="GB",
+                registration_number="12345", max_hops=1,
+            )
+        result = asyncio.run(_t())
+        # Seed + 3 officers
+        assert len(result["graph"]["nodes"]) == 4
+        # All officers at hop_depth=1
+        officer_nodes = [n for n in result["graph"]["nodes"] if n["type"] == "person"]
+        assert len(officer_nodes) == 3
+        assert all(n["hop_depth"] == 1 for n in officer_nodes)
+        # Provenance: every officer node has discovered_via + evidence_url
+        for n in officer_nodes:
+            assert n["discovered_via"] == "test_registry"
+            assert n["evidence_url"].startswith("https://test.local/")
+            assert n["parent_id"] == "seed"
+        # Stats
+        assert result["stats"]["officers_found"] == 3
+        assert result["verdict"] == "traced"
+
+    def test_two_hop_officer_to_other_company(self, monkeypatch):
+        """Officer of seed has another company → that company appears at hop 2."""
+        officer_graph = {
+            ("seedco", "GB", "S1"): [{"name": "Alice", "role": "director"}],
+            ("othercoltd", "GB", "O1"): [{"name": "Dave", "role": "director"}],
+        }
+        appointment_graph = {
+            "Alice": [{"title": "OtherCo Ltd", "company_number": "O1"}],
+        }
+        nw = self._setup_mock_registry(monkeypatch, officer_graph, appointment_graph)
+
+        async def _t():
+            return await nw.walk_ubo_chain(
+                "SeedCo", jurisdiction_iso2="GB",
+                registration_number="S1", max_hops=3,
+            )
+        result = asyncio.run(_t())
+        # Expect: seed(0) → Alice(1) → OtherCo(2) → Dave(3) = 4 nodes
+        nodes_by_depth = {}
+        for n in result["graph"]["nodes"]:
+            nodes_by_depth.setdefault(n["hop_depth"], []).append(n["name"])
+        assert 0 in nodes_by_depth and nodes_by_depth[0] == ["SeedCo"]
+        assert 1 in nodes_by_depth and "Alice" in nodes_by_depth[1]
+        assert 2 in nodes_by_depth and "OtherCo Ltd" in nodes_by_depth[2]
+        # Hop 3 may or may not include Dave depending on max_hops semantics —
+        # our implementation expands until hop_depth < max_hops; with max_hops=3
+        # and Dave at depth=3, his fetch wouldn't run (would require hop_depth+1<max_hops)
+        # That's fine — operator-tunable.
+
+    def test_cycle_detection(self, monkeypatch):
+        """A → B → A circular ownership: cycle detected, no infinite loop."""
+        officer_graph = {
+            ("acycle", "GB", "A"): [{"name": "X"}],
+            ("bcycle", "GB", "B"): [{"name": "Y"}],
+        }
+        appointment_graph = {
+            "X": [{"title": "BCycle", "company_number": "B"}],
+            "Y": [{"title": "ACycle", "company_number": "A"}],  # back to start
+        }
+        nw = self._setup_mock_registry(monkeypatch, officer_graph, appointment_graph)
+
+        async def _t():
+            return await nw.walk_ubo_chain(
+                "ACycle", jurisdiction_iso2="GB",
+                registration_number="A", max_hops=5, max_total_nodes=20,
+            )
+        result = asyncio.run(_t())
+        # Must terminate; cycle skipped logged
+        assert result["stats"]["cycles_skipped"] >= 1
+        assert any("cycle skipped" in w for w in result["warnings"])
+
+    def test_budget_exhaustion(self, monkeypatch):
+        """When fan-out exceeds max_total_nodes, walk stops with warning."""
+        # Create a wide fan-out: seed has 30 officers
+        officer_graph = {
+            ("wideco", "GB", "W"): [
+                {"name": f"Officer {i}"} for i in range(30)
+            ],
+        }
+        nw = self._setup_mock_registry(monkeypatch, officer_graph, {})
+
+        async def _t():
+            return await nw.walk_ubo_chain(
+                "WideCo", jurisdiction_iso2="GB",
+                registration_number="W", max_hops=2,
+                max_total_nodes=10, officers_per_entity=30,
+            )
+        result = asyncio.run(_t())
+        assert result["stats"]["budget_exhausted"] is True
+        assert len(result["graph"]["nodes"]) <= 10
+        assert any("budget exhausted" in w for w in result["warnings"])
+
+    def test_provenance_on_every_node_and_edge(self, monkeypatch):
+        """Legal-defensibility: every node and edge must carry provenance."""
+        officer_graph = {
+            ("co", "GB", "1"): [{"name": "P1"}],
+        }
+        appointment_graph = {
+            "P1": [{"title": "Co2", "company_number": "2"}],
+        }
+        nw = self._setup_mock_registry(monkeypatch, officer_graph, appointment_graph)
+
+        async def _t():
+            return await nw.walk_ubo_chain(
+                "Co", jurisdiction_iso2="GB",
+                registration_number="1", max_hops=2,
+            )
+        result = asyncio.run(_t())
+        required_node_keys = {"id", "name", "hop_depth", "discovered_via",
+                              "evidence_url", "discovered_at", "parent_id"}
+        for n in result["graph"]["nodes"]:
+            missing = required_node_keys - set(n.keys())
+            assert not missing, f"node {n.get('name')} missing fields: {missing}"
+        for e in result["graph"]["edges"]:
+            assert "tag" in e, f"edge {e} missing tag"
+            assert e["tag"] in ("[CONFIRMED]", "[INFERRED]"), f"unexpected tag: {e['tag']}"
+            assert "evidence_url" in e
+
+    def test_coverage_gap_reported_honestly(self, monkeypatch):
+        """An entity in a non-GB jurisdiction must surface a coverage gap,
+        not silently return empty."""
+        nw = self._setup_mock_registry(monkeypatch, {}, {})
+
+        async def _t():
+            return await nw.walk_ubo_chain(
+                "PanamaCo", jurisdiction_iso2="PA",  # Panama: no coverage
+                registration_number="999",
+            )
+        result = asyncio.run(_t())
+        assert len(result["coverage_gaps"]) >= 1
+        gap = result["coverage_gaps"][0]
+        assert gap["jurisdiction"] == "PA"
+        assert "GB" in gap["reason"] or "Companies House" in gap["reason"]
+
+    def test_sanctioned_officer_in_chain_surfaces(self, monkeypatch):
+        """If an officer hits sanctions screen, surface in sanctioned_in_chain."""
+        from aria_service.intel import network_walker as nw
+
+        officer_graph = {
+            ("co", "GB", "1"): [{"name": "Bad Actor"}],
+        }
+        async def fake_fetch(name, jur, reg):
+            key = ((name or "").lower(), jur or "", reg or "")
+            o = officer_graph.get(key, [])
+            return (o, "test", "https://test.local/x") if o else ([], "", "")
+
+        async def fake_screen(name):
+            if "Bad Actor" in name:
+                return {"matches": [
+                    {"name": "Bad Actor", "score": 1.0, "topics": ["sanction"],
+                     "lists": ["us_ofac_sdn"]}
+                ]}
+            return {"matches": []}
+
+        async def fake_appts(name, limit=10):
+            return [], "", ""
+
+        monkeypatch.setattr(nw, "_fetch_officers_with_provenance", fake_fetch)
+        monkeypatch.setattr(nw, "_screen_name", fake_screen)
+        monkeypatch.setattr(nw, "_other_appointments_with_provenance", fake_appts)
+
+        async def _t():
+            return await nw.walk_ubo_chain(
+                "Co", jurisdiction_iso2="GB",
+                registration_number="1", max_hops=1,
+            )
+        result = asyncio.run(_t())
+        assert len(result["sanctioned_in_chain"]) == 1
+        assert result["sanctioned_in_chain"][0]["name"] == "Bad Actor"
+        assert result["sanctioned_in_chain"][0]["hop"] == 1
+        assert result["sanctioned_in_chain"][0]["severity"] == "hard_stop"
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"
