@@ -1259,6 +1259,70 @@ class TestWorldBankGuidanceCorrection:
         assert "R-F155" in wb["notes"] or "no public" in wb["notes"].lower()
 
 
+class TestPromptClause20BUpdate:
+    """R-F276 — Clause 20(b) NO STATUS INFLATION must NOT cite a hard-coded
+    default for ARIA_AUTONOMOUS_ENABLED. The operator-observed WhatsApp
+    chat at 2026-05-11 16:19 had ARIA confidently claim:
+      'Autonomous engine: Built and ready, currently requires operator
+       activation (ARIA_AUTONOMOUS_ENABLED=0 by default)'
+    while the fly logs at boot 13:34:49 showed:
+       'Autonomous engine started (dry_run=False, 74 tasks loaded)'
+    — i.e. the engine IS RUNNING in production. The prompt was citing
+    a stale default. Fix: prompt now mandates current-state-evidenced
+    status assertions, with explicit fallback to 'I don't have current
+    visibility' when no live signal is available."""
+
+    def _aria_engine_source(self):
+        """Read aria_engine.py source for prompt-text inspection."""
+        import pathlib
+        path = pathlib.Path(__file__).resolve().parents[1] / "aria_engine.py"
+        return path.read_text(encoding="utf-8", errors="replace")
+
+    def test_no_hard_coded_disabled_by_default_claim(self):
+        """Clause 20(b) must NOT assert ARIA_AUTONOMOUS_ENABLED=0 as a
+        default. The actual default has changed across deploys; asserting
+        a stale value invites the LLM to lie about live state."""
+        src = self._aria_engine_source()
+        # Find clause 20(b) section
+        c20_idx = src.find("(b) NO STATUS INFLATION")
+        assert c20_idx > 0, "clause 20(b) header must exist"
+        # Capture ~600 chars after the header (clause body)
+        c20 = src[c20_idx:c20_idx + 2000]
+        # The OLD stale assertion must NOT appear
+        assert "is globally disabled by default (ARIA_AUTONOMOUS_ENABLED=0)" not in c20, \
+            "stale 'disabled by default' literal must be removed from clause 20(b)"
+
+    def test_current_state_evidence_pattern_required(self):
+        """Clause 20(b) must instruct using live evidence (boot snapshot,
+        /api/aria/health, /api/aria/autonomous/status)."""
+        src = self._aria_engine_source()
+        c20_idx = src.find("(b) NO STATUS INFLATION")
+        c20 = src[c20_idx:c20_idx + 2000]
+        # Must reference at least one of the live-evidence surfaces
+        evidence_markers = [
+            "/api/aria/health",
+            "/api/aria/autonomous/status",
+            "ARIA STATE AT BOOT",
+            "R-F248",
+            "R-F266",
+        ]
+        hits = [m for m in evidence_markers if m in c20]
+        assert len(hits) >= 2, \
+            f"clause 20(b) must reference ≥2 live-evidence surfaces; found: {hits}"
+
+    def test_explicit_no_visibility_fallback(self):
+        """Clause 20(b) must instruct an explicit 'no visibility' fallback,
+        not silent default-citation."""
+        src = self._aria_engine_source()
+        c20_idx = src.find("(b) NO STATUS INFLATION")
+        c20 = src[c20_idx:c20_idx + 2000]
+        # Must contain the no-visibility fallback pattern
+        assert "don't have current visibility" in c20.lower() or \
+               "no current visibility" in c20.lower() or \
+               "no visibility into" in c20.lower(), \
+            "clause 20(b) must mandate explicit no-visibility fallback"
+
+
 def test_smoke_marker():
     """If you see this in green, the test infrastructure is wired."""
     assert True, "test_session_2026_05_11.py loaded + smoke test ran"
