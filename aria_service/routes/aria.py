@@ -13458,6 +13458,139 @@ async def adversarial_amendments_rejected_ep(limit: int = 100):
     }
 
 
+@router.post("/adversarial/amendments/approve")
+async def adversarial_amendments_approve_ep(req: Request):
+    """R-F168 (2026-05-11): bridge an amendment into staged_improvements
+    so it can be applied via self_improve.deploy_improvement.
+
+    Pre-R-F168: amendments_queue and staged_improvements were two
+    disconnected keyspaces. Operators could only reject; 17 amendments
+    sat for ~3 weeks with no apply path. This endpoint reads the queued
+    amendment, builds a new constitution version by appending the
+    amendment as a fresh clause at the end of ARIA_SYSTEM_PROMPT, and
+    stages it for deploy. The actual deploy still requires the manual
+    POST /api/aria/self/deploy/{staged_id} step (operator safety gate).
+
+    Body: {"attack_id": "<id>", "notes": "<operator approval note>"}
+    """
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+    attack_id = (body.get("attack_id") or "").strip()
+    notes = (body.get("notes") or "").strip()
+    if not attack_id:
+        raise HTTPException(status_code=400, detail="attack_id required")
+
+    from ..intel import redis_store as rs
+    from ..intel import self_improve as _si
+    from datetime import datetime as _dt, timezone as _tz
+
+    key_queue = "aria:adversarial:amendments_queue"
+    key_approved = "aria:adversarial:approved_amendments"
+
+    queue = await rs.get_json(key_queue) or []
+    matched = [n for n in queue if (n.get("attack_id") or "") == attack_id]
+    if not matched:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no pending amendment with attack_id={attack_id}",
+        )
+    amendment = matched[0]
+
+    # Read current aria_engine.py and append the amendment as a new
+    # clause at the bottom of ARIA_SYSTEM_PROMPT.
+    code_read = await _si.read_own_code("aria_service/aria_engine.py")
+    if "error" in code_read:
+        raise HTTPException(status_code=500, detail=f"read failed: {code_read['error']}")
+    src = code_read["content"]
+
+    # Locate the prompt block. The constant is defined as:
+    #   ARIA_SYSTEM_PROMPT = """ ... """
+    # Find the closing triple-quote of that constant and inject a new
+    # clause line just before it.
+    import re as _re
+    m = _re.search(
+        r'(ARIA_SYSTEM_PROMPT\s*=\s*"""[\s\S]+?)("""\s*\n)',
+        src,
+    )
+    if not m:
+        raise HTTPException(
+            status_code=500,
+            detail="could not locate ARIA_SYSTEM_PROMPT block in aria_engine.py",
+        )
+    block_body, block_close = m.group(1), m.group(2)
+
+    # Highest existing numbered clause — append the new one at N+1.
+    nums = [int(x) for x in _re.findall(r"(?:^|\n)(\d+)\.\s", block_body)]
+    next_n = max(nums) + 1 if nums else 24
+    amend_text = (amendment.get("proposed_amendment") or "").strip()
+    if not amend_text:
+        amend_text = "(no proposed text supplied — operator notes only)"
+    new_clause_line = (
+        f"\n{next_n}. R-F168 — staged from adversarial attack {attack_id}. "
+        f"{amend_text[:600]}\n"
+        f"   (Operator approved: {notes[:200] or 'no notes'} · "
+        f"approved_at {_dt.now(_tz.utc).isoformat()})\n"
+    )
+    new_src = src.replace(
+        block_body + block_close,
+        block_body + new_clause_line + block_close,
+        1,
+    )
+
+    staged_res = await _si.stage_improvement(
+        file_path="aria_service/aria_engine.py",
+        new_content=new_src,
+        change_type="prompt_evolution",
+        description=(
+            f"R-F168 — approve adversarial amendment {attack_id} "
+            f"(anchor clauses: {amendment.get('anchor_clauses')})"
+        ),
+        reasoning=f"Operator approval note: {notes or '(none)'}",
+    )
+    if "error" in staged_res:
+        raise HTTPException(status_code=500, detail=f"stage_improvement failed: {staged_res['error']}")
+
+    # Move the amendment off the queue into the approved bin.
+    kept = [n for n in queue if (n.get("attack_id") or "") != attack_id]
+    approved = await rs.get_json(key_approved) or []
+    record = dict(amendment)
+    record["approved_at"] = _dt.now(_tz.utc).isoformat()
+    record["operator_notes"] = notes
+    record["staged_improvement_id"] = staged_res.get("id")
+    approved.insert(0, record)
+    await rs.set_json(key_approved, approved[:500], ex=365 * 86400)
+    await rs.set_json(key_queue, kept, ex=90 * 86400)
+
+    return {
+        "ok": True,
+        "attack_id": attack_id,
+        "staged_improvement_id": staged_res.get("id"),
+        "next_step": (
+            f"POST /api/aria/self/deploy/{staged_res.get('id')} to apply "
+            f"the constitution amendment to live ARIA"
+        ),
+        "queue_remaining": len(kept),
+        "approved_total": len(approved),
+    }
+
+
+@router.get("/adversarial/amendments/approved")
+async def adversarial_amendments_approved_ep(limit: int = 100):
+    """R-F168: audit surface — amendments the operator has approved.
+    Each entry carries staged_improvement_id so the operator can chase
+    the deploy state via /self/deploy/{id}."""
+    from ..intel import redis_store as rs
+    approved = await rs.get_json("aria:adversarial:approved_amendments") or []
+    return {
+        "count": len(approved),
+        "approved": approved[: max(1, min(limit, 500))],
+    }
+
+
 @router.post("/adversarial/amendments/clear")
 async def adversarial_amendments_clear_ep(staged_within_seconds: int | None = None):
     """Drop pending amendments. Used to purge false amendments staged from

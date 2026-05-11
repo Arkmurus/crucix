@@ -112,6 +112,26 @@ async def run_calibration_review() -> dict:
     except Exception:
         pass
 
+    # R-F169 (2026-05-11): pull eval_runner's most-recent pass_rate
+    # into the ground-truth signal mean. Pre-R-F169, the 341-Q golden-
+    # seed (R-F148) had zero feedback influence on calibration — the
+    # biggest investment in measured accuracy was effectively decorative.
+    # Now the most-recent pass_rate becomes a 4th signal alongside
+    # honesty / adversarial / (1 - mistake_rate).
+    eval_pass_rate = None
+    try:
+        from . import eval_runner as _er
+        runs = await _er.get_recent_runs(limit=1)
+        if runs:
+            last_run = runs[0] if isinstance(runs[0], dict) else None
+            if last_run:
+                _summary = last_run.get("summary") or last_run
+                _pr = _summary.get("pass_rate")
+                if isinstance(_pr, (int, float)) and 0.0 <= float(_pr) <= 1.0:
+                    eval_pass_rate = float(_pr)
+    except Exception:
+        pass
+
     # 5. Compute calibration deltas
     ground_truth_signals = []
     if honesty_accuracy is not None:
@@ -120,6 +140,8 @@ async def run_calibration_review() -> dict:
         ground_truth_signals.append(adversarial_accuracy)
     if mistake_rate is not None:
         ground_truth_signals.append(1.0 - min(mistake_rate, 1.0))
+    if eval_pass_rate is not None:
+        ground_truth_signals.append(eval_pass_rate)
 
     estimated_accuracy = (
         sum(ground_truth_signals) / len(ground_truth_signals)
@@ -148,6 +170,9 @@ async def run_calibration_review() -> dict:
             "honesty_accuracy": round(honesty_accuracy, 4) if honesty_accuracy else None,
             "adversarial_accuracy": round(adversarial_accuracy, 4) if adversarial_accuracy else None,
             "mistake_rate": round(mistake_rate, 4) if mistake_rate else None,
+            # R-F169 — surface the eval pass_rate so the dashboard /
+            # operator can see which signal is pulling the average.
+            "eval_pass_rate": round(eval_pass_rate, 4) if eval_pass_rate is not None else None,
         },
         "mastery_per_topic": {k: round(v, 4) for k, v in mastery_scores.items()},
         "recommendation": _get_recommendation(

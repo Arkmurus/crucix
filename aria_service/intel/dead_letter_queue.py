@@ -36,6 +36,36 @@ COMPLIANCE_TASKS = {
 }
 
 
+async def enqueue_pipeline_failure(
+    pipeline: str,
+    error: str,
+    context: dict | None = None,
+) -> dict:
+    """R-F177 (2026-05-11): wrap enqueue() for non-delivery failures.
+
+    Pre-R-F177 the DLQ was only fed by autonomous/delivery.py — research,
+    spider, ingest, extract failures all silently dropped. The "DLQ = 0"
+    headline meant "delivery channel didn't error", not "nothing failed".
+    Now any pipeline can call this with a short identifier + error
+    string + optional context (entity, URL, query) and the failure
+    surfaces in the operator queue.
+
+    Examples:
+      enqueue_pipeline_failure("research_engine.dispatch_query",
+                                "brave 402", {"query": "..."})
+      enqueue_pipeline_failure("spider.fetch", "timeout",
+                                {"url": "..."})
+    """
+    return await enqueue(
+        task_id=f"PIPELINE:{pipeline}",
+        task_name=f"Pipeline failure: {pipeline}",
+        result=str(context or {})[:2000],
+        channel=pipeline,
+        error=error,
+        compliance_relevant=False,
+    )
+
+
 async def enqueue(
     task_id: str,
     task_name: str,

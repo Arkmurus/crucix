@@ -207,9 +207,33 @@ async def _dispatch_query(query: str) -> dict[str, Any]:
         result["searched"] = True
         result["urls_found"] = len(hits or [])
         if not hits:
+            # R-F177 (2026-05-11): empty results aren't an error per se,
+            # but persistent emptiness across a tick means web_search is
+            # degraded. Surface to DLQ at debug level so operator triage
+            # has a trail when ticks come back productive=0.
+            try:
+                from ..intel import dead_letter_queue as _dlq
+                await _dlq.enqueue_pipeline_failure(
+                    pipeline="research_engine.dispatch_query",
+                    error="web_search returned no hits",
+                    context={"query": query[:200]},
+                )
+            except Exception:
+                pass
             return result
     except Exception as exc:
         logger.debug("web_search failed for %r: %s", query, exc)
+        # R-F177: route exception cases to DLQ so the operator sees WHY
+        # a research tick produced zero queued URLs.
+        try:
+            from ..intel import dead_letter_queue as _dlq
+            await _dlq.enqueue_pipeline_failure(
+                pipeline="research_engine.dispatch_query",
+                error=f"web_search exception: {type(exc).__name__}: {str(exc)[:200]}",
+                context={"query": query[:200]},
+            )
+        except Exception:
+            pass
         return result
 
     # Push top URLs to the knowledge spider queue for later processing.
@@ -244,8 +268,45 @@ async def run_research_tick() -> dict[str, Any]:
     Returns a summary of what was attempted.
     """
     t_start = time.monotonic()
+
+    # R-F175 (2026-05-11): record the tick BEFORE the early-return so
+    # the dashboard reflects scheduler activity, not just productive
+    # ticks. Pre-R-F175, `research_ticks_24h` rendered 0 even when the
+    # engine fired hourly because every fire hit the `no weak cells`
+    # early-return path without incrementing the counter. Honest count
+    # now distinguishes "scheduler fired" from "work done".
+    try:
+        from ..intel import redis_store as rs
+        _e = await rs.get_json(_REDIS_STATS_KEY)
+        _stats = _e if isinstance(_e, dict) else {"ticks": 0, "queries": 0, "urls_queued": 0}
+        _stats["ticks"] = _stats.get("ticks", 0) + 1
+        _stats["last_fired_at"] = datetime.now(timezone.utc).isoformat()
+        if not isinstance(_e, dict):
+            await rs.set_json(_REDIS_STATS_KEY, _stats, ex=86400)
+        else:
+            await rs.set_json(_REDIS_STATS_KEY, _stats, keepttl=True)
+    except Exception:
+        pass
+
     cells = await _pick_weakest_cells(_MAX_CELLS_PER_RUN)
     if not cells:
+        # R-F175: surface the empty result via brain_hook so operator can
+        # see WHY the engine produced nothing rather than just seeing 0.
+        try:
+            from ..intel import brain_hook
+            await brain_hook.absorb(
+                module="research_engine",
+                summary=(
+                    "Research tick — 0 weak cells found in regional mastery heatmap. "
+                    "Either regional mastery store is empty OR every cell is above "
+                    "WEAK_THRESHOLD (0.55). Operator: check student.regional_mastery "
+                    "state."
+                ),
+                success=True,  # not a failure — just nothing to do
+                gap_type=None,
+            )
+        except Exception:
+            pass
         return {"cells_attacked": 0, "duration_s": 0, "reason": "no weak cells"}
 
     results: list[dict[str, Any]] = []
@@ -285,12 +346,14 @@ async def run_research_tick() -> dict[str, Any]:
         })
 
     # 24h stats — keepttl on subsequent writes (same family fix as f981c0a).
+    # R-F175 (2026-05-11): ticks counter is incremented at the top of
+    # run_research_tick now, NOT here, so it reflects scheduler fires
+    # (not just productive ticks). Only query/url counts increment here.
     try:
         from ..intel import redis_store as rs
         existing = await rs.get_json(_REDIS_STATS_KEY)
         is_fresh = not isinstance(existing, dict)
         stats = existing if isinstance(existing, dict) else {"ticks": 0, "queries": 0, "urls_queued": 0}
-        stats["ticks"] = stats.get("ticks", 0) + 1
         stats["queries"] = stats.get("queries", 0) + sum(r["queries_dispatched"] for r in results)
         stats["urls_queued"] = stats.get("urls_queued", 0) + sum(r["queued_for_spider"] for r in results)
         if is_fresh:
