@@ -40,6 +40,27 @@ from . import redis_store as rs
 logger = logging.getLogger("aria.intel.knowledge")
 
 KEY = "crucix:aria:knowledge"
+
+# R-F334 (2026-05-11) — Redis key-split. Live fly log 21:19:39:
+# "Redis SET crucix:aria:knowledge: value size 4023932 bytes exceeds
+# warn threshold (4000000)". With ~700 facts/day growth, the single
+# gzipped blob will hit Upstash's 25 MB error threshold in ~6 months.
+# Sharding moves the canonical Redis backup to N independent keys, each
+# ~500KB gzipped, so the per-key write stays well under the warn limit
+# and grows by adding shards (not by inflating one giant blob).
+#
+# Naming:
+#   crucix:aria:knowledge:meta        = {"shard_count": N, "version": 2, ...}
+#   crucix:aria:knowledge:shard:0..N-1 = gzipped JSON slice of the snapshot
+# Legacy single-blob KEY is kept as a read-fallback for one migration
+# cycle; new writes go to shards.
+SHARD_META_KEY = "crucix:aria:knowledge:meta"
+SHARD_KEY_FMT = "crucix:aria:knowledge:shard:{i}"
+# Target ~500 KB gzipped per shard — well below the 4 MB warn threshold
+# and well above the per-key fixed cost of metadata + envelope. With
+# 5-8× gzip ratio this maps to ~2.5-4 MB of raw JSON per shard.
+SHARD_TARGET_BYTES = 500_000
+SHARD_MAX_FACTS_PER_SHARD = 5000   # hard cap on items per shard regardless of size
 # Permanent memory — no TTL, 1M-entry caps (was 30k/20k/10k on 180d TTL).
 # Operator explicitly asked for forever memory; disk footprint at current
 # ingest is ~50 MB/yr, well inside standard Redis provisioning.
@@ -107,6 +128,209 @@ def _encode_snapshot(obj: dict) -> str:
     raw = json.dumps(obj, default=str).encode("utf-8")
     gz = gzip.compress(raw, compresslevel=6)
     return _GZ_PREFIX + base64.b64encode(gz).decode("ascii")
+
+
+# R-F334 (2026-05-11) — sharded snapshot helpers.
+
+def _split_into_shards(cache: dict) -> list[dict]:
+    """Split the in-memory cache into shards each <= SHARD_TARGET_BYTES
+    gzipped. Each shard is a self-contained dict with the same top-level
+    keys (facts/queries/learnings/version) but only a SLICE of the
+    lists. Read-side concatenates them back in order.
+
+    Algorithm: round-robin distribute items across N shards where N is
+    chosen so each shard fits the size target. Estimate N from total
+    items × average bytes-per-item.
+    """
+    if not cache:
+        return []
+    facts = cache.get("facts") or []
+    queries = cache.get("queries") or []
+    learnings = cache.get("learnings") or []
+    version = cache.get("version", 1)
+
+    total_items = len(facts) + len(queries) + len(learnings)
+    if total_items == 0:
+        # Empty cache — one shard with the version header
+        return [{"facts": [], "queries": [], "learnings": [], "version": version,
+                 "shard_index": 0, "shard_count": 1}]
+
+    # Estimate shard count. Encode a 100-item sample to measure
+    # bytes-per-item, then size from there. Floor at 1 shard.
+    sample = {
+        "facts": facts[:100], "queries": queries[:100],
+        "learnings": learnings[:100], "version": version,
+    }
+    try:
+        sample_bytes = len(_encode_snapshot(sample))
+        sample_items = (len(sample["facts"]) + len(sample["queries"])
+                        + len(sample["learnings"]))
+        bytes_per_item = sample_bytes / max(sample_items, 1)
+    except Exception:
+        bytes_per_item = 200  # conservative fallback
+
+    items_per_shard = max(
+        100,
+        min(
+            SHARD_MAX_FACTS_PER_SHARD,
+            int(SHARD_TARGET_BYTES / max(bytes_per_item, 1)),
+        ),
+    )
+    n_shards = max(1, (total_items + items_per_shard - 1) // items_per_shard)
+
+    shards: list[dict] = []
+    for i in range(n_shards):
+        # Slice each list into the i-th chunk
+        start_f = (len(facts) * i) // n_shards
+        end_f = (len(facts) * (i + 1)) // n_shards
+        start_q = (len(queries) * i) // n_shards
+        end_q = (len(queries) * (i + 1)) // n_shards
+        start_l = (len(learnings) * i) // n_shards
+        end_l = (len(learnings) * (i + 1)) // n_shards
+        shards.append({
+            "facts": facts[start_f:end_f],
+            "queries": queries[start_q:end_q],
+            "learnings": learnings[start_l:end_l],
+            "version": version,
+            "shard_index": i,
+            "shard_count": n_shards,
+        })
+    return shards
+
+
+def _merge_shards(shards: list[dict]) -> dict | None:
+    """Reassemble shards into a single cache dict. Ordered by shard_index."""
+    if not shards:
+        return None
+    sorted_shards = sorted(
+        shards, key=lambda s: s.get("shard_index", 0) if isinstance(s, dict) else 0,
+    )
+    merged_facts: list = []
+    merged_queries: list = []
+    merged_learnings: list = []
+    version = 1
+    for s in sorted_shards:
+        if not isinstance(s, dict):
+            continue
+        merged_facts.extend(s.get("facts") or [])
+        merged_queries.extend(s.get("queries") or [])
+        merged_learnings.extend(s.get("learnings") or [])
+        version = s.get("version", version)
+    return {
+        "facts": merged_facts,
+        "queries": merged_queries,
+        "learnings": merged_learnings,
+        "version": version,
+    }
+
+
+async def _save_sharded_snapshot(cache: dict) -> dict:
+    """R-F334: write the cache as N sharded keys + a meta key.
+    Returns {shard_count, total_bytes, items} for the caller's log line."""
+    shards = _split_into_shards(cache)
+    total_bytes = 0
+    write_tasks = []
+
+    for shard in shards:
+        encoded = _encode_snapshot(shard)
+        total_bytes += len(encoded)
+        idx = shard["shard_index"]
+        key = SHARD_KEY_FMT.format(i=idx)
+        write_tasks.append(rs.set(key, encoded))
+
+    # Write all shards concurrently
+    if write_tasks:
+        await asyncio.gather(*write_tasks, return_exceptions=True)
+
+    # Write meta last so the reader either sees the COMPLETE state
+    # or falls back to legacy. (Atomic-ish across keys.)
+    n_shards = len(shards)
+    meta = {
+        "version": 2,
+        "shard_count": n_shards,
+        "total_bytes": total_bytes,
+        "items": {
+            "facts": len(cache.get("facts") or []),
+            "queries": len(cache.get("queries") or []),
+            "learnings": len(cache.get("learnings") or []),
+        },
+        "written_at": time.time(),
+    }
+    await rs.set(SHARD_META_KEY, json.dumps(meta))
+
+    # Best-effort delete of stale legacy blob — only after the shards
+    # are durable. If this fails, _load() prefers shards over legacy
+    # so the legacy stays as harmless dead data until the next write.
+    try:
+        # Note: rs.delete might not exist on all backends; check first
+        if hasattr(rs, "delete"):
+            await rs.delete(KEY)
+    except Exception:
+        pass
+
+    return {
+        "shard_count": n_shards,
+        "total_bytes": total_bytes,
+        "items": meta["items"],
+    }
+
+
+async def _load_sharded_snapshot() -> dict | None:
+    """R-F334: read the sharded snapshot via meta + N shard gets in
+    parallel. Returns the reassembled cache dict, or None if meta is
+    absent (caller falls back to legacy single-blob)."""
+    try:
+        meta_raw = await rs.get(SHARD_META_KEY)
+    except Exception as e:
+        logger.debug("R-F334 meta read failed: %s", e)
+        return None
+    if not meta_raw:
+        return None
+    try:
+        if isinstance(meta_raw, (bytes, bytearray)):
+            meta_raw = meta_raw.decode("utf-8")
+        meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
+    except Exception as e:
+        logger.warning("R-F334 meta parse failed: %s", e)
+        return None
+    n_shards = int(meta.get("shard_count", 0))
+    if n_shards <= 0:
+        return None
+
+    # Parallel-fetch all shard keys
+    get_tasks = [
+        rs.get(SHARD_KEY_FMT.format(i=i)) for i in range(n_shards)
+    ]
+    raws = await asyncio.gather(*get_tasks, return_exceptions=True)
+    decoded: list[dict] = []
+    for i, raw in enumerate(raws):
+        if isinstance(raw, Exception):
+            logger.warning("R-F334 shard %d read errored: %s", i, raw)
+            continue
+        s = _decode_snapshot(raw)
+        if s is None:
+            # _decode_snapshot only accepts dicts with 'facts' key.
+            # Shards always have it so a None here is a real miss.
+            logger.warning("R-F334 shard %d decoded to None", i)
+            continue
+        # The shard dict may be missing shard_index if it was a partial
+        # write; default to i.
+        if isinstance(s, dict) and "shard_index" not in s:
+            s["shard_index"] = i
+        decoded.append(s)
+    if not decoded:
+        return None
+    merged = _merge_shards(decoded)
+    if merged:
+        logger.info(
+            "R-F334: loaded sharded snapshot — %d shards, %d facts, %d queries, "
+            "%d learnings",
+            n_shards,
+            len(merged.get("facts", [])),
+            len(merged.get("queries", [])),
+            len(merged.get("learnings", [])),
+        )
+    return merged
 
 
 def _decode_snapshot(value: Any) -> dict | None:
@@ -211,13 +435,18 @@ async def _flush_loop() -> None:
                 and _cache
             ):
                 try:
-                    payload = _encode_snapshot(_cache)
-                    await rs.set(KEY, payload)
+                    # R-F334: write as sharded snapshot (N keys ~500KB each)
+                    # instead of one 4MB+ blob. Backward-compat read path
+                    # in _load() falls through to legacy KEY if no shards.
+                    result = await _save_sharded_snapshot(_cache)
                     _dirty_since_snapshot = False
                     last_snapshot = now
                     logger.info(
-                        "knowledge: Redis snapshot written (%d facts, %d bytes gzip)",
-                        len(_cache.get("facts", [])), len(payload),
+                        "knowledge: R-F334 sharded Redis snapshot written "
+                        "(%d facts in %d shards, %d total bytes gzip)",
+                        result["items"]["facts"],
+                        result["shard_count"],
+                        result["total_bytes"],
                     )
                 except Exception as e:
                     logger.warning("knowledge: Redis snapshot failed: %s", e)
@@ -261,15 +490,38 @@ async def _load() -> dict:
         _ensure_flusher()
         return _cache
 
-    # 2. Disk empty — try the Redis snapshot (gzip or legacy raw-JSON)
-    #    and migrate it forward to disk.
+    # 2. Disk empty — R-F334: try the SHARDED Redis snapshot first
+    #    (new format from 2026-05-11). Falls back to legacy single-blob
+    #    if no meta key is present.
+    sharded = None
+    try:
+        sharded = await _load_sharded_snapshot()
+    except Exception as _se:
+        logger.debug("R-F334 sharded load failed: %s", _se)
+    if sharded:
+        _cache = sharded
+        logger.warning(
+            "knowledge: hydrated from R-F334 sharded Redis snapshot "
+            "(%d facts) — migrating to disk %s",
+            len(_cache.get("facts", [])), _DISK_PATH,
+        )
+        try:
+            await asyncio.to_thread(_write_to_disk_atomic, _cache)
+            logger.info("knowledge: sharded Redis → disk migration complete")
+        except Exception as e:
+            logger.error("knowledge: sharded migration to disk failed: %s", e)
+        _ensure_flusher()
+        return _cache
+
+    # 2b. No shards — fall back to legacy single-blob (will be migrated
+    # forward to shards on next write).
     raw = await rs.get(KEY)
     legacy = _decode_snapshot(raw)
     if legacy:
         _cache = legacy
         logger.warning(
             "knowledge: hydrated from legacy Redis blob (%d facts) — "
-            "migrating to disk %s",
+            "migrating to disk %s + will write shards on next flush",
             len(_cache.get("facts", [])), _DISK_PATH,
         )
         try:

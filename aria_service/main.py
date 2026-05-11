@@ -364,6 +364,51 @@ async def lifespan(app: FastAPI):
     # uvicorn from binding to 0.0.0.0:8000.
     async def _purge_reasoning_library_bg():
         await asyncio.sleep(5)
+        # R-F333 (2026-05-11): boot-time reasoning_library size diagnostic.
+        # Live evidence 21:19:37 — Student Quiz fired with library_size=0,
+        # meaning the chat-recorded cases weren't accumulating. Without
+        # this log line we had to wait for the 3-hourly quiz to learn the
+        # library was empty. Now: emit the count at boot + on every
+        # consolidate cycle, AND brain_hook a gap when library is empty
+        # so the dashboard surfaces it as an operator-action item.
+        try:
+            _bo_index = await reasoning_library._load_index()
+            _bo_count = len(_bo_index or [])
+            logger.info(
+                "[R-F333] reasoning_library boot diagnostic: %d cases loaded from INDEX_KEY",
+                _bo_count,
+            )
+            if _bo_count == 0:
+                logger.warning(
+                    "[R-F333] reasoning_library EMPTY at boot — chat-recorded "
+                    "cases aren't accumulating. Check Upstash INDEX_KEY "
+                    "(crucix:aria:reasoning_library:index) AND record_response "
+                    "filter rejections."
+                )
+                try:
+                    from .intel import brain_hook as _bh_rf333
+                    await _bh_rf333.absorb(
+                        module="reasoning_library",
+                        summary="R-F333: reasoning_library empty at boot",
+                        detail=(
+                            "INDEX_KEY returned 0 cases on startup. Either "
+                            "Upstash key was wiped, record_response is "
+                            "rejecting every chat answer, or the chat path "
+                            "isn't reaching record_cloud_llm_response. "
+                            "Investigate: (1) GET crucix:aria:reasoning_library:index "
+                            "from Upstash REST API, (2) grep fly logs for "
+                            "record_response rejection reasons, (3) verify "
+                            "chat handler wiring."
+                        ),
+                        success=False,
+                        gap_type="reasoning_library_empty_at_boot",
+                        gap_detail="0 cases in INDEX_KEY at startup",
+                    )
+                except Exception as _bh_e:
+                    logger.debug("R-F333 brain_hook absorb failed: %s", _bh_e)
+        except Exception as _bd_e:
+            logger.warning("[R-F333] reasoning_library boot diagnostic failed: %s", _bd_e)
+
         try:
             result = await reasoning_library.purge_unsafe_cases()
             logger.info("[Reasoning Library] startup purge (unsafe): %s", result)
