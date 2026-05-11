@@ -2130,9 +2130,53 @@ async def deep_research(
             "duration_ms": 0,
         }
     entity = entity.strip()[:200]
+
+    # R-F329 (2026-05-11): strip question-modifier suffixes from the
+    # entity phrase before templating angles. Live failure 21:55 — the
+    # operator asked "investigate Modirum Gespi people and network" and
+    # the chat handler passed entity="Modirum Gespi people and network",
+    # so every angle became "Modirum Gespi people and network <suffix>"
+    # — no search engine indexes that phrase. Now we detect tail-end
+    # question modifiers and split them into (entity, intent_hint).
+    _question_modifier_tail_re = re.compile(
+        r"\b("
+        r"people\s+(?:and\s+network|and\s+leadership|and\s+directors|"
+        r"and\s+officers|and\s+management)"
+        r"|directors?(?:\s+and\s+(?:officers|leadership|management))?"
+        r"|leadership(?:\s+team)?"
+        r"|officers?"
+        r"|management(?:\s+team)?"
+        r"|board(?:\s+of\s+directors)?"
+        r"|ubo|beneficial\s+owners?"
+        r"|shareholders?"
+        r"|owners?"
+        r"|founders?"
+        r"|executives?"
+        r"|key\s+personnel"
+        r"|c-suite"
+        r"|key\s+staff"
+        r"|network"
+        r")\s*$",
+        re.IGNORECASE,
+    )
+    _intent_hint = ""
+    _entity_stripped = entity
+    _tail_match = _question_modifier_tail_re.search(_entity_stripped)
+    if _tail_match:
+        _intent_hint = _tail_match.group(1).lower().strip()
+        _entity_stripped = (
+            _entity_stripped[:_tail_match.start()].strip()
+        ).rstrip(",;:- ")
+        if _entity_stripped:
+            logger.info(
+                "R-F329: split entity %r → entity=%r + intent=%r",
+                entity[:80], _entity_stripped[:80], _intent_hint,
+            )
+            entity = _entity_stripped
+
     logger.info(
-        "deep_research ENTRY entity=%r primary_url=%r max_queries=%d max_extracts=%d",
-        entity[:80], primary_url[:120] if primary_url else "", max_queries, max_extracts,
+        "deep_research ENTRY entity=%r primary_url=%r max_queries=%d max_extracts=%d intent_hint=%r",
+        entity[:80], primary_url[:120] if primary_url else "", max_queries, max_extracts, _intent_hint,
     )
 
     # ── Step 0: FREE memory-first recall from prior Brave Answers ──────
@@ -2168,13 +2212,93 @@ async def deep_research(
     # ── Step 1: build a small set of search angles ────────────────────
     # Each angle surfaces a different facet of the OSINT surface. Order
     # matters — earlier queries are more important if we have to truncate.
-    angles = [
+    _base_angles: list[str] = [
         entity,                                    # generic discovery
         f"{entity} company",                       # corporate identity
         f"{entity} headquarters location",         # jurisdiction
         f"{entity} directors leadership",          # people
         f"{entity} news",                          # recent activity
-    ][:max_queries]
+    ]
+
+    # R-F331 (2026-05-11): when the intent hint signals a people /
+    # network / officers question, add LinkedIn site-restricted angles.
+    # These are the highest-yield queries for people data — LinkedIn
+    # company profile + People tab is where real organisational
+    # structure lives. Surface web search of `site:linkedin.com X` is
+    # public and free.
+    _people_intents = (
+        "people", "network", "directors", "officers", "leadership",
+        "management", "board", "ubo", "shareholders", "owners",
+        "founders", "executives", "key personnel", "c-suite", "key staff",
+        "beneficial",
+    )
+    if any(_kw in _intent_hint for _kw in _people_intents):
+        _base_angles.extend([
+            f"site:linkedin.com/company {entity}",
+            f"site:linkedin.com/in {entity} director OR CEO OR founder",
+            f"{entity} CEO OR founder",
+            f"{entity} board of directors",
+        ])
+        logger.info(
+            "R-F331: people-intent detected (%r) — adding LinkedIn + "
+            "people-specific angles", _intent_hint,
+        )
+
+    # R-F330 (2026-05-11): memory-first query expansion. Before issuing
+    # the templated angles, query RAG for what we ALREADY know about
+    # this entity (CEO names, parent company, predecessor / rebrand,
+    # subsidiaries). Append those as additional search angles so the
+    # 21:55 "we knew Ocellott + Elias Silvola from the 21:48 run but
+    # didn't use them at 21:55" gap closes — pay-once-remember-forever
+    # extended to query generation.
+    _memory_expansions: list[str] = []
+    try:
+        from . import rag_store as _rag_ex
+        _mem_hits = await _rag_ex.search(entity, top_k=5)
+        _seen_terms: set[str] = set()
+        for _h in _mem_hits or []:
+            _text = (_h.get("text") or "")[:1500]
+            if not _text:
+                continue
+            # Extract people-name candidates (CamelCase 2+ words)
+            for _m in re.finditer(
+                r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z'\-]+){1,3})\b", _text,
+            ):
+                _name = _m.group(1).strip()
+                # Filter common stopwords / dates / non-names
+                if len(_name) < 6 or len(_name) > 60:
+                    continue
+                if _name.lower() in _seen_terms:
+                    continue
+                if _name.split()[0].lower() in {
+                    "the", "this", "modirum", "north", "south", "east", "west",
+                    "united", "european", "russian", "chinese", "indian",
+                    "africa", "asia", "europe", "january", "february", "march",
+                    "april", "may", "june", "july", "august", "september",
+                    "october", "november", "december",
+                }:
+                    continue
+                # Skip if name is a substring of the entity (no new info)
+                if _name.lower() in entity.lower():
+                    continue
+                _seen_terms.add(_name.lower())
+                _memory_expansions.append(f"{entity} {_name}")
+                if len(_memory_expansions) >= 3:
+                    break
+            if len(_memory_expansions) >= 3:
+                break
+        if _memory_expansions:
+            logger.info(
+                "R-F330: memory-first query expansion added %d angles "
+                "from RAG: %r",
+                len(_memory_expansions),
+                [a[:80] for a in _memory_expansions],
+            )
+    except Exception as _mexp_e:
+        logger.debug("R-F330 memory expansion failed: %s", _mexp_e)
+
+    # Merge: base + memory expansions + people-specific, capped at max_queries
+    angles = (_base_angles + _memory_expansions)[:max_queries]
 
     # ── Step 2: parallel web searches with overall budget cap ────────
     # Pre-Phase-3 latency cap 2026-04-09: previously the gather had no
