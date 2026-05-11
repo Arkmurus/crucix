@@ -315,6 +315,48 @@ def _normalise_match(raw: dict, queried_name: str) -> dict:
         for target in rel_targets[:5]:
             relationships.append({"kind": rel_type, "target": target})
 
+    # R-F335 (2026-05-11): match-path transparency. Operator on the
+    # Swisscraft Aviation DD 22:29 saw a HARD_STOP based on a Michele
+    # Zagaria SDN match but had no way to verify HOW the query reached
+    # Zagaria. Now we capture:
+    #   - sdn_entry_id: raw OpenSanctions ID for direct lookup
+    #   - match_field: which field on the SDN entry matched
+    #     (primary_name / alias / linked_entity / weak_match)
+    #   - matched_token: the actual SDN field value that matched
+    #   - all_names: every name/alias on the SDN entry for inspection
+    sdn_entry_id = raw.get("id") or ""
+    all_aliases = (props.get("alias") or [])
+    all_names = list(props.get("name") or []) + all_aliases
+
+    # Determine which field on the SDN record best explains the match.
+    # The OpenSanctions /match API doesn't tell us directly — infer
+    # from string similarity to each candidate string.
+    qlower = (queried_name or "").lower().strip()
+    match_field = "weak_match"
+    matched_token = candidate_name
+    if qlower:
+        best_sim = 0.0
+        for nm in (props.get("name") or []):
+            _s = _similarity(queried_name, nm)
+            if _s > best_sim:
+                best_sim = _s
+                matched_token = nm
+                match_field = "primary_name"
+        for al in all_aliases:
+            _s = _similarity(queried_name, al)
+            if _s > best_sim:
+                best_sim = _s
+                matched_token = al
+                match_field = "alias"
+
+    # Human-readable match path for chat / dashboard.
+    match_path = (
+        f"query='{queried_name}' → score={round(score, 3)} → "
+        f"matched_field={match_field}='{matched_token}' → "
+        f"sdn_id={sdn_entry_id or 'unknown'} "
+        f"({datasets[0] if datasets else 'OpenSanctions'})"
+    )
+
     return {
         "name": candidate_name,
         "schema": raw.get("schema"),
@@ -331,6 +373,12 @@ def _normalise_match(raw: dict, queried_name: str) -> dict:
         "last_change": raw.get("last_change"),
         "url": f"https://www.opensanctions.org/entities/{raw.get('id', '')}/" if raw.get("id") else None,
         "reason": "; ".join(datasets[:3]) if datasets else "OpenSanctions match",
+        # R-F335 match-path transparency fields
+        "sdn_entry_id": sdn_entry_id,
+        "match_field": match_field,
+        "matched_token": matched_token,
+        "match_path": match_path,
+        "all_names_on_sdn": all_names[:10],
     }
 
 

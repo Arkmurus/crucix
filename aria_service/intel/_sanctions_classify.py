@@ -531,6 +531,17 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             "severity": final_severity,
             "token_overlap": overlap,
             "noise_filtered": was_demoted,
+            # R-F335 (2026-05-11): match-path transparency for operator
+            # verification. Without these the operator can't tell HOW the
+            # query reached the sanctioned candidate (was it primary name,
+            # alias, weak fuzzy, etc.) — the Swisscraft Aviation 22:29 DD
+            # showed a Michele Zagaria HARD_STOP with no match-path
+            # explanation, leaving the operator unable to verify.
+            "sdn_entry_id": m.get("sdn_entry_id") or "",
+            "match_field":  m.get("match_field") or "weak_match",
+            "matched_token": m.get("matched_token") or candidate_name,
+            "match_path":   m.get("match_path") or "",
+            "match_url":    m.get("url") or "",
         })
         if SEVERITY_RANK[final_severity] > worst_rank:
             worst = final_severity
@@ -547,9 +558,23 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             lists_str = "; ".join(pm["list_labels"][:2])
         else:
             lists_str = ",".join(pm["datasets"][:2]) if pm["datasets"] else ""
+        # R-F335: include the match path so the operator can verify
+        # WHY the candidate matched (primary name? alias? weak fuzzy?).
+        # Without this, every HARD_STOP relies on operator trust.
+        _mp_field = pm.get("match_field") or ""
+        _mp_token = pm.get("matched_token") or pm["name"]
+        _mp_url = pm.get("match_url") or ""
+        _path_str = ""
+        if _mp_field and _mp_token != pm["name"]:
+            _path_str = f", matched_via={_mp_field}='{_mp_token}'"
+        elif _mp_field:
+            _path_str = f", matched_via={_mp_field}"
+        if _mp_url:
+            _path_str += f" [verify: {_mp_url}]"
         parts.append(
             f"{pm['name']} (score {pm['score']:.2f}, topics: {topics_str}"
-            f"{', lists: ' + lists_str if lists_str else ''})"
+            f"{', lists: ' + lists_str if lists_str else ''}"
+            f"{_path_str})"
         )
     summary = "; ".join(parts)
     if len(worst_matches) > 3:
