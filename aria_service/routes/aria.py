@@ -165,11 +165,30 @@ def _accepted_tokens() -> list[str]:
     return [t for t in (_aria_token(), _aria_internal_token()) if t]
 
 
+# R-F254 (2026-05-11) — public-path allowlist. model-card.html is
+# the public marketing page (no Auth.requireAuth on the client) and
+# needs to hydrate three trivially-public fields from the backend.
+# Adding the paths here so the auth dep skips them. Each path returns
+# only data that's safe to publish (clause count, audit-log head hash,
+# adversarial last-run summary — all already published on the model
+# card itself).
+_PUBLIC_AUTH_BYPASS_PATHS = frozenset({
+    "/api/aria/constitution/version",     # R-F221 model-card field
+    "/api/aria/chat-audit/stats",         # R-F221 model-card field
+    "/api/aria/adversarial/stats",        # R-F221 model-card field
+    "/api/aria/health",                   # operational status probe
+})
+
+
 def require_aria_token(request: Request) -> None:
     """FastAPI dependency that enforces a bearer-token check when
     either ARIA_API_TOKEN or ARIA_INTERNAL_TOKEN is set. No-op when both
     unset (soft rollout)."""
     global _AUTH_WARNING_LOGGED
+    # R-F254: public-path bypass. Use the FULL request path so the check
+    # is unambiguous (router prefix + endpoint path).
+    if request.url.path in _PUBLIC_AUTH_BYPASS_PATHS:
+        return
     accepted = _accepted_tokens()
     if not accepted:
         if not _AUTH_WARNING_LOGGED:

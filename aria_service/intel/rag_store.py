@@ -471,14 +471,12 @@ async def ingest_document(
         except Exception:
             total = -1
 
-        # R-F238 (2026-05-11): warn-only overflow alert. Pre-R-F238 this
-        # called _prune_oldest_chunks which DELETED rows — violating the
-        # "ARIA has infinite memory" rule. Now the threshold is purely
-        # an operator-visibility signal: when crossed, brain_hook gets a
-        # capability_gap absorb so the dashboard surfaces "RAG growing
-        # past warn threshold, plan offload-to-cold storage." Operator
-        # action: extend the fly.io volume OR ship the cold-collection
-        # offload (future R-number). The data itself is never touched.
+        # R-F252 (2026-05-11) — offload-to-cold (replaces R-F238 warn-only).
+        # When the hot collection crosses RAG_WARN_CHUNKS, MOVE the oldest
+        # 10% to `aria_documents_cold`. Searches now consult both
+        # collections (hot first, cold as fallback with score penalty).
+        # No data is deleted — the infinite-memory rule is honoured;
+        # hot-search latency stays bounded.
         global _rag_ingest_counter, _rag_overflow_warned_count
         _rag_ingest_counter += 1
         if (
@@ -486,34 +484,35 @@ async def ingest_document(
             and total > RAG_WARN_CHUNKS
             and _rag_ingest_counter % RAG_PRUNE_CHECK_EVERY == 0
         ):
-            # Log-throttle: at most one warning per 50 over-cap ingests
-            _rag_overflow_warned_count += 1
-            if _rag_overflow_warned_count % 5 == 1:
-                logger.warning(
-                    "[rag] R-F238 — chunk count %d EXCEEDS warn threshold %d. "
-                    "NOT pruning (infinite-memory rule). Operator: plan "
-                    "cold-storage offload or extend /data volume.",
-                    total, RAG_WARN_CHUNKS,
-                )
-                try:
-                    from . import brain_hook as _bh_rag
-                    await _bh_rag.absorb(
-                        module="rag_store",
-                        summary=f"R-F238: RAG chunk count {total} > warn threshold {RAG_WARN_CHUNKS}",
-                        detail=(
-                            "ARIA's RAG store has crossed the warn threshold. "
-                            "Per the infinite-memory rule, NO chunks are being "
-                            "pruned. Operator decision: (a) extend the fly.io "
-                            "/data volume, OR (b) ship cold-collection offload "
-                            "so old chunks move to slower storage but stay "
-                            "queryable. The data is not at risk."
-                        ),
-                        success=True,  # not a failure — informational
-                        gap_type="rag_growth_warning",
-                        gap_detail=f"{total} chunks > {RAG_WARN_CHUNKS} threshold",
-                    )
-                except Exception:
-                    pass
+            try:
+                offload_result = await _offload_oldest_to_cold(total)
+                _rag_overflow_warned_count += 1
+                # Single brain_hook absorb per offload event so dashboard
+                # shows the activity (every 5 offloads to avoid spam).
+                if _rag_overflow_warned_count % 5 == 1:
+                    try:
+                        from . import brain_hook as _bh_rag
+                        await _bh_rag.absorb(
+                            module="rag_store",
+                            summary=(
+                                f"R-F252: RAG offloaded {offload_result.get('moved', 0)} "
+                                f"oldest chunks to cold (was {total}, "
+                                f"threshold {RAG_WARN_CHUNKS})"
+                            ),
+                            detail=(
+                                "Hot-collection search latency stays bounded. "
+                                "Cold chunks remain queryable via the same "
+                                "search() call — they just receive a 1.5x "
+                                "relevance penalty so hot wins on ties."
+                            ),
+                            success=True,
+                            gap_type="rag_offload_event",
+                            gap_detail=f"moved={offload_result.get('moved', 0)}",
+                        )
+                    except Exception:
+                        pass
+            except Exception as _oe:
+                logger.warning("R-F252 offload failed (will retry on next overflow): %s", _oe)
 
         return {
             "ingested": True,
@@ -534,13 +533,104 @@ async def ingest_document(
 # data. The function has been removed; the overflow path now warns the
 # operator instead.
 #
-# Future replacement: `_offload_oldest_to_cold(current_total)` that
-# MOVES the oldest chunks from `aria_documents` to a second collection
-# `aria_documents_cold` so the hot-search latency stays bounded while
-# the data remains queryable via a separate retrieval call. Until that
-# ships, the hot collection grows unbounded — operator is warned via
-# brain_hook absorb when crossing the threshold so they can extend the
-# fly.io volume.
+# R-F252 (2026-05-11) — the offload function that R-F238 promised.
+# Moves the oldest 10% of hot chunks to `aria_documents_cold` when the
+# warn threshold trips. Same embedding function so vectors are
+# byte-compatible. Honours the infinite-memory rule: NO data deleted,
+# just moved. Cold-add precedes hot-delete so a failure between the
+# two leaves duplicates (operator can reconcile) instead of gaps.
+RAG_COLD_OFFLOAD_FRACTION = 0.10
+
+
+async def _offload_oldest_to_cold(current_total: int) -> dict:
+    """Move RAG_COLD_OFFLOAD_FRACTION of the oldest hot chunks to cold."""
+    import asyncio as _aio_o
+    if _documents_collection is None or _documents_cold_collection is None:
+        return {"moved": 0, "reason": "collections_not_ready"}
+    target_move = max(1, int(current_total * RAG_COLD_OFFLOAD_FRACTION))
+    try:
+        rows = await _aio_o.to_thread(
+            _documents_collection.get,
+            include=["metadatas", "documents", "embeddings"],
+        )
+    except Exception as e:
+        logger.warning("R-F252 offload fetch failed: %s", e)
+        return {"moved": 0, "error": str(e)[:200]}
+
+    ids = rows.get("ids") or []
+    metas = rows.get("metadatas") or []
+    docs = rows.get("documents") or []
+    embeds = rows.get("embeddings") or []
+    if not ids or len(ids) != len(metas):
+        return {"moved": 0, "reason": "rows_mismatch"}
+
+    # Pair indices by ts_epoch ascending (oldest first), take bottom N
+    paired_idx = sorted(
+        range(len(ids)),
+        key=lambda i: (metas[i] or {}).get("ts_epoch") or 0,
+    )[:target_move]
+    if not paired_idx:
+        return {"moved": 0, "reason": "no_chunks_to_move"}
+
+    move_ids = [ids[i] for i in paired_idx]
+    move_docs = [docs[i] for i in paired_idx] if docs else None
+    move_metas = []
+    now_ts = time.time()
+    for i in paired_idx:
+        m = dict(metas[i] or {})
+        m["offloaded_at"] = now_ts
+        m["offloaded_from"] = "hot"
+        move_metas.append(m)
+    move_embeds = None
+    if embeds is not None and len(embeds) == len(ids):
+        try:
+            move_embeds = [embeds[i] for i in paired_idx]
+        except Exception:
+            move_embeds = None
+
+    # 1) Add to cold FIRST (safer ordering)
+    try:
+        if move_embeds:
+            await _aio_o.to_thread(
+                _documents_cold_collection.add,
+                ids=move_ids, documents=move_docs,
+                metadatas=move_metas, embeddings=move_embeds,
+            )
+        else:
+            await _aio_o.to_thread(
+                _documents_cold_collection.add,
+                ids=move_ids, documents=move_docs, metadatas=move_metas,
+            )
+    except Exception as e:
+        logger.warning("R-F252 cold add failed: %s — NOT removing from hot", e)
+        return {"moved": 0, "error": f"cold_add: {str(e)[:200]}"}
+
+    # 2) Only after cold-add succeeds, remove from hot
+    try:
+        await _aio_o.to_thread(_documents_collection.delete, ids=move_ids)
+    except Exception as e:
+        logger.error(
+            "R-F252 hot-delete failed after cold-add succeeded: %s — "
+            "duplicates exist in hot+cold for %d ids; operator can "
+            "reconcile via /admin/rag/dedupe-cold-vs-hot. Data is NOT lost.",
+            e, len(move_ids),
+        )
+        return {
+            "moved": len(move_ids),
+            "warning": "duplicates_in_hot_and_cold",
+            "error": str(e)[:200],
+        }
+
+    logger.warning(
+        "[rag] R-F252 OFFLOADED %d oldest chunks to cold (was %d, "
+        "threshold %d). Searches now consult BOTH collections.",
+        len(move_ids), current_total, RAG_WARN_CHUNKS,
+    )
+    return {
+        "moved": len(move_ids),
+        "previous_hot_total": current_total,
+        "threshold": RAG_WARN_CHUNKS,
+    }
 
 
 async def ingest_fact(
