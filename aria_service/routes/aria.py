@@ -4845,7 +4845,14 @@ async def _execute_tool(intent: dict, llm) -> str:
         # so the next identical question is free. Added 2026-04-21 to
         # realise the "pay once, remember forever" super-AI doctrine.
         if tool == "brave_answer":
-            from ..intel import brave_answers as _ba
+            # R-F336 (2026-05-11): brave_answer was permanently stubbed
+            # by R-F320 (operator: "we have introduced our own search").
+            # The chat dispatch was still hitting the stub and reporting
+            # "tool unavailable" — falling back to training knowledge
+            # only. Live failure 22:40: "who is Michele Zagaria" got an
+            # OFAC-context answer with no biographical research.
+            # Reroute to web_explorer (memory-first + free multi-backend
+            # search) — same Q&A capability, zero cost, real provenance.
             query = (intent.get("query") or intent.get("context") or "").strip()
             if not query:
                 return (
@@ -4853,45 +4860,68 @@ async def _execute_tool(intent: dict, llm) -> str:
                     "The router detected a factual-QA intent but the query was "
                     "empty. Answer directly from memory / training instead."
                 )
-            result = await _ba.ask(query, memory_first=True)
-            if not result.get("ok"):
-                err = result.get("error", "unknown")
+            from ..intel import web_explorer as _we
+            try:
+                er = await _we.explore(
+                    query=query,
+                    depth="thorough",
+                    cost_free=True,
+                    language_fanout="auto",
+                    memory_first=True,
+                    max_results=12,
+                )
+            except Exception as _we_err:
                 return (
-                    f"[TOOL: brave_answer — unavailable ({err})]\n\n"
-                    "Answer directly from memory / training. If the question "
-                    "is time-sensitive (current holders, recent events, live "
-                    "figures), flag uncertainty honestly."
+                    f"[TOOL: brave_answer → web_explorer — error ({str(_we_err)[:120]})]\n\n"
+                    "Answer directly from memory / training; flag any "
+                    "time-sensitive uncertainty honestly."
                 )
-            answer = (result.get("answer") or "").strip()
-            source = result.get("source", "unknown")
-            cost = float(result.get("cost_usd") or 0.0)
-            parts = [f"[TOOL: brave_answer — source={source} cost=${cost:.4f}]"]
-            if source == "memory":
-                mh = result.get("memory_hit") or {}
+            # Format the facts as a Q&A answer the LLM can ground on.
+            facts = er.facts or []
+            mem_hits = er.memory_hits
+            web_hits = er.web_hits
+            n_active = er.ecosystem.summary.get("active_backends", 0)
+            n_silent = er.ecosystem.summary.get("silent_backends", 0)
+            n_errored = er.ecosystem.summary.get("errored_backends", 0)
+            health = er.ecosystem.health_signal
+
+            parts = [
+                f"[TOOL: brave_answer → web_explorer (R-F336 reroute) — "
+                f"health={health} memory={mem_hits} web={web_hits} "
+                f"backends_active={n_active} silent={n_silent} errored={n_errored}]"
+            ]
+            if mem_hits:
                 parts.append(
-                    f"Recalled from prior Brave Answer "
-                    f"(ingested {mh.get('ingested_at', '?')}, "
-                    f"similarity={mh.get('similarity', '?')}). No API cost."
+                    f"Memory-first hits ({mem_hits}) — drawn from RAG "
+                    f"corpus, $0 marginal cost."
                 )
-            else:
-                spend = result.get("spend_after") or {}
-                if spend:
-                    parts.append(
-                        f"MTD Brave Answers spend: ${spend.get('spend_usd', 0):.4f} "
-                        f"of ${spend.get('budget_usd', 0):.2f} "
-                        f"({spend.get('call_count', 0)} calls)."
-                    )
+            if er.brandified_query and er.brandified_query != query:
+                parts.append(f"Query brandified: {query!r} → {er.brandified_query!r}")
+            if er.language_fanout:
+                parts.append(f"Language fan-out: {', '.join(er.language_fanout)}")
             parts.append("")
-            parts.append("ANSWER (grounded in Brave's indexed search):")
-            parts.append(answer)
+            parts.append("FACTS RETRIEVED (verbatim, with provenance):")
+            for i, f in enumerate(facts[:12], 1):
+                tier = f.tier or "UNVERIFIED"
+                snippet = (f.context or f.value)[:300]
+                parts.append(
+                    f"  [{i}] [{tier} {f.backend}] {f.value[:160]}"
+                )
+                if snippet and snippet != f.value:
+                    parts.append(f"      → {snippet}")
+                if f.source_url:
+                    parts.append(f"      URL: {f.source_url}")
+            if not facts:
+                parts.append("  (no facts returned across any backend or memory)")
             parts.append("")
             parts.append(
-                "INSTRUCTIONS: Present this ANSWER to the user in your own "
-                "voice — clean, direct, no 'TOOL' framing. Do NOT hedge with "
-                "'I am not certain' unless the content itself is date-"
-                "sensitive and specific dates matter (who is currently X → "
-                "hedge if the answer lists dates more than 6 months old). "
-                "Do NOT emit further [TOOL: ...] blocks — the answer is here."
+                "INSTRUCTIONS: Use the FACTS above as the SOLE evidence "
+                "base for your answer. Cite findings inline by source "
+                "URL. If the operator asked WHO X is and zero facts came "
+                "back, say so explicitly — do NOT fall back to training "
+                "knowledge unverifiable to the operator. Honour the "
+                "R-F315 content-vs-allegation discipline + R-F304 "
+                "GROUNDING_CHECK hard counts."
             )
             return "\n".join(parts)
 
