@@ -7564,6 +7564,111 @@ async def purge_gaps_ep(request: Request):
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# R-F261 (2026-05-11) — Upstash → SQLite state migration via HTTP.
+#
+# Operator was unable to run `fly ssh console` from Windows (Kaspersky deleted
+# the upgraded flyctl binary). This endpoint lets the operator trigger the
+# migration script from any machine with curl + the bearer token. Runs
+# in-process inside the fly.io machine, so REDIS_URL and /data are both in
+# scope. Auth-gated via the existing require_aria_token dependency (default
+# auth path for /api/aria/admin/*).
+# ─────────────────────────────────────────────────────────────────────────
+
+# Single-flight guard for /admin/migrate-state. R-F261 pass-1 verification
+# flagged that two simultaneous operator-triggered migrations could race on
+# state_store.close(). Lazy-init lock (same pattern as state_store.R-F256)
+# so the module imports cleanly without a running loop. A second concurrent
+# call returns 409 Conflict; the first runs to completion uninterrupted.
+_migration_lock: "Optional[asyncio.Lock]" = None
+
+
+def _get_migration_lock() -> asyncio.Lock:
+    global _migration_lock
+    if _migration_lock is None:
+        import asyncio as _aio_m
+        _migration_lock = _aio_m.Lock()
+    return _migration_lock
+
+
+@router.post("/admin/migrate-state")
+async def admin_migrate_state_ep(request: Request):
+    """Migrate every key from Upstash Redis to the SQLite state_store.
+
+    Body (all optional):
+        {
+            "dry_run": true,           # default false; true = scan + count, no writes
+            "prefix": ["crucix:..."],  # optional list of prefixes to scope migration
+            "limit":  0                # default 0 = no cap; 1000 = stop after 1000 keys
+        }
+
+    Returns the migration manifest (counts by type, sample, errors,
+    duration_s). Same shape as the CLI script's stdout output, so the
+    operator gets identical observability whether invoked locally or
+    over HTTP.
+
+    Hot path: imports `scripts.migrate_state._migrate` and runs it inline.
+    Single-flight via module-level asyncio.Lock — a second concurrent call
+    returns 409 Conflict so the first run isn't interrupted mid-close().
+    Re-running after completion writes the same keys (last-write-wins on
+    the SQLite UPSERT) which is idempotent and harmless.
+    """
+    # Single-flight guard — second concurrent call returns 409 (don't race).
+    lock = _get_migration_lock()
+    if lock.locked():
+        raise HTTPException(
+            status_code=409,
+            detail="state migration already in progress; retry once it completes",
+        )
+
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    dry_run = bool(body.get("dry_run", False))
+    prefixes = body.get("prefix") or []
+    if not isinstance(prefixes, list):
+        prefixes = [str(prefixes)]
+    prefixes = [str(p) for p in prefixes if p]
+    try:
+        limit = int(body.get("limit", 0))
+    except (TypeError, ValueError):
+        limit = 0
+
+    # Import the migration entrypoint. The script lives under repo
+    # `scripts/`, which is on PYTHONPATH in the fly.io container per the
+    # Dockerfile's WORKDIR=/app + COPY scripts ./scripts.
+    try:
+        import sys as _sys
+        import pathlib as _pathlib
+        _repo_root = _pathlib.Path(__file__).resolve().parents[2]
+        _scripts_dir = _repo_root / "scripts"
+        if str(_scripts_dir) not in _sys.path:
+            _sys.path.insert(0, str(_scripts_dir))
+        from migrate_state import _migrate as _do_migrate
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"migrate_state import failed: {e!s}",
+        )
+
+    async with lock:
+        try:
+            result = await _do_migrate(prefixes, dry_run, limit)
+        except SystemExit as e:
+            # _migrate raises SystemExit("REDIS_URL not set...") for missing config
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"migration failed: {e!s}",
+            )
+
+    return {"ok": True, **result}
+
+
 @router.get("/admin/absorption-quarantine/list")
 async def absorption_quarantine_list_ep(limit: int = 100):
     """List pending absorption attempts in the quarantine queue.

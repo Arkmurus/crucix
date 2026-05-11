@@ -67,6 +67,14 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 
 COPY aria_service/ ./aria_service/
 
+# ── One-shot scripts (migrations, evals, smoke tests) ─────────────────────
+# R-F261 (2026-05-11) — the Upstash → SQLite state migration script lives
+# under scripts/migrate_state.py and is invoked via the HTTP admin endpoint
+# `POST /api/aria/admin/migrate-state`. Without this COPY, the endpoint
+# raises ImportError at runtime because scripts/ isn't in the image.
+# Also future-proofs eval/smoke/admin scripts that need server-side execution.
+COPY scripts/ ./scripts/
+
 # ── Playwright Chromium install (2026-04-18) ──────────────────────────────
 # Install Chromium + dependencies for the scraper package
 # (aria_service/intel/scraper/*). This is the HEAVY browser fallback
