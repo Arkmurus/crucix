@@ -6933,7 +6933,22 @@ async def read_document_ep(request: Request):
                 _log.warning("PDF extraction failed: %s", e)
 
         # DOCX extraction
-        elif "word" in mime_lower or "officedocument" in mime_lower or fname_lower.endswith(".docx"):
+        # R-F244 (2026-05-11) — narrowed mime match. Pre-R-F244 the docx
+        # elif matched `"officedocument" in mime_lower` which ALSO matches
+        # the standard .pptx mime
+        # `application/vnd.openxmlformats-officedocument.presentationml.presentation`
+        # and .xlsx mime `…officedocument.spreadsheetml.sheet`. Mime-routed
+        # .pptx uploads were hitting THIS branch first (then failing inside
+        # as the docx unzip didn't find word/document.xml), making R-F242
+        # functionally dead for the common mime-routed upload path. Now we
+        # require the docx-specific subtypes (`wordprocessingml` or
+        # `msword`) so the .pptx + .xlsx branches further down can claim
+        # their files.
+        elif (
+            "wordprocessingml" in mime_lower
+            or "msword" in mime_lower
+            or fname_lower.endswith((".docx", ".doc"))
+        ):
             try:
                 import io, zipfile, re as _re
                 zf = zipfile.ZipFile(io.BytesIO(raw_bytes))
