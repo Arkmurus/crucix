@@ -172,3 +172,38 @@ test('R-F358: real-looking LinkedIn pulse path WITHOUT /comm/ prefix still allow
   const urls = _extractArticleUrls({ textContent: '', rawBody });
   assert.equal(urls.length, 1, 'public /pulse/ URLs must pass through');
 });
+
+test('R-F370: drops the exact 3 LinkedIn media-CDN image URLs from fly logs 2026-05-12 12:43:13-17', () => {
+  // Reproduces the live log slice. Pre-fix each of these triggered a
+  // 403 round-trip + an archive.org wayback lookup, yielding 0 facts.
+  const rawBody = [
+    'https://media.licdn.com/dms/image/v2/D4E03AQENUTYWbuftYg/profile-displayphoto-scale_200_200/B4EZxIQtULLEAY-/0/1770738866985?e=2147483647',
+    'https://media.licdn.com/dms/image/v2/C4E03AQFXfl5jA1_0Pg/profile-displayphoto-shrink_400_400/profile-displayphoto-shrink_400_400/0/1662841068153',
+    'https://media.licdn.com/dms/image/v2/D4E12AQHkNfNlRbaeNA/article-cover_image-shrink_720_1280/B4EZ3wdhvqJkAI-/0/1777855767145',
+    'https://news.example.com/genuine-defence-procurement-article-with-padding',
+  ].join('\n');
+  const urls = _extractArticleUrls({ textContent: '', rawBody });
+  assert.equal(urls.length, 1, `Expected 1 URL (the genuine one), got ${urls.length}: ${JSON.stringify(urls)}`);
+  assert.match(urls[0], /genuine-defence-procurement-article/);
+});
+
+test('R-F370: blocks alternative LinkedIn media-CDN hostnames', () => {
+  const rawBody = [
+    'https://media-exp1.licdn.com/dms/image/some-padding-padding-padding-padding-padding',
+    'https://media-exp2.licdn.com/profile-thumb-padding-padding-padding-padding-padding',
+    'https://cdn.licdn.com/dms/image/whatever-padding-padding-padding-padding-padding-pad',
+    'https://www.licdn.com/emc/banner-padding-padding-padding-padding-padding-padding-pad',
+  ].join('\n');
+  const urls = _extractArticleUrls({ textContent: '', rawBody });
+  assert.equal(urls.length, 0, 'all LinkedIn media-CDN paths must be filtered');
+});
+
+test('R-F370: does NOT over-filter static.licdn.com (JS/CSS bundle hashes occasionally have content)', () => {
+  // Live evidence 12:42:56 BST: static.licdn.com/aero-v1/sc/h/<hash>
+  // returned 3 chunks of ingestable content. R-F370 must NOT block this
+  // class even though it lives on a licdn subdomain — the matcher
+  // anchors on the `/dms/image/` or `/emc/` path component, not the host.
+  const rawBody = 'https://static.licdn.com/aero-v1/sc/h/9ehe6n39fa07dc5edzv0rla4e';
+  const urls = _extractArticleUrls({ textContent: '', rawBody });
+  assert.equal(urls.length, 1, 'static.licdn.com asset URLs must pass through');
+});
