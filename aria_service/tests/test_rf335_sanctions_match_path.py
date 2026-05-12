@@ -204,6 +204,99 @@ def test_rf335_capability_alias_match_explicitly_named_in_summary():
 
 # ───────────────────────── Capability: Swisscraft 22:29 fixture ────────────────
 
+def test_rf351_adsm_saudi_arabia_demoted_against_shazand_petrochemical():
+    """R-F351 regression: query 'ADSM Saudi Arabia' MUST NOT produce a
+    HARD_STOP on OFAC SDN entry 'SHAZAND PETROCHEMICAL COMPANY'.
+
+    Live evidence (operator chat 2026-05-12): an earlier-turn DD on
+    'ADSM Saudi Arabia' flagged HARD_STOP against SHAZAND PETROCHEMICAL
+    via Levenshtein-fuzzy match. ARIA was epistemically disciplined
+    enough to not propagate the verdict into the next turn, but the
+    underlying matcher was still emitting it. This test pins the
+    correct behaviour so future refactors can't regress."""
+    from aria_service.intel._sanctions_classify import classify_matches
+    matches = [
+        {
+            "name": "SHAZAND PETROCHEMICAL COMPANY",
+            "score": 0.85,
+            "topics": ["sanction"],
+            "lists": ["us_ofac_sdn"],
+            "sdn_entry_id": "OFAC-IRAN-SHAZAND",
+            "match_field": "primary_name",
+            "matched_token": "SHAZAND",
+            "url": "https://www.opensanctions.org/entities/OFAC-IRAN-SHAZAND/",
+        },
+    ]
+    out = classify_matches(matches, query_name="ADSM Saudi Arabia")
+    assert out["worst_severity"] in ("info", "none"), (
+        f"R-F351: ADSM Saudi Arabia must NOT HARD_STOP on SHAZAND; "
+        f"got worst_severity={out['worst_severity']!r}"
+    )
+    assert out["noise_filtered"] >= 1
+
+
+def test_rf351_short_acronym_single_overlap_demoted():
+    """R-F351 strengthening: when the only shared token is <5 chars
+    (typically a short acronym like ADSM/ARMS/CORE), demote even if
+    overlap is 1. Single short-token overlap on otherwise unrelated
+    multi-token entities is a high false-positive risk."""
+    from aria_service.intel._sanctions_classify import classify_matches
+    matches = [
+        {
+            "name": "ADSM Trading PJSC",  # fictional unrelated entity
+            "score": 0.85,
+            "topics": ["sanction"],
+            "lists": ["us_ofac_sdn"],
+        },
+    ]
+    out = classify_matches(matches, query_name="ADSM Advanced Defence Saudi")
+    assert out["worst_severity"] in ("info", "none"), (
+        f"R-F351: 4-char single-overlap 'adsm' must NOT HARD_STOP; "
+        f"got worst_severity={out['worst_severity']!r}"
+    )
+
+
+def test_rf351_long_token_single_overlap_preserved():
+    """R-F351: single-overlap on a LONG distinctive token (>=5 chars)
+    is preserved — these are real signals (e.g. unique surname,
+    distinctive corporate name). Demoting these would create false
+    negatives that hide real OFAC matches."""
+    from aria_service.intel._sanctions_classify import classify_matches
+    matches = [
+        {
+            "name": "Vladimir Modirum",
+            "score": 0.88,
+            "topics": ["sanction"],
+            "lists": ["us_ofac_sdn"],
+        },
+    ]
+    # Query shares "modirum" (7 chars) — distinctive token; keep hard_stop.
+    out = classify_matches(matches, query_name="Modirum Gespi Industries")
+    assert out["worst_severity"] == "hard_stop", (
+        f"R-F351: 7-char distinctive single-overlap 'modirum' must "
+        f"PRESERVE hard_stop; got {out['worst_severity']!r}"
+    )
+
+
+def test_rf351_multi_token_overlap_preserved():
+    """R-F351: 2+ token overlap always preserves severity — real OFAC
+    matches typically share multiple tokens."""
+    from aria_service.intel._sanctions_classify import classify_matches
+    matches = [
+        {
+            "name": "Vladimir Vladimirovich Putin",
+            "score": 0.95,
+            "topics": ["sanction"],
+            "lists": ["us_ofac_sdn"],
+        },
+    ]
+    out = classify_matches(matches, query_name="Vladimir Putin")
+    assert out["worst_severity"] == "hard_stop", (
+        f"R-F351: 2-token overlap must preserve hard_stop; "
+        f"got {out['worst_severity']!r}"
+    )
+
+
 def test_rf335_capability_swisscraft_fixture_emits_actionable_summary():
     """Capability — recreate the Swisscraft Aviation Ltd 22:29 failure
     shape. Operator should see (a) which field matched, (b) the

@@ -465,10 +465,33 @@ def classify_match(match: dict, query_name: str = "") -> str:
     # Token-overlap check — if query is provided and the match doesn't
     # share any meaningful token with it, demote. Skipped when no query
     # is provided (backward-compat for callers that haven't been updated).
+    #
+    # R-F351 (2026-05-12) — strengthened: when the only shared token is
+    # short (<5 chars, typically an acronym like "ADSM" / "ARMS" / "CORE"),
+    # demote even on overlap=1. Live evidence: an earlier-turn DD on
+    # "ADSM Saudi Arabia" produced a HARD_STOP on "SHAZAND PETROCHEMICAL
+    # COMPANY" — a Levenshtein hit on an OFAC SDN entry from completely
+    # different industry/jurisdiction. Even though THIS specific case has
+    # zero token overlap and was already demoted by R-F277, the broader
+    # class — single short-acronym overlap on otherwise unrelated multi-
+    # token entities — was still passing. Real OFAC hits typically share
+    # multiple tokens (e.g. "Vladimir Putin" → "Vladimir Vladimirovich
+    # Putin" shares 2) or a single token ≥5 chars (e.g. "Modirum" → 7).
+    # Cost of false-positive HARD_STOP (defamation, SAR mis-filing) >>
+    # cost of false-negative demote-to-info (operator still sees match in
+    # per_match[], can manually escalate).
     if query_name and SEVERITY_RANK[severity] >= 1:
         candidate_name = match.get("name") or match.get("caption") or ""
-        if _name_overlap(query_name, candidate_name) == 0:
+        q_tokens = _tokenize_entity_name(query_name)
+        c_tokens = _tokenize_entity_name(candidate_name)
+        shared = q_tokens & c_tokens
+        if len(shared) == 0:
             severity = "info"
+        elif len(shared) == 1:
+            # R-F351: short-acronym single-overlap is high false-positive risk
+            only_token = next(iter(shared))
+            if len(only_token) < 5:
+                severity = "info"
     return severity
 
 

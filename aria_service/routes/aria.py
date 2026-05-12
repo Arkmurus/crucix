@@ -4482,6 +4482,45 @@ def _no_data_warning(tool_name: str, target: str, *, blocking: bool = False) -> 
     )
 
 
+# R-F350 (2026-05-12) — tool-outcome classifier for streaming status line.
+# Live evidence (operator chat 2026-05-12): SSE emitted
+#   "🔄 Tool: extract_url completed. Generating response..."
+# while the response body simultaneously reported
+#   "Website extraction (attempted) | 0 — tool crashed"
+# The streaming status header lied: it fired "completed" because `tool_used`
+# was set (intent was detected), regardless of whether `_execute_tool`
+# actually returned useful data. Honest streaming requires the header to
+# reflect tool OUTCOME, not tool INVOCATION.
+_TOOL_FAILURE_MARKERS: tuple[str, ...] = (
+    "FETCH/EXTRACTION FAILED",
+    "FETCH FAILED",
+    "EXTRACTION FAILED",
+    "[TOOL ERROR",
+    "TOOL ERROR:",
+    "TOOL UNAVAILABLE",
+    "DD UNAVAILABLE",
+    "WEB SEARCH FAILED",
+    "NO RESULTS",
+    "no results returned",
+    "[TOOL: NONE]",
+)
+
+
+def _classify_tool_outcome(tool_context: str) -> str:
+    """Return 'completed' (tool produced useful data) or 'attempted'
+    (tool ran but failed / returned nothing).
+
+    R-F350: replaces the unconditional 'completed' header with an
+    honest signal so the operator-facing stream stays in sync with
+    the body.
+    """
+    if not tool_context or not tool_context.strip():
+        return "attempted"
+    if any(m in tool_context for m in _TOOL_FAILURE_MARKERS):
+        return "attempted"
+    return "completed"
+
+
 async def _execute_tool(intent: dict, llm) -> str:
     """Run the detected tool and return a compact context string for the LLM."""
     tool = intent.get("tool")
@@ -7126,7 +7165,16 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         try:
             # Status: tools finished, now streaming LLM
             if tool_used:
-                yield f'data: {json.dumps({"type":"status","message":f"Tool: {tool_used} completed. Generating response..."})}\n\n'
+                # R-F350: report actual tool outcome, not just invocation.
+                outcome = _classify_tool_outcome(tool_context)
+                if outcome == "completed":
+                    _msg = f"Tool: {tool_used} completed. Generating response..."
+                else:
+                    _msg = (
+                        f"Tool: {tool_used} attempted; no data returned. "
+                        f"Generating response from general knowledge..."
+                    )
+                yield f'data: {json.dumps({"type":"status","message":_msg})}\n\n'
 
             # Import here to avoid top-level cycle and get the structured error type.
             from ..llm.provider import ProviderError
