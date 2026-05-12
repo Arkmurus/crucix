@@ -139,6 +139,49 @@ async def _persist() -> None:
     try:
         _meta["total_neurons"] = len(_neurons)
         _meta["total_edges"] = sum(len(v) for v in _edges.values())
+
+        # R-F371 (2026-05-12) — regression guard against the migration-race
+        # overwrite pattern. Per the infinite-memory rule
+        # (aria_infinite_memory.md), neural counters NEVER shrink across a
+        # healthy deploy. Live evidence 2026-05-12 13:07:20 R-F251 boot
+        # diagnostic: neural_neurons 11391 → 1413 (-87.6%). Race trace:
+        #   1. init() at boot reads NEURONS_KEY from SQLite (pre-migration
+        #      partial state) → loads 1413 neurons into _neurons.
+        #   2. Operator triggers Upstash→SQLite migration mid-session.
+        #      Migration writes the 11391-neuron blob from Upstash to
+        #      SQLite, overwriting the SQLite NEURONS_KEY.
+        #   3. Periodic _persist() fires, writes in-memory 1413 to
+        #      SQLite, OVERWRITES the freshly-migrated 11391 → 9978
+        #      neurons silently lost.
+        # Same pattern as R-F267/F268 mastery/regional/stats scaffold-write
+        # protection. Mechanism: read the on-disk value; if it has
+        # significantly MORE neurons than memory, the disk is the source
+        # of truth (most likely a migration just landed). Reload from disk
+        # into memory and SKIP the write.
+        try:
+            disk_neurons = await rs.get_json(NEURONS_KEY)
+            if isinstance(disk_neurons, dict) and len(disk_neurons) > max(len(_neurons), 0) * 1.1:
+                _neurons.clear()
+                _neurons.update(disk_neurons)
+                try:
+                    disk_edges = await rs.get_json(EDGES_KEY)
+                    if isinstance(disk_edges, dict):
+                        _edges.clear()
+                        _edges.update(disk_edges)
+                except Exception:
+                    pass
+                _meta["total_neurons"] = len(_neurons)
+                _meta["total_edges"] = sum(len(v) for v in _edges.values())
+                logger.warning(
+                    "[neural] R-F371 — disk had %d neurons but in-memory only had "
+                    "%d before reload. Reloaded from disk instead of overwriting "
+                    "(infinite-memory protection).",
+                    len(_neurons), _meta.get("total_neurons", 0),
+                )
+                return  # don't overwrite — disk already has the larger snapshot
+        except Exception as _guard_err:
+            logger.debug("[neural] R-F371 disk-check failed (non-fatal): %s", _guard_err)
+
         # No TTL — neural memory is permanent. Activation decay still
         # applies (that's learning, not forgetting), but neurons never
         # expire from Redis. Was 90d TTL before 2026-04-21.
