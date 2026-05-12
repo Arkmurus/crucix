@@ -22,6 +22,24 @@ import { body, query, param, validationResult } from 'express-validator';
 // rateLimiter.mjs:112/113/119 (ariaThin/ariaChat/admin tiers).
 const _ipFallback = (req, res) => ipKeyGenerator(req, res);
 
+// R-F390 (2026-05-12): bypass user-facing rate limiters for requests that
+// carry the internal-service bearer. The WA listener calls /api/aria/chat
+// from inside the same Node process (waListener.mjs:2568) — Express sees
+// 127.0.0.1, which shared the IP bucket with every sweep-side cross-call
+// from the same machine. Live evidence 2026-05-12 22:11:15/22:11:48: two
+// operator queries (Lukoil DD + status) got 429'd on both streaming and
+// /chat fallback while sweeps were active. Bypass keyed on Authorization:
+// Bearer == process.env.ARIA_INTERNAL_TOKEN; empty env = no bypass so a
+// misconfigured deploy can't accidentally pass requests through.
+function _internalTokenBypass(req) {
+  const expected = (process.env.ARIA_INTERNAL_TOKEN || '').trim();
+  if (!expected) return false;
+  const auth = req.headers?.authorization || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (!m) return false;
+  return m[1].trim() === expected;
+}
+
 // ── Redis store for distributed rate limiting (uses your existing Upstash) ────
 // If you want Redis-backed counters (survives restarts), install:
 //   npm i rate-limit-redis @upstash/redis
@@ -37,6 +55,7 @@ const TIERS = {
     message:   { error: 'Too many requests. Please wait 15 minutes.' },
     standardHeaders: true,
     legacyHeaders:   false,
+    skip:      _internalTokenBypass,   // R-F390: WA listener / sweep cross-calls
   },
 
   // Auth endpoints — strict to prevent brute force
@@ -60,6 +79,7 @@ const TIERS = {
     max:       5,
     message:   { error: 'ARIA think rate limit reached. Max 5 requests/minute.' },
     keyGenerator: (req, res) => req.user?.id || _ipFallback(req, res),
+    skip:      _internalTokenBypass,   // R-F390
   },
 
   // ARIA chat — more lenient, still bounded
@@ -68,6 +88,7 @@ const TIERS = {
     max:       20,
     message:   { error: 'ARIA chat rate limit reached. Max 20 messages/minute.' },
     keyGenerator: (req, res) => req.user?.id || _ipFallback(req, res),
+    skip:      _internalTokenBypass,   // R-F390
   },
 
   // Compliance screening — moderate cost
@@ -90,6 +111,7 @@ const TIERS = {
     max:       30,
     message:   { error: 'Admin rate limit reached.' },
     keyGenerator: (req, res) => req.user?.id || _ipFallback(req, res),
+    skip:      _internalTokenBypass,   // R-F390
   },
 };
 
@@ -100,6 +122,7 @@ const speedLimiter = slowDown({
   delayAfter:      80,             // start slowing after 80 req/15min
   delayMs:         (used, req) => (used - 80) * 200,   // +200ms per req over limit
   maxDelayMs:      5000,           // max 5s delay
+  skip:            _internalTokenBypass,   // R-F390
 });
 
 // ── Apply All Rate Limiting ───────────────────────────────────────────────────
