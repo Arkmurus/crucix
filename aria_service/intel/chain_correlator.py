@@ -63,6 +63,8 @@ ACTIVATION_NUDGE_WINDOW_DAYS = 30 # surface nudges within ±30d of due date
 SHIFTS_KEY = "crucix:aria:chain_correlator:shifts"
 WINDOWS_KEY = "crucix:aria:chain_correlator:windows"
 CONFIRMED_KEY = "crucix:aria:chain_correlator:confirmed"
+# R-F343: dedupe set of window IDs already registered with predictor/ground-truth.
+FORECAST_REGISTERED_KEY = "crucix:aria:chain_correlator:forecast_registered"
 
 SHIFT_TYPES = (
     "regime_change",
@@ -391,12 +393,28 @@ async def project_windows() -> list[dict]:
     snapshot = {"items": [asdict(w) for w in windows_out], "version": 1}
     await _save(WINDOWS_KEY, snapshot)
 
+    # R-F343: dedupe predictor + ground-truth registration so the every-5-min
+    # projection doesn't re-spam ~80 brain_hook absorbs / GT records per tick
+    # for windows we've already registered. Was ~23k redundant writes/day.
+    registered = await _load(FORECAST_REGISTERED_KEY)
+    already_registered: set[str] = set(registered.get("items", []))
+    # Prune to currently-tracked windows so the set is bounded by MAX_SHIFTS
+    # rather than growing forever (shifts that age out free up slots).
+    current_ids = {w.id for w in windows_out}
+    already_registered &= current_ids
+    eligible = [w for w in windows_out
+                if w.status != "EXPIRED" and w.id not in already_registered]
+    skipped = sum(
+        1 for w in windows_out
+        if w.status != "EXPIRED" and w.id in already_registered
+    )
+
+    newly_registered: set[str] = set()
+
     # Register predictions with the predictor for later hit-rate scoring
     try:
         from . import predictor
-        for w in windows_out:
-            if w.status == "EXPIRED":
-                continue
+        for w in eligible:
             try:
                 await predictor.forecast(
                     task_type="procurement_window",
@@ -410,6 +428,7 @@ async def project_windows() -> list[dict]:
                         "confidence": w.confidence,
                     },
                 )
+                newly_registered.add(w.id)
             except Exception:
                 # predictor is advisory — never block projection on it
                 pass
@@ -421,9 +440,7 @@ async def project_windows() -> list[dict]:
     # tender actually land inside the projected window?). Fire-and-forget.
     try:
         from . import ground_truth_loop as _gt
-        for w in windows_out:
-            if w.status == "EXPIRED":
-                continue
+        for w in eligible:
             try:
                 await _gt.record_assessment_async(
                     assessment_type="TENDER_OPPORTUNITY",
@@ -438,15 +455,25 @@ async def project_windows() -> list[dict]:
                     context=f"chain_correlator window {w.id}; region {w.region}",
                     domain=w.iso2 or "general",
                 )
+                newly_registered.add(w.id)
             except Exception:
                 pass
     except Exception as e:
         logger.debug("ground_truth_loop unavailable: %s", e)
 
+    # Persist registrations so the next tick skips them.
+    if newly_registered or already_registered != set(registered.get("items", [])):
+        already_registered |= newly_registered
+        await _save(
+            FORECAST_REGISTERED_KEY,
+            {"items": sorted(already_registered), "version": 1},
+        )
+
     active = [w for w in windows_out if w.status == "ACTIVE"]
     logger.info(
-        "[chain] project_windows: %d projected, %d active",
-        len(windows_out), len(active),
+        "[chain] project_windows: %d projected, %d active "
+        "(R-F343 registered %d new, skipped %d already-known)",
+        len(windows_out), len(active), len(newly_registered), skipped,
     )
     return [asdict(w) for w in windows_out]
 

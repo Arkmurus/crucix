@@ -288,6 +288,124 @@ class TestChainEndToEnd:
         assert len(windows) == 1
         assert windows[0]["status"] == "PROJECTED"
 
+    def test_project_windows_dedupes_predictor_and_ground_truth(self, monkeypatch):
+        """R-F343: re-projecting the same windows must NOT re-spam
+        predictor.forecast or ground_truth_loop.record_assessment_async.
+
+        Before R-F343, every 5-min tick wrote ~80 brain_hook absorbs +
+        ~80 ground-truth records for the same windows = ~23k redundant
+        writes/day. This test pins the dedupe behaviour at the
+        chain_correlator boundary.
+        """
+        from aria_service.intel import predictor as _predictor
+        from aria_service.intel import ground_truth_loop as _gt
+
+        predictor_calls: list[dict] = []
+        gt_calls: list[dict] = []
+
+        async def fake_forecast(**kwargs):
+            predictor_calls.append(kwargs)
+            return {"overall_confidence": 0.7, "recommendations": []}
+
+        async def fake_record(**kwargs):
+            gt_calls.append(kwargs)
+            return "fake_assessment_id"
+
+        monkeypatch.setattr(_predictor, "forecast", fake_forecast)
+        monkeypatch.setattr(_gt, "record_assessment_async", fake_record)
+
+        async def scenario():
+            # Two distinct shifts → two distinct windows
+            await _seed_shift("AO", "regime_change", days_ago=14 * 30)
+            await _seed_shift("PL", "major_election", days_ago=3 * 30)
+
+            # First projection: both windows are new — should register
+            windows1 = await cc.project_windows()
+            after_first_predictor = len(predictor_calls)
+            after_first_gt = len(gt_calls)
+
+            # Second projection (simulates the next 5-min tick): same
+            # windows, must be skipped
+            windows2 = await cc.project_windows()
+            after_second_predictor = len(predictor_calls)
+            after_second_gt = len(gt_calls)
+
+            # Third projection (another tick) — still no new writes
+            await cc.project_windows()
+            after_third_predictor = len(predictor_calls)
+            after_third_gt = len(gt_calls)
+
+            registered = await cc._load(cc.FORECAST_REGISTERED_KEY)
+            return (
+                windows1, windows2,
+                after_first_predictor, after_first_gt,
+                after_second_predictor, after_second_gt,
+                after_third_predictor, after_third_gt,
+                registered,
+            )
+
+        (
+            w1, w2,
+            p1, g1, p2, g2, p3, g3,
+            registered,
+        ) = _run(scenario())
+
+        # First tick registered both windows
+        assert len(w1) == 2
+        assert p1 == 2, f"first tick must call predictor.forecast per window; got {p1}"
+        assert g1 == 2, f"first tick must call ground_truth.record per window; got {g1}"
+
+        # Second and third ticks must not re-register
+        assert p2 == p1, f"second tick must skip predictor (still {p1}, got {p2})"
+        assert g2 == g1, f"second tick must skip ground_truth (still {g1}, got {g2})"
+        assert p3 == p1, f"third tick must still be skipping predictor (got {p3})"
+        assert g3 == g1, f"third tick must still be skipping ground_truth (got {g3})"
+
+        # The registered set is persisted with both window IDs
+        assert len(registered["items"]) == 2
+        assert all(isinstance(x, str) for x in registered["items"])
+
+    def test_project_windows_registers_new_shifts_after_dedupe(self, monkeypatch):
+        """R-F343: dedupe must NOT block new shifts that appear later."""
+        from aria_service.intel import predictor as _predictor
+        from aria_service.intel import ground_truth_loop as _gt
+
+        predictor_calls: list[str] = []
+        gt_calls: list[str] = []
+
+        async def fake_forecast(**kwargs):
+            predictor_calls.append(kwargs["context"]["window_id"])
+            return {"overall_confidence": 0.7, "recommendations": []}
+
+        async def fake_record(**kwargs):
+            gt_calls.append(kwargs["subject"])
+            return "id"
+
+        monkeypatch.setattr(_predictor, "forecast", fake_forecast)
+        monkeypatch.setattr(_gt, "record_assessment_async", fake_record)
+
+        async def scenario():
+            # First shift registered on tick 1
+            await _seed_shift("AO", "regime_change", days_ago=14 * 30)
+            await cc.project_windows()
+            after_first = len(predictor_calls)
+
+            # Tick 2 — same single shift, should NOT re-register
+            await cc.project_windows()
+            after_second = len(predictor_calls)
+
+            # Tick 3 — new shift seeded → should ONLY register the new one
+            await _seed_shift("PL", "major_election", days_ago=3 * 30)
+            await cc.project_windows()
+            after_third = len(predictor_calls)
+
+            return after_first, after_second, after_third
+
+        a, b, c = _run(scenario())
+        assert a == 1, f"tick 1 should register 1 window, got {a}"
+        assert b == 1, f"tick 2 should skip (still {a}), got {b}"
+        assert c == 2, f"tick 3 should register the new shift only, got {c}"
+
     def test_close_chains_confirms_within_window(self):
         async def scenario():
             await _seed_shift("AO", "regime_change", days_ago=15 * 30)
