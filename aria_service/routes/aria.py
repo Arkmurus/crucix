@@ -8161,6 +8161,110 @@ async def admin_migrate_state_ep(request: Request):
     return {"ok": True, **result}
 
 
+# R-F388 (2026-05-12) — WhatsApp listener auth-bundle backup, routed
+# through fly.io's SQLite state_store. Closes the last Upstash-dependent
+# surface on seenode: the WA listener was using Upstash as durable
+# cross-deploy storage for its Baileys auth files (creds.json + app-state-*
+# + pre-key-* + session-*). When Seenode redeploys wipe the local
+# `./wa-listener-auth/` directory, restoring from Upstash was the only path
+# back to a connected session without a QR re-scan.
+#
+# This pair of endpoints puts the same bundle in fly.io's SQLite (R-F261),
+# which is operator-owned infrastructure with persistent volume + bearer
+# auth. The seenode client (lib/whatsapp/waListener.mjs) calls these via
+# the existing ARIA_BRAIN_URL + ARIA_INTERNAL_TOKEN.
+#
+# Bundle size cap matches the seenode-side guard: 500 KB total. Anything
+# larger means the WA session has drifted (corrupt / very busy session
+# history) and a fresh scan is healthier than keeping a bloated blob.
+@router.post("/wa-auth/backup")
+async def wa_auth_backup_ep(request: Request):
+    """Persist the WhatsApp Baileys auth bundle.
+
+    Body:
+        {"files": {"creds.json": "...", "app-state-...": "...", ...}}
+
+    Response: {"ok": true, "files": N, "bytes": M}
+
+    The bundle is stored under SQLite key ``wa_listener:auth_bundle`` and
+    survives fly.io restarts via the /data volume. No TTL — auth bundles
+    are only invalidated by an explicit DELETE (operator action) or a
+    fresh backup overwriting the slot.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+
+    files = body.get("files") if isinstance(body, dict) else None
+    if not isinstance(files, dict) or not files:
+        raise HTTPException(status_code=400, detail="body.files must be a non-empty object")
+
+    total_bytes = 0
+    for name, content in files.items():
+        if not isinstance(name, str) or not isinstance(content, str):
+            raise HTTPException(status_code=400, detail="every entry must be {string: string}")
+        total_bytes += len(content)
+
+    # Hard cap is 2× the seenode pre-upload guard (500 KB) for headroom.
+    # Above 1 MB the WA session has drifted (corrupt or excessive history);
+    # a fresh QR scan is healthier than storing a bloated blob.
+    MAX_BUNDLE_BYTES = 1_000_000
+    if total_bytes > MAX_BUNDLE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"bundle {total_bytes} bytes exceeds {MAX_BUNDLE_BYTES} cap",
+        )
+
+    from aria_service.intel import state_store
+
+    bundle = {
+        "files": files,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "files_count": len(files),
+        "bytes": total_bytes,
+    }
+    await state_store.set_json("wa_listener:auth_bundle", bundle)
+    return {"ok": True, "files": len(files), "bytes": total_bytes}
+
+
+@router.get("/wa-auth/restore")
+async def wa_auth_restore_ep():
+    """Retrieve the WhatsApp Baileys auth bundle for restore on cold boot.
+
+    Returns ``{"ok": True, "files": {…}}`` when present, or
+    ``{"ok": False, "reason": "missing"}`` when no bundle has been written
+    yet. The 200 status is intentional in both cases — the seenode client
+    distinguishes by inspecting ``ok``.
+    """
+    from aria_service.intel import state_store
+
+    bundle = await state_store.get_json("wa_listener:auth_bundle")
+    if not bundle or not isinstance(bundle, dict) or "files" not in bundle:
+        return {"ok": False, "reason": "missing"}
+    return {
+        "ok": True,
+        "files": bundle.get("files") or {},
+        "updated_at": bundle.get("updated_at"),
+        "files_count": bundle.get("files_count"),
+        "bytes": bundle.get("bytes"),
+    }
+
+
+@router.delete("/wa-auth/backup")
+async def wa_auth_delete_ep():
+    """Drop the stored auth bundle.
+
+    Used when the WhatsApp session is invalidated (Baileys 440) — the
+    seenode client wipes its local AUTH_DIR AND posts here so the next
+    restore won't re-paint the invalid bundle back.
+    """
+    from aria_service.intel import state_store
+
+    deleted = await state_store.delete("wa_listener:auth_bundle")
+    return {"ok": True, "deleted": bool(deleted)}
+
+
 # R-F263 (2026-05-11) — Phase A exit gate #3 closer. Aggregates the
 # error_log ring buffer maintained by error_log_handler.py into a
 # summary the operator can verify against the gate criterion: "0
