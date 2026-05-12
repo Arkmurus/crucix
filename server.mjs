@@ -8,7 +8,7 @@
 // commit matches what's in git. Diagnostic added after R-F353 was committed
 // and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 // alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F382 · 2026-05-12 · adds R-F382 (brain+thoughts+curiosity dead-Upstash-reads gone) + R-F381 + R-F380 + R-F377 + R-F373';
+const CRUCIX_BUILD_REV = 'R-F388 · 2026-05-12 · seenode Upstash retirement complete: R-F383 (PersistStore file-only) + R-F384 (server share/conferences/identity) + R-F385 (FileRedisAdapter drop-in) + R-F386 (rate limiter local Map) + R-F387 (dead redisSet cleanup) + R-F388 (WA auth via fly.io SQLite)';
 
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
