@@ -8,7 +8,7 @@
 // commit matches what's in git. Diagnostic added after R-F353 was committed
 // and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 // alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F381 · 2026-05-12 · adds R-F381 (dedup Upstash-free) + R-F380 (telegram throttle) + R-F377 (schema filter) + R-F373 (Brave removed)';
+const CRUCIX_BUILD_REV = 'R-F382 · 2026-05-12 · adds R-F382 (brain+thoughts+curiosity dead-Upstash-reads gone) + R-F381 + R-F380 + R-F377 + R-F373';
 
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
@@ -1506,69 +1506,42 @@ app.post('/api/explorer/run', requireAuth, async (req, res) => {
   }
 });
 
-// ── Brain ML endpoints — read from shared Redis (Python brain writes, Node reads) ──
+// ── Brain ML endpoints — proxy to Python aria_service (R-F382) ──
+//
+// Pre-R-F382: these read from Upstash Redis keys
+// (crucix:brain:generated_leads / bd_brief:latest / last_run / run_history)
+// under the assumption that the Python brain wrote there. In practice
+// the keys were NEVER written — grep confirms only these 4 readers
+// reference them. The endpoints have been silently returning empty
+// responses for the entire lifetime of the seenode service.
+//
+// Post-R-F382: stop reading dead Upstash keys. Endpoints preserve their
+// HTTP contract (same response shape, same status codes) so existing
+// callers (waListener / telegramCommands / ariaWhatsApp / frontend)
+// continue to work. They now return their empty default directly,
+// without an Upstash round-trip.
+//
+// The real brain data (leads, briefs, run history) lives in the Python
+// aria_service via SQLite — accessed through /api/aria/* proxy.
 
 app.get('/api/brain/leads', requireAuth, async (req, res) => {
-  try {
-    // Brain stores leads as a Redis list (LPUSH, newest first)
-    // Each element is a JSON string — we parse and return up to 20
-    const raw = await redisGet('crucix:brain:generated_leads');
-    // redisGet uses GET (for strings); brain uses LRANGE for lists.
-    // We need LRANGE — call the Upstash REST directly.
-    const REDIS_URL   = process.env.UPSTASH_REDIS_URL;
-    const REDIS_TOKEN = process.env.UPSTASH_REDIS_TOKEN;
-    if (!REDIS_URL || !REDIS_TOKEN) return res.json([]);
-    const r = await fetch(`${REDIS_URL}/lrange/crucix:brain:generated_leads/0/19`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!r.ok) return res.json([]);
-    const data = await r.json();
-    const leads = (data.result || []).map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
-    res.json(leads);
-  } catch (e) {
-    res.json([]);
-  }
+  // R-F382: dead Upstash read removed; brain leads live in Python aria_service.
+  res.json([]);
 });
 
 app.get('/api/brain/brief', requireAuth, async (req, res) => {
-  try {
-    const brief = await redisGet('crucix:brain:bd_brief:latest');
-    if (!brief) return res.status(404).json({ error: 'No brief generated yet. Brain sweep required.' });
-    res.json(brief);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  // R-F382: dead Upstash read removed; brief lives in Python aria_service.
+  res.status(404).json({ error: 'No brief generated yet. Brain sweep required.' });
 });
 
 app.get('/api/brain/status', requireAuth, async (req, res) => {
-  try {
-    const lastRun = await redisGet('crucix:brain:last_run');
-    res.json({ last_run: lastRun, service: 'crucix-brain' });
-  } catch (e) {
-    res.json({ last_run: null });
-  }
+  // R-F382: dead Upstash read removed.
+  res.json({ last_run: null, service: 'crucix-brain' });
 });
 
 app.get('/api/brain/history', requireAuth, async (req, res) => {
-  try {
-    const REDIS_URL   = process.env.UPSTASH_REDIS_URL;
-    const REDIS_TOKEN = process.env.UPSTASH_REDIS_TOKEN;
-    if (!REDIS_URL || !REDIS_TOKEN) return res.json([]);
-    // Get list of run IDs
-    const r = await fetch(`${REDIS_URL}/lrange/crucix:brain:run_history/0/9`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!r.ok) return res.json([]);
-    const data   = await r.json();
-    const runIds = data.result || [];
-    // Fetch individual run reports
-    const reports = await Promise.all(runIds.map(rid => redisGet(`crucix:brain:run:${rid}`)));
-    res.json(reports.filter(Boolean));
-  } catch (e) {
-    res.json([]);
-  }
+  // R-F382: dead Upstash read removed; run history lives in Python aria_service.
+  res.json([]);
 });
 
 // ── Brain API bridge — WhatsApp/Zoom call /api/brain/* routes ────────────────
@@ -1733,22 +1706,11 @@ app.get('/api/brain/conference/brief', requireAuth, async (req, res) => {
   } catch { res.json({ name, dates: 'TBC', location: 'TBC', arkmurus_objectives: [], must_meet: [] }); }
 });
 
-// ── ARIA endpoints — read identity/thoughts from Redis; proxy chat to brain ──
-
-async function upstashLRange(key, start = 0, stop = 9) {
-  const REDIS_URL   = process.env.UPSTASH_REDIS_URL;
-  const REDIS_TOKEN = process.env.UPSTASH_REDIS_TOKEN;
-  if (!REDIS_URL || !REDIS_TOKEN) return [];
-  try {
-    const r = await fetch(`${REDIS_URL}/lrange/${encodeURIComponent(key)}/${start}/${stop}`, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!r.ok) return [];
-    const d = await r.json();
-    return (d.result || []).map(s => { try { return JSON.parse(s); } catch { return s; } });
-  } catch { return []; }
-}
+// ── ARIA endpoints — proxy to Python aria_service ──
+// R-F382: upstashLRange() helper removed (was used only by the
+// /api/aria/thoughts + /api/aria/curiosity fallbacks, which themselves
+// were removed in this commit). Real source for thoughts/curiosity is
+// the Python aria_service via the ariaProxy chain.
 
 const BRAIN_URL = process.env.BRAIN_SERVICE_URL; // e.g. https://crucix-brain.onrender.com
 const ARIA_SERVICE_URL = process.env.ARIA_SERVICE_URL || ''; // Python ARIA service, e.g. http://localhost:8000
@@ -1860,27 +1822,17 @@ app.get('/api/aria/identity', requireAuth, async (req, res) => {
 });
 
 app.get('/api/aria/thoughts', requireAuth, async (req, res) => {
-  ariaProxy(req, res, '/api/aria/thoughts', { fallback: async () => {
-    try {
-      const thoughtIds = await upstashLRange('crucix:brain:aria:thoughts', 0, 9);
-      const thoughts = await Promise.all(
-        (Array.isArray(thoughtIds) ? thoughtIds : []).map(id =>
-          typeof id === 'string' ? redisGet(`crucix:brain:aria:thought:${id}`) : Promise.resolve(id)
-        )
-      );
-      res.json(thoughts.filter(Boolean));
-    } catch { res.json([]); }
-  }});
+  // R-F382: fallback Upstash reads removed. The aria:thoughts and
+  // aria:thought:<id> keys are never written by any current code path
+  // — the fallback was returning [] in practice. Real source is the
+  // Python aria_service (proxied above).
+  ariaProxy(req, res, '/api/aria/thoughts', { fallback: async () => res.json([]) });
 });
 
 app.get('/api/aria/curiosity', requireAuth, async (req, res) => {
-  ariaProxy(req, res, '/api/aria/curiosity', { fallback: async () => {
-    try {
-      const identity = await redisGet('crucix:brain:aria:identity');
-      const threads  = (identity?.curiosity_threads || []).filter(t => !t.resolved);
-      res.json({ open_threads: threads });
-    } catch { res.json({ open_threads: [] }); }
-  }});
+  // R-F382: fallback Upstash read removed. aria:identity is never
+  // written by seenode; real source is the Python aria_service.
+  ariaProxy(req, res, '/api/aria/curiosity', { fallback: async () => res.json({ open_threads: [] }) });
 });
 
 // ARIA Knowledge Base API
