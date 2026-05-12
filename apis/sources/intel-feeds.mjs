@@ -211,9 +211,28 @@ export async function fetchTradeFLows() {
         // IMF DOTS compact data: exports (TXG_FOB_USD) between pair.
         // R-F271: 5-year window for higher chance of ≥2 observations.
         const url = `https://dataservices.imf.org/REST/SDMX_JSON.svc/CompactData/DOT/A.${pair.reporter}.${pair.partner}.TXG_FOB_USD.?startPeriod=${year - 4}&endPeriod=${year}`;
+        // R-F344 (2026-05-12): R-F271's diagnostic confirmed per-pair was
+        // failing. The bare `CrucixIntelligence/1.0` UA is a known
+        // anti-bot tripwire on Cloudflare/Akamai (same pattern as R-F273
+        // fixed for AfDB/SEACE on the Python side). Apply the
+        // browser-fingerprint header set + 20s timeout (IMF SDMX endpoint
+        // is slow on EM corridors).
         const res = await fetch(url, {
-          headers: { 'User-Agent': 'CrucixIntelligence/1.0', 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(12000),
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+                          'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+                          'Chrome/131.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'none',
+            'DNT': '1',
+          },
+          signal: AbortSignal.timeout(20000),
         });
         if (!res.ok) {
           status = `http_${res.status}`;

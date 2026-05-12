@@ -119,6 +119,17 @@ const SOURCE_TIMEOUT_MS = 30_000; // 30s max per individual source
 // cycle, dropping the tally from 49/49 → 48/49.
 const SOURCE_TIMEOUT_OVERRIDES = {
   GDELT: 45_000,  // GDELT v2 doc API responds in 25-40s under load
+  // R-F345 (2026-05-12): CyberThreats wraps NVD + ransomwatch via
+  // Promise.allSettled. NVD's R-F61/R-F64 timeouts are 45s primary +
+  // 30s retry (75s worst case) because NIST API is slow under load.
+  // With the default SOURCE_TIMEOUT_MS of 30s, the source-level
+  // Promise.race rejects BEFORE Promise.allSettled returns, killing
+  // the source even though ransomwatch already completed. Both
+  // sub-source datasets are then dropped from the cross-source dedupe.
+  // Bump to 50s so normal NVD (8-40s) + ransomwatch (≤12s) + a few
+  // seconds processing fit; worst-case NVD retry still gets cut off
+  // (acceptable — we keep ransomwatch's data + briefing throughput).
+  CyberThreats: 50_000,
 };
 
 export async function runSource(name, fn, ...args) {
