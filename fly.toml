@@ -31,13 +31,22 @@ primary_region = 'lhr'
 # + adversarial + breaker work that can take several seconds under load;
 # the 10s LB timeout was tripping 3× per day on heavy research cycles.
 # /health/live is a zero-Redis fastpath that returns from in-process
-# state only — guarantees the LB probe never times out as long as
-# uvicorn is alive.
+# state only.
+#
+# R-F378 (2026-05-12) — bumped timeout 10s → 20s. Even with the
+# /health/live fastpath, the LB probe can still time out when
+# synchronous CPU work (security audit, sentence-transformers cold
+# load, large-JSON serialisation) blocks the Python event loop. Live
+# evidence 2026-05-12 13:45:03 BST: self-improve cycle + security
+# audit + sentence-transformer cold load held the event loop for ~15s.
+# /health/live can't respond when the event loop is stalled. 20s
+# timeout absorbs the burst; the proper fix (move blocking work to a
+# thread pool) is queued as R-F379 for next session.
 [[http_service.checks]]
   grace_period = "30s"
   interval = "15s"
   method = "GET"
-  timeout = "10s"
+  timeout = "20s"
   path = "/api/aria/health/live"
 
 # ── Persistent storage for chromadb (RAG store) ─────────────────────────────
