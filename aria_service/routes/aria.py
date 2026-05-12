@@ -176,7 +176,8 @@ _PUBLIC_AUTH_BYPASS_PATHS = frozenset({
     "/api/aria/constitution/version",     # R-F221 model-card field
     "/api/aria/chat-audit/stats",         # R-F221 model-card field
     "/api/aria/adversarial/stats",        # R-F221 model-card field
-    "/api/aria/health",                   # operational status probe
+    "/api/aria/health",                   # operational status probe (rich, may touch Redis)
+    "/api/aria/health/live",              # R-F372 fastpath — fly.io load-balancer probe
 })
 
 
@@ -14919,10 +14920,43 @@ async def metrics_grounded_rate_ep(days: int = 14):
 
 # ── Health Check (Week 1c) ────────────────────────────────────────────────
 
+# R-F372 (2026-05-12) — health-check fastpath. Live evidence 2026-05-12
+# 13:00:51 + 13:03:10 + 13:22:53 BST: fly.io `servicecheck-00-http-8000`
+# failed three times today while ARIA was under load. Root cause: the
+# rich `/health` endpoint below does Redis ping + mastery rollup +
+# grounded_rate + adversarial probe + mode read + predictor blocks +
+# circuit-breaker enumeration — too much work for a 10-second
+# load-balancer probe that fires every 15s. When the single uvicorn
+# worker is busy serving a chat request or migration, the probe times
+# out and fly marks the instance unhealthy → "intermittent failures
+# until the health check passes" → operator-visible outages.
+#
+# Fix: separate the load-bearing healthcheck from the rich one.
+#   - GET /api/aria/health/live  — fastpath, no Redis, returns from
+#     in-process state only. fly.toml healthcheck points here.
+#   - GET /api/aria/health       — rich diagnostic (unchanged), used
+#     by operator + dashboard.
+@router.get("/health/live")
+async def health_live_ep():
+    """R-F372: ultra-cheap liveness check for fly.io load balancer.
+    No Redis. No stats. Returns instantly from in-process state."""
+    try:
+        from ..main import ARIA_BUILD_REV as _build_rev
+    except Exception:
+        _build_rev = "unknown"
+    return {"status": "alive", "build_rev": _build_rev}
+
+
 @router.get("/health")
 async def health_check_ep():
     """Self-diagnosing health check with quality metrics — not just infra.
-    Single endpoint an operator checks to know if ARIA is healthy AND accurate."""
+    Single endpoint an operator checks to know if ARIA is healthy AND accurate.
+
+    R-F372 (2026-05-12): the fly.io load-balancer healthcheck now uses
+    /health/live (fastpath above). This endpoint is for operator + dashboard
+    consumption only — it touches Redis + stats + breakers and may take
+    several seconds under load, which is fine for an interactive probe but
+    fatal for a 15s-interval LB probe."""
     from ..intel import redis_store as rs
     from ..intel import student
     from ..intel import source_verifier

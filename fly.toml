@@ -25,12 +25,20 @@ primary_region = 'lhr'
 # 22k ledger signals to hydrate). Once the first TCP probe succeeds,
 # traffic flows normally. Reduces deploy-log noise to zero and closes
 # the brief 4-second window where clients saw connection-refused.
+#
+# R-F372 (2026-05-12) — switched healthcheck path /api/aria/health →
+# /api/aria/health/live. The rich /health endpoint does Redis + mastery
+# + adversarial + breaker work that can take several seconds under load;
+# the 10s LB timeout was tripping 3× per day on heavy research cycles.
+# /health/live is a zero-Redis fastpath that returns from in-process
+# state only — guarantees the LB probe never times out as long as
+# uvicorn is alive.
 [[http_service.checks]]
   grace_period = "30s"
   interval = "15s"
   method = "GET"
   timeout = "10s"
-  path = "/api/aria/health"
+  path = "/api/aria/health/live"
 
 # ── Persistent storage for chromadb (RAG store) ─────────────────────────────
 # Past incident 2026-04-09: chromadb was running with no volume mounted at
