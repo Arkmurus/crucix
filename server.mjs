@@ -2,6 +2,14 @@
 // Crucix Intelligence Engine — Dev Server
 // Serves the Jarvis dashboard, runs sweep cycle, pushes live updates via SSE
 
+// R-F360 (2026-05-12): deploy marker. Bumped manually each commit that
+// touches seenode-deployed surfaces (server.mjs / lib/ / apis/ / public/).
+// Logged at boot + exposed in /api/health so we can confirm the deployed
+// commit matches what's in git. Diagnostic added after R-F353 was committed
+// and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
+// alone couldn't tell us whether the deploy had picked up.
+const CRUCIX_BUILD_REV = 'R-F360 · 2026-05-12 · includes R-F353/F354/F355/F356/F358/F360';
+
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
@@ -1030,6 +1038,7 @@ app.get('/api/data', requireAuth, (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
+    build_rev: CRUCIX_BUILD_REV,
     uptime: Math.floor((Date.now() - startTime) / 1000),
     lastSweep: lastSweepTime,
     nextSweep: lastSweepTime
@@ -4594,6 +4603,7 @@ async function start() {
 
   server.on('listening', async () => {
     console.log(`[Crucix] Server running on http://localhost:${port}`);
+    console.log(`[Crucix] Build: ${CRUCIX_BUILD_REV}`);
 
     // Initialise dedup store — loads from Upstash Redis if configured, else file
     await initDedup();
