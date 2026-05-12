@@ -102,6 +102,135 @@ JSON format:
 {{"scores":{{"methodology":0,"source_quality":0,"reasoning_quality":0,"domain_accuracy":0,"output_quality":0,"overall":0.0}},"identified_weaknesses":["specific weakness 1"],"world_class_improvements":["specific improvement 1"],"skill_gaps_revealed":[{{"domain":"","gap":"","severity":"HIGH/MEDIUM/LOW"}}],"recommended_action":"specific improvement action"}}"""
 
 
+# ── R-F357 (2026-05-12): Truncated-JSON Salvage ───────────────────────────
+#
+# When the LLM hits max_tokens mid-output, the raw string is a prefix of a
+# valid JSON object. Naively json.loads(prefix) raises and the assessment is
+# dropped. We attempt two progressive repairs:
+#   Strategy 1 — close any unterminated string + then walk the bracket stack
+#                and append the closing brackets in reverse order. Works when
+#                truncation happened inside a string or array.
+#   Strategy 2 — regex-extract just the `"scores": {...}` sub-object. Even a
+#                fully-trashed response usually contains a complete scores
+#                block (it's emitted first per the prompt schema), which is
+#                the highest-value field downstream (calibration uses it).
+#
+# A None return means both strategies failed; caller logs WARNING + skips.
+# A dict return is treated as a real assessment; caller logs INFO that
+# salvage ran. Either way the calling path stays untouched.
+
+import re as _re_repair
+
+
+def _repair_truncated_assessment(s: str) -> dict | None:
+    """Salvage a truncated self-assessment JSON string. None on failure."""
+    if not s or not s.startswith("{"):
+        return None
+
+    # Strategy 1: close unterminated string, then close pending brackets.
+    in_string = False
+    escape = False
+    stack: list[str] = []
+    for ch in s:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\" and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in "{[":
+            stack.append(ch)
+        elif ch == "}" and stack and stack[-1] == "{":
+            stack.pop()
+        elif ch == "]" and stack and stack[-1] == "[":
+            stack.pop()
+
+    repaired = s
+    if in_string:
+        # Drop the trailing incomplete value (often `"some half-text`).
+        # Walk back to the last comma/[/{ that wasn't inside the unterminated
+        # string and trim from there.
+        last_open = max(repaired.rfind(","), repaired.rfind("["), repaired.rfind("{"))
+        if last_open > 0:
+            repaired = repaired[:last_open]
+            # Recompute pending brackets after the trim — re-walk briefly.
+            stack = []
+            in_string = False
+            escape = False
+            for ch in repaired:
+                if escape:
+                    escape = False
+                    continue
+                if ch == "\\" and in_string:
+                    escape = True
+                    continue
+                if ch == '"':
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if ch in "{[":
+                    stack.append(ch)
+                elif ch == "}" and stack and stack[-1] == "{":
+                    stack.pop()
+                elif ch == "]" and stack and stack[-1] == "[":
+                    stack.pop()
+
+    # Append closing brackets in reverse to match what's still open.
+    for opener in reversed(stack):
+        repaired += "}" if opener == "{" else "]"
+
+    try:
+        obj = json.loads(repaired)
+        if isinstance(obj, dict):
+            return obj
+    except json.JSONDecodeError:
+        pass
+
+    # Strategy 2: extract just the scores sub-object via brace-balanced scan.
+    m = _re_repair.search(r'"scores"\s*:\s*\{', s)
+    if m:
+        start = m.end() - 1  # points at the `{`
+        depth = 0
+        in_str = False
+        esc = False
+        end = -1
+        for i in range(start, len(s)):
+            ch = s[i]
+            if esc:
+                esc = False
+                continue
+            if ch == "\\" and in_str:
+                esc = True
+                continue
+            if ch == '"':
+                in_str = not in_str
+                continue
+            if in_str:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end > start:
+            try:
+                scores = json.loads(s[start:end + 1])
+                if isinstance(scores, dict):
+                    return {"scores": scores, "_salvaged": "scores_only"}
+            except json.JSONDecodeError:
+                pass
+
+    return None
+
+
 async def self_assess_output(
     query: str,
     aria_output: str,
@@ -120,6 +249,7 @@ async def self_assess_output(
     result = {
         "ok": False, "skipped": False, "skipped_reason": "",
         "scores": None, "gaps": [], "duration_ms": 0,
+        "repaired": False,
     }
 
     if not _should_assess(aria_output, domain):
@@ -148,7 +278,16 @@ async def self_assess_output(
             llm_result = await llm.complete(
                 _SELF_ASSESSMENT_SYSTEM,
                 prompt,
-                max_tokens=1500,
+                # R-F357 (2026-05-12): bumped 1500 → 2500. The 5-dimension
+                # JSON schema with identified_weaknesses / world_class_
+                # improvements / skill_gaps_revealed (each multi-entry) hits
+                # 1500 tokens on detailed outputs and the response truncates
+                # mid-string. Live evidence 2026-05-12 10:39:35Z: output cut
+                # off inside `"identified_weaknesses": [ "` → json.loads
+                # raised → assessment dropped. 2500 covers the worst-case
+                # schema; cost delta is marginal (this fires only on
+                # substantive outputs).
+                max_tokens=2500,
                 timeout=30.0,
             )
         raw = (getattr(llm_result, "text", "") or "").strip()
@@ -164,11 +303,28 @@ async def self_assess_output(
     try:
         assessment = json.loads(clean)
     except json.JSONDecodeError:
-        logger.warning("Self-assessment JSON parse failed: %s", raw[:200])
-        result["skipped"] = True
-        result["skipped_reason"] = "json_parse_failed"
-        result["duration_ms"] = int((time.time() - t0) * 1000)
-        return result
+        # R-F357 (2026-05-12): truncated JSON salvage path. When max_tokens
+        # is exhausted mid-array (or the LLM appends trailing prose despite
+        # the system prompt), we try to recover the scores + as many arrays
+        # as completed cleanly. Only fall through to skipped if repair also
+        # fails. Mirrors the BD-Brain progressive-repair pattern (R-F355
+        # Fix 6/7) at a smaller scope.
+        assessment = _repair_truncated_assessment(clean)
+        if assessment is None:
+            logger.warning("Self-assessment JSON parse failed: %s", raw[:200])
+            result["skipped"] = True
+            result["skipped_reason"] = "json_parse_failed"
+            result["duration_ms"] = int((time.time() - t0) * 1000)
+            return result
+        # Stamp the salvaged dict so downstream observers can distinguish a
+        # full assessment from a partial one. Strategy 2 sets `_salvaged`
+        # itself; Strategy 1 success path stamps it here.
+        assessment.setdefault("_salvaged", "structure_closed")
+        logger.info(
+            "Self-assessment JSON repaired (truncated response salvaged, mode=%s, %d chars)",
+            assessment.get("_salvaged"), len(clean),
+        )
+        result["repaired"] = True
 
     assessment["assessed_at"] = datetime.now(timezone.utc).isoformat()
     assessment["domain"] = domain
