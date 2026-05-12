@@ -496,12 +496,97 @@ async def _resilience_floor() -> dict[str, Any]:
     return out
 
 
+# R-F347 (2026-05-12) — default shapes returned when a sub-task
+# hangs or raises. Operator-observed: dashboard rendered all zeros +
+# "No LLM providers configured" / "Memory — Redis: down" while fly
+# logs simultaneously proved Redis writes + DeepSeek 200s. Curl on
+# /api/aria/autonomy/surface timed out at 30s. The old sequential
+# `await ... await ... await ... await` chained the 4 sub-tasks; any
+# one slow Redis probe (Upstash latency spike, dead state_store)
+# blocked the whole endpoint, leaving the seenode proxy with nothing
+# to render. Parallel + per-task timeout caps the blast radius.
+_DEFAULT_AUTO_ALLOWED: dict[str, Any] = {
+    "autonomous_task_fires": 0,
+    "chat_turns_served": 0,
+    "corpus_ingests": 0,
+    "audit_entries": 0,
+    "bright_lines_triggered": 0,
+    "bright_lines_by_code": {},
+}
+_DEFAULT_DRAFTS: dict[str, Any] = {
+    "source_validator_pending": 0,
+    "constitution_pending": 0,
+    "adversarial_amendments_pending": 0,
+    "codegen_pending": 0,
+    "golden_pending": 0,
+    "ground_truth_pending": 0,
+    "dd_reports_today": 0,
+    "writer_outputs_today": 0,
+    "total_pending": 0,
+}
+_DEFAULT_QUEUE: dict[str, Any] = {
+    "oem_slots_total": 0,
+    "oem_slots_filled": 0,
+    "oem_slots_empty": 0,
+    "oem_worst_oems": [],
+    "wa_mirror_gated": False,
+    "wa_mirror_missing_env": [],
+    "stale_facts": 0,
+    "contradicted_facts": 0,
+    "bright_lines_recent": [],
+}
+_DEFAULT_RESILIENCE: dict[str, Any] = {
+    "providers": [],
+    "providers_active": 0,
+    "providers_configured": 0,
+    "providers_cooling": 0,
+    "local_brain_ready": False,
+    "local_brain_invocations_24h": 0,
+    "memory": {
+        "redis_reachable": False,
+        "rag_chunks": 0,
+        "mem0_facts": 0,
+        "claim_ledger_entries": 0,
+    },
+    "resilience_count": 0,
+    "verdict": "unknown",
+    "_degraded_marker": "R-F347_subtask_timeout",
+}
+
+SUBTASK_TIMEOUT_SECONDS = float(os.getenv("ARIA_AUTONOMY_SURFACE_TIMEOUT", "8"))
+
+
 async def get_surface() -> dict[str, Any]:
-    """Return the full autonomy-surface payload for dashboard + briefing."""
-    auto = await _auto_allowed_summary()
-    drafts = await _drafts_awaiting()
-    queue = await _operator_queue()
-    resilience = await _resilience_floor()
+    """Return the full autonomy-surface payload for dashboard + briefing.
+
+    R-F347 (2026-05-12): the 4 sub-tasks now run in parallel with a
+    per-task timeout so one slow probe can no longer take down the
+    whole endpoint. Each sub-task that times out / raises returns its
+    default empty shape and is logged at WARNING so operators can see
+    which probe is degraded. Endpoint-level worst case is now
+    SUBTASK_TIMEOUT_SECONDS (default 8s), not 4×N seconds.
+    """
+    import asyncio
+
+    async def _safe(coro, default, label):
+        try:
+            return await asyncio.wait_for(coro, timeout=SUBTASK_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "autonomy_surface: %s timed out at %.1fs, returning defaults",
+                label, SUBTASK_TIMEOUT_SECONDS,
+            )
+            return default
+        except Exception as e:
+            logger.warning("autonomy_surface: %s failed: %s", label, e)
+            return default
+
+    auto, drafts, queue, resilience = await asyncio.gather(
+        _safe(_auto_allowed_summary(), dict(_DEFAULT_AUTO_ALLOWED), "auto_allowed"),
+        _safe(_drafts_awaiting(),       dict(_DEFAULT_DRAFTS),       "drafts"),
+        _safe(_operator_queue(),         dict(_DEFAULT_QUEUE),         "queue"),
+        _safe(_resilience_floor(),       dict(_DEFAULT_RESILIENCE),    "resilience"),
+    )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "auto_allowed": auto,

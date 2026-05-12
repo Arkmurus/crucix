@@ -78,6 +78,77 @@ def test_get_surface_operator_queue_keys_present():
         assert k in q
 
 
+def test_R_F347_hung_subtask_does_not_block_endpoint(monkeypatch):
+    """R-F347: if ONE sub-task hangs, get_surface still returns within
+    SUBTASK_TIMEOUT_SECONDS+grace with that sub-task replaced by its
+    default shape. Other sub-tasks still produce real data.
+
+    Before R-F347 the four sub-tasks ran sequentially; a hung
+    `_resilience_floor` (e.g. Upstash ping that never returned) blocked
+    the whole 30s endpoint timeout and the dashboard rendered all-zeros
+    on the fly→seenode proxy fallthrough.
+    """
+    import time
+    from aria_service.intel import autonomy_surface
+
+    # Force a tight timeout so the test runs fast.
+    monkeypatch.setattr(autonomy_surface, "SUBTASK_TIMEOUT_SECONDS", 0.5)
+
+    async def slow_resilience():
+        # Hang forever — the wait_for must cancel and return defaults
+        await asyncio.sleep(30)
+        return {"verdict": "should_never_see_this"}
+
+    monkeypatch.setattr(autonomy_surface, "_resilience_floor", slow_resilience)
+
+    async def run():
+        return await autonomy_surface.get_surface()
+
+    t0 = time.monotonic()
+    s = asyncio.run(run())
+    elapsed = time.monotonic() - t0
+
+    # Must return well before the 30s endpoint cap — bounded by the
+    # per-subtask timeout (0.5s + a tiny scheduler overhead).
+    assert elapsed < 5.0, f"endpoint must not wait for hung subtask; took {elapsed:.2f}s"
+
+    # The hung sub-task must fall back to defaults.
+    assert s["resilience"]["verdict"] == "unknown"
+    assert s["resilience"]["memory"]["redis_reachable"] is False
+    # The R-F347 marker tags the default so observability sees it.
+    assert s["resilience"].get("_degraded_marker") == "R-F347_subtask_timeout"
+
+    # Other sub-tasks should still have produced their normal shape.
+    assert "autonomous_task_fires" in s["auto_allowed"]
+    assert "total_pending" in s["drafts_awaiting"]
+    assert "oem_slots_total" in s["operator_queue"]
+
+
+def test_R_F347_raising_subtask_falls_back_to_defaults(monkeypatch):
+    """R-F347: if a sub-task raises, get_surface logs and substitutes
+    the default — does NOT propagate the exception to the endpoint."""
+    from aria_service.intel import autonomy_surface
+
+    async def boom():
+        raise RuntimeError("simulated upstream failure")
+
+    monkeypatch.setattr(autonomy_surface, "_operator_queue", boom)
+
+    async def run():
+        return await autonomy_surface.get_surface()
+
+    s = asyncio.run(run())
+
+    # The raising sub-task fell back to the default shape.
+    q = s["operator_queue"]
+    assert q["oem_slots_total"] == 0
+    assert q["oem_slots_filled"] == 0
+    assert q["stale_facts"] == 0
+    # Other panels still produced normal output.
+    assert "autonomous_task_fires" in s["auto_allowed"]
+    assert "providers" in s["resilience"]
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # 2. build_operator_prompt
 # ═══════════════════════════════════════════════════════════════════════
