@@ -4491,7 +4491,20 @@ def _no_data_warning(tool_name: str, target: str, *, blocking: bool = False) -> 
 # was set (intent was detected), regardless of whether `_execute_tool`
 # actually returned useful data. Honest streaming requires the header to
 # reflect tool OUTCOME, not tool INVOCATION.
+#
+# R-F352 (2026-05-12) — verifier-driven coverage extension. First-pass R-F350
+# only caught extract_url + web_search NO-RESULTS shapes. Verifier audit of
+# `_execute_tool` enumerated 9 additional failure shapes (dd_orchestrate
+# FAILED, deep_research FAILED, BLOCKED BY VERIFICATION GATE, REJECTED,
+# REFUSED, INSUFFICIENT_PUBLIC_INTEL, list_tickets UNAVAILABLE,
+# auto_sanctions_screen FAILED, lowercase generic catch-all, NO USABLE DATA
+# RETURNED). Added here. Also constrained marker scan to the FIRST 600
+# chars of context — failure indicators ALWAYS appear in the leading
+# `[TOOL: <name> — <FAILURE_WORD>]` block; this prevents a narrative DD body
+# that quotes "FETCH FAILED on this domain in 2024" from being
+# misclassified as a failure.
 _TOOL_FAILURE_MARKERS: tuple[str, ...] = (
+    # Original R-F350 markers
     "FETCH/EXTRACTION FAILED",
     "FETCH FAILED",
     "EXTRACTION FAILED",
@@ -4503,7 +4516,25 @@ _TOOL_FAILURE_MARKERS: tuple[str, ...] = (
     "NO RESULTS",
     "no results returned",
     "[TOOL: NONE]",
+    # R-F352 additions — coverage gaps surfaced by verifier audit
+    "— FAILED]",
+    "— REJECTED]",
+    "— REFUSED]",
+    "— BLOCKED",
+    "— UNAVAILABLE]",
+    "BLOCKED BY VERIFICATION GATE",
+    "INSUFFICIENT_PUBLIC_INTEL",
+    "NO USABLE DATA RETURNED",
+    "no usable data returned",
+    "— failed:",  # generic catch-all in lowercase
 )
+
+# How much of the head we scan for failure markers. Failure indicators
+# from `_execute_tool` always live in the opening `[TOOL: ...]` block;
+# scanning only the head prevents narrative-body false positives (a
+# successful DD that happens to quote "FETCH FAILED on this domain in
+# 2024" inside its press coverage section).
+_TOOL_OUTCOME_HEAD_CHARS = 600
 
 
 def _classify_tool_outcome(tool_context: str) -> str:
@@ -4513,10 +4544,14 @@ def _classify_tool_outcome(tool_context: str) -> str:
     R-F350: replaces the unconditional 'completed' header with an
     honest signal so the operator-facing stream stays in sync with
     the body.
+
+    R-F352: extended marker coverage + head-only scan (anti-false-positive
+    for narratives that quote failure words).
     """
     if not tool_context or not tool_context.strip():
         return "attempted"
-    if any(m in tool_context for m in _TOOL_FAILURE_MARKERS):
+    head = tool_context[:_TOOL_OUTCOME_HEAD_CHARS]
+    if any(m in head for m in _TOOL_FAILURE_MARKERS):
         return "attempted"
     return "completed"
 

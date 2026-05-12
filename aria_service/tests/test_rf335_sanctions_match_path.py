@@ -278,6 +278,35 @@ def test_rf351_long_token_single_overlap_preserved():
     )
 
 
+def test_rf351_documented_trade_off_short_surname_demoted():
+    """R-F351 documented trade-off — short Latinised surnames
+    (Park/Kim/Lee/Igor/Olga/Omar — all 3-4 chars) ARE demoted when
+    they are the ONLY shared token. Operator can still see the match
+    in per_match[] and escalate manually. Cost calculus: false-positive
+    HARD_STOP (defamation / SAR mis-filing) >> demote-to-info (operator
+    review surfaces real hits).
+
+    This test EXISTS to make the trade-off explicit so future devs
+    don't 'fix' the short-token demote thinking it's a bug.
+    """
+    from aria_service.intel._sanctions_classify import classify_matches
+    matches = [
+        {
+            "name": "Park In-bae",  # different person, same short surname
+            "score": 0.85,
+            "topics": ["sanction"],
+            "lists": ["us_ofac_sdn"],
+        },
+    ]
+    out = classify_matches(matches, query_name="Park Geun-hye")
+    # Demoted by design. If a real Park family OFAC hit is on the
+    # primary screen, operator-side review of per_match[] surfaces it.
+    assert out["worst_severity"] in ("info", "none")
+    # And the match still appears in per_match[] for operator review.
+    assert len(out["per_match"]) == 1
+    assert out["per_match"][0]["name"] == "Park In-bae"
+
+
 def test_rf351_multi_token_overlap_preserved():
     """R-F351: 2+ token overlap always preserves severity — real OFAC
     matches typically share multiple tokens."""
