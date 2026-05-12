@@ -295,8 +295,29 @@ async def _load_index() -> list[dict]:
 
 
 async def _save_index() -> None:
-    if _index_cache is not None:
-        await rs.set_json(INDEX_KEY, _index_cache, ex=TTL_SECONDS)
+    global _index_cache
+    if _index_cache is None:
+        return
+    # R-F374 (2026-05-12) — infinite-memory regression guard. Same pattern
+    # as R-F371 neural_memory. The reasoning-library index can grow to
+    # 50,000 cases (MAX_CASES). If disk has materially more entries than
+    # in-memory cache (e.g., Upstash→SQLite migration just landed a bigger
+    # snapshot), overwriting would silently lose entries. Reload from disk
+    # and skip the write.
+    try:
+        disk_index = await rs.get_json(INDEX_KEY)
+        if isinstance(disk_index, list) and len(disk_index) > max(len(_index_cache), 0) * 1.1:
+            _index_cache = disk_index
+            logger.warning(
+                "[reasoning_library] R-F374 — disk had %d cases but in-memory "
+                "had %d. Reloaded from disk (infinite-memory protection).",
+                len(disk_index), len(_index_cache or []),
+            )
+            return
+    except Exception as _guard_err:
+        logger.debug("[reasoning_library] R-F374 disk-check failed (non-fatal): %s", _guard_err)
+
+    await rs.set_json(INDEX_KEY, _index_cache, ex=TTL_SECONDS)
 
 
 async def _load_meta() -> dict:

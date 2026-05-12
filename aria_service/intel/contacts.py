@@ -115,8 +115,32 @@ def _seed() -> None:
 
 
 async def _save() -> None:
-    if _cache:
-        await rs.set_json(KEY, _cache, ex=90 * 86400)
+    if not _cache:
+        return
+    # R-F374 (2026-05-12) — infinite-memory regression guard. Same pattern
+    # as R-F371 neural_memory. If disk has materially more contacts than
+    # in-memory cache, a concurrent writer (e.g., Upstash→SQLite migration)
+    # populated the disk while we held a stale cache. Overwriting would
+    # silently lose entries (e.g., user-added decision-makers). Reload
+    # from disk and skip the write.
+    try:
+        disk_state = await rs.get_json(KEY)
+        if isinstance(disk_state, dict):
+            disk_contacts = disk_state.get("contacts") if isinstance(disk_state.get("contacts"), list) else []
+            mem_contacts = _cache.get("contacts") if isinstance(_cache.get("contacts"), list) else []
+            if len(disk_contacts) > max(len(mem_contacts), 0) * 1.1:
+                _cache.clear()
+                _cache.update(disk_state)
+                logger.warning(
+                    "[contacts] R-F374 — disk had %d contacts but in-memory had "
+                    "%d. Reloaded from disk (infinite-memory protection).",
+                    len(disk_contacts), len(mem_contacts),
+                )
+                return
+    except Exception as _guard_err:
+        logger.debug("[contacts] R-F374 disk-check failed (non-fatal): %s", _guard_err)
+
+    await rs.set_json(KEY, _cache, ex=90 * 86400)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────

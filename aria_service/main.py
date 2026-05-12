@@ -50,7 +50,7 @@ logger = logging.getLogger("aria.main")
 # and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 # alone couldn't tell us whether the deploy had picked up. Same pattern
 # now also installed on seenode (server.mjs CRUCIX_BUILD_REV).
-ARIA_BUILD_REV = "R-F372 · 2026-05-12 · adds R-F372 (/health/live fastpath, fly.toml switched) + R-F371 (neural regression guard) on top of R-F357/F360/F361/F363/F367"
+ARIA_BUILD_REV = "R-F374 · 2026-05-12 · adds R-F374 (regression guard extended to competitors/contacts/reasoning_library) + R-F372 (/health/live) + R-F371 (neural guard)"
 
 
 @asynccontextmanager
