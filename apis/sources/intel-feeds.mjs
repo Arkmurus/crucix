@@ -205,37 +205,72 @@ export async function fetchTradeFLows() {
   const perPairStatus = [];
 
   try {
+    // R-F353/R-F354 (2026-05-12) — IMF SDMX is now flaking at the
+    // network layer ("fetch failed", pre-HTTP). R-F344's browser-
+    // fingerprint headers don't help when the connection itself is
+    // dropped. Two upgrades:
+    //   1) Capture error.cause/code/name so the diagnostic line names
+    //      the actual failure mode (ENOTFOUND vs ECONNRESET vs timeout)
+    //   2) 3-attempt retry (1s/3s exponential backoff) + try mirror host
+    //      sdmx.imf.org on attempt 3
+    // Both seenode-side (this file). Goal: turn `err:fetch failed` into
+    // either `err:ENOTFOUND` (DNS/egress issue — operator action) or
+    // `ok_yoy` (transient, recovered by retry).
+    const sdmxHosts = [
+      'https://dataservices.imf.org',
+      'https://dataservices.imf.org',  // same host, second attempt = transient retry
+      'https://sdmx.imf.org',          // alternative host (best-effort mirror)
+    ];
+    const browserHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+                    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+                    'Chrome/131.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+      'Accept-Encoding': 'gzip, deflate',  // R-F353: br was undici-flaky
+      'Connection': 'keep-alive',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'none',
+      'DNT': '1',
+    };
+
     for (const pair of COUNTRY_PAIRS.slice(0, 4)) { // limit calls
       let status = 'ok';
       try {
         // IMF DOTS compact data: exports (TXG_FOB_USD) between pair.
         // R-F271: 5-year window for higher chance of ≥2 observations.
-        const url = `https://dataservices.imf.org/REST/SDMX_JSON.svc/CompactData/DOT/A.${pair.reporter}.${pair.partner}.TXG_FOB_USD.?startPeriod=${year - 4}&endPeriod=${year}`;
-        // R-F344 (2026-05-12): R-F271's diagnostic confirmed per-pair was
-        // failing. The bare `CrucixIntelligence/1.0` UA is a known
-        // anti-bot tripwire on Cloudflare/Akamai (same pattern as R-F273
-        // fixed for AfDB/SEACE on the Python side). Apply the
-        // browser-fingerprint header set + 20s timeout (IMF SDMX endpoint
-        // is slow on EM corridors).
-        const res = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-                          'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-                          'Chrome/131.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'none',
-            'DNT': '1',
-          },
-          signal: AbortSignal.timeout(20000),
-        });
-        if (!res.ok) {
-          status = `http_${res.status}`;
+        const path = `/REST/SDMX_JSON.svc/CompactData/DOT/A.${pair.reporter}.${pair.partner}.TXG_FOB_USD.?startPeriod=${year - 4}&endPeriod=${year}`;
+
+        // R-F354: retry+fallback loop with diagnostic-rich error capture.
+        let res = null;
+        let lastFetchErr = null;
+        for (let attempt = 0; attempt < sdmxHosts.length; attempt++) {
+          if (attempt > 0) {
+            // 1s, 3s backoff before retries
+            const backoff = attempt === 1 ? 1000 : 3000;
+            await new Promise(r => setTimeout(r, backoff));
+          }
+          try {
+            res = await fetch(sdmxHosts[attempt] + path, {
+              headers: browserHeaders,
+              signal: AbortSignal.timeout(20000),
+            });
+            if (res.ok) break;
+            // 4xx/5xx — capture but continue to next attempt
+            lastFetchErr = `http_${res.status}`;
+          } catch (fetchErr) {
+            // R-F353: enrich diagnostic — capture node/undici details
+            // so 'fetch failed' becomes 'ENOTFOUND' / 'ECONNRESET' / etc.
+            const cause = fetchErr?.cause || {};
+            const detail = (cause.code || cause.errno || fetchErr?.code || fetchErr?.name || fetchErr?.message || 'unknown').toString();
+            lastFetchErr = `fetch_${detail.slice(0, 40)}`;
+            res = null;
+          }
+        }
+        if (!res || !res.ok) {
+          status = lastFetchErr || 'fetch_unknown';
           perPairStatus.push(`${pair.label}=${status}`);
           continue;
         }
@@ -294,7 +329,15 @@ export async function fetchTradeFLows() {
       } catch (innerErr) {
         // R-F271: named catch with logging so transient API errors no
         // longer silently drop the corridor.
-        status = `err:${(innerErr && innerErr.message || 'unknown').slice(0, 60)}`;
+        // R-F353: enrich diagnostic — capture node/undici error code
+        // (ENOTFOUND, ECONNRESET, etc.) instead of generic message.
+        const cause = innerErr?.cause || {};
+        const detail = (
+          cause.code || cause.errno ||
+          innerErr?.code || innerErr?.name ||
+          innerErr?.message || 'unknown'
+        ).toString();
+        status = `err:${detail.slice(0, 60)}`;
         perPairStatus.push(`${pair.label}=${status}`);
       }
     }
