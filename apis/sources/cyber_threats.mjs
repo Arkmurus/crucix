@@ -3,6 +3,8 @@
 // Sources: NVD (NIST), ransomware.live, CISA (supplementary)
 // Free — no API keys required
 
+import { enrichFetchError } from '../utils/fetch_error.mjs';
+
 const NVD_API              = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
 // ransomware.live is consistently unreachable from cloud IPs — removed.
 // ransomwatch (GitHub-hosted) is the sole reliable source.
@@ -92,7 +94,7 @@ async function fetchCriticalCVEs() {
 
     console.log(`[CVE] ${updates.length} critical CVEs (CVSS >= 9.0)`);
   } catch (err) {
-    console.warn('[CVE] NVD fetch failed:', err.message);
+    console.warn('[CVE] NVD fetch failed:', enrichFetchError(err));
   }
   return updates;
 }
@@ -130,7 +132,7 @@ async function fetchRansomwareVictims() {
     }
     if (updates.length > 0) console.log(`[Ransomware] ${updates.length} priority-sector victims (ransomwatch)`);
   } catch (err) {
-    console.warn('[Ransomware] ransomwatch failed:', err.message);
+    console.warn('[Ransomware] ransomwatch failed:', enrichFetchError(err));
   }
   return updates;
 }

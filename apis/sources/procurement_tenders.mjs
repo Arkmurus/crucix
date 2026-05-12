@@ -11,6 +11,7 @@
 
 import '../utils/env.mjs';
 import { withConcurrency, shouldSkip, recordFailure, recordSuccess } from '../../lib/util/throttle.mjs';
+import { enrichFetchError } from '../utils/fetch_error.mjs';
 
 const RSS2JSON   = 'https://api.rss2json.com/v1/api.json?rss_url=';
 const ALLORIGINS = 'https://api.allorigins.win/get?url=';
@@ -200,7 +201,7 @@ async function fetchEUTED() {
       console.warn(`[Procurement] EU TED v3 HTTP ${res.status} — ${errBody.slice(0, 160)}`);
     }
   } catch (e) {
-    console.warn(`[Procurement] EU TED v3 fetch failed: ${e.message}`);
+    console.warn(`[Procurement] EU TED v3 fetch failed: ${enrichFetchError(e)}`);
   }
 
   // Fallback: Google News for EU defense tenders
@@ -210,7 +211,7 @@ async function fetchEUTED() {
     console.log(`[Procurement] EU TED (Google News fallback): ${items.length} items`);
     return items;
   } catch (e) {
-    console.warn(`[Procurement] EU TED failed: ${e.message}`);
+    console.warn(`[Procurement] EU TED failed: ${enrichFetchError(e)}`);
     return [];
   }
 }
@@ -281,7 +282,7 @@ async function fetchUNProcurement() {
     console.log(`[Procurement] UN: ${items.length} items`);
     return items.slice(0, 8);
   } catch (e) {
-    console.warn(`[Procurement] UN procurement failed: ${e.message}`);
+    console.warn(`[Procurement] UN procurement failed: ${enrichFetchError(e)}`);
     return [];
   }
 }
@@ -343,7 +344,7 @@ async function fetchWorldBankProcurement() {
     console.log(`[Procurement] World Bank: ${items.length} Africa notices (from ${rows.length} scanned)`);
     return items;
   } catch (e) {
-    console.warn(`[Procurement] World Bank failed: ${e.message}`);
+    console.warn(`[Procurement] World Bank failed: ${enrichFetchError(e)}`);
     return [];
   }
 }
@@ -374,7 +375,7 @@ function withTimeout(label, promiseFactory, ms = 30000) {
         if (done) return;
         done = true;
         clearTimeout(timer);
-        console.warn(`[Procurement] ${label} failed: ${err.message}`);
+        console.warn(`[Procurement] ${label} failed: ${enrichFetchError(err)}`);
         resolve([]);
       });
   });
