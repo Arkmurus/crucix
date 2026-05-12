@@ -8,7 +8,7 @@
 // commit matches what's in git. Diagnostic added after R-F353 was committed
 // and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 // alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F377 · 2026-05-12 · adds R-F377 (schema/DTD URL filter) + R-F373 (Brave removed) + R-F370 + R-F368/F369 + earlier R-F353/F354/F355/F356/F358/F360';
+const CRUCIX_BUILD_REV = 'R-F380 · 2026-05-12 · adds R-F380 (Telegram throttle Upstash-free) + R-F377 (schema filter) + R-F373 (Brave removed) + R-F370 + R-F368/F369';
 
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
