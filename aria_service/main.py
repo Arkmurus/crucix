@@ -50,7 +50,7 @@ logger = logging.getLogger("aria.main")
 # and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 # alone couldn't tell us whether the deploy had picked up. Same pattern
 # now also installed on seenode (server.mjs CRUCIX_BUILD_REV).
-ARIA_BUILD_REV = "R-F360 · 2026-05-12 · includes R-F357/F360 (metacog JSON salvage + max_tokens + build marker)"
+ARIA_BUILD_REV = "R-F367 · 2026-05-12 · R-F357/F360/F361/F363/F367 (metacog salvage + build marker + cycle log + UNGM diag + RAG dedup noise)"
 
 
 @asynccontextmanager
@@ -562,17 +562,24 @@ async def lifespan(app: FastAPI):
                     external = result.get("errors_in_external_files", {}) or {}
                     mod_sum = sum(modifiable.values())
                     ext_sum = sum(external.values())
-                    # Top-3 external offenders for at-a-glance triage
+                    below_sum = result.get("errors_below_threshold", 0)
+                    # R-F361 (2026-05-12): renamed "external" → "out-of-scope"
+                    # in the log because every file under the prior label is
+                    # in our codebase, just outside the MODIFIABLE_FILES
+                    # auto-fix allowlist. Surfaced the third bucket (errors
+                    # in below-threshold files) so total = sum-of-three.
+                    # Underlying dict keys preserved for backward compat.
                     top_external = sorted(external.items(), key=lambda kv: -kv[1])[:3]
                     top_external_str = ", ".join(f"{p}={n}" for p, n in top_external) or "none"
                     logger.info(
                         "[Self-Improve] Cycle complete: %d errors total "
-                        "(%d in modifiable files, %d in external files), "
-                        "%d bugs auto-fixable, %d auto-deployed. "
-                        "Top external offenders: %s",
+                        "(%d auto-fixable · %d out-of-scope · %d below-threshold), "
+                        "%d bugs detected, %d auto-deployed. "
+                        "Top out-of-scope offenders: %s",
                         result.get("errors_analysed", 0),
                         mod_sum,
                         ext_sum,
+                        below_sum,
                         result.get("bugs_detected", 0),
                         result.get("auto_deployed", 0),
                         top_external_str,

@@ -436,10 +436,25 @@ async def ingest_document(
                     keep_metas.append(metadatas[i])
                     keep_docs.append(documents[i])
                 if skipped_dup > 0:
-                    logger.info(
-                        "[rag] R-F225 dedup: skipping %d of %d chunks (content already in RAG) for %s",
-                        skipped_dup, len(chunks), source,
-                    )
+                    # R-F367 (2026-05-12): single-chunk all-duplicate skips
+                    # were producing ~50+ INFO lines per research cycle
+                    # (live evidence fly logs 2026-05-12 11:30:55-11:31:08:
+                    # 50+ `skipping 1 of 1 chunks` lines for every
+                    # web_search-derived ingest). Downgrade those to DEBUG —
+                    # they're operationally uninteresting (100% skip = nothing
+                    # learned, common when web_search hits previously-seen
+                    # content). Multi-chunk partial dedups stay at INFO
+                    # since they indicate new + duplicate content mixed.
+                    if skipped_dup == len(chunks) == 1:
+                        logger.debug(
+                            "[rag] R-F225 dedup: 1 of 1 chunks already in RAG for %s",
+                            source,
+                        )
+                    else:
+                        logger.info(
+                            "[rag] R-F225 dedup: skipping %d of %d chunks (content already in RAG) for %s",
+                            skipped_dup, len(chunks), source,
+                        )
                 ids, metadatas, documents = keep_ids, keep_metas, keep_docs
         if not ids:
             return {

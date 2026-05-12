@@ -921,6 +921,67 @@ class TestSelfImproveObservability:
             assert "aria_service/intel/transient.py" not in mod
             assert "aria_service/intel/transient.py" not in ext
             assert result["files_skipped_below_threshold"] == 1
+            # R-F361 (2026-05-12): the new errors_below_threshold key must
+            # count ERRORS (2 from transient.py), not files. Combined with
+            # mod_sum + ext_sum it must reconcile to errors_analysed so
+            # the cycle log math `total = bucket1 + bucket2 + bucket3`
+            # adds up. Pre-fix the log showed `105 = 0 + 99` and the
+            # missing 6 errors silently lived in below-threshold files.
+            assert "errors_below_threshold" in result
+            assert result["errors_below_threshold"] == 2
+            mod_sum = sum(mod.values())  # 4 (contacts)
+            ext_sum = sum(ext.values())  # 4+4 = 8
+            total = result["errors_analysed"]  # 4+4+4+2 = 14
+            assert mod_sum + ext_sum + result["errors_below_threshold"] == total, (
+                f"R-F361 reconciliation: {mod_sum} + {ext_sum} + {result['errors_below_threshold']} != {total}"
+            )
+        finally:
+            self_improve.get_recent_errors = original_get_errors
+            self_improve._diagnose_and_fix = original_diagnose
+
+    def test_rf361_reconciles_when_errors_below_3(self):
+        """R-F361 polish (verifier pass-1 finding): when errors_analysed
+        < 3, the LLM-diagnosis loop is skipped (no point fixing single
+        warnings) but bucket counting must still happen so the cycle log
+        math reconciles. Pre-patch the `if >= 3` gate covered both."""
+        from aria_service.intel import self_improve
+
+        # 2 errors total — below LLM-diagnosis threshold but must still
+        # appear in errors_below_threshold so total reconciles.
+        fake_errors = [
+            {"file": "aria_service/intel/contacts.py", "type": "warn"},
+            {"file": "aria_service/intel/student.py", "type": "warn"},
+        ]
+        original_get_errors = self_improve.get_recent_errors
+        original_diagnose = self_improve._diagnose_and_fix
+
+        async def fake_get_errors(hours=6):
+            return fake_errors
+
+        async def fake_diagnose(llm, fp, errs):
+            return None
+
+        self_improve.get_recent_errors = fake_get_errors
+        self_improve._diagnose_and_fix = fake_diagnose
+
+        class FakeLLM:
+            is_configured = True
+
+        try:
+            async def _t():
+                return await self_improve.autonomous_improvement_cycle(FakeLLM())
+
+            result = asyncio.run(_t())
+            assert result["errors_analysed"] == 2
+            mod_sum = sum(result["errors_in_modifiable_files"].values())
+            ext_sum = sum(result["errors_in_external_files"].values())
+            below = result["errors_below_threshold"]
+            # 1 modifiable file + 1 external file, each with 1 error,
+            # both below threshold → both should land in below-threshold.
+            assert mod_sum == 0
+            assert ext_sum == 0
+            assert below == 2
+            assert mod_sum + ext_sum + below == result["errors_analysed"]
         finally:
             self_improve.get_recent_errors = original_get_errors
             self_improve._diagnose_and_fix = original_diagnose

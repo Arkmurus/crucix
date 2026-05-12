@@ -840,6 +840,28 @@ async def _crawl_ungm(client: httpx.AsyncClient, max_results: int = 20) -> list[
                 len(html), len(matches), matched_pattern_idx,
             )
         else:
+            # R-F363 (2026-05-12): R-F274 added 4 patterns + a 200-char
+            # diagnostic. Live evidence 2026-05-12 11:30:45Z showed the
+            # sample is the static nav menu (`<a href="/Public/Notice">
+            # Procurement Opportunities</a>`), confirming the notice
+            # listings are JS-rendered and never in the raw HTML. Probed
+            # `/Public/Notice/SearchNoticeAsync` (302→FileNotFound) and
+            # `/Public/Notice/Search` (500) so the AJAX endpoint name
+            # isn't obvious without inspecting the live JS bundle.
+            # Pending Playwright fallback (R-F362), enrich the diagnostic:
+            # count all /Public/Notice/* href substrings regardless of
+            # suffix shape + check whether the page embeds noticeId-keyed
+            # JSON (common ASP.NET initial-state baking pattern).
+            try:
+                notice_href_count = len(re.findall(
+                    r'href=["\']/Public/Notice/[^"\']+', html, re.IGNORECASE,
+                ))
+                embedded_json_count = len(re.findall(
+                    r'"noticeId"\s*[:=]', html, re.IGNORECASE,
+                ))
+            except Exception:
+                notice_href_count = -1
+                embedded_json_count = -1
             # Diagnostic: log a 200-char window around the first "Notice"
             # occurrence so the next iteration can target the live HTML.
             sample = ""
@@ -854,8 +876,12 @@ async def _crawl_ungm(client: httpx.AsyncClient, max_results: int = 20) -> list[
                 sample = "(diagnostic-window-build-failed)"
             logger.warning(
                 "[UNGM] Page fetched (%d chars) but 0 notice links matched any of %d patterns. "
-                "Diagnostic sample around first 'Notice': %r",
-                len(html), len(notice_patterns), sample or "(not found)",
+                "R-F363 diag: %d /Public/Notice/* hrefs found (any shape), "
+                "%d embedded noticeId-keyed JSON entries. "
+                "Sample around first 'Notice': %r",
+                len(html), len(notice_patterns),
+                notice_href_count, embedded_json_count,
+                sample or "(not found)",
             )
 
         # Strip inner HTML tags from title capture (anchors may wrap a span)

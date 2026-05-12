@@ -951,6 +951,13 @@ async def autonomous_improvement_cycle(llm) -> dict:
         "errors_in_modifiable_files": {},
         "errors_in_external_files": {},
         "files_skipped_below_threshold": 0,
+        # R-F361 (2026-05-12) — counter mismatch reconciliation.
+        # Pre-fix the cycle log read `total = modifiable + external` but
+        # `files_skipped_below_threshold` was a FILE count, not an ERROR
+        # count, so the math `0 + 99 != 105` left 6 errors unaccounted.
+        # New key counts the ERRORS in below-threshold files; together
+        # with modifiable_sum + external_sum the total now reconciles.
+        "errors_below_threshold": 0,
     }
 
     # ── Step 1: Analyse recent errors ────────────────────────────────────
@@ -958,9 +965,16 @@ async def autonomous_improvement_cycle(llm) -> dict:
         recent_errors = await get_recent_errors(hours=6)
         results["errors_analysed"] = len(recent_errors)
 
-        if len(recent_errors) >= 3:
-            # Group errors by file
-            error_groups = {}
+        # R-F361 (2026-05-12): bucket counting moved OUTSIDE the `>= 3`
+        # gate. The LLM-diagnosis loop still only runs when total >= 3
+        # (no point burning a Claude call on a single noise warning),
+        # but counting errors into the three reconciliation buckets must
+        # happen for ALL non-empty error sets so the cycle log's math
+        # `total = auto-fixable + out-of-scope + below-threshold` holds
+        # for low-error cycles too. Pre-fix-of-fix the math was broken
+        # when 1 ≤ recent_errors < 3 (verifier pass-1 finding).
+        error_groups: dict[str, list] = {}
+        if recent_errors:
             for err in recent_errors:
                 key = err.get("file", "unknown")
                 if key not in error_groups:
@@ -973,12 +987,16 @@ async def autonomous_improvement_cycle(llm) -> dict:
             for file_path, file_errors in error_groups.items():
                 if len(file_errors) < 3:
                     results["files_skipped_below_threshold"] += 1
+                    # R-F361: also track the ERROR count from these files
+                    # so the cycle log's three buckets sum to errors_analysed.
+                    results["errors_below_threshold"] += len(file_errors)
                     continue
                 if file_path in MODIFIABLE_FILES:
                     results["errors_in_modifiable_files"][file_path] = len(file_errors)
                 else:
                     results["errors_in_external_files"][file_path] = len(file_errors)
 
+        if len(recent_errors) >= 3:
             # For files with 3+ errors, ask LLM to diagnose and fix
             for file_path, file_errors in error_groups.items():
                 if len(file_errors) < 3:
