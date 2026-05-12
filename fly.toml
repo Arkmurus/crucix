@@ -11,6 +11,27 @@ primary_region = 'lhr'
   auto_start_machines = true
   min_machines_running = 1
 
+# R-F316 (2026-05-11) — cold-start probe race fix. Every redeploy logged
+# `[PC01] instance refused connection. is your app listening on 0.0.0.0:8000?`
+# at ~T+1s after machine create, because fly's load balancer probed the
+# port BEFORE uvicorn had bound to 0.0.0.0:8000 (typically T+4s on this
+# stack: init → mount /data → python -m aria_service.main → uvicorn bind).
+# Result: 3-4 second window per deploy where the LB returned "instance
+# refused" to clients, and every deploy emitted a misleading WARNING.
+#
+# Fix: add an explicit TCP healthcheck with a 30s grace_period. The LB
+# now waits 30s before probing (more than enough for uvicorn cold boot
+# even with sentence-transformers + chromadb + 23k knowledge facts +
+# 22k ledger signals to hydrate). Once the first TCP probe succeeds,
+# traffic flows normally. Reduces deploy-log noise to zero and closes
+# the brief 4-second window where clients saw connection-refused.
+[[http_service.checks]]
+  grace_period = "30s"
+  interval = "15s"
+  method = "GET"
+  timeout = "10s"
+  path = "/api/aria/health"
+
 # ── Persistent storage for chromadb (RAG store) ─────────────────────────────
 # Past incident 2026-04-09: chromadb was running with no volume mounted at
 # /data, so _resolve_rag_path() in rag_store.py fell back to /tmp/aria_rag
