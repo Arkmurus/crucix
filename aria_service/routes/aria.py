@@ -15030,8 +15030,16 @@ async def health_check_ep():
         if scaffolded_core == len(core_breakdown) and scaffolded_core > 0:
             degraded_reasons.append("core_mastery_all_scaffolded")
     healthy = not degraded_reasons
+    # R-F360 (2026-05-12): expose the deploy marker so curling /health
+    # confirms which commit is live on fly.io. Pulled from main.py via a
+    # lazy import to avoid a circular module load at route import time.
+    try:
+        from ..main import ARIA_BUILD_REV as _build_rev
+    except Exception:
+        _build_rev = "unknown"
     return {
         "status": "healthy" if healthy else "degraded",
+        "build_rev": _build_rev,
         "degraded_reasons": degraded_reasons,
         "operating_mode": mode,
         "infra": {"redis": redis_ok, "rag": rag_ok},

@@ -43,11 +43,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger("aria.main")
 
+# R-F360 (2026-05-12): deploy marker. Bumped manually each commit that
+# touches fly.io-deployed surfaces (aria_service/*). Logged at lifespan
+# startup + exposed in /api/aria/health so we can confirm the deployed
+# commit matches what's in git. Diagnostic added after R-F353 was committed
+# and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
+# alone couldn't tell us whether the deploy had picked up. Same pattern
+# now also installed on seenode (server.mjs CRUCIX_BUILD_REV).
+ARIA_BUILD_REV = "R-F360 · 2026-05-12 · includes R-F357/F360 (metacog JSON salvage + max_tokens + build marker)"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
     logger.info("ARIA Service starting...")
+    logger.info("ARIA Build: %s", ARIA_BUILD_REV)
 
     # Connect Redis
     await rs.connect(settings.redis_url)
