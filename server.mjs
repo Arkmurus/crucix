@@ -43,7 +43,7 @@ import { generateSourceModule, generateSourceFix, stageModule, getStagedModules,
 import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRestartFlag, triggerGracefulRestart, getAutoManagedModules } from './lib/self/updater.mjs';
 import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, createDeal, recordOutcome, formatBDSummaryForTelegram, initBDStore } from './lib/self/bd_intelligence.mjs';
 import { screenDeal, getProductCategories } from './lib/compliance/screen.mjs';
-import { redisGet, redisSet, redisDel } from './lib/persist/store.mjs';
+import { PersistStore } from './lib/persist/store.mjs';
 import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore } from './lib/auth/users.mjs';
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { createReportsRouter } from './lib/reports/routes.mjs';
@@ -1337,8 +1337,32 @@ app.get('/api/compliance/products', requireAuth, (req, res) => {
 });
 
 // ── Shareable brief ───────────────────────────────────────────────────────────
-// In-memory fallback for share tokens when Redis not configured
-const _shareStore = new Map();
+// R-F384: file-based share-token store (was Upstash via redisGet/redisSet).
+// Expired tokens are pruned opportunistically on every write so the file
+// never grows unbounded across the 7-day TTL window.
+const _shareStore = new PersistStore(
+  'crucix:share_tokens',
+  join(process.cwd(), 'data', 'share_tokens.json'),
+  () => ({}),
+);
+await _shareStore.init();
+
+function _shareSet(token, payload) {
+  const all = _shareStore.read() || {};
+  const now = Date.now();
+  for (const t of Object.keys(all)) {
+    if (!all[t]?.expiresAt || all[t].expiresAt < now) delete all[t];
+  }
+  all[token] = payload;
+  _shareStore.write(all);
+}
+
+function _shareGet(token) {
+  const all = _shareStore.read() || {};
+  const entry = all[token];
+  if (!entry || !entry.expiresAt || Date.now() > entry.expiresAt) return null;
+  return entry;
+}
 
 app.post('/api/share/brief', requireAuth, async (req, res) => {
   const bd = getBDIntelligence();
@@ -1348,12 +1372,7 @@ app.post('/api/share/brief', requireAuth, async (req, res) => {
   const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
   const payload  = { bd, createdAt: new Date().toISOString(), expiresAt };
 
-  try {
-    await redisSet(`crucix:share:${token}`, payload, 7 * 24 * 3600);
-  } catch {
-    _shareStore.set(token, payload);
-    setTimeout(() => _shareStore.delete(token), 7 * 24 * 60 * 60 * 1000);
-  }
+  _shareSet(token, payload);
 
   const host = req.get('host');
   const proto = req.headers['x-forwarded-proto'] || 'https';
@@ -1364,12 +1383,8 @@ app.get('/s/:token', async (req, res) => {
   const { token } = req.params;
   if (!/^[a-z0-9]{20,30}$/.test(token)) return res.status(400).send('Invalid token');
 
-  let payload;
-  try {
-    payload = await redisGet(`crucix:share:${token}`);
-  } catch {}
-  if (!payload) payload = _shareStore.get(token);
-  if (!payload || Date.now() > payload.expiresAt) return res.status(404).send('<h2>Brief not found or expired</h2>');
+  const payload = _shareGet(token);
+  if (!payload) return res.status(404).send('<h2>Brief not found or expired</h2>');
 
   const { bd } = payload;
   const hot  = (bd.brain?.salesLeads || []).filter(l => l.urgency === 'HOT');
@@ -1689,21 +1704,18 @@ app.get('/api/brain/approach/quick', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/brain/conference/calendar', requireAuth, async (req, res) => {
-  // Return conferences from Redis or static data
-  try {
-    const stored = await redisGet('crucix:conferences:calendar');
-    res.json(stored || { upcoming: [] });
-  } catch { res.json({ upcoming: [] }); }
+// R-F384: conferences calendar + brief endpoints — Upstash reads removed.
+// These keys were never written by any code path (grep confirms zero writers),
+// so the redisGet was always returning null and the endpoints fell through to
+// these defaults. Drop the dead remote read; behavior unchanged.
+app.get('/api/brain/conference/calendar', requireAuth, (req, res) => {
+  res.json({ upcoming: [] });
 });
 
-app.get('/api/brain/conference/brief', requireAuth, async (req, res) => {
+app.get('/api/brain/conference/brief', requireAuth, (req, res) => {
   const { name } = req.query;
   if (!name) return res.status(400).json({ error: 'name required' });
-  try {
-    const stored = await redisGet(`crucix:conferences:brief:${name.toLowerCase().replace(/\s+/g, '_')}`);
-    res.json(stored || { name, dates: 'TBC', location: 'TBC', arkmurus_objectives: [], must_meet: [] });
-  } catch { res.json({ name, dates: 'TBC', location: 'TBC', arkmurus_objectives: [], must_meet: [] }); }
+  res.json({ name, dates: 'TBC', location: 'TBC', arkmurus_objectives: [], must_meet: [] });
 });
 
 // ── ARIA endpoints — proxy to Python aria_service ──
@@ -1805,19 +1817,17 @@ async function pushSweepToARIA(data) {
 }
 
 app.get('/api/aria/identity', requireAuth, async (req, res) => {
+  // R-F384: removed dead Upstash fallback (crucix:brain:aria:identity).
+  // fly.io migrated to SQLite under R-F261, so the Upstash key was stale; the
+  // ariaProxy chain to the Python service is the live source. When the proxy
+  // can't reach fly.io, return a static identity card.
   ariaProxy(req, res, '/api/aria/identity', { fallback: async () => {
-    try {
-      const identity = await redisGet('crucix:brain:aria:identity');
-      if (!identity) {
-        return res.json({
-          name: 'ARIA', full_name: 'Arkmurus Research Intelligence Agent',
-          status: llmProvider?.isConfigured ? 'online' : 'no_llm', mode: 'local',
-          llm_provider: llmProvider?.name || null, age_days: 0, total_sweeps: 0, total_leads: 0,
-          domain: 'Defence procurement, Lusophone Africa, Export controls',
-        });
-      }
-      res.json({ ...identity, status: 'online', mode: 'brain' });
-    } catch { res.json({ name: 'ARIA', status: 'unavailable' }); }
+    res.json({
+      name: 'ARIA', full_name: 'Arkmurus Research Intelligence Agent',
+      status: llmProvider?.isConfigured ? 'online' : 'no_llm', mode: 'local',
+      llm_provider: llmProvider?.name || null, age_days: 0, total_sweeps: 0, total_leads: 0,
+      domain: 'Defence procurement, Lusophone Africa, Export controls',
+    });
   }});
 });
 
