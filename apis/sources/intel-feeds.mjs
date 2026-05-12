@@ -211,15 +211,20 @@ export async function fetchTradeFLows() {
     // dropped. Two upgrades:
     //   1) Capture error.cause/code/name so the diagnostic line names
     //      the actual failure mode (ENOTFOUND vs ECONNRESET vs timeout)
-    //   2) 3-attempt retry (1s/3s exponential backoff) + try mirror host
-    //      sdmx.imf.org on attempt 3
-    // Both seenode-side (this file). Goal: turn `err:fetch failed` into
-    // either `err:ENOTFOUND` (DNS/egress issue — operator action) or
-    // `ok_yoy` (transient, recovered by retry).
+    //   2) 2-attempt retry on the canonical host with 1s backoff —
+    //      handles transient network failures (TLS hiccup, single-tick
+    //      DNS blip) without burning sweep budget.
+    //
+    // R-F356 (2026-05-12) — verifier-driven correction. The first cut
+    // of R-F354 tried `sdmx.imf.org` as a 3rd-attempt mirror; live
+    // probe confirmed that host resolves (HTTP 200 on root) but does
+    // NOT serve `/REST/SDMX_JSON.svc/CompactData/DOT/...` (returns 404).
+    // It is not a SDMX mirror, it is a different IMF web property.
+    // Attempt 3 was ~23s of dead latency × 4 pairs = ~92s of wasted
+    // sweep budget per cycle in the worst case. Dropped.
     const sdmxHosts = [
       'https://dataservices.imf.org',
-      'https://dataservices.imf.org',  // same host, second attempt = transient retry
-      'https://sdmx.imf.org',          // alternative host (best-effort mirror)
+      'https://dataservices.imf.org',  // retry on same host for transient blips
     ];
     const browserHeaders = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
@@ -243,14 +248,14 @@ export async function fetchTradeFLows() {
         // R-F271: 5-year window for higher chance of ≥2 observations.
         const path = `/REST/SDMX_JSON.svc/CompactData/DOT/A.${pair.reporter}.${pair.partner}.TXG_FOB_USD.?startPeriod=${year - 4}&endPeriod=${year}`;
 
-        // R-F354: retry+fallback loop with diagnostic-rich error capture.
+        // R-F354 + R-F356: 2-attempt retry on canonical host with 1s
+        // backoff. Diagnostic-rich error capture via R-F353 unwrap.
         let res = null;
         let lastFetchErr = null;
         for (let attempt = 0; attempt < sdmxHosts.length; attempt++) {
           if (attempt > 0) {
-            // 1s, 3s backoff before retries
-            const backoff = attempt === 1 ? 1000 : 3000;
-            await new Promise(r => setTimeout(r, backoff));
+            // 1s backoff before the single retry
+            await new Promise(r => setTimeout(r, 1000));
           }
           try {
             res = await fetch(sdmxHosts[attempt] + path, {
