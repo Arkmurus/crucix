@@ -198,6 +198,34 @@ test('R-F370: blocks alternative LinkedIn media-CDN hostnames', () => {
   assert.equal(urls.length, 0, 'all LinkedIn media-CDN paths must be filtered');
 });
 
+test('R-F377: drops schema/DTD URLs (w3.org DTDs, XSD, XML)', () => {
+  // Live evidence 2026-05-12 13:43:02 BST: ARIA wasted ~11s trying to
+  // read http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd (403 then
+  // archive 429). Schema URLs are never articles. Same logic as
+  // image extensions — just dropped at the URL-extraction step.
+  const rawBody = [
+    'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd',
+    'https://example.com/schemas/order.xsd',
+    'https://example.com/data/feed.xml',
+    'https://example.com/icons/favicon.ico',
+    'https://example.com/fonts/roboto.woff2',
+    'https://news.example.com/genuine-defence-procurement-article-with-padding',
+  ].join('\n');
+  const urls = _extractArticleUrls({ textContent: '', rawBody });
+  assert.equal(urls.length, 1, `Expected 1 URL (genuine), got ${urls.length}: ${JSON.stringify(urls)}`);
+  assert.match(urls[0], /genuine-defence-procurement-article/);
+});
+
+test('R-F377: drops schema URLs even with query strings', () => {
+  const rawBody = [
+    'https://example.com/feed.xml?id=12345&utm_source=newsletter',
+    'https://example.com/schema.xsd?v=2',
+    'https://news.example.com/genuine-article-about-defence-procurement-2026',
+  ].join('\n');
+  const urls = _extractArticleUrls({ textContent: '', rawBody });
+  assert.equal(urls.length, 1, 'extension+query must still be filtered');
+});
+
 test('R-F370: does NOT over-filter static.licdn.com (JS/CSS bundle hashes occasionally have content)', () => {
   // Live evidence 12:42:56 BST: static.licdn.com/aero-v1/sc/h/<hash>
   // returned 3 chunks of ingestable content. R-F370 must NOT block this
