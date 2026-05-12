@@ -4,6 +4,8 @@
 // Reference: https://blog.gdeltproject.org/gdelt-2-0-our-global-world-in-realtime/
 // Free — no API key required
 
+import { enrichFetchError } from '../utils/fetch_error.mjs';
+
 const GDELT_DOC_API   = 'https://api.gdeltproject.org/api/v2/doc/doc';
 const GDELT_GEO_API   = 'https://api.gdeltproject.org/api/v2/geo/geo';
 const GDELT_GKG_V1    = 'https://api.gdeltproject.org/api/v1/gkg_geojson';
@@ -81,7 +83,7 @@ export async function fetchGDELT() {
       }
     }
   } catch (rssErr) {
-    console.warn('[GDELT] RSS attempt failed:', rssErr.message);
+    console.warn('[GDELT] RSS attempt failed:', enrichFetchError(rssErr));
   }
 
   // Fallback: JSON API
@@ -202,7 +204,7 @@ export async function fetchGDELT() {
             }
           }
         } catch (proxyErr) {
-          console.warn('[GDELT] allorigins proxy failed:', proxyErr.message);
+          console.warn('[GDELT] allorigins proxy failed:', enrichFetchError(proxyErr));
         }
 
         // Ultimate fallback: Google News RSS (works from any IP, broad conflict/defence coverage)
@@ -246,7 +248,7 @@ export async function fetchGDELT() {
             return results;
           }
         } catch (gnErr) {
-          console.warn('[GDELT] Google News fallback failed:', gnErr.message);
+          console.warn('[GDELT] Google News fallback failed:', enrichFetchError(gnErr));
         }
 
         results.error = jsonErr.message;

@@ -5,6 +5,7 @@
 // No API key required
 
 import { shouldSkip, recordFailure, recordSuccess } from '../../lib/util/throttle.mjs';
+import { enrichFetchError } from '../utils/fetch_error.mjs';
 
 // ORDS API (projectsapi.afdb.org) and OpenData portal consistently fail on cloud IPs — removed.
 // IATI Datastore requires authentication (401) — removed.
@@ -249,8 +250,11 @@ export async function briefing() {
     // R-F23: bump circuit-breaker counter so repeated total-failures
     // start short-circuiting next call.
     recordFailure(_CIRCUIT_KEY);
+    // R-F369: enrich error so '[AfDB] Error: All AfDB endpoints unreachable'
+    // (string message) and undici TypeErrors both surface meaningful detail.
+    const detail = enrichFetchError(err);
     results.error = err.message;
-    console.error('[AfDB] Error:', err.message);
+    console.error('[AfDB] Error:', detail);
   }
 
   return results;
