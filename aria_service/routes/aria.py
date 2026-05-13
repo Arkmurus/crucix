@@ -7430,17 +7430,73 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
             from ..llm.provider import ProviderError
 
             try:
+                # R-F412 (2026-05-13) — accumulate streamed text + DEFER the
+                # `done` event so the R-F403 confidence footer can ride in
+                # as a chunk BEFORE the client closes the stream on done.
+                # Pre-R-F412 the WhatsApp path (which uses /chat/stream)
+                # NEVER showed the footer — non-stream chat_ep added it
+                # only after the full response, a codepath that doesn't
+                # run on stream.
+                _r412_response_buf: list[str] = []
+                _r412_verification = None
+                _r412_deferred_done = None
                 async for event in aria_chat_stream(message_for_llm, session_id, llm, intel, user_id=user_id, persona=getattr(req, "persona", "") or ""):
+                    if event.get("type") == "chunk":
+                        _t = event.get("text") or ""
+                        if _t:
+                            _r412_response_buf.append(_t)
+                        yield f'data: {json.dumps(event)}\n\n'
+                        continue
+                    if event.get("type") == "done":
+                        # Capture verification + defer the done event so
+                        # the footer can be emitted just before it.
+                        _v = event.get("verification")
+                        if isinstance(_v, dict):
+                            _r412_verification = _v
+                        _r412_deferred_done = event
+                        continue
+                    # All non-chunk, non-done events flow through immediately
                     yield f'data: {json.dumps(event)}\n\n'
-
-                    # Inject tool_used into the done event
-                    if event.get("type") == "done" and tool_used:
-                        # Already yielded — we'll inject via a separate metadata event
-                        pass
 
                 # If tool was used, send a supplementary metadata event
                 if tool_used:
                     yield f'data: {json.dumps({"type":"meta","tool_used":tool_used})}\n\n'
+
+                # R-F412 — build + emit the confidence footer as its own
+                # chunk, AFTER the LLM finishes (so the build_footer regex
+                # sees the full reply) but BEFORE the deferred done event.
+                try:
+                    from ..intel import confidence_footer
+                    _full_text = "".join(_r412_response_buf)
+                    _tools_for_footer: list[str] = []
+                    if tool_used:
+                        _tools_for_footer.append(str(tool_used))
+                    _build_rev_for_footer = ""
+                    try:
+                        from ..main import ARIA_BUILD_REV as _br_s
+                        _build_rev_for_footer = _br_s
+                    except Exception:
+                        pass
+                    _footer = confidence_footer.build_footer(
+                        response_text=_full_text,
+                        verification=_r412_verification,
+                        rag_sources_count=0,
+                        tools_used=_tools_for_footer or None,
+                        build_rev=_build_rev_for_footer or None,
+                        trace_id=session_id,
+                    )
+                    if _footer:
+                        yield f'data: {json.dumps({"type":"chunk","text":_footer})}\n\n'
+                except Exception as _fe:
+                    _log.debug(
+                        "R-F412 stream footer build failed (non-fatal): %s",
+                        _fe,
+                    )
+
+                # Finally emit the deferred done event so the client closes
+                # cleanly. If we never got a done event (shouldn't happen),
+                # synthesise a minimal one so clients don't hang.
+                yield f'data: {json.dumps(_r412_deferred_done or {"type":"done","session_id":session_id})}\n\n'
 
             except ProviderError as pe:
                 # Structured upstream failure — render a short, user-safe message.
