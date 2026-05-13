@@ -9,6 +9,7 @@ import {
   initUsersStore,
   initAdminUser,
   getAdminIdentitySnapshot,
+  getBootstrapTrace,
   listUsers,
   createUser,
   updateUser,
@@ -71,6 +72,7 @@ app.get('/api/auth/system-status', (req, res) => {
       envEmailSet: !!envEmail,
       matchesEnv,
       anomaly: adminAnomaly,
+      bootstrap: getBootstrapTrace(),
     },
     smtp: {
       configured: smtpConfigured,

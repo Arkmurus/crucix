@@ -8,7 +8,7 @@
 // commit matches what's in git. Diagnostic added after R-F353 was committed
 // and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 // alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F431 · 2026-05-13 · Pending Amendments panel — replaced 5-column table with vertical card stack ("line by line" per operator). Each amendment is now one self-contained block: ID + friendly name + metadata strip + Approve/Reject. No more horizontal spread. Prior: R-F430 table tweaks, R-F429 system-status reads admin count live, R-F428 createIfMissing on recovery-reset, R-F427 admin identity transparency';
+const CRUCIX_BUILD_REV = 'R-F432 · 2026-05-13 · /api/auth/system-status now exposes admin.bootstrap trace (attempted, succeeded, skipReason, envEmailLen, envPasswordLen). Lets the operator (and me) diagnose env-bootstrap failures from the outside without shell access to seenode logs. Prior: R-F431 vertical card stack on Pending Amendments, R-F429 live admin count, R-F428 createIfMissing on recovery-reset, R-F427 admin identity transparency';
 
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
@@ -44,7 +44,7 @@ import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRe
 import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, createDeal, recordOutcome, formatBDSummaryForTelegram, initBDStore } from './lib/self/bd_intelligence.mjs';
 import { screenDeal, getProductCategories } from './lib/compliance/screen.mjs';
 import { PersistStore } from './lib/persist/store.mjs';
-import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore, getAdminIdentitySnapshot } from './lib/auth/users.mjs';
+import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore, getAdminIdentitySnapshot, getBootstrapTrace } from './lib/auth/users.mjs';
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { createReportsRouter } from './lib/reports/routes.mjs';
 import { createStatusRouter } from './lib/status/routes.mjs';
@@ -3709,6 +3709,10 @@ app.get('/api/auth/system-status', (req, res) => {
       envEmailSet: !!envEmail,
       matchesEnv,
       anomaly: adminAnomaly,
+      // R-F432: bootstrap-trace so the operator can diagnose why
+      // initAdminUser didn't auto-create an admin on this boot. We expose
+      // env-var LENGTHS only (never values), plus the exact skip reason.
+      bootstrap: getBootstrapTrace(),
     },
     smtp: {
       configured: smtpConfigured,
