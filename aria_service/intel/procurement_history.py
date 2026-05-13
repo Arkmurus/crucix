@@ -311,10 +311,15 @@ async def query_entity_history(
             consolidated.append(rec_with_source)
             buyer = rec.get("buyer") or "(unknown)"
             by_buyer[buyer] = by_buyer.get(buyer, 0) + 1
-    # Sort consolidated by date_signed desc; missing dates last
+    # Sort consolidated by date_signed desc; missing dates last.
+    # Sort key MUST invert the empty-date flag because reverse=True
+    # inverts the whole comparison: with (ds == "", ds) and reverse=True
+    # the empty-date record's (True, "") would land FIRST, not LAST
+    # (verifier-caught hotfix). Using (ds != "", ds) so non-empty
+    # records compare True (higher) and reverse=True keeps them first.
     def _sort_key(r):
         ds = r.get("date_signed") or ""
-        return (ds == "", ds)  # truthy missing → last
+        return (ds != "", ds)
     consolidated.sort(key=_sort_key, reverse=True)
     return {
         "ok":            any_ok,

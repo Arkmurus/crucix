@@ -253,6 +253,45 @@ def test_rf439_aggregator_handles_one_backend_failing(monkeypatch):
     assert any("usaspending" in e for e in out["errors"])
 
 
+def test_rf439_aggregator_empty_dates_sort_last(monkeypatch):
+    """Regression: pre-hotfix the sort key was `(ds == "", ds)` with
+    reverse=True, which inverted the empty-flag and put empty-date
+    records FIRST (opposite of the comment). Verifier caught
+    pre-deploy. This test pins the correct order: dated records
+    descending, empty dates last."""
+    from aria_service.intel import procurement_history as ph
+
+    async def _fake_usa(name, **kw):
+        return {
+            "ok": True, "source": "usaspending", "query": name,
+            "records": [
+                {"title": "OLD", "buyer": "DoD", "value_usd": 1,
+                 "date_signed": "2020-01-01", "url": "", "award_id": "old",
+                 "recipient": name},
+                {"title": "NEW", "buyer": "DoD", "value_usd": 2,
+                 "date_signed": "2025-01-01", "url": "", "award_id": "new",
+                 "recipient": name},
+                {"title": "NO_DATE", "buyer": "DoD", "value_usd": 3,
+                 "date_signed": "", "url": "", "award_id": "nd",
+                 "recipient": name},
+            ],
+            "error": None,
+        }
+
+    async def _fake_uk(name, **kw):
+        return {"ok": True, "source": "uk_contracts_finder", "query": name,
+                "records": [], "error": None}
+
+    monkeypatch.setattr(ph, "query_usaspending", _fake_usa)
+    monkeypatch.setattr(ph, "query_uk_contracts_finder", _fake_uk)
+    out = asyncio.run(ph.query_entity_history("Acme"))
+    titles = [r["title"] for r in out["consolidated"]]
+    assert titles == ["NEW", "OLD", "NO_DATE"], (
+        f"R-F439 sort regression: empty dates must sort last, dated "
+        f"records descending. Got {titles}"
+    )
+
+
 def test_rf439_aggregator_handles_unhandled_exception(monkeypatch):
     """asyncio.gather(return_exceptions=True) — if a backend raises
     BaseException, the aggregator records it and continues."""
