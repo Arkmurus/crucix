@@ -580,7 +580,89 @@ _RULE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(?:founded|established|incorporated)\s+(?:in\s+)?(1[89][0-9]{2}|20[0-4][0-9])\b", re.IGNORECASE), "founding_year"),
     (re.compile(r"\bsince\s+(1[89][0-9]{2}|20[0-4][0-9])\b", re.IGNORECASE), "founding_year"),
     (re.compile(r"\b([0-9]{1,3})\s+years?\s+of\s+experience\b", re.IGNORECASE), "years_experience_claim"),
+    # R-F436 (2026-05-13) — person-name extraction. Pre-R-F436 the rule
+    # extractor only caught dates / amounts / emails / registration numbers.
+    # Director / CEO / Chairman names embedded in prose were invisible
+    # unless the LLM extractor was on, which gated extraction on cost
+    # budgets. Live evidence (operator WhatsApp 2026-05-13 21:09):
+    # ngast.com crawl identified Nebraska Gas Turbine + Tom Ogle
+    # (joint-venture contact) and other officers in the page text, but
+    # none re-fed into sanctions screening because the rule extractor
+    # produced 0 name-kind facts. Three conservative patterns:
+    #   - Title-prefix:  "Mr/Mrs/Dr/etc. <Name>"
+    #   - Role-suffix:   "<Name>, CEO/Director/Chairman/…"
+    #   - Role-prefix:   "Director: <Name>" / "CEO — <Name>"
+    # Captured names get kind="person_name"; dd_orchestrator harvests
+    # them post-link-tree and cross-screens each against OpenSanctions
+    # with the entity name as legal-name corroboration (R-F434 cap
+    # therefore does NOT fire).
+    (re.compile(
+        r"\b(?:Mr|Mrs|Ms|Dr|Prof|Sir|Lady|Lord|Rev)\.?\s+"
+        r"([A-Z][a-z'\-]{1,20}(?:\s+[A-Z][a-z'\-]{1,20}){1,2})\b"
+    ), "person_name"),
+    (re.compile(
+        r"\b([A-Z][a-z'\-]{1,20}(?:\s+[A-Z][a-z'\-]{1,20}){1,2})\s*[,—–\-]\s*"
+        r"(?:CEO|CFO|COO|CTO|CIO|Director|Chairman|Chairwoman|Chairperson|"
+        r"Founder|Co-Founder|President|Vice\s+President|VP|Managing\s+Director|"
+        r"MD|Partner|Owner|Principal|Head\s+of\s+[A-Z][a-z]+|"
+        r"General\s+Manager|GM)\b"
+    ), "person_name"),
+    (re.compile(
+        r"\b(?:CEO|CFO|COO|CTO|CIO|Director|Chairman|Chairwoman|Chairperson|"
+        r"Founder|Co-Founder|President|Vice\s+President|VP|Managing\s+Director|"
+        r"MD|Partner|Owner|Principal|General\s+Manager|GM)\s*"
+        r"[:—–\-]\s*"
+        r"([A-Z][a-z'\-]{1,20}(?:\s+[A-Z][a-z'\-]{1,20}){1,2})\b"
+    ), "person_name"),
 ]
+
+# R-F436: reject these tokens in extracted person_name candidates — they're
+# org / role / location nouns that the patterns above can swallow when the
+# page text has unusual capitalisation. Conservative; expand only with
+# live false-positive evidence.
+_PERSON_NAME_REJECT_TOKENS: set[str] = {
+    # Corporate suffixes
+    "ltd", "limited", "llc", "inc", "corp", "corporation", "company",
+    "co", "plc", "llp", "gmbh", "ag", "spa", "srl", "sa", "sas", "bv",
+    "nv", "ab", "as", "oy", "pty", "holdings", "holding", "group",
+    "international", "industries", "industry", "services", "solutions",
+    "systems", "technologies", "tech", "enterprises", "partners",
+    # Common false-positive nouns (geography, time, generic page text)
+    "the", "and", "of", "in", "on", "at", "to", "for", "with", "by",
+    "from", "this", "that", "these", "those", "page", "home", "about",
+    "contact", "team", "products", "services", "news", "blog",
+    "january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+    "sunday", "today", "yesterday", "tomorrow",
+}
+
+
+def _is_plausible_person_name(value: str) -> bool:
+    """R-F436 — gate person_name candidates before they enter fused facts.
+
+    Rejects:
+      - any candidate containing a token in _PERSON_NAME_REJECT_TOKENS
+      - any candidate where ALL tokens are < 3 chars (e.g. "Dr. Po")
+      - any candidate containing digits or non-Latin characters
+        (we don't yet score multi-script names — handled separately
+        by the LLM extractor when enabled)
+    """
+    if not value or len(value) < 5 or len(value) > 60:
+        return False
+    if any(ch.isdigit() for ch in value):
+        return False
+    tokens = value.split()
+    if len(tokens) < 2 or len(tokens) > 4:
+        return False
+    lower_tokens = [t.lower().strip(".,;:-—–'") for t in tokens]
+    if any(t in _PERSON_NAME_REJECT_TOKENS for t in lower_tokens):
+        return False
+    # At least 2 tokens with length ≥ 3 (skip initials / particles)
+    long_tokens = [t for t in lower_tokens if len(t) >= 3]
+    if len(long_tokens) < 2:
+        return False
+    return True
 
 
 def _extract_facts_rules(text: str, source_url: str) -> list[ExtractedFact]:
@@ -596,6 +678,11 @@ def _extract_facts_rules(text: str, source_url: str) -> list[ExtractedFact]:
             raw = m.group(0) if not m.groups() else m.group(1) if m.group(1) else m.group(0)
             value = (raw or "").strip()
             if not value or len(value) > 200:
+                continue
+            # R-F436 — person_name candidates pass a plausibility gate before
+            # they reach fused_facts. Stops org-tokens / month names / page
+            # boilerplate from being treated as people.
+            if kind == "person_name" and not _is_plausible_person_name(value):
                 continue
             norm = value.lower().strip()
             key = (kind, norm)

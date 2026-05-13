@@ -2517,6 +2517,125 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             )
                 except Exception as _ukfb_e:
                     logger.debug("R-F295 UK backfill skipped: %s", _ukfb_e)
+
+                # ── R-F436 (2026-05-13) — page entity extraction → sanctions ──
+                # Pre-R-F436 the rule extractor produced 0 person_name facts
+                # from prose-heavy pages, so directors / chairmen / contacts
+                # mentioned on the crawled site never re-fed sanctions
+                # screening. The rule patterns now emit `person_name` facts
+                # (title-prefix, role-suffix, role-prefix). Here we harvest
+                # them, dedupe across pages, cap at 8, and per-name screen
+                # against OpenSanctions with the entity name passed as
+                # legal-name corroboration (R-F434 cap therefore does NOT
+                # fire because the screen IS corroborated by the verified
+                # entity context).
+                try:
+                    _names_seen: set[str] = set()
+                    _candidate_persons: list[str] = []
+                    for ff in (tree.fused_facts or []):
+                        if ff.kind != "person_name":
+                            continue
+                        _v = (ff.value or "").strip()
+                        _vn = _v.lower()
+                        if not _v or _vn in _names_seen:
+                            continue
+                        # Also skip if it matches the entity name itself
+                        if name and _vn == (name or "").lower():
+                            continue
+                        _names_seen.add(_vn)
+                        _candidate_persons.append(_v)
+                        if len(_candidate_persons) >= 8:
+                            break
+                    if _candidate_persons:
+                        from . import sanctions as _sanc_p
+                        from ._sanctions_classify import (
+                            classify_matches as _cm_p,
+                            SEVERITY_RANK as _sr_p,
+                        )
+                        _extracted_persons_screened: list[dict] = []
+                        for _person in _candidate_persons:
+                            try:
+                                _scr = await _sanc_p.screen_with_aliases(
+                                    _person,
+                                    # Passing the entity name as a known
+                                    # alias sets _has_legal_name_corroboration
+                                    # to True. This is honest corroboration
+                                    # because the person was named ON the
+                                    # entity's own website — same context.
+                                    known_aliases=[name] if name else None,
+                                )
+                            except Exception as _spe:
+                                logger.debug(
+                                    "R-F436 person screen %r failed: %s",
+                                    _person[:40], _spe,
+                                )
+                                continue
+                            _matches = (_scr or {}).get("matches") or []
+                            if not _matches:
+                                _extracted_persons_screened.append({
+                                    "person": _person,
+                                    "severity": "info",
+                                    "matched": False,
+                                })
+                                continue
+                            _classified = _cm_p(_matches, query_name=_person)
+                            _worst = _classified.get("worst_severity") or "info"
+                            _extracted_persons_screened.append({
+                                "person": _person,
+                                "severity": _worst,
+                                "matched": True,
+                                "summary": _classified.get("summary", "")[:240],
+                            })
+                            # Surface non-info as Digital findings
+                            if _sr_p.get(_worst, 0) >= _sr_p["amber"]:
+                                _ftitle = (
+                                    f"Site-extracted person {_person} → "
+                                    f"sanctions {_worst}"
+                                )
+                                _fconf = {
+                                    "hard_stop": "CONFIRMED",
+                                    "red": "PROBABLE",
+                                    "amber": "ASSESSED",
+                                }.get(_worst, "ASSESSED")
+                                report.digital.findings.append(Finding(
+                                    severity=_worst,
+                                    title=_ftitle,
+                                    detail=(
+                                        f"Name '{_person}' was extracted "
+                                        f"from {name}'s own site (link-tree "
+                                        f"{tree.tree_id}) and screened "
+                                        f"against OpenSanctions with the "
+                                        f"entity as legal-name "
+                                        f"corroboration. "
+                                        f"{_classified.get('summary', '')[:280]}"
+                                    ),
+                                    source=(
+                                        f"page_entity_extractor + "
+                                        f"sanctions.screen_with_aliases "
+                                        f"[{tree.tree_id}]"
+                                    ),
+                                    confidence=_fconf,
+                                ))
+                        # Persist the per-person screen result on the
+                        # web_footprint dict so renderers + audit can
+                        # cite which names were actually screened.
+                        report.digital.web_footprint["extracted_persons"] = (
+                            _extracted_persons_screened
+                        )
+                        report.digital.meta.subcalls += len(_candidate_persons)
+                        logger.info(
+                            "R-F436: link-tree extracted %d persons, "
+                            "screened against sanctions, %d non-info hits",
+                            len(_candidate_persons),
+                            sum(
+                                1 for p in _extracted_persons_screened
+                                if p.get("severity") not in ("info", None)
+                            ),
+                        )
+                except Exception as _r436_e:
+                    logger.debug(
+                        "R-F436 page-entity screen skipped: %s", _r436_e,
+                    )
             except Exception as e:
                 logger.warning("Digital: link_investigator failed: %s", e)
                 report.digital.data_gaps.append(f"link_investigator failed: {str(e)[:120]}")
