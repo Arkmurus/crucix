@@ -320,3 +320,156 @@ def test_decode_edges_returns_none_on_garbage():
     assert nm._decode_edges("GZ1:not-base64-either") is None
     # Valid gzip but JSON-undecodable — also None
     assert nm._decode_edges(123) is None  # type: ignore[arg-type]
+
+
+# ── R-F443 chain tests — interactions with R-F371 disk-reload guard ─────
+
+
+def test_r_f371_reload_path_restores_edges_from_gzipped_disk():
+    """Chain test: when R-F371's disk-reload guard fires (in-memory had
+    fewer neurons than disk — typical post-migration race), the disk
+    edges must be decoded through the new R-F442 _decode_edges so the
+    in-memory graph is restored correctly. Pre-R-F442 this used
+    rs.get_json which would return None on a gzipped value and lose
+    all edges silently."""
+    from aria_service.intel import neural_memory as nm
+
+    # Build the larger "disk" state — gzipped edges
+    big_neurons = {f"n{i}": {"id": f"n{i}", "concept": f"c{i}", "activation": 0.5}
+                   for i in range(5000)}
+    big_edges_obj = {f"n{i}": {f"n{(i+1) % 5000}": 0.5} for i in range(5000)}
+    big_edges_gz = nm._encode_edges(big_edges_obj)
+
+    storage, _, mocks = _fake_storage({
+        "crucix:aria:neurons": big_neurons,
+        "crucix:aria:neural_edges": big_edges_gz,
+        "crucix:aria:neural_meta": {"total_neurons": 5000, "total_edges": 5000,
+                                     "total_activations": 0, "born": None},
+    })
+
+    # In-memory has only the pre-migration sliver
+    nm._neurons = {f"n{i}": {"id": f"n{i}", "concept": f"c{i}", "activation": 0.5}
+                   for i in range(500)}
+    nm._edges.clear()
+    nm._edges["n0"] = {"n1": 0.5}
+    nm._meta = {"total_neurons": 500, "total_edges": 1, "total_activations": 0, "born": None}
+    nm._edges_dirty = True  # pretend a mutation happened
+
+    patches = _patched(nm, mocks)
+    for p in patches:
+        p.start()
+    try:
+        asyncio.run(nm._persist())
+    finally:
+        for p in patches:
+            p.stop()
+
+    # Neurons should be reloaded to 5000 (R-F371 behaviour)
+    assert len(nm._neurons) == 5000, (
+        f"R-F371 reload: expected 5000 neurons, got {len(nm._neurons)}"
+    )
+    # Edges should be reloaded to 5000 too (NOT lost during the gzipped decode)
+    assert len(nm._edges) == 5000, (
+        f"R-F442 chain bug: gzipped disk edges lost during R-F371 reload. "
+        f"Expected 5000 edge groups, got {len(nm._edges)}"
+    )
+    # And dirty flag must be False — disk is the source of truth after reload
+    assert nm._edges_dirty is False, (
+        "After R-F371 disk-reload, in-memory == disk → dirty must be False"
+    )
+
+
+def test_r_f371_reload_handles_legacy_raw_json_edges():
+    """Same as above but disk holds legacy raw-JSON edges. The R-F371
+    reload path must still decode them correctly (forward-compat)."""
+    from aria_service.intel import neural_memory as nm
+
+    big_neurons = {f"n{i}": {"id": f"n{i}", "concept": f"c{i}", "activation": 0.5}
+                   for i in range(2000)}
+    legacy_edges = {f"n{i}": {f"n{(i+1) % 2000}": 0.5} for i in range(2000)}
+
+    storage, _, mocks = _fake_storage({
+        "crucix:aria:neurons": big_neurons,
+        "crucix:aria:neural_edges": json.dumps(legacy_edges),  # raw JSON
+        "crucix:aria:neural_meta": {"total_neurons": 2000, "total_edges": 2000,
+                                     "total_activations": 0, "born": None},
+    })
+
+    nm._neurons = {"n0": {"id": "n0", "concept": "c0", "activation": 0.5}}
+    nm._edges.clear()
+    nm._meta = {"total_neurons": 1, "total_edges": 0, "total_activations": 0, "born": None}
+
+    patches = _patched(nm, mocks)
+    for p in patches:
+        p.start()
+    try:
+        asyncio.run(nm._persist())
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert len(nm._neurons) == 2000
+    assert len(nm._edges) == 2000, (
+        "Legacy raw-JSON edges must decode during R-F371 reload too"
+    )
+
+
+# ── R-F443: bytes-prefix detection (future-proof for non-decode backends) ──
+
+
+def test_init_treats_bytes_gz_prefix_as_already_gzipped():
+    """If a future Redis backend ever returns bytes instead of str,
+    b'GZ1:...' must be detected as gzipped (not flagged as legacy that
+    needs migration). Pre-R-F443 the legacy-detect code only checked
+    str-form GZ1:, so a bytes payload would trigger a useless rewrite
+    on every boot."""
+    from aria_service.intel import neural_memory as nm
+
+    edges_obj = {"n1": {"n2": 0.5}}
+    raw = json.dumps(edges_obj).encode("utf-8")
+    gz = gzip.compress(raw, compresslevel=6)
+    gz_bytes = b"GZ1:" + base64.b64encode(gz)  # bytes form
+
+    storage, _, mocks = _fake_storage({
+        "crucix:aria:neurons": {"n1": {"id": "n1", "concept": "c1", "activation": 0.5}},
+        "crucix:aria:neural_edges": gz_bytes,
+        "crucix:aria:neural_meta": {"total_neurons": 1, "total_edges": 1,
+                                     "total_activations": 0, "born": None},
+    })
+
+    patches = _patched(nm, mocks)
+    for p in patches:
+        p.start()
+    try:
+        asyncio.run(nm.init())
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert dict(nm._edges) == edges_obj, "bytes GZ1: blob must decode like str form"
+    assert nm._edges_dirty is False, (
+        "R-F443: bytes GZ1: prefix must NOT trigger a legacy-migration write"
+    )
+
+
+def test_init_handles_empty_disk_gracefully():
+    """If both NEURONS_KEY and EDGES_KEY are absent (fresh deploy with
+    no prior state), init must not crash and must leave _edges_dirty
+    False (nothing to migrate)."""
+    from aria_service.intel import neural_memory as nm
+
+    storage, _, mocks = _fake_storage({})  # everything returns None
+
+    patches = _patched(nm, mocks)
+    for p in patches:
+        p.start()
+    try:
+        asyncio.run(nm.init())
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert dict(nm._edges) == {}
+    assert nm._edges_dirty is False, (
+        "Empty disk → nothing to migrate → dirty should stay False"
+    )

@@ -191,9 +191,24 @@ async def init() -> None:
         # first _persist() call doesn't need to rewrite them unless a
         # mutator runs first. If we just loaded a legacy raw-JSON blob,
         # leave dirty=True so the next persist migrates it to gzipped.
-        _edges_dirty = isinstance(edges_value, (str, bytes, bytearray)) and not (
-            isinstance(edges_value, str) and edges_value.startswith(_GZ_PREFIX)
-        )
+        #
+        # R-F443 (2026-05-13) — handle bytes-prefix too. The current
+        # backends return str (Upstash with decode_responses=True,
+        # state_store), but if a future backend returns bytes, a
+        # b"GZ1:..." payload would be flagged legacy and trigger a
+        # redundant migration write on every boot. Compare the prefix
+        # symmetrically across both string types.
+        _gz_prefix_bytes = _GZ_PREFIX.encode("ascii")
+        if edges_value is None:
+            _edges_dirty = False  # nothing on disk yet — first write will sync
+        elif isinstance(edges_value, str) and edges_value.startswith(_GZ_PREFIX):
+            _edges_dirty = False  # already gzipped, in sync
+        elif isinstance(edges_value, (bytes, bytearray)) and bytes(edges_value).startswith(_gz_prefix_bytes):
+            _edges_dirty = False  # already gzipped (bytes-form), in sync
+        elif isinstance(edges_value, (str, bytes, bytearray)):
+            _edges_dirty = True   # legacy raw JSON → migrate on next persist
+        else:
+            _edges_dirty = False  # dict / other — already typed, no migration needed
 
         _loaded = True
         logger.info("Neural memory loaded: %d neurons, %d edge groups (R-F442 edges_dirty=%s)",
