@@ -4700,6 +4700,75 @@ async def orchestrate_dd(
         except Exception as _de:
             logger.debug("[dd_orchestrator] deception scoring failed (non-fatal): %s", _de)
 
+        # ── LAYER 5b.2: CITED-ARTIFACT VERIFICATION (R-F451 — 2026-05-13) ──
+        # Extracted from the SERBAN letter learning 2026-04-17: counterparties
+        # cite fake document IDs (NCNDA-KOR-MCT-0126, LOI-2024-0917, etc.) to
+        # manufacture a false sense of an ongoing structured process. The
+        # `cited_artifact_verifier` module has had a clean implementation +
+        # tests since then, but the DD audit on 2026-05-13 confirmed it was
+        # DEAD CODE in production — no call sites in routes, aria_engine, or
+        # dd_orchestrator. R-F451 closes the wiring gap so the verifier
+        # actually runs on counterparty text during DD.
+        #
+        # We re-use the same `_texts` corpus that the deception analyser saw,
+        # filtered to entity_claim contexts (counterparty's own words —
+        # narrative or digital findings are noise here). If any cited IDs
+        # exist that we have no record of, we bump deception.requires_eDD
+        # and add an "unverified_citation" signal so synthesis weights it.
+        try:
+            from . import cited_artifact_verifier as _cav
+            _ctp_text = " ".join(
+                _text for _ctx, _text in (_texts or [])
+                if _ctx == "entity_claim"
+            ).strip()
+            if _ctp_text:
+                _cav_result = _cav.verify_cited_artifacts(
+                    _ctp_text,
+                    counterparty=report.identity.entity_name or None,
+                )
+                _unv = int(_cav_result.get("unverified") or 0)
+                _ver = int(_cav_result.get("verified") or 0)
+                if _unv or _ver:
+                    # Attach to report.deception (schema-tolerant — instance
+                    # attribute, same pattern as the score block above)
+                    try:
+                        _dep = getattr(report, "deception", None) or {}
+                        _dep["cited_artifacts"] = {
+                            "verified":   _ver,
+                            "unverified": _unv,
+                            "summary":    (_cav_result.get("summary") or "")[:300],
+                            "cited":      _cav_result.get("cited") or [],
+                        }
+                        if _unv > 0:
+                            # Treat unverified IDs as a deception signal —
+                            # mirrors `capability_gaps.py:101` which already
+                            # has "unverified_citation" registered.
+                            _existing_signals = _dep.get("signals") or []
+                            if "unverified_citation" not in _existing_signals:
+                                _existing_signals = list(_existing_signals) + ["unverified_citation"]
+                                _dep["signals"] = _existing_signals[:10]
+                            # Unverified citations escalate to eDD even if
+                            # the language-based analyser stayed LOW.
+                            _dep["requires_eDD"] = True
+                        report.deception = _dep
+                    except Exception:
+                        pass
+                    if _unv > 0:
+                        logger.warning(
+                            "[dd_orchestrator] R-F451 — %d unverified cited "
+                            "document ID(s) on %s: %s",
+                            _unv,
+                            report.identity.entity_name or "?",
+                            [a.get("doc_id") for a in (_cav_result.get("cited") or [])
+                             if not a.get("verified")][:5],
+                        )
+        except Exception as _cav_err:
+            logger.debug(
+                "[dd_orchestrator] R-F451 cited_artifact_verifier "
+                "failed (non-fatal): %s",
+                _cav_err,
+            )
+
         # ── LAYER 8: COUNTER-INTELLIGENCE (R-F121 — wired 2026-05-10) ──
         # Sweeps recent intel_ledger signals about this entity for the
         # patterns that none of the prior layers can see: narrative-shift
