@@ -3517,6 +3517,74 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
+// ── R-F425: Recovery-token reset (operator escape hatch when SMTP is broken) ─
+//
+// Problem this solves: on a deploy where SMTP isn't configured,
+// /api/auth/forgot-password silently no-ops (server.mjs:3481 always returns
+// 200 to avoid enumeration). If the operator is also locked out of their
+// admin account, there's no in-app path back to a working login — the legacy
+// fix was a server-shell script, which doesn't work on PaaS hosts that only
+// accept `git push` deploys.
+//
+// This endpoint provides a deliberate, explicit recovery flow:
+//   1. Operator sets ADMIN_RECOVERY_TOKEN=<cryptographically random, >=32 chars>
+//      on the deploy host (one env var, no shell needed).
+//   2. They visit /recovery.html, enter their email + new password + the
+//      token, and submit.
+//   3. Server rewrites the password and they log in normally.
+//   4. Operator rotates ADMIN_RECOVERY_TOKEN afterwards.
+//
+// Endpoint returns 404 when the env var is unset so attackers can't probe
+// whether the recovery flow is enabled. Rate-limited via TIERS.auth.
+app.post('/api/auth/recovery-reset', async (req, res) => {
+  const expected = (process.env.ADMIN_RECOVERY_TOKEN || '').trim();
+  if (!expected || expected.length < 32) {
+    // Don't 503 — that signals the endpoint exists. 404 keeps it indistinguishable.
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  const { email, newPassword, recoveryToken } = req.body || {};
+  if (typeof recoveryToken !== 'string' || recoveryToken.length !== expected.length) {
+    console.warn(`[Auth] recovery-reset rejected (length mismatch) ip=${req.ip}`);
+    return res.status(401).json({ error: 'Invalid recovery token' });
+  }
+
+  // Timing-safe compare to defeat byte-by-byte probing.
+  const crypto = await import('node:crypto');
+  const a = Buffer.from(recoveryToken, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    console.warn(`[Auth] recovery-reset rejected (token mismatch) ip=${req.ip} email=${email}`);
+    return res.status(401).json({ error: 'Invalid recovery token' });
+  }
+
+  if (!email || typeof email !== 'string') {
+    return res.status(400).json({ error: 'Email required' });
+  }
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  }
+
+  const user = findUserByEmail(email);
+  if (!user) {
+    console.warn(`[Auth] recovery-reset: no user for email=${email} ip=${req.ip}`);
+    // Token holder already has admin powers — telling them the user doesn't
+    // exist isn't a leak. Helps debugging far more than a generic 400.
+    return res.status(404).json({ error: 'No user with that email' });
+  }
+
+  updateUser(user.id, {
+    passwordHash: hashPassword(newPassword),
+    status: 'active',
+    tokenVersion: (user.tokenVersion || 0) + 1,
+    resetCode: null,
+    resetExpiry: null,
+  });
+
+  console.log(`[Auth] recovery-reset SUCCESS for ${user.email} (id=${user.id}) ip=${req.ip} — existing JWTs invalidated`);
+  res.json({ message: 'Password reset. You can sign in with the new password now.' });
+});
+
 // ── Admin: SMTP test ──────────────────────────────────────────────────────────
 app.post('/api/admin/test-email', requireAdmin, async (req, res) => {
   const { to } = req.body || {};

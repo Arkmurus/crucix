@@ -138,6 +138,7 @@ export function applyRateLimiting(app) {
   app.use('/api/auth/register',        rateLimit(TIERS.auth));
   app.use('/api/auth/verify-2fa',      rateLimit(TIERS.auth));
   app.use('/api/auth/reset-password',  rateLimit(TIERS.auth));
+  app.use('/api/auth/recovery-reset',  rateLimit(TIERS.auth));
 
   // Expensive compute routes
   app.use('/api/sweep',                rateLimit(TIERS.sweep));
