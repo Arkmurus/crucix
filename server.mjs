@@ -1020,14 +1020,28 @@ setTelegramLLM(llmProvider);
 // Site access is protected by the Angular JWT auth layer — no HTTP Basic Auth needed.
 
 // Static HTML dashboard — served from public/
+// R-F441 (2026-05-13): force revalidation on HTML so dashboard fixes
+// (e.g. R-F433 prompt→modal) take effect on next navigation without a
+// hard-refresh. CSS/JS still use ?v=N cache-busters; hashed assets
+// stay cacheable. HTML is the only file that gets aggressively held by
+// browsers without a fingerprint.
 const PUBLIC_DIR = join(ROOT, 'public');
-app.use(express.static(PUBLIC_DIR));
+app.use(express.static(PUBLIC_DIR, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  },
+}));
 app.get('/', (req, res) => res.redirect('/signin.html'));
 // ARIA Brain dashboard — served from public/ like all other pages.
 // Auth handled client-side via Auth.requireAuth() (same as dashboard.html).
 // Explicit route for /aria-brain (without .html) — express.static only
 // handles /aria-brain.html, not the extensionless URL.
-app.get('/aria-brain', (req, res) => res.sendFile(join(PUBLIC_DIR, 'aria-brain.html')));
+app.get('/aria-brain', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(join(PUBLIC_DIR, 'aria-brain.html'));
+});
 console.log('[Crucix] Static dashboard live at /');
 
 app.get('/api/data', requireAuth, (req, res) => {
