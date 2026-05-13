@@ -507,71 +507,66 @@ async function loadAmendments() {
         + 'style="background:#6e2c2c;color:#fff;border:0;padding:4px 12px;'
         + 'border-radius:4px;cursor:pointer;font-size:0.85em;margin-left:6px">'
         + 'Reject all amendments older than 7 days</button></div>';
-  // R-F430 (2026-05-13): operator reported the table was "messy and can't
-  // see the information". Three legibility fixes:
-  //  - card is now `wide` so the table no longer horizontal-scrolls inside
-  //    a 320px grid column;
-  //  - Attack cell stacks ID (mono, bold) over name (muted, smaller) on two
-  //    lines, cutting horizontal real-estate and letting the row breathe;
-  //  - Action cell uses inline-flex with a real gap so Approve and Reject
-  //    are clearly two separate clickable controls (prior 4px margin-right
-  //    rendered as "ApproveReject" in plaintext view + cramped visually).
-  // Prior R-F140 collapsed ID + name onto one line to keep Reject from
-  // wrapping; R-F430 keeps the row from wrapping by widening the card, and
-  // moves to the two-line cell so long IDs no longer eat the row width.
-  html += '<table style="margin-top:8px;font-size:0.85em;border-collapse:separate;border-spacing:0">'
-        + '<tr>'
-        + '<th>Attack</th>'
-        + '<th style="white-space:nowrap">Clauses</th>'
-        + '<th style="white-space:nowrap;text-align:center">Fails</th>'
-        + '<th style="white-space:nowrap">Last failed</th>'
-        + '<th style="white-space:nowrap;text-align:right">Action</th>'
-        + '</tr>';
-  amendments.forEach(a => {
+  // R-F431 (2026-05-13): operator follow-up after R-F430 — "should be line
+  // by line". R-F430 was still a 5-column table, which on any reasonable
+  // card width still spreads each row horizontally and lets long attack
+  // names elbow the action buttons. Redesigned as a vertical card-list:
+  // each amendment is one self-contained block with the ID + name stacked
+  // at top, a single metadata strip (clauses · fails · last failed)
+  // underneath, and Approve / Reject buttons on the right of the same
+  // strip. Pure flex layout, no overflow scrolling, scales cleanly to
+  // any card width.
+  amendments.forEach((a, idx) => {
     const attackId = a.attack_id || '?';
     const attackName = a.attack_name || '';
-    // Two-line cell: ID mono + bold on top, name muted + smaller below.
-    const attack =
-      `<div style="font-family:'SF Mono','Menlo','Consolas',monospace;font-weight:600;color:#e6edf3;`
-      + `font-size:0.95em;letter-spacing:0.01em">${escapeHtml(attackId)}</div>`
-      + (attackName
-          ? `<div style="color:#8b949e;font-size:0.88em;margin-top:2px;line-height:1.35">${escapeHtml(attackName)}</div>`
-          : '');
     const clauses = (a.anchor_clauses || []).join(', ');
-    // R-F422 (2026-05-13): surface fail_count + last_failed_at so the
-    // operator can prioritise high-recurrence attacks. fail_count >= 3
-    // is "high priority", >= 5 is "critical — clause amendment likely needed".
+    // R-F422 (2026-05-13): fail-count colouring. >=5 = critical (red),
+    // >=3 = priority (yellow), else neutral.
     const failCount = a.fail_count || 1;
     const failColor = failCount >= 5 ? '#f85149' : failCount >= 3 ? '#d29922' : '#8b949e';
-    const failCell = `<span style="color:${failColor};font-weight:600">${failCount}×</span>`;
     const lastFailed = (a.last_failed_at || a.staged_at || '').slice(0, 16).replace('T', ' ');
     const safeAttackId = attackId.replace(/[^A-Za-z0-9_.-]/g, '');
-    // R-F230 (2026-05-11) — Approve button wired to /adversarial/
-    // amendments/approve (R-F168 endpoint). Confirm-phrase gate prevents
-    // accidental clicks. After approve, the staged improvement still
-    // needs operator-side `POST /api/aria/self/deploy/{id}` to actually
-    // apply — that's the safety gate per aria_autonomy_doctrine.md.
-    // R-F430: inline-flex container with real gap, slightly bigger
-    // padding, distinct border highlights so the two buttons read as
-    // separate controls instead of "ApproveReject".
-    const action =
-      `<div style="display:inline-flex;gap:8px;align-items:center;white-space:nowrap">`
+
+    html +=
+      `<div style="margin-top:${idx === 0 ? '12px' : '8px'};padding:14px 16px;`
+      + `background:rgba(0,0,0,0.18);border:1px solid #21262d;border-radius:6px">`
+      // Header line: ID
+      + `<div style="font-family:'SF Mono','Menlo','Consolas',monospace;`
+      + `font-weight:600;color:#e6edf3;font-size:0.92em;letter-spacing:0.01em;`
+      + `overflow-wrap:anywhere">${escapeHtml(attackId)}</div>`
+      // Subhead: friendly name (muted)
+      + (attackName
+          ? `<div style="color:#8b949e;font-size:0.86em;margin-top:3px;`
+            + `line-height:1.4;overflow-wrap:anywhere">${escapeHtml(attackName)}</div>`
+          : '')
+      // Metadata + actions row (flex, wraps cleanly on narrow widths)
+      + `<div style="margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;`
+      + `gap:14px;font-size:0.82em">`
+      // Left: metadata chips
+      + `<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;flex:1;min-width:0">`
+      + `<span style="color:#8b949e">Clauses: `
+      + `<span style="color:#c9d1d9;font-family:'SF Mono','Menlo','Consolas',monospace">`
+      + `${escapeHtml(clauses) || '—'}</span></span>`
+      + `<span style="color:#8b949e">Fails: `
+      + `<span style="color:${failColor};font-weight:600">${failCount}×</span></span>`
+      + `<span style="color:#8b949e">Last failed: `
+      + `<span style="color:#c9d1d9;font-family:'SF Mono','Menlo','Consolas',monospace">`
+      + `${escapeHtml(lastFailed) || '—'}</span></span>`
+      + `</div>`
+      // Right: actions
+      + `<div style="display:inline-flex;gap:8px;align-items:center;white-space:nowrap">`
       + `<button onclick="approveAmendment('${safeAttackId}')" `
-      + `style="background:#1f4f2c;color:#fff;border:1px solid #2e6b3f;padding:5px 14px;`
-      + `border-radius:4px;cursor:pointer;font-size:0.85em;font-weight:600">Approve</button>`
+      + `style="background:#1f4f2c;color:#fff;border:1px solid #2e6b3f;`
+      + `padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;`
+      + `font-weight:600">Approve</button>`
       + `<button onclick="rejectAmendment('${safeAttackId}')" `
-      + `style="background:#6e2c2c;color:#fff;border:1px solid #8a3838;padding:5px 14px;`
-      + `border-radius:4px;cursor:pointer;font-size:0.85em;font-weight:600">Reject</button>`
-      + `</div>`;
-    html += `<tr>`
-          + `<td style="padding:10px 10px;line-height:1.4;vertical-align:top;min-width:280px">${attack}</td>`
-          + `<td style="padding:10px 10px;white-space:nowrap;vertical-align:top;color:#c9d1d9;font-family:'SF Mono','Menlo','Consolas',monospace;font-size:0.92em">${escapeHtml(clauses)}</td>`
-          + `<td style="padding:10px 10px;white-space:nowrap;text-align:center;vertical-align:top">${failCell}</td>`
-          + `<td style="padding:10px 10px;white-space:nowrap;color:#8b949e;vertical-align:top;font-family:'SF Mono','Menlo','Consolas',monospace;font-size:0.9em">${escapeHtml(lastFailed)}</td>`
-          + `<td style="padding:10px 10px;white-space:nowrap;text-align:right;vertical-align:middle">${action}</td>`
-          + `</tr>`;
+      + `style="background:#6e2c2c;color:#fff;border:1px solid #8a3838;`
+      + `padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;`
+      + `font-weight:600">Reject</button>`
+      + `</div>`
+      + `</div>`  // close metadata+actions row
+      + `</div>`; // close amendment card
   });
-  html += '</table>';
   el.innerHTML = html;
 }
 

@@ -8,7 +8,7 @@
 // commit matches what's in git. Diagnostic added after R-F353 was committed
 // and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 // alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F430 · 2026-05-13 · Pending Amendments panel legibility — card widened, attack cell stacks ID + name on two lines, Approve/Reject buttons gain real gap + border. Prior: R-F429 system-status reads admin count live, R-F428 createIfMissing on recovery-reset, R-F427 admin identity transparency, R-F426 ARIA-SMTP fallback, R-F425 recovery-token reset';
+const CRUCIX_BUILD_REV = 'R-F431 · 2026-05-13 · Pending Amendments panel — replaced 5-column table with vertical card stack ("line by line" per operator). Each amendment is now one self-contained block: ID + friendly name + metadata strip + Approve/Reject. No more horizontal spread. Prior: R-F430 table tweaks, R-F429 system-status reads admin count live, R-F428 createIfMissing on recovery-reset, R-F427 admin identity transparency';
 
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
