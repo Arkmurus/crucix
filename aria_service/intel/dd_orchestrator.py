@@ -3114,6 +3114,12 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                 {"lang": l, "query": q}
                                 for l, q in _queries
                             ]
+                            logger.info(
+                                "R-F441: polyglot adverse-media — %d queries "
+                                "across langs %s",
+                                len(_queries),
+                                [l for l, _ in _queries],
+                            )
                             report.digital.findings.append(Finding(
                                 severity="info",
                                 title=(
@@ -3136,12 +3142,6 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                 source="adverse_media_polyglot.build_queries_for_languages",
                                 confidence="ASSESSED",
                             ))
-                        logger.info(
-                            "R-F441: polyglot adverse-media — %d queries "
-                            "across langs %s",
-                            len(_queries),
-                            [l for l, _ in _queries],
-                        )
                     except Exception as _r441_e:
                         logger.debug(
                             "R-F441 polyglot adverse media skipped: %s",
