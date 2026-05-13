@@ -54,8 +54,16 @@ def test_rf450_stream_footer_arrives_before_done_via_endpoint(monkeypatch):
     # Mock aria_chat_stream to emit a fake LLM response with a
     # confidence tag so the footer builder has something to work with.
     async def _fake_chat_stream(message, session_id, llm, intel, *, user_id="", persona=""):
-        yield {"type": "chunk", "text": "The answer is "}
-        yield {"type": "chunk", "text": "Tom Ogle [PROBABLE — single source]."}
+        # NOTE: confidence_footer.build_footer returns "" for replies
+        # < 80 chars (don't decorate short answers). Pad the fake LLM
+        # stream above that floor so the footer logic actually fires —
+        # otherwise the test would pin "no footer ever emitted".
+        yield {"type": "chunk", "text": "The answer is Tom Ogle. "}
+        yield {"type": "chunk", "text": (
+            "He is the joint-venture contact for Nebraska ARMES Aviation, "
+            "a SDVOSB helicopter MRO firm in Fremont, Nebraska "
+            "[PROBABLE — single source]."
+        )}
         yield {"type": "done", "session_id": session_id}
 
     # Patch the symbol the endpoint actually imports.
