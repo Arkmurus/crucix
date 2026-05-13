@@ -2530,6 +2530,17 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 # fire because the screen IS corroborated by the verified
                 # entity context).
                 try:
+                    # R-F446 (2026-05-13) — kill-switch for consistency
+                    # with the rest of the Digital chain. Operator can
+                    # skip the page-entity sanctions screen if upstream
+                    # rate-limited.
+                    if os.getenv("ARIA_PAGE_ENTITY_SCREEN_DISABLED", "").strip():
+                        # Re-use the existing R-F436 try/except so the
+                        # `raise` is caught + debug-logged consistently
+                        # with every other R-block kill-switch path.
+                        raise RuntimeError(
+                            "R-F446: page entity screen disabled via env"
+                        )
                     _names_seen: set[str] = set()
                     _candidate_persons: list[str] = []
                     for ff in (tree.fused_facts or []):
@@ -2662,6 +2673,13 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             if ff.kind == "person_name" and ff.value
                         }
                         _snaps = await _fhs(seed_url)
+                        # R-F446 — count wayback HTTP fetches that
+                        # actually returned content. Pre-R-F446 only
+                        # the per-person sanctions screens were counted
+                        # so cost dashboards under-reported the chain.
+                        report.digital.meta.subcalls += sum(
+                            1 for s in _snaps if s.get("ok")
+                        )
                         _historical_persons: list[dict] = []
                         for _snap in _snaps:
                             if not _snap.get("ok") or not _snap.get("html"):
@@ -3078,7 +3096,19 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 # in the native script) so the search probes the
                 # untranslated reporting where the real evidence lives.
                 # Opt-out: ARIA_ADVERSE_POLYGLOT_DISABLED=1.
-                if not os.getenv("ARIA_ADVERSE_POLYGLOT_DISABLED", "").strip():
+                # R-F446 (2026-05-13) — empty-name guard. Pre-R-F446 an
+                # entity with no resolved name would build polyglot
+                # queries against an empty entity string — the OR-block
+                # of bare adverse terms would dredge up unrelated
+                # corruption / sanctions news and pollute
+                # adverse_media_hits. Skip the block entirely instead.
+                _r441_entity = (
+                    report.identity.entity_name or name or ""
+                ).strip()
+                if (
+                    not os.getenv("ARIA_ADVERSE_POLYGLOT_DISABLED", "").strip()
+                    and _r441_entity
+                ):
                     try:
                         from .adverse_media_polyglot import (
                             build_queries_for_languages as _bqfl,
@@ -3098,7 +3128,7 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                         # asynchronously via search_multilingual; this
                         # block exposes the per-DD adverse-media plan.
                         _lang_hint = (
-                            f"{report.identity.entity_name or name} "
+                            f"{_r441_entity} "
                             f"{report.identity.jurisdiction or ''}"
                         ).strip()
                         _langs_detected = _dlf(_lang_hint)
@@ -3106,10 +3136,7 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                         _langs_to_query = ["en"] + [
                             l for l in _langs_detected if l != "en"
                         ]
-                        _queries = _bqfl(
-                            report.identity.entity_name or name,
-                            _langs_to_query,
-                        )
+                        _queries = _bqfl(_r441_entity, _langs_to_query)
                         if _queries:
                             report.digital.web_footprint["adverse_media_queries"] = [
                                 {"lang": l, "query": q}

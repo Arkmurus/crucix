@@ -792,10 +792,21 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
             if _is_hostname_origin:
                 m["_from_brandified_hostname"] = True
                 m["_brandified_stem"] = _brandified_stem
-                m["_has_caller_supplied_aliases"] = _has_caller_supplied_aliases
-                # R-F444 — deprecated alias retained for one release for
-                # any consumer still reading the old key.
-                m["_has_legal_name_corroboration"] = _has_caller_supplied_aliases
+            # R-F446 (2026-05-13) — tag corroboration on EVERY surfaced
+            # match, not only hostname-origin ones. Pre-R-F446 R-F436
+            # and R-F437 comments claimed "passing the entity name as
+            # known_aliases sets _has_caller_supplied_aliases=True per
+            # match" but in fact the flag was ONLY written for
+            # hostname-origin matches because the assignment sat inside
+            # the `if _is_hostname_origin:` guard. Behaviourally moot
+            # today (the R-F434 cap only fires when the brandified-
+            # hostname tag is also set) but a future non-hostname cap
+            # reading the same flag would silently no-op. Move out so
+            # the tag reflects reality.
+            m["_has_caller_supplied_aliases"] = _has_caller_supplied_aliases
+            # R-F444 — deprecated alias retained for one release for
+            # any consumer still reading the old key.
+            m["_has_legal_name_corroboration"] = _has_caller_supplied_aliases
             all_matches.append(m)
     # Dedup by candidate name + list
     seen = set()
