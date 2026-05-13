@@ -117,6 +117,22 @@ async def lifespan(app: FastAPI):
         # before we touch chromadb. The model download alone can take
         # 30-90s on a cold volume.
         await asyncio.sleep(15)
+        # R-F458 (2026-05-13) — prewarm the sentence-transformer model in
+        # a thread pool BEFORE the first chat/DD request triggers a
+        # cold load on the event-loop thread. Live evidence 22:07-22:09:
+        # the cold load (32s) + first embed batch (37s) blocked the
+        # event loop, causing fly LB to spam PR04 "could not find a
+        # good candidate" for ~2 minutes. R-F378's comment had queued
+        # this as R-F379 ("move blocking work to a thread pool") —
+        # this commit ships it.
+        try:
+            from .intel.semantic_search import prewarm_embedder
+            await prewarm_embedder()
+            logger.info("[RAG] R-F458 sentence-transformer prewarm complete")
+        except Exception as _pw_e:
+            logger.warning(
+                "[RAG] R-F458 prewarm failed (non-fatal): %s", _pw_e,
+            )
         try:
             stats = await rag_store.get_stats()
             logger.info("[RAG] probe: %s", stats)
