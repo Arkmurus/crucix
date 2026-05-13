@@ -2954,6 +2954,119 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             "R-F439 procurement history skipped: %s",
                             _r439_e,
                         )
+
+                # ── R-F440 (2026-05-13) — DNS fingerprint + ASN owner ─────
+                # Knowing the hosting ASN reveals shared infrastructure
+                # (a "British" entity served from a sanctioned-jurisdiction
+                # ASN, or two ostensibly-unrelated entities sharing an
+                # obscure ASN). MX/NS records reveal mail + nameserver
+                # providers that don't appear in WHOIS. Uses Cloudflare
+                # DNS-over-HTTPS (no dependency) + api.iptoasn.com (free,
+                # no key). Cost: ~5 HTTP requests per DD.
+                # Opt-out: ARIA_DNS_FINGERPRINT_DISABLED=1.
+                if not os.getenv("ARIA_DNS_FINGERPRINT_DISABLED", "").strip():
+                    try:
+                        from .domain_pivots import dns_fingerprint as _dnsfp
+                        # Reuse the apex from R-F438; if R-F438 was skipped
+                        # we derive it from seed_url.
+                        from urllib.parse import urlparse as _urlparse2
+                        _parsed2 = _urlparse2(seed_url)
+                        _apex2 = (_parsed2.netloc or "").lower()
+                        if _apex2.startswith("www."):
+                            _apex2 = _apex2[4:]
+                        if _apex2 and "." in _apex2:
+                            _dns = await _dnsfp(_apex2)
+                            if _dns.get("ok"):
+                                report.digital.web_footprint["dns_fingerprint"] = {
+                                    "domain":      _dns.get("domain"),
+                                    "mx_count":    len(_dns.get("mx") or []),
+                                    "ns_count":    len(_dns.get("ns") or []),
+                                    "txt_count":   len(_dns.get("txt") or []),
+                                    "primary_ip":  _dns.get("primary_ip"),
+                                    "primary_asn": _dns.get("primary_asn"),
+                                    "mx":          _dns.get("mx") or [],
+                                    "ns":          _dns.get("ns") or [],
+                                    "errors":      _dns.get("errors") or [],
+                                }
+                                report.digital.meta.subcalls += 5  # 4 DoH + 1 ASN
+                                _asn = _dns.get("primary_asn") or {}
+                                _asn_desc = _asn.get("description") or ""
+                                _asn_cc = _asn.get("country") or ""
+                                if _asn_desc:
+                                    report.digital.findings.append(Finding(
+                                        severity="info",
+                                        title=(
+                                            f"DNS/ASN: {_apex2} hosted on "
+                                            f"AS{_asn.get('as_number')} "
+                                            f"({_asn_desc[:80]}, {_asn_cc})"
+                                        ),
+                                        detail=(
+                                            f"Primary IP {_dns.get('primary_ip')}; "
+                                            f"MX records: {len(_dns.get('mx') or [])}; "
+                                            f"NS records: {len(_dns.get('ns') or [])}; "
+                                            f"TXT records: {len(_dns.get('txt') or [])}. "
+                                            f"ASN country differing from declared "
+                                            f"jurisdiction can indicate shared "
+                                            f"or undisclosed hosting."
+                                        ),
+                                        source=(
+                                            "domain_pivots.dns_fingerprint "
+                                            "[Cloudflare DoH + api.iptoasn.com]"
+                                        ),
+                                        confidence="CONFIRMED",
+                                    ))
+                                # If declared jurisdiction differs from ASN
+                                # country, surface as amber (worth checking).
+                                _decl_iso2 = (
+                                    report.identity.jurisdiction_iso2 or ""
+                                ).upper()
+                                if (
+                                    _decl_iso2 and _asn_cc
+                                    and _decl_iso2 != _asn_cc.upper()
+                                    # Allow common multi-jurisdiction hosters
+                                    # without crying wolf — pure heuristic.
+                                    and _asn_cc.upper() not in ("US", "GB", "DE", "NL", "FR", "IE")
+                                ):
+                                    report.digital.findings.append(Finding(
+                                        severity="amber",
+                                        title=(
+                                            f"ASN country {_asn_cc} differs "
+                                            f"from declared jurisdiction "
+                                            f"{_decl_iso2}"
+                                        ),
+                                        detail=(
+                                            f"{_apex2} resolves to an IP in "
+                                            f"AS{_asn.get('as_number')} "
+                                            f"({_asn_desc[:80]}), registered "
+                                            f"in {_asn_cc}. Entity declares "
+                                            f"jurisdiction {_decl_iso2}. "
+                                            f"Could be legitimate (CDN edge, "
+                                            f"shared hoster) but worth checking "
+                                            f"if combined with other red flags."
+                                        ),
+                                        source=(
+                                            "domain_pivots.dns_fingerprint "
+                                            "[ASN-vs-jurisdiction mismatch]"
+                                        ),
+                                        confidence="ASSESSED",
+                                    ))
+                                logger.info(
+                                    "R-F440: DNS fingerprint %s — IP=%s "
+                                    "ASN=%s (%s, %s)",
+                                    _apex2,
+                                    _dns.get("primary_ip"),
+                                    _asn.get("as_number"),
+                                    _asn_desc[:40],
+                                    _asn_cc,
+                                )
+                            elif _dns.get("errors"):
+                                report.digital.web_footprint["dns_fingerprint_error"] = (
+                                    "; ".join(_dns.get("errors") or [])[:240]
+                                )
+                    except Exception as _r440_e:
+                        logger.debug(
+                            "R-F440 DNS fingerprint skipped: %s", _r440_e,
+                        )
             except Exception as e:
                 logger.warning("Digital: link_investigator failed: %s", e)
                 report.digital.data_gaps.append(f"link_investigator failed: {str(e)[:120]}")

@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 
 CRTSH_ENDPOINT = "https://crt.sh/"
+CLOUDFLARE_DOH_ENDPOINT = "https://cloudflare-dns.com/dns-query"
+IPTOASN_ENDPOINT = "https://api.iptoasn.com/v1/as/ip/"
 
 # Hostname patterns to exclude when deriving "related" domains. These
 # either belong to CDN/registrar infrastructure (not the operator) or
@@ -206,3 +208,197 @@ def extract_related_domains(
         for h in sorted(earliest.keys())
     ]
     return related[:max_related]
+
+
+# ── R-F440 — DNS-over-HTTPS lookup ─────────────────────────────────────────
+
+
+_DOH_RECORD_TYPES: dict[str, int] = {
+    "A":    1,
+    "AAAA": 28,
+    "MX":   15,
+    "NS":   2,
+    "TXT":  16,
+    "CNAME": 5,
+}
+
+
+async def dns_lookup(
+    domain: str,
+    *,
+    record_type: str = "A",
+    timeout: float = 10.0,
+) -> dict:
+    """Query Cloudflare DNS-over-HTTPS for a record type.
+
+    R-F440 — DNS records reveal undisclosed mail providers (MX),
+    nameserver providers (NS), SPF/DMARC config (TXT) and shared
+    hosting (A → ASN). DoH avoids adding dnspython as a dependency
+    and works on any host with HTTPS egress.
+
+    Returns:
+      {
+        "ok":        bool,
+        "domain":    domain,
+        "type":      record_type,
+        "answers":   [{"data", "type", "ttl"}, ...],
+        "status":    int (DNS RCODE: 0=NOERROR, 3=NXDOMAIN, ...),
+        "error":     None | str,
+      }
+    """
+    out: dict[str, Any] = {
+        "ok": False,
+        "domain": domain,
+        "type": record_type,
+        "answers": [],
+        "status": None,
+        "error": None,
+    }
+    rt = record_type.upper()
+    if rt not in _DOH_RECORD_TYPES:
+        out["error"] = f"unsupported record type: {record_type}"
+        return out
+    if not domain or "." not in domain:
+        out["error"] = "domain malformed"
+        return out
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout, follow_redirects=True,
+        ) as client:
+            resp = await client.get(
+                CLOUDFLARE_DOH_ENDPOINT,
+                params={"name": domain, "type": rt},
+                headers={
+                    "Accept": "application/dns-json",
+                    "User-Agent": "ARIA-DD/1.0",
+                },
+            )
+            if resp.status_code != 200:
+                out["error"] = f"DoH HTTP {resp.status_code}"
+                return out
+            try:
+                data = resp.json()
+            except Exception as je:
+                out["error"] = f"DoH non-JSON: {str(je)[:120]}"
+                return out
+    except httpx.HTTPError as e:
+        out["error"] = f"DoH request error: {str(e)[:200]}"
+        return out
+    out["status"] = data.get("Status")
+    # Cloudflare returns Answer:[{name, type, TTL, data}, ...]
+    answers = data.get("Answer") or []
+    for a in answers:
+        if not isinstance(a, dict):
+            continue
+        out["answers"].append({
+            "data": (a.get("data") or "")[:512],
+            "type": a.get("type"),
+            "ttl":  a.get("TTL"),
+        })
+    out["ok"] = True
+    return out
+
+
+async def ip_to_asn(
+    ip: str,
+    *,
+    timeout: float = 10.0,
+) -> dict:
+    """Resolve an IPv4 / IPv6 address to its ASN owner via api.iptoasn.com.
+
+    R-F440 — knowing the hosting ASN reveals shared infrastructure
+    (e.g., a "British" entity served from a sanctioned-jurisdiction
+    ASN, or two ostensibly-unrelated entities sharing an obscure ASN).
+    api.iptoasn.com is free, no key, community-run; treat 5xx as
+    transient.
+    """
+    out: dict[str, Any] = {
+        "ok": False,
+        "ip": ip,
+        "as_number": None,
+        "as_country_code": None,
+        "as_description": None,
+        "error": None,
+    }
+    if not ip:
+        out["error"] = "ip empty"
+        return out
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout, follow_redirects=True,
+        ) as client:
+            resp = await client.get(
+                IPTOASN_ENDPOINT + ip,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "ARIA-DD/1.0",
+                },
+            )
+            if resp.status_code != 200:
+                out["error"] = f"iptoasn HTTP {resp.status_code}"
+                return out
+            try:
+                data = resp.json()
+            except Exception as je:
+                out["error"] = f"iptoasn non-JSON: {str(je)[:120]}"
+                return out
+    except httpx.HTTPError as e:
+        out["error"] = f"iptoasn request error: {str(e)[:200]}"
+        return out
+    if not data.get("announced", True):
+        out["error"] = "IP not announced (unrouted)"
+        return out
+    out["ok"] = True
+    out["as_number"] = data.get("as_number")
+    out["as_country_code"] = data.get("as_country_code")
+    out["as_description"] = (data.get("as_description") or "")[:240]
+    return out
+
+
+async def dns_fingerprint(
+    domain: str,
+    *,
+    timeout: float = 10.0,
+) -> dict:
+    """One-shot DNS fingerprint for a domain — pulls A, MX, NS, TXT,
+    then ASN-resolves the first A record. Returns a single dict for
+    rendering in the DD report.
+
+    This is the orchestrator-facing helper. Per-record-type errors
+    are recorded individually so a partial result is still useful.
+    """
+    out: dict[str, Any] = {
+        "ok": False,
+        "domain": domain,
+        "a":       [],
+        "aaaa":    [],
+        "mx":      [],
+        "ns":      [],
+        "txt":     [],
+        "primary_ip":   None,
+        "primary_asn":  None,
+        "errors":  [],
+    }
+    for rt, key in (("A", "a"), ("MX", "mx"), ("NS", "ns"), ("TXT", "txt")):
+        res = await dns_lookup(domain, record_type=rt, timeout=timeout)
+        if res.get("ok"):
+            out[key] = res.get("answers") or []
+        else:
+            out["errors"].append(f"{rt}: {res.get('error')}")
+    # Primary IP = first A answer (skip the chain that resolves CNAMEs)
+    a_records = [a for a in out["a"] if a.get("type") == _DOH_RECORD_TYPES["A"]]
+    if a_records:
+        first_ip = a_records[0].get("data") or ""
+        out["primary_ip"] = first_ip
+        if first_ip:
+            asn_res = await ip_to_asn(first_ip, timeout=timeout)
+            if asn_res.get("ok"):
+                out["primary_asn"] = {
+                    "as_number":       asn_res.get("as_number"),
+                    "country":         asn_res.get("as_country_code"),
+                    "description":     asn_res.get("as_description"),
+                }
+            else:
+                out["errors"].append(f"ASN: {asn_res.get('error')}")
+    out["ok"] = bool(out["a"] or out["mx"] or out["ns"] or out["txt"])
+    return out
