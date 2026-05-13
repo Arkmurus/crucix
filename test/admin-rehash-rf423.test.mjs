@@ -182,5 +182,60 @@ console.log('\n7. Email matching is case-insensitive');
   rmSync(dir, { recursive: true, force: true });
 }
 
+// 8. --create-if-missing: mints admin row when email is absent
+console.log('\n8. --create-if-missing mints admin row when email is absent');
+{
+  const { dir, file } = mkUsersFile([
+    { id: 'u1', email: 'other@example.com', role: 'viewer', status: 'active', passwordHash: 'o:h' },
+  ]);
+  const r = runScript(
+    { ADMIN_EMAIL, ADMIN_PASSWORD: NEW_PASSWORD },
+    ['--file', file, '--create-if-missing']
+  );
+  check('exit code 0', r.status === 0, `stderr=${r.stderr}`);
+  const after = JSON.parse(readFileSync(file, 'utf8'));
+  const admin = after.find(u => u.email === ADMIN_EMAIL);
+  check('admin row created', !!admin);
+  check('role=admin', admin && admin.role === 'admin');
+  check('status=active', admin && admin.status === 'active');
+  check('hash verifies', admin && verifyPassword(NEW_PASSWORD, admin.passwordHash));
+  check('existing viewer row preserved', after.find(u => u.email === 'other@example.com')?.role === 'viewer');
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// 9. --create-if-missing creates the file itself if it doesn't exist
+console.log('\n9. --create-if-missing creates users.json if absent');
+{
+  const dir = mkdtempSync(join(tmpdir(), 'rehash-rf423-'));
+  const subdir = join(dir, 'nested', 'runs');
+  const file = join(subdir, 'users.json');
+  const r = runScript(
+    { ADMIN_EMAIL, ADMIN_PASSWORD: NEW_PASSWORD },
+    ['--file', file, '--create-if-missing']
+  );
+  check('exit code 0', r.status === 0, `stderr=${r.stderr}`);
+  const after = JSON.parse(readFileSync(file, 'utf8'));
+  check('users.json now exists with 1 admin row', Array.isArray(after) && after.length === 1 && after[0].role === 'admin');
+  check('hash verifies', verifyPassword(NEW_PASSWORD, after[0].passwordHash));
+  // Fresh-creation should NOT write a backup (nothing to back up)
+  const backups = readdirSync(subdir).filter(f => f.startsWith('users.json.bak.'));
+  check('no backup on fresh creation', backups.length === 0);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// 10. Without --create-if-missing, missing file still exits 3
+console.log('\n10. Missing file without --create-if-missing exits 3');
+{
+  const dir = mkdtempSync(join(tmpdir(), 'rehash-rf423-'));
+  const file = join(dir, 'nonexistent.json');
+  const r = runScript(
+    { ADMIN_EMAIL, ADMIN_PASSWORD: NEW_PASSWORD },
+    ['--file', file]
+  );
+  check('exit code 3', r.status === 3, `got ${r.status}`);
+  check('stderr mentions create-if-missing tip', /create-if-missing/.test(r.stderr));
+  rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${failures === 0 ? '✓ all checks passed' : '✗ ' + failures + ' check(s) failed'}`);
 process.exit(failures === 0 ? 0 : 1);

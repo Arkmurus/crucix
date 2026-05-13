@@ -1,6 +1,7 @@
 // scripts/admin/rehash.mjs
-// R-F423 — one-shot tool to force the admin row in runs/users.json to use the
-// current ADMIN_PASSWORD env var.
+// R-F423 + R-F424 — one-shot tool to force the admin row in runs/users.json
+// to use the current ADMIN_PASSWORD env var. Optionally creates the row if
+// the file has no matching admin yet (--create-if-missing).
 //
 // Why this exists: initAdminUser in lib/auth/users.mjs only consults
 // ADMIN_EMAIL / ADMIN_PASSWORD when there is no admin row yet (it returns
@@ -14,18 +15,22 @@
 //
 // Flags (for testing — avoid passing password as a flag in production, it
 // leaks into shell history):
-//   --email <addr>     override ADMIN_EMAIL
-//   --password <pw>    override ADMIN_PASSWORD
-//   --file <path>      override runs/users.json
-//   --dry-run          print the planned change, do not write
+//   --email <addr>             override ADMIN_EMAIL
+//   --password <pw>            override ADMIN_PASSWORD
+//   --file <path>              override runs/users.json
+//   --dry-run                  print the planned change, do not write
+//   --create-if-missing        if no admin row exists for this email, mint one
+//                              (also creates runs/users.json if absent)
 //
-// On success the admin row's passwordHash is replaced with PBKDF2(new), status
-// is forced to 'active', and tokenVersion is bumped so any stale JWTs from
-// before the rotation are invalidated on next request (no app restart needed
-// — server.mjs reads users.json on every auth check via PersistStore).
+// Restart caveat: lib/persist/store.mjs caches users in memory and only re-
+// reads the file in initUsersStore() at process start (store.mjs:97-107). After
+// running this script, restart the seenode app so the running process picks
+// up the new hash. Earlier versions of this script claimed "no restart needed"
+// — that was wrong and led to the operator being stuck on "Invalid credentials"
+// even though users.json on disk had the new hash.
 
 import { pbkdf2Sync, randomBytes } from 'node:crypto';
-import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,10 +54,11 @@ function hashPassword(password) {
 }
 
 function parseArgs(argv) {
-  const out = { dryRun: false };
+  const out = { dryRun: false, createIfMissing: false };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--dry-run') { out.dryRun = true; continue; }
+    if (k === '--create-if-missing') { out.createIfMissing = true; continue; }
     const v = argv[i + 1];
     if (k === '--email') { out.email = v; i++; continue; }
     if (k === '--password') { out.password = v; i++; continue; }
@@ -67,8 +73,14 @@ function usage() {
 
   ADMIN_EMAIL=... ADMIN_PASSWORD=... node scripts/admin/rehash.mjs [--dry-run]
   node scripts/admin/rehash.mjs --email a@b.c --password '...' --file path/users.json [--dry-run]
+  node scripts/admin/rehash.mjs --create-if-missing   # mint admin row if absent
 
-Exits non-zero on missing env / short password / missing admin row.`);
+Exits non-zero on missing env / short password / missing admin row.
+Restart the app after writing so the in-memory user cache reloads (store.mjs:97-107).`);
+}
+
+function genId() {
+  return randomBytes(6).toString('hex');
 }
 
 function main() {
@@ -88,29 +100,70 @@ function main() {
     console.error(`[rehash] ADMIN_PASSWORD must be at least 12 chars (got ${password.length})`);
     process.exit(1);
   }
-  if (!existsSync(file)) {
-    console.error(`[rehash] users file not found: ${file}`);
-    process.exit(3);
-  }
-
-  let users;
-  try {
-    users = JSON.parse(readFileSync(file, 'utf8'));
-  } catch (err) {
-    console.error(`[rehash] failed to parse ${file}: ${err.message}`);
-    process.exit(3);
-  }
-  if (!Array.isArray(users)) {
-    console.error(`[rehash] ${file} does not contain a user array`);
-    process.exit(3);
+  let users = [];
+  let fileExisted = existsSync(file);
+  if (fileExisted) {
+    try {
+      users = JSON.parse(readFileSync(file, 'utf8'));
+    } catch (err) {
+      console.error(`[rehash] failed to parse ${file}: ${err.message}`);
+      process.exit(3);
+    }
+    if (!Array.isArray(users)) {
+      console.error(`[rehash] ${file} does not contain a user array`);
+      process.exit(3);
+    }
+  } else {
+    if (!args.createIfMissing) {
+      console.error(`[rehash] users file not found: ${file}`);
+      console.error(`[rehash] tip: pass --create-if-missing to mint the admin row from env vars`);
+      process.exit(3);
+    }
+    console.log(`[rehash] file does not exist — will create: ${file}`);
   }
 
   const idx = users.findIndex(u => u && typeof u.email === 'string' && u.email.toLowerCase() === email);
+
   if (idx < 0) {
-    console.error(`[rehash] no row for email=${email} in ${file}`);
-    console.error(`[rehash] tip: delete admin row + restart, initAdminUser will recreate from env`);
-    process.exit(2);
+    if (!args.createIfMissing) {
+      console.error(`[rehash] no row for email=${email} in ${file}`);
+      console.error(`[rehash] tip: pass --create-if-missing to mint a fresh admin row`);
+      process.exit(2);
+    }
+    // Mint a fresh admin row. Field shape mirrors lib/auth/users.mjs:289-307
+    // (initAdminUser) so the new row looks identical to a normal bootstrap.
+    const newRow = {
+      id: genId(),
+      username: 'admin',
+      email,
+      passwordHash: hashPassword(password),
+      fullName: 'Arkmurus Administrator',
+      role: 'admin',
+      status: 'active',
+      tokenVersion: 0,
+      verificationCode: null,
+      verificationExpiry: null,
+      resetCode: null,
+      resetExpiry: null,
+      telegramUsername: null,
+      notifyDigest: true,
+      notifyFlash: true,
+      notifyPush: false,
+      createdAt: new Date().toISOString(),
+      lastLogin: null,
+    };
+    console.log(`[rehash] CREATE admin row: email=${email} id=${newRow.id}  status=active  hash=${newRow.passwordHash.slice(0,12)}...`);
+
+    if (args.dryRun) {
+      console.log(`[rehash] --dry-run: no write performed`);
+      return;
+    }
+    users.push(newRow);
+    persist(file, users, fileExisted);
+    console.log(`[rehash] done — restart the app so initUsersStore() picks up the new row`);
+    return;
   }
+
   const prev = users[idx];
   if (prev.role !== 'admin') {
     console.error(`[rehash] row for ${email} has role=${prev.role}, refusing (use --force-non-admin to override — not implemented intentionally)`);
@@ -137,16 +190,24 @@ function main() {
     tokenVersion: newTokenVersion,
   };
 
+  persist(file, users, fileExisted);
+  console.log(`[rehash] done — restart the app so initUsersStore() picks up the new hash`);
+}
+
+function persist(file, users, fileExisted) {
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const backup = `${file}.bak.${ts}`;
-  writeFileSync(backup, JSON.stringify(JSON.parse(readFileSync(file, 'utf8')), null, 2));
+  if (fileExisted) {
+    const backup = `${file}.bak.${ts}`;
+    writeFileSync(backup, JSON.stringify(JSON.parse(readFileSync(file, 'utf8')), null, 2));
+    console.log(`[rehash] backup: ${backup}`);
+  }
   const tmp = `${file}.tmp.${ts}`;
+  // mkdir -p in case runs/ doesn't exist yet (fresh deploy)
+  const dir = dirname(file);
+  if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(tmp, JSON.stringify(users, null, 2));
   renameSync(tmp, file);
-
-  console.log(`[rehash] backup: ${backup}`);
   console.log(`[rehash] wrote:  ${file}`);
-  console.log(`[rehash] done — login now accepts the current ADMIN_PASSWORD; existing JWTs invalidated`);
 }
 
 main();
