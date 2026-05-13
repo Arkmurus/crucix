@@ -7608,6 +7608,65 @@ async def read_document_ep(request: Request):
         fname_lower = filename.lower()
         mime_lower = mimetype.lower()
 
+        # R-F415 (2026-05-13) — magic-byte validation. Pre-R-F415 the
+        # parser routing trusted the attacker-controlled `mimetype` +
+        # `filename` strings. An attacker could send a .pdf-named file
+        # with `Content-Type: application/pdf` whose body was actually
+        # a ZIP / executable / other blob — the PDF parser would
+        # choke (OOM / CPU burn / silent corruption). Now we detect
+        # the file by magic bytes and OVERRIDE the routing strings
+        # when they disagree. Disagreement is logged so operator sees
+        # the mismatch.
+        from ..intel.file_type_detector import (
+            detect_file_type as _r415_detect,
+            file_type_matches_claim as _r415_matches,
+        )
+        _r415_detected = _r415_detect(raw_bytes)
+        if not _r415_matches(_r415_detected, mimetype, filename):
+            _log.warning(
+                "R-F415: file-type mismatch — claimed mime=%r filename=%r "
+                "but magic-bytes say %r; routing by detected type",
+                mimetype[:80], filename[:80], _r415_detected,
+            )
+        # Override the routing strings with the detected type so the
+        # downstream chain matches the real bytes. Operator-supplied
+        # filename is preserved for citation; only the *_lower routing
+        # vars are tightened.
+        if _r415_detected != "unknown":
+            mime_lower = {
+                "pdf":  "application/pdf",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                "png":  "image/png",
+                "jpeg": "image/jpeg",
+                "gif":  "image/gif",
+                "webp": "image/webp",
+                "bmp":  "image/bmp",
+                "txt":  "text/plain",
+                "zip":  "application/zip",
+            }.get(_r415_detected, mime_lower)
+            # Replace the routed extension portion of fname_lower so
+            # `endswith(".pdf")` branches only fire when bytes are PDF.
+            _r415_ext = {
+                "pdf": ".pdf", "docx": ".docx", "xlsx": ".xlsx",
+                "pptx": ".pptx", "png": ".png", "jpeg": ".jpg",
+                "gif": ".gif", "webp": ".webp", "bmp": ".bmp",
+                "txt": ".txt", "zip": ".zip",
+            }.get(_r415_detected, "")
+            if _r415_ext and not fname_lower.endswith(_r415_ext):
+                fname_lower = (fname_lower or "unknown") + _r415_ext
+        else:
+            # Unknown bytes — reject early so we don't burn parser CPU
+            # on a body that's neither office nor image nor text.
+            return {
+                "ok": False,
+                "error": "unrecognised file format (magic-byte check failed)",
+                "filename": filename,
+                "claimed_mime": mimetype,
+                "byte_length": len(raw_bytes),
+            }
+
         # PDF extraction — 2026-04-18 upgraded to multi-page + image OCR.
         # The enhanced path splits every page into its own RAG chunk
         # with page_number metadata AND extracts/OCRs embedded images.
