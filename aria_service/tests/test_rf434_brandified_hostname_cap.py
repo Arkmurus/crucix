@@ -39,7 +39,7 @@ def test_rf434_unit_brandified_match_capped_at_amber_when_no_corroboration():
         "lists": ["us_ofac_sdn"],
         "_from_brandified_hostname": True,
         "_brandified_stem": "ngast",
-        "_has_legal_name_corroboration": False,
+        "_has_caller_supplied_aliases": False,
     }
     # query_name="" to bypass token-overlap demotion path so we isolate
     # the brandified-hostname cap. (Token-overlap would also demote this
@@ -64,7 +64,7 @@ def test_rf434_unit_brandified_match_with_corroboration_preserves_hard_stop():
         "lists": ["us_ofac_sdn"],
         "_from_brandified_hostname": True,
         "_brandified_stem": "realco",
-        "_has_legal_name_corroboration": True,  # caller passed legal name
+        "_has_caller_supplied_aliases": True,  # caller passed legal name
     }
     sev = classify_match(m, query_name="Sanctioned Real Co Ltd")
     assert sev == "hard_stop", (
@@ -100,7 +100,7 @@ def test_rf434_unit_brandified_amber_topic_stays_amber():
         "topics": ["role.pep"],
         "lists": ["us_pep_database"],
         "_from_brandified_hostname": True,
-        "_has_legal_name_corroboration": False,
+        "_has_caller_supplied_aliases": False,
     }
     # query_name="" to bypass token-overlap demotion (single short token
     # would otherwise reduce to info under R-F351).
@@ -123,7 +123,7 @@ def test_rf434_per_match_flags_hostname_capped_entries():
             "lists": ["us_ofac_sdn"],
             "_from_brandified_hostname": True,
             "_brandified_stem": "ngast",
-            "_has_legal_name_corroboration": False,
+            "_has_caller_supplied_aliases": False,
         },
     ]
     out = classify_matches(matches, query_name="ngast")
@@ -190,13 +190,18 @@ def test_rf434_capability_screen_with_aliases_tags_brandified_matches(monkeypatc
 
     assert result.get("from_brandified_hostname") is True
     assert result.get("brandified_stem")  # something non-empty
-    assert result.get("has_legal_name_corroboration") is False
+    # R-F444: new canonical key is `has_caller_supplied_aliases`;
+    # `has_legal_name_corroboration` is preserved as a deprecated alias.
+    assert result.get("has_caller_supplied_aliases") is False
+    assert result.get("has_legal_name_corroboration") is False  # deprecated alias still present
     assert result["matches"], "expected at least one match"
     for m in result["matches"]:
         assert m.get("_from_brandified_hostname") is True, (
             f"R-F434: screen_with_aliases must tag brandified-derived "
             f"matches so classifier cap fires. Got match without tag: {m}"
         )
+        assert m.get("_has_caller_supplied_aliases") is False
+        # R-F444 backward-compat alias on per-match too
         assert m.get("_has_legal_name_corroboration") is False
 
 
@@ -300,7 +305,9 @@ def test_rf434_capability_corroboration_restores_hard_stop(monkeypatch):
         "realco.com",
         known_aliases=["Sanctioned Real Co Ltd"],
     ))
-    assert result["has_legal_name_corroboration"] is True
+    # R-F444 canonical key + deprecated alias both True
+    assert result["has_caller_supplied_aliases"] is True
+    assert result["has_legal_name_corroboration"] is True  # deprecated alias
     classified = classify_matches(
         result["matches"],
         query_name="Sanctioned Real Co Ltd",

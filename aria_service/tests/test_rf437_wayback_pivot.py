@@ -135,7 +135,8 @@ def test_rf437_capability_historical_only_person_yields_finding(monkeypatch):
                 "top_score": 0.92,
                 "blocked": True,
                 "from_brandified_hostname": False,
-                "has_legal_name_corroboration": True,
+                "has_caller_supplied_aliases": True,
+                "has_legal_name_corroboration": True,  # R-F444 deprecated alias
             }
         return {"name": name, "matches": [], "top_score": 0, "blocked": False}
 

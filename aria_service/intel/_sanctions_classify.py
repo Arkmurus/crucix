@@ -504,9 +504,15 @@ def classify_match(match: dict, query_name: str = "") -> str:
     # orchestrator re-screens with the verified legal entity name from
     # the website crawl or company registry. Tags set by
     # sanctions.screen_with_aliases.
+    # R-F444 — read both the renamed flag AND the deprecated one so
+    # callers still on the old key keep working until the next release.
+    _has_caller_aliases = (
+        match.get("_has_caller_supplied_aliases")
+        or match.get("_has_legal_name_corroboration")
+    )
     if (
         match.get("_from_brandified_hostname")
-        and not match.get("_has_legal_name_corroboration")
+        and not _has_caller_aliases
         and SEVERITY_RANK[severity] > SEVERITY_RANK["amber"]
     ):
         severity = "amber"
@@ -569,9 +575,14 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
         # was no legal-name corroboration, and the topic-derived severity
         # exceeded AMBER (which is the cap). When this fires, severity
         # was forced to AMBER regardless of token overlap.
+        # R-F444 — same renamed-with-fallback pattern as classify_match
+        _has_caller_aliases_m = (
+            m.get("_has_caller_supplied_aliases")
+            or m.get("_has_legal_name_corroboration")
+        )
         hostname_capped = bool(
             m.get("_from_brandified_hostname")
-            and not m.get("_has_legal_name_corroboration")
+            and not _has_caller_aliases_m
             and SEVERITY_RANK[topic_severity] > SEVERITY_RANK["amber"]
         )
         per_match.append({

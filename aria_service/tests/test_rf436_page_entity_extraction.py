@@ -213,7 +213,8 @@ def test_rf436_capability_extracted_persons_hit_yields_digital_finding(monkeypat
                 "top_score": 1.00,
                 "blocked": True,
                 "from_brandified_hostname": False,
-                "has_legal_name_corroboration": True,
+                "has_caller_supplied_aliases": True,
+                "has_legal_name_corroboration": True,  # R-F444 deprecated alias
             }
         return {"name": name, "matches": [], "top_score": 0, "blocked": False}
 
@@ -235,7 +236,7 @@ def test_rf436_capability_extracted_persons_hit_yields_digital_finding(monkeypat
 def test_rf436_capability_extracted_person_passes_r434_corroboration(monkeypatch):
     """Anchor test for the R-F434 interaction: the orchestrator passes
     the entity name as `known_aliases` when screening site-extracted
-    persons. R-F434 captures `_has_legal_name_corroboration = bool(
+    persons. R-F434 captures `_has_caller_supplied_aliases = bool(
     known_aliases)` at function entry — so the cap MUST NOT fire on
     legitimate site-name corroboration."""
     from aria_service.intel import sanctions

@@ -714,7 +714,7 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
     _brandified_stem: str = ""
     # known_aliases AT ENTRY = caller-supplied legal-name corroboration.
     # Captured before we mutate the list with the original hostname.
-    _has_legal_name_corroboration = bool(known_aliases)
+    _has_caller_supplied_aliases = bool(known_aliases)
     if name and _DOMAIN_TOKEN_RE.search(name):
         try:
             from .web_explorer import brandify_query as _brand
@@ -792,7 +792,10 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
             if _is_hostname_origin:
                 m["_from_brandified_hostname"] = True
                 m["_brandified_stem"] = _brandified_stem
-                m["_has_legal_name_corroboration"] = _has_legal_name_corroboration
+                m["_has_caller_supplied_aliases"] = _has_caller_supplied_aliases
+                # R-F444 — deprecated alias retained for one release for
+                # any consumer still reading the old key.
+                m["_has_legal_name_corroboration"] = _has_caller_supplied_aliases
             all_matches.append(m)
     # Dedup by candidate name + list
     seen = set()
@@ -815,5 +818,13 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
         # R-F434: visibility hooks for renderers and chat output.
         "from_brandified_hostname": _from_brandified_hostname,
         "brandified_stem": _brandified_stem,
-        "has_legal_name_corroboration": _has_legal_name_corroboration,
+        # R-F444 (2026-05-13) — flag renamed to honest name. The old
+        # `has_legal_name_corroboration` overstated the guarantee:
+        # the flag was True whenever ANY known_aliases were passed,
+        # including the R-F312 brandified-re-fire path which passes
+        # the raw hostname as an alias (not a verified legal name).
+        # New canonical key: `has_caller_supplied_aliases`. Old key
+        # preserved as a deprecated alias for one release.
+        "has_caller_supplied_aliases": _has_caller_supplied_aliases,
+        "has_legal_name_corroboration": _has_caller_supplied_aliases,  # deprecated
     }

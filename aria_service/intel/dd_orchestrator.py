@@ -2558,10 +2558,11 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                 _scr = await _sanc_p.screen_with_aliases(
                                     _person,
                                     # Passing the entity name as a known
-                                    # alias sets _has_legal_name_corroboration
-                                    # to True. This is honest corroboration
-                                    # because the person was named ON the
-                                    # entity's own website — same context.
+                                    # alias sets _has_caller_supplied_aliases
+                                    # to True (R-F444 renamed flag). This is
+                                    # honest corroboration because the person
+                                    # was named ON the entity's own website
+                                    # — same context.
                                     known_aliases=[name] if name else None,
                                 )
                             except Exception as _spe:
