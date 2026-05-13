@@ -55,8 +55,16 @@ jobs:
         run: |
           set -e
           echo "flyctl exited non-zero — checking whether the release actually completed"
-          latest_status=$(flyctl releases list -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json | jq -r '.[0].Status')
-          latest_version=$(flyctl releases list -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json | jq -r '.[0].Version')
+          # R-F453 (2026-05-13) — flyctl CLI removed the `list` subcommand.
+          # Old form `flyctl releases list --json` now fails with
+          # `unknown command "list" for "flyctl releases"`, jq sees empty
+          # input, parse-errors at column 6, verify step exits 5 — masking
+          # every real deploy outcome since the CLI bump. Same payload, new
+          # entry-point: `flyctl releases --json` returns the same JSON.
+          # Live evidence — run 25828493782 (commit 10a8721, R-F452):
+          # step 5 failed solely on this stale syntax.
+          latest_status=$(flyctl releases -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json | jq -r '.[0].Status')
+          latest_version=$(flyctl releases -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json | jq -r '.[0].Version')
           echo "Latest release: v${latest_version} status=${latest_status}"
           if [ "${latest_status}" != "complete" ]; then
             echo "::error::Release did not complete — real deploy failure"
