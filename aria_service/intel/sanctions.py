@@ -792,8 +792,8 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
             if _is_hostname_origin:
                 m["_from_brandified_hostname"] = True
                 m["_brandified_stem"] = _brandified_stem
-            # R-F446 (2026-05-13) — tag corroboration on EVERY surfaced
-            # match, not only hostname-origin ones. Pre-R-F446 R-F436
+            # R-F449 (2026-05-13) — tag corroboration on EVERY surfaced
+            # match, not only hostname-origin ones. Pre-R-F449 R-F436
             # and R-F437 comments claimed "passing the entity name as
             # known_aliases sets _has_caller_supplied_aliases=True per
             # match" but in fact the flag was ONLY written for

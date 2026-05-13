@@ -2530,7 +2530,7 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 # fire because the screen IS corroborated by the verified
                 # entity context).
                 try:
-                    # R-F446 (2026-05-13) — kill-switch for consistency
+                    # R-F449 (2026-05-13) — kill-switch for consistency
                     # with the rest of the Digital chain. Operator can
                     # skip the page-entity sanctions screen if upstream
                     # rate-limited.
@@ -2539,7 +2539,7 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                         # `raise` is caught + debug-logged consistently
                         # with every other R-block kill-switch path.
                         raise RuntimeError(
-                            "R-F446: page entity screen disabled via env"
+                            "R-F449: page entity screen disabled via env"
                         )
                     _names_seen: set[str] = set()
                     _candidate_persons: list[str] = []
@@ -2673,8 +2673,8 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             if ff.kind == "person_name" and ff.value
                         }
                         _snaps = await _fhs(seed_url)
-                        # R-F446 — count wayback HTTP fetches that
-                        # actually returned content. Pre-R-F446 only
+                        # R-F449 — count wayback HTTP fetches that
+                        # actually returned content. Pre-R-F449 only
                         # the per-person sanctions screens were counted
                         # so cost dashboards under-reported the chain.
                         report.digital.meta.subcalls += sum(
@@ -3096,7 +3096,7 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                 # in the native script) so the search probes the
                 # untranslated reporting where the real evidence lives.
                 # Opt-out: ARIA_ADVERSE_POLYGLOT_DISABLED=1.
-                # R-F446 (2026-05-13) — empty-name guard. Pre-R-F446 an
+                # R-F449 (2026-05-13) — empty-name guard. Pre-R-F449 an
                 # entity with no resolved name would build polyglot
                 # queries against an empty entity string — the OR-block
                 # of bare adverse terms would dredge up unrelated

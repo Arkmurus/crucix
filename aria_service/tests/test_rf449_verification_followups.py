@@ -1,4 +1,4 @@
-"""R-F446 — verification-pass follow-ups for the R-F435..R-F445 batch.
+"""R-F449 — verification-pass follow-ups for the R-F435..R-F445 batch.
 
 Two parallel review agents flagged four concrete issues after the
 cumulative R-F435..R-F445 batch was shipped:
@@ -35,11 +35,11 @@ import asyncio
 # ───────────────────────── 1. Corroboration tag-write moved ──────────────────
 
 
-def test_rf446_corroboration_tag_set_on_non_hostname_matches(monkeypatch):
+def test_rf449_corroboration_tag_set_on_non_hostname_matches(monkeypatch):
     """When screen_with_aliases is called with a person name (not a
     hostname), the resulting match dicts must STILL carry the
     `_has_caller_supplied_aliases` flag if known_aliases was provided
-    at entry. Pre-R-F446 the flag was only written for
+    at entry. Pre-R-F449 the flag was only written for
     hostname-origin matches."""
     from aria_service.intel import sanctions
 
@@ -65,10 +65,10 @@ def test_rf446_corroboration_tag_set_on_non_hostname_matches(monkeypatch):
     ))
     assert result["matches"], "expected match"
     for m in result["matches"]:
-        # R-F446 fix: tag is now written for EVERY match, not just
+        # R-F449 fix: tag is now written for EVERY match, not just
         # hostname-origin ones.
         assert m.get("_has_caller_supplied_aliases") is True, (
-            f"R-F446 regression: corroboration tag missing on non-"
+            f"R-F449 regression: corroboration tag missing on non-"
             f"hostname match. Got match: {m}"
         )
         # Deprecated alias also present (R-F444 contract)
@@ -77,7 +77,7 @@ def test_rf446_corroboration_tag_set_on_non_hostname_matches(monkeypatch):
         assert not m.get("_from_brandified_hostname")
 
 
-def test_rf446_no_corroboration_when_no_aliases_supplied(monkeypatch):
+def test_rf449_no_corroboration_when_no_aliases_supplied(monkeypatch):
     """The flag must be False when known_aliases is empty — the move
     out of the `if _is_hostname_origin:` block must not accidentally
     set the flag True for everyone."""
@@ -101,7 +101,7 @@ def test_rf446_no_corroboration_when_no_aliases_supplied(monkeypatch):
 # ───────────────────────── 2. R-F436 kill-switch ─────────────────────────────
 
 
-def test_rf446_page_entity_screen_killswitch_pattern():
+def test_rf449_page_entity_screen_killswitch_pattern():
     """Pin the kill-switch env-var contract: ARIA_PAGE_ENTITY_SCREEN_DISABLED
     set to any truthy stripped string short-circuits the R-F436 block."""
     import os
@@ -112,8 +112,8 @@ def test_rf446_page_entity_screen_killswitch_pattern():
     assert not os.environ.get("ARIA_PAGE_ENTITY_SCREEN_DISABLED", "").strip()
 
 
-def test_rf446_killswitch_present_in_orchestrator():
-    """Static check: the R-F446 kill-switch line must appear in
+def test_rf449_killswitch_present_in_orchestrator():
+    """Static check: the R-F449 kill-switch line must appear in
     dd_orchestrator.py inside the R-F436 try block. Catches the
     case where someone removes the env-var gate during a refactor."""
     from pathlib import Path
@@ -123,14 +123,14 @@ def test_rf446_killswitch_present_in_orchestrator():
     )
     src = src_path.read_text(encoding="utf-8")
     assert 'ARIA_PAGE_ENTITY_SCREEN_DISABLED' in src, (
-        "R-F446: page-entity kill-switch removed from orchestrator"
+        "R-F449: page-entity kill-switch removed from orchestrator"
     )
 
 
 # ───────────────────────── 3. R-F437 wayback subcalls counted ───────────────
 
 
-def test_rf446_subcalls_increment_for_each_ok_snapshot():
+def test_rf449_subcalls_increment_for_each_ok_snapshot():
     """Pin the subcalls accounting: every wayback snapshot returned
     with ok=True increments subcalls by 1. Static-walk the
     accounting pattern."""
@@ -140,10 +140,10 @@ def test_rf446_subcalls_increment_for_each_ok_snapshot():
         {"ok": False, "error": "no archive"},
         {"ok": True, "snapshot_url": "https://web.archive.org/.../2022"},
     ]
-    # The R-F446 fix uses this exact accounting line:
+    # The R-F449 fix uses this exact accounting line:
     subcalls_delta = sum(1 for s in fake_snaps if s.get("ok"))
     assert subcalls_delta == 2, (
-        f"R-F446: subcalls accounting must count ok snapshots. "
+        f"R-F449: subcalls accounting must count ok snapshots. "
         f"Got {subcalls_delta}"
     )
 
@@ -151,7 +151,7 @@ def test_rf446_subcalls_increment_for_each_ok_snapshot():
 # ───────────────────────── 4. R-F441 empty-name guard ───────────────────────
 
 
-def test_rf446_polyglot_skipped_when_entity_name_empty():
+def test_rf449_polyglot_skipped_when_entity_name_empty():
     """The empty-name guard must short-circuit the R-F441 block
     when neither `report.identity.entity_name` nor `name` is set —
     otherwise bare-term searches dredge unrelated corruption news."""
@@ -169,7 +169,7 @@ def test_rf446_polyglot_skipped_when_entity_name_empty():
             or ""
         ).strip()
         assert not guard_entity, (
-            f"R-F446: empty-name guard should skip "
+            f"R-F449: empty-name guard should skip "
             f"entity_name={entity_name!r}, name={name_arg!r}"
         )
 
@@ -185,6 +185,6 @@ def test_rf446_polyglot_skipped_when_entity_name_empty():
             or ""
         ).strip()
         assert guard_entity, (
-            f"R-F446: guard wrongly skipped non-empty "
+            f"R-F449: guard wrongly skipped non-empty "
             f"entity_name={entity_name!r}, name={name_arg!r}"
         )
