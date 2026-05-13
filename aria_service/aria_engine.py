@@ -38,6 +38,88 @@ from .intel import conversation_store
 logger = logging.getLogger("aria.engine")
 
 SESSION_TTL = 30 * 86400  # 30 days — long-running WhatsApp / Telegram threads
+
+
+# ── R-F452 (2026-05-13) — honest mastery correctness signal ─────────────
+# DD audit P0 finding: pre-R-F452, every chat-response site called
+# `student.update_mastery(topics, correct=True, weight=0.15)`
+# unconditionally. Headline mastery therefore tracked chat *volume*,
+# not chat *correctness* — exactly the lie the headline-mastery
+# rebalance work (aria_core_mastery_topics memo) tried to fix.
+#
+# R-F452 inspects the LLM's raw response_text for hedging markers
+# that the LLM itself produced (per the system prompt that requires
+# confidence tags on every factual claim) BEFORE the route's
+# post-response guards run. If the LLM hedged on most claims or
+# explicitly contradicted itself, mastery should not be rewarded as
+# fully correct. Conservative thresholds so a normal reply isn't
+# penalised; calibrated to fire only on clearly hedged output.
+_R452_STRONG_NEGATIVES = ("[CONTRADICTED]", "[UNKNOWN]", "[CANNOT VERIFY]")
+_R452_SOFT_NEGATIVE_TAG = "[UNVERIFIED]"
+_R452_SOFT_NEGATIVE_THRESHOLD = 3   # 3+ UNVERIFIED tags = hedged response
+_R452_MIN_TEXT_LEN = 20             # too short to derive a verdict
+
+
+def _chat_correctness_signal(response_text: str, default_weight: float = 0.15) -> tuple[bool | None, float]:
+    """R-F452: derive a (correct, weight) tuple from raw LLM output.
+
+    Returns:
+        (True,  weight)  — no negative markers; reward normally.
+        (False, weight)  — explicit negative markers; penalise lightly.
+        (None,  0.0)     — text too short / empty; skip the update.
+
+    Callers should skip `student.update_mastery` entirely when the
+    return is `(None, _)` so we don't pollute mastery with no-signal
+    interactions.
+    """
+    if not response_text:
+        return (None, 0.0)
+    text = response_text.strip()
+    if len(text) < _R452_MIN_TEXT_LEN:
+        return (None, 0.0)
+
+    upper = text.upper()
+
+    # Strong negatives — LLM said it can't verify or contradicted itself.
+    # Penalise with a small negative weight (the predictor learns).
+    for marker in _R452_STRONG_NEGATIVES:
+        if marker in upper:
+            return (False, max(default_weight * 0.5, 0.05))
+
+    # Soft negative — many [UNVERIFIED] tags means the LLM hedged on
+    # most claims. Single-tag responses are normal; threshold gates
+    # false positives.
+    if upper.count(_R452_SOFT_NEGATIVE_TAG) >= _R452_SOFT_NEGATIVE_THRESHOLD:
+        return (False, max(default_weight * 0.3, 0.03))
+
+    # Clean reply — no hedging markers above threshold.
+    return (True, default_weight)
+
+
+async def _update_mastery_honestly(
+    topics: list[str], regions: list[str] | None, response_text: str,
+    *, default_weight: float = 0.15,
+) -> None:
+    """R-F452: wrap update_mastery with the correctness signal so
+    chat-driven mastery growth tracks correctness, not volume.
+
+    Skips the update entirely when `_chat_correctness_signal` returns
+    None (response too short to score). All exceptions are swallowed
+    — mastery should never break a chat turn.
+    """
+    if not topics:
+        return
+    correct, weight = _chat_correctness_signal(response_text, default_weight=default_weight)
+    if correct is None:
+        return  # skip — no signal
+    try:
+        await student.update_mastery(topics, correct=correct, weight=weight)
+        if regions:
+            await student.update_regional_mastery(
+                topics, regions, correct=correct, weight=weight,
+            )
+    except Exception as e:
+        logger.debug("R-F452 mastery update failed (non-fatal): %s", e)
 MAX_TURNS = 80            # 80 exchanges retained per session (160 messages)
 MAX_CONTEXT_CHARS = 20000 # context budget for intelligence layers (bumped to fit RAG)
 
@@ -2955,16 +3037,15 @@ async def _aria_chat_impl(
 
         topics = student.detect_topics(f"{message} {response_text}")
         if topics:
-            mastery_task = asyncio.create_task(
-                student.update_mastery(topics, correct=True, weight=0.15)
-            )
-            mastery_task.add_done_callback(_bg_done("student.update_mastery"))
-            # Regional mastery — track topic×region combinations
+            # R-F452: honest mastery — pass the LLM's hedging signal into
+            # update_mastery instead of the pre-R-F452 hard-coded
+            # correct=True. _update_mastery_honestly skips entirely when
+            # the response is too short to derive a verdict.
             regions = student.detect_regions(f"{message} {response_text}")
-            regional_task = asyncio.create_task(
-                student.update_regional_mastery(topics, regions, correct=True, weight=0.15)
+            mastery_task = asyncio.create_task(
+                _update_mastery_honestly(topics, regions, response_text)
             )
-            regional_task.add_done_callback(_bg_done("student.update_regional_mastery"))
+            mastery_task.add_done_callback(_bg_done("R-F452.update_mastery_honestly"))
 
         # Proactive: track this query for knowledge-gap detection. If the
         # same topic gets asked 3+ times and ARIA's mastery is weak, the
@@ -3420,13 +3501,16 @@ async def _aria_chat_stream_impl(
         compare_task.add_done_callback(_bg_done("student.compare"))
         topics = student.detect_topics(f"{message} {response_text}")
         if topics:
-            mastery_task = asyncio.create_task(student.update_mastery(topics, correct=True, weight=0.15))
-            mastery_task.add_done_callback(_bg_done("student.mastery"))
+            # R-F452: honest mastery — verdict not volume on the stream
+            # path too. WhatsApp uses /chat/stream by default; pre-R-F452
+            # every WA reply force-fed correct=True regardless of whether
+            # the LLM hedged. Now the response_text is inspected for
+            # hedging markers and mastery is updated accordingly.
             regions = student.detect_regions(f"{message} {response_text}")
-            regional_task = asyncio.create_task(
-                student.update_regional_mastery(topics, regions, correct=True, weight=0.15)
+            mastery_task = asyncio.create_task(
+                _update_mastery_honestly(topics, regions, response_text)
             )
-            regional_task.add_done_callback(_bg_done("student.regional_mastery"))
+            mastery_task.add_done_callback(_bg_done("R-F452.update_mastery_honestly_stream"))
         gap_task = asyncio.create_task(proactive.detect_knowledge_gaps(message))
         gap_task.add_done_callback(_bg_done("proactive.gaps"))
     except Exception:
