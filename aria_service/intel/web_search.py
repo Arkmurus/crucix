@@ -1402,11 +1402,20 @@ async def search_multilingual(
                                          "drc", "congo", "gabon", "benin",
                                          "togo", "france", "french"]):
             languages.append("fr")
-        # Arabic (MENA + Gulf)
-        if any(kw in q_lower for kw in ["morocco", "algeria", "tunisia", "libya",
-                                         "egypt", "saudi", "uae", "emirates",
-                                         "qatar", "kuwait", "bahrain", "oman",
-                                         "iraq", "jordan", "lebanon", "yemen"]):
+        # R-F395 (2026-05-13): split MENA-proper from GCC. ARIA self-
+        # reported that auto-switching to Arabic for "saudi imported last
+        # year" returned 0 relevant results because GCC defence-procurement
+        # docs are bilingual (Arabic AND English) with the substantive
+        # data published in English. Searching Arabic-only there is a
+        # waste of fan-out budget. Keep auto for MENA-proper (Morocco,
+        # Algeria, Tunisia, Libya, Egypt, Iraq, Jordan, Lebanon, Yemen)
+        # where Arabic-first IS correct; require explicit opt-in for GCC
+        # (saudi/uae/qatar/kuwait/bahrain/oman) by passing
+        # `languages=["en","ar"]` at call time.
+        AR_AUTO = ("morocco", "algeria", "tunisia", "libya",
+                   "egypt", "iraq", "jordan", "lebanon", "yemen",
+                   "syria", "sudan", "mauritania")
+        if any(kw in q_lower for kw in AR_AUTO):
             languages.append("ar")
         # Turkish
         if any(kw in q_lower for kw in ["turkey", "turkiye", "türkiye", "baykar",

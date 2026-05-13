@@ -4996,13 +4996,30 @@ async def _execute_tool(intent: dict, llm) -> str:
             # OFAC-context answer with no biographical research.
             # Reroute to web_explorer (memory-first + free multi-backend
             # search) — same Q&A capability, zero cost, real provenance.
-            query = (intent.get("query") or intent.get("context") or "").strip()
-            if not query:
+            raw_query = (intent.get("query") or intent.get("context") or "").strip()
+            if not raw_query:
                 return (
                     "[TOOL: brave_answer — no query]\n\n"
                     "The router detected a factual-QA intent but the query was "
                     "empty. Answer directly from memory / training instead."
                 )
+            # R-F394 (2026-05-13): apply the R-F392 entity-anchor extractor
+            # here too — ARIA self-reported the same full-sentence-search
+            # bug on this tool ("what has Saudi imported last year?" returned
+            # cancer immunotherapy + education papers because the literal
+            # question was searched, not the entity "Saudi Arabia defence
+            # imports"). The fix is a one-liner: strip greeting/imperative/
+            # question-word prefixes before web_explorer.explore.
+            try:
+                from ..intel.deep_researcher import _extract_search_anchor
+                query = _extract_search_anchor(raw_query)
+                if query != raw_query:
+                    logger.info(
+                        "R-F394: brave_answer extracted anchor %r from full query %r",
+                        query[:80], raw_query[:120],
+                    )
+            except Exception:
+                query = raw_query
             from ..intel import web_explorer as _we
             try:
                 er = await _we.explore(
@@ -15198,6 +15215,114 @@ async def health_check_ep():
             "open_backends": [b["name"] for b in open_breakers],
             "registry_empty": len(breakers) == 0,  # disambiguate "0 problems" from "no registry data"
         },
+    }
+
+
+# R-F396 (2026-05-13): self-introspection endpoint.
+#
+# ARIA reported on 2026-05-13 that she had "no way to answer 'how are
+# you performing?' except by observing this conversation. A structured
+# performance diagnostic that I can call would save hours of guesswork
+# and let me report hard metrics instead of self-assessments."
+#
+# /health/perf returns a single LLM-readable JSON that aggregates:
+#   - The operational signals already in /health (status, mode, infra)
+#   - Verification gate stats (24h verified / unverified / disagreements)
+#   - Autonomy engine state (running, level, fires, ticks)
+#   - LLM provider availability + cooldown reasons
+#   - Recent advisories (build markers, known issues) ARIA can quote
+#
+# Designed for ARIA's own tool dispatch — so when an operator asks
+# "how are you doing?" she can call this endpoint and quote real
+# numbers from the response, not produce a 50-message self-inference.
+
+@router.get("/health/perf")
+async def health_perf_ep():
+    """R-F396 — ARIA self-introspection endpoint. Returns
+    performance-focused signals ARIA can cite directly in chat.
+    Designed for tool dispatch consumption, not dashboard rendering.
+    """
+    # Reuse the existing /health probe for quality/infra/breakers.
+    try:
+        base = await health_check_ep()
+    except Exception as e:
+        base = {"status": "error", "degraded_reasons": [f"health_probe_failed:{str(e)[:80]}"]}
+
+    # Verification gate stats — what fraction of LLM outputs got
+    # verified vs flagged as needing operator review.
+    verify_stats: dict = {}
+    try:
+        from ..learning import verification_gate as _vg
+        verify_stats = await _vg.get_stats_24h() if hasattr(_vg, "get_stats_24h") else {}
+    except Exception:
+        try:
+            from ..intel import verification_gate as _vg2
+            if hasattr(_vg2, "get_stats_24h"):
+                verify_stats = await _vg2.get_stats_24h()
+        except Exception:
+            verify_stats = {}
+
+    # Autonomy engine state.
+    autonomy_state: dict = {}
+    try:
+        from ..autonomous import engine as _eng
+        if hasattr(_eng, "get_status"):
+            autonomy_state = await _eng.get_status()
+        elif hasattr(_eng, "status"):
+            autonomy_state = _eng.status()
+    except Exception:
+        autonomy_state = {}
+
+    # LLM provider availability — which backends are usable right
+    # now, and which are in cooldown (e.g. Anthropic billing).
+    providers: dict = {}
+    try:
+        from ..llm import fallback as _fb
+        if hasattr(_fb, "get_provider_status"):
+            providers = _fb.get_provider_status()
+    except Exception:
+        providers = {}
+
+    # Recent advisories — explicit honest notes ARIA can quote in a
+    # self-assessment. Each entry is a one-line plain-English string.
+    advisories: list[str] = []
+    try:
+        from ..main import ARIA_BUILD_REV as _br
+        advisories.append(f"Live build: {_br}")
+    except Exception:
+        pass
+    if base.get("degraded_reasons"):
+        advisories.append(
+            "Operational signals flagged: "
+            + ", ".join(base["degraded_reasons"][:6])
+        )
+    if providers:
+        cooled = [
+            p for p, s in providers.items()
+            if isinstance(s, dict) and s.get("cooldown_until")
+        ]
+        if cooled:
+            advisories.append(
+                f"LLM providers in cooldown: {', '.join(cooled)} "
+                f"— fallback chain still operational."
+            )
+
+    return {
+        "build_rev": base.get("build_rev"),
+        "status": base.get("status"),
+        "operating_mode": base.get("operating_mode"),
+        "degraded_reasons": base.get("degraded_reasons", []),
+        "quality": base.get("quality", {}),
+        "infra": base.get("infra", {}),
+        "circuit_breakers": base.get("circuit_breakers", {}),
+        "verification_24h": verify_stats,
+        "autonomy": autonomy_state,
+        "llm_providers": providers,
+        "advisories": advisories,
+        # R-F396: structured-shape contract for ARIA's tool dispatch —
+        # if these top-level keys ever change, update the prompt that
+        # tells her how to quote the response in self-assessments.
+        "_schema_version": "rf396.v1",
     }
 
 

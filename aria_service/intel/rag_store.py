@@ -81,6 +81,18 @@ MIN_CHUNK_SIZE = 100    # don't store chunks smaller than this
 DEFAULT_TOP_K = 8
 DEFAULT_MAX_CONTEXT_CHARS = 6000  # how much retrieved text to inject into LLM prompt
 
+# R-F397 (2026-05-13): minimum similarity floor for RAG injection. Before
+# this fix, `search()` had no similarity threshold — whatever chromadb
+# returned in the top_k went straight into the LLM context block, even
+# at 0.43 cosine similarity (verified by ARIA on 2026-05-13: "Semantic
+# recall includes Hezbollah drone content at 0.43 similarity to Arnaldo
+# La Scala queries… phonetically matching 'Lebanon'"). A floor of 0.50
+# kills the worst phonetic / acronym false-positives without disrupting
+# legitimately related content (well-aligned semantic recall hits 0.7+).
+# Override via `min_similarity=` kwarg per-call when broader recall is
+# wanted (e.g. exploratory crawls).
+DEFAULT_MIN_SIMILARITY = 0.50
+
 # R-F173 (2026-05-11) — REVERSED by R-F238 (same day).
 # Original R-F173 added an oldest-first PRUNE on cap overflow. That
 # violates the "ARIA has infinite memory" operator rule (see
@@ -764,6 +776,7 @@ async def search(
     market: str | None = None,
     include_facts: bool = True,
     include_documents: bool = True,
+    min_similarity: float = DEFAULT_MIN_SIMILARITY,
 ) -> list[dict]:
     """Hybrid retrieval over the RAG store.
 
@@ -771,6 +784,14 @@ async def search(
         {text, score, source, source_type, title, url, market, ingested_at, collection}
 
     Optional filters narrow the search to a source_type or market.
+
+    R-F397 (2026-05-13): `min_similarity` floor (default 0.50) bounces
+    chunks whose cosine similarity is below the threshold BEFORE they
+    enter the result list. Without this, chromadb's top_k included
+    phonetic/acronym false-positives (e.g. "La Scala" → 0.43 sim → an
+    unrelated Lebanon/Hezbollah chunk). Pass `min_similarity=0.0` to
+    restore the legacy no-floor behaviour (e.g. for exploratory
+    crawls where any related chunk is welcome).
     """
     if not await _ensure_async():
         return []
@@ -806,6 +827,12 @@ async def search(
                 # chromadb cosine distance → similarity
                 dist = distances[i] if i < len(distances) else 1.0
                 similarity = max(0.0, 1.0 - dist)
+                # R-F397 (2026-05-13): floor enforcement. Below the floor
+                # is the "topic bleed" zone — phonetic/acronym matches
+                # that look related to the embedding model but aren't.
+                # The 0.43 La Scala→Lebanon case ARIA flagged sits here.
+                if similarity < min_similarity:
+                    continue
                 # Apply recency boost
                 ts = meta.get("ts_epoch") if isinstance(meta, dict) else None
                 score = similarity * _recency_boost(ts)

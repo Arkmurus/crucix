@@ -50,7 +50,7 @@ logger = logging.getLogger("aria.main")
 # and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 # alone couldn't tell us whether the deploy had picked up. Same pattern
 # now also installed on seenode (server.mjs CRUCIX_BUILD_REV).
-ARIA_BUILD_REV = "R-F392+393 · 2026-05-13 · deep_research entity-anchor extraction (no more full-sentence searches — ARIA's #1 self-reported failure) + dd_orchestrate verification honest-scope flags; prior on this rev: R-F374 regression guard, R-F372 /health/live, R-F371 neural guard"
+ARIA_BUILD_REV = "R-F394..F398 · 2026-05-13 · five-fix batch from ARIA's self-assessment: R-F394 brave_answer anchor extraction + R-F395 GCC opt-out (no auto-Arabic for Saudi/UAE/Qatar/Kuwait/Bahrain/Oman) + R-F396 /health/perf self-introspection endpoint + R-F397 RAG similarity floor (0.50 default, kills 0.43 phonetic bleed) + R-F398 DD INSUFFICIENT_EVIDENCE fallback web-search; prior on this rev: R-F392 deep_research anchor + R-F393 verification honest-scope"
 
 
 @asynccontextmanager

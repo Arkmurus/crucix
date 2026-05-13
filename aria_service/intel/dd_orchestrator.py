@@ -3058,11 +3058,55 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
         if getattr(report, "confidence_gate_triggered", False):
             _gate_reasons = getattr(report, "confidence_gate_reasons", []) or []
             _reasons_str = "; ".join(_gate_reasons) if _gate_reasons else "insufficient verification"
+
+            # R-F398 (2026-05-13): before emitting INSUFFICIENT EVIDENCE,
+            # try a fallback web search on the entity name. ARIA self-
+            # reported that "the dd_orchestrate has 9 layers but the
+            # web-search layer appears to run only on real domains, not
+            # on person names. Run brave_answer on each name + 'LinkedIn'
+            # variation." A non-zero result count doesn't lift the gate
+            # (the registry/director data is still missing — that's the
+            # real failure) but it surfaces public hits so the operator
+            # can see the public-intel surface that was unindexed.
+            _fallback_hits: list[dict] = []
+            try:
+                _entity = (name or "").strip()
+                if _entity and len(_entity) >= 3 and _entity.lower() != "subject":
+                    from .researcher import _web_search as _ws
+                    _variants = [_entity, f"{_entity} LinkedIn", f"{_entity} site:linkedin.com"]
+                    for _v in _variants:
+                        try:
+                            _r = await asyncio.wait_for(_ws(_v), timeout=8.0)
+                            if _r:
+                                _fallback_hits.extend(list(_r)[:5])
+                        except Exception:
+                            continue
+                    # Stitch into verification.data_gaps so the operator
+                    # sees what public intel exists without it lifting
+                    # the verdict (gate is still triggered legitimately).
+                    if _fallback_hits:
+                        report.verification.data_gaps.append(
+                            f"R-F398 fallback web-search on '{_entity}' returned "
+                            f"{len(_fallback_hits)} public hits (LinkedIn + general). "
+                            f"Public-intel surface exists but the DD's registry / "
+                            f"director / press layers did not pick it up — re-run "
+                            f"with explicit hints (jurisdiction_iso2, website URL, "
+                            f"or LinkedIn URL) to lift the confidence gate."
+                        )
+            except Exception:
+                # Never break BLUF on fallback-search error.
+                _fallback_hits = []
+
+            _fallback_suffix = (
+                f" R-F398 fallback search found {len(_fallback_hits)} public hit(s) — "
+                f"see data_gaps."
+                if _fallback_hits else ""
+            )
             report.bottom_line = (
                 f"🟡 INSUFFICIENT EVIDENCE — {name}: the DD did not gather "
                 f"enough data to issue a verdict. AMBER is a placeholder, "
                 f"not a substantive amber risk finding. "
-                f"Gate-triggered by: {_reasons_str}."
+                f"Gate-triggered by: {_reasons_str}.{_fallback_suffix}"
             )
             report.recommendation = (
                 "Re-run the DD in DEEP mode (or supply jurisdiction / "
