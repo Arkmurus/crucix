@@ -607,9 +607,24 @@ async def _handle_meeting_ended(payload: dict) -> dict:
 
 
 def verify_webhook_signature(request_body: bytes, signature: str, timestamp: str) -> bool:
-    """Verify Zoom webhook signature for security."""
+    """Verify Zoom webhook signature for security.
+
+    R-F454 (2026-05-13) — fail-CLOSED when the webhook secret is unset.
+    Pre-R-F454 this returned True if `_WEBHOOK_SECRET` was empty, which
+    meant ANY signature was accepted in the default deploy config. The
+    audit flagged this as a real security hole: if a deploy ever forgot
+    to set ZOOM_WEBHOOK_SECRET, attackers could POST forged webhook
+    events and ARIA would log them as authenticated. Now we reject by
+    default and emit a startup-class warning so the operator sees the
+    misconfiguration immediately (warning, not crash, so the rest of
+    the service still boots).
+    """
     if not _WEBHOOK_SECRET:
-        return True  # skip verification if secret not set
+        logger.warning(
+            "R-F454: zoom webhook called but ZOOM_WEBHOOK_SECRET is empty — "
+            "rejecting. Set the env var to enable signed verification."
+        )
+        return False
     import hashlib, hmac
     message = f"v0:{timestamp}:{request_body.decode('utf-8')}"
     expected = hmac.new(

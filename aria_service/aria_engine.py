@@ -3431,12 +3431,22 @@ async def _aria_chat_stream_impl(
     except Exception as _aef_err:
         logger.debug("auto_extract_facts (stream path) failed: %s", _aef_err)
 
+    # R-F455 (2026-05-13) — promote 7 silent except: pass blocks in the
+    # streaming chat path to logger.debug so System Health stops
+    # reporting "0 signals from <X>" without any cause data. Pre-R-F455
+    # every WhatsApp turn (which uses /chat/stream by default) silently
+    # swallowed errors in neural_memory.learn_from_text + mem0 + training
+    # _data + reasoning_router + student/proactive + metacognitive +
+    # core_develop.extract_learning_suggestions. Stream-side learning
+    # telemetry was effectively a black box.
     try:
         await neural_memory.learn_from_text(
             f"{message} {response_text}", source=f"chat:{session_id}", llm=llm
         )
-    except Exception:
-        pass
+    except Exception as _nm_e:
+        logger.debug(
+            "R-F455 stream: neural_memory.learn_from_text failed: %s", _nm_e,
+        )
 
     try:
         from .intel import mem0 as _mem0
@@ -3444,16 +3454,22 @@ async def _aria_chat_stream_impl(
             _mem0.summarise_and_store(message, response_text, session_id, llm)
         )
         mem0_task.add_done_callback(_bg_done("mem0"))
-    except Exception:
-        pass
+    except Exception as _m0_e:
+        logger.debug(
+            "R-F455 stream: mem0.summarise_and_store dispatch failed: %s",
+            _m0_e,
+        )
 
     try:
         await training_data.record_conversation(
             ARIA_SYSTEM_PROMPT, message, response_text,
             {"hadIntelContext": bool(intel_data), "contextLength": len(context)},
         )
-    except Exception:
-        pass
+    except Exception as _td_e:
+        logger.debug(
+            "R-F455 stream: training_data.record_conversation failed: %s",
+            _td_e,
+        )
 
     try:
         provider_name = getattr(llm, "name", "cloud") or "cloud"
@@ -3463,8 +3479,11 @@ async def _aria_chat_stream_impl(
             context_keys=["live_intel", "knowledge", "ledger", "neural"],
             source_brain=provider_name,
         )
-    except Exception:
-        pass
+    except Exception as _rr_e:
+        logger.debug(
+            "R-F455 stream: reasoning_router.record_cloud_llm_response "
+            "failed: %s", _rr_e,
+        )
 
     # Capability-gap signals — mirror of the aria_chat() hooks at
     # aria_engine.py:~2400. These populate `capability_gaps` (the "what
@@ -3513,8 +3532,10 @@ async def _aria_chat_stream_impl(
             mastery_task.add_done_callback(_bg_done("R-F452.update_mastery_honestly_stream"))
         gap_task = asyncio.create_task(proactive.detect_knowledge_gaps(message))
         gap_task.add_done_callback(_bg_done("proactive.gaps"))
-    except Exception:
-        pass
+    except Exception as _sp_e:
+        logger.debug(
+            "R-F455 stream: student/proactive hook failed: %s", _sp_e,
+        )
 
     # CHAT AUDIT TRAIL — mirror of the aria_chat() hook. Before this,
     # the streaming path (the default for WhatsApp) bypassed the audit
@@ -3554,8 +3575,11 @@ async def _aria_chat_stream_impl(
                 )
             )
             metacog_task.add_done_callback(_bg_done("metacognitive"))
-    except Exception:
-        pass
+    except Exception as _mc_e:
+        logger.debug(
+            "R-F455 stream: metacognitive.self_assess_output failed: %s",
+            _mc_e,
+        )
 
     # Extract learning suggestions from ARIA's own response (non-blocking)
     try:
@@ -3564,8 +3588,11 @@ async def _aria_chat_stream_impl(
             _cd.extract_learning_suggestions(response_text, session_id)
         )
         _ls_task.add_done_callback(_bg_done("core_develop.extract_learning_suggestions"))
-    except Exception:
-        pass
+    except Exception as _cd_e:
+        logger.debug(
+            "R-F455 stream: core_develop.extract_learning_suggestions "
+            "failed: %s", _cd_e,
+        )
 
     # Stream-side OUTPUT GUARD observation (log-only, no rewrite).
     # The five output guards (officeholder / commitment / tool_claim /
@@ -3638,8 +3665,11 @@ async def _aria_chat_stream_impl(
             )
         )
         _oh_task.add_done_callback(_bg_done("output_harvester.harvest"))
-    except Exception:
-        pass
+    except Exception as _oh_e:
+        logger.debug(
+            "R-F455 stream: output_harvester.harvest dispatch failed: %s",
+            _oh_e,
+        )
 
     # ── Done event with metadata ──────────────────────────────────────
     model = stream_result.model if stream_result else ""

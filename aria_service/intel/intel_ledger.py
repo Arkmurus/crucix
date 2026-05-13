@@ -449,17 +449,31 @@ async def add_signal(payload: dict) -> str:
     _prune()
     await _save()
 
-    # Signal brain about the new intel
+    # Signal brain about the new intel.
+    # R-F456 (2026-05-13) — emit module="intel_ledger" so the topic
+    # registration that R-F154 added to _MODULE_TOPICS actually fires.
+    # Pre-R-F456 the absorb wrote module="conflict_tracker" or
+    # "deep_researcher" so the intel_ledger row in _MODULE_TOPICS was
+    # dead — System Health perpetually reported intel_ledger silent
+    # despite live ingest. R-F154 added the topic entry; this fix
+    # closes the loop. The original "conflict_tracker" / "deep_researcher"
+    # routing is preserved as `extra_topics` so per-signal context isn't
+    # lost.
     try:
         from . import brain_hook
+        _signal_topic = (
+            "conflict_tracker" if payload.get("type") == "osint"
+            else "deep_researcher"
+        )
         await brain_hook.absorb(
-            module="conflict_tracker" if payload.get("type") == "osint" else "deep_researcher",
+            module="intel_ledger",
             summary=f"Ledger signal: {text[:200]}",
             success=True,
             confidence="ASSESSED",
+            extra_topics=[_signal_topic],
         )
-    except Exception:
-        pass
+    except Exception as _bh_e:
+        logger.debug("R-F456 intel_ledger brain_hook absorb failed: %s", _bh_e)
 
     # R-F96 (2026-05-09): record domain freshness so R-F88 tracker
     # accumulates real state. Domain inferred from signal type / source

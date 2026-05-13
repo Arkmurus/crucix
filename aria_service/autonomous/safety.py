@@ -116,6 +116,31 @@ def _memory_cost_add(usd: float) -> float:
     return _memory_cost_spent
 
 
+# R-F457 (2026-05-13) — in-memory rate counter so a Redis outage no
+# longer enables unbounded over-fire. The original audit framed this
+# as "cost cap fails open" but the actual cost cap (check_cost_cap)
+# already uses a dual Redis + in-memory counter. The risk was on the
+# RATE-LIMIT path: Redis outage → check_and_increment_rate returns
+# (True, 0) every call → autonomous tasks fan out without bound.
+# Same H8 pattern as the cost-cap in-memory fallback: track the
+# current hour bucket's firings in process memory so the fail-open
+# branch is bounded by `MAX_FIRINGS_PER_HOUR` rather than infinity.
+_memory_rate_hour = 0
+_memory_rate_count = 0
+
+
+def _memory_rate_incr() -> int:
+    """Increment the in-memory rate counter for the current hour bucket.
+    Resets across hour boundaries automatically. Returns the new count."""
+    global _memory_rate_hour, _memory_rate_count
+    hour_bucket = int(time.time() // 3600)
+    if hour_bucket != _memory_rate_hour:
+        _memory_rate_hour = hour_bucket
+        _memory_rate_count = 0
+    _memory_rate_count += 1
+    return _memory_rate_count
+
+
 # ── Public: rate limit ─────────────────────────────────────────────────────
 
 async def check_and_increment_rate() -> tuple[bool, int]:
@@ -141,14 +166,29 @@ async def check_and_increment_rate() -> tuple[bool, int]:
             )
         return allowed, new_count
     except Exception as e:
-        # Fail OPEN on Redis errors — better to occasionally over-fire
-        # than to grind the engine to a halt because Redis blipped.
-        # Operators see the warning and can investigate.
-        logger.warning(
-            "[autonomous safety] rate limit check failed (Redis): %s — failing open",
-            e,
-        )
-        return True, 0
+        # R-F457 (2026-05-13) — bounded fail-open. Pre-R-F457 a Redis
+        # outage made this return (True, 0) every call, allowing
+        # unbounded autonomous task fan-out for the duration of the
+        # outage. Now we increment an in-memory hourly counter on the
+        # Redis-fail path so over-fire is capped at MAX_FIRINGS_PER_HOUR
+        # globally even when Redis is down. Once Redis recovers the
+        # real counter takes over again. Documented fail-open intent
+        # ("better to over-fire than halt") is preserved BUT bounded.
+        mem_count = _memory_rate_incr()
+        allowed = mem_count <= MAX_FIRINGS_PER_HOUR
+        if allowed:
+            logger.warning(
+                "[autonomous safety] rate limit check failed (Redis): %s — "
+                "falling back to in-memory counter (%d/%d this hour)",
+                e, mem_count, MAX_FIRINGS_PER_HOUR,
+            )
+        else:
+            logger.warning(
+                "[autonomous safety] rate limit check failed (Redis): %s — "
+                "in-memory counter ALSO above cap (%d/%d). Skipping.",
+                e, mem_count, MAX_FIRINGS_PER_HOUR,
+            )
+        return allowed, mem_count
 
 
 # ── Public: cost cap ───────────────────────────────────────────────────────
