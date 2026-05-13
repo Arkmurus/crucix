@@ -1,7 +1,7 @@
 """R-F402 — streaming fallback chain capped at _MAX_FALLBACK_ATTEMPTS.
 
 Live evidence (this assessment 2026-05-13): the non-streaming path
-`FallbackLLM.complete()` capped its attempts at `_MAX_FALLBACK_ATTEMPTS`
+`FallbackProvider.complete()` capped its attempts at `_MAX_FALLBACK_ATTEMPTS`
 (line 263, per R-F94 2026-04-30). The streaming path `stream()` did not.
 With 6 providers configured (anthropic / deepseek / groq / openai /
 gemini / ollama) and a default 120s timeout, an all-timeout cascade
@@ -132,8 +132,8 @@ def test_rf402_stream_is_async_generator():
     """The function must remain an async generator (uses `async for`
     + `yield`). The fix must not have accidentally turned it into a
     plain coroutine."""
-    from aria_service.llm.fallback import FallbackLLM
-    assert inspect.isasyncgenfunction(FallbackLLM.stream), (
+    from aria_service.llm.fallback import FallbackProvider
+    assert inspect.isasyncgenfunction(FallbackProvider.stream), (
         "R-F402: stream() is no longer an async generator. The yield "
         "statement may have been lost in the refactor."
     )

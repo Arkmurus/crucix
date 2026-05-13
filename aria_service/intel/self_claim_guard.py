@@ -223,3 +223,172 @@ def render_violation_block(violations: list[Violation]) -> str:
         "cite real numbers. Anchor: Constitution Clause 25."
     )
     return "\n".join(lines)
+
+
+# ── R-F407 (2026-05-13) — Redis-backed violation counters ──────────
+#
+# When R-F401 fires, we want the operator to SEE the violation on the
+# hallucination dashboard panel (R-F407). These functions record each
+# violation to a per-pattern + per-severity counter with a 24h reset,
+# plus a rolling 50-entry log of recent violations with timestamp +
+# phrase + trace_id for inspection.
+#
+# Same shape as stream_guard_observer.py counters so the dashboard
+# panel can render both side-by-side.
+
+_R_KEY_CTR_PREFIX = "aria:self_claim_guard:24h:"      # + pattern_id → int
+_R_KEY_SEV_PREFIX = "aria:self_claim_guard:24h_sev:"  # + severity → int
+_R_KEY_TURNS = "aria:self_claim_guard:24h_turns"
+_R_KEY_RECENT = "aria:self_claim_guard:recent"        # list, capped at 50
+_R_KEY_LIFETIME = "aria:self_claim_guard:lifetime"    # int
+
+
+async def record_violations(
+    violations: list[Violation],
+    *,
+    response_preview: str = "",
+    trace_id: str = "",
+) -> None:
+    """R-F407: persist violations to Redis so the dashboard can render
+    24h counts + recent log. Fire-and-forget: redis errors are
+    swallowed so they never break the chat reply.
+
+    Call this from confidence_footer post-scan. The chat handler
+    already invokes scan_response() + render_violation_block() — this
+    function attaches the metrics tail.
+    """
+    if not violations:
+        return
+    import json as _json
+    import time as _time
+    try:
+        from . import redis_store as rs
+    except Exception:
+        return
+    # Per-pattern + per-severity counters with 24h expiry.
+    # R-F408 (2026-05-13): redis_store.incr() has signature
+    # incr(key, amount=1) — there is no ttl kwarg. The TTL must be
+    # applied via rs.expire() in a separate call.
+    try:
+        for v in violations:
+            try:
+                k_pat = _R_KEY_CTR_PREFIX + v.pattern_id
+                await rs.incr(k_pat)
+                await rs.expire(k_pat, 86400)
+            except Exception:
+                pass
+            try:
+                k_sev = _R_KEY_SEV_PREFIX + v.severity
+                await rs.incr(k_sev)
+                await rs.expire(k_sev, 86400)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # Lifetime total — never expires.
+    try:
+        await rs.incr(_R_KEY_LIFETIME)
+    except Exception:
+        pass
+    # Recent log — keep last 50 with timestamp + phrase + trace_id.
+    try:
+        entry = {
+            "ts": _time.time(),
+            "pattern_id": violations[0].pattern_id,
+            "severity": violations[0].severity,
+            "phrase": violations[0].phrase[:120],
+            "count": len(violations),
+            "trace_id": (trace_id or "")[:64],
+            "preview": (response_preview or "")[:200],
+        }
+        await rs.lpush(_R_KEY_RECENT, _json.dumps(entry))
+        await rs.ltrim(_R_KEY_RECENT, 0, 49)
+    except Exception:
+        pass
+
+
+async def record_turn_observed() -> None:
+    """Call once per chat turn (regardless of violation outcome) so
+    the dashboard can compute a violation_rate_24h denominator.
+
+    R-F408: redis_store.incr has no ttl kwarg — TTL set separately.
+    """
+    try:
+        from . import redis_store as rs
+        await rs.incr(_R_KEY_TURNS)
+        await rs.expire(_R_KEY_TURNS, 86400)
+    except Exception:
+        pass
+
+
+async def get_stats() -> dict:
+    """R-F407: dashboard-friendly aggregation. Same shape as
+    stream_guard_observer.get_stats() so the panel can render both."""
+    import json as _json
+    from . import redis_store as rs
+
+    counters: dict[str, int] = {}
+    severities: dict[str, int] = {"BLOCK": 0, "WARN": 0}
+    recent: list[dict] = []
+    turns = 0
+    lifetime = 0
+
+    pattern_ids = (
+        "rf401_ttl_claim",
+        "rf401_forget_claim",
+        "rf401_eviction_claim",
+        "rf401_fuzzy_count",
+    )
+    for pid in pattern_ids:
+        try:
+            raw = await rs.get(_R_KEY_CTR_PREFIX + pid)
+            counters[pid] = int(raw) if raw else 0
+        except Exception:
+            counters[pid] = 0
+
+    for sev in ("BLOCK", "WARN"):
+        try:
+            raw = await rs.get(_R_KEY_SEV_PREFIX + sev)
+            severities[sev] = int(raw) if raw else 0
+        except Exception:
+            pass
+
+    try:
+        raw = await rs.get(_R_KEY_TURNS)
+        turns = int(raw) if raw else 0
+    except Exception:
+        pass
+
+    try:
+        raw = await rs.get(_R_KEY_LIFETIME)
+        lifetime = int(raw) if raw else 0
+    except Exception:
+        pass
+
+    try:
+        raw_list = await rs.lrange(_R_KEY_RECENT, 0, 19)
+        for r in raw_list or []:
+            try:
+                recent.append(_json.loads(r))
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    total_24h = sum(counters.values())
+    rate = (total_24h / turns) if turns else None
+
+    return {
+        "total_violations_lifetime": lifetime,
+        "turns_observed_24h": turns,
+        "violations_24h_by_pattern": counters,
+        "violations_24h_by_severity": severities,
+        "violations_24h_total": total_24h,
+        "violation_rate_24h": round(rate, 4) if rate is not None else None,
+        "recent": recent,
+        "mode": (
+            "POST-RESPONSE SCAN — soft-mode today (logged + appended to "
+            "confidence_footer). Rewrite mode is R-F403-full territory."
+        ),
+        "guards": "R-F401 architectural-self-claim regex scan",
+    }

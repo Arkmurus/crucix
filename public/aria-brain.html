@@ -232,6 +232,26 @@ Sidebar.init('brain');
     <div id="fresh-list" class="loading">Loading…</div>
   </div>
 
+  <!-- R-F407 (2026-05-13): Hallucination + Guard Violations panel.
+       Combines R-F401 self_claim_guard counters (post-response TTL /
+       forget / eviction / fuzzy-count detections) with the 5 stream
+       guards (officeholder / commitment / tool_claim / propaganda /
+       ground_truth). Operator sees 24h totals + recent violations
+       at-a-glance — closes the "is ARIA hallucinating right now?"
+       question that hurt team trust at MVP launch. -->
+  <div class="card wide" id="hallucination-panel">
+    <h2>Hallucination & Guard Violations <span class="badge" id="halluc-rate-badge">—</span></h2>
+    <div id="halluc-summary" style="margin-bottom:10px;font-size:0.85em;color:#8b949e">Loading…</div>
+    <div id="halluc-metrics" class="loading">Loading…</div>
+    <div style="margin-top:10px;font-size:0.75em;color:#8b949e;line-height:1.55">
+      R-F401 self_claim_guard catches architectural-self-claim hallucinations
+      (invented TTLs, "I will forget", "overwrites older", fuzzy counts).
+      Stream guards catch officeholder / commitment / tool_claim /
+      propaganda / ground_truth violations on the streaming path.
+      Soft-mode today (logged + appended); rewrite mode = R-F403-full.
+    </div>
+  </div>
+
   <!-- Dead Letter Queue -->
   <div class="card">
     <h2>Dead Letter Queue</h2>
@@ -1568,6 +1588,92 @@ function escapeHtml(s) {
   );
 }
 
+// R-F407 (2026-05-13) — Hallucination & Guard Violations panel.
+// Reads /api/aria/hallucination/stats which combines R-F401 self_claim_guard
+// + 5 stream_guard_observer counters. Renders 24h totals + recent log.
+async function loadHallucination() {
+  const d = await fetchJson('/hallucination/stats');
+  const el = document.getElementById('halluc-metrics');
+  const sumEl = document.getElementById('halluc-summary');
+  const badge = document.getElementById('halluc-rate-badge');
+  if (!d) {
+    el.innerHTML = '<span class="bad">Failed to load — endpoint unavailable</span>';
+    return;
+  }
+  const sum = d.summary || {};
+  const scg = d.self_claim_guard || {};
+  const sg = d.stream_guards || {};
+
+  // Top-line badge: violations / turns observed (24h)
+  const total24h = sum.total_violations_24h || 0;
+  const turns24h = sum.turns_observed_24h || 0;
+  const rate = sum.violation_rate_24h;
+  if (total24h === 0) {
+    badge.textContent = '0 violations';
+    badge.className = 'badge badge-green';
+  } else if (rate && rate > 0.05) {
+    badge.textContent = `${total24h} / ${turns24h} turns (${(rate*100).toFixed(1)}%)`;
+    badge.className = 'badge badge-red';
+  } else {
+    badge.textContent = `${total24h} / ${turns24h} turns`;
+    badge.className = 'badge badge-yellow';
+  }
+
+  sumEl.innerHTML =
+    `R-F401 self-claim: <strong class="${scg.violations_24h_total > 0 ? 'warn' : 'good'}">` +
+    `${scg.violations_24h_total || 0}</strong> · ` +
+    `Stream guards: <strong class="${sg.violations_24h_total > 0 ? 'warn' : 'good'}">` +
+    `${sg.violations_24h_total || 0}</strong> · ` +
+    `Turns observed: <strong>${turns24h}</strong>`;
+
+  let html = '';
+  // R-F401 self_claim_guard breakdown
+  const byPat = scg.violations_24h_by_pattern || {};
+  if (Object.keys(byPat).length > 0) {
+    html += '<div style="margin-top:6px;font-size:0.85em;color:#8b949e">R-F401 by pattern (24h):</div>';
+    html += '<table style="font-size:0.82em;margin-top:4px">';
+    for (const [pid, count] of Object.entries(byPat)) {
+      const cls = count > 0 ? 'warn' : 'neutral';
+      const human = pid.replace('rf401_', '').replace(/_/g, ' ');
+      html += `<tr><td>${escapeHtml(human)}</td><td class="${cls}" style="text-align:right">${count}</td></tr>`;
+    }
+    html += '</table>';
+  }
+  // Stream guards breakdown
+  const sgBy = sg.violations_24h_by_guard || {};
+  if (Object.keys(sgBy).length > 0) {
+    html += '<div style="margin-top:10px;font-size:0.85em;color:#8b949e">Stream guards by type (24h):</div>';
+    html += '<table style="font-size:0.82em;margin-top:4px">';
+    for (const [g, count] of Object.entries(sgBy)) {
+      const cls = count > 0 ? 'warn' : 'neutral';
+      html += `<tr><td>${escapeHtml(g)}</td><td class="${cls}" style="text-align:right">${count}</td></tr>`;
+    }
+    html += '</table>';
+  }
+  // Recent violations
+  const recent = (scg.recent || []).concat(sg.recent || []);
+  if (recent.length > 0) {
+    html += '<div style="margin-top:10px;font-size:0.85em;color:#8b949e">Recent (last 20):</div>';
+    html += '<table style="font-size:0.78em;margin-top:4px"><tr>'
+          + '<th>When</th><th>Pattern</th><th>Phrase</th><th>Trace</th></tr>';
+    for (const r of recent.slice(0, 20)) {
+      const ts = r.ts ? new Date(r.ts * 1000).toLocaleTimeString() : '—';
+      const pat = r.pattern_id || r.guard || '—';
+      const phrase = (r.phrase || r.snippet || '').slice(0, 60);
+      const trace = (r.trace_id || '').slice(0, 8);
+      html += `<tr><td style="white-space:nowrap">${escapeHtml(ts)}</td>`
+            + `<td>${escapeHtml(pat)}</td>`
+            + `<td>${escapeHtml(phrase)}</td>`
+            + `<td style="white-space:nowrap"><code>${escapeHtml(trace)}</code></td></tr>`;
+    }
+    html += '</table>';
+  }
+  if (!html) {
+    html = '<span class="good">No violations recorded yet</span>';
+  }
+  el.innerHTML = html;
+}
+
 async function refreshAll() {
   document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
   await Promise.all([
@@ -1578,6 +1684,8 @@ async function refreshAll() {
     loadLlmCost(),
     // R-F89/F88 panels added 2026-05-09
     loadCoverageHeatmap(), loadFreshness(),
+    // R-F407 panel added 2026-05-13
+    loadHallucination(),
   ]);
 }
 

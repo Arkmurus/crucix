@@ -8,7 +8,7 @@
 // commit matches what's in git. Diagnostic added after R-F353 was committed
 // and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 // alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F391 · 2026-05-13 · ARIA Brain dashboard honesty — fetch-failure banner + fetchJson rejects {error:...} responses (was rendering 20+ panels with fake fallback values that looked like real measurements when fly.io proxy 503ed); prior: R-F390 internal-token bypass, R-F383..R-F388 Upstash retirement';
+const CRUCIX_BUILD_REV = 'R-F407 · 2026-05-13 · ARIA Brain dashboard — Hallucination & Guard Violations panel (combines R-F401 self_claim_guard counters + 5 stream guards). Operator sees 24h totals + recent log + violation rate at-a-glance; seenode proxy for /hallucination/stats added; prior: R-F391 banner, R-F390 bypass';
 
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
@@ -2198,6 +2198,10 @@ app.get('/api/aria/sources/seed/catalogue', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/sources/seed/catalogue', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/sources/seed/run', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/sources/seed/run', { method: 'POST', timeoutMs: 60000, fallback: async () => res.status(503).json(_brainFallback()) }));
+// R-F407 (2026-05-13) — Hallucination dashboard surface. Combines
+// R-F401 self_claim_guard counters + R-F403 stream_guard_observer.
+app.get('/api/aria/hallucination/stats', requireAuth, (req, res) =>
+  ariaProxy(req, res, '/api/aria/hallucination/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
 // Self-diagnostic (2026-04-18)
 app.get('/api/aria/diagnostic/details', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/diagnostic/details', { timeoutMs: 30000, fallback: async () => res.status(503).json(_brainFallback()) }));

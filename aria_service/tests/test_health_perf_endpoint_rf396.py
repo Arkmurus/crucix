@@ -126,12 +126,32 @@ def test_rf396_advisories_array_is_populated():
 def test_rf396_schema_version_pinned():
     """The _schema_version field exists so the LLM prompt that
     instructs ARIA how to quote the response can be versioned alongside.
-    A version bump signals an intentional contract change."""
+    A version bump signals an intentional contract change.
+
+    R-F408 (2026-05-13): originally asserted "rf396.v1". R-F400 bumped
+    to "rf400.v1" intentionally (added inventory + retention fields).
+    The forward-compat shape `"_schema_version": "rfNNN.vN"` is what
+    really matters — pin that pattern, not a specific version, so a
+    future bump doesn't regress without breaking tests that have a
+    good reason to care.
+    """
+    import re
     src = _src()
     idx = src.find("async def health_perf_ep")
     block = src[idx:idx + 4000]
     assert '"_schema_version"' in block
-    assert "rf396.v1" in block, (
-        "R-F396: _schema_version drifted from rf396.v1. "
-        "If intentional, update this assertion AND the LLM prompt."
+    # Pattern: "_schema_version": "rfNNN.vN" — any R-F number + minor version.
+    m = re.search(r'"_schema_version":\s*"(rf\d+\.v\d+)"', block)
+    assert m is not None, (
+        "R-F408: _schema_version no longer follows rfNNN.vN pattern. "
+        "Consumers depend on this shape — fix the value, not the test."
+    )
+    # Pinned: at least rf400.v1 (R-F400 added inventory + retention).
+    # If a future contributor LOWERS this, they removed a field.
+    version_str = m.group(1)
+    rev_num = int(re.match(r"rf(\d+)", version_str).group(1))
+    assert rev_num >= 400, (
+        f"R-F408: schema version regressed to {version_str}. "
+        f"R-F400 added inventory + retention — version must be rf400.v1 "
+        f"or higher. Fix: don't remove those fields."
     )

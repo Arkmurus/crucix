@@ -341,8 +341,13 @@ def build_footer(
     # warning block when forbidden patterns appear (e.g. invented TTLs,
     # "I will forget", "overwrites older"). Soft-mode today — appended
     # so the team sees it; rewrite mode is R-F403-full territory.
+    # R-F407 (2026-05-13): also fire-and-forget records the violation to
+    # Redis counters so the operator dashboard panel can show 24h totals.
     try:
-        from .self_claim_guard import scan_response, render_violation_block
+        from .self_claim_guard import (
+            scan_response, render_violation_block,
+            record_violations, record_turn_observed,
+        )
         # Self_introspect ran if any tool name in tools_used matches
         had_introspect = False
         if tools_used:
@@ -361,6 +366,23 @@ def build_footer(
                 "R-F401 guard fired: %d violation(s) on response (trace=%s)",
                 len(violations), trace_id or "n/a",
             )
+        # R-F407: fire-and-forget metrics. Run inside asyncio.create_task
+        # to avoid making build_footer async — keeps the call site simple.
+        import asyncio as _aio
+        try:
+            _loop = _aio.get_event_loop()
+            if _loop.is_running():
+                _loop.create_task(record_turn_observed())
+                if violations:
+                    _loop.create_task(
+                        record_violations(
+                            violations,
+                            response_preview=(response_text or "")[:200],
+                            trace_id=trace_id or "",
+                        )
+                    )
+        except Exception as _e:
+            logger.debug("self_claim_guard metrics fire-and-forget failed: %s", _e)
     except Exception as e:
         logger.debug("self_claim_guard scan failed (non-fatal): %s", e)
 

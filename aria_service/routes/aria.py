@@ -16214,6 +16214,56 @@ async def stream_guards_stats_ep():
     return await sgo.get_stats()
 
 
+# R-F407 (2026-05-13) — hallucination dashboard surface.
+#
+# Combines two violation surfaces into one endpoint the operator
+# dashboard reads:
+#   - R-F401 self_claim_guard (post-response scan for invented TTLs,
+#     "I will forget", "overwrites older", fuzzy counts) — fires from
+#     confidence_footer chain.
+#   - 5 stream guards (officeholder / commitment / tool_claim /
+#     propaganda / ground_truth) — fire from stream_guard_observer.
+#
+# Single endpoint so the dashboard panel can render both side-by-side
+# without two roundtrips.
+@router.get("/hallucination/stats")
+async def hallucination_stats_ep():
+    """R-F407: combined hallucination + guard violation stats for the
+    operator dashboard. Reads from self_claim_guard (R-F401, post-
+    response) + stream_guard_observer (existing 5 output guards)."""
+    from ..intel import self_claim_guard as scg
+    from ..intel import stream_guard_observer as sgo
+    try:
+        scg_stats = await scg.get_stats()
+    except Exception as e:
+        scg_stats = {"error": f"self_claim_guard get_stats failed: {str(e)[:120]}"}
+    try:
+        sgo_stats = await sgo.get_stats()
+    except Exception as e:
+        sgo_stats = {"error": f"stream_guard_observer get_stats failed: {str(e)[:120]}"}
+
+    # Top-line summary the panel renders without drilling down.
+    sc_24h = scg_stats.get("violations_24h_total", 0) if isinstance(scg_stats, dict) else 0
+    sg_24h = sgo_stats.get("violations_24h_total", 0) if isinstance(sgo_stats, dict) else 0
+    sc_turns = scg_stats.get("turns_observed_24h", 0) if isinstance(scg_stats, dict) else 0
+    sg_turns = sgo_stats.get("turns_observed_24h", 0) if isinstance(sgo_stats, dict) else 0
+    return {
+        "summary": {
+            "self_claim_violations_24h": sc_24h,
+            "stream_guard_violations_24h": sg_24h,
+            "total_violations_24h": sc_24h + sg_24h,
+            "turns_observed_24h": max(sc_turns, sg_turns),
+            "violation_rate_24h": (
+                round((sc_24h + sg_24h) / max(sc_turns, sg_turns), 4)
+                if max(sc_turns, sg_turns) > 0 else None
+            ),
+        },
+        "self_claim_guard": scg_stats,  # R-F401 post-response scan
+        "stream_guards": sgo_stats,     # 5 output guards (observation-only)
+        "_schema_version": "rf407.v1",
+    }
+
+
 # ── Composite Autonomy Scorer (Week 4) ───────────────────────────────────
 
 @router.get("/autonomy/composite")
