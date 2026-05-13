@@ -487,20 +487,62 @@ async function fetchSource(src) {
   return [];
 }
 
+// R-F451 (2026-05-13) — Atom + RSS-aware parser. Pre-R-F451 this only
+// matched <item>...</item> (RSS 2.0). The peaceau.org/en/rss feed (AU
+// Peace & Security Council) is actually Atom, which uses <entry> tags.
+// jina + codetabs were returning 200 + valid Atom XML every sweep and
+// this parser was silently returning [] for it — the source was reported
+// as "failed" while two upstreams gave good data. procurement_tenders.mjs
+// already has this dual-tag handling; lusophone.mjs had regressed.
+// Atom-specific field mapping:
+//   - <published> → pubDate
+//   - <updated> → pubDate fallback
+//   - <link href="..."> → link (Atom uses attribute, not text body)
+//   - <summary> → description fallback
 function parseRSS(xml) {
+  if (!xml || typeof xml !== 'string') return [];
+  const isAtom = /<entry[\s>]/i.test(xml);
+  const tag = isAtom ? 'entry' : 'item';
+  const itemRegex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
   const items = [];
-  const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
   let match;
   while ((match = itemRegex.exec(xml)) !== null) {
     const block = match[1];
-    items.push({
-      title:       extractTag(block, 'title'),
-      link:        extractTag(block, 'link'),
-      description: extractTag(block, 'description'),
-      pubDate:     extractTag(block, 'pubDate'),
-    });
+    if (isAtom) {
+      items.push({
+        title:       extractTag(block, 'title'),
+        link:        extractAtomLink(block),
+        description: extractTag(block, 'summary')
+                  || extractTag(block, 'content'),
+        pubDate:     extractTag(block, 'published')
+                  || extractTag(block, 'updated'),
+      });
+    } else {
+      items.push({
+        title:       extractTag(block, 'title'),
+        link:        extractTag(block, 'link'),
+        description: extractTag(block, 'description'),
+        pubDate:     extractTag(block, 'pubDate'),
+      });
+    }
   }
   return items.slice(0, 20);
+}
+
+// Atom <link href="..."/> uses an attribute, not text content. Prefer
+// rel="alternate" / type="text/html" when present; fall back to the
+// first href.
+function extractAtomLink(xml) {
+  if (!xml) return '';
+  const altRe = /<link\b[^>]*\brel=["']alternate["'][^>]*\bhref=["']([^"']+)["']/i;
+  const m1 = xml.match(altRe);
+  if (m1) return m1[1];
+  const altRe2 = /<link\b[^>]*\bhref=["']([^"']+)["'][^>]*\brel=["']alternate["']/i;
+  const m2 = xml.match(altRe2);
+  if (m2) return m2[1];
+  const anyRe = /<link\b[^>]*\bhref=["']([^"']+)["']/i;
+  const m3 = xml.match(anyRe);
+  return m3 ? m3[1] : '';
 }
 
 function extractTag(xml, tag) {

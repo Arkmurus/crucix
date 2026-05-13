@@ -83,10 +83,23 @@ async function fetchAfDBProjects() {
     () => fetch(RSS2JSON + encodeURIComponent(AFDB_NEWS_RSS), { signal: AbortSignal.timeout(10000) }),
     () => fetch(RSS2JSON + encodeURIComponent(AFDB_NEWS_RSS_ALT), { signal: AbortSignal.timeout(10000) }),
   ];
+  // R-F453 (2026-05-13) — capture per-attempt errors so the final throw
+  // carries diagnostic detail. Pre-R-F453 every catch block was bare
+  // `catch {}` which discarded the transport error; the outer throw
+  // produced `new Error('All AfDB endpoints unreachable')` whose .name
+  // === "Error", which enrichFetchError landed on, producing the
+  // unhelpful literal log line "[AfDB] Error: Error" every sweep.
+  // Now we record the LAST seen error per attempt chain and include it
+  // in the final throw message so triage sees the real cause
+  // (rss2json 429 / Google News 503 / jina blocked / network timeout).
+  const _attemptErrors = [];
   for (const attempt of rssAttempts) {
     try {
       const res = await attempt();
-      if (!res.ok) continue;
+      if (!res.ok) {
+        _attemptErrors.push(`HTTP ${res.status}`);
+        continue;
+      }
       const text = await res.text();
       // Handle both direct XML and rss2json JSON
       let items = [];
@@ -119,7 +132,11 @@ async function fetchAfDBProjects() {
           };
         });
       }
-    } catch {}
+      // 200 + parseable but zero items
+      _attemptErrors.push('200 zero-items');
+    } catch (e) {
+      _attemptErrors.push(`${e?.cause?.code || e?.code || e?.name || 'Error'}: ${(e?.message || '').slice(0, 80)}`);
+    }
   }
 
   // Final fallback: allorigins proxy (handles CORS/IP blocks)
@@ -155,11 +172,21 @@ async function fetchAfDBProjects() {
             };
           });
         }
+        _attemptErrors.push('allorigins 200 zero-items');
+      } else {
+        _attemptErrors.push(`allorigins HTTP ${res.status}`);
       }
+    } else {
+      _attemptErrors.push(`allorigins HTTP ${res.status}`);
     }
-  } catch {}
+  } catch (e) {
+    _attemptErrors.push(`allorigins ${e?.cause?.code || e?.code || e?.name || 'Error'}: ${(e?.message || '').slice(0, 80)}`);
+  }
 
-  throw new Error('All AfDB endpoints unreachable');
+  // R-F453: include the per-attempt error list in the thrown message so
+  // outer enrichFetchError surfaces the real cause, not "Error: Error".
+  const _summary = _attemptErrors.slice(0, 6).join(' | ') || 'no attempts recorded';
+  throw new Error(`All AfDB endpoints unreachable: ${_summary}`);
 }
 
 export async function briefing() {

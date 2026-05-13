@@ -165,6 +165,27 @@ function detectAnomalies(tradeRecords) {
 
 // Briefing — check recent trade data for key commodities, detect anomalies
 export async function briefing() {
+  // R-F452 (2026-05-13) — short-circuit when no API key. v1 /preview was
+  // deprecated late 2025 and now always returns empty data; v2 requires
+  // a (free, registration-gated) COMTRADE_API_KEY. Live evidence (seenode
+  // 21:02 sweep): all 4 key pairs × 5 commodities = 20 attempts logged
+  // `fetch_ENOTFOUND` per sweep, eating ~200s of budget for zero data.
+  // Disable cleanly so the sweep dashboard reports an honest status
+  // instead of repeated transport failures.
+  if (!process.env.COMTRADE_API_KEY) {
+    return {
+      source: 'UN Comtrade',
+      status: 'disabled_no_key',
+      reason: (
+        'COMTRADE_API_KEY not set; v1 preview deprecated late 2025. '
+        + 'Set the env var (free registration at '
+        + 'https://comtradeplus.un.org/) to re-enable.'
+      ),
+      tradeFlows: [],
+      signals: [],
+    };
+  }
+
   const currentYear = new Date().getFullYear();
   const prevYear = currentYear - 1;
 
