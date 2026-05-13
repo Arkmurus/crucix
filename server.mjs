@@ -8,7 +8,7 @@
 // commit matches what's in git. Diagnostic added after R-F353 was committed
 // and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 // alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F432 · 2026-05-13 · /api/auth/system-status now exposes admin.bootstrap trace (attempted, succeeded, skipReason, envEmailLen, envPasswordLen). Lets the operator (and me) diagnose env-bootstrap failures from the outside without shell access to seenode logs. Prior: R-F431 vertical card stack on Pending Amendments, R-F429 live admin count, R-F428 createIfMissing on recovery-reset, R-F427 admin identity transparency';
+const CRUCIX_BUILD_REV = 'R-F433 · 2026-05-13 · Pending Amendments — Approve/Reject/Bulk now use inline modal (Chrome/Firefox suppress prompt() after first call, made buttons look broken). Inline modal + toast notifications replace window.prompt + alert. Prior: R-F432 bootstrap trace in system-status, R-F431 vertical card stack, R-F427 admin identity transparency';
 
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';

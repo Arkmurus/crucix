@@ -78,6 +78,57 @@
 <body>
 <div id="sidebar-placeholder"></div>
 <div id="header-placeholder"></div>
+
+<!-- R-F433 (2026-05-13): inline operator modal. Replaces window.prompt()
+     in approveAmendment / rejectAmendment / bulkRejectStale. Chrome and
+     Firefox silently suppress prompt() / confirm() after the first one
+     fires in a session, which made the Approve/Reject buttons look broken
+     even though the click handlers were running fine. -->
+<div id="op-modal" style="display:none;position:fixed;inset:0;z-index:9999;
+     background:rgba(0,0,0,0.6);align-items:center;justify-content:center;
+     padding:24px" role="dialog" aria-modal="true">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;
+       max-width:520px;width:100%;padding:24px 26px;box-shadow:0 10px 40px rgba(0,0,0,.6)">
+    <h3 id="op-modal-title" style="margin:0 0 6px;color:#fff;font-size:18px;font-weight:600">
+      Confirm action
+    </h3>
+    <p id="op-modal-sub" style="margin:0 0 16px;color:#8b949e;font-size:13px;line-height:1.55"></p>
+    <div id="op-modal-phrase-row" style="margin-bottom:14px;display:none">
+      <label style="display:block;color:#8b949e;font-size:12px;margin-bottom:4px"
+             id="op-modal-phrase-label">Type to confirm</label>
+      <input id="op-modal-phrase" type="text" autocomplete="off"
+             style="width:100%;background:rgba(0,0,0,0.3);border:1px solid #30363d;
+                    color:#fff;padding:8px 10px;border-radius:4px;font-size:13px;
+                    font-family:'SF Mono','Menlo','Consolas',monospace">
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="display:block;color:#8b949e;font-size:12px;margin-bottom:4px"
+             id="op-modal-notes-label">Notes (required, audit-logged)</label>
+      <textarea id="op-modal-notes" rows="3"
+                style="width:100%;background:rgba(0,0,0,0.3);border:1px solid #30363d;
+                       color:#fff;padding:8px 10px;border-radius:4px;font-size:13px;
+                       resize:vertical;line-height:1.5"></textarea>
+    </div>
+    <div id="op-modal-error" role="alert"
+         style="display:none;margin-bottom:12px;padding:8px 12px;background:#3d1418;
+                border:1px solid #5c2125;border-radius:4px;color:#ffb4ab;font-size:12px">
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button id="op-modal-cancel" type="button"
+              style="background:transparent;color:#c9d1d9;border:1px solid #30363d;
+                     padding:7px 16px;border-radius:4px;cursor:pointer;font-size:13px">
+        Cancel
+      </button>
+      <button id="op-modal-submit" type="button"
+              style="background:#1f6feb;color:#fff;border:1px solid #2f81f7;
+                     padding:7px 18px;border-radius:4px;cursor:pointer;font-size:13px;
+                     font-weight:600">
+        Confirm
+      </button>
+    </div>
+  </div>
+</div>
+
 <script src="js/app.js?v=3"></script>
 <script src="js/sidebar.js?v=3"></script>
 <script>
@@ -570,105 +621,217 @@ async function loadAmendments() {
   el.innerHTML = html;
 }
 
+// R-F433 (2026-05-13): generic inline modal that replaces window.prompt().
+// Returns a promise that resolves to { confirmed: bool, phrase, notes }.
+// Chrome/Firefox silently suppress prompt() after the first call in a
+// session — which made the operator's Approve clicks look broken even
+// though the JS was firing. Inline DOM modal sidesteps that entirely.
+function showOperatorModal(opts) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('op-modal');
+    const titleEl = document.getElementById('op-modal-title');
+    const subEl = document.getElementById('op-modal-sub');
+    const phraseRow = document.getElementById('op-modal-phrase-row');
+    const phraseLabel = document.getElementById('op-modal-phrase-label');
+    const phraseInput = document.getElementById('op-modal-phrase');
+    const notesLabel = document.getElementById('op-modal-notes-label');
+    const notesInput = document.getElementById('op-modal-notes');
+    const errorEl = document.getElementById('op-modal-error');
+    const cancelBtn = document.getElementById('op-modal-cancel');
+    const submitBtn = document.getElementById('op-modal-submit');
+
+    titleEl.textContent = opts.title || 'Confirm action';
+    subEl.innerHTML = opts.sub || '';
+    if (opts.phrase) {
+      phraseRow.style.display = 'block';
+      phraseLabel.textContent = `Type "${opts.phrase}" to confirm`;
+      phraseInput.value = '';
+      phraseInput.placeholder = opts.phrase;
+    } else {
+      phraseRow.style.display = 'none';
+    }
+    notesLabel.textContent = opts.notesLabel || 'Notes (required, audit-logged)';
+    notesInput.value = '';
+    notesInput.placeholder = opts.notesPlaceholder || '';
+    errorEl.style.display = 'none';
+    submitBtn.textContent = opts.submitLabel || 'Confirm';
+    submitBtn.style.background = opts.danger ? '#6e2c2c' : '#1f6feb';
+    submitBtn.style.borderColor = opts.danger ? '#8a3838' : '#2f81f7';
+
+    modal.style.display = 'flex';
+    setTimeout(() => (opts.phrase ? phraseInput : notesInput).focus(), 50);
+
+    function cleanup() {
+      modal.style.display = 'none';
+      cancelBtn.onclick = null;
+      submitBtn.onclick = null;
+      phraseInput.onkeydown = null;
+      notesInput.onkeydown = null;
+    }
+    function fail(msg) {
+      errorEl.textContent = msg;
+      errorEl.style.display = 'block';
+    }
+    function done(out) {
+      cleanup();
+      resolve(out);
+    }
+    cancelBtn.onclick = () => done({ confirmed: false });
+    submitBtn.onclick = () => {
+      if (opts.phrase) {
+        const v = phraseInput.value.trim();
+        if (v !== opts.phrase) return fail(`Type "${opts.phrase}" exactly to confirm.`);
+      }
+      const notes = notesInput.value.trim();
+      if (opts.notesRequired !== false && !notes) {
+        return fail('Notes are required (audit-logged).');
+      }
+      done({ confirmed: true, phrase: phraseInput.value.trim(), notes });
+    };
+    // Enter submits, Esc cancels.
+    function keyHandler(ev) {
+      if (ev.key === 'Escape') { ev.preventDefault(); done({ confirmed: false }); }
+      // Don't auto-submit on Enter in notes textarea — only in single-line phrase input.
+      if (ev.key === 'Enter' && ev.target === phraseInput) {
+        ev.preventDefault();
+        submitBtn.click();
+      }
+    }
+    phraseInput.onkeydown = keyHandler;
+    notesInput.onkeydown = ev => { if (ev.key === 'Escape') done({ confirmed: false }); };
+  });
+}
+
+// Lightweight non-blocking notifier — replaces window.alert() so we
+// don't depend on dialogs the browser may also suppress.
+function showOperatorToast(msg, kind) {
+  const node = document.createElement('div');
+  const bg = kind === 'error' ? '#3d1418' : kind === 'success' ? '#0d3117' : '#161b22';
+  const fg = kind === 'error' ? '#ffb4ab' : kind === 'success' ? '#a7f1b8' : '#c9d1d9';
+  const border = kind === 'error' ? '#5c2125' : kind === 'success' ? '#1a4d2e' : '#30363d';
+  node.style.cssText =
+    `position:fixed;top:24px;right:24px;z-index:10000;max-width:420px;`
+    + `padding:12px 16px;background:${bg};border:1px solid ${border};color:${fg};`
+    + `border-radius:6px;font-size:13px;line-height:1.5;box-shadow:0 6px 22px rgba(0,0,0,.5);`
+    + `font-family:'Segoe UI',system-ui,sans-serif;white-space:pre-wrap`;
+  node.textContent = msg;
+  document.body.appendChild(node);
+  setTimeout(() => { node.style.opacity = '0'; node.style.transition = 'opacity .4s'; }, 6000);
+  setTimeout(() => node.remove(), 6500);
+}
+
 // R-F103 (2026-05-09): bulk-reject all amendments older than 7d.
-// Useful when the queue accumulates stale candidates from earlier
-// adversarial runs whose attacks no longer fail.
+// R-F433: rebuilt around the inline modal — fetches the stale set first,
+// then asks for a single reason via the modal, then bulk-rejects.
 async function bulkRejectStale() {
-  const reason = prompt(
-    'Reason for bulk-rejecting all amendments older than 7 days?\n'
-    + '(Required — will be audit-logged for every rejected amendment.)\n\n'
-    + 'Suggested: "stale candidate — superseded by R-F59/F80 expansion"',
-  );
-  if (!reason || !reason.trim()) return;
-  // Get the current queue
   const d = await fetchJson('/adversarial/amendments');
   if (!d || !d.amendments) {
-    alert('Cannot fetch amendments queue.');
+    showOperatorToast('Cannot fetch amendments queue.', 'error');
     return;
   }
   const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
   const stale = d.amendments.filter(a => {
-    if (!a.staged_at) return true;  // missing date = treat as stale
-    try {
-      return new Date(a.staged_at).getTime() < cutoff;
-    } catch {
-      return true;
-    }
+    if (!a.staged_at) return true;
+    try { return new Date(a.staged_at).getTime() < cutoff; }
+    catch { return true; }
   });
   if (!stale.length) {
-    alert('No amendments older than 7 days.');
+    showOperatorToast('No amendments older than 7 days.');
     return;
   }
-  if (!confirm(`About to reject ${stale.length} amendment(s) older than 7 days. Continue?`)) return;
+  const r = await showOperatorModal({
+    title: `Bulk-reject ${stale.length} stale amendment(s)?`,
+    sub: `About to reject ${stale.length} amendment(s) older than 7 days. `
+       + `All rejections are audit-logged with the reason below.`,
+    notesLabel: 'Reason (required)',
+    notesPlaceholder: 'e.g. "stale candidate — superseded by R-F59/F80 expansion"',
+    submitLabel: `Reject ${stale.length}`,
+    danger: true,
+  });
+  if (!r.confirmed) return;
   const ids = stale.map(a => a.attack_id).filter(Boolean);
   const resp = await API.post(
     '/api/aria/adversarial/amendments/reject-bulk',
-    { attack_ids: ids, reason: reason.trim() },
+    { attack_ids: ids, reason: r.notes },
   );
   if (!resp || !resp.ok) {
-    alert('Bulk reject failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'));
+    showOperatorToast(
+      'Bulk reject failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'),
+      'error');
     return;
   }
+  showOperatorToast(`Bulk-rejected ${ids.length} amendment(s).`, 'success');
   await loadAmendments();
 }
 
+// R-F433: reject via inline modal (was window.prompt). Single reason field.
 async function rejectAmendment(attackId) {
   if (!attackId) return;
-  const reason = prompt(`Reason for rejecting ${attackId}?\n(Required — will be logged for audit.)`);
-  if (!reason || !reason.trim()) return;
-  // API.post lives in js/app.js; it handles bearer auth via localStorage.
+  const r = await showOperatorModal({
+    title: `Reject amendment`,
+    sub: `<span style="font-family:'SF Mono',monospace;color:#c9d1d9">${attackId}</span><br>`
+       + `Rejection is audit-logged with the reason below. Keeps ARIA's current `
+       + `constitution unchanged for this attack.`,
+    notesLabel: 'Reason (required)',
+    notesPlaceholder: 'e.g. "ARIA already handles this attack correctly — no clause change needed"',
+    submitLabel: 'Reject',
+    danger: true,
+  });
+  if (!r.confirmed) return;
   const resp = await API.post(
     '/api/aria/adversarial/amendments/reject',
-    { attack_id: attackId, reason: reason.trim() },
+    { attack_id: attackId, reason: r.notes },
   );
   if (!resp || !resp.ok) {
-    alert('Reject failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'));
+    showOperatorToast(
+      'Reject failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'),
+      'error');
     return;
   }
+  showOperatorToast(`Rejected ${attackId}.`, 'success');
   await loadAmendments();
 }
 
 // R-F230 (2026-05-11) — approve amendment via R-F168 endpoint.
-// Requires explicit confirm-phrase ("APPROVE") + operator notes.
-// On success, surfaces the staged_improvement_id and reminds the
-// operator that the constitution change is STAGED only — manual
-// deploy via /api/aria/self/deploy/{id} is the actual application
-// step (the operator-only safety gate per autonomy doctrine).
+// R-F433: refactored to use the inline modal. Confirm phrase ("APPROVE")
+// + notes textarea on a single dialog. On success, the response banner
+// surfaces the staged_improvement_id and the CLI command to deploy it.
 async function approveAmendment(attackId) {
   if (!attackId) return;
-  const confirmPhrase = prompt(
-    `APPROVE amendment ${attackId}?\n\n`
-    + `This stages a constitution change in self_improve. The change is\n`
-    + `NOT live until you separately POST /api/aria/self/deploy/{id} from\n`
-    + `the CLI (the safety gate).\n\n`
-    + `Type "APPROVE" to confirm:`
-  );
-  if (confirmPhrase !== 'APPROVE') {
-    if (confirmPhrase != null) alert('Approval cancelled — confirm phrase must be exactly "APPROVE".');
-    return;
-  }
-  const notes = prompt(`Operator approval notes for ${attackId}?\n(Required — will be audit-logged.)`);
-  if (!notes || !notes.trim()) {
-    alert('Approval cancelled — notes required.');
-    return;
-  }
+  const r = await showOperatorModal({
+    title: `Approve amendment`,
+    sub: `<span style="font-family:'SF Mono',monospace;color:#c9d1d9">${attackId}</span><br>`
+       + `This <strong>stages</strong> a constitution change in self_improve. `
+       + `It is <strong>not live</strong> until you separately `
+       + `<code>POST /api/aria/self/deploy/{id}</code> from the CLI (the safety gate).`,
+    phrase: 'APPROVE',
+    notesLabel: 'Approval notes (required, audit-logged)',
+    notesPlaceholder: 'e.g. "ARIA failed this attack pattern reliably — needs new clause"',
+    submitLabel: 'Approve & stage',
+    danger: false,
+  });
+  if (!r.confirmed) return;
   const resp = await API.post(
     '/api/aria/adversarial/amendments/approve',
-    { attack_id: attackId, notes: notes.trim() },
+    { attack_id: attackId, notes: r.notes },
   );
   if (!resp || !resp.ok) {
-    alert('Approve failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'));
+    showOperatorToast(
+      'Approve failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'),
+      'error');
     return;
   }
   const stagedId = resp.data && resp.data.staged_improvement_id;
   if (stagedId) {
-    alert(
+    showOperatorToast(
       `Amendment ${attackId} APPROVED + staged.\n\n`
       + `Staged improvement ID: ${stagedId}\n\n`
-      + `To apply to live ARIA:\n`
-      + `  POST /api/aria/self/deploy/${stagedId}\n\n`
-      + `Until you do that, the constitution is unchanged.`
-    );
+      + `To apply to live ARIA, run:\n`
+      + `POST /api/aria/self/deploy/${stagedId}\n\n`
+      + `Until you do that, the constitution is unchanged.`,
+      'success');
+  } else {
+    showOperatorToast(`Amendment ${attackId} APPROVED + staged.`, 'success');
   }
   await loadAmendments();
 }
