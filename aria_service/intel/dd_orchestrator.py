@@ -2784,6 +2784,84 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                         logger.debug(
                             "R-F437 wayback pivot skipped: %s", _r437_e,
                         )
+
+                # ── R-F438 (2026-05-13) — Certificate Transparency pivot ──
+                # Operators commonly bundle several brand domains onto a
+                # single TLS cert, which makes the CT log a free reverse-
+                # WHOIS proxy. A sanctioned operator who rebrands behind
+                # `freshcorp.com` typically still shares a cert with the
+                # embarrassing `oldshell.com` for weeks. We query crt.sh
+                # (community-run, no key), extract sibling hostnames from
+                # SAN lists, exclude CDN/PaaS infra, and surface the top
+                # related domains. Cost: 1 HTTP call per DD.
+                # Opt-out via ARIA_CT_PIVOT_DISABLED=1.
+                if not os.getenv("ARIA_CT_PIVOT_DISABLED", "").strip():
+                    try:
+                        from .domain_pivots import (
+                            crtsh_lookup as _crtsh,
+                            extract_related_domains as _erd,
+                        )
+                        # Derive apex from seed_url
+                        from urllib.parse import urlparse as _urlparse
+                        _parsed = _urlparse(seed_url)
+                        _apex = (_parsed.netloc or "").lower().lstrip("www.")
+                        if _apex and "." in _apex:
+                            _ct = await _crtsh(_apex)
+                            if _ct.get("ok"):
+                                _related = _erd(_ct.get("records") or [], _apex)
+                                report.digital.web_footprint["ct_log_records"] = len(
+                                    _ct.get("records") or []
+                                )
+                                report.digital.web_footprint["related_domains"] = (
+                                    _related
+                                )
+                                report.digital.meta.subcalls += 1
+                                # Surface a single info finding summarising
+                                # the pivot — concrete data goes into the
+                                # web_footprint for renderer detail.
+                                if _related:
+                                    _peers_str = ", ".join(
+                                        r["host"] for r in _related[:6]
+                                    )
+                                    _suffix = (
+                                        f" (+{len(_related) - 6} more)"
+                                        if len(_related) > 6 else ""
+                                    )
+                                    report.digital.findings.append(Finding(
+                                        severity="info",
+                                        title=(
+                                            f"CT pivot: {len(_related)} related "
+                                            f"domain(s) share a TLS cert with "
+                                            f"{_apex}"
+                                        ),
+                                        detail=(
+                                            f"Sample: {_peers_str}{_suffix}. "
+                                            f"Operator may want to re-DD any "
+                                            f"that look ownership-related "
+                                            f"(shared registrable root flagged "
+                                            f"in web_footprint.related_domains)."
+                                        ),
+                                        source=(
+                                            f"domain_pivots.crtsh_lookup "
+                                            f"[crt.sh?q={_apex}]"
+                                        ),
+                                        confidence="ASSESSED",
+                                    ))
+                                logger.info(
+                                    "R-F438: CT pivot on %s — %d records, "
+                                    "%d related domains surfaced",
+                                    _apex,
+                                    len(_ct.get("records") or []),
+                                    len(_related),
+                                )
+                            else:
+                                report.digital.web_footprint["ct_log_error"] = (
+                                    _ct.get("error") or "unknown"
+                                )[:200]
+                    except Exception as _r438_e:
+                        logger.debug(
+                            "R-F438 CT pivot skipped: %s", _r438_e,
+                        )
             except Exception as e:
                 logger.warning("Digital: link_investigator failed: %s", e)
                 report.digital.data_gaps.append(f"link_investigator failed: {str(e)[:120]}")
