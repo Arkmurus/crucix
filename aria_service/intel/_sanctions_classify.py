@@ -492,6 +492,24 @@ def classify_match(match: dict, query_name: str = "") -> str:
             only_token = next(iter(shared))
             if len(only_token) < 5:
                 severity = "info"
+    # R-F434 (2026-05-13): brandified-hostname origin cap. When the only
+    # path to this match was a hostname (`ngast.com` → `ngast`, `armesavn.com`
+    # → `armesavn`) without legal-name corroboration from the crawl/registry,
+    # cap severity at AMBER regardless of topic. Two live false positives
+    # this conversation: ngast.com flagged Oscar Noe MEDINA GONZALEZ (OFAC
+    # SDN), armesavn.com flagged SHAZAND PETROCHEMICAL — both clean US
+    # firms whose brandified stems collided with unrelated SDN entries by
+    # OpenSanctions string similarity. The match still surfaces for
+    # operator review (per_match[]) but no HARD STOP fires until the
+    # orchestrator re-screens with the verified legal entity name from
+    # the website crawl or company registry. Tags set by
+    # sanctions.screen_with_aliases.
+    if (
+        match.get("_from_brandified_hostname")
+        and not match.get("_has_legal_name_corroboration")
+        and SEVERITY_RANK[severity] > SEVERITY_RANK["amber"]
+    ):
+        severity = "amber"
     return severity
 
 
@@ -545,6 +563,17 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             noise_filtered += 1
         _ds = m.get("lists") or m.get("datasets") or []
         _list_labels = [label for _, _, label in _defence_list_hits(_ds)]
+        # R-F434: detect brandified-hostname cap separately from token-
+        # overlap demotion so the operator can see which gate fired.
+        # A match is "hostname-capped" when the origin tag is set, there
+        # was no legal-name corroboration, and the topic-derived severity
+        # exceeded AMBER (which is the cap). When this fires, severity
+        # was forced to AMBER regardless of token overlap.
+        hostname_capped = bool(
+            m.get("_from_brandified_hostname")
+            and not m.get("_has_legal_name_corroboration")
+            and SEVERITY_RANK[topic_severity] > SEVERITY_RANK["amber"]
+        )
         per_match.append({
             "name":     candidate_name,
             "score":    float(m.get("score") or 0.0),
@@ -554,6 +583,8 @@ def classify_matches(matches: list[dict], query_name: str = "") -> dict:
             "severity": final_severity,
             "token_overlap": overlap,
             "noise_filtered": was_demoted,
+            "brandified_hostname_capped": hostname_capped,  # R-F434
+            "brandified_stem": m.get("_brandified_stem") or "",  # R-F434
             # R-F335 (2026-05-11): match-path transparency for operator
             # verification. Without these the operator can't tell HOW the
             # query reached the sanctioned candidate (was it primary name,

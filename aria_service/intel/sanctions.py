@@ -699,6 +699,22 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
     # and proceed; the original hostname is added as an alias so the
     # screen also probes the literal string.
     original_name = name
+    # R-F434 (2026-05-13): track whether the input was a hostname and whether
+    # any legal-name corroboration was supplied via known_aliases. Brandified
+    # hostnames produce false-positive HARD STOPs when the stripped stem
+    # collides by string similarity with an unrelated SDN entry (live
+    # examples this conversation: ngast.com → "Oscar Noe MEDINA GONZALEZ",
+    # armesavn.com → "SHAZAND PETROCHEMICAL"). Until the orchestrator
+    # re-screens with a verified legal name from the crawl/registry, any
+    # match derived from the brandified stem alone must be capped at
+    # AMBER by the classifier — operator preserves the signal without
+    # the false HARD STOP. The original hostname is NOT corroboration
+    # because we appended it ourselves below.
+    _from_brandified_hostname = False
+    _brandified_stem: str = ""
+    # known_aliases AT ENTRY = caller-supplied legal-name corroboration.
+    # Captured before we mutate the list with the original hostname.
+    _has_legal_name_corroboration = bool(known_aliases)
     if name and _DOMAIN_TOKEN_RE.search(name):
         try:
             from .web_explorer import brandify_query as _brand
@@ -715,6 +731,8 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
                 if original_name not in known_aliases:
                     known_aliases.append(original_name)
                 name = brandified
+                _from_brandified_hostname = True
+                _brandified_stem = brandified
         except Exception as _be:
             logger.debug("R-F311 brandify failed for %r: %s", name[:60], _be)
 
@@ -740,6 +758,16 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
     if not targets:
         return {"error": "no valid names to screen"}
 
+    # R-F434 (2026-05-13): the set of targets that originate from the
+    # brandified hostname (brandified stem + original hostname). Matches
+    # surfaced via these targets ARE NOT corroborated by a verified legal
+    # name, so the classifier must cap them at AMBER. Caller-supplied
+    # known_aliases (legal-name corroboration) are NOT in this set.
+    _hostname_origin_targets: set[str] = set()
+    if _from_brandified_hostname:
+        _hostname_origin_targets.add(name)  # brandified stem (already mutated)
+        _hostname_origin_targets.add(original_name)  # raw hostname
+
     all_results = []
     for target in targets[:5]:
         try:
@@ -756,7 +784,15 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
     worst = max(all_results, key=lambda r: r.get("top_score", 0))
     all_matches = []
     for r in all_results:
+        _alias = r.get("alias_screened")
+        _is_hostname_origin = _alias in _hostname_origin_targets
         for m in r.get("matches", []):
+            # R-F434: tag origin so the classifier can cap severity
+            # at AMBER for brandified-hostname-derived false positives.
+            if _is_hostname_origin:
+                m["_from_brandified_hostname"] = True
+                m["_brandified_stem"] = _brandified_stem
+                m["_has_legal_name_corroboration"] = _has_legal_name_corroboration
             all_matches.append(m)
     # Dedup by candidate name + list
     seen = set()
@@ -776,4 +812,8 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
         "match_count": len(deduped),
         "per_alias_results": all_results,
         "disclaimer": worst.get("disclaimer"),
+        # R-F434: visibility hooks for renderers and chat output.
+        "from_brandified_hostname": _from_brandified_hostname,
+        "brandified_stem": _brandified_stem,
+        "has_legal_name_corroboration": _has_legal_name_corroboration,
     }
