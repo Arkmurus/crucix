@@ -76,77 +76,27 @@ _SYNONYMS = {
 
 
 # ── Embedding model singleton ──────────────────────────────────────────────
-# R-F458 (2026-05-13) — threading.Lock added to make singleton load race-free.
-# Live evidence (fly logs 22:07-22:09 BST): the model was loaded TWICE in 2
-# minutes by ONE process, indicating two concurrent _get_embedder() callers
-# both saw `_embedder is None` and both entered the SentenceTransformer
-# constructor. CPython's GIL doesn't help here because SentenceTransformer
-# constructor releases the GIL during HF API I/O. Cost: 32s + 47s of
-# duplicate weight loading + 37s embedding batches → fly LB PR04 cascade.
-import threading as _threading
-
 _embedder = None
 _embedder_checked = False  # avoid repeated ImportError attempts
-_embedder_lock = _threading.Lock()  # R-F458 — serialise singleton init
 
 
 def _get_embedder():
-    """Lazy-load the sentence-transformers model (singleton).
-
-    R-F458 (2026-05-13) — race-safe. Pre-R-F458 two concurrent callers
-    could both see `_embedder is None` and both call SentenceTransformer
-    (which releases the GIL during HF cache I/O and weight load), causing
-    a 60s+ event-loop block + duplicate ~80MB model in process memory.
-    Now we double-checked-lock on `_embedder_lock`: outer check is fast
-    (no contention once warm), inner check after lock prevents the race.
-    """
+    """Lazy-load the sentence-transformers model (singleton)."""
     global _embedder, _embedder_checked
-    # Fast path — no lock when already loaded
     if _embedder is not None:
         return _embedder
-    if _embedder_checked and _embedder is None:
+    if _embedder_checked:
         return None
-    # Slow path — serialise the initialisation
-    with _embedder_lock:
-        # Re-check inside the lock: another thread may have loaded
-        # the model while we were waiting on the lock.
-        if _embedder is not None:
-            return _embedder
-        if _embedder_checked:
-            return None
-        _embedder_checked = True
-        try:
-            from sentence_transformers import SentenceTransformer
-            _embedder = SentenceTransformer("all-MiniLM-L6-v2")
-            logger.info("Loaded sentence-transformers embedding model (all-MiniLM-L6-v2)")
-        except ImportError:
-            logger.warning("sentence-transformers not installed — using TF-IDF only")
-        except Exception as exc:
-            logger.warning("Failed to load embedding model: %s — using TF-IDF only", exc)
-        return _embedder
-
-
-async def prewarm_embedder() -> None:
-    """R-F458 — async startup prewarm to load the model in a thread pool.
-
-    Call this from the FastAPI lifespan startup so the first chat /
-    DD / embed request never triggers the 30+ second blocking cold load
-    on the event-loop thread. asyncio.to_thread keeps the load OFF the
-    main loop; the threading.Lock above prevents any race between this
-    prewarm and a coincidental first request.
-
-    Idempotent — once the model is loaded, this is a no-op.
-    """
-    if _embedder is not None:
-        return
-    import asyncio as _aio
+    _embedder_checked = True
     try:
-        await _aio.to_thread(_get_embedder)
+        from sentence_transformers import SentenceTransformer
+        _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        logger.info("Loaded sentence-transformers embedding model (all-MiniLM-L6-v2)")
+    except ImportError:
+        logger.warning("sentence-transformers not installed — using TF-IDF only")
     except Exception as exc:
-        # Non-fatal — first real call will retry under the same lock
-        logger.warning(
-            "R-F458 prewarm_embedder failed (non-fatal): %s", exc,
-        )
+        logger.warning("Failed to load embedding model: %s — using TF-IDF only", exc)
+    return _embedder
 
 
 # ── Tokenisation ─────────────────────────────────────────────────────────────
