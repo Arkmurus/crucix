@@ -3067,6 +3067,86 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                         logger.debug(
                             "R-F440 DNS fingerprint skipped: %s", _r440_e,
                         )
+
+                # ── R-F441 (2026-05-13) — source-language adverse media ──
+                # The 11-lang fanout (_LANG_FANOUT_TRIGGERS) detects which
+                # target languages a query is relevant for but passes a
+                # GENERIC search string. R-F441 builds adverse-media-
+                # specific queries per language (corruption/sanctions/
+                # fraud/money-laundering/bribery/embezzlement/investigation
+                # in the native script) so the search probes the
+                # untranslated reporting where the real evidence lives.
+                # Opt-out: ARIA_ADVERSE_POLYGLOT_DISABLED=1.
+                if not os.getenv("ARIA_ADVERSE_POLYGLOT_DISABLED", "").strip():
+                    try:
+                        from .adverse_media_polyglot import (
+                            build_queries_for_languages as _bqfl,
+                        )
+                        from .web_explorer import (
+                            detect_language_fanout as _dlf,
+                        )
+                        # Compose a "language hint" from entity name +
+                        # declared country so the fanout fires per
+                        # country/region. We don't run the actual
+                        # cross-language search here (would add 10s+)
+                        # — instead we surface the QUERIES on the
+                        # web_footprint so the operator + downstream
+                        # researchers know what to probe + dashboards
+                        # can render the polyglot reach. The autonomous
+                        # researcher already runs polyglot queries
+                        # asynchronously via search_multilingual; this
+                        # block exposes the per-DD adverse-media plan.
+                        _lang_hint = (
+                            f"{report.identity.entity_name or name} "
+                            f"{report.identity.jurisdiction or ''}"
+                        ).strip()
+                        _langs_detected = _dlf(_lang_hint)
+                        # Always probe English baseline + auto-detected langs
+                        _langs_to_query = ["en"] + [
+                            l for l in _langs_detected if l != "en"
+                        ]
+                        _queries = _bqfl(
+                            report.identity.entity_name or name,
+                            _langs_to_query,
+                        )
+                        if _queries:
+                            report.digital.web_footprint["adverse_media_queries"] = [
+                                {"lang": l, "query": q}
+                                for l, q in _queries
+                            ]
+                            report.digital.findings.append(Finding(
+                                severity="info",
+                                title=(
+                                    f"Polyglot adverse-media plan: "
+                                    f"{len(_queries)} language(s) — "
+                                    f"{', '.join(l for l, _ in _queries)}"
+                                ),
+                                detail=(
+                                    f"Per-language adverse-term probes "
+                                    f"prepared from source-language "
+                                    f"dictionaries (corruption/sanctions/"
+                                    f"fraud/money-laundering/bribery/etc). "
+                                    f"Queries surfaced in "
+                                    f"web_footprint.adverse_media_queries. "
+                                    f"Autonomous researcher loops execute "
+                                    f"these in parallel; deep-mode DD can "
+                                    f"trigger on-demand via "
+                                    f"search_multilingual."
+                                ),
+                                source="adverse_media_polyglot.build_queries_for_languages",
+                                confidence="ASSESSED",
+                            ))
+                        logger.info(
+                            "R-F441: polyglot adverse-media — %d queries "
+                            "across langs %s",
+                            len(_queries),
+                            [l for l, _ in _queries],
+                        )
+                    except Exception as _r441_e:
+                        logger.debug(
+                            "R-F441 polyglot adverse media skipped: %s",
+                            _r441_e,
+                        )
             except Exception as e:
                 logger.warning("Digital: link_investigator failed: %s", e)
                 report.digital.data_gaps.append(f"link_investigator failed: {str(e)[:120]}")
