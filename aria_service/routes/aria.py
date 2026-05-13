@@ -7462,12 +7462,54 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                 if tool_used:
                     yield f'data: {json.dumps({"type":"meta","tool_used":tool_used})}\n\n'
 
+                # R-F448 (2026-05-13) — POST-RESPONSE HONESTY PASS.
+                # Run the same 7-guard chain that /chat non-stream has
+                # been running since 2026-04-18 (officeholder / inline
+                # citation / response_verifier / commitment / tool_claim
+                # / propaganda / ground_truth). Pre-R-F448 these were
+                # observer-only on stream — WhatsApp users got
+                # unguarded text. Helper module times each guard out
+                # at 8s and the whole chain at 25s so a hung guard can
+                # never block the done event.
+                _full_text = "".join(_r412_response_buf)
+                _r446_changed = False
+                try:
+                    from ..intel import stream_honesty as _sh
+                    _r446_result = await _sh.apply_stream_honesty(
+                        response_text=_full_text,
+                        user_message=req.message or "",
+                        tool_context="",  # not threaded into stream today
+                        tool_used=tool_used,
+                        session_id=session_id or "",
+                        user_id=user_id or "",
+                        chat_id=str(getattr(req, "chat_id", "") or ""),
+                        verification=_r412_verification,
+                    )
+                    if _r446_result.get("changed"):
+                        _banner = _sh.build_correction_banner(_r446_result)
+                        if _banner:
+                            yield f'data: {json.dumps({"type":"chunk","text":_banner})}\n\n'
+                            # Footer + downstream observers should see
+                            # the guarded text, not the original.
+                            _full_text = _r446_result.get("rewritten") or _full_text
+                            _r446_changed = True
+                            _log.info(
+                                "[R-F448] stream honesty pass rewrote response "
+                                "(trace=%s, changes=%s)",
+                                session_id, _r446_result.get("changes"),
+                            )
+                except Exception as _r446_e:
+                    _log.warning(
+                        "R-F448 stream honesty pass failed (non-fatal): %r",
+                        _r446_e,
+                        exc_info=True,
+                    )
+
                 # R-F412 — build + emit the confidence footer as its own
                 # chunk, AFTER the LLM finishes (so the build_footer regex
                 # sees the full reply) but BEFORE the deferred done event.
                 try:
                     from ..intel import confidence_footer
-                    _full_text = "".join(_r412_response_buf)
                     _tools_for_footer: list[str] = []
                     if tool_used:
                         _tools_for_footer.append(str(tool_used))
