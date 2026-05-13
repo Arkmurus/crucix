@@ -20,6 +20,8 @@ she thinks in connected concepts like a human analyst.
 from __future__ import annotations
 
 import asyncio
+import base64
+import gzip
 import json
 import logging
 import math
@@ -87,6 +89,61 @@ _edges: dict[str, dict[str, float]] = defaultdict(dict)  # from_id → {to_id: w
 _meta: dict = {"total_neurons": 0, "total_edges": 0, "total_activations": 0, "born": None}
 _loaded = False
 
+# R-F442 (2026-05-13) — write-skipping dirty flag for the edges blob.
+# Pre-R-F442 _persist() unconditionally rewrote EDGES_KEY (~4.14 MB) on
+# every call, including from recall(), which only mutates neuron-level
+# fields (activation, last_activated) and never touches _edges. Live fly
+# logs 2026-05-13 21:07 showed 8 redundant 4.14 MB writes per minute,
+# all tripping the 4 MB Redis warn threshold. With dirty tracking, only
+# the 3 sites that actually mutate edges (_strengthen_edge, _apply_decay,
+# init-disk-reload) reset the flag. Default True so the FIRST persist
+# after boot always syncs disk → Redis.
+_edges_dirty: bool = True
+
+# R-F442 (2026-05-13) — gzip wrapper for the edges blob. Same pattern as
+# R-F1 (knowledge) and R-F36 (intel_ledger). 4.14 MB raw JSON compresses
+# to ~700 KB (sparse-graph + repeated float patterns), well under the
+# 4 MB warn threshold with multi-month headroom. Magic prefix lets the
+# loader accept both gzipped (new) and raw-JSON (legacy) blobs so
+# existing Redis snapshots migrate forward on the next write.
+_GZ_PREFIX = "GZ1:"
+
+
+def _encode_edges(edges_dict: dict) -> str:
+    """R-F442: gzip+base64-encode the edges blob for Redis storage."""
+    raw = json.dumps(edges_dict, default=str).encode("utf-8")
+    gz = gzip.compress(raw, compresslevel=6)
+    return _GZ_PREFIX + base64.b64encode(gz).decode("ascii")
+
+
+def _decode_edges(value: Any) -> dict | None:
+    """R-F442: decode an edges blob. Accepts both gzipped (`GZ1:` prefix)
+    and legacy raw-JSON values, so an existing 4 MB raw snapshot loads
+    fine on the first boot after deploy."""
+    if not value:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            value = value.decode("utf-8")
+        except Exception:
+            return None
+    if not isinstance(value, str):
+        return None
+    if value.startswith(_GZ_PREFIX):
+        try:
+            gz = base64.b64decode(value[len(_GZ_PREFIX):])
+            raw = gzip.decompress(gz)
+            return json.loads(raw)
+        except Exception as e:
+            logger.warning("R-F442: gzip edges decode failed: %s", e)
+            return None
+    try:
+        return json.loads(value)
+    except Exception:
+        return None
+
 
 # ── Core Data Structures ────────────────────────────────────────────────────
 def _make_neuron(concept: str, category: str = "general", source: str = "auto",
@@ -111,10 +168,13 @@ def _make_neuron(concept: str, category: str = "general", source: str = "auto",
 
 # ── Init ─────────────────────────────────────────────────────────────────────
 async def init() -> None:
-    global _neurons, _edges, _meta, _loaded
+    global _neurons, _edges, _meta, _loaded, _edges_dirty
     try:
         neurons_raw = await rs.get_json(NEURONS_KEY)
-        edges_raw = await rs.get_json(EDGES_KEY)
+        # R-F442: edges may be gzipped (new) or raw JSON (legacy). Use the
+        # raw rs.get + _decode_edges so we can handle the GZ1: prefix.
+        edges_value = await rs.get(EDGES_KEY)
+        edges_raw = _decode_edges(edges_value)
         meta_raw = await rs.get_json(NEURAL_META_KEY)
 
         if neurons_raw and isinstance(neurons_raw, dict):
@@ -127,15 +187,24 @@ async def init() -> None:
         if not _meta.get("born"):
             _meta["born"] = time.time()
 
+        # R-F442: edges are in-sync with disk right after init, so the
+        # first _persist() call doesn't need to rewrite them unless a
+        # mutator runs first. If we just loaded a legacy raw-JSON blob,
+        # leave dirty=True so the next persist migrates it to gzipped.
+        _edges_dirty = isinstance(edges_value, (str, bytes, bytearray)) and not (
+            isinstance(edges_value, str) and edges_value.startswith(_GZ_PREFIX)
+        )
+
         _loaded = True
-        logger.info("Neural memory loaded: %d neurons, %d edge groups",
-                     len(_neurons), len(_edges))
+        logger.info("Neural memory loaded: %d neurons, %d edge groups (R-F442 edges_dirty=%s)",
+                     len(_neurons), len(_edges), _edges_dirty)
     except Exception as e:
         logger.warning("Neural memory init failed: %s", e)
         _loaded = True
 
 
 async def _persist() -> None:
+    global _edges_dirty
     try:
         _meta["total_neurons"] = len(_neurons)
         _meta["total_edges"] = sum(len(v) for v in _edges.values())
@@ -164,7 +233,9 @@ async def _persist() -> None:
                 _neurons.clear()
                 _neurons.update(disk_neurons)
                 try:
-                    disk_edges = await rs.get_json(EDGES_KEY)
+                    # R-F442: disk edges may be gzipped — go through _decode_edges.
+                    disk_edges_raw = await rs.get(EDGES_KEY)
+                    disk_edges = _decode_edges(disk_edges_raw)
                     if isinstance(disk_edges, dict):
                         _edges.clear()
                         _edges.update(disk_edges)
@@ -172,6 +243,7 @@ async def _persist() -> None:
                     pass
                 _meta["total_neurons"] = len(_neurons)
                 _meta["total_edges"] = sum(len(v) for v in _edges.values())
+                _edges_dirty = False  # R-F442: just reloaded from disk, in sync
                 logger.warning(
                     "[neural] R-F371 — disk had %d neurons but in-memory only had "
                     "%d before reload. Reloaded from disk instead of overwriting "
@@ -185,17 +257,32 @@ async def _persist() -> None:
         # No TTL — neural memory is permanent. Activation decay still
         # applies (that's learning, not forgetting), but neurons never
         # expire from Redis. Was 90d TTL before 2026-04-21.
+        #
+        # R-F442 (2026-05-13): only write EDGES_KEY when _edges_dirty.
+        # recall() persists frequently but never mutates _edges, so most
+        # _persist() calls skip the 4 MB edges write entirely. When edges
+        # ARE dirty, write them gzipped (~700 KB instead of 4.14 MB).
+        write_edges = _edges_dirty
+        encoded_edges = _encode_edges(dict(_edges)) if write_edges else None
+
         if rs._client:
             import json as _json
             pipe = rs._client.pipeline()
             pipe.set(NEURONS_KEY, _json.dumps(dict(_neurons)))
-            pipe.set(EDGES_KEY, _json.dumps(dict(_edges)))
+            if write_edges:
+                pipe.set(EDGES_KEY, encoded_edges)
             pipe.set(NEURAL_META_KEY, _json.dumps(_meta))
             await pipe.execute()
         else:
             await rs.set_json(NEURONS_KEY, dict(_neurons))
-            await rs.set_json(EDGES_KEY, dict(_edges))
+            if write_edges:
+                await rs.set(EDGES_KEY, encoded_edges)
             await rs.set_json(NEURAL_META_KEY, _meta)
+
+        # R-F442: clear the dirty flag AFTER a successful write. If the
+        # write raised, we keep the flag True so the next persist retries.
+        if write_edges:
+            _edges_dirty = False
     except Exception as e:
         logger.warning("Neural memory persist failed: %s", e)
 
@@ -248,6 +335,7 @@ def _find_or_create(concept: str, category: str = "general",
 
 def _strengthen_edge(from_id: str, to_id: str, boost: float = CO_OCCURRENCE_BOOST) -> None:
     """Strengthen connection between two neurons."""
+    global _edges_dirty
     if from_id == to_id:
         return
     current = _edges[from_id].get(to_id, 0.0)
@@ -255,6 +343,8 @@ def _strengthen_edge(from_id: str, to_id: str, boost: float = CO_OCCURRENCE_BOOS
     # Bidirectional
     current_rev = _edges[to_id].get(from_id, 0.0)
     _edges[to_id][from_id] = min(1.0, current_rev + boost)
+    # R-F442: this is the hot mutator that recall() does NOT touch.
+    _edges_dirty = True
 
     # R-F240 (2026-05-11) — warn-only at WARN_EDGES_PER_NEURON; no pruning.
     # Pre-R-F240 _prune_edges deleted the weakest edges when count > 200.
@@ -292,12 +382,15 @@ def _apply_decay() -> None:
     spurious reinforcement. We now use a single global timestamp so decay either applies
     to *all* neurons consistently or to none, and we still apply per-neuron exact maths.
     """
-    global _LAST_GLOBAL_DECAY
+    global _LAST_GLOBAL_DECAY, _edges_dirty
     now = time.time()
     days_since_global = (now - _LAST_GLOBAL_DECAY) / 86400 if _LAST_GLOBAL_DECAY else 1.0
     if days_since_global < 0.25:  # at most 4 decay passes per day
         return
     _LAST_GLOBAL_DECAY = now
+    # R-F442: this pass mutates every edge weight, so the edges blob
+    # needs writing on the next _persist().
+    _edges_dirty = True
 
     for n in _neurons.values():
         days_since_decay = (now - n.get("last_decayed", now)) / 86400
