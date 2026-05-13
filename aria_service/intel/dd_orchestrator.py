@@ -2424,10 +2424,42 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
 
 
 async def _run_verification(target: dict, report: ARKDDReport) -> None:
-    """Layer 3 — Verification. Cross-source triangulation + conflict
-    detection over whatever the previous layers collected."""
+    """Layer 3 — Source triangulation + conflict detection (NOT
+    independent source verification).
+
+    R-F393 (2026-05-13): the legacy "verification" name was a Phase A
+    honesty bug — ARIA self-reported the layer as "wired-but-silent"
+    after a Lukoil DD returned 0% grounded. The honest description is
+    what this function actually does:
+
+      (a) Count how many independent sources back each claim that
+          Layers 1/2/4/5 already collected — `triangulated_claims`.
+      (b) Compute `grounded_rate` = fraction of claims with >= 2
+          sources (NOT a URL-verification rate).
+      (c) Detect conflicts between sections (e.g. ghost=GREEN while
+          country=HARD_STOP).
+      (d) Pick the weakest confidence tag across all sections.
+
+    What this function does NOT do (operator-visible via the new
+    scope-flag fields on VerificationSection):
+
+      *  Independent URL re-fetch and claim re-check against external
+         sources — `source_verifier.py` exists but is not invoked from
+         the orchestrator. `independent_source_verification_run` is
+         set to False below to surface this honestly.
+    """
     t0 = time.time()
     report.verification.meta.started_at = datetime.now(timezone.utc).isoformat()
+    # R-F393: pin the honest scope on the section the moment the
+    # function fires, so a mid-flight crash still leaves the truth
+    # visible to downstream consumers.
+    report.verification.independent_source_verification_run = False
+    report.verification.scope_note = (
+        "Layer 3 = source triangulation + conflict detection over "
+        "Layers 1/2/4/5 outputs. Independent source verification "
+        "(URL re-fetch via source_verifier) is NOT invoked — grounded_rate "
+        "is a triangulation rate, not a URL-verified rate."
+    )
 
     # Count sources per material claim. A "claim" here is a distinct
     # piece of evidence/finding from any section. The verifier counts

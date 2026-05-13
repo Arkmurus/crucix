@@ -233,7 +233,17 @@ class NetworkSection:
 
 @dataclass
 class VerificationSection:
-    """Layer 3 — how well-grounded is the picture we have?"""
+    """Layer 3 — how well-grounded is the picture from prior layers?
+
+    R-F393 (2026-05-13): naming is historical — this layer DOES NOT do
+    independent source verification (URL fetch + claim re-check against
+    external sources). It triangulates source-counts from claims that
+    Layers 1/2/4/5 already collected, detects conflicts between sections,
+    and computes a confidence floor. The honest scope flags below are
+    populated by `_run_verification` so report consumers (dashboards,
+    chat audit, BLUF) can render the truth instead of inferring
+    "verification" from the section name.
+    """
     meta: SectionMeta = field(default_factory=SectionMeta)
     triangulated_claims: list[dict] = field(default_factory=list)  # claim, n_sources, confidence
     conflicts: list[dict] = field(default_factory=list)
@@ -242,6 +252,12 @@ class VerificationSection:
     confidence_floor: str = "ASSESSED"
     findings: list[Finding] = field(default_factory=list)
     data_gaps: list[str] = field(default_factory=list)
+    # R-F393: honest-scope flags. Set by _run_verification.
+    # independent_source_verification_run is True only when
+    # source_verifier.py is actually invoked against LLM outputs
+    # (it is not, as of 2026-05-13; the integration is a placeholder).
+    independent_source_verification_run: bool = False
+    scope_note: str = ""
 
 
 @dataclass

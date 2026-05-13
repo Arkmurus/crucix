@@ -50,7 +50,7 @@ logger = logging.getLogger("aria.main")
 # and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 # alone couldn't tell us whether the deploy had picked up. Same pattern
 # now also installed on seenode (server.mjs CRUCIX_BUILD_REV).
-ARIA_BUILD_REV = "R-F374 · 2026-05-12 · adds R-F374 (regression guard extended to competitors/contacts/reasoning_library) + R-F372 (/health/live) + R-F371 (neural guard)"
+ARIA_BUILD_REV = "R-F393 · 2026-05-13 · Phase A honesty — dd_orchestrate verification layer honest scope flags (independent_source_verification_run=False + scope_note); R-F392 deep_research entity extraction pending; prior on this rev: R-F374 regression guard, R-F372 /health/live, R-F371 neural guard"
 
 
 @asynccontextmanager
