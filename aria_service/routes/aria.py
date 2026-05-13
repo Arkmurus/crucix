@@ -15456,7 +15456,8 @@ async def health_perf_ep():
         "mem0": {
             "ttl_days": None,
             "policy": "permanent",
-            "eviction": "unverified — see R-F406",
+            "eviction": "none",
+            "anchor": "R-F406 audit 2026-05-13 — mem0.py has no delete/prune/evict/compact calls; storage inherits knowledge.py permanent policy",
         },
     }
 

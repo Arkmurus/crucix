@@ -43,9 +43,26 @@ Why a separate module instead of extending knowledge.py
 - Different LLM call (small / fast / cheap, not the full chat model)
 - Different gating (only fires on substantive replies, not trivial ones)
 - Different metadata (session_id, turn number, source role)
-- Different lifecycle (auto-cleanup of stale notebook entries possible)
 - Behind ARIA_MEM0_ENABLED env var so it can be disabled standalone
 - Cost-tracked separately under feature='mem0' for visibility
+
+RETENTION (R-F406, 2026-05-13) — PERMANENT, no eviction
+═══════════════════════════════════════════════════════
+This module DOES NOT EVICT, OVERWRITE, COMPRESS, OR PRUNE entries.
+Storage is delegated to knowledge.store_fact() with a `mem0:session_*`
+source prefix; retrieval is a filtered knowledge.search() over the
+same prefix. Mem0 entries therefore inherit knowledge's permanent-
+memory policy (knowledge.py:64 — "no TTL, no eviction"; R-F238
+reversed R-F173 prune to enforce this).
+
+Past hallucination 2026-05-13 07:27 (WhatsApp to operator): ARIA stated
+"MEM0 Notebook ... each new entry can overwrite/compress older ones."
+That claim is FALSE. There is no overwrite logic, no compression logic,
+no eviction logic in this module. The retrieval-side caps
+(_MAX_MEM0_RECALL_CHARS, _MAX_MEM0_RECALL_FACTS at lines 297-298) are
+WHAT-TO-INJECT limits per query — they do not delete anything from
+the store. Adding eviction would violate operator directive
+aria_infinite_memory.md. See R-F406 capability test for the pin.
 
 Cost discipline
 ═══════════════
