@@ -1659,6 +1659,108 @@ async def _run_network(target: dict, report: ARKDDReport) -> None:
         except Exception as eg_err:
             logger.warning("Entity graph construction failed (non-fatal): %s", eg_err)
 
+        # ── R-F435 (2026-05-13) — UBO chain walker auto-trigger ─────
+        # network_walker.walk_ubo_chain() exists but was previously only
+        # invoked from tests. Wire it as part of Layer 2 so every company
+        # DD attempts a recursive UBO walk. The walker has its own budget
+        # caps (max_hops=3, max_total_nodes=50, officers_per_entity=10)
+        # and self-terminates fast on uncovered jurisdictions, recording
+        # an explicit coverage_gap entry — which is itself valuable
+        # signal (operator sees "no registry adapter for jurisdiction X"
+        # instead of silent failure). Persons skip this layer (no UBO).
+        # Opt-out via ARIA_UBO_WALK_DISABLED=1 for ops.
+        if (
+            report.identity.entity_type == EntityType.COMPANY.value
+            and not os.getenv("ARIA_UBO_WALK_DISABLED", "").strip()
+        ):
+            try:
+                ubo_result = await network_walker.walk_ubo_chain(
+                    entity_name=report.identity.entity_name,
+                    entity_type="company",
+                    jurisdiction_iso2=report.identity.jurisdiction_iso2,
+                    registration_number=report.identity.registration_number,
+                )
+                # Flat node list preserves the existing reader contract at
+                # line 4252 (iterates u.get("name")).
+                report.network.ubo_chain = (
+                    (ubo_result.get("graph") or {}).get("nodes") or []
+                )
+                report.network.ubo_chain_walk = ubo_result
+                _stats = ubo_result.get("stats") or {}
+                report.network.meta.subcalls += (
+                    _stats.get("sanctions_screens", 0)
+                    + _stats.get("registry_lookups", 0)
+                )
+
+                # Surface sanctioned_in_chain as Network findings
+                for _s in (ubo_result.get("sanctioned_in_chain") or [])[:5]:
+                    _sev = _s.get("severity") or "red"
+                    if _sev not in ("hard_stop", "red", "amber"):
+                        _sev = "red"
+                    report.network.findings.append(Finding(
+                        severity=_sev,
+                        title=(
+                            f"UBO chain sanctions: {_s.get('name', '?')} "
+                            f"({_sev}, hop {_s.get('hop', '?')})"
+                        ),
+                        detail=(
+                            f"Discovered via UBO walk from "
+                            f"{_s.get('parent_entity', report.identity.entity_name)}. "
+                            f"{_s.get('summary', '')[:240]}"
+                        ),
+                        source="network_walker.walk_ubo_chain",
+                        confidence="PROBABLE",
+                    ))
+                # PEP-in-chain → amber findings
+                for _p in (ubo_result.get("pep_in_chain") or [])[:5]:
+                    report.network.findings.append(Finding(
+                        severity="amber",
+                        title=(
+                            f"UBO chain PEP: {_p.get('name', '?')} "
+                            f"(hop {_p.get('hop', '?')})"
+                        ),
+                        detail=(
+                            f"PEP / adverse-media match discovered via UBO walk "
+                            f"from {_p.get('parent_entity', report.identity.entity_name)}. "
+                            f"{_p.get('summary', '')[:240]}"
+                        ),
+                        source="network_walker.walk_ubo_chain",
+                        confidence="ASSESSED",
+                    ))
+                # Coverage gaps → data_gaps (operator-actionable: tells them
+                # which jurisdictions ARIA can't yet walk)
+                for _g in (ubo_result.get("coverage_gaps") or [])[:10]:
+                    report.network.data_gaps.append(
+                        f"UBO walk hop {_g.get('hop', '?')} "
+                        f"({_g.get('entity_name', '?')}): "
+                        f"{_g.get('reason', 'unknown')}"
+                    )
+                if _stats.get("budget_exhausted"):
+                    report.network.data_gaps.append(
+                        f"UBO walk budget exhausted at "
+                        f"{_stats.get('total_nodes', '?')} nodes — increase "
+                        f"max_total_nodes for deeper trace"
+                    )
+
+                logger.info(
+                    "UBO walk %s: verdict=%s, %d nodes, %d edges, "
+                    "%d sanctioned_in_chain, %d PEP_in_chain, %d coverage_gaps",
+                    report.identity.entity_name[:40],
+                    ubo_result.get("verdict", "?"),
+                    _stats.get("total_nodes", 0),
+                    _stats.get("total_edges", 0),
+                    len(ubo_result.get("sanctioned_in_chain") or []),
+                    len(ubo_result.get("pep_in_chain") or []),
+                    len(ubo_result.get("coverage_gaps") or []),
+                )
+            except Exception as ubo_err:
+                logger.warning(
+                    "UBO walk failed (non-fatal): %s", ubo_err,
+                )
+                report.network.data_gaps.append(
+                    f"UBO walk failed: {str(ubo_err)[:120]}"
+                )
+
     except Exception as e:
         logger.warning("Network layer failed: %s", e)
         report.network.meta.status = LayerStatus.ERROR.value

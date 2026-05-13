@@ -227,6 +227,13 @@ class NetworkSection:
     address_cluster: dict = field(default_factory=dict)       # addresses with shared entities
     pep_connections: list[dict] = field(default_factory=list)
     sanctions_network: list[dict] = field(default_factory=list)  # flagged entities in the chain
+    # R-F435 (2026-05-13) — UBO chain walker output. `ubo_chain` is the
+    # flattened node list (preserves the pre-existing reader contract at
+    # dd_orchestrator.py:4252 — iterate `u.get("name")`). `ubo_chain_walk`
+    # is the full walker result dict (graph + sanctioned_in_chain +
+    # coverage_gaps + verdict + stats) for renderers that want richness.
+    ubo_chain: list[dict] = field(default_factory=list)
+    ubo_chain_walk: dict = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)
     data_gaps: list[str] = field(default_factory=list)
 
