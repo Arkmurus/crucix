@@ -7095,10 +7095,30 @@ async def chat_ep(req: ChatRequest, request: Request):
         # Behind ARIA_CONFIDENCE_FOOTER (default ON). Disabled → no-op.
         try:
             from ..intel import confidence_footer
+            # R-F403-tactical (2026-05-13): collect tools + build_rev +
+            # trace_id so the footer can SHOW what ARIA did. Single
+            # biggest MVP-launch trust win — team sees the work, not
+            # just the answer.
+            _tools_for_footer: list[str] = []
+            if tool_used:
+                _tools_for_footer.append(str(tool_used))
+            # If multiple tools fired this turn, they live in result.tools_run
+            _extra_tools = result.get("tools_run") if isinstance(result, dict) else None
+            if isinstance(_extra_tools, (list, tuple)):
+                _tools_for_footer.extend(str(t) for t in _extra_tools)
+            _build_rev_for_footer = ""
+            try:
+                from ..main import ARIA_BUILD_REV as _br
+                _build_rev_for_footer = _br
+            except Exception:
+                pass
             footer = confidence_footer.build_footer(
                 response_text=response_text,
                 verification=result.get("verification"),
                 rag_sources_count=0,  # RAG count not currently surfaced from aria_chat
+                tools_used=_tools_for_footer or None,
+                build_rev=_build_rev_for_footer or None,
+                trace_id=trace_id,
             )
             if footer:
                 result["response"] = (response_text or "") + footer

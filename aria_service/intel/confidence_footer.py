@@ -162,6 +162,10 @@ def build_footer(
     response_text: str,
     verification: dict | None,
     rag_sources_count: int = 0,
+    *,
+    tools_used: list[str] | str | None = None,
+    build_rev: str | None = None,
+    trace_id: str | None = None,
 ) -> str:
     """Compose the structured footer block.
 
@@ -181,6 +185,22 @@ def build_footer(
     rag_sources_count:
         Number of RAG passages that contributed to the context for this
         reply. Optional — pass 0 if unknown.
+    tools_used:
+        R-F403-tactical (2026-05-13): name(s) of tools that fired in the
+        current turn (e.g. "sanctions_screen", "deep_research",
+        "self_introspect"). Surfaces in the footer as a "Tools:" line so
+        the team can see ARIA actually USED a tool — closes the "did she
+        check or just guess" question that hurt team trust at MVP launch.
+        Accepts a list of strings, a single string, or None/empty.
+    build_rev:
+        R-F403-tactical: the live ARIA_BUILD_REV slug. Helps the team
+        know which deploy produced the answer (single-line truncated to
+        the R-number marker for brevity).
+    trace_id:
+        R-F403-tactical: the trace_stream UUID for this turn. Operator
+        can pull the full DD lifecycle via /api/aria/trace/{trace_id}.
+        Surfaces as a short prefix so any team member can quote it back
+        for follow-up.
     """
     if not is_enabled():
         return ""
@@ -264,11 +284,84 @@ def build_footer(
 
     lines.append(head)
 
+    # ── R-F403-tactical (2026-05-13): proof line ──
+    # Surfaces tools + build + trace_id so the team can SEE that ARIA
+    # actually ran something, on which deploy, and how to inspect it.
+    # The "did she check or just guess" question is the single biggest
+    # MVP-launch trust problem; this line answers it inline on every
+    # substantive reply.
+    proof_bits: list[str] = []
+    if tools_used:
+        if isinstance(tools_used, str):
+            tools_list = [t.strip() for t in tools_used.replace(",", " ").split() if t.strip()]
+        else:
+            tools_list = [str(t).strip() for t in tools_used if str(t).strip()]
+        # Dedupe + cap to keep the line short on WhatsApp
+        seen_tools: set[str] = set()
+        unique_tools: list[str] = []
+        for t in tools_list:
+            if t.lower() in seen_tools:
+                continue
+            seen_tools.add(t.lower())
+            unique_tools.append(t)
+        if unique_tools:
+            proof_bits.append(f"*Tools:* {' · '.join(unique_tools[:5])}")
+        else:
+            # Explicitly say no tool when none ran — operator's "did she
+            # actually check" question gets an honest "no" instead of silence.
+            proof_bits.append("*Tools:* (none — from memory / training)")
+    else:
+        proof_bits.append("*Tools:* (none — from memory / training)")
+    if build_rev:
+        # Keep only the leading R-number cluster for brevity.
+        br = str(build_rev).strip()
+        rnum = re.match(r"(R-F\d+(?:\.\.F\d+|\+\d+)?)", br)
+        if rnum:
+            br = rnum.group(1)
+        proof_bits.append(f"*Build:* {br}")
+    if trace_id:
+        tid = str(trace_id).strip()
+        if len(tid) > 12:
+            tid_short = tid[:8]
+        else:
+            tid_short = tid
+        proof_bits.append(f"*Trace:* `{tid_short}` (`/trace {tid_short}` to inspect)")
+    if proof_bits:
+        lines.append("  ·  ".join(proof_bits))
+
     # ── Assumptions block (only if the LLM flagged any) ──
     assumptions = _extract_assumptions(response_text)
     if assumptions:
         lines.append("⚠ *Assumptions to validate:*")
         for a in assumptions:
             lines.append(f"  • {a}")
+
+    # ── R-F403-tactical: post-response hallucination scan ──
+    # Run the R-F401 self_claim_guard on the FINAL response and append a
+    # warning block when forbidden patterns appear (e.g. invented TTLs,
+    # "I will forget", "overwrites older"). Soft-mode today — appended
+    # so the team sees it; rewrite mode is R-F403-full territory.
+    try:
+        from .self_claim_guard import scan_response, render_violation_block
+        # Self_introspect ran if any tool name in tools_used matches
+        had_introspect = False
+        if tools_used:
+            if isinstance(tools_used, str):
+                had_introspect = "self_introspect" in tools_used.lower()
+            else:
+                had_introspect = any(
+                    "self_introspect" in str(t).lower() for t in tools_used
+                )
+        violations = scan_response(response_text, self_introspect_ran=had_introspect)
+        if violations:
+            vblock = render_violation_block(violations)
+            if vblock:
+                lines.append(vblock)
+            logger.warning(
+                "R-F401 guard fired: %d violation(s) on response (trace=%s)",
+                len(violations), trace_id or "n/a",
+            )
+    except Exception as e:
+        logger.debug("self_claim_guard scan failed (non-fatal): %s", e)
 
     return "\n".join(lines)
