@@ -8,7 +8,7 @@
 // commit matches what's in git. Diagnostic added after R-F353 was committed
 // and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 // alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F422 · 2026-05-13 · Pending Amendments panel — fail_count + last_failed_at columns surfaced (R-F422 dedupe). Operator dashboard now shows high-recurrence attacks (5x E1_FABRICATED_COMMITMENT collapsed into 1 row with 5× counter) and auto-rejects stale low-priority duplicates >14d old; prior: R-F407 hallucination panel, R-F391 honesty banner';
+const CRUCIX_BUILD_REV = 'R-F427 · 2026-05-13 · Admin identity transparency — /api/auth/system-status diagnostic + login-failure logging + initAdminUser identity assertion. Prior: R-F426 ARIA-SMTP fallback for auth emails, R-F425 recovery-token reset (operator self-serve when SMTP is down), R-F424 auth-doctor + rehash --create-if-missing, R-F423 admin password rehash script, R-F422 Pending Amendments panel, R-F407 hallucination panel';
 
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
@@ -44,7 +44,7 @@ import { deployModule, rollbackModule, validateSyntax, isRestartPending, clearRe
 import { runBDIntelligence, getBDIntelligence, getDealPipeline, updateDealStage, createDeal, recordOutcome, formatBDSummaryForTelegram, initBDStore } from './lib/self/bd_intelligence.mjs';
 import { screenDeal, getProductCategories } from './lib/compliance/screen.mjs';
 import { PersistStore } from './lib/persist/store.mjs';
-import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore } from './lib/auth/users.mjs';
+import { createUser, findUserByEmail, findUserByUsername, findUserById, updateUser, deleteUser, revokeTokens, listUsers, verifyPassword, hashPassword, createToken, verifyToken, generateCode, initAdminUser, initUsersStore, getAdminIdentitySnapshot } from './lib/auth/users.mjs';
 import { createBillingRouter } from './lib/billing/routes.mjs';
 import { createReportsRouter } from './lib/reports/routes.mjs';
 import { createStatusRouter } from './lib/status/routes.mjs';
@@ -3218,19 +3218,34 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
-    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+    if (!email || !password) {
+      console.warn(`[Auth] login: missing email or password ip=${req.ip}`);
+      return res.status(400).json({ error: 'Email and password required' });
+    }
 
+    // R-F427: log distinct failure paths so the operator can diagnose
+    // "Invalid credentials" reports from seenode logs. The HTTP response
+    // stays generic to avoid enumeration; the log line names the cause.
     const user = findUserByEmail(email);
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-    if (!verifyPassword(password, user.passwordHash)) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!user) {
+      console.warn(`[Auth] login FAIL no-user email=${email} ip=${req.ip}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    if (!verifyPassword(password, user.passwordHash)) {
+      console.warn(`[Auth] login FAIL password-mismatch email=${email} id=${user.id} status=${user.status} ip=${req.ip}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
     if (user.status === 'pending_approval') {
+      console.warn(`[Auth] login BLOCKED pending_approval email=${email} ip=${req.ip}`);
       return res.status(403).json({ error: 'Your account is pending admin approval. You will be notified once activated.' });
     }
     if (user.status === 'pending_verification') {
+      console.warn(`[Auth] login BLOCKED pending_verification email=${email} ip=${req.ip}`);
       return res.status(403).json({ error: 'Please verify your email first', needsVerification: true });
     }
     if (user.status === 'suspended') {
+      console.warn(`[Auth] login BLOCKED suspended email=${email} ip=${req.ip}`);
       return res.status(403).json({ error: 'Account suspended. Contact an administrator.' });
     }
 
@@ -3242,6 +3257,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     const token = createToken(user.id, user.role, '7d', user.tokenVersion || 0);
     const cleanUser = updateUser(user.id, { lastLogin: new Date().toISOString() });
+    console.log(`[Auth] login OK email=${user.email} id=${user.id} role=${user.role} ip=${req.ip}`);
     res.json({ token, user: cleanUser });
   } catch (err) {
     console.error('[Auth] Login error:', err.message);
@@ -3583,6 +3599,86 @@ app.post('/api/auth/recovery-reset', async (req, res) => {
 
   console.log(`[Auth] recovery-reset SUCCESS for ${user.email} (id=${user.id}) ip=${req.ip} — existing JWTs invalidated`);
   res.json({ message: 'Password reset. You can sign in with the new password now.' });
+});
+
+// ── R-F427: public auth posture diagnostic ──────────────────────────────────
+//
+// Lets the operator self-diagnose login / reset failures from the outside
+// without ever needing shell access to the host. Returns counts + booleans
+// only — no emails, hashes, or secret values are leaked. Falls under the
+// standard /api/* rate limit (150 req / 15 min) rather than the strict auth
+// tier so the operator isn't accidentally locked out of diagnostics while
+// triaging a real outage.
+app.get('/api/auth/system-status', (req, res) => {
+  const snap = getAdminIdentitySnapshot();
+  const dedicatedSet = !!process.env.EMAIL_HOST;
+  const ariaFallbackAvailable =
+    !dedicatedSet &&
+    !!(process.env.ARIA_SMTP_HOST || process.env.ARIA_EMAIL_HOST) &&
+    !!process.env.ARIA_EMAIL_USER &&
+    !!process.env.ARIA_EMAIL_PASS;
+  const smtpConfigured =
+    (dedicatedSet && !!process.env.EMAIL_USER && !!process.env.EMAIL_PASS) ||
+    ariaFallbackAvailable;
+  const smtpVia = smtpConfigured
+    ? (dedicatedSet ? 'dedicated' : 'aria-fallback')
+    : null;
+  const smtpHost = smtpConfigured
+    ? (dedicatedSet
+        ? process.env.EMAIL_HOST
+        : (process.env.ARIA_SMTP_HOST || process.env.ARIA_EMAIL_HOST))
+    : null;
+  const smtpUser = smtpConfigured
+    ? (dedicatedSet ? process.env.EMAIL_USER : process.env.ARIA_EMAIL_USER)
+    : null;
+  const smtpPort = smtpConfigured
+    ? parseInt(
+        process.env.EMAIL_PORT ||
+        (dedicatedSet ? '587' : (process.env.ARIA_SMTP_PORT || '465'))
+      )
+    : null;
+
+  const recoveryTokenSet = !!process.env.ADMIN_RECOVERY_TOKEN;
+  const recoveryTokenLen = (process.env.ADMIN_RECOVERY_TOKEN || '').length;
+  const recoveryEnabled = recoveryTokenSet && recoveryTokenLen >= 32;
+
+  let adminAnomaly = 'ok';
+  if (snap.adminCount === 0) adminAnomaly = 'no-admin';
+  else if (snap.adminCount > 1) adminAnomaly = 'multiple-admins';
+  else if (snap.envEmail && !snap.matchesEnv) adminAnomaly = 'env-mismatch';
+
+  res.json({
+    bootedAt: snap.bootedAt,
+    buildRev: CRUCIX_BUILD_REV,
+    users: {
+      total: listUsers().length,
+      admins: snap.adminCount,
+    },
+    admin: {
+      envEmailSet: !!snap.envEmail,
+      matchesEnv: snap.matchesEnv,
+      anomaly: adminAnomaly,
+    },
+    smtp: {
+      configured: smtpConfigured,
+      via: smtpVia,
+      host: smtpHost,
+      user: smtpUser,
+      port: smtpPort,
+    },
+    recoveryReset: {
+      enabled: recoveryEnabled,
+      tokenSet: recoveryTokenSet,
+      tokenLengthOk: recoveryTokenLen >= 32,
+    },
+    endpoints: {
+      login: '/api/auth/login',
+      forgotPassword: '/api/auth/forgot-password',
+      resetPassword: '/api/auth/reset-password',
+      recoveryReset: '/api/auth/recovery-reset',
+      recoveryPage: '/recovery.html',
+    },
+  });
 });
 
 // ── Admin: SMTP test ──────────────────────────────────────────────────────────
