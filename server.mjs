@@ -8,7 +8,7 @@
 // commit matches what's in git. Diagnostic added after R-F353 was committed
 // and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 // alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F428 · 2026-05-13 · createIfMissing on /api/auth/recovery-reset — operator can mint the admin row in one round-trip when no row exists for their email. Single-admin invariant preserved (409 if another admin exists). Prior: R-F427 admin identity transparency + /api/auth/system-status, R-F426 ARIA-SMTP fallback, R-F425 recovery-token reset, R-F424 auth-doctor, R-F423 rehash script, R-F422 Pending Amendments panel';
+const CRUCIX_BUILD_REV = 'R-F429 · 2026-05-13 · /api/auth/system-status reads admin count LIVE from listUsers() (was boot-cached, so R-F428 mints showed stale "no-admin"). Prior: R-F428 createIfMissing on recovery-reset, R-F427 admin identity transparency, R-F426 ARIA-SMTP fallback, R-F425 recovery-token reset, R-F424 auth-doctor, R-F423 rehash script';
 
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
@@ -3650,7 +3650,18 @@ app.post('/api/auth/recovery-reset', async (req, res) => {
 // tier so the operator isn't accidentally locked out of diagnostics while
 // triaging a real outage.
 app.get('/api/auth/system-status', (req, res) => {
+  // R-F429: read user/admin state LIVE from listUsers() on every request.
+  // The boot-time _adminIdentitySnapshot in users.mjs is only refreshed by
+  // initAdminUser; runtime mutations (recovery-reset --createIfMissing in
+  // R-F428, signup, future admin user mgmt) didn't update it, so the
+  // endpoint was lying about admin count immediately after a mint. Only
+  // `bootedAt` is read from the snapshot now; it's the one field that
+  // genuinely must be boot-frozen.
   const snap = getAdminIdentitySnapshot();
+  const allUsers = listUsers();
+  const adminRows = allUsers.filter(u => u && u.role === 'admin');
+  const envEmail = (process.env.ADMIN_EMAIL || '').toLowerCase().trim() || null;
+  const matchesEnv = !!envEmail && adminRows.length === 1 && adminRows[0].email === envEmail;
   const dedicatedSet = !!process.env.EMAIL_HOST;
   const ariaFallbackAvailable =
     !dedicatedSet &&
@@ -3683,20 +3694,20 @@ app.get('/api/auth/system-status', (req, res) => {
   const recoveryEnabled = recoveryTokenSet && recoveryTokenLen >= 32;
 
   let adminAnomaly = 'ok';
-  if (snap.adminCount === 0) adminAnomaly = 'no-admin';
-  else if (snap.adminCount > 1) adminAnomaly = 'multiple-admins';
-  else if (snap.envEmail && !snap.matchesEnv) adminAnomaly = 'env-mismatch';
+  if (adminRows.length === 0) adminAnomaly = 'no-admin';
+  else if (adminRows.length > 1) adminAnomaly = 'multiple-admins';
+  else if (envEmail && !matchesEnv) adminAnomaly = 'env-mismatch';
 
   res.json({
     bootedAt: snap.bootedAt,
     buildRev: CRUCIX_BUILD_REV,
     users: {
-      total: listUsers().length,
-      admins: snap.adminCount,
+      total: allUsers.length,
+      admins: adminRows.length,
     },
     admin: {
-      envEmailSet: !!snap.envEmail,
-      matchesEnv: snap.matchesEnv,
+      envEmailSet: !!envEmail,
+      matchesEnv,
       anomaly: adminAnomaly,
     },
     smtp: {
