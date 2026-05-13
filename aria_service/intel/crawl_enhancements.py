@@ -290,7 +290,12 @@ async def fetch_pdf(url: str, timeout: float = 30.0) -> dict:
 
 # ── Wayback Machine fallback ──────────────────────────────────────────────
 
-async def fetch_via_wayback(url: str, timeout: float = 15.0) -> dict:
+async def fetch_via_wayback(
+    url: str,
+    timeout: float = 15.0,
+    *,
+    timestamp: str | None = None,
+) -> dict:
     """When the primary fetch fails, try Archive.org's latest snapshot.
 
     Uses the /wayback/available endpoint to find the most recent
@@ -298,14 +303,23 @@ async def fetch_via_wayback(url: str, timeout: float = 15.0) -> dict:
     legitimate public crawler whose cached content is publicly citable
     — this is NOT evasion, it's using the canonical third-party
     archive.
+
+    R-F437 (2026-05-13) — `timestamp` (YYYYMMDD) selects the snapshot
+    closest to that date instead of the latest. Used by
+    fetch_historical_snapshots to pivot 1y / 3y back on the same URL
+    and detect officers / contacts who appeared in the past but are
+    missing from the current site (rebrand / shell-flip detection).
     """
     import httpx
     out: dict[str, Any] = {
         "ok": False, "url": url, "snapshot_url": "",
         "snapshot_timestamp": "", "html": "", "error": None,
         "source": "wayback",
+        "requested_timestamp": timestamp or "",
     }
     availability_url = f"https://archive.org/wayback/available?url={url}"
+    if timestamp:
+        availability_url += f"&timestamp={timestamp}"
     try:
         async with httpx.AsyncClient(
             timeout=timeout, follow_redirects=True,
@@ -340,6 +354,52 @@ async def fetch_via_wayback(url: str, timeout: float = 15.0) -> dict:
         out["error"] = f"snapshot fetch failed: {str(e)[:200]}"
 
     return out
+
+
+# ── R-F437 — Wayback historical snapshot pivot ─────────────────────────────
+
+
+async def fetch_historical_snapshots(
+    url: str,
+    *,
+    years_back: tuple[int, ...] = (1, 3),
+    timeout: float = 15.0,
+) -> list[dict]:
+    """R-F437 — fetch Wayback snapshots at several historical timestamps.
+
+    Live-only crawl misses the case where a now-clean entity was a
+    sanctioned shell five years ago, or where a director resigned to
+    cover an embarrassing affiliation. Returns one result dict per
+    requested year (same shape as fetch_via_wayback), in chronological
+    order. Failed snapshots are returned with ok=False so the caller
+    can decide whether the gap is meaningful or just an archive miss.
+
+    Args:
+        url:          The seed URL (use the site's canonical home, not
+                      a deep page — Wayback's coverage is best on home).
+        years_back:   Tuple of years-back integers. Default (1, 3)
+                      keeps cost to 2 HTTP requests per DD.
+        timeout:      Per-snapshot timeout in seconds.
+    """
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    results: list[dict] = []
+    for years in sorted(set(years_back)):
+        try:
+            target = now - timedelta(days=int(years * 365.25))
+            ts = target.strftime("%Y%m%d")
+            snap = await fetch_via_wayback(url, timeout=timeout, timestamp=ts)
+            snap["years_back"] = years
+            results.append(snap)
+        except Exception as e:  # never let one snapshot break the batch
+            results.append({
+                "ok": False,
+                "url": url,
+                "years_back": years,
+                "error": f"historical fetch failed: {str(e)[:200]}",
+                "source": "wayback",
+            })
+    return results
 
 
 # ── Sitemap discovery ─────────────────────────────────────────────────────

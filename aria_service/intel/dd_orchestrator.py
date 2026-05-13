@@ -2636,6 +2636,154 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                     logger.debug(
                         "R-F436 page-entity screen skipped: %s", _r436_e,
                     )
+
+                # ── R-F437 (2026-05-13) — Wayback historical pivot ────────
+                # Live-only crawl misses the case where a now-clean entity
+                # was a sanctioned shell five years ago, or where a director
+                # resigned to cover an embarrassing affiliation. We fetch
+                # snapshots of the seed URL at ~1y and ~3y back, run the
+                # SAME person-name extractor, and surface persons who
+                # appeared historically but are absent from the current
+                # site. Each new historical person is sanctions-screened
+                # with entity-name corroboration. Opt-out via
+                # ARIA_WAYBACK_PIVOT_DISABLED=1.
+                if not os.getenv("ARIA_WAYBACK_PIVOT_DISABLED", "").strip():
+                    try:
+                        from .crawl_enhancements import (
+                            fetch_historical_snapshots as _fhs,
+                        )
+                        from .link_investigator import (
+                            _extract_facts_rules as _efr,
+                        )
+                        _current_persons_lc: set[str] = {
+                            (ff.value or "").lower()
+                            for ff in (tree.fused_facts or [])
+                            if ff.kind == "person_name" and ff.value
+                        }
+                        _snaps = await _fhs(seed_url)
+                        _historical_persons: list[dict] = []
+                        for _snap in _snaps:
+                            if not _snap.get("ok") or not _snap.get("html"):
+                                continue
+                            # Strip HTML naively — link_investigator's
+                            # extractor expects plain text. The rule patterns
+                            # are robust enough for HTML noise; we just
+                            # remove tags to reduce false positives in
+                            # attribute strings.
+                            _html = _snap["html"]
+                            _text = re.sub(r"<[^>]+>", " ", _html)
+                            _text = re.sub(r"\s+", " ", _text)
+                            _hist_facts = _efr(_text[:60000], _snap.get("snapshot_url") or seed_url)
+                            for ff in _hist_facts:
+                                if ff.kind != "person_name":
+                                    continue
+                                _v = (ff.value or "").strip()
+                                if not _v:
+                                    continue
+                                _vn = _v.lower()
+                                if _vn in _current_persons_lc:
+                                    continue  # also on live site → R-F436 covered it
+                                if name and _vn == (name or "").lower():
+                                    continue
+                                if _vn in {p["person"].lower() for p in _historical_persons}:
+                                    continue  # dedupe across snapshots
+                                _historical_persons.append({
+                                    "person": _v,
+                                    "snapshot_url": _snap.get("snapshot_url", ""),
+                                    "snapshot_timestamp": _snap.get(
+                                        "snapshot_timestamp", "",
+                                    ),
+                                    "years_back": _snap.get("years_back"),
+                                })
+                                if len(_historical_persons) >= 8:
+                                    break
+                            if len(_historical_persons) >= 8:
+                                break
+                        if _historical_persons:
+                            from . import sanctions as _sanc_h
+                            from ._sanctions_classify import (
+                                classify_matches as _cm_h,
+                                SEVERITY_RANK as _sr_h,
+                            )
+                            _hist_screened: list[dict] = []
+                            for _hp in _historical_persons:
+                                try:
+                                    _scr = await _sanc_h.screen_with_aliases(
+                                        _hp["person"],
+                                        known_aliases=[name] if name else None,
+                                    )
+                                except Exception as _hspe:
+                                    logger.debug(
+                                        "R-F437 historical person screen %r failed: %s",
+                                        _hp["person"][:40], _hspe,
+                                    )
+                                    continue
+                                _hmatches = (_scr or {}).get("matches") or []
+                                _hclassified = _cm_h(_hmatches, query_name=_hp["person"]) if _hmatches else {"worst_severity": "info", "summary": ""}
+                                _hworst = _hclassified.get("worst_severity") or "info"
+                                _hist_screened.append({
+                                    **_hp,
+                                    "severity": _hworst,
+                                    "summary": _hclassified.get("summary", "")[:240],
+                                })
+                                if _sr_h.get(_hworst, 0) >= _sr_h["amber"]:
+                                    _hconf = {
+                                        "hard_stop": "CONFIRMED",
+                                        "red": "PROBABLE",
+                                        "amber": "ASSESSED",
+                                    }.get(_hworst, "ASSESSED")
+                                    report.digital.findings.append(Finding(
+                                        severity=_hworst,
+                                        title=(
+                                            f"Historical (~{_hp.get('years_back')}y) "
+                                            f"site person {_hp['person']} → "
+                                            f"sanctions {_hworst}"
+                                        ),
+                                        detail=(
+                                            f"Name '{_hp['person']}' appears on the "
+                                            f"Wayback snapshot of {seed_url} dated "
+                                            f"{_hp.get('snapshot_timestamp', 'unknown')} "
+                                            f"but NOT on the current live site. "
+                                            f"Sanctions screen post-corroboration: "
+                                            f"{_hclassified.get('summary', '')[:280]}"
+                                        ),
+                                        source=(
+                                            f"wayback {_hp.get('snapshot_url', '')}"
+                                        ),
+                                        confidence=_hconf,
+                                    ))
+                            report.digital.web_footprint["historical_persons"] = (
+                                _hist_screened
+                            )
+                            report.digital.meta.subcalls += len(_historical_persons)
+                            logger.info(
+                                "R-F437: wayback pivot found %d historical-only "
+                                "persons (snapshots: %d), %d non-info hits",
+                                len(_historical_persons),
+                                sum(1 for s in _snaps if s.get("ok")),
+                                sum(
+                                    1 for h in _hist_screened
+                                    if h.get("severity") not in ("info", None)
+                                ),
+                            )
+                        else:
+                            # Record the attempt + snapshot coverage even
+                            # when no new persons surfaced — operator can
+                            # see the wayback pivot ran.
+                            report.digital.web_footprint["historical_persons"] = []
+                            report.digital.web_footprint["wayback_snapshots"] = [
+                                {
+                                    "years_back": s.get("years_back"),
+                                    "ok": s.get("ok"),
+                                    "snapshot_timestamp": s.get("snapshot_timestamp", ""),
+                                    "error": (s.get("error") or "")[:120],
+                                }
+                                for s in _snaps
+                            ]
+                    except Exception as _r437_e:
+                        logger.debug(
+                            "R-F437 wayback pivot skipped: %s", _r437_e,
+                        )
             except Exception as e:
                 logger.warning("Digital: link_investigator failed: %s", e)
                 report.digital.data_gaps.append(f"link_investigator failed: {str(e)[:120]}")
