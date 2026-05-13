@@ -348,6 +348,113 @@ def _hash_id(text: str, source: str = "") -> str:
 
 # ── Public API: ingest ─────────────────────────────────────────────────────
 
+# ── R-F410 (2026-05-13) — RAG corpus sanitization ─────────────────────────
+# Pre-R-F410 email/webhook content landed in chromadb without HTML strip,
+# control-char filter, or UTF-8 validation. Adversarial fact-teaching
+# surface: an attacker could send an email with raw HTML that included
+# styled "facts" or hidden zero-width characters that ARIA would later
+# return in chat. Now every ingest path runs text through
+# _sanitize_ingest_text() before chunking / upserting. Conservative:
+# strip HTML, drop control chars except \n/\t/\r, replace invalid UTF-8,
+# cap at 1MB per ingest call to prevent OOM attacks.
+
+_RAG_INGEST_MAX_BYTES = 1_048_576  # 1 MB hard cap
+
+# Lazy-loaded BeautifulSoup; fall back to regex if bs4 missing.
+_HTML_TAG_RE = __import__("re").compile(r"<[^>]+>")
+_CONTROL_CHARS_RE = __import__("re").compile(
+    # All C0/C1 control chars EXCEPT \n (\x0a), \r (\x0d), \t (\x09)
+    r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]"
+)
+# Zero-width / formatting chars that can hide injected text from human
+# review but get parsed as regular text by the LLM. Includes ZWSP/ZWNJ/
+# ZWJ/word joiner/BOM/LRM/RLM/etc.
+_ZERO_WIDTH_RE = __import__("re").compile(
+    "[​‌‍⁠﻿‎‏‪-‮]"
+)
+
+
+def _sanitize_ingest_text(text: str) -> tuple[str, dict]:
+    """Clean text before chunking/upsert into the RAG store.
+
+    Returns (sanitized_text, meta) where meta is:
+      {"html_stripped": int, "control_chars": int, "zero_width": int,
+       "invalid_utf8_replaced": bool, "truncated_bytes": int}
+
+    Conservative — strips HTML tags via bs4 (or regex fallback), drops
+    control chars except \\n/\\r/\\t, removes zero-width formatting
+    chars, replaces invalid UTF-8 with U+FFFD, and caps at 1 MB.
+    """
+    meta = {
+        "html_stripped": 0,
+        "control_chars": 0,
+        "zero_width": 0,
+        "invalid_utf8_replaced": False,
+        "truncated_bytes": 0,
+    }
+    if not text:
+        return "", meta
+
+    # 1. UTF-8 validate — replace invalid sequences
+    if isinstance(text, bytes):
+        try:
+            text.decode("utf-8")
+        except UnicodeDecodeError:
+            meta["invalid_utf8_replaced"] = True
+        text = text.decode("utf-8", errors="replace")
+    else:
+        try:
+            text.encode("utf-8")
+        except UnicodeEncodeError:
+            meta["invalid_utf8_replaced"] = True
+            text = text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+
+    # 2. Length cap (BEFORE expensive parsing). 1 MB is the hard limit
+    #    per ingest call; longer content is truncated with a marker.
+    raw_bytes = text.encode("utf-8", errors="replace")
+    if len(raw_bytes) > _RAG_INGEST_MAX_BYTES:
+        meta["truncated_bytes"] = len(raw_bytes) - _RAG_INGEST_MAX_BYTES
+        text = raw_bytes[:_RAG_INGEST_MAX_BYTES].decode("utf-8", errors="ignore")
+        text += "\n\n[!RAG_INGEST_TRUNCATED]"
+
+    # 3. HTML strip — prefer bs4 (preserves text properly across tags);
+    #    fall back to regex if bs4 isn't present (it should be — see
+    #    requirements.txt — but defensive).
+    if "<" in text and ">" in text:
+        try:
+            from bs4 import BeautifulSoup  # type: ignore
+            soup = BeautifulSoup(text, "lxml")
+            # Drop <script>, <style>, <noscript> entirely (their text
+            # is never meaningful for RAG and may be attack vector).
+            for tag in soup(["script", "style", "noscript"]):
+                tag.decompose()
+            new_text = soup.get_text(separator=" ")
+            meta["html_stripped"] = max(0, len(text) - len(new_text))
+            text = new_text
+        except Exception:
+            # Regex fallback — less precise but always works
+            new_text = _HTML_TAG_RE.sub(" ", text)
+            meta["html_stripped"] = max(0, len(text) - len(new_text))
+            text = new_text
+
+    # 4. Control-char strip (except \n \r \t)
+    cc_count = len(_CONTROL_CHARS_RE.findall(text))
+    if cc_count:
+        meta["control_chars"] = cc_count
+        text = _CONTROL_CHARS_RE.sub("", text)
+
+    # 5. Zero-width / direction-override strip
+    zw_count = len(_ZERO_WIDTH_RE.findall(text))
+    if zw_count:
+        meta["zero_width"] = zw_count
+        text = _ZERO_WIDTH_RE.sub("", text)
+
+    # 6. Collapse runs of whitespace — HTML strip often leaves "       "
+    text = __import__("re").sub(r"[ \t]+", " ", text)
+    text = __import__("re").sub(r"\n{3,}", "\n\n", text)
+    return text.strip(), meta
+
+
 async def ingest_document(
     text: str,
     *,
@@ -371,11 +478,19 @@ async def ingest_document(
     """
     if not await _ensure_async():
         return {"ingested": False, "error": "rag_store_unavailable"}
+    # R-F410 (2026-05-13) — sanitize BEFORE the length check so HTML
+    # like "<p>Hi</p>" (which strips to ~2 chars) is correctly rejected
+    # as too short rather than passing the gate as raw HTML.
+    text, _sanitize_meta = _sanitize_ingest_text(text or "")
     # Floor lowered from MIN_CHUNK_SIZE (100) to 20 chars — short emails like
     # "Confirmed — see you Tuesday. — John" must still land in RAG so ARIA can
     # recall them later. Incident 2026-04-21: 0 email-tagged RAG chunks.
     if not text or len(text.strip()) < 20:
-        return {"ingested": False, "reason": "text_too_short"}
+        return {
+            "ingested": False,
+            "reason": "text_too_short",
+            "sanitization": _sanitize_meta,  # operator-visibility
+        }
 
     chunks = _chunk_text(text)
     if not chunks:
@@ -675,6 +790,8 @@ async def ingest_fact(
     """
     if not await _ensure_async():
         return False
+    # R-F410 sanitize the content (NOT the topic — topic is canonical)
+    content, _sm = _sanitize_ingest_text(content or "")
     if not content or len(content.strip()) < 10:
         return False
     text = f"{topic}: {content}".strip()
@@ -727,6 +844,8 @@ async def add_facts_batch(facts: list[dict]) -> int:
     ts_epoch = time.time()
     for f in facts:
         content = (f.get("content") or "").strip()
+        # R-F410 sanitize per-fact content before length check + upsert
+        content, _ = _sanitize_ingest_text(content)
         topic = f.get("topic") or ""
         if not content or len(content) < 10:
             continue
