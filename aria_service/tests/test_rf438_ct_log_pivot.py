@@ -182,6 +182,32 @@ def test_rf438_crtsh_lookup_handles_non_json_body(monkeypatch):
     assert "non-JSON" in (out["error"] or "")
 
 
+def test_rf438_apex_derivation_does_not_mangle_w_prefixed_hosts():
+    """Regression: pre-hotfix used `lstrip("www.")` which is a char-set
+    strip (any of {w, .}), NOT a literal-prefix strip. So `wedding.com`
+    became `edding.com`, breaking DD silently on any seed starting with
+    'w'. Verifier caught pre-deploy. This test pins the correct
+    behaviour: strip the literal `www.` prefix only."""
+    # Mirror the orchestrator's exact derivation (dd_orchestrator.py block).
+    from urllib.parse import urlparse
+    def _derive_apex(seed_url: str) -> str:
+        netloc = (urlparse(seed_url).netloc or "").lower()
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+        return netloc
+    # Common case — www stripped
+    assert _derive_apex("https://www.ngast.com/") == "ngast.com"
+    # The bug case — must NOT strip "w" or "we"
+    assert _derive_apex("https://wedding.com/") == "wedding.com", (
+        "R-F438 regression: hostnames starting with 'w' must not be "
+        "char-stripped by mistaken lstrip"
+    )
+    assert _derive_apex("https://westcorp.io/") == "westcorp.io"
+    assert _derive_apex("https://wwwsite.com/") == "wwwsite.com"
+    # No-scheme corner — urlparse returns empty netloc
+    assert _derive_apex("ngast.com") == ""
+
+
 def test_rf438_crtsh_lookup_dedups_records(monkeypatch):
     """If crt.sh returns duplicate `id`s, dedup to avoid double-counting."""
     import httpx

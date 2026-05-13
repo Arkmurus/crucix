@@ -2801,10 +2801,16 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                             crtsh_lookup as _crtsh,
                             extract_related_domains as _erd,
                         )
-                        # Derive apex from seed_url
+                        # Derive apex from seed_url. NOTE: must use
+                        # removeprefix("www.") not lstrip("www.") — the
+                        # latter strips any of {w, .} from the left and
+                        # mangles legitimate hostnames like "wedding.com"
+                        # → "edding.com". Verifier caught pre-deploy.
                         from urllib.parse import urlparse as _urlparse
                         _parsed = _urlparse(seed_url)
-                        _apex = (_parsed.netloc or "").lower().lstrip("www.")
+                        _apex = (_parsed.netloc or "").lower()
+                        if _apex.startswith("www."):
+                            _apex = _apex[4:]
                         if _apex and "." in _apex:
                             _ct = await _crtsh(_apex)
                             if _ct.get("ok"):
