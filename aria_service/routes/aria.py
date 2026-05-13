@@ -3685,6 +3685,24 @@ def _detect_tool_intent(message: str) -> dict | None:
     if not msg:
         return None
 
+    # ── R-F399 (2026-05-13) — capability-introspection intent ──
+    # MUST run before any web-search / spawn_research_task path,
+    # otherwise capability questions get routed to crossref / brave /
+    # SearXNG and return zero relevant results (operator-evidenced
+    # 07:25 2026-05-13: "capacity every 6-hour study cycle" → 12
+    # crossref papers, 0 facts). The handler at tool=="self_introspect"
+    # calls /health/perf (R-F396+F400) and returns the live inventory +
+    # retention policy so ARIA can answer with real numbers instead of
+    # guessing (07:27 evidence: invented 18-month TTL, undercounted
+    # facts ~7x).
+    from ..intel.self_infra_detector import is_capability_introspection_query
+    if is_capability_introspection_query(msg):
+        return {
+            "tool": "self_introspect",
+            "context": msg,
+            "_reason": "capability_introspection_rf399",
+        }
+
     # ── Pre-meeting briefing intent ──
     # "brief me for my meeting with Angola" / "prepare briefing for FADM"
     # "meeting prep for Ghana defence minister" / "pre-meeting brief Angola"
@@ -4743,6 +4761,98 @@ async def _execute_tool(intent: dict, llm) -> str:
                 f"\n"
                 f"{md}"
             )
+
+        # ── R-F399 (2026-05-13) — capability introspection ──
+        # Live evidence 2026-05-13 07:25/07:27: operator asked ARIA about
+        # her own brain / memory / learning capacity. The chat router
+        # picked "capacity every 6-hour study cycle" out of the sentence
+        # and dispatched spawn_research_task → 12 crossref papers, zero
+        # relevant. ARIA then answered from intuition, inventing an
+        # 18-month TTL (violates aria_infinite_memory.md) and undercounting
+        # facts 7x (estimated 5-10K, real is 35,363).
+        #
+        # This handler calls /health/perf in-process (no HTTP) and formats
+        # the inventory + retention + advisories for the LLM to quote.
+        # ARIA's next answer will cite real numbers, not guesses.
+        if tool == "self_introspect":
+            try:
+                perf = await health_perf_ep()
+            except Exception as _e:
+                return (
+                    f"\n\n[TOOL: self_introspect — health_perf failed: {str(_e)[:120]}]\n\n"
+                    f"Answer from operational knowledge but FLAG the missing "
+                    f"instrumentation. Do NOT invent inventory counts or TTLs."
+                )
+
+            inventory = perf.get("inventory", {}) or {}
+            retention = perf.get("retention", {}) or {}
+            advisories = perf.get("advisories", []) or []
+            verify = perf.get("verification_24h", {}) or {}
+            autonomy = perf.get("autonomy", {}) or {}
+
+            # Compose a structured block the LLM can quote DIRECTLY.
+            # Every number here is live from /health/perf — there is no
+            # hallucination surface unless the LLM ignores the block.
+            lines = [
+                "\n\n[TOOL: self_introspect — live from /api/aria/health/perf]\n",
+                "INVENTORY (cite these counts verbatim — do NOT estimate):",
+            ]
+            if inventory.get("knowledge_facts") is not None:
+                lines.append(f"  - knowledge_facts: {inventory['knowledge_facts']:,}")
+            else:
+                lines.append("  - knowledge_facts: UNAVAILABLE (probe failed — say so honestly)")
+            if inventory.get("ledger_signals") is not None:
+                lines.append(f"  - ledger_signals: {inventory['ledger_signals']:,}")
+            if inventory.get("rag_chunks") is not None:
+                lines.append(f"  - rag_chunks: {inventory['rag_chunks']:,}")
+            if inventory.get("rag_documents") is not None:
+                lines.append(f"  - rag_documents: {inventory['rag_documents']:,}")
+
+            lines.append("\nRETENTION POLICY (cite verbatim — these contradict any TTL claim):")
+            kn = retention.get("knowledge", {})
+            lines.append(
+                f"  - knowledge.ttl_days: {kn.get('ttl_days')}  "
+                f"(None = PERMANENT, no expiry; anchor: {kn.get('anchor', '')})"
+            )
+            lines.append(f"  - knowledge.eviction: {kn.get('eviction')}")
+            lg = retention.get("ledger", {})
+            lines.append(
+                f"  - ledger.retention_days: {lg.get('retention_days')}  "
+                f"(100yr = effectively permanent)"
+            )
+            mem = retention.get("mem0", {})
+            lines.append(
+                f"  - mem0.ttl_days: {mem.get('ttl_days')}  "
+                f"(policy: {mem.get('policy')})"
+            )
+
+            lines.append(f"\nBUILD: {perf.get('build_rev', '')}")
+            lines.append(f"STATUS: {perf.get('status', 'unknown')}  "
+                         f"MODE: {perf.get('operating_mode', 'unknown')}")
+            if verify:
+                lines.append(f"VERIFICATION 24h: {verify}")
+            if autonomy:
+                lvl = autonomy.get("autonomy_level") or autonomy.get("level")
+                fires = autonomy.get("fire_count") or autonomy.get("fires_24h")
+                lines.append(f"AUTONOMY: level={lvl}, fires={fires}")
+
+            if advisories:
+                lines.append("\nADVISORIES (one-line quotes):")
+                for a in advisories[:10]:
+                    lines.append(f"  · {a}")
+
+            lines.append(
+                "\nHONESTY RULES FOR THIS REPLY:\n"
+                "  1. DO quote the numbers above verbatim. Format with thousands "
+                "separators for readability.\n"
+                "  2. DO NOT invent any TTL, expiry, eviction policy, or "
+                "neuron-count not present above. If retention.ttl_days is "
+                "None, say 'permanent' — never 'X-month TTL'.\n"
+                "  3. DO NOT estimate counts. If a field is UNAVAILABLE, say so.\n"
+                "  4. DO cite the build_rev when explaining what version "
+                "produced this snapshot.\n"
+            )
+            return "\n".join(lines)
 
         # ── Background research task — spawn instead of running inline ──
         if tool == "spawn_research_task":
@@ -15283,6 +15393,73 @@ async def health_perf_ep():
     except Exception:
         providers = {}
 
+    # R-F400 (2026-05-13): inventory counts ARIA can cite directly.
+    # 2026-05-13 07:27 evidence: ARIA estimated "5,000-10,000 verified
+    # facts" when real count was 35,363 (sharded Redis snapshot at 06:17).
+    # That's a ~7x undercount because she had no instrumented source.
+    # These four fields make the truth callable.
+    inventory: dict = {
+        "knowledge_facts": None,
+        "ledger_signals": None,
+        "rag_chunks": None,
+        "rag_documents": None,
+        "rag_facts_indexed": None,
+        "mem0_entries": None,  # opaque — see retention block
+    }
+    try:
+        from ..intel import knowledge as _kn
+        _ks = await _kn.get_stats()
+        inventory["knowledge_facts"] = _ks.get("totalFacts")
+    except Exception:
+        pass
+    try:
+        from ..intel import intel_ledger as _il
+        _ils = await _il.get_stats()
+        inventory["ledger_signals"] = _ils.get("totalSignals")
+    except Exception:
+        pass
+    try:
+        from ..intel import rag_store as _rs
+        _rss = await _rs.get_stats()
+        if _rss.get("available"):
+            inventory["rag_chunks"] = _rss.get("total_chunks")
+            inventory["rag_documents"] = _rss.get("documents_indexed")
+            inventory["rag_facts_indexed"] = _rss.get("facts_indexed")
+    except Exception:
+        pass
+
+    # R-F400: retention policy as code-grounded fact, not as ARIA's
+    # intuition. Operator directive aria_infinite_memory.md (2026-05-11):
+    # ARIA has INFINITE memory — never forgets, never loses data. No TTL
+    # on knowledge, no oldest-first prune, no eviction. R-F173 prune was
+    # reversed by R-F238/F239. Exposing these as explicit fields means
+    # any self-introspection answer can cite them instead of inventing
+    # numbers like "18-month TTL" (which is what happened 2026-05-13).
+    retention: dict = {
+        "knowledge": {
+            "ttl_days": None,       # None = no expiry, permanent
+            "policy": "permanent",
+            "max_facts_warn": 100_000_000,  # warn-only soft cap
+            "eviction": "none",
+            "anchor": "aria_infinite_memory.md + R-F238",
+        },
+        "ledger": {
+            "retention_days": 36500,  # 100 years; effectively permanent
+            "policy": "permanent",
+            "eviction": "none",
+        },
+        "rag": {
+            "min_similarity_floor": 0.50,   # R-F397
+            "hot_cold_split": True,
+            "policy": "permanent_with_offload",
+        },
+        "mem0": {
+            "ttl_days": None,
+            "policy": "permanent",
+            "eviction": "unverified — see R-F406",
+        },
+    }
+
     # Recent advisories — explicit honest notes ARIA can quote in a
     # self-assessment. Each entry is a one-line plain-English string.
     advisories: list[str] = []
@@ -15306,6 +15483,20 @@ async def health_perf_ep():
                 f"LLM providers in cooldown: {', '.join(cooled)} "
                 f"— fallback chain still operational."
             )
+    # R-F400: surface the infinite-memory invariant as a permanent advisory
+    # so any introspection answer ARIA gives will quote it. The 2026-05-13
+    # 07:27 incident (invented 18-month TTL) had no inline contradiction;
+    # this changes that.
+    if inventory.get("knowledge_facts") is not None:
+        advisories.append(
+            f"Knowledge base: {inventory['knowledge_facts']:,} permanent facts "
+            f"(no TTL, no eviction per aria_infinite_memory.md)."
+        )
+    if inventory.get("ledger_signals") is not None:
+        advisories.append(
+            f"Intel ledger: {inventory['ledger_signals']:,} signals "
+            f"(36500-day retention = effectively permanent)."
+        )
 
     return {
         "build_rev": base.get("build_rev"),
@@ -15318,11 +15509,16 @@ async def health_perf_ep():
         "verification_24h": verify_stats,
         "autonomy": autonomy_state,
         "llm_providers": providers,
+        # R-F400: counts + retention policy. ARIA's tool dispatch (R-F399)
+        # will quote these directly when asked introspective questions.
+        "inventory": inventory,
+        "retention": retention,
         "advisories": advisories,
         # R-F396: structured-shape contract for ARIA's tool dispatch —
         # if these top-level keys ever change, update the prompt that
         # tells her how to quote the response in self-assessments.
-        "_schema_version": "rf396.v1",
+        # R-F400: schema bumped to rf400.v1 (inventory + retention added).
+        "_schema_version": "rf400.v1",
     }
 
 

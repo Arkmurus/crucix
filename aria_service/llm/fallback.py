@@ -310,16 +310,34 @@ class FallbackProvider(LLMProvider):
         timeout: float = 120.0,
         on_done=None,
     ):
-        """Streaming with fallback — tries providers in order."""
+        """Streaming with fallback — tries providers in order.
+
+        R-F402 (2026-05-13): enforce the same ``_MAX_FALLBACK_ATTEMPTS``
+        cap that ``complete()`` (line 263) uses, so an all-timeout
+        streaming cascade can't run forever. Each provider gets a full
+        ``timeout``-second window; with 6 providers configured today
+        and a default 120s timeout, an unbounded cascade could burn
+        12 minutes before raising. The cap matches the non-streaming
+        path's behaviour pinned in R-F94 (2026-04-30).
+        """
         last_error = None
+        attempted = 0
 
         for provider in self.providers:
+            if attempted >= self._MAX_FALLBACK_ATTEMPTS:
+                logger.warning(
+                    "Stream fallback chain stopped after %d attempts; %d providers untried",
+                    attempted, len(self.providers) - attempted,
+                )
+                break
+
             stats = self._stats.get(provider.name, {})
             if self._should_skip(stats):
                 logger.debug("Skipping %s for stream (cooling down)", provider.name)
                 continue
 
             try:
+                attempted += 1
                 stats["calls"] = stats.get("calls", 0) + 1
                 async for chunk in provider.stream(
                     system_prompt, user_message,
