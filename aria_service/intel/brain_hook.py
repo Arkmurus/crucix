@@ -395,6 +395,40 @@ _MODULE_WEIGHT: dict[str, float] = {
 }
 
 
+def _absorb_pause_ms() -> int:
+    """R-F460 (2026-05-14) — operator-tunable pause between absorb calls.
+
+    Reading the env var on every call (not at import time) so the
+    operator can change it on a running deploy via `flyctl secrets set`
+    without a restart.
+
+    Default 0 = no behavior change (backward-compatible).
+    Suggested operator values when the brain_hook breaker is tripping:
+      - 50 ms  → caps at 20 absorbs/sec, gentle smoothing
+      - 100 ms → 10 absorbs/sec, comfortable for email-reader catchup
+      - 500 ms → aggressive throttle, debugging only
+
+    Live evidence (fly logs 2026-05-13 22:31 BST): under email-reader
+    backlog burst, brain_hook.absorb p95 climbed to 28484ms (against
+    a 3500ms trip threshold), tripping the circuit breaker repeatedly.
+    A 100ms inter-absorb pause spaces the burst from "30 in 1 second"
+    to "30 over 3 seconds" — slow enough that downstream embedding +
+    chromadb work catches up between calls, breaker stays untripped.
+    """
+    import os
+    try:
+        v = int((os.getenv("ARIA_BRAIN_ABSORB_PAUSE_MS") or "0").strip())
+    except (ValueError, TypeError):
+        return 0
+    # Clamp to a sane range — operator shouldn't be able to wedge the
+    # service by setting a pathological value.
+    if v < 0:
+        return 0
+    if v > 5000:
+        return 5000  # 5s ceiling — anything higher is almost certainly a typo
+    return v
+
+
 async def absorb(
     *,
     module: str,
@@ -442,6 +476,17 @@ async def absorb(
     """
     if not BRAIN_HOOK_ENABLED:
         return {"skipped": True, "reason": "ARIA_BRAIN_HOOK_ENABLED=0"}
+
+    # ── R-F460 (2026-05-14) — operator-tunable inter-absorb pause ──────
+    # Live evidence (fly logs 2026-05-13 22:31 BST): email-reader bursts
+    # of 30+ /brain/absorb calls in 1 second drove absorb p95 to 28s,
+    # tripping the breaker repeatedly. The cooldown-then-recover loop
+    # ("ping-pong") was the surface symptom of an arrival-rate problem.
+    # Operator can set ARIA_BRAIN_ABSORB_PAUSE_MS=100 on fly to smooth
+    # bursts. Default 0 = backward-compat no-op.
+    _pause_ms = _absorb_pause_ms()
+    if _pause_ms > 0:
+        await asyncio.sleep(_pause_ms / 1000.0)
 
     # ── 0. Absorption quality gate ──────────────────────────────────────
     # 2026-04-25: refuse to absorb content that contains known fabricated

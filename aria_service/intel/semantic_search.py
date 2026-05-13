@@ -76,27 +76,129 @@ _SYNONYMS = {
 
 
 # ── Embedding model singleton ──────────────────────────────────────────────
+# R-F459 (2026-05-14) — race-safe singleton + async prewarm.
+#
+# Background: R-F379 (originally observed in fly logs 2026-05-12, recurred
+# 2026-05-13 22:07-22:09 BST) — multiple concurrent callers were each
+# instantiating their own SentenceTransformer because `_get_embedder` had
+# no lock. Cost per cold-burst: 30-90s of redundant loading, ~80MB ×
+# N model copies in RAM, fly LB PR04 cascade.
+#
+# R-F458 (2026-05-13 22:18 BST) attempted to add `threading.Lock` but did
+# NOT prewarm before allowing HTTP traffic. Result: lock made first-burst
+# WORSE — all worker threads serialised on a 32s load, ThreadPoolExecutor
+# saturated, event loop GIL-starved, healthcheck timed out, PR04 cascade.
+# Reverted 22:25 BST (ad88848). Memory: rf458_embedder_lock_deferred.md.
+#
+# R-F459 (this commit, 2026-05-14, validated on local Python 3.14 CI):
+#   1. `threading.Lock` around the singleton init (race-safe for the N
+#      concurrent worker-thread callers from chromadb / semantic_search /
+#      reasoning_library / consistency_suite paths).
+#   2. `async def aget_embedder()` — async accessor that wraps the sync
+#      load in `asyncio.to_thread`. Lifespan prewarm uses this so the
+#      load runs in a worker thread WITHOUT blocking the event loop.
+#   3. Lifespan prewarm fires IMMEDIATELY (not after a 15s sleep) so the
+#      model is ready before HTTP traffic arrives. Cold-load still takes
+#      ~32s but it overlaps with uvicorn boot, not with first-burst.
+#   4. `is_embedder_ready()` — non-blocking check used by callers that
+#      can fall back to TF-IDF if the model isn't warm yet.
+import threading as _threading
+
 _embedder = None
 _embedder_checked = False  # avoid repeated ImportError attempts
+_embedder_lock = _threading.Lock()  # R-F459 — serialise singleton init
+
+
+def is_embedder_ready() -> bool:
+    """R-F459 — non-blocking check. True iff the model is fully loaded.
+    Use this from hot paths where you'd rather fall back to TF-IDF
+    than block on `_get_embedder()` during cold-window.
+    """
+    return _embedder is not None
 
 
 def _get_embedder():
-    """Lazy-load the sentence-transformers model (singleton)."""
+    """Lazy-load the sentence-transformers model (singleton).
+
+    R-F459 (2026-05-14) — race-safe via double-checked locking. The
+    fast path (model already loaded) does NOT acquire the lock. The
+    slow path (first cold-load) serialises so exactly one constructor
+    invocation happens despite N concurrent callers.
+
+    Callers from the asyncio event loop should prefer `aget_embedder()`
+    so the load runs in a worker thread.
+    """
     global _embedder, _embedder_checked
+    # Fast path — no lock when already loaded
     if _embedder is not None:
         return _embedder
-    if _embedder_checked:
-        return None
-    _embedder_checked = True
+    # NOTE: do NOT short-circuit on `_embedder_checked and _embedder is None`
+    # outside the lock. Local CI caught this race: thread A enters the slow
+    # path, acquires the lock, sets `_embedder_checked=True`, and starts the
+    # 32s load while `_embedder` is still None. Concurrent thread B then
+    # checks `_embedder_checked AND _embedder is None` → True → returns
+    # None to the caller WITHOUT waiting for the load. Caller sees the
+    # None and silently degrades to TF-IDF. The check must be INSIDE the
+    # lock so it only fires after a genuinely failed load attempt.
+    # Slow path — serialise the initialisation
+    with _embedder_lock:
+        # Re-check inside the lock: another thread may have loaded
+        # the model while we were waiting on the lock.
+        if _embedder is not None:
+            return _embedder
+        if _embedder_checked:
+            return None
+        _embedder_checked = True
+        try:
+            from sentence_transformers import SentenceTransformer
+            _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            logger.info("Loaded sentence-transformers embedding model (all-MiniLM-L6-v2)")
+        except ImportError:
+            logger.warning("sentence-transformers not installed — using TF-IDF only")
+        except Exception as exc:
+            logger.warning("Failed to load embedding model: %s — using TF-IDF only", exc)
+        return _embedder
+
+
+async def aget_embedder():
+    """R-F459 — async accessor. Wraps the sync load in asyncio.to_thread
+    so the cold-load (~32s) does NOT block the asyncio event loop.
+
+    Use this from any async context that needs the embedder. The sync
+    `_get_embedder()` stays available for sync callers AND for callers
+    that are already inside a worker thread (e.g. chromadb's embedding
+    function wrapper, which is invoked from `asyncio.to_thread` at the
+    rag_store layer).
+
+    Idempotent: when the model is already loaded, returns immediately
+    without involving the thread pool.
+    """
+    if _embedder is not None:
+        return _embedder
+    # Same race-window note as _get_embedder — do not short-circuit on
+    # `_embedder_checked` outside the lock. Let _get_embedder handle
+    # the in-progress-load case correctly via the lock.
+    import asyncio as _aio
+    return await _aio.to_thread(_get_embedder)
+
+
+async def prewarm_embedder() -> None:
+    """R-F459 — lifespan-friendly prewarm. Call this from FastAPI
+    lifespan startup BEFORE accepting traffic. Loads the model in a
+    worker thread so the 32s cold-load happens during boot rather than
+    on the first chat/DD/embed request.
+
+    Idempotent. Never raises — failures degrade gracefully to TF-IDF
+    fallback via the existing `_get_embedder()` error handling.
+    """
+    if _embedder is not None:
+        return
     try:
-        from sentence_transformers import SentenceTransformer
-        _embedder = SentenceTransformer("all-MiniLM-L6-v2")
-        logger.info("Loaded sentence-transformers embedding model (all-MiniLM-L6-v2)")
-    except ImportError:
-        logger.warning("sentence-transformers not installed — using TF-IDF only")
+        await aget_embedder()
     except Exception as exc:
-        logger.warning("Failed to load embedding model: %s — using TF-IDF only", exc)
-    return _embedder
+        logger.warning(
+            "R-F459 prewarm_embedder failed (non-fatal): %s", exc,
+        )
 
 
 # ── Tokenisation ─────────────────────────────────────────────────────────────

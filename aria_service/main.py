@@ -112,6 +112,35 @@ async def lifespan(app: FastAPI):
     backfill_enabled = (_os.getenv("ARIA_RAG_BACKFILL_ENABLED", "") or "").lower() in ("1", "true", "yes")
     backfill_disabled = (_os.getenv("ARIA_RAG_BACKFILL_DISABLED", "") or "").lower() in ("1", "true", "yes")
 
+    # ── R-F459 (2026-05-14) — sentence-transformer prewarm ──────────────
+    # Fire the prewarm IMMEDIATELY (no sleep) as its own background task
+    # so the ~32s cold model load happens DURING boot, in a worker
+    # thread, off the event loop. By the time fly's healthcheck grace
+    # period (30s) elapses and real HTTP traffic arrives, the model is
+    # warm and the embed-load race no longer fires.
+    #
+    # Pre-R-F459 history:
+    #   - R-F379 (queued 2026-05-12, never shipped) called for this
+    #   - R-F458 (2026-05-13 22:18) attempted but used a 15s sleep
+    #     before prewarming AND added a threading.Lock — combined effect
+    #     was that the first request beat the prewarm to _get_embedder,
+    #     held the lock for 32s, and the lock serialised other waiting
+    #     threads → ThreadPoolExecutor saturated → GIL starvation →
+    #     /health/live timed out → fly PR04 cascade → reverted 22:25.
+    #   - R-F459 (this commit) — prewarm fires at T+0 (not T+15) AND
+    #     the lock-pattern was validated locally on Python 3.14 first.
+    async def _embedder_prewarm_bg():
+        try:
+            from .intel.semantic_search import prewarm_embedder
+            await prewarm_embedder()
+            logger.info("[R-F459] sentence-transformer prewarm complete")
+        except Exception as exc:
+            logger.warning(
+                "[R-F459] sentence-transformer prewarm failed "
+                "(non-fatal, lazy load will retry): %s", exc,
+            )
+    asyncio.create_task(_embedder_prewarm_bg())
+
     async def _rag_init_bg():
         # Wait for the server to bind and answer initial health checks
         # before we touch chromadb. The model download alone can take
