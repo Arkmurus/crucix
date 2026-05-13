@@ -3121,26 +3121,95 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                                 len(_queries),
                                 [l for l, _ in _queries],
                             )
+
+                            # ── R-F445 (2026-05-13) — execute the polyglot queries ──
+                            # Pre-R-F445 R-F441 only SURFACED the queries on
+                            # web_footprint with no executor — operator-visibility
+                            # only, no actual search recall improvement.
+                            # R-F445 wires them through search_multilingual so
+                            # the adverse-media probes actually run. Cap at top 4
+                            # languages and 5 results per language to bound cost.
+                            # Opt-out via ARIA_ADVERSE_POLYGLOT_EXECUTE_DISABLED=1.
+                            _adverse_hits: list[dict] = []
+                            if not os.getenv(
+                                "ARIA_ADVERSE_POLYGLOT_EXECUTE_DISABLED",
+                                "",
+                            ).strip():
+                                try:
+                                    from . import web_search as _ws
+                                    import asyncio as _aio_p
+
+                                    async def _run_one(lang, q):
+                                        try:
+                                            return lang, await _ws.search_multilingual(
+                                                q,
+                                                languages=[lang],
+                                                max_results=5,
+                                                translate_query=False,
+                                            )
+                                        except Exception as _wse:
+                                            logger.debug(
+                                                "R-F445 search_multilingual %r/%r failed: %s",
+                                                lang, q[:40], _wse,
+                                            )
+                                            return lang, []
+
+                                    _capped = _queries[:4]
+                                    _results = await _aio_p.gather(
+                                        *(_run_one(l, q) for l, q in _capped),
+                                        return_exceptions=False,
+                                    )
+                                    for _lang, _res_list in _results:
+                                        for _r in (_res_list or [])[:5]:
+                                            _adverse_hits.append({
+                                                "lang":    _lang,
+                                                "title":   getattr(_r, "title", "")[:240],
+                                                "url":     getattr(_r, "url", "")[:500],
+                                                "snippet": (
+                                                    getattr(_r, "snippet", "")
+                                                    or getattr(_r, "summary", "")
+                                                    or ""
+                                                )[:400],
+                                            })
+                                    report.digital.web_footprint["adverse_media_hits"] = (
+                                        _adverse_hits
+                                    )
+                                    report.digital.meta.subcalls += len(_capped)
+                                    logger.info(
+                                        "R-F445: polyglot adverse-media executed — "
+                                        "%d langs probed, %d hits aggregated",
+                                        len(_capped),
+                                        len(_adverse_hits),
+                                    )
+                                except Exception as _r445_e:
+                                    logger.debug(
+                                        "R-F445 polyglot execute skipped: %s",
+                                        _r445_e,
+                                    )
+
+                            _detail = (
+                                f"Per-language adverse-term probes from "
+                                f"source-language dictionaries (corruption / "
+                                f"sanctions / fraud / money-laundering / "
+                                f"bribery / etc). {len(_queries)} queries "
+                                f"prepared; R-F445 executed top {min(4, len(_queries))} "
+                                f"and aggregated "
+                                f"{len(_adverse_hits)} hit(s) into "
+                                f"web_footprint.adverse_media_hits."
+                            )
                             report.digital.findings.append(Finding(
                                 severity="info",
                                 title=(
-                                    f"Polyglot adverse-media plan: "
+                                    f"Polyglot adverse-media: "
                                     f"{len(_queries)} language(s) — "
-                                    f"{', '.join(l for l, _ in _queries)}"
+                                    f"{', '.join(l for l, _ in _queries)} "
+                                    f"({len(_adverse_hits)} hit(s))"
                                 ),
-                                detail=(
-                                    f"Per-language adverse-term probes "
-                                    f"prepared from source-language "
-                                    f"dictionaries (corruption/sanctions/"
-                                    f"fraud/money-laundering/bribery/etc). "
-                                    f"Queries surfaced in "
-                                    f"web_footprint.adverse_media_queries. "
-                                    f"Autonomous researcher loops execute "
-                                    f"these in parallel; deep-mode DD can "
-                                    f"trigger on-demand via "
-                                    f"search_multilingual."
+                                detail=_detail,
+                                source=(
+                                    "adverse_media_polyglot + "
+                                    "web_search.search_multilingual"
                                 ),
-                                source="adverse_media_polyglot.build_queries_for_languages",
                                 confidence="ASSESSED",
                             ))
                     except Exception as _r441_e:
