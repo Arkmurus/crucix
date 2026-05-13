@@ -573,6 +573,116 @@ def _chunk_long_query(query: str, max_chars: int = 200) -> list[str]:
     return [cut] if cut else []
 
 
+# ── R-F392 (2026-05-13): query anchor extraction ─────────────────────────
+#
+# ARIA self-reported on 2026-05-13 that deep_research's "single most
+# damaging operational failure" was searching the entire user sentence
+# as a raw query — "we need a full DD on Arnaldo La Scala" got passed
+# verbatim to the search backend, returning psychology papers instead
+# of the person. Four investigations (ADS-Saudi, Arnaldo La Scala,
+# Swisscraft network, Luke Oil network) returned zero relevant results
+# because the search query was the full instruction string.
+#
+# Fix: before the fallback paths (LLM-returned-empty / LLM-threw)
+# embed `topic` into hardcoded templates, run it through the anchor
+# extractor below. It reuses query_decomposer._extract_entities() to
+# pick a named entity or country, and falls back to a regex strip
+# of common ARIA-voice imperatives ("Aria, run a full DD on…",
+# "deep investigation of…", "give me a report on…", etc).
+#
+# Heuristic — not perfect, intentionally lightweight (no LLM, no NER
+# library). Goal is "much better than the full sentence", not "ideal
+# entity extraction". The LLM-success path (line 651+) is untouched —
+# Claude/DeepSeek extract entities fine when working.
+
+_RF392_PREFIX_PATTERNS = [
+    # Greeting + politeness
+    re.compile(
+        r"^(aria[,:!\s]+)?(please\s+|can\s+you\s+|could\s+you\s+|kindly\s+)?",
+        re.IGNORECASE,
+    ),
+    # "do/run/conduct/launch a full DD/investigation/research on X"
+    re.compile(
+        r"^(do|run|conduct|perform|execute|launch|start|kick\s+off|begin)\s+"
+        r"(an?\s+)?(full\s+|deep\s+|comprehensive\s+|complete\s+|quick\s+)?"
+        r"(investigation|dd|due\s+diligence|research|analysis|check|review|"
+        r"report|brief|profile|assessment|verdict)\s+(on|of|for|about|into)\s+",
+        re.IGNORECASE,
+    ),
+    # "investigate/research/profile X"
+    re.compile(
+        r"^(investigate|research|analyse|analyze|review|check|find|profile|"
+        r"look\s+up|look\s+into|dig\s+into)\s+"
+        r"(into\s+|for\s+|about\s+|on\s+)?",
+        re.IGNORECASE,
+    ),
+    # "give/tell/show me a report on X"
+    re.compile(
+        r"^(give|tell|show|provide|produce|deliver)\s+(me|us)?\s*"
+        r"(a\s+|the\s+|your\s+)?"
+        r"(report|brief|summary|profile|info|details?|update|breakdown|"
+        r"assessment|verdict|status|view|take|opinion|analysis)\s+"
+        r"(on|of|about|for|regarding)\s+",
+        re.IGNORECASE,
+    ),
+    # "i/we need a DD on X"
+    re.compile(
+        r"^(i|we|the\s+team)\s+(need|want|would\s+like|require|"
+        r"are\s+looking\s+for)\s+"
+        r"(a\s+|the\s+)?(full\s+|deep\s+|quick\s+)?"
+        r"(investigation|dd|due\s+diligence|research|analysis|report|brief)\s+"
+        r"(on|of|for|about)\s+",
+        re.IGNORECASE,
+    ),
+    # Leading question words ("what has Saudi imported last year" → strip "what has")
+    re.compile(
+        r"^(what|who|where|when|why|how|is|are|can|do|does|did|has|have)\s+"
+        r"(has|have|did|does|do|is|are|was|were)?\s*",
+        re.IGNORECASE,
+    ),
+]
+
+
+def _extract_search_anchor(topic: str) -> str:
+    """R-F392: pick the cleanest searchable anchor from a natural-
+    language topic. Returns named entity if found, else country, else
+    the topic with greetings/imperatives stripped and truncated to
+    ~8 words. Falls back to the original topic if nothing usable
+    remains. Used by deep_research fallback paths so the search query
+    isn't the full user sentence.
+    """
+    if not topic or not topic.strip():
+        return topic
+
+    # Stage 1: named-entity / country extraction via query_decomposer
+    try:
+        from . import query_decomposer as _qd
+        named, countries, _years, _amounts = _qd._extract_entities(topic)
+        if named:
+            return named[0]
+        if countries:
+            return countries[0]
+    except Exception:
+        pass
+
+    # Stage 2: regex strip of ARIA-voice imperatives + question words
+    cleaned = topic.strip()
+    for pat in _RF392_PREFIX_PATTERNS:
+        new = pat.sub("", cleaned, count=1)
+        if new and new != cleaned:
+            cleaned = new
+    cleaned = cleaned.strip(",.!?:;\" ").strip()
+
+    if not cleaned:
+        return topic.strip()
+
+    # Stage 3: cap length so the query isn't still a multi-clause sentence
+    words = cleaned.split()
+    if len(words) > 8:
+        return " ".join(words[:8])
+    return cleaned
+
+
 # ── Public: Deep investigation on a topic ────────────────────────────────────
 
 async def investigate(
@@ -675,14 +785,32 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
             parsed_q = parse_llm_json(result.text, default={})
             queries = parsed_q.get("queries", []) if isinstance(parsed_q, dict) else []
             if not queries:
-                queries = [topic]
+                # R-F392: LLM returned empty → fall back to the anchor,
+                # NOT the full user sentence (the bug ARIA flagged).
+                anchor = _extract_search_anchor(topic)
+                queries = [anchor]
+                if anchor != topic:
+                    logger.info(
+                        "R-F392: deep_research extracted anchor %r from full topic %r (LLM-empty path)",
+                        anchor[:80], topic[:120],
+                    )
         except Exception:
+            # R-F392: LLM threw → templates use the extracted anchor,
+            # not the full user sentence. This was the path that
+            # turned "Aria, run a full DD on Arnaldo La Scala please"
+            # into 5 searches all containing the full instruction.
+            anchor = _extract_search_anchor(topic)
+            if anchor != topic:
+                logger.info(
+                    "R-F392: deep_research extracted anchor %r from full topic %r (LLM-threw path)",
+                    anchor[:80], topic[:120],
+                )
             queries = [
-                f"{topic} latest news 2026",
-                f"{topic} defence procurement",
-                f"{topic} military contract award",
-                f"{topic} export compliance",
-                f"{topic} competitive landscape",
+                f"{anchor} latest news 2026",
+                f"{anchor} defence procurement",
+                f"{anchor} military contract award",
+                f"{anchor} export compliance",
+                f"{anchor} competitive landscape",
             ]
 
     # R-5002 (2026-05-11) — expand with target-language variants when
