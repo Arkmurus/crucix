@@ -2868,6 +2868,92 @@ async def _run_digital(target: dict, report: ARKDDReport, llm: Any, _mode_is_dee
                         logger.debug(
                             "R-F438 CT pivot skipped: %s", _r438_e,
                         )
+
+                # ── R-F439 (2026-05-13) — unified procurement history ─────
+                # Pre-R-F439 tender_monitor.py scanned NEW tenders per
+                # portal on a schedule; the DD pipeline never asked
+                # "what has this entity ever won/bid anywhere?". V1
+                # backends (free, no key): USAspending (US federal
+                # awards since FY2008) + UK Contracts Finder OCDS. Run
+                # in parallel; treat per-backend failure as missing data
+                # not "clean". Results land on the pre-existing
+                # report.digital.procurement_history field plus a
+                # web_footprint summary for renderers.
+                # Opt-out: ARIA_PROCUREMENT_HISTORY_DISABLED=1.
+                if (
+                    report.identity.entity_type == EntityType.COMPANY.value
+                    and not os.getenv("ARIA_PROCUREMENT_HISTORY_DISABLED", "").strip()
+                ):
+                    try:
+                        from .procurement_history import query_entity_history
+                        _ph = await query_entity_history(
+                            report.identity.entity_name or name,
+                            jurisdiction_iso2=report.identity.jurisdiction_iso2,
+                        )
+                        report.digital.procurement_history = (
+                            _ph.get("consolidated") or []
+                        )
+                        report.digital.web_footprint["procurement_history_summary"] = {
+                            "total_records": _ph.get("total_records", 0),
+                            "by_buyer":      _ph.get("by_buyer", {}),
+                            "backends_ok":   [
+                                k for k, v in (_ph.get("backends") or {}).items()
+                                if v.get("ok")
+                            ],
+                            "errors":        _ph.get("errors", []),
+                        }
+                        report.digital.meta.subcalls += 2  # 2 backends
+                        # If history is found, emit an info finding so
+                        # operator sees the pivot ran + headline figure.
+                        _total = _ph.get("total_records", 0)
+                        if _total > 0:
+                            _buyers = list((_ph.get("by_buyer") or {}).keys())
+                            _buyer_sample = ", ".join(_buyers[:4])
+                            _suffix = (
+                                f" (+{len(_buyers) - 4} more)"
+                                if len(_buyers) > 4 else ""
+                            )
+                            report.digital.findings.append(Finding(
+                                severity="info",
+                                title=(
+                                    f"Procurement history: {_total} award(s) "
+                                    f"across "
+                                    f"{len(_ph.get('backends', {}))} backends"
+                                ),
+                                detail=(
+                                    f"Buyers: {_buyer_sample}{_suffix}. "
+                                    f"Full list in "
+                                    f"report.digital.procurement_history."
+                                ),
+                                source=(
+                                    "procurement_history.query_entity_history "
+                                    "[USAspending + UK Contracts Finder]"
+                                ),
+                                confidence="ASSESSED",
+                            ))
+                        else:
+                            # Record the gap so operator can tell
+                            # "queried, no results" from "never queried"
+                            if not _ph.get("ok"):
+                                report.digital.data_gaps.append(
+                                    f"Procurement history backends all "
+                                    f"failed: {'; '.join(_ph.get('errors', []))[:240]}"
+                                )
+                        logger.info(
+                            "R-F439: procurement history for %s — "
+                            "%d records, backends_ok=%s",
+                            (report.identity.entity_name or name)[:40],
+                            _total,
+                            [
+                                k for k, v in (_ph.get("backends") or {}).items()
+                                if v.get("ok")
+                            ],
+                        )
+                    except Exception as _r439_e:
+                        logger.debug(
+                            "R-F439 procurement history skipped: %s",
+                            _r439_e,
+                        )
             except Exception as e:
                 logger.warning("Digital: link_investigator failed: %s", e)
                 report.digital.data_gaps.append(f"link_investigator failed: {str(e)[:120]}")
