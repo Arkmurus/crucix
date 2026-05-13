@@ -4647,12 +4647,65 @@ async def _execute_tool(intent: dict, llm) -> str:
                 except Exception as _gate_err:
                     _log.debug("dd verification gate check failed (non-fatal): %s", _gate_err)
 
+            # R-F409 (2026-05-13): auto-escalate INSUFFICIENT_EVIDENCE
+            # to deep mode. Operator-flagged 2026-05-13 08:18: Antonio
+            # ran a DD on adsm-sa.com and ARIA reported "the dd_orchestrate
+            # engine has now run a tenth time on adsm-sa.com" with
+            # INSUFFICIENT EVIDENCE every single time. The team will hit
+            # this exact friction tomorrow — ask for DD, get insufficient,
+            # have to remember the magic word "deep" + jurisdiction hint.
+            #
+            # Behaviour: if mode came in as anything other than "deep"
+            # AND the first run produced confidence_gate_triggered=True
+            # (the precise condition that emits INSUFFICIENT EVIDENCE
+            # per _assemble_bluf), run ONCE more in mode="deep" before
+            # the BLUF is consumed by the LLM. Cap at 1 retry (no
+            # infinite loops). If deep also gate-triggers, take the
+            # deep result (more layers fired) and emit it with a note.
             try:
                 report = await dd_orchestrator.orchestrate_dd(
                     target=target,
                     llm=llm,
                     mode=mode,
                 )
+                # R-F409 auto-escalation
+                if (
+                    mode != "deep"
+                    and getattr(report, "confidence_gate_triggered", False)
+                    and not target.get("_rf409_already_escalated")
+                ):
+                    _log.info(
+                        "R-F409 auto-escalating dd_orchestrate to mode=deep "
+                        "(initial mode=%s triggered confidence gate for %r)",
+                        mode, target.get("name", "?"),
+                    )
+                    try:
+                        _deep_target = {
+                            **target,
+                            "_rf409_already_escalated": True,
+                            "_rf409_initial_mode": mode,
+                        }
+                        deep_report = await dd_orchestrator.orchestrate_dd(
+                            target=_deep_target,
+                            llm=llm,
+                            mode="deep",
+                        )
+                        # Prefer the deep report if it produced more
+                        # evidence (any layer firing). If deep also
+                        # gate-triggered, keep the deep result anyway —
+                        # operator gets the deeper attempt, BLUF gets
+                        # an explicit "auto-escalated but still
+                        # insufficient" note.
+                        report = deep_report
+                        # Annotate so the BLUF / footer can surface the
+                        # escalation in the team-visible reply.
+                        setattr(report, "rf409_auto_escalated", True)
+                        setattr(report, "rf409_initial_mode", mode)
+                    except Exception as _esc_err:
+                        _log.warning(
+                            "R-F409 deep escalation failed (keeping shallow report): %s",
+                            _esc_err,
+                        )
             except Exception as e:
                 _log.warning("dd_orchestrate via chat intent failed: %s", e)
                 return (
@@ -14812,10 +14865,76 @@ async def constitution_baseline_get_ep():
 @router.get("/adversarial/amendments")
 async def adversarial_amendments_ep():
     """Pending clause-amendment candidates staged from failed attacks.
-    Human approves via self_improve.deploy_improvement per doctrine."""
+    Human approves via self_improve.deploy_improvement per doctrine.
+
+    R-F422 (2026-05-13): on-read maintenance.
+    (a) Backfill missing fail_count / last_failed_at on legacy entries
+        (the operator's 22:30 dashboard had 17 pre-R-F422 entries).
+    (b) Auto-reject entries where last_failed_at > 14 days ago AND
+        fail_count < 3 — those are stale low-priority duplicates the
+        operator hasn't triaged. Audit-log the auto-reject to
+        aria:adversarial:rejected_amendments with reason "R-F422
+        auto-reject: stale, low fail_count" so the chain of custody
+        survives. Entries with fail_count >= 3 STAY — high-failure
+        attacks need real operator attention.
+    """
     from ..intel import redis_store as rs
-    queue = await rs.get_json("aria:adversarial:amendments_queue") or []
-    return {"queue_depth": len(queue), "amendments": queue}
+    from datetime import datetime, timezone, timedelta
+    key_queue = "aria:adversarial:amendments_queue"
+    queue = await rs.get_json(key_queue) or []
+
+    now = datetime.now(timezone.utc)
+    cutoff_iso = (now - timedelta(days=14)).isoformat()
+    auto_rejected: list[dict] = []
+    cleaned: list[dict] = []
+    for entry in queue:
+        if not isinstance(entry, dict):
+            continue
+        # Backfill last_failed_at + fail_count on pre-R-F422 legacy entries.
+        if "last_failed_at" not in entry:
+            entry["last_failed_at"] = entry.get("staged_at", now.isoformat())
+        if "fail_count" not in entry:
+            entry["fail_count"] = 1
+        # Auto-reject stale low-priority duplicates.
+        try:
+            last_fail = entry.get("last_failed_at") or entry.get("staged_at") or ""
+            fc = int(entry.get("fail_count", 1))
+            if last_fail < cutoff_iso and fc < 3:
+                auto_rejected.append({
+                    **entry,
+                    "rejected_at": now.isoformat(),
+                    "rejected_by": "auto",
+                    "rejected_reason": (
+                        f"R-F422 auto-reject: stale (last_failed_at={last_fail[:10]} "
+                        f">14d ago) and fail_count={fc}<3. No operator triage in "
+                        f"window; high-failure attacks (fail_count>=3) STAY in queue."
+                    ),
+                })
+                continue
+        except Exception:
+            pass
+        cleaned.append(entry)
+
+    # Persist the cleaned queue + audit-log the auto-rejections.
+    if len(cleaned) != len(queue):
+        try:
+            await rs.set_json(key_queue, cleaned, ex=90 * 86400)
+        except Exception:
+            pass
+        if auto_rejected:
+            try:
+                rej_key = "aria:adversarial:rejected_amendments"
+                rejected_log = await rs.get_json(rej_key) or []
+                rejected_log = auto_rejected + rejected_log
+                await rs.set_json(rej_key, rejected_log[:500], ex=180 * 86400)
+            except Exception:
+                pass
+
+    return {
+        "queue_depth": len(cleaned),
+        "amendments": cleaned,
+        "_rf422_auto_rejected_this_call": len(auto_rejected),
+    }
 
 
 @router.post("/adversarial/amendments/reject")

@@ -1077,24 +1077,56 @@ async def consolidate() -> dict:
     cutoff = now - RETENTION_DAYS * 86400
 
     pruned = 0
+    # R-F242 (2026-05-13): replace DELETE with archive flag.
+    # Operator directive [[aria_infinite_memory]] (2026-05-11):
+    # "ARIA has INFINITE memory — never forgets, never loses data.
+    # No TTL on knowledge, no oldest-first prune, no eviction."
+    # R-F173 prune was reversed by R-F238 for the same reason.
+    # Same bug-shape here: this consolidate() was deleting cases that
+    # had access_count=0 + age>30d + confidence<0.5 OR had >3 negative
+    # outcomes with no positives. Both branches violate the directive.
+    # Now: flip case["archived"] = True with the reason — case STAYS
+    # in storage for forensic recall via the new include_archived=True
+    # search parameter. Index drops the entry (keeps fast search fast)
+    # but the case body is preserved.
     new_index = []
+    archived = 0
     for entry in index:
         case = await rs.get_json(_case_key(entry["id"]))
         if not case:
+            # Missing case data (Redis lost it) — count as pruned for
+            # the diag log but no further action; the index already
+            # drops the entry by skipping the append.
             pruned += 1
             continue
-        # Prune stale + unused + low-confidence cases
         age_days = (now - case.get("ts_created", now)) / 86400
+        # Archive stale + unused + low-confidence cases.
         if (case.get("access_count", 0) == 0
                 and age_days > 30
                 and case.get("confidence_score", 0) < 0.5):
-            await rs.set_json(_case_key(case["id"]), None, ex=1)
-            pruned += 1
+            case["archived"] = True
+            case["archived_at"] = now
+            case["archived_reason"] = (
+                f"R-F242 archive: age={int(age_days)}d, access_count=0, "
+                f"confidence={case.get('confidence_score', 0):.2f}<0.5. "
+                f"Case preserved for forensic recall; no longer in active "
+                f"index (per aria_infinite_memory.md, never deleted)."
+            )
+            await rs.set_json(_case_key(case["id"]), case)
+            archived += 1
             continue
-        # Prune cases with consistent negative outcomes
+        # Archive cases with consistent negative outcomes (>3 neg, 0 pos).
         if case.get("negative_outcomes", 0) > 3 and case.get("positive_outcomes", 0) == 0:
-            await rs.set_json(_case_key(case["id"]), None, ex=1)
-            pruned += 1
+            case["archived"] = True
+            case["archived_at"] = now
+            case["archived_reason"] = (
+                f"R-F242 archive: negative_outcomes="
+                f"{case.get('negative_outcomes', 0)}>3, positive_outcomes=0. "
+                f"Case preserved for forensic recall; no longer in active "
+                f"index (per aria_infinite_memory.md, never deleted)."
+            )
+            await rs.set_json(_case_key(case["id"]), case)
+            archived += 1
             continue
         new_index.append(entry)
 
@@ -1107,5 +1139,14 @@ async def consolidate() -> dict:
     _mark_meta_dirty()  # R-F268
     await _save_meta()
 
-    logger.info("reasoning_library consolidated: pruned %d, remaining %d", pruned, len(new_index))
-    return {"pruned": pruned, "remaining": len(new_index)}
+    logger.info(
+        "reasoning_library consolidated (R-F242): archived %d (preserved), "
+        "missing %d, remaining %d in active index",
+        archived, pruned, len(new_index),
+    )
+    return {
+        "archived": archived,        # R-F242: replaces "pruned" for active archives
+        "missing": pruned,           # data lost from Redis (not our archive action)
+        "remaining": len(new_index),
+        "pruned": pruned + archived,  # legacy field for old consumers; will be removed when consumers updated
+    }

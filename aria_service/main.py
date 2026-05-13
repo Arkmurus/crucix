@@ -50,7 +50,7 @@ logger = logging.getLogger("aria.main")
 # and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 # alone couldn't tell us whether the deploy had picked up. Same pattern
 # now also installed on seenode (server.mjs CRUCIX_BUILD_REV).
-ARIA_BUILD_REV = "R-F407+F408 · 2026-05-13 · Hallucination dashboard panel (/api/aria/hallucination/stats combining R-F401 self_claim_guard + 5 stream guards) + R-F408 verification-sweep bug fixes (test_rf402 FallbackLLM→FallbackProvider rename, test_rf396 schema version forward-compat regex, rs.incr ttl kwarg→rs.expire 2-call); prior: R-F403+406 MVP launch"
+ARIA_BUILD_REV = "R-F242+F243+F409+F422 · 2026-05-13 · 4-fix batch: R-F422 amendments dedupe + auto-reject stale (operator's 17-entry dashboard queue with 5x E1_FABRICATED_COMMITMENT duplicates), R-F242 reasoning_library archive flag (Phase A directive — was deleting low-confidence cases), R-F243 verified_intel permanent-storage regression pin (already fixed 2026-04-21), R-F409 dd_orchestrate auto-deep-retry on INSUFFICIENT_EVIDENCE (operator-flagged 08:18 — 10th run on adsm-sa.com); prior: R-F407+F408 dashboard panel"
 
 
 @asynccontextmanager
@@ -673,9 +673,16 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 result = await reasoning_library.consolidate()
+                # R-F242 (2026-05-13): log archived + missing distinctly.
+                # Pre-R-F242 the log said "pruned N" but consolidate now
+                # archives (preserves) cases instead of deleting. Surface
+                # the honest counts so the daily log doesn't imply data
+                # was lost.
                 logger.info(
-                    "[Student] Library consolidated: pruned %d, remaining %d",
-                    result.get("pruned", 0),
+                    "[Student] Library consolidated: archived %d (preserved), "
+                    "missing %d (Redis data lost), remaining %d in active index",
+                    result.get("archived", 0),
+                    result.get("missing", 0),
                     result.get("remaining", 0),
                 )
             except Exception as e:

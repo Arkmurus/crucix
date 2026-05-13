@@ -513,7 +513,8 @@ async function loadAmendments() {
   // and Action cells so the button stays beside its row metadata.
   html += '<table style="margin-top:8px;font-size:0.82em">'
         + '<tr><th>Attack</th><th>Clauses</th>'
-        + '<th style="white-space:nowrap">Staged</th>'
+        + '<th style="white-space:nowrap;text-align:center">Fails</th>'
+        + '<th style="white-space:nowrap">Last failed</th>'
         + '<th>Action</th></tr>';
   amendments.forEach(a => {
     const attackId = a.attack_id || '?';
@@ -523,7 +524,13 @@ async function loadAmendments() {
                     ? ` <span style="color:#8b949e">· ${escapeHtml(attackName)}</span>`
                     : '');
     const clauses = (a.anchor_clauses || []).join(', ');
-    const staged = (a.staged_at || '').slice(0, 16).replace('T', ' ');
+    // R-F422 (2026-05-13): surface fail_count + last_failed_at so the
+    // operator can prioritise high-recurrence attacks. fail_count >= 3
+    // is "high priority", >= 5 is "critical — clause amendment likely needed".
+    const failCount = a.fail_count || 1;
+    const failColor = failCount >= 5 ? '#f85149' : failCount >= 3 ? '#d29922' : '#8b949e';
+    const failCell = `<span style="color:${failColor};font-weight:600">${failCount}×</span>`;
+    const lastFailed = (a.last_failed_at || a.staged_at || '').slice(0, 16).replace('T', ' ');
     const safeAttackId = attackId.replace(/[^A-Za-z0-9_.-]/g, '');
     // R-F230 (2026-05-11) — Approve button wired to /adversarial/
     // amendments/approve (R-F168 endpoint). Confirm-phrase gate
@@ -540,7 +547,8 @@ async function loadAmendments() {
     html += `<tr>`
           + `<td style="line-height:1.3">${attack}</td>`
           + `<td style="white-space:nowrap">${escapeHtml(clauses)}</td>`
-          + `<td style="white-space:nowrap;color:#8b949e">${escapeHtml(staged)}</td>`
+          + `<td style="white-space:nowrap;text-align:center">${failCell}</td>`
+          + `<td style="white-space:nowrap;color:#8b949e">${escapeHtml(lastFailed)}</td>`
           + `<td style="white-space:nowrap">${action}</td>`
           + `</tr>`;
   });

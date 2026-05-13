@@ -1558,19 +1558,54 @@ async def _stage_amendments_for_failures(results: list[dict]) -> None:
             pass
         # Also persist a structured amendment note to Redis so the
         # operator can review without running the full self_improve CLI.
+        #
+        # R-F422 (2026-05-13): idempotent staging. Operator's 22:30 dashboard
+        # showed 17 amendments with 5x E1_FABRICATED_COMMITMENT going back to
+        # 2026-04-19 + 3x C1_MULTITURN_COMPLIANCE_DRIFT — same attack failing
+        # repeatedly was creating duplicate queue entries instead of bumping
+        # a fail_count. Now: if (attack_id, anchor_clauses) tuple already
+        # in queue, increment fail_count + update last_failed_at; only insert
+        # a NEW row for never-seen attack+clauses combinations.
         try:
             from . import redis_store as rs
-            note = {
-                "attack_id": attack.id,
-                "attack_name": attack.name,
-                "anchor_clauses": attack.anchor_clauses,
-                "proposed_amendment": _draft_amendment(attack),
-                "source_cases": attack.source_cases,
-                "staged_at": datetime.now(timezone.utc).isoformat(),
-            }
+            now_iso = datetime.now(timezone.utc).isoformat()
             key = "aria:adversarial:amendments_queue"
             queue = await rs.get_json(key) or []
-            queue.insert(0, note)
+            # Find existing entry by (attack_id, anchor_clauses).
+            existing_idx = -1
+            for i, q in enumerate(queue):
+                if (
+                    isinstance(q, dict)
+                    and q.get("attack_id") == attack.id
+                    and list(q.get("anchor_clauses") or []) == list(attack.anchor_clauses)
+                ):
+                    existing_idx = i
+                    break
+            if existing_idx >= 0:
+                # Increment + update last_failed_at, keep original staged_at.
+                queue[existing_idx]["fail_count"] = int(
+                    queue[existing_idx].get("fail_count", 1)
+                ) + 1
+                queue[existing_idx]["last_failed_at"] = now_iso
+                # Refresh proposed_amendment text in case _draft_amendment
+                # logic was updated (Phase A honesty: stale candidates
+                # shouldn't show a draft that no longer matches the code).
+                queue[existing_idx]["proposed_amendment"] = _draft_amendment(attack)
+                # Move to top of queue so operator sees most-recently-failed
+                # at the top.
+                queue.insert(0, queue.pop(existing_idx))
+            else:
+                note = {
+                    "attack_id": attack.id,
+                    "attack_name": attack.name,
+                    "anchor_clauses": attack.anchor_clauses,
+                    "proposed_amendment": _draft_amendment(attack),
+                    "source_cases": attack.source_cases,
+                    "staged_at": now_iso,
+                    "last_failed_at": now_iso,
+                    "fail_count": 1,
+                }
+                queue.insert(0, note)
             await rs.set_json(key, queue[:100], ex=90 * 86400)
         except Exception:
             pass

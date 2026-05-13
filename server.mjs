@@ -8,7 +8,7 @@
 // commit matches what's in git. Diagnostic added after R-F353 was committed
 // and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 // alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F407 · 2026-05-13 · ARIA Brain dashboard — Hallucination & Guard Violations panel (combines R-F401 self_claim_guard counters + 5 stream guards). Operator sees 24h totals + recent log + violation rate at-a-glance; seenode proxy for /hallucination/stats added; prior: R-F391 banner, R-F390 bypass';
+const CRUCIX_BUILD_REV = 'R-F422 · 2026-05-13 · Pending Amendments panel — fail_count + last_failed_at columns surfaced (R-F422 dedupe). Operator dashboard now shows high-recurrence attacks (5x E1_FABRICATED_COMMITMENT collapsed into 1 row with 5× counter) and auto-rejects stale low-priority duplicates >14d old; prior: R-F407 hallucination panel, R-F391 honesty banner';
 
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';

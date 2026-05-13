@@ -3102,11 +3102,22 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
                 f"see data_gaps."
                 if _fallback_hits else ""
             )
+            # R-F409 (2026-05-13): surface the auto-escalation status in the
+            # BLUF so the operator sees "I tried deep too" — no more "why
+            # did you only run shallow?". Operator-flagged 2026-05-13 08:18.
+            _rf409_suffix = ""
+            if getattr(report, "rf409_auto_escalated", False):
+                _initial = getattr(report, "rf409_initial_mode", "standard")
+                _rf409_suffix = (
+                    f" R-F409: auto-escalated from {_initial}→deep, "
+                    f"still insufficient. Operator action needed: supply "
+                    f"jurisdiction_iso2 / website URL / known person name."
+                )
             report.bottom_line = (
                 f"🟡 INSUFFICIENT EVIDENCE — {name}: the DD did not gather "
                 f"enough data to issue a verdict. AMBER is a placeholder, "
                 f"not a substantive amber risk finding. "
-                f"Gate-triggered by: {_reasons_str}.{_fallback_suffix}"
+                f"Gate-triggered by: {_reasons_str}.{_fallback_suffix}{_rf409_suffix}"
             )
             report.recommendation = (
                 "Re-run the DD in DEEP mode (or supply jurisdiction / "
