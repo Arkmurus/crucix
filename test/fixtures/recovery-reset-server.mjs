@@ -9,7 +9,10 @@
 // users.json and ADMIN_RECOVERY_TOKEN set (or not, to test the 404 path).
 
 import express from 'express';
-import { findUserByEmail, updateUser, hashPassword, initUsersStore } from '../../lib/auth/users.mjs';
+import {
+  createUser, findUserByEmail, updateUser, hashPassword, listUsers,
+  generateCode, initUsersStore,
+} from '../../lib/auth/users.mjs';
 
 const app = express();
 app.use(express.json());
@@ -20,7 +23,7 @@ app.post('/api/auth/recovery-reset', async (req, res) => {
     return res.status(404).json({ error: 'Not found' });
   }
 
-  const { email, newPassword, recoveryToken } = req.body || {};
+  const { email, newPassword, recoveryToken, createIfMissing } = req.body || {};
   if (typeof recoveryToken !== 'string' || recoveryToken.length !== expected.length) {
     return res.status(401).json({ error: 'Invalid recovery token' });
   }
@@ -39,8 +42,34 @@ app.post('/api/auth/recovery-reset', async (req, res) => {
     return res.status(400).json({ error: 'New password must be at least 8 characters' });
   }
 
-  const user = findUserByEmail(email);
-  if (!user) return res.status(404).json({ error: 'No user with that email' });
+  const normEmail = email.toLowerCase().trim();
+  const user = findUserByEmail(normEmail);
+  if (!user) {
+    if (createIfMissing === true) {
+      const otherAdmins = listUsers().filter(u => u.role === 'admin' && u.email !== normEmail);
+      if (otherAdmins.length > 0) {
+        return res.status(409).json({
+          error: `Another admin already exists (${otherAdmins.map(a => a.email).join(', ')}).`,
+        });
+      }
+      const tmpUsername = (normEmail.split('@')[0] || 'admin').slice(0, 24) + '-' + generateCode().slice(0, 4);
+      createUser({
+        username: tmpUsername,
+        email: normEmail,
+        password: newPassword,
+        fullName: 'Arkmurus Administrator',
+        role: 'admin',
+      });
+      const fresh = findUserByEmail(normEmail);
+      updateUser(fresh.id, {
+        status: 'active',
+        verificationCode: null,
+        verificationExpiry: null,
+      });
+      return res.json({ message: 'minted', created: true });
+    }
+    return res.status(404).json({ error: 'No user with that email' });
+  }
 
   updateUser(user.id, {
     passwordHash: hashPassword(newPassword),

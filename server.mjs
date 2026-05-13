@@ -8,7 +8,7 @@
 // commit matches what's in git. Diagnostic added after R-F353 was committed
 // and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
 // alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F427 · 2026-05-13 · Admin identity transparency — /api/auth/system-status diagnostic + login-failure logging + initAdminUser identity assertion. Prior: R-F426 ARIA-SMTP fallback for auth emails, R-F425 recovery-token reset (operator self-serve when SMTP is down), R-F424 auth-doctor + rehash --create-if-missing, R-F423 admin password rehash script, R-F422 Pending Amendments panel, R-F407 hallucination panel';
+const CRUCIX_BUILD_REV = 'R-F428 · 2026-05-13 · createIfMissing on /api/auth/recovery-reset — operator can mint the admin row in one round-trip when no row exists for their email. Single-admin invariant preserved (409 if another admin exists). Prior: R-F427 admin identity transparency + /api/auth/system-status, R-F426 ARIA-SMTP fallback, R-F425 recovery-token reset, R-F424 auth-doctor, R-F423 rehash script, R-F422 Pending Amendments panel';
 
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
@@ -3559,7 +3559,7 @@ app.post('/api/auth/recovery-reset', async (req, res) => {
     return res.status(404).json({ error: 'Not found' });
   }
 
-  const { email, newPassword, recoveryToken } = req.body || {};
+  const { email, newPassword, recoveryToken, createIfMissing } = req.body || {};
   if (typeof recoveryToken !== 'string' || recoveryToken.length !== expected.length) {
     console.warn(`[Auth] recovery-reset rejected (length mismatch) ip=${req.ip}`);
     return res.status(401).json({ error: 'Invalid recovery token' });
@@ -3581,12 +3581,52 @@ app.post('/api/auth/recovery-reset', async (req, res) => {
     return res.status(400).json({ error: 'New password must be at least 8 characters' });
   }
 
-  const user = findUserByEmail(email);
+  const normEmail = email.toLowerCase().trim();
+  const user = findUserByEmail(normEmail);
+
   if (!user) {
-    console.warn(`[Auth] recovery-reset: no user for email=${email} ip=${req.ip}`);
-    // Token holder already has admin powers — telling them the user doesn't
-    // exist isn't a leak. Helps debugging far more than a generic 400.
-    return res.status(404).json({ error: 'No user with that email' });
+    // R-F428: optional one-shot admin provisioning. When the operator is
+    // locked out *and* no admin row exists for their email, the standard
+    // recovery flow has nothing to rotate. createIfMissing lets the same
+    // token mint the missing admin row in the same round-trip, so the
+    // operator doesn't have to redeploy with new ADMIN_EMAIL/ADMIN_PASSWORD
+    // env vars (which only fire when there are zero admins anyway). Single-
+    // admin invariant preserved: if another admin row already exists with a
+    // different email, we refuse rather than silently mint a parallel admin
+    // — operator must delete the other row first (or accept it as canonical).
+    if (createIfMissing === true) {
+      const allUsers = listUsers();
+      const otherAdmins = allUsers.filter(u => u.role === 'admin' && u.email !== normEmail);
+      if (otherAdmins.length > 0) {
+        console.warn(`[Auth] recovery-reset mint REFUSED for ${normEmail}: ${otherAdmins.length} other admin row(s) exist (${otherAdmins.map(a => a.email).join(', ')}) ip=${req.ip}`);
+        return res.status(409).json({
+          error: `Another admin already exists (${otherAdmins.map(a => a.email).join(', ')}). Either reset that account's password or delete it first; recovery refuses to mint a parallel admin.`,
+        });
+      }
+      // Mint a fresh admin row. Username derived from the local-part of the
+      // email + short random suffix to avoid collisions.
+      const tmpUsername = (normEmail.split('@')[0] || 'admin').slice(0, 24) + '-' + generateCode().slice(0, 4);
+      createUser({
+        username: tmpUsername,
+        email: normEmail,
+        password: newPassword,
+        fullName: 'Arkmurus Administrator',
+        role: 'admin',
+      });
+      const fresh = findUserByEmail(normEmail);
+      updateUser(fresh.id, {
+        status: 'active',
+        verificationCode: null,
+        verificationExpiry: null,
+      });
+      console.log(`[Auth] recovery-reset MINTED admin ${normEmail} (id=${fresh.id}) via createIfMissing ip=${req.ip}`);
+      return res.json({
+        message: 'Admin account created. You can sign in with the new password now.',
+        created: true,
+      });
+    }
+    console.warn(`[Auth] recovery-reset: no user for email=${normEmail} ip=${req.ip} (pass createIfMissing:true to mint as admin)`);
+    return res.status(404).json({ error: 'No user with that email. To create an admin account in one step, retry with the "Create admin if missing" option.' });
   }
 
   updateUser(user.id, {

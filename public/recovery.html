@@ -128,6 +128,24 @@
                    placeholder="From ADMIN_RECOVERY_TOKEN env var" autocomplete="off" required>
           </div>
 
+          <!-- R-F428: optional one-shot admin provisioning when no row exists
+               for the email. Default is OFF so the normal reset flow can't
+               accidentally mint extra accounts. Disabled when an admin
+               already exists with a different email (server returns 409). -->
+          <div class="sc-field" style="background:rgba(245,181,0,.06);border:1px solid rgba(245,181,0,.25);border-radius:6px;padding:12px 14px;">
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-weight:500;font-size:13px;color:rgba(255,255,255,.75)">
+              <input type="checkbox" id="create-if-missing" name="create-if-missing"
+                     style="margin-top:3px;cursor:pointer">
+              <span>
+                <strong>Create admin account if no row exists yet</strong><br>
+                <span style="font-size:11px;color:rgba(255,255,255,.45);line-height:1.5">
+                  Use this only when the page returned "No user with that email" on a prior attempt.
+                  Leave unchecked for normal password resets. The server refuses to mint a parallel admin if one already exists with a different email.
+                </span>
+              </span>
+            </label>
+          </div>
+
           <button type="submit" class="sc-btn sc-btn-primary"
                   style="width:100%;justify-content:center" id="btn-submit">
             Reset Password
@@ -180,9 +198,12 @@
     var btn = document.getElementById('btn-submit');
     btn.textContent = 'Resetting…'; btn.disabled = true;
 
+    var createIfMissing = document.getElementById('create-if-missing').checked;
+
     try {
       var result = await API.post('/api/auth/recovery-reset', {
-        email: email, newPassword: newPassword, recoveryToken: token
+        email: email, newPassword: newPassword, recoveryToken: token,
+        createIfMissing: createIfMissing
       });
       btn.textContent = 'Reset Password'; btn.disabled = false;
       if (!result.ok) {
@@ -190,6 +211,15 @@
           return showError('Recovery endpoint is disabled. Set ADMIN_RECOVERY_TOKEN on the deploy host first.');
         }
         return showError((result.data && result.data.error) || 'Recovery failed.');
+      }
+      // R-F428: server flags created=true when it minted a new admin row, vs
+      // resetting an existing user's password. Different success copy makes
+      // the operator's mental model clearer.
+      if (result.data && result.data.created) {
+        var doneHeader = document.querySelector('#step-done h2');
+        var doneBody = document.querySelector('#step-done p.auth-sub');
+        if (doneHeader) doneHeader.textContent = 'Admin Account Created';
+        if (doneBody) doneBody.textContent = 'A new admin account was minted with your email. You can sign in now.';
       }
       document.getElementById('step-form').style.display = 'none';
       document.getElementById('step-done').style.display = 'block';
