@@ -1740,6 +1740,65 @@ _TOOL_CONTEXT_MARKERS = (
 _PERSIST_MAX_RESPONSE_CHARS = 4000
 
 
+# R-F520 (2026-05-14) — strip chat_ep prefixes before local-reasoning + cache.
+# chat_ep prepends a comprehension-prefix block + "USER MESSAGE FOLLOWS:"
+# marker, optionally appends group_context, tool_context, scratchpad
+# instructions. Pre-R-F520 the COMBINED text was passed to
+# reasoning_router.try_local_reasoning AND record_cloud_llm_response.
+# The cached `normalised` field therefore contained ~30 comprehension-
+# prefix tokens (comprehension/complexity/confidence/response/contract/
+# understood/user/message/etc.) — both query and cached entry had the
+# same prefix tokens, so R-F518's entity-overlap gate always saw 30+
+# shared tokens and let unrelated entities cross-match at 0.95+ semantic
+# confidence. Live 2026-05-14 13:00 BST: ZTE query matched Bumblestaff
+# cached answer at 0.955 even with R-F518 deployed (build_rev confirms).
+#
+# Fix: strip the chat-handler-added blocks before either:
+#  (a) running reasoning_router.try_local_reasoning(message), and
+#  (b) recording the LLM response into the reasoning library.
+# The LLM still receives the full message_for_llm (with prefix) — that's
+# what the comprehension/scratchpad clauses are designed to influence.
+_R_F520_USER_MESSAGE_MARKER = "USER MESSAGE FOLLOWS:"
+_R_F520_APPENDED_MARKERS = (
+    "\n[GROUP CONTEXT",
+    "\n[I have already run the appropriate tool",
+    "\n[CLAUSE 22",
+    "\n<scratchpad>",
+)
+
+
+def _strip_chat_prefixes(message: str) -> str:
+    """Return only the user's actual question.
+
+    Removes:
+      - leading [COMPREHENSION PASS ...] [END COMPREHENSION PASS] block
+        plus the USER MESSAGE FOLLOWS: marker (everything before is the
+        comprehension preamble — keep only what comes after the marker)
+      - trailing [GROUP CONTEXT ...] block (WhatsApp listener history)
+      - trailing [I have already run the appropriate tool ...] block
+        (tool result append)
+      - trailing [CLAUSE 22 — Think Before Speak] block (scratchpad)
+      - trailing <scratchpad>...</scratchpad> raw tag (defensive)
+
+    Idempotent on clean input — if no markers found, returns input unchanged.
+    """
+    if not message:
+        return message
+    # Extract everything AFTER the comprehension prefix marker.
+    idx = message.find(_R_F520_USER_MESSAGE_MARKER)
+    if idx >= 0:
+        message = message[idx + len(_R_F520_USER_MESSAGE_MARKER):].lstrip("\n")
+    # Truncate at the first appended block we recognise.
+    earliest = len(message)
+    for marker in _R_F520_APPENDED_MARKERS:
+        i = message.find(marker)
+        if i >= 0 and i < earliest:
+            earliest = i
+    if earliest < len(message):
+        message = message[:earliest]
+    return message.strip()
+
+
 def _strip_tool_context_for_history(message: str) -> str:
     """Drop the tool_context block from a chat message before persisting it.
 
@@ -2682,7 +2741,9 @@ async def _aria_chat_impl(
     # slow detachment from cloud reasoning. Every query that gets answered
     # locally is one fewer dollar spent + one fewer data leak to the vendor.
     try:
-        local_attempt = await reasoning_router.try_local_reasoning(message)
+        # R-F520 — strip chat_ep prefixes so reasoning_library + local_brain
+        # see only the user's actual question. See _strip_chat_prefixes docstring.
+        local_attempt = await reasoning_router.try_local_reasoning(_strip_chat_prefixes(message))
         if local_attempt.get("answered"):
             # Persist the interaction so we still build session memory
             try:
@@ -2978,8 +3039,12 @@ async def _aria_chat_impl(
     # every successful answer becomes a CASE that future queries can match.
     try:
         provider_name = getattr(llm, "name", "cloud") or "cloud"
+        # R-F520 — write the CLEAN user question to the cache, not the
+        # comprehension-prefix-bloated message. Cached normalised text
+        # without prefix tokens lets R-F518's entity-overlap gate
+        # actually distinguish entities. See _strip_chat_prefixes docstring.
         await reasoning_router.record_cloud_llm_response(
-            message, response_text,
+            _strip_chat_prefixes(message), response_text,
             intent="chat",
             context_keys=["live_intel", "knowledge", "ledger", "neural"],
             source_brain=provider_name,
@@ -3283,7 +3348,8 @@ async def _aria_chat_stream_impl(
 
     # ── Local reasoning attempt ───────────────────────────────────────
     try:
-        local_attempt = await reasoning_router.try_local_reasoning(message)
+        # R-F520 — strip chat_ep prefixes (see _strip_chat_prefixes docstring).
+        local_attempt = await reasoning_router.try_local_reasoning(_strip_chat_prefixes(message))
         if local_attempt.get("answered"):
             try:
                 session = await _get_session(session_id)
@@ -3509,8 +3575,9 @@ async def _aria_chat_stream_impl(
 
     try:
         provider_name = getattr(llm, "name", "cloud") or "cloud"
+        # R-F520 — clean message before cache write (see docstring).
         await reasoning_router.record_cloud_llm_response(
-            message, response_text,
+            _strip_chat_prefixes(message), response_text,
             intent="chat",
             context_keys=["live_intel", "knowledge", "ledger", "neural"],
             source_brain=provider_name,
