@@ -302,6 +302,40 @@ async def try_local_response(message: str) -> dict:
         "all of it", "everyone", "anyone", "the subject", "subject",
     }
 
+    # R-F511 (2026-05-14) — yield jurisdiction-scoped sanctions questions
+    # to the LLM so clause 26 can fire. Live failure 2026-05-14 08:55 BST:
+    # "Is Hikvision sanctioned in the UK?" short-circuited here, returned
+    # multi-regime BLOCKING MATCH leading with us_sam_exclusions (US-only)
+    # + ann_graph_topics (Companies House, NOT a sanctions signal). The
+    # LLM with R-F510 clause 26 was bypassed entirely. fuzzy_screen is
+    # jurisdiction-flat; nuanced per-regime reasoning (OFSI for UK, OFAC
+    # for US, procurement-restrictions-aren't-sanctions, registry-presence-
+    # isn't-sanctions-evidence) is LLM territory. When the user names a
+    # specific jurisdiction we MUST defer.
+    _JURISDICTION_QUALIFIER = re.compile(
+        r"\b(?:"
+        r"UK|U\.K\.|United\s+Kingdom|Britain|British|"
+        r"US|U\.S\.|USA|United\s+States|American|"
+        r"EU|European\s+Union|"
+        r"OFSI|OFAC|SDN|SECO|DFAT|MoFA|FCDO|"
+        r"Australia|Australian|"
+        r"Japan|Japanese|"
+        r"Switzerland|Swiss|"
+        r"Norway|Norwegian|"
+        r"UN(?:\s+Security\s+Council|SC)?|"
+        r"China|Chinese|PRC|"
+        r"Russia|Russian|RF|"
+        r"Canada|Canadian|"
+        r"Germany|German|"
+        r"France|French|"
+        r"Israel|Israeli|"
+        r"Iran|Iranian|"
+        r"North\s+Korea|DPRK|"
+        r"Entity\s+List|MilCorps|DDTC"
+        r")\b",
+        re.IGNORECASE,
+    )
+
     for pattern, intent in _PATTERNS:
         m = pattern.search(msg)
         if not m:
@@ -316,6 +350,14 @@ async def try_local_response(message: str) -> dict:
                 continue
 
             if intent == "sanctions":
+                # R-F511 — yield jurisdiction-scoped questions to LLM.
+                # See _JURISDICTION_QUALIFIER comment above. Without this,
+                # "Is Hikvision sanctioned in the UK?" gets a flat multi-
+                # regime BLOCKING MATCH that confuses procurement
+                # restrictions and Companies House presence with actual
+                # OFSI listing, and R-F510 clause 26 never runs.
+                if _JURISDICTION_QUALIFIER.search(msg):
+                    return {"answered": False, "response": None, "intent": None}
                 result = await fuzzy_sanctions.fuzzy_screen(arg)
                 return {
                     "answered": True,
