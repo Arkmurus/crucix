@@ -18,11 +18,39 @@ const API = {
     };
   },
 
+  // R-F464 (2026-05-14): error-payload detection. Pre-R-F464 GET would
+  // return `{error: "ARIA service offline"}` (from seenode's
+  // _brainFallback or fly proxy timeout) as if it were data. Callers
+  // doing `if (!data) return` proceeded with the error object as the
+  // happy-path payload — silent fallback rendered fake values.
+  // We now return null when the parsed body is an envelope-shaped
+  // error response, matching the honesty discipline that fetchJson()
+  // in aria-brain.html already enforced locally. The result: every
+  // page using API.get gets the same loud-fail treatment on proxy
+  // breakage instead of silently rendering placeholder data.
+  _isErrorEnvelope(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+    const keys = Object.keys(data);
+    if (!keys.includes('error') || !data.error) return false;
+    // Only treat as failure when the response is dominantly error-shape.
+    // Real APIs may return {results: [...], error: null} on partial
+    // success — don't break those. The seenode/fly error envelopes have
+    // at most 3 fields (error, fly_status, fly_error, path).
+    const errEnvelope = new Set(['error', 'fly_status', 'fly_error', 'path', 'detail']);
+    return keys.every(k => errEnvelope.has(k));
+  },
+
   async get(path) {
     try {
       const r = await fetch(this.BASE + path, { headers: this.headers() });
       if (r.status === 401) { Auth.logout(); return null; }
-      return r.json();
+      const data = await r.json();
+      // Network OK but body is an error envelope — surface as null.
+      if (this._isErrorEnvelope(data)) {
+        console.warn('API.get error envelope:', path, data.error);
+        return null;
+      }
+      return data;
     } catch (e) {
       console.error('API.get error:', path, e);
       return null;
