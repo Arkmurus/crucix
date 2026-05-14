@@ -49,7 +49,21 @@ jobs:
       # /health returns non-200) still fail the job.
       - id: deploy
         continue-on-error: true
-        run: flyctl deploy --remote-only --app aria-intel --wait-timeout 900 -t "${{ secrets.FLY_API_TOKEN }}"
+        # R-F513 (2026-05-14) — pass build-time identity so
+        # ARIA_BUILD_REV in /health/live reflects the actual deployed
+        # commit, not a hand-edited constant.
+        run: |
+          GIT_SHA=$(git rev-parse HEAD)
+          # Extract the most recent R-F number(s) from the commit subject
+          # line so log inspection can correlate fly version → R-tag.
+          # Handles patterns: "R-F123", "R-F123+F124", "R-F123 + R-F124".
+          R_TAG=$(git log -1 --pretty=%s | grep -oE 'R-F[0-9]+([+ ]+F[0-9]+)*' | head -1 | tr -d ' ')
+          R_TAG=${R_TAG:-no-r-tag}
+          echo "Building with ARIA_BUILD_GIT_SHA=$GIT_SHA ARIA_BUILD_R_TAG=$R_TAG"
+          flyctl deploy --remote-only --app aria-intel --wait-timeout 900 \
+            --build-arg ARIA_BUILD_GIT_SHA="$GIT_SHA" \
+            --build-arg ARIA_BUILD_R_TAG="$R_TAG" \
+            -t "${{ secrets.FLY_API_TOKEN }}"
       - name: Verify release actually landed
         if: steps.deploy.outcome == 'failure'
         run: |

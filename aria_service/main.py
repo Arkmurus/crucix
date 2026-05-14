@@ -43,14 +43,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger("aria.main")
 
-# R-F360 (2026-05-12): deploy marker. Bumped manually each commit that
-# touches fly.io-deployed surfaces (aria_service/*). Logged at lifespan
-# startup + exposed in /api/aria/health so we can confirm the deployed
-# commit matches what's in git. Diagnostic added after R-F353 was committed
-# and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
-# alone couldn't tell us whether the deploy had picked up. Same pattern
-# now also installed on seenode (server.mjs CRUCIX_BUILD_REV).
-ARIA_BUILD_REV = "R-F242+F243+F409+F422 · 2026-05-13 · 4-fix batch: R-F422 amendments dedupe + auto-reject stale (operator's 17-entry dashboard queue with 5x E1_FABRICATED_COMMITMENT duplicates), R-F242 reasoning_library archive flag (Phase A directive — was deleting low-confidence cases), R-F243 verified_intel permanent-storage regression pin (already fixed 2026-04-21), R-F409 dd_orchestrate auto-deep-retry on INSUFFICIENT_EVIDENCE (operator-flagged 08:18 — 10th run on adsm-sa.com); prior: R-F407+F408 dashboard panel"
+# R-F513 (2026-05-14): auto-derive build_rev from Dockerfile ARGs that
+# are passed by deploy-fly.yml at build time. Pre-R-F513 ARIA_BUILD_REV
+# was a hand-edited string that drifted — 27 commits on 2026-05-14
+# shipped without a bump, so /health/live reported R-F422 while
+# R-F509/F510 were live. Verify-after-fix was unreliable as a result.
+#
+# Env vars (set in aria_service/Dockerfile via --build-arg):
+#   ARIA_BUILD_GIT_SHA — git SHA at build (e.g. "a698a4f...")
+#   ARIA_BUILD_R_TAG   — most recent R-number(s) (e.g. "R-F511+F512+F513")
+#
+# Pass these on the CLI:
+#   flyctl deploy --remote-only --build-arg ARIA_BUILD_GIT_SHA=$(git rev-parse HEAD) \
+#                 --build-arg ARIA_BUILD_R_TAG="R-F513"
+# CI already does this in .github/workflows/deploy-fly.yml.
+#
+# If neither env var is present (local dev, image rebuilt without
+# args), fall back to a clear sentinel that lights up obviously in
+# logs and /health so we know to redeploy with the args.
+_BUILD_GIT_SHA = _os.environ.get("ARIA_BUILD_GIT_SHA", "").strip()
+_BUILD_R_TAG = _os.environ.get("ARIA_BUILD_R_TAG", "").strip()
+if _BUILD_GIT_SHA and _BUILD_GIT_SHA != "unknown":
+    _sha_short = _BUILD_GIT_SHA[:8]
+    if _BUILD_R_TAG:
+        ARIA_BUILD_REV = f"{_BUILD_R_TAG} · sha {_sha_short}"
+    else:
+        ARIA_BUILD_REV = f"sha {_sha_short}"
+else:
+    # Build-args were not passed — flag loudly so the operator knows
+    # /health/live build_rev is stale.
+    ARIA_BUILD_REV = "UNKNOWN-BUILD · ARIA_BUILD_GIT_SHA not set at image build (pass --build-arg)"
 
 
 @asynccontextmanager

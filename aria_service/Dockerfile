@@ -1,5 +1,20 @@
 FROM python:3.13-slim
 
+# R-F513 (2026-05-14) — build-time identity. Passed in via
+# `--build-arg` from .github/workflows/deploy-fly.yml (CI) or from the
+# local `flyctl deploy --build-arg ...` invocation (manual). Read by
+# aria_service/main.py at module-load time so /api/aria/health/live
+# reports the actual SHA running, not a hand-edited constant.
+#
+# Before R-F513 main.py:53 was a hand-edited string that drifted: 27
+# commits on 2026-05-14 shipped with zero bumps, so /health/live kept
+# reporting R-F422 while R-F509/F510 were live. Verify-after-fix was
+# unreliable as a result.
+ARG ARIA_BUILD_GIT_SHA=unknown
+ARG ARIA_BUILD_R_TAG=
+ENV ARIA_BUILD_GIT_SHA=$ARIA_BUILD_GIT_SHA
+ENV ARIA_BUILD_R_TAG=$ARIA_BUILD_R_TAG
+
 WORKDIR /app
 
 # ── System dependencies for local OCR (EasyOCR + Tesseract + PyMuPDF) ──────
