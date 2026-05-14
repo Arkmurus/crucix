@@ -172,6 +172,33 @@
 <script>
 Auth.requireAuth();
 Sidebar.init('brain');
+// R-F471 (2026-05-14): self-check on the Approve/Reject handlers. If
+// either is undefined when the page finishes parsing (e.g. a syntax
+// error in a later inline script block aborted definitions), paint
+// the JS error banner so the operator doesn't waste time clicking
+// dead buttons.
+window.addEventListener('DOMContentLoaded', function () {
+  setTimeout(function () {
+    var missing = [];
+    if (typeof approveAmendment !== 'function') missing.push('approveAmendment');
+    if (typeof rejectAmendment !== 'function') missing.push('rejectAmendment');
+    if (typeof bulkRejectStale !== 'function') missing.push('bulkRejectStale');
+    if (typeof showOperatorModal !== 'function') missing.push('showOperatorModal');
+    if (typeof showOperatorToast !== 'function') missing.push('showOperatorToast');
+    if (!document.getElementById('op-modal')) missing.push('#op-modal element');
+    if (missing.length) {
+      var el = document.getElementById('js-error-banner');
+      if (el) {
+        el.innerHTML =
+          '<strong>⚠️ Pending-Amendments handlers missing.</strong> '
+          + 'These Approve/Reject buttons will not work. Missing: <code>'
+          + missing.join('</code>, <code>') + '</code>. '
+          + 'Hard-refresh (Ctrl+Shift+R) often clears stale cache.';
+        el.style.display = 'block';
+      }
+    }
+  }, 100);
+});
 </script>
 
 <main id="app-main">
@@ -810,26 +837,49 @@ async function bulkRejectStale() {
 }
 
 // R-F433: reject via inline modal (was window.prompt). Single reason field.
+// R-F471 (2026-05-14): operator reported buttons "not working" on the live
+// queue of 11 amendments. The original handlers swallowed every failure
+// mode silently (modal failed to open → no toast; API errored with non-
+// standard shape → fell to "network error"; modal already-open conflict →
+// undefined behaviour). Wrapped with try/catch + step-by-step toast so
+// the failure surfaces precisely instead of looking dead.
 async function rejectAmendment(attackId) {
-  if (!attackId) return;
-  const r = await showOperatorModal({
-    title: `Reject amendment`,
-    sub: `<span style="font-family:'SF Mono',monospace;color:#c9d1d9">${attackId}</span><br>`
-       + `Rejection is audit-logged with the reason below. Keeps ARIA's current `
-       + `constitution unchanged for this attack.`,
-    notesLabel: 'Reason (required)',
-    notesPlaceholder: 'e.g. "ARIA already handles this attack correctly — no clause change needed"',
-    submitLabel: 'Reject',
-    danger: true,
-  });
-  if (!r.confirmed) return;
-  const resp = await API.post(
-    '/api/aria/adversarial/amendments/reject',
-    { attack_id: attackId, reason: r.notes },
-  );
+  if (!attackId) {
+    showOperatorToast('Reject: no attackId — internal bug, report it.', 'error');
+    return;
+  }
+  let r;
+  try {
+    r = await showOperatorModal({
+      title: `Reject amendment`,
+      sub: `<span style="font-family:'SF Mono',monospace;color:#c9d1d9">${attackId}</span><br>`
+         + `Rejection is audit-logged with the reason below. Keeps ARIA's current `
+         + `constitution unchanged for this attack.`,
+      notesLabel: 'Reason (required)',
+      notesPlaceholder: 'e.g. "ARIA already handles this attack correctly — no clause change needed"',
+      submitLabel: 'Reject',
+      danger: true,
+    });
+  } catch (e) {
+    showOperatorToast('Reject: modal failed — ' + (e && e.message || e), 'error');
+    return;
+  }
+  if (!r || !r.confirmed) return;
+  let resp;
+  try {
+    resp = await API.post(
+      '/api/aria/adversarial/amendments/reject',
+      { attack_id: attackId, reason: r.notes },
+    );
+  } catch (e) {
+    showOperatorToast('Reject: network threw — ' + (e && e.message || e), 'error');
+    return;
+  }
   if (!resp || !resp.ok) {
+    const detail = resp && resp.data && (resp.data.detail || resp.data.error);
+    const body = resp && resp.data ? JSON.stringify(resp.data).slice(0, 240) : '';
     showOperatorToast(
-      'Reject failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'),
+      `Reject failed (HTTP ${resp ? resp.status : '?'}): ${detail || body || 'no body'}`,
       'error');
     return;
   }
@@ -841,28 +891,46 @@ async function rejectAmendment(attackId) {
 // R-F433: refactored to use the inline modal. Confirm phrase ("APPROVE")
 // + notes textarea on a single dialog. On success, the response banner
 // surfaces the staged_improvement_id and the CLI command to deploy it.
+// R-F471 (2026-05-14): defensive wrap, see rejectAmendment header.
 async function approveAmendment(attackId) {
-  if (!attackId) return;
-  const r = await showOperatorModal({
-    title: `Approve amendment`,
-    sub: `<span style="font-family:'SF Mono',monospace;color:#c9d1d9">${attackId}</span><br>`
-       + `This <strong>stages</strong> a constitution change in self_improve. `
-       + `It is <strong>not live</strong> until you separately `
-       + `<code>POST /api/aria/self/deploy/{id}</code> from the CLI (the safety gate).`,
-    phrase: 'APPROVE',
-    notesLabel: 'Approval notes (required, audit-logged)',
-    notesPlaceholder: 'e.g. "ARIA failed this attack pattern reliably — needs new clause"',
-    submitLabel: 'Approve & stage',
-    danger: false,
-  });
-  if (!r.confirmed) return;
-  const resp = await API.post(
-    '/api/aria/adversarial/amendments/approve',
-    { attack_id: attackId, notes: r.notes },
-  );
+  if (!attackId) {
+    showOperatorToast('Approve: no attackId — internal bug, report it.', 'error');
+    return;
+  }
+  let r;
+  try {
+    r = await showOperatorModal({
+      title: `Approve amendment`,
+      sub: `<span style="font-family:'SF Mono',monospace;color:#c9d1d9">${attackId}</span><br>`
+         + `This <strong>stages</strong> a constitution change in self_improve. `
+         + `It is <strong>not live</strong> until you separately `
+         + `<code>POST /api/aria/self/deploy/{id}</code> from the CLI (the safety gate).`,
+      phrase: 'APPROVE',
+      notesLabel: 'Approval notes (required, audit-logged)',
+      notesPlaceholder: 'e.g. "ARIA failed this attack pattern reliably — needs new clause"',
+      submitLabel: 'Approve & stage',
+      danger: false,
+    });
+  } catch (e) {
+    showOperatorToast('Approve: modal failed — ' + (e && e.message || e), 'error');
+    return;
+  }
+  if (!r || !r.confirmed) return;
+  let resp;
+  try {
+    resp = await API.post(
+      '/api/aria/adversarial/amendments/approve',
+      { attack_id: attackId, notes: r.notes },
+    );
+  } catch (e) {
+    showOperatorToast('Approve: network threw — ' + (e && e.message || e), 'error');
+    return;
+  }
   if (!resp || !resp.ok) {
+    const detail = resp && resp.data && (resp.data.detail || resp.data.error);
+    const body = resp && resp.data ? JSON.stringify(resp.data).slice(0, 240) : '';
     showOperatorToast(
-      'Approve failed: ' + ((resp && resp.data && resp.data.detail) || (resp && resp.status) || 'network error'),
+      `Approve failed (HTTP ${resp ? resp.status : '?'}): ${detail || body || 'no body'}`,
       'error');
     return;
   }
