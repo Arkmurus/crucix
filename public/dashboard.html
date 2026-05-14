@@ -15,6 +15,18 @@
 
 <main id="app-main">
 
+  <!-- R-F466 (2026-05-14): fetch-failure banner. Mirrors the R-F391
+       pattern from /aria-brain. Pre-R-F466, when /api/data or /api/health
+       failed, dashboard panels silently showed loading spinners forever
+       or placeholder "—" values. With R-F464 lifting the error-envelope
+       check into API.get, the loaders now return null on failure;
+       this banner makes that visible to the operator instead of letting
+       the page look "loading" when it's actually broken. -->
+  <div id="fetch-failure-banner" role="alert"
+       style="display:none;background:#3d2818;border:1px solid #5c2125;
+              border-radius:6px;padding:10px 14px;margin-bottom:14px;
+              color:#fed7aa;font-size:13px;line-height:1.5"></div>
+
   <!-- Page Header -->
   <div class="sc-page-header">
     <h1 class="sc-page-title"><i class="bi bi-radar"></i> Intelligence Brief</h1>
@@ -97,9 +109,44 @@
 Auth.requireAuth();
 Sidebar.init('brief');
 
+// R-F466 (2026-05-14): fetch-failure tracker. Mirrors R-F391 from
+// /aria-brain. When loadData() / loadHealth() return null (R-F464
+// turned silent {error:...} fallbacks into honest nulls), each path
+// registers a failure here and the banner above renders.
+const _fetchFailures = new Map();  // path → reason
+function _trackFetchFailure(path, reason) {
+  _fetchFailures.set(path, reason || 'no response');
+  _renderFetchFailureBanner();
+}
+function _trackFetchSuccess(path) {
+  if (_fetchFailures.delete(path)) _renderFetchFailureBanner();
+}
+function _renderFetchFailureBanner() {
+  const banner = document.getElementById('fetch-failure-banner');
+  if (!banner) return;
+  if (_fetchFailures.size === 0) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+    return;
+  }
+  const head = [..._fetchFailures.entries()]
+    .map(([p, r]) => `<code style="color:#fed7aa">${p}</code> <span style="color:#8b949e">(${r})</span>`)
+    .join(', ');
+  const noun = _fetchFailures.size === 1 ? 'endpoint' : 'endpoints';
+  banner.innerHTML =
+    `<strong>⚠️ DATA UNAVAILABLE — ${_fetchFailures.size} ${noun} failed to fetch.</strong> `
+    + `Panels below may show stale or fallback values. Likely causes: fly.io proxy timeout, `
+    + `auth flap, or backend overload. Affected: ${head}.`;
+  banner.style.display = 'block';
+}
+
 async function loadData() {
   const data = await API.get('/api/data');
-  if (!data) return;
+  if (!data) {
+    _trackFetchFailure('/api/data', 'no response');
+    return;
+  }
+  _trackFetchSuccess('/api/data');
 
   // KPIs — derive market direction from VIX
   const vix = data.markets?.vix?.value;
