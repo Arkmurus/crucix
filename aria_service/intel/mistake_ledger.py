@@ -333,17 +333,23 @@ async def invalidate(mistake_ids: list[str], reason: str = "") -> dict:
         try:
             if mid not in current:
                 current.add(mid)
+            # R-F468 (2026-05-14): no TTL. Per [[aria_infinite_memory]]
+            # ARIA must never forget — and forgetting that an entry was
+            # invalidated would let a poisoned mistake re-enter the
+            # lookup_similar pool after 365 days. The original `ex=`
+            # values were borrowed from short-lived caches; this is an
+            # audit surface, not a cache.
             await rs.set_json(
                 _KEY_INVALIDATION_REASON.format(mid=mid),
                 payload,
-                ex=365 * 86400,
             )
             invalidated_count += 1
         except Exception as e:
             logger.warning("mistake_ledger.invalidate(%s) failed: %s", mid, e)
             skipped += 1
     try:
-        await rs.set_json(_KEY_INVALIDATED, sorted(current), ex=365 * 86400)
+        # R-F468: see comment above — no TTL on the invalidated set.
+        await rs.set_json(_KEY_INVALIDATED, sorted(current))
     except Exception as e:
         logger.warning("mistake_ledger: persist invalidated set failed: %s", e)
     logger.warning(
