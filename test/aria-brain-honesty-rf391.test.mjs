@@ -55,7 +55,11 @@ check(
 );
 check(
   'banner CSS defined with red-on-dark styling (visible alert)',
-  /#fetch-failure-banner\s*\{[\s\S]*?display:\s*none[\s\S]*?background:\s*#3d1418/.test(HTML),
+  // R-F518: regex tolerates the R-F441 combined selector
+  // `#fetch-failure-banner, #js-error-banner { ... }` as well as the
+  // original single-selector form. The visible-alert invariant is what
+  // we're asserting — the CSS authoring style is not.
+  /#fetch-failure-banner\s*[,{][\s\S]*?display:\s*none[\s\S]*?background:\s*#3d1418/.test(HTML),
 );
 check(
   '_trackFetchFailure helper defined',
@@ -197,10 +201,11 @@ for (let i = 0; i < STATIC_FORBIDDEN.length; i++) {
   );
 }
 
-// Banner is initially hidden (display: none) so it doesn't lie at first paint
+// Banner is initially hidden (display: none) so it doesn't lie at first paint.
+// R-F518: regex tolerates the R-F441 combined selector — see comment above.
 check(
   'banner CSS has display:none by default (no false-alarm on first paint)',
-  /#fetch-failure-banner\s*\{[\s\S]*?display:\s*none/.test(HTML),
+  /#fetch-failure-banner\s*[,{][\s\S]*?display:\s*none/.test(HTML),
 );
 
 console.log(`\n${failures === 0 ? '✓ ALL PASS' : `✗ ${failures} FAILURES`}`);

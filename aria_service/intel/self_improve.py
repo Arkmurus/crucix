@@ -110,11 +110,12 @@ PROTECTED_FILES = {
 # a regression in production.
 #
 # Operators who explicitly want the old behaviour back can set
-# ARIA_SELF_IMPROVE_AUTO_DEPLOY=1 — the auto_deployable flag is then
-# recomputed at deploy time (see stage_improvement). Default-off matches
-# the rest of the autonomy ladder. Staged items still land in
-# /api/aria/self/staged and require POST /api/aria/self/deploy/{id} from
-# the operator.
+# ARIA_SELF_IMPROVE_AUTO_DEPLOY=1. R-F518 correction: this env var is
+# read AT MODULE IMPORT only — a runtime change requires a worker
+# restart (e.g., `flyctl secrets set` already triggers one, so this is
+# the normal path). Default-off matches the rest of the autonomy ladder.
+# Staged items land in /api/aria/self/staged and require explicit
+# POST /api/aria/self/deploy/{id} from the operator.
 import os as _r462_os
 _R462_AUTO_DEPLOY_DEFAULT = _r462_os.getenv(
     "ARIA_SELF_IMPROVE_AUTO_DEPLOY", "0"

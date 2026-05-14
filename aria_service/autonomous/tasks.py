@@ -744,9 +744,14 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         # manual (operator-triggered). This dispatches eval_runner.run_eval
         # with the current LLM and surfaces pass_rate + score_delta so
         # the dashboard/whatsapp can react when accuracy drops.
+        #
+        # R-F518: use the `llm` parameter passed into _execute_direct_tool
+        # (matches every other branch in this function) instead of a
+        # `from ..main import app` rebind. The rebind risked a circular
+        # import if the run_eval branch fired during lifespan startup; the
+        # parameter version is what the rest of the dispatcher already
+        # relies on so we trust the same upstream guarantee here.
         from ..intel import eval_runner as _er
-        from ..main import app as _app_for_eval
-        llm = getattr(getattr(_app_for_eval, "state", None), "llm_provider", None)
         if not llm or not getattr(llm, "is_configured", False):
             return {
                 "run_eval": {
