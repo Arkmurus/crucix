@@ -7684,8 +7684,42 @@ async def document_extractions_recent_ep(limit: int = 20, form_code: str = ""):
 
 
 # 25. POST /api/aria/read-document — Read a document (text content or base64 binary)
+# R-F473 (2026-05-14): in-process latency stats. The other-agent audit
+# flagged 80s end-to-end on this endpoint; per-stage timing wasn't
+# captured, so the slow lever (base64 decode / file-type detect / per-
+# format parser / OCR fallback / fact extraction) was opaque. Now every
+# call is timed and a WARNING fires when total > 30s with the size +
+# detected type + filename. Aggregate stats readable via
+# /api/aria/read-document/stats.
+_R473_RD_TOTAL_CALLS = 0
+_R473_RD_TOTAL_S = 0.0
+_R473_RD_SLOW_CALLS = 0    # >30s
+_R473_RD_MAX_S = 0.0
+_R473_RD_MAX_FILENAME = ""
+
+
+def _r473_record_read_doc(elapsed_s: float, filename: str, byte_len: int, detected: str):
+    """Update the in-process /read-document latency tallies."""
+    global _R473_RD_TOTAL_CALLS, _R473_RD_TOTAL_S, _R473_RD_SLOW_CALLS
+    global _R473_RD_MAX_S, _R473_RD_MAX_FILENAME
+    _R473_RD_TOTAL_CALLS += 1
+    _R473_RD_TOTAL_S += elapsed_s
+    if elapsed_s > _R473_RD_MAX_S:
+        _R473_RD_MAX_S = elapsed_s
+        _R473_RD_MAX_FILENAME = filename[:120]
+    if elapsed_s > 30.0:
+        _R473_RD_SLOW_CALLS += 1
+        _log.warning(
+            "R-F473 read-document SLOW: %.1fs on %s (%d bytes, type=%s) — "
+            "investigate parser/OCR lever",
+            elapsed_s, filename[:80], byte_len, detected,
+        )
+
+
 @router.post("/read-document")
 async def read_document_ep(request: Request):
+    import time as _r473_time
+    _r473_t0 = _r473_time.monotonic()
     body = await request.json()
     content = body.get("content", "")
     filename = body.get("filename", "unknown")
@@ -7693,6 +7727,8 @@ async def read_document_ep(request: Request):
     context = body.get("context", "")
     encoding = body.get("encoding", "utf-8")
     mimetype = body.get("mimetype", "")
+    _r473_byte_len = len(content) if isinstance(content, str) else 0
+    _r473_detected = "unknown"
 
     # Handle base64-encoded binary documents (PDF, DOCX, Excel)
     if encoding == "base64" and content:
@@ -7757,6 +7793,9 @@ async def read_document_ep(request: Request):
         else:
             # Unknown bytes — reject early so we don't burn parser CPU
             # on a body that's neither office nor image nor text.
+            _r473_record_read_doc(
+                _r473_time.monotonic() - _r473_t0, filename, len(raw_bytes), "unknown",
+            )
             return {
                 "ok": False,
                 "error": "unrecognised file format (magic-byte check failed)",
@@ -7764,6 +7803,8 @@ async def read_document_ep(request: Request):
                 "claimed_mime": mimetype,
                 "byte_length": len(raw_bytes),
             }
+        _r473_detected = _r415_detected
+        _r473_byte_len = len(raw_bytes)
 
         # PDF extraction — 2026-04-18 upgraded to multi-page + image OCR.
         # The enhanced path splits every page into its own RAG chunk
@@ -8155,6 +8196,9 @@ async def read_document_ep(request: Request):
         )
         _cached["dedupe_hit"] = True
         _cached["dedupe_hash"] = _doc_hash
+        _r473_record_read_doc(
+            _r473_time.monotonic() - _r473_t0, filename, _r473_byte_len, _r473_detected,
+        )
         return _cached
 
     llm = get_llm(request)
@@ -8190,6 +8234,9 @@ async def read_document_ep(request: Request):
         except Exception as _cache_err:
             _log.debug("R-F65 dedupe cache write failed (non-fatal): %s", _cache_err)
 
+    _r473_record_read_doc(
+        _r473_time.monotonic() - _r473_t0, filename, _r473_byte_len, _r473_detected,
+    )
     return result
 
 
@@ -15519,6 +15566,25 @@ async def health_live_ep():
     except Exception:
         _build_rev = "unknown"
     return {"status": "alive", "build_rev": _build_rev}
+
+
+@router.get("/read-document/stats")
+async def read_document_stats_ep():
+    """R-F473 (2026-05-14): in-process latency stats for /read-document.
+    Other-agent audit flagged 80s end-to-end; this surfaces the tallies
+    so the operator can see avg / max / slow-call count and which file
+    types are dragging."""
+    avg = (_R473_RD_TOTAL_S / _R473_RD_TOTAL_CALLS) if _R473_RD_TOTAL_CALLS else 0
+    return {
+        "total_calls":   _R473_RD_TOTAL_CALLS,
+        "total_seconds": round(_R473_RD_TOTAL_S, 2),
+        "average_s":     round(avg, 2),
+        "max_s":         round(_R473_RD_MAX_S, 2),
+        "max_filename":  _R473_RD_MAX_FILENAME,
+        "slow_calls":    _R473_RD_SLOW_CALLS,   # >30s
+        "slow_rate":     (_R473_RD_SLOW_CALLS / _R473_RD_TOTAL_CALLS) if _R473_RD_TOTAL_CALLS else 0,
+        "slow_threshold_s": 30.0,
+    }
 
 
 @router.get("/llm-json/stats")
