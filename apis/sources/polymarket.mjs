@@ -4,6 +4,8 @@
 // Reference: https://gamma-api.polymarket.com
 // Price = probability (0.65 = 65% chance of YES outcome)
 
+import { robustFetch } from '../utils/fetch.mjs';
+
 const GAMMA_API = 'https://gamma-api.polymarket.com';
 
 // Keywords that identify geopolitically relevant markets for Arkmurus
@@ -44,9 +46,14 @@ export async function briefing() {
       limit:     '100',
     });
 
-    const res = await fetch(`${GAMMA_API}/markets?${params}`, {
+    // R-F515: robustFetch — gates Polymarket calls per-host so the sweep
+    // burst no longer saturates the shared undici pool, and retries on
+    // transient transport errors (ENOTFOUND / UND_ERR_CONNECT_TIMEOUT)
+    // that previously killed the source every ~3rd sweep.
+    const res = await robustFetch(`${GAMMA_API}/markets?${params}`, {
+      timeout: 20000,
+      retries: 2,
       headers: { 'User-Agent': 'CrucixIntelligence/1.0 (Arkmurus Group)' },
-      signal: AbortSignal.timeout(20000),
     });
 
     if (!res.ok) throw new Error(`Polymarket Gamma API ${res.status}`);
@@ -173,9 +180,10 @@ export async function searchPolymarket(query) {
       ascending: 'false',
       limit:  '20',
     });
-    const res = await fetch(`${GAMMA_API}/markets?${params}`, {
+    const res = await robustFetch(`${GAMMA_API}/markets?${params}`, {
+      timeout: 15000,
+      retries: 2,
       headers: { 'User-Agent': 'CrucixIntelligence/1.0' },
-      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) return { results: [], error: `API ${res.status}` };
     const markets = await res.json();
