@@ -429,6 +429,57 @@ def _absorb_pause_ms() -> int:
     return v
 
 
+# R-F521 (2026-05-14) — make ARIA_BRAIN_ABSORB_PAUSE_MS apply GLOBALLY,
+# not per-coroutine. Pre-R-F521 the pause was implemented as a per-call
+# `await asyncio.sleep(pause_ms/1000)` inside absorb(), which meant N
+# concurrent absorbs all slept the SAME pause_ms window in parallel —
+# the wall-clock rate-limit the operator was trying to set wasn't
+# actually enforced.
+#
+# Live evidence 2026-05-14 12:21:17 BST cold boot: ~17 knowledge_xxx
+# modules fired brain_hook.absorb() in parallel during startup
+# seeding. All 17 paused 500ms concurrently (within the same wall
+# window), then all hit the embedding + chromadb pipeline at once.
+# absorb p95 climbed to 16635ms (> 3500ms trip threshold), circuit
+# breaker tripped, pending_action recorded for operator. Same cold-
+# boot circuit-trip recurred on every fly machine restart.
+#
+# Fix: global lock + last-absorb timestamp. Wall-clock rate is now
+# enforced across the whole process: regardless of how many absorbs
+# are queued, at most one starts every pause_ms. Cold-boot storm
+# becomes a paced sequence instead of a simultaneous spike.
+_absorb_global_lock: Optional[asyncio.Lock] = None
+_last_absorb_monotonic: float = 0.0
+
+
+def _get_absorb_lock() -> asyncio.Lock:
+    """Lazy-init the global lock. asyncio.Lock() binds to the current
+    event loop on construction — creating it at module import time
+    fails when no loop is running yet. Lazy creation defers binding
+    to the first absorb() call, by which time the FastAPI lifespan
+    has its loop ready."""
+    global _absorb_global_lock
+    if _absorb_global_lock is None:
+        _absorb_global_lock = asyncio.Lock()
+    return _absorb_global_lock
+
+
+async def _wait_for_absorb_slot() -> None:
+    """Block until at least pause_ms has elapsed since the previous
+    absorb call started. Serializes across all concurrent callers."""
+    global _last_absorb_monotonic
+    pause_ms = _absorb_pause_ms()
+    if pause_ms <= 0:
+        return
+    lock = _get_absorb_lock()
+    async with lock:
+        now = time.monotonic()
+        elapsed_ms = (now - _last_absorb_monotonic) * 1000.0
+        if elapsed_ms < pause_ms:
+            await asyncio.sleep((pause_ms - elapsed_ms) / 1000.0)
+        _last_absorb_monotonic = time.monotonic()
+
+
 async def absorb(
     *,
     module: str,
@@ -477,16 +528,15 @@ async def absorb(
     if not BRAIN_HOOK_ENABLED:
         return {"skipped": True, "reason": "ARIA_BRAIN_HOOK_ENABLED=0"}
 
-    # ── R-F460 (2026-05-14) — operator-tunable inter-absorb pause ──────
-    # Live evidence (fly logs 2026-05-13 22:31 BST): email-reader bursts
-    # of 30+ /brain/absorb calls in 1 second drove absorb p95 to 28s,
-    # tripping the breaker repeatedly. The cooldown-then-recover loop
-    # ("ping-pong") was the surface symptom of an arrival-rate problem.
-    # Operator can set ARIA_BRAIN_ABSORB_PAUSE_MS=100 on fly to smooth
-    # bursts. Default 0 = backward-compat no-op.
-    _pause_ms = _absorb_pause_ms()
-    if _pause_ms > 0:
-        await asyncio.sleep(_pause_ms / 1000.0)
+    # ── R-F521 (2026-05-14, supersedes per-call pause from R-F460) ─────
+    # Wall-clock global rate-limit via _wait_for_absorb_slot(). Pre-
+    # R-F521 the pause was per-coroutine so N parallel absorbs slept
+    # the same window concurrently — the cold-boot storm at 12:21:17
+    # tripped the circuit breaker despite ARIA_BRAIN_ABSORB_PAUSE_MS
+    # being set. See _wait_for_absorb_slot docstring for the
+    # mechanism. ARIA_BRAIN_ABSORB_PAUSE_MS=0 (default) is a no-op
+    # fast path.
+    await _wait_for_absorb_slot()
 
     # ── 0. Absorption quality gate ──────────────────────────────────────
     # 2026-04-25: refuse to absorb content that contains known fabricated
