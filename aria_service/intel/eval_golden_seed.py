@@ -2838,6 +2838,21 @@ SEED_ENTRIES: list[dict[str, str]] = [
         "expected_answer": "ECOWAS regional sanctions are NOT directly binding on a UK broker — UK obligations flow from UN listings adopted into UK law plus UK autonomous designations under the Sanctions and Anti-Money Laundering Act 2018. (a) Check UK OFSI consolidated for any UK-autonomous Niger designations; (b) the AU position is political, not legally binding outside AU member states; (c) ECOWAS sanctions on Niger were partially lifted in February 2024. Sequencing of the AES split: AES (Alliance of Sahel States / Alliance des États du Sahel) was formed by the Liptako-Gourma Charter signed by Mali, Burkina Faso and Niger on 16 September 2023. The three states announced withdrawal from ECOWAS on 28 January 2024; the withdrawal took legal effect on 29 January 2025 after the one-year notice period under the ECOWAS Treaty. Action: ECOWAS status is informative for reputational/political risk but does not create UK legal obligations; UK position is set by UK OFSI + UN. The AES/ECOWAS political situation is itself a R-F due-diligence factor (regime change, governance instability) raising counterparty risk independent of sanctions status.",
     },
 
+    # ── R-F509 (2026-05-14): Hikvision UK — regime-confusion gold ─────────
+    # Live failure 2026-05-14 08:55 BST: WhatsApp "Aria, is Hikvision
+    # sanctioned in the UK?" returned "BLOCKING MATCH 1.0" citing
+    # us_dod_chinese_milcorps, us_sam_exclusions (both US-only) plus
+    # Companies House presence (corporate registry, not sanctions). Zero
+    # OFSI references. Permanent regression test for the regime-confusion
+    # failure mode. R-F510 (constitution clause 24) is the structural fix
+    # this entry validates.
+    {
+        "seed_id": "seed_sanctions_divergence_033",
+        "category": "sanctions_divergence",
+        "question": "Is Hikvision sanctioned in the UK?",
+        "expected_answer": "Hikvision is NOT on the OFSI Consolidated List — the authoritative UK financial sanctions registry. Distinctions: (a) UK SANCTIONS REGIME: no OFSI designation, no asset freeze, no UK Treasury financial sanctions apply to Hikvision. (b) UK PROCUREMENT RESTRICTIONS: Cabinet Office Procurement Policy Note 09/23 (November 2022) restricts Hikvision in UK government sensitive-site procurement — but procurement-restriction is NOT a financial sanction. (c) US REGIMES (frequently confused with UK status): BIS Entity List since 2019, DoD Chinese Military Industrial Complex list (E.O. 13959 / FY2021 NDAA Section 1260H), Investment Ban under E.O. 13959, NDAA Section 889 federal procurement ban, SAM Exclusions. (d) EU REGIME: not designated under EU sanctions (toolbox / forced-labor discussions ongoing). DISCIPLINE: matches against us_dod_chinese_milcorps or us_sam_exclusions DO NOT establish UK sanctions status — they answer a US-side question. A UK sanctions answer MUST resolve to the OFSI Consolidated List. Companies House presence (HIKVISION UK LIMITED, Hikvision Europe B.V.) is corporate-registry data, NOT a sanctions signal.",
+    },
+
     # ── multi_lang_ar 2-6 (gap 9 → 4) ─────────────────────────────────────
     {
         "seed_id": "seed_multi_lang_ar_002",
