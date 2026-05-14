@@ -1007,6 +1007,34 @@ tasks:
     escalate_if: ["new_market_coverage"]
     mem0_tags: [golden, eval, autogen, clause17, autonomous]
 
+  # ──────────────────────────────────────────────────────────────────
+  # RUN-EVAL-DAILY — R-F470 (2026-05-14)
+  # Scores the golden set against the current ARIA every day. Without
+  # this, DAILY-GOLDEN-AUTOGEN grows the eval surface but nothing
+  # measures regression — accuracy can decay silently. Scheduled at
+  # 06:00 UTC, 30 min after the autogen finishes, so the freshest
+  # multi-source-corroborated entries are in scope.
+  # ──────────────────────────────────────────────────────────────────
+  - id: RUN-EVAL-DAILY
+    name: Daily golden-set eval (regression detection)
+    description: |
+      Daily 06:00 UTC — run the golden set through the live ARIA chat
+      path and emit pass_rate + score_delta vs the previous run. Surfaces
+      regression honestly to the dashboard and (eventually) WhatsApp.
+      Closes the loop opened by DAILY-GOLDEN-AUTOGEN.
+    cron: "0 6 * * *"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 600
+    cost_cap_usd: 0.30
+    tool_chain:
+      - tool: run_eval
+        label: daily_autonomous
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: ["score_delta_negative", "pass_rate_below_70"]
+    mem0_tags: [eval, regression, daily, autonomous]
+
   # ADVERSARIAL-AUDIT — Wed + Sun 06:00 UTC, 5 attacks across 4
   # categories (false info, authority spoof, multi-turn drift, social
   # engineering, red-herring overload). Every failure stages a clause-

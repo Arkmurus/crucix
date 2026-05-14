@@ -737,6 +737,28 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         report = await _ga.propose_batch(max_candidates=max_cands)
         return {"golden_autogen": report}
 
+    elif tool_kind == "run_eval":
+        # R-F470 (2026-05-14): close the regression-detection loop.
+        # DAILY-GOLDEN-AUTOGEN grew the golden set; pre-R-F470 nothing
+        # scored against it autonomously, so regression detection was
+        # manual (operator-triggered). This dispatches eval_runner.run_eval
+        # with the current LLM and surfaces pass_rate + score_delta so
+        # the dashboard/whatsapp can react when accuracy drops.
+        from ..intel import eval_runner as _er
+        from ..main import app as _app_for_eval
+        llm = getattr(getattr(_app_for_eval, "state", None), "llm_provider", None)
+        if not llm or not getattr(llm, "is_configured", False):
+            return {
+                "run_eval": {
+                    "ok": False,
+                    "reason": "no_llm_configured",
+                    "readable": "⚠ run_eval SKIPPED — no LLM provider configured.",
+                }
+            }
+        label = (task.tool_chain[0] or {}).get("label", "daily_autonomous")
+        report = await _er.run_eval(llm, label=label)
+        return {"run_eval": report}
+
     elif tool_kind == "adversarial_weekly":
         # Manipulation-resistance bi-weekly sweep — 5 attacks across
         # 4 categories. Failures stage clause-amendment candidates.
@@ -1261,7 +1283,18 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "capability_card_refresh",
                            "calibration_auto_tune",
                            "source_uptime_ping",
-                           "self_diagnostic"):
+                           "self_diagnostic",
+                           # R-F470 [2026-05-14]: daily golden-set eval
+                           "run_eval",
+                           # R-F470 bonus [2026-05-14]: 4 pre-existing
+                           # handlers were dark — production tasks using
+                           # these would have errored "unsupported tool
+                           # kind". Caught by test_autonomous_dispatch_parity
+                           # while extending the tuple.
+                           "counter_intel_sweep",
+                           "crypto_sanctions_refresh",
+                           "fcpa_enforcement_scan",
+                           "recompute_priorities"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             # 2026-04-27 — attribute every direct-tool LLM call to its
