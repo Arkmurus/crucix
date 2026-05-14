@@ -64,12 +64,20 @@ def domain_of(url: str) -> str:
 
 async def _fetch_robots_txt(domain: str, timeout: float = 10.0) -> str:
     """Fetch /robots.txt over http or https; return body or empty string.
-    Failures are silent — caller treats empty as 'no restrictions'."""
+    Failures are silent — caller treats empty as 'no restrictions'.
+
+    R-F523 (2026-05-14) — max_redirects=5 to defuse upstream 301-loops.
+    Live 12:41:30 BST cold boot after R-F522 deployed: imo.org/robots.txt
+    fired 40+ identical 301s in 360ms via this fetcher (R-F522 only
+    capped crawl_enhancements.check_robots, which is a different
+    robots.txt code path). Same server-side bug (Location header points
+    to the same URL we just came from) — same fix shape as R-F522."""
     import httpx
     for scheme in ("https", "http"):
         try:
             async with httpx.AsyncClient(timeout=timeout,
-                                          follow_redirects=True) as c:
+                                          follow_redirects=True,
+                                          max_redirects=5) as c:
                 resp = await c.get(f"{scheme}://{domain}/robots.txt",
                                    headers={"User-Agent": "ARIAsBot/1.0"})
                 if resp.status_code == 200 and resp.text:
