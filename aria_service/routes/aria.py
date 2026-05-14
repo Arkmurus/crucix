@@ -1382,11 +1382,50 @@ async def eval_run_get_ep(run_id: str):
 
 
 @router.post("/eval/seed/load")
-async def eval_seed_load_ep(force: bool = False):
+async def eval_seed_load_ep(
+    background_tasks: _BackgroundTasks, force: bool = False,
+):
     """Load the v1 500-Q seed (eval_golden_seed.SEED_ENTRIES) into the
     golden set. Idempotent on seed_id — re-runs add only missing entries
-    unless force=True. Phase A gate #6 closer."""
-    return await eval_golden_seed.seed_golden_set(force=force)
+    unless force=True. Phase A gate #6 closer.
+
+    R-F507 (2026-05-14): returns 202 Accepted immediately; the seed-load
+    runs in a FastAPI BackgroundTask. Live 2026-05-14 07:34 evidence:
+    the prior synchronous form hit fly's edge timeout on a fresh batch
+    of 27 R-F505 entries (each requiring sentence-transformer embed),
+    returning 503 with content-length:0 — same cascade pattern that
+    R-F454 fixed for /brain/absorb.
+
+    Use GET /api/aria/eval/coverage to check progress / final state.
+    """
+    from fastapi.responses import JSONResponse as _r507_json
+
+    async def _r507_bg_load():
+        try:
+            result = await eval_golden_seed.seed_golden_set(force=force)
+            _log.info(
+                "[R-F507] eval/seed/load completed in background: "
+                "added=%d skipped=%d errored=%d",
+                result.get("added", 0),
+                result.get("skipped", 0),
+                result.get("errored", 0),
+            )
+        except Exception as e:
+            _log.warning("[R-F507] eval/seed/load background failed: %s", e)
+
+    background_tasks.add_task(_r507_bg_load)
+    return _r507_json(
+        status_code=202,
+        content={
+            "ok": True,
+            "accepted": True,
+            "force": force,
+            "note": (
+                "loading in background; poll GET /api/aria/eval/coverage "
+                "to see progress"
+            ),
+        },
+    )
 
 
 @router.get("/eval/coverage")
