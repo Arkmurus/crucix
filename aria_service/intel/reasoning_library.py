@@ -214,6 +214,57 @@ def _token_set(q: str) -> set[str]:
     return set(_normalise_question(q).split())
 
 
+# R-F518 (2026-05-14) — entity-overlap gate for non-exact matches.
+# Live failure 2026-05-14 11:00 BST: probed /chat with "Is Bumblestaff
+# Industries sanctioned?" — reasoning_library semantically matched at
+# 0.912 against a cached "Is Hikvision sanctioned in the UK?" answer
+# and served the Hikvision response verbatim. Question-shape similarity
+# beats entity identity in the embedding space, so every sanctions-
+# shaped question was being served the same cached answer regardless of
+# the entity asked about. Severe honesty bug — wrong-entity factual
+# answers shipping live.
+#
+# Fix: before accepting a non-exact match (semantic / lexical_jaccard),
+# require at least ONE shared content token after stripping shared
+# sanctions/jurisdiction/compliance jargon. The remaining tokens are
+# overwhelmingly entity names (Hikvision / Bumblestaff / Acme) — if
+# they don't overlap, the cached answer is about a different subject
+# and must not be served.
+#
+# Exact-normalised matches are unaffected — they already require full
+# text equality, which pins the entity.
+_DOMAIN_JARGON = frozenset({
+    # sanctions / compliance verbs and nouns
+    "sanction", "sanctioned", "sanctions", "designate", "designated",
+    "designation", "list", "listed", "lists", "consolidated", "blacklist",
+    "blocked", "blocking", "embargo", "embargoed", "screen", "screened",
+    "screening", "check", "checked", "checking", "compliance", "watchlist",
+    "freeze", "frozen", "asset", "assets", "restriction", "restrictions",
+    "restricted", "exclude", "excluded", "exclusion", "exclusions",
+    "ban", "banned", "denied", "debarment", "debarred", "violation",
+    # Sanctions list names / regulators (covered by global token check too)
+    "sdn", "ofac", "ofsi", "fcdo", "eu", "uk", "us", "usa", "un", "unsc",
+    "seco", "dfat", "mofa", "bis", "ddtc",
+    # Common interrogative + jurisdictional fillers that survive stopword
+    # stripping
+    "country", "regime", "jurisdiction", "financial", "export", "import",
+    "trade", "procurement", "regulation", "regulations", "regulatory",
+    "entity", "person", "company",
+})
+
+
+def _entity_tokens(normalised: str) -> set[str]:
+    """Return tokens left after stripping shared sanctions/jurisdiction
+    jargon. What remains is dominated by entity names (Hikvision /
+    Bumblestaff / Acme Industries). Two queries with empty intersection
+    on this set are about different subjects, even if their semantic
+    embeddings cluster together.
+    """
+    if not normalised:
+        return set()
+    return set(normalised.split()) - _DOMAIN_JARGON
+
+
 def _jaccard(a: set[str], b: set[str]) -> float:
     if not a or not b:
         return 0.0
@@ -684,6 +735,9 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
         return {"match": False, "score": 0, "case": None, "method": "skipped_too_few_tokens", "threshold": threshold}
     query_tokens = _token_set(question)
     query_embedding = await _embed_async(question)
+    # R-F518 — entity tokens for the new query, computed once and reused
+    # per entry comparison. See _entity_tokens for rationale.
+    query_entities = _entity_tokens(normalised)
 
     best_idx = None
     best_score = 0.0
@@ -698,6 +752,19 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
                 if best_score >= 0.99:
                     break  # can't beat exact match
             continue
+
+        # R-F518 — entity-overlap gate for non-exact matches. Skip this
+        # entry entirely if the cached question is about a different
+        # subject. Without this, semantic matching on question SHAPE
+        # ("Is X sanctioned in Y?") serves the same cached answer for
+        # any X and any Y — the 2026-05-14 Hikvision/Bumblestaff repro.
+        entry_entities = _entity_tokens(entry.get("normalised", ""))
+        if query_entities and entry_entities and not (query_entities & entry_entities):
+            continue
+        # If EITHER side has no entity tokens (pure-jargon question like
+        # "are sanctions on UK companies effective?") we fall through —
+        # those queries are about concepts, not entities, and the
+        # original semantic + threshold gating is appropriate.
 
         # 2. Semantic similarity (best precision)
         if query_embedding and entry.get("embedding"):
