@@ -2205,7 +2205,7 @@ app.get('/api/aria/dd/reports', requireAuth, (req, res) =>
 app.get('/api/aria/dd/report/:run_id', requireAuth, (req, res) =>
   ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/dd/orchestrate', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/dd/orchestrate', { method: 'POST', timeoutMs: 240000, fallback: async () => res.status(503).json(_brainFallback()) }));
+  ariaProxy(req, res, '/api/aria/dd/orchestrate', { method: 'POST', timeoutMs: parseInt(process.env.ARIA_DD_PROXY_TIMEOUT_MS || '600000', 10), fallback: async () => res.status(503).json(_brainFallback()) }));
 app.get('/api/aria/rlaif/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/rlaif/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/rlaif/evaluate', requireAuth, (req, res) =>
@@ -2591,15 +2591,22 @@ app.post('/api/aria/chat', requireAuth, async (req, res) => {
         method: 'POST',
         headers: _ariaHeaders(),
         body: JSON.stringify({ message, session_id: sid, user_id: _personaUserId, persona: _persona }),
-        // 2026-04-26 (was 420s): /chat is reached by the WA listener as the
-        // FALLBACK after its streaming path already failed. The listener's
-        // outer abort fires at 360s — if we hold fly.io for 420s here, the
-        // listener aborts before we can fall through to ariaLocalChat, and
-        // the user gets "fetch failed" instead of the local degraded
-        // answer. 240s leaves ~120s headroom for ariaLocalChat to complete
-        // inside the listener's 360s budget. The streaming path keeps its
-        // own longer budget on /api/aria/chat/stream.
-        signal: AbortSignal.timeout(240000),
+        // R-F525 (2026-05-14): bumped 240s → 600s (env-tunable). Live WA
+        // failure 14:07-14:30 BST: "do a full DD on https://adsm-sa.com/"
+        // aborted at exactly 240s → triggered R-F160 unguarded-fallback-
+        // refused → user got "fly.io ARIA is currently unreachable" even
+        // though fly was actively processing the DD. Full DD on URL takes
+        // 5-10 min with DeepSeek synthesis (longer while Anthropic is on
+        // billing cooldown). 600s gives enough headroom. WA listener long
+        // budget also bumped to 600s (see waListener.mjs) so the outer
+        // listener abort doesn't fire before this completes.
+        //
+        // Historical context (preserved for diagnostic value):
+        // Pre-R-F525, 240s was chosen "to leave ~120s headroom for
+        // ariaLocalChat to complete inside the listener's 360s budget".
+        // R-F525 raises both ceilings together so DD requests have a
+        // chance to actually finish.
+        signal: AbortSignal.timeout(parseInt(process.env.ARIA_CHAT_PROXY_TIMEOUT_MS || '600000', 10)),
       });
       if (r.ok) {
         const data = await r.json();
@@ -2788,7 +2795,10 @@ app.post('/api/aria/chat/stream', requireAuth, async (req, res) => {
         auto_tools: auto_tools !== false,
         group_context: group_context || '',
       }),
-      signal: AbortSignal.timeout(300000),
+      // R-F525 (2026-05-14): 300s → 600s, env-tunable. Streaming DD
+      // requests can run 5-10 min; we don't want the outer fetch to
+      // abort before the SSE stream completes its final `done` event.
+      signal: AbortSignal.timeout(parseInt(process.env.ARIA_STREAM_PROXY_TIMEOUT_MS || '600000', 10)),
     });
 
     if (!r.ok) {
