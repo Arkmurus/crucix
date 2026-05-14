@@ -508,9 +508,27 @@ function metricRow(label, value, cls='neutral') {
   return `<div class="metric"><span class="label">${label}</span><span class="value ${cls}">${value}</span></div>`;
 }
 
+// R-F465 (2026-05-14): badge reset on loader failure. Pre-R-F465, when
+// /health (or /operating-mode, /autonomous/status, /autonomy/composite)
+// returned null, the corresponding status-bar badge kept its previous
+// value (or the boot "Loading..." / "--"). Once a refresh tick succeeded
+// and the next failed, the badges showed yesterday's number while the
+// banner below said "ARIA service offline" — a top-of-page contradiction.
+// resetBadge stamps a neutral DOWN state so banner and badge align.
+function resetBadge(id, label) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = label;
+  el.className = 'badge badge-red';
+}
+
 async function loadHealth() {
   const d = await fetchJson('/health');
-  if (!d) { document.getElementById('infra-metrics').innerHTML = '<span class="bad">Failed to load</span>'; return; }
+  if (!d) {
+    resetBadge('health-badge', 'DOWN');
+    document.getElementById('infra-metrics').innerHTML = '<span class="bad">Failed to load</span>';
+    return;
+  }
 
   // Status bar
   const hb = document.getElementById('health-badge');
@@ -539,7 +557,10 @@ async function loadHealth() {
 
 async function loadMode() {
   const d = await fetchJson('/operating-mode');
-  if (!d) return;
+  if (!d) {
+    resetBadge('mode-badge', 'MODE: DOWN');
+    return;
+  }
   const mb = document.getElementById('mode-badge');
   mb.textContent = `MODE: ${d.mode}`;
   const cls = {NORMAL:'badge-green', DEGRADED:'badge-yellow', SUPERVISED:'badge-yellow', EMERGENCY:'badge-red'}[d.mode] || 'badge-blue';
@@ -557,7 +578,11 @@ async function loadMode() {
 
 async function loadEngine() {
   const d = await fetchJson('/autonomous/status');
-  if (!d) { document.getElementById('engine-metrics').innerHTML = '<span class="bad">Failed</span>'; return; }
+  if (!d) {
+    resetBadge('autonomy-badge', 'AUTONOMY: DOWN');
+    document.getElementById('engine-metrics').innerHTML = '<span class="bad">Failed</span>';
+    return;
+  }
   const e = d.engine || d;
 
   const ab = document.getElementById('autonomy-badge');
@@ -1164,7 +1189,13 @@ async function loadMastery() {
 
 async function loadComposite() {
   const d = await fetchJson('/autonomy/composite');
-  if (!d || !d.composite_score) { document.getElementById('composite-metrics').innerHTML = '<span class="neutral">No data yet</span>'; return; }
+  if (!d || !d.composite_score) {
+    // R-F465: reset composite badge so the top bar doesn't keep showing
+    // yesterday's score while panels below say "No data yet".
+    resetBadge('composite-badge', 'SCORE: DOWN');
+    document.getElementById('composite-metrics').innerHTML = '<span class="neutral">No data yet</span>';
+    return;
+  }
   const cb = document.getElementById('composite-badge');
 
   // R-F227 (2026-05-11) — cap displayed tier on signal-pending. The
