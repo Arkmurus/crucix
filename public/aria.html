@@ -757,7 +757,14 @@ async function send(text, opts) {
           } else if (evt.type === 'meta') {
             toolUsed = evt.tool_used || '';
           } else if (evt.type === 'error') {
-            if (!fullText) fullText = '⚠️ ' + (evt.message || 'Stream error');
+            // R-F467 (2026-05-14): always append a visible cut marker.
+            // Pre-R-F467, mid-stream errors after the first chunk were
+            // silently dropped (the `if (!fullText)` guard hid them),
+            // so the operator saw a truncated answer and had no way to
+            // tell if it was a complete response or a network/LB cut.
+            var _r467_reason = evt.message || evt.reason || 'unknown';
+            fullText = (fullText ? fullText + '\n\n' : '')
+                     + '⚠️ [!stream cut: ' + _r467_reason + ']';
             streamBody.innerHTML = md(fullText);
           }
         } catch(e) { /* skip malformed SSE */ }
