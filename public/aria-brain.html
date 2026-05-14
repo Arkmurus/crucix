@@ -649,9 +649,15 @@ async function loadAmendments() {
         + 'self_improve.deploy_improvement per aria_autonomy_doctrine.md — '
         + 'do that from the CLI (no UI button — manual deploy is the safety gate).</div>';
   // Bulk-reject UI
+  // R-F527 (2026-05-14): data-action delegation replaces inline onclick.
+  // Operator reported "no engagement" on Approve/Reject even after R-F471
+  // shipped defensive wraps + self-check banner. Switching to delegated
+  // listeners eliminates the inline-handler drop scenario entirely
+  // (some browser extensions / ad-blocker rule sets strip onclick=
+  // attributes silently, leaving the button looking like a dead element).
   html += '<div style="margin-top:10px;padding:8px;background:rgba(110,44,44,0.1);border-radius:6px;font-size:0.8em">'
         + '<strong>Bulk reject</strong> all amendments matching a pattern: '
-        + '<button onclick="bulkRejectStale()" '
+        + '<button data-action="bulk-reject-stale" '
         + 'style="background:#6e2c2c;color:#fff;border:0;padding:4px 12px;'
         + 'border-radius:4px;cursor:pointer;font-size:0.85em;margin-left:6px">'
         + 'Reject all amendments older than 7 days</button></div>';
@@ -702,12 +708,14 @@ async function loadAmendments() {
       + `${escapeHtml(lastFailed) || '—'}</span></span>`
       + `</div>`
       // Right: actions
+      // R-F527 (2026-05-14): data-action delegation. See bulk-reject
+      // header comment above for rationale.
       + `<div style="display:inline-flex;gap:8px;align-items:center;white-space:nowrap">`
-      + `<button onclick="approveAmendment('${safeAttackId}')" `
+      + `<button data-action="approve" data-attack-id="${safeAttackId}" `
       + `style="background:#1f4f2c;color:#fff;border:1px solid #2e6b3f;`
       + `padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;`
       + `font-weight:600">Approve</button>`
-      + `<button onclick="rejectAmendment('${safeAttackId}')" `
+      + `<button data-action="reject" data-attack-id="${safeAttackId}" `
       + `style="background:#6e2c2c;color:#fff;border:1px solid #8a3838;`
       + `padding:6px 14px;border-radius:4px;cursor:pointer;font-size:0.85em;`
       + `font-weight:600">Reject</button>`
@@ -716,6 +724,33 @@ async function loadAmendments() {
       + `</div>`; // close amendment card
   });
   el.innerHTML = html;
+  // R-F527 (2026-05-14): delegated click listener on the queue container.
+  // Attached AFTER innerHTML is set so the buttons exist. Idempotent —
+  // we replace the listener each render via a marker property so we
+  // never stack multiple handlers across refreshes.
+  if (el._rf527Bound !== true) {
+    el.addEventListener('click', _amendmentsDelegatedClick);
+    el._rf527Bound = true;
+  }
+}
+
+// R-F527 (2026-05-14): single delegated click handler for the amendments
+// queue. Dispatches by data-action. Entry log lands in console + the
+// JS-error banner via showOperatorToast so operator sees the chain
+// progressing instead of "nothing happened".
+function _amendmentsDelegatedClick(ev) {
+  const btn = ev.target.closest('button[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const attackId = btn.dataset.attackId || '';
+  // Entry trace — visible in DevTools console even when the modal
+  // path fails silently. If you click and don't see this, the click
+  // never reached the listener (overlay / pointer-events / CSP).
+  try { console.info('[R-F527] amendments click', { action, attackId }); } catch {}
+  if (action === 'approve')            return approveAmendment(attackId);
+  if (action === 'reject')             return rejectAmendment(attackId);
+  if (action === 'bulk-reject-stale')  return bulkRejectStale();
+  showOperatorToast('Unknown amendments action: ' + action, 'error');
 }
 
 // R-F433 (2026-05-13): generic inline modal that replaces window.prompt().
@@ -917,6 +952,10 @@ async function rejectAmendment(attackId) {
 // + notes textarea on a single dialog. On success, the response banner
 // surfaces the staged_improvement_id and the CLI command to deploy it.
 // R-F471 (2026-05-14): defensive wrap, see rejectAmendment header.
+// R-F527 (2026-05-14): invoked via _amendmentsDelegatedClick (data-action
+// delegation) so a silently-dropped inline onclick is no longer in the
+// possible failure set. Public function name preserved for older test
+// callers.
 async function approveAmendment(attackId) {
   if (!attackId) {
     showOperatorToast('Approve: no attackId — internal bug, report it.', 'error');
