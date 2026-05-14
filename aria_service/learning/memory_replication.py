@@ -88,6 +88,34 @@ _CRITICAL_KEYS: tuple[str, ...] = (
     "crucix:codegen:pending_count",
     "crucix:golden:pending_count",
     "crucix:ground_truth:pending_count",
+    # R-F463 (2026-05-14): brain singleton keys. Knowledge is sharded
+    # (its shards are picked up via _CRITICAL_PATTERNS); these single
+    # keys are the index/head pointers without which the shards can't
+    # be reassembled. mistake_ledger:log is the append-only event log;
+    # head_hash anchors the audit chain.
+    "crucix:aria:knowledge",            # legacy single-blob (pre-shard fallback)
+    "crucix:aria:knowledge:meta",       # shard count + version
+    "crucix:mistake_ledger:log",        # append-only event log
+    "crucix:mistake_ledger:head_hash",  # audit-chain anchor
+)
+
+
+# R-F463 (2026-05-14): wildcard-pattern backups for the per-entity brain
+# keyspaces. DD-audit P0 #5 flagged that ~85% of the brain was unbacked:
+#   - aria:verified_facts:*       — per-fact VERIFIED claims (heart of [[aria_infinite_memory]])
+#   - crucix:aria:knowledge:shard:* — sharded knowledge snapshot pages
+#   - crucix:aria:conversations:* — per-user conversation indices
+#   - crucix:mistake_ledger:by_sig:* / by_id:* — secondary indices off the main log
+#
+# Each pattern carries a `max_keys` cap so a runaway keyspace can't blow
+# the backup file size. When the cap fires we record `truncated_at` in
+# the snapshot so the recovery operator knows partial restore.
+_CRITICAL_PATTERNS: tuple[tuple[str, int], ...] = (
+    ("aria:verified_facts:*",          5000),
+    ("crucix:aria:knowledge:shard:*",  1000),
+    ("crucix:aria:conversations:*",    2000),
+    ("crucix:mistake_ledger:by_sig:*", 5000),
+    ("crucix:mistake_ledger:by_id:*",  5000),
 )
 
 
@@ -127,6 +155,40 @@ async def run_daily_backup() -> dict[str, Any]:
                 snapshot["keys"][key] = {"type": "json", "value": val}
         except Exception as exc:
             skipped.append(f"{key} (err: {str(exc)[:60]})")
+
+    # R-F463 (2026-05-14): wildcard-pattern keys. Per DD-audit P0 #5,
+    # the brain's per-entity keyspaces (verified_facts, knowledge shards,
+    # conversations, mistake-ledger indices) were unbacked. Pull each
+    # pattern's keys up to max_keys; record truncation in the snapshot
+    # so a recovery operator knows whether partial restore is at play.
+    snapshot["truncated_patterns"] = {}
+    for pattern, max_keys in _CRITICAL_PATTERNS:
+        try:
+            # scan_keys' count is per-iteration (NOT a hard cap); fetch up
+            # to max_keys + 1 to detect overflow honestly.
+            matched = await rs.scan_keys(pattern, count=max_keys + 1)
+            if len(matched) > max_keys:
+                snapshot["truncated_patterns"][pattern] = {
+                    "matched_at_least": len(matched),
+                    "kept": max_keys,
+                }
+                matched = matched[:max_keys]
+            for k in matched:
+                try:
+                    val = await rs.get_json(k)
+                    if val is None:
+                        raw = await rs.get(k)
+                        if raw is None:
+                            skipped.append(k)
+                            continue
+                        snapshot["keys"][k] = {"type": "scalar", "value": raw}
+                    else:
+                        snapshot["keys"][k] = {"type": "json", "value": val}
+                except Exception as exc:
+                    skipped.append(f"{k} (err: {str(exc)[:60]})")
+        except Exception as exc:
+            logger.warning("R-F463 scan_keys(%s) failed: %s", pattern, exc)
+            skipped.append(f"{pattern} (scan err: {str(exc)[:60]})")
 
     # Ensure backup dir exists
     try:
@@ -589,6 +651,8 @@ def summary() -> dict[str, Any]:
     """Capability-manifest summary."""
     return {
         "critical_keys_tracked": len(_CRITICAL_KEYS),
+        "critical_patterns_tracked": len(_CRITICAL_PATTERNS),
+        "critical_patterns": [p for p, _ in _CRITICAL_PATTERNS],
         "backup_dir": str(_BACKUP_DIR),
         "retention_days": _RETENTION_DAYS,
         "compression": "gzip level 6",
