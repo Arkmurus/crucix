@@ -96,31 +96,92 @@ _PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bclassify\s+(?:this|these)\s*[:\-]?\s*(.+)", re.I | re.S), "classify"),
 ]
 
-# R-F511 jurisdiction-qualifier regex — promoted to module scope by R-F517.
-# When intent=="sanctions" and the user names a specific jurisdiction (UK,
-# US, EU, etc.) we yield to the LLM so clause 26 can fire. Pre-R-F517 this
-# was compiled per call to try_local_response. See R-F511 commit message for
-# the live failure that drove the regex.
+# R-F511 jurisdiction-qualifier regex — promoted to module scope by R-F517,
+# expanded with embargoed/sanctioned destination countries by R-F524.
+#
+# When intent=="sanctions" and the user names ANY recognised jurisdiction
+# (regulator, regulator-country, or sanctioned destination country) we yield
+# to the LLM so clause 26 can fire with per-regime per-jurisdiction answer.
+#
+# R-F524 (2026-05-14) — live WhatsApp 13:55-13:57 BST:
+#   "Is Yemen under sanctions?" — local_brain regex captured "Yemen under"
+#   as entity → fuzzy_screen 0 matches → "Sanctions screen — Yemen under"
+#   wrong-entity headline. Yemen wasn't in the pre-R-F524 qualifier list
+#   (which only covered major regulators + Western/G7 jurisdictions).
+#   "which Government party is under sanctions in Yemen?" — captured just
+#   "under" as entity → fuzzy matches "Under Secretary", "UNDER TECHNOLOGIES
+#   INC.", etc. → garbage answer served.
+#
+# Fix: add destination countries that commonly come up in sanctions/embargo
+# questions — UN/EU/OFSI/OFAC embargo targets plus broad-question regional
+# names. The list is intentionally wider than just "embargoed today" because
+# the FIX is the yield-to-LLM; false-positive yields just trade local-brain
+# speed for an LLM call, never produce wrong answers.
 _JURISDICTION_QUALIFIER = re.compile(
     r"\b(?:"
+    # Regulators
+    r"OFSI|OFAC|SDN|SECO|DFAT|MoFA|FCDO|"
+    r"UN(?:\s+Security\s+Council|SC)?|"
+    r"Entity\s+List|MilCorps|DDTC|"
+    # Western / G7
     r"UK|U\.K\.|United\s+Kingdom|Britain|British|"
     r"US|U\.S\.|USA|United\s+States|American|"
     r"EU|European\s+Union|"
-    r"OFSI|OFAC|SDN|SECO|DFAT|MoFA|FCDO|"
     r"Australia|Australian|"
     r"Japan|Japanese|"
     r"Switzerland|Swiss|"
     r"Norway|Norwegian|"
-    r"UN(?:\s+Security\s+Council|SC)?|"
-    r"China|Chinese|PRC|"
-    r"Russia|Russian|"
     r"Canada|Canadian|"
     r"Germany|German|"
     r"France|French|"
     r"Israel|Israeli|"
+    # Major non-Western players
+    r"China|Chinese|PRC|"
+    r"Russia|Russian|"
     r"Iran|Iranian|"
     r"North\s+Korea|DPRK|"
-    r"Entity\s+List|MilCorps|DDTC"
+    # R-F524 — UN/EU/OFSI/OFAC embargoed or comprehensively-sanctioned
+    # destination countries. Operator routinely asks "is X sanctioned?"
+    # about these as part of pre-deal screening.
+    r"Yemen|Yemeni|"
+    r"Syria|Syrian|"
+    r"Libya|Libyan|"
+    r"Sudan|Sudanese|"
+    r"South\s+Sudan|"
+    r"Somalia|Somali|"
+    r"Myanmar|Burma|Burmese|"
+    r"Lebanon|Lebanese|Hezbollah|"
+    r"Iraq|Iraqi|"
+    r"Afghanistan|Afghan|Taliban|"
+    r"Eritrea|Eritrean|"
+    r"DRC|Democratic\s+Republic\s+of\s+(?:the\s+)?Congo|Congolese|"
+    r"CAR|Central\s+African\s+Republic|"
+    r"Mali|Malian|"
+    r"Burkina\s+Faso|"
+    r"Niger|Nigerien|"
+    r"Cuba|Cuban|"
+    r"Venezuela|Venezuelan|"
+    r"Nicaragua|Nicaraguan|"
+    r"Belarus|Belarusian|"
+    r"Zimbabwe|Zimbabwean|"
+    # R-F524 — additional countries that operators commonly screen against
+    # (high traffic in defence/dual-use trade, often subject to regime-
+    # specific restrictions even when not under blanket embargo).
+    r"Saudi\s+Arabia|Saudi|"
+    r"UAE|United\s+Arab\s+Emirates|Emirati|"
+    r"Egypt|Egyptian|"
+    r"Turkey|Turkish|Turkiye|"
+    r"Pakistan|Pakistani|"
+    r"India|Indian|"
+    r"Brazil|Brazilian|"
+    r"Angola|Angolan|"
+    r"Mozambique|Mozambican|"
+    r"Nigeria|Nigerian|"
+    r"Ethiopia|Ethiopian|"
+    r"Kenya|Kenyan|"
+    r"Ukraine|Ukrainian|"
+    r"Hong\s+Kong|"
+    r"Taiwan|Taiwanese"
     r")\b",
     re.IGNORECASE,
 )
