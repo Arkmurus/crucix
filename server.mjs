@@ -1771,9 +1771,19 @@ async function ariaProxy(req, res, path, { method = 'GET', fallback, timeoutMs }
       // Past incident 2026-04-18 — /teach URL crawls on guides.fscj.edu
       // and libguides.csn.edu fired 503 "Crawl unavailable" because the
       // proxy's 30s timeout aborted BEFORE fly.io's crawl finished.
+      //
+      // R-F455 (2026-05-14): default now env-var tunable via
+      // ARIA_PROXY_TIMEOUT_MS. Session B brain-cascade diagnosis showed
+      // full /health on fly takes 5-15s under load; with the 30s ceiling
+      // the dashboard banner reported "ARIA service offline" on every
+      // slow but healthy tick. Default bumped to 45s — leaves headroom
+      // for legitimate slowness without making genuine outages drag.
+      const _defaultTimeout = parseInt(
+        process.env.ARIA_PROXY_TIMEOUT_MS || '45000', 10
+      ) || 45000;
       const resolvedTimeout = (typeof timeoutMs === 'number' && timeoutMs > 0)
         ? timeoutMs
-        : 30000;
+        : _defaultTimeout;
       const opts = {
         method: method || req.method,
         headers,
