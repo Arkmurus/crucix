@@ -132,12 +132,17 @@ async def lifespan(app: FastAPI):
     # exposure investigation).
     _crawler_task = None
     _crawler_stop_event = None
-    if _os.getenv("ARIA_CRAWLER_DISABLED", "").lower() not in ("1", "true", "yes"):
+    # R-F508 (2026-05-14): use _f28_os (already imported at line 78), NOT
+    # _os — the inner `import os as _os` on line 168 makes _os a LOCAL
+    # variable for the whole function, so referencing it BEFORE that line
+    # raises UnboundLocalError at startup. R-F507 author missed the F28
+    # warning at lines 72-77 and took prod down at 07:28 UTC.
+    if _f28_os.getenv("ARIA_CRAWLER_DISABLED", "").lower() not in ("1", "true", "yes"):
         try:
             from .crawler import runner as _crunner
             _crawler_stop_event = asyncio.Event()
             _crawl_interval = int(
-                _os.getenv("ARIA_CRAWLER_INTERVAL_SEC", "21600"))  # 6h
+                _f28_os.getenv("ARIA_CRAWLER_INTERVAL_SEC", "21600"))  # 6h
             _crawler_task = asyncio.create_task(
                 _crunner.crawl_loop(
                     interval_sec=_crawl_interval,
