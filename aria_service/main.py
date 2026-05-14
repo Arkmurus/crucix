@@ -124,6 +124,37 @@ async def lifespan(app: FastAPI):
             "[R-F504] search index init failed (non-fatal): %s", _exc,
         )
 
+    # ── R-F507 (2026-05-14) — light the crawler ─────────────────────────
+    # Game-changer move: the engine fills itself. Background task
+    # rotates through the seed domains every CRAWL_INTERVAL_S (default
+    # 6 h). Gated by ARIA_CRAWLER_DISABLED — set to "1" to keep the
+    # engine dark (useful for first-deploy verification or volume cap
+    # exposure investigation).
+    _crawler_task = None
+    _crawler_stop_event = None
+    if _os.getenv("ARIA_CRAWLER_DISABLED", "").lower() not in ("1", "true", "yes"):
+        try:
+            from .crawler import runner as _crunner
+            _crawler_stop_event = asyncio.Event()
+            _crawl_interval = int(
+                _os.getenv("ARIA_CRAWLER_INTERVAL_SEC", "21600"))  # 6h
+            _crawler_task = asyncio.create_task(
+                _crunner.crawl_loop(
+                    interval_sec=_crawl_interval,
+                    stop_event=_crawler_stop_event,
+                ),
+            )
+            logger.info(
+                "[R-F507] crawler attached (interval=%ds, set "
+                "ARIA_CRAWLER_DISABLED=1 to disable)", _crawl_interval,
+            )
+        except Exception as _exc:
+            logger.warning(
+                "[R-F507] crawler attach failed (non-fatal): %s", _exc,
+            )
+    else:
+        logger.info("[R-F507] crawler DISABLED via ARIA_CRAWLER_DISABLED env")
+
     # ── RAG store: probe + backfill ALL in background ──────────────────
     # NEITHER the probe nor the backfill can run inline in lifespan.
     # Past incidents (2026-04-07):
@@ -1210,6 +1241,16 @@ async def lifespan(app: FastAPI):
         await intel_ledger.shutdown()
     except Exception as e:
         logger.warning("intel_ledger.shutdown failed (non-fatal): %s", e)
+    # R-F507: stop the crawler loop cleanly so we don't leak a fetch
+    # across deploys. The loop checks the stop_event before sleeping;
+    # if it's mid-fetch, the task.cancel() interrupt is also caught.
+    try:
+        if _crawler_stop_event is not None:
+            _crawler_stop_event.set()
+        if _crawler_task is not None:
+            _crawler_task.cancel()
+    except Exception as e:
+        logger.warning("crawler shutdown failed (non-fatal): %s", e)
     # R-F504: close ARIA's own search index cleanly so WAL is flushed.
     try:
         from .search_index import db as _search_db_shut

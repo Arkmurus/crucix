@@ -1454,6 +1454,39 @@ async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
             seen.add(link)
             results.append(r)
 
+        # R-F507 (2026-05-14) — let discovered domains flow into the
+        # index registry. Every external URL whose domain ARIA doesn't
+        # already know lands at tier 4 ("discovered") so the next
+        # crawl cycle can index it. Pay-once-remember-forever per
+        # [[feedback_pay_once_remember_forever]].
+        try:
+            from aria_service.crawler.on_demand import (
+                auto_register_domain, looks_like_entity_query,
+                background_ensure,
+            )
+            from aria_service.crawler.politeness import domain_of as _dom
+            _seen_doms: set[str] = set()
+            for r in ext_results:
+                d = _dom(r.get("link") or "")
+                if d and d not in _seen_doms:
+                    _seen_doms.add(d)
+                    try:
+                        await auto_register_domain(d)
+                    except Exception:
+                        pass
+            # If the internal index returned NOTHING for this query and
+            # the query looks like an entity worth researching, fire a
+            # bounded background crawl. Future queries for the same
+            # entity hit warm.
+            if not internal_results and looks_like_entity_query(query):
+                try:
+                    asyncio.create_task(background_ensure(query))
+                except Exception:
+                    pass
+        except Exception as _exc:
+            logger.debug("R-F507 auto-register/background_ensure path "
+                         "failed (non-fatal): %s", _exc)
+
         if results:
             ext_count = sum(1 for r in results if not r.get("_internal"))
             int_count = sum(1 for r in results if r.get("_internal"))
