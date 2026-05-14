@@ -122,8 +122,16 @@ async def check_robots(url: str) -> dict:
         robots_url = f"{base}/robots.txt"
         text = ""
         try:
+            # R-F522 (2026-05-14) — cap redirects at 5. Live 2026-05-14
+            # 12:22:56: imo.org/robots.txt 302→www.imo.org/robots.txt which
+            # then 301-loops on itself ~60 times in 0.5s (each hop ~6ms),
+            # all logged at INFO via httpx. Default httpx max_redirects=20
+            # let the loop run to completion before failing. Server bug
+            # (Location header points back to same URL) — we can't fix
+            # imo.org but we can cap our patience. Same pattern observed
+            # earlier on email.net.
             async with httpx.AsyncClient(
-                timeout=8.0, follow_redirects=True,
+                timeout=8.0, follow_redirects=True, max_redirects=5,
             ) as client:
                 r = await client.get(robots_url, headers={"User-Agent": _UA})
                 if r.status_code == 200 and len(r.text) < 200_000:
