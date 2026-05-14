@@ -538,7 +538,7 @@ Respond ONLY with JSON array. Example:
             )
 
             raw = response.content[0].text
-            data = parse_llm_json(raw, default=[])
+            data = parse_llm_json(raw, default=[], source='active_challenge_engine')
             if not isinstance(data, list):
                 data = []
             challenges = []
@@ -601,7 +601,7 @@ Return [] if no material unstated assumptions found."""
                 messages=[{"role": "user", "content": prompt}],
                 timeout=20,
             )
-            items = parse_llm_json(response.content[0].text, default=[])
+            items = parse_llm_json(response.content[0].text, default=[], source='active_challenge_engine')
             if not isinstance(items, list):
                 items = []
             challenges = []

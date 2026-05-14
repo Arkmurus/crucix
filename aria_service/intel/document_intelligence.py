@@ -577,7 +577,7 @@ async def extract_structured(
         logger.warning("doc_intel: LLM call failed for %s — %s", form_code, e)
         return None
 
-    parsed = parse_llm_json(result.text or "")
+    parsed = parse_llm_json(result.text or "", source='document_intelligence')
     if isinstance(parsed, dict):
         return parsed
     # Local repair cascade exhausted — try one LLM-based repair pass.
@@ -591,7 +591,7 @@ async def extract_structured(
         from . import cost_tracker as _ct
         with _ct.feature("document_intelligence"):
             repaired = await llm.complete(_EXTRACT_SYSTEM, repair_prompt, max_tokens=max_tokens, timeout=60.0)
-        return parse_llm_json(repaired.text or "")
+        return parse_llm_json(repaired.text or "", source='document_intelligence')
     except Exception as e:
         logger.warning("doc_intel: repair pass failed for %s — %s", form_code, e)
         return None

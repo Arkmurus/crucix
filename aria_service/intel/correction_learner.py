@@ -237,7 +237,7 @@ async def _extract_facts_via_llm(text: str, llm: Any) -> list[dict]:
     except Exception as e:
         logger.debug("correction fact extraction LLM call failed: %s", e)
         return []
-    parsed = parse_llm_json(raw)
+    parsed = parse_llm_json(raw, source='correction_learner')
     if not isinstance(parsed, dict):
         return []
     facts = parsed.get("facts") or []

@@ -1520,7 +1520,7 @@ If NO relevant compliance intelligence, set skip=true and return minimal JSON.""
         # comma-between-adjacent-objects (Strategy 6) which is the
         # specific failure mode this function was hitting.
         from .llm_json import parse_llm_json
-        parsed = parse_llm_json(result.text)
+        parsed = parse_llm_json(result.text, source='researcher')
         if parsed is not None:
             return parsed
     except Exception as e:
@@ -1662,7 +1662,7 @@ the maximum number of facts the content supports."""
         # handles control-char escapes, unquoted keys, single quotes,
         # truncation, and trailing commas before nuclear-stripping.
         from .llm_json import parse_llm_json
-        parsed = parse_llm_json(result.text)
+        parsed = parse_llm_json(result.text, source='researcher')
         if parsed is not None:
             return parsed
     except Exception as e:

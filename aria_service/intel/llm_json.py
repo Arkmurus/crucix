@@ -242,7 +242,30 @@ def _nuclear_clean(s: str) -> str:
     return s
 
 
-def parse_llm_json(text: str, *, default: Any = None) -> Any:
+# R-F472 (2026-05-14): in-process counters for llm_json failure attribution.
+# DD-audit P0 #4-extension: parse_llm_json logged a generic WARNING when all
+# 5 strategies failed, but didn't surface a counter — so the operator
+# couldn't tell which caller (researcher / deep_researcher / active_challenge /
+# document_intelligence / correction_learner) was generating the bad JSON,
+# nor how often. Now every caller can pass source="<module>" and we accumulate
+# in-process tallies that expose() reads for /api/aria/health-style probes.
+_R472_FAIL_BY_SOURCE: dict[str, int] = {}
+_R472_TOTAL_FAILS: int = 0
+_R472_TOTAL_ATTEMPTS: int = 0
+
+
+def llm_json_stats() -> dict:
+    """R-F472: in-process metrics for parse_llm_json. Surfaced via
+    /api/aria/llm-json/stats so operators can attribute the WARNING flood."""
+    return {
+        "total_attempts":   _R472_TOTAL_ATTEMPTS,
+        "total_fails":      _R472_TOTAL_FAILS,
+        "fail_rate":        (_R472_TOTAL_FAILS / _R472_TOTAL_ATTEMPTS) if _R472_TOTAL_ATTEMPTS else 0,
+        "fails_by_source":  dict(_R472_FAIL_BY_SOURCE),
+    }
+
+
+def parse_llm_json(text: str, *, default: Any = None, source: str = "") -> Any:
     """Parse LLM-emitted JSON with multi-strategy repair.
 
     Returns the parsed object on success, or `default` (None by default)
@@ -252,7 +275,13 @@ def parse_llm_json(text: str, *, default: Any = None) -> Any:
     fail, so a recurring failure (the same article failing every spider
     pass) shows up in fly logs as one warning per attempt -- not the
     silent retry-forever loop the previous `try/except: pass` produced.
+
+    R-F472: `source` kwarg attributes failures per caller. Callers should
+    pass source="researcher", "deep_researcher", etc. Stats readable via
+    llm_json_stats().
     """
+    global _R472_TOTAL_ATTEMPTS
+    _R472_TOTAL_ATTEMPTS += 1
     if not text:
         return default
     cleaned = _strip_fences(text)
@@ -311,8 +340,13 @@ def parse_llm_json(text: str, *, default: Any = None) -> Any:
     try:
         return json.loads(_nuclear_clean(repaired))
     except Exception as e:
+        global _R472_TOTAL_FAILS
+        _R472_TOTAL_FAILS += 1
+        _r472_key = source or "unknown"
+        _R472_FAIL_BY_SOURCE[_r472_key] = _R472_FAIL_BY_SOURCE.get(_r472_key, 0) + 1
         logger.warning(
-            "[llm_json] all 5 repair strategies failed: %s. Preview: %r",
-            str(e)[:120], candidate[:200],
+            "[llm_json] R-F472 all 5 repair strategies failed (source=%s, "
+            "total_fails=%d): %s. Preview: %r",
+            _r472_key, _R472_TOTAL_FAILS, str(e)[:120], candidate[:200],
         )
         return default

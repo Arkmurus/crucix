@@ -782,7 +782,7 @@ Return JSON: {{"queries": ["query1", "query2", ...]}}"""
                 max_tokens=800,
                 timeout=30.0,
             )
-            parsed_q = parse_llm_json(result.text, default={})
+            parsed_q = parse_llm_json(result.text, default={}, source='deep_researcher')
             queries = parsed_q.get("queries", []) if isinstance(parsed_q, dict) else []
             if not queries:
                 # R-F392: LLM returned empty → fall back to the anchor,
@@ -974,7 +974,7 @@ Return JSON:
                 max_tokens=2000,
                 timeout=60.0,
             )
-            parsed = parse_llm_json(result.text)
+            parsed = parse_llm_json(result.text, source='deep_researcher')
             if isinstance(parsed, dict):
                 synthesis = parsed
         except Exception as e:
@@ -1173,7 +1173,7 @@ Return JSON:
             max_tokens=3000,
             timeout=90.0,
         )
-        parsed = parse_llm_json(result.text)
+        parsed = parse_llm_json(result.text, source='deep_researcher')
         if not isinstance(parsed, dict):
             return {"error": "Failed to parse scenarios"}
     except Exception as e:
@@ -1301,7 +1301,7 @@ Return JSON:
                 max_tokens=2000,
                 timeout=60.0,
             )
-            parsed_p = parse_llm_json(result.text)
+            parsed_p = parse_llm_json(result.text, source='deep_researcher')
             if isinstance(parsed_p, dict):
                 profile = parsed_p
         except Exception as e:
@@ -1424,7 +1424,7 @@ Return JSON:
                 max_tokens=2000,
                 timeout=60.0,
             )
-            parsed_r = parse_llm_json(result.text)
+            parsed_r = parse_llm_json(result.text, source='deep_researcher')
             if isinstance(parsed_r, dict):
                 report = parsed_r
         except Exception as e:
@@ -1556,7 +1556,7 @@ Return JSON:
                 max_tokens=2000,
                 timeout=60.0,
             )
-            parsed_r = parse_llm_json(result.text)
+            parsed_r = parse_llm_json(result.text, source='deep_researcher')
             if isinstance(parsed_r, dict):
                 report = parsed_r
         except Exception as e:
@@ -1703,7 +1703,7 @@ Return JSON:
                 max_tokens=2500,
                 timeout=90.0,
             )
-            parsed_n = parse_llm_json(result.text)
+            parsed_n = parse_llm_json(result.text, source='deep_researcher')
             if isinstance(parsed_n, dict):
                 network_map = parsed_n
         except Exception as e:

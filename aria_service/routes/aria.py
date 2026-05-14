@@ -15521,6 +15521,22 @@ async def health_live_ep():
     return {"status": "alive", "build_rev": _build_rev}
 
 
+@router.get("/llm-json/stats")
+async def llm_json_stats_ep():
+    """R-F472 (2026-05-14): surface parse_llm_json failure tallies for
+    attribution. Pre-R-F472 the "all 5 repair strategies failed" WARNING
+    flooded fly logs with no way to tell which caller (researcher,
+    deep_researcher, active_challenge, document_intelligence,
+    correction_learner) was generating bad JSON. Now /llm-json/stats
+    returns total_attempts, total_fails, fail_rate, and fails_by_source.
+
+    No Redis — in-process counters reset on deploy. That's fine for the
+    "is this caller currently sick" question; long-term trending lives
+    in the WARNING log itself."""
+    from ..intel.llm_json import llm_json_stats
+    return llm_json_stats()
+
+
 @router.get("/health")
 async def health_check_ep():
     """Self-diagnosing health check with quality metrics — not just infra.
