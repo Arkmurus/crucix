@@ -9501,7 +9501,20 @@ async def brain_absorb_ep(request: Request, background_tasks: _BackgroundTasks):
     caller has already received an ack and won't be retried.
     """
     from ..intel import brain_hook
-    body = await request.json()
+    # R-F454 (2026-05-14): seenode→fly proxy disconnects mid-body-read when
+    # absorb p95 climbs (sentence-transformer batches under load). The raw
+    # `await request.json()` then raised starlette.requests.ClientDisconnect,
+    # which propagated as a 500 — LB health-check flaked, brain breaker
+    # tripped, and the dashboard banner reported "ARIA service offline" even
+    # though /health/live was 200. Catching the disconnect and returning
+    # 499 (nginx's "client closed request") keeps the absorb path honest
+    # without polluting the 5xx error budget that drives circuit decisions.
+    from starlette.requests import ClientDisconnect as _r454_disconnect
+    try:
+        body = await request.json()
+    except _r454_disconnect:
+        _log.info("R-F454 brain/absorb: client disconnected before body read")
+        return Response(status_code=499)
     module = (body.get("module") or "").strip()
     summary = (body.get("summary") or "").strip()
     if not module or not summary:
