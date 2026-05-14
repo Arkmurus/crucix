@@ -96,6 +96,35 @@ _PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bclassify\s+(?:this|these)\s*[:\-]?\s*(.+)", re.I | re.S), "classify"),
 ]
 
+# R-F511 jurisdiction-qualifier regex — promoted to module scope by R-F517.
+# When intent=="sanctions" and the user names a specific jurisdiction (UK,
+# US, EU, etc.) we yield to the LLM so clause 26 can fire. Pre-R-F517 this
+# was compiled per call to try_local_response. See R-F511 commit message for
+# the live failure that drove the regex.
+_JURISDICTION_QUALIFIER = re.compile(
+    r"\b(?:"
+    r"UK|U\.K\.|United\s+Kingdom|Britain|British|"
+    r"US|U\.S\.|USA|United\s+States|American|"
+    r"EU|European\s+Union|"
+    r"OFSI|OFAC|SDN|SECO|DFAT|MoFA|FCDO|"
+    r"Australia|Australian|"
+    r"Japan|Japanese|"
+    r"Switzerland|Swiss|"
+    r"Norway|Norwegian|"
+    r"UN(?:\s+Security\s+Council|SC)?|"
+    r"China|Chinese|PRC|"
+    r"Russia|Russian|"
+    r"Canada|Canadian|"
+    r"Germany|German|"
+    r"France|French|"
+    r"Israel|Israeli|"
+    r"Iran|Iranian|"
+    r"North\s+Korea|DPRK|"
+    r"Entity\s+List|MilCorps|DDTC"
+    r")\b",
+    re.IGNORECASE,
+)
+
 
 # ── Output formatters ──────────────────────────────────────────────────────
 
@@ -337,39 +366,9 @@ async def try_local_response(message: str) -> dict:
         "all of it", "everyone", "anyone", "the subject", "subject",
     }
 
-    # R-F511 (2026-05-14) — yield jurisdiction-scoped sanctions questions
-    # to the LLM so clause 26 can fire. Live failure 2026-05-14 08:55 BST:
-    # "Is Hikvision sanctioned in the UK?" short-circuited here, returned
-    # multi-regime BLOCKING MATCH leading with us_sam_exclusions (US-only)
-    # + ann_graph_topics (Companies House, NOT a sanctions signal). The
-    # LLM with R-F510 clause 26 was bypassed entirely. fuzzy_screen is
-    # jurisdiction-flat; nuanced per-regime reasoning (OFSI for UK, OFAC
-    # for US, procurement-restrictions-aren't-sanctions, registry-presence-
-    # isn't-sanctions-evidence) is LLM territory. When the user names a
-    # specific jurisdiction we MUST defer.
-    _JURISDICTION_QUALIFIER = re.compile(
-        r"\b(?:"
-        r"UK|U\.K\.|United\s+Kingdom|Britain|British|"
-        r"US|U\.S\.|USA|United\s+States|American|"
-        r"EU|European\s+Union|"
-        r"OFSI|OFAC|SDN|SECO|DFAT|MoFA|FCDO|"
-        r"Australia|Australian|"
-        r"Japan|Japanese|"
-        r"Switzerland|Swiss|"
-        r"Norway|Norwegian|"
-        r"UN(?:\s+Security\s+Council|SC)?|"
-        r"China|Chinese|PRC|"
-        r"Russia|Russian|RF|"
-        r"Canada|Canadian|"
-        r"Germany|German|"
-        r"France|French|"
-        r"Israel|Israeli|"
-        r"Iran|Iranian|"
-        r"North\s+Korea|DPRK|"
-        r"Entity\s+List|MilCorps|DDTC"
-        r")\b",
-        re.IGNORECASE,
-    )
+    # R-F517: _JURISDICTION_QUALIFIER moved to module scope; see definition
+    # near _PATTERNS. The R-F511 commit message explains the live failure
+    # (2026-05-14 08:55 BST Hikvision/UK) that drives the yield-to-LLM path.
 
     for pattern, intent in _PATTERNS:
         m = pattern.search(msg)
