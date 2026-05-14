@@ -216,6 +216,23 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> list[di
             name[:80],
         )
         return []
+    # R-F469 (2026-05-14): OpenSanctions circuit breaker. Free-tier is
+    # 1 req/sec; under a 429 storm pre-R-F469 every match() call still
+    # hit the upstream → quota drained, latency spiked, every screen
+    # fired BUT returned empty results silently. The breaker now opens
+    # after 3 consecutive failures and cools for 5 min. When OPEN we
+    # short-circuit return [] without an HTTP call — caller already
+    # treats empty results as "no match", so behaviour from caller's
+    # POV is unchanged except faster + no quota burn.
+    from .circuit_breaker import get_breaker as _r469_get_breaker
+    _r469_breaker = _r469_get_breaker(
+        "opensanctions.org",
+        failure_threshold=3,
+        cooldown_seconds=300,
+    )
+    if _r469_breaker.is_open():
+        logger.info("R-F469: OpenSanctions breaker OPEN — skipping match() for %r", name[:80])
+        return []
     payload = {
         "queries": {
             "q1": {
@@ -229,19 +246,24 @@ async def _opensanctions_match(name: str, entity_type: str = "Thing") -> list[di
             resp = await client.post(OPENSANCTIONS_API, json=payload, headers=_opensanctions_headers())
             if resp.status_code == 401:
                 logger.error("OpenSanctions auth failed — check OPENSANCTIONS_API_KEY env var")
+                _r469_breaker.record_failure(reason="auth")
                 return []
             if resp.status_code == 429:
                 logger.warning("OpenSanctions rate-limited (free tier: 1 req/sec). "
                                "Set OPENSANCTIONS_API_KEY for unlimited access.")
+                _r469_breaker.record_failure(reason="rate_limit")
                 return []
             if resp.status_code != 200:
                 logger.debug("OpenSanctions match failed: %s %s", resp.status_code, resp.text[:200])
+                _r469_breaker.record_failure(reason="server" if resp.status_code >= 500 else "timeout")
                 return []
             data = resp.json()
             results = (data.get("responses", {}) or {}).get("q1", {}).get("results", [])
+            _r469_breaker.record_success()
             return results or []
     except httpx.HTTPError as e:
         logger.warning("OpenSanctions request error: %s", e)
+        _r469_breaker.record_failure(reason="timeout")
         return []
 
 
@@ -271,6 +293,16 @@ async def _opensanctions_search(query: str, limit: int = 5) -> list[dict]:
             query[:80],
         )
         return []
+    # R-F469: same breaker as match() — single host, single quota pool.
+    from .circuit_breaker import get_breaker as _r469_get_breaker
+    _r469_breaker = _r469_get_breaker(
+        "opensanctions.org",
+        failure_threshold=3,
+        cooldown_seconds=300,
+    )
+    if _r469_breaker.is_open():
+        logger.info("R-F469: OpenSanctions breaker OPEN — skipping search() for %r", query[:80])
+        return []
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
@@ -280,16 +312,21 @@ async def _opensanctions_search(query: str, limit: int = 5) -> list[dict]:
             )
             if resp.status_code == 401:
                 logger.error("OpenSanctions auth failed on search — check OPENSANCTIONS_API_KEY")
+                _r469_breaker.record_failure(reason="auth")
                 return []
             if resp.status_code == 429:
                 logger.warning("OpenSanctions rate-limited on search — set OPENSANCTIONS_API_KEY for higher quota")
+                _r469_breaker.record_failure(reason="rate_limit")
                 return []
             if resp.status_code != 200:
+                _r469_breaker.record_failure(reason="server" if resp.status_code >= 500 else "timeout")
                 return []
             data = resp.json()
+            _r469_breaker.record_success()
             return data.get("results", []) or []
     except httpx.HTTPError as e:
         logger.warning("OpenSanctions search error: %s", e)
+        _r469_breaker.record_failure(reason="timeout")
         return []
 
 
