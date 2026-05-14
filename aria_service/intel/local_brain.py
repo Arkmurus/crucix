@@ -262,6 +262,41 @@ async def try_local_response(message: str) -> dict:
     if "[TOOL:" in msg or "[I have already run the appropriate tool" in msg:
         return {"answered": False, "response": None, "intent": None}
 
+    # R-F514 (2026-05-14) — YIELD when the message carries the
+    # comprehension or scratchpad pre-prompt. chat_ep prepends a
+    # `[COMPREHENSION PASS — Clause 21...]` block (and appends a
+    # `[CLAUSE 22 — Think Before Speak]` block) before handing
+    # message_for_llm to aria_chat → reasoning_router →
+    # try_local_response. The comprehension prefix at
+    # comprehension.py:415-417 literally contains the substring
+    # "is HIGH-STAKES and you are NOT 100% confident...sanctions
+    # status" — exactly the shape the sanctions regex below tries
+    # to capture. Without this guard the regex matches "is HIGH-
+    # STAKES" and lazily captures up to the next "sanctions"
+    # keyword IN THE SAME PREFIX, producing a ~150-char garbage
+    # entity name ("HIGH-STAKES and you are NOT 100% confident,
+    # state what you would need to confirm — do NOT fabricate
+    # verifiable facts (jurisdictions, financials,") that becomes
+    # the headline of a bogus sanctions screen. Live failure 2026-
+    # 05-14 verified on /chat — the same prefix-leak shape has
+    # likely been firing on every non-trivial /chat sanctions query
+    # since the comprehension pass landed (0c641c3, 2026-04-18).
+    # The cleanest fix is to never run local_brain's patterns when
+    # the prompt prefix is present — those messages are by
+    # definition non-trivial and worth the LLM round-trip anyway
+    # (comprehension prefix is built only for non-trivial inputs
+    # per chat_ep:6499 `if not _comp_analysis.is_trivial`). The
+    # /chat/stream path does not have this issue (no prefix
+    # prepended) so it is unaffected.
+    if (
+        "[COMPREHENSION PASS" in msg
+        or "[END COMPREHENSION PASS]" in msg
+        or "USER MESSAGE FOLLOWS:" in msg
+        or "[CLAUSE 22 — Think Before Speak]" in msg
+        or "<scratchpad>" in msg
+    ):
+        return {"answered": False, "response": None, "intent": None}
+
     # YIELD to the DD orchestrator when the message asks for a full
     # due-diligence run. local_brain resolves single-tool local queries
     # cheaply (sanctions screen, country risk, tech explain, etc.) and
