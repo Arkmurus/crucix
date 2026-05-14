@@ -8470,6 +8470,81 @@ async def purge_signals_ep(request: Request):
     return await _il.purge_signals_by_keyword(keywords, dry_run=dry_run)
 
 
+# ──────────────────────────────────────────────────────────────────
+# R-F526 — canonical sanctions cache admin endpoints
+# ──────────────────────────────────────────────────────────────────
+
+@router.get("/admin/sanctions/status")
+async def sanctions_cache_status_ep():
+    """Per-source freshness + row counts for the canonical sanctions cache.
+
+    Returns:
+        {
+          "total_entries": int,
+          "per_source": {
+            "ofac_sdn": {last_refresh_at, rows_loaded, success, error, entries_in_cache},
+            "eu_consolidated": { ... },
+          }
+        }
+    """
+    from ..intel.sanctions_canonical import get_cache_status
+    return get_cache_status()
+
+
+@router.post("/admin/sanctions/refresh")
+async def sanctions_refresh_ep(request: Request):
+    """Operator-triggered refresh of one or all canonical sanctions sources.
+
+    Body (optional):
+        {"source": "ofac_sdn" | "eu_consolidated" | null,
+         "force_download": false}
+
+    Returns per-source result dicts.
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    source = (body.get("source") or "").strip() or None
+    force = bool(body.get("force_download", False))
+    # Late import so admin endpoints stay importable when scripts/
+    # isn't on the path (e.g. tests).
+    from scripts import refresh_sanctions as _refresh
+    if source:
+        return _refresh.refresh_source(source, force_download=force)
+    return _refresh.refresh_all(force_download=force)
+
+
+@router.post("/admin/sanctions/check")
+async def sanctions_check_ep(request: Request):
+    """Canonical sanctions check with R-F518 entity-overlap gate.
+
+    Body:
+        {"name": "Swisscraft Aviation Ltd",
+         "jurisdiction": "Switzerland",
+         "address": "Via Industria 6, Biasca, Switzerland",
+         "sources": ["ofac_sdn", "eu_consolidated"]}
+
+    Returns the lookup result documented in
+    sanctions_canonical/lookup.py. A name hit alone never produces
+    HARD_STOP — must overlap on jurisdiction OR address OR multi-
+    token entity tokens. The 2026-05-14 Zagaria/Swisscraft false-
+    positive is the canonical motivating case.
+    """
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    from ..intel.sanctions_canonical import check_sanctions
+    return check_sanctions(
+        name=name,
+        jurisdiction=(body.get("jurisdiction") or "").strip(),
+        address=(body.get("address") or "").strip(),
+        sources=body.get("sources") or None,
+    )
+
+
 @router.post("/admin/purge-gaps")
 async def purge_gaps_ep(request: Request):
     """Purge stale capability gaps from the proactive gap tracker.

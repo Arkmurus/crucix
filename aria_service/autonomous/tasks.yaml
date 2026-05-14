@@ -436,6 +436,34 @@ tasks:
     mem0_tags: [sanctions, daily, compliance, autonomous]
 
   # ──────────────────────────────────────────────────────────────────
+  # REFRESH-SANCTIONS-CANONICAL (R-F526) — pull OFAC SDN + EU
+  # Consolidated CSV from upstream + replace the local canonical store.
+  # Runs slightly BEFORE DAILY-SANCTIONS-SCREENING so the screening
+  # task sees fresh data when it fires.
+  # ──────────────────────────────────────────────────────────────────
+  - id: REFRESH-SANCTIONS-CANONICAL
+    name: Refresh canonical sanctions cache (OFAC + EU)
+    description: |
+      Daily 06:00 UTC — pull OFAC SDN Enhanced XML + EU Consolidated
+      CSV from authoritative URLs, parse into the local canonical
+      SQLite store. dd_orchestrate's sanctions matcher and
+      lookup.check_sanctions() consume this store, applying R-F518's
+      entity-overlap gate before promoting any name match to HARD
+      STOP. Eliminates the 2026-05-14 Zagaria/Swisscraft false-
+      positive class.
+    cron: "0 6 * * *"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 300
+    cost_cap_usd: 0.0
+    tool_chain:
+      - tool: shell
+        command: "python -m scripts.refresh_sanctions"
+    delivery_channels: [intel_ledger]
+    escalate_if: ["download failed", "loader failed"]
+    mem0_tags: [sanctions, canonical-cache, daily, infrastructure]
+
+  # ──────────────────────────────────────────────────────────────────
   # WEEKLY-ISW-CRAWL — ISW conflict intelligence
   # ──────────────────────────────────────────────────────────────────
   - id: WEEKLY-ISW-CRAWL
