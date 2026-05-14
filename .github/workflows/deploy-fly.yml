@@ -77,11 +77,23 @@ jobs:
           # entry-point: `flyctl releases --json` returns the same JSON.
           # Live evidence — run 25828493782 (commit 10a8721, R-F452):
           # step 5 failed solely on this stale syntax.
-          latest_status=$(flyctl releases -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json | jq -r '.[0].Status')
-          latest_version=$(flyctl releases -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json | jq -r '.[0].Version')
-          echo "Latest release: v${latest_version} status=${latest_status}"
+          # R-F516 (2026-05-14) — cache the JSON once and print it on
+          # failure. The 27 deploy-fly failures on 2026-05-14 morning
+          # exited via "Release did not complete — real deploy failure"
+          # but with no visibility into what `latest_status` actually
+          # was. Without GHA log auth all we had to go on was the
+          # one-line annotation. Echo the raw JSON head + each parsed
+          # variable so the failure mode is self-evident in the run UI.
+          releases_json=$(flyctl releases -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json)
+          echo "=== flyctl releases --json (head) ==="
+          echo "${releases_json}" | head -c 1500
+          echo
+          echo "===================================="
+          latest_status=$(echo "${releases_json}" | jq -r '.[0].Status // "MISSING"')
+          latest_version=$(echo "${releases_json}" | jq -r '.[0].Version // "MISSING"')
+          echo "Parsed: latest_version=v${latest_version:-EMPTY} latest_status=${latest_status:-EMPTY}"
           if [ "${latest_status}" != "complete" ]; then
-            echo "::error::Release did not complete — real deploy failure"
+            echo "::error::Release did not complete — got status='${latest_status:-EMPTY}' for v${latest_version:-EMPTY} (expected 'complete')"
             exit 1
           fi
           # `/health.status` is "operational" when chain_resilient AND
