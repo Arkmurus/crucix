@@ -1747,7 +1747,17 @@ const ARIA_SERVICE_URL = process.env.ARIA_SERVICE_URL || ''; // Python ARIA serv
 // the Python side: token unset = no auth, token set = enforced both ends).
 function _ariaHeaders(extra = {}) {
   const headers = { 'Content-Type': 'application/json', ...extra };
-  const token = process.env.ARIA_API_TOKEN;
+  // R-F456 (2026-05-14): fly's _accepted_tokens accepts EITHER
+  // ARIA_API_TOKEN OR ARIA_INTERNAL_TOKEN (see aria_service/routes/aria.py
+  // line 165). seenode previously only forwarded ARIA_API_TOKEN, so any
+  // deploy that set ARIA_INTERNAL_TOKEN alone produced a silent 401 cascade
+  // across the non-public-bypass endpoints (/rlaif/stats, /critique/stats,
+  // /pending-actions, /airtable/health, /security/counter-intel/scan,
+  // /learning/coverage, /sanctions/divergence, /vendors). Public-bypass
+  // endpoints (/health, /adversarial/stats, etc.) kept working — which
+  // hid the cause for weeks. Fall through to the internal token when the
+  // API token isn't set.
+  const token = process.env.ARIA_API_TOKEN || process.env.ARIA_INTERNAL_TOKEN;
   if (token) headers['Authorization'] = `Bearer ${token}`;
   return headers;
 }
