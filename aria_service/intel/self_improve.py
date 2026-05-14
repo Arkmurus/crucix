@@ -101,12 +101,31 @@ PROTECTED_FILES = {
 }
 
 # Change types and their auto-deploy eligibility
+# R-F462 (2026-05-14): bug_fix and optimisation flipped to auto_deploy=False
+# by default per DD-audit P0 #4. Pre-change, ARIA's self-improvement loop
+# wrote bug-fix and optimisation patches directly to live source files
+# without operator review — this contradicted [[cost_and_autonomy_gate]]
+# ("HARD RULE: do NOT set ARIA_AUTONOMOUS_ENABLED=1 until burn is
+# attributed") and put the constitution one buggy LLM diagnosis away from
+# a regression in production.
+#
+# Operators who explicitly want the old behaviour back can set
+# ARIA_SELF_IMPROVE_AUTO_DEPLOY=1 — the auto_deployable flag is then
+# recomputed at deploy time (see stage_improvement). Default-off matches
+# the rest of the autonomy ladder. Staged items still land in
+# /api/aria/self/staged and require POST /api/aria/self/deploy/{id} from
+# the operator.
+import os as _r462_os
+_R462_AUTO_DEPLOY_DEFAULT = _r462_os.getenv(
+    "ARIA_SELF_IMPROVE_AUTO_DEPLOY", "0"
+).strip().lower() in {"1", "true", "yes", "on"}
+
 CHANGE_TYPES = {
-    "bug_fix":          {"auto_deploy": True,  "description": "Fix a detected bug"},
+    "bug_fix":          {"auto_deploy": _R462_AUTO_DEPLOY_DEFAULT, "description": "Fix a detected bug"},
     "prompt_evolution":  {"auto_deploy": False, "description": "Evolve system prompt"},
     "new_intel_layer":   {"auto_deploy": False, "description": "Create new intelligence layer"},
     "enhancement":       {"auto_deploy": False, "description": "Enhance existing capability"},
-    "optimisation":      {"auto_deploy": True,  "description": "Performance or quality optimisation"},
+    "optimisation":      {"auto_deploy": _R462_AUTO_DEPLOY_DEFAULT, "description": "Performance or quality optimisation"},
 }
 
 # Root directory
