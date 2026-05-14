@@ -1345,6 +1345,40 @@ def _translate_query(query: str, lang_code: str) -> str:
     return translated
 
 
+async def _query_internal_index(query: str) -> list[dict]:
+    """R-F504 (2026-05-14) — query ARIA's own curated search index.
+
+    The internal index is the independence path: when external backends
+    are circuit-open (Brave key issue 2026-05-10) or homograph-poisoned
+    (Modirum-Gespi failure 2026-05-14 where academic Semantic Scholar
+    dominated 20/20 results), the curated corpus carries the load.
+
+    Returns the same dict shape as the external `_web_search` branch so
+    callers can merge them transparently. Empty list on any error —
+    crawler bootstrap, missing index, or db not connected.
+    """
+    try:
+        from aria_service.search_engine import internal_search as _isi
+        hits = await _isi.search(query, max_results=15,
+                                 language=None, min_credibility=6)
+    except Exception as e:
+        logger.debug("internal index query failed for %r: %s", query[:60], e)
+        return []
+    out: list[dict] = []
+    for h in hits or []:
+        out.append({
+            "title": h.get("title") or "",
+            "link": h.get("url") or "",
+            "snippet": h.get("snippet") or "",
+            "source": h.get("source") or "aria_internal_index",
+            "_credibility_tier": h.get("credibility_tier"),
+            "_relevance_score": h.get("relevance_score"),
+            "_language": h.get("language") or None,
+            "_internal": True,
+        })
+    return out
+
+
 async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
     """ARIA's independent multi-backend web search.
 
@@ -1352,11 +1386,17 @@ async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
     backends in parallel (Brave, SearXNG, Google News, Bing News),
     deduplicates, applies credibility scoring, and returns ranked results.
 
-    Falls back to legacy Google News RSS if the search engine fails.
+    R-F504 (2026-05-14): also queries ARIA's curated internal index
+    (aria_service.search_engine.internal_search) in parallel and merges
+    results — dedup by URL, internal hits preferred on tie. This closes
+    the "Brave is OPEN → academic noise dominates" failure mode.
+
+    Falls back to legacy Google News RSS if both engines fail.
 
     INDEPENDENCE: ARIA does not depend on any single search provider.
-    If Brave is down, SearXNG covers. If SearXNG is down, Google News
-    RSS covers. ARIA always returns results.
+    If Brave is down, SearXNG covers. If SearXNG is down, internal index
+    covers. If all external fail, internal index still answers from
+    curated corpus. ARIA always returns results.
     """
     try:
         from . import web_search as ws
@@ -1365,16 +1405,28 @@ async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
         extra_langs = _detect_target_languages(query)
         languages = ["en"] + list(extra_langs)
 
-        # Use ARIA's multi-backend search with multilingual support
-        raw_results = await ws.search_multilingual(
+        # R-F504: query both ARIA's external multi-backend search AND
+        # her own curated internal index in parallel. Both are async +
+        # independent — gather lets the slower one not block the other.
+        ext_task = ws.search_multilingual(
             query, languages=languages, max_results=30,
         )
+        int_task = _query_internal_index(query)
+        ext_raw, internal_results = await asyncio.gather(
+            ext_task, int_task, return_exceptions=True,
+        )
+        if isinstance(ext_raw, Exception):
+            logger.warning("external search_multilingual raised: %s",
+                           ext_raw)
+            ext_raw = []
+        if isinstance(internal_results, Exception):
+            internal_results = []
 
         # Convert SearchResult objects to the dict format the rest of
         # the pipeline expects (title, link, snippet, source)
-        results = []
-        for r in raw_results:
-            results.append({
+        ext_results: list[dict] = []
+        for r in ext_raw or []:
+            ext_results.append({
                 "title": r.title,
                 "link": r.url,
                 "snippet": r.snippet,
@@ -1384,10 +1436,31 @@ async def _web_search(query: str, timeout: float = 10.0) -> list[dict]:
                 "_language": r.language if r.language != "en" else None,
             })
 
+        # Merge with the internal index hits. Dedupe by URL — when both
+        # branches have the same URL, keep the internal entry because
+        # it has fetched body content and known source_tier metadata.
+        results: list[dict] = []
+        seen: set[str] = set()
+        for r in internal_results:
+            link = (r.get("link") or "").strip()
+            if not link or link in seen:
+                continue
+            seen.add(link)
+            results.append(r)
+        for r in ext_results:
+            link = (r.get("link") or "").strip()
+            if not link or link in seen:
+                continue
+            seen.add(link)
+            results.append(r)
+
         if results:
-            logger.info("ARIA search: %d results for %r (backends: %s)",
-                        len(results), query[:60],
-                        ", ".join(set(r["source"].split(":")[0] for r in results)))
+            ext_count = sum(1 for r in results if not r.get("_internal"))
+            int_count = sum(1 for r in results if r.get("_internal"))
+            logger.info(
+                "ARIA search: %d results for %r (external=%d, internal=%d)",
+                len(results), query[:60], ext_count, int_count,
+            )
             return results
 
     except Exception as e:

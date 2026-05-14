@@ -97,6 +97,33 @@ async def lifespan(app: FastAPI):
     await training_data.init()
     await neural_memory.init()
 
+    # ── R-F504 (2026-05-14) — ARIA's own search index ───────────────────
+    # Opens a separate SQLite file at /data/aria_search.db (configurable
+    # via ARIA_SEARCH_DB_PATH) for the curated FTS5 corpus that powers
+    # the independence path away from third-party search APIs. Registers
+    # the seed_list domains at boot; the actual crawl runs out-of-band
+    # (admin endpoint or scheduled job in a follow-up R-number).
+    # Non-fatal: a failure here just means chat falls back to the
+    # legacy web_search.search() path until the index is reachable.
+    try:
+        from .search_index import db as _search_db
+        _ok = await _search_db.connect()
+        if _ok:
+            from .crawler import seed_list as _seeds
+            _n = await _seeds.seed_all()
+            logger.info(
+                "[R-F504] search index ready (%d seed domains registered)", _n,
+            )
+        else:
+            logger.warning(
+                "[R-F504] search index connect() returned False — "
+                "chat will fall back to web_search only",
+            )
+    except Exception as _exc:
+        logger.warning(
+            "[R-F504] search index init failed (non-fatal): %s", _exc,
+        )
+
     # ── RAG store: probe + backfill ALL in background ──────────────────
     # NEITHER the probe nor the backfill can run inline in lifespan.
     # Past incidents (2026-04-07):
@@ -1183,6 +1210,12 @@ async def lifespan(app: FastAPI):
         await intel_ledger.shutdown()
     except Exception as e:
         logger.warning("intel_ledger.shutdown failed (non-fatal): %s", e)
+    # R-F504: close ARIA's own search index cleanly so WAL is flushed.
+    try:
+        from .search_index import db as _search_db_shut
+        await _search_db_shut.close()
+    except Exception as e:
+        logger.warning("search_index.close failed (non-fatal): %s", e)
     logger.info("ARIA Service shutting down")
 
 
