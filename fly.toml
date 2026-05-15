@@ -72,9 +72,13 @@ primary_region = 'lhr'
   initial_size = '5gb'
 
 [[vm]]
-  size = 'shared-cpu-2x'
-  # Bumped to 2 CPU + 4GB on 2026-04-12: 5-language OCR (en/pt/es/fr/ro)
-  # + sentence-transformers + chromadb + LLM context building needs more
-  # than 2GB. EasyOCR model loading alone consumes ~800MB, plus the RAG
-  # store + knowledge base + 11 knowledge modules at startup.
-  memory = '4096mb'
+  size = 'shared-cpu-4x'
+  # Bumped to 4 CPU + 8GB on 2026-05-15: at 4GB the resident set (44967
+  # facts + 29504 signals + 5476 neurons + 26843 RAG docs + chromadb +
+  # SentenceTransformer model + httpx crawl pool) sat ~3.5GB and any
+  # spike (sanctions refresh adding 18959 entries, dashboard polling
+  # ~10 endpoints in parallel, brain-absorb storm) pushed into swap →
+  # /api/aria/health/live timed out → fly PR04 cascade. Three wedges
+  # in one morning (10:22, 11:13, 11:24 BST). Doubling memory + 4 vCPU
+  # gives headroom for the embedder + chromadb + concurrent absorbs.
+  memory = '8192mb'
