@@ -211,16 +211,55 @@ async def prewarm_embedder() -> None:
     worker thread so the 32s cold-load happens during boot rather than
     on the first chat/DD/embed request.
 
+    R-F531 (2026-05-15) — also run a throwaway encode() so the lazy-init
+    inside sentence-transformers (tokenizer warm-up, PyTorch graph
+    JIT, output-projection allocation, attention buffer allocation)
+    happens during lifespan rather than on the first real request.
+    Pre-R-F531 evidence: the first encode after model-load cost
+    22-28s of cold-CPU time even though the model was already loaded
+    in memory. With many concurrent absorbs queued at cold-boot,
+    that 22-28s first-encode hogged the GIL, starved the asyncio
+    event loop, and the healthcheck timed out → fly PR04 wedge
+    (2026-05-15 10:22:51 BST during sanctions refresh).
+    Live measured: subsequent encodes are ~50-100ms once the lazy
+    paths have fired. The first throwaway encode here pays the
+    22-28s cost ONCE, during boot, off the request path.
+
     Idempotent. Never raises — failures degrade gracefully to TF-IDF
     fallback via the existing `_get_embedder()` error handling.
     """
     if _embedder is not None:
         return
     try:
-        await aget_embedder()
+        model = await aget_embedder()
     except Exception as exc:
         logger.warning(
             "R-F459 prewarm_embedder failed (non-fatal): %s", exc,
+        )
+        return
+    if model is None:
+        return
+    # R-F531 — actual encode warmup. Use _safe_encode so the
+    # process-wide encode lock semantics are honoured even during
+    # prewarm (otherwise a request that arrives during warmup could
+    # race the warmup encode and double the cold-cost).
+    import asyncio as _aio
+    import time as _time
+    try:
+        t0 = _time.time()
+        await _aio.to_thread(
+            _safe_encode, model, "warmup",
+            normalize_embeddings=True,
+        )
+        dt = _time.time() - t0
+        logger.info(
+            "[R-F531] embedder warmup-encode complete in %.2fs (subsequent "
+            "encodes should run at ~50-100ms steady-state)", dt,
+        )
+    except Exception as exc:
+        logger.warning(
+            "R-F531 warmup-encode failed (non-fatal — first real "
+            "encode will pay the cold cost): %s", exc,
         )
 
 
