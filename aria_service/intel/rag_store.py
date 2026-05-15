@@ -143,7 +143,7 @@ class _SharedSentenceTransformerEmbeddingFn:
         self._model_name = model_name
 
     def __call__(self, input):  # noqa: A002 — chromadb protocol uses `input`
-        from .semantic_search import _get_embedder
+        from .semantic_search import _get_embedder, _safe_encode
         model = _get_embedder()
         if model is None:
             raise RuntimeError(
@@ -153,7 +153,9 @@ class _SharedSentenceTransformerEmbeddingFn:
             )
         # chromadb default: list[str] → list[list[float]] without
         # normalize_embeddings (cosine HNSW handles it index-side).
-        return model.encode(list(input), convert_to_numpy=True).tolist()
+        # R-F530 — route through _safe_encode so the chromadb path
+        # serialises against the semantic_search path's encode calls.
+        return _safe_encode(model, list(input), convert_to_numpy=True).tolist()
 
     def name(self) -> str:
         # MUST match chromadb's built-in SentenceTransformerEmbedding-

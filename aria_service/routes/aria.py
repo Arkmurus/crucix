@@ -7759,7 +7759,20 @@ def _r473_record_read_doc(elapsed_s: float, filename: str, byte_len: int, detect
 async def read_document_ep(request: Request):
     import time as _r473_time
     _r473_t0 = _r473_time.monotonic()
-    body = await request.json()
+    # R-F528 (2026-05-15): seenode→fly proxy disconnects mid-body-read
+    # when the operator side times out a long /read-document upload
+    # (e.g. 30+ MB PDF with slow OCR). Pre-R-F528 the raw
+    # `await request.json()` raised starlette.requests.ClientDisconnect
+    # which propagated as an ASGI ERROR in the logs. Same shape as
+    # R-F454's brain/absorb fix: downgrade to INFO + return 499
+    # ("client closed request") instead. Keeps the 5xx error budget
+    # clean so /health stays operational under upload-timeout bursts.
+    from starlette.requests import ClientDisconnect as _r528_disconnect
+    try:
+        body = await request.json()
+    except _r528_disconnect:
+        _log.info("R-F528 read-document: client disconnected before body read")
+        return Response(status_code=499)
     content = body.get("content", "")
     filename = body.get("filename", "unknown")
     source = body.get("source", "document")

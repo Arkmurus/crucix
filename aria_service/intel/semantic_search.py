@@ -108,6 +108,29 @@ _embedder = None
 _embedder_checked = False  # avoid repeated ImportError attempts
 _embedder_lock = _threading.Lock()  # R-F459 — serialise singleton init
 
+# R-F530 (2026-05-15) — serialise the actual encode() calls process-wide.
+# Live evidence 2026-05-15 08:30-09:00 BST: under email-backfill burst,
+# absorb p95 climbed to 70s and contributed to the production wedge.
+# R-F460 (inter-absorb pause) + R-F521 (global wall-clock pause) reduce
+# arrival rate but they don't serialise the embedder itself — when many
+# concurrent threads call model.encode() simultaneously, sentence-
+# transformers queues them internally with no fairness, leading to the
+# 70s tail. A single threading.Lock around every encode() call makes
+# the embedder strictly serial process-wide.
+#
+# Why a threading.Lock not an asyncio.Semaphore: the encode() call is
+# CPU-bound + synchronous (called via asyncio.to_thread by the async
+# paths and directly by sync paths). A threading.Lock works for both;
+# an asyncio.Semaphore only works for async callers.
+_encode_lock = _threading.Lock()
+
+
+def _safe_encode(model, text_or_texts, **kwargs):
+    """R-F530 — call model.encode() under the global encode lock.
+    Returns whatever encode() returns; passes through kwargs."""
+    with _encode_lock:
+        return model.encode(text_or_texts, **kwargs)
+
 
 def is_embedder_ready() -> bool:
     """R-F459 — non-blocking check. True iff the model is fully loaded.
@@ -263,7 +286,7 @@ class SemanticIndex:
         model = _get_embedder()
         if model is not None:
             try:
-                emb = model.encode(text[:2000], normalize_embeddings=True)
+                emb = _safe_encode(model, text[:2000], normalize_embeddings=True)
                 self._embeddings[doc_id] = emb
                 self._matrix_dirty = True
             except Exception as exc:
@@ -310,7 +333,7 @@ class SemanticIndex:
         ids = [doc_id for doc_id, _ in keep]
         texts = [t for _, t in keep]
         try:
-            embeddings = model.encode(texts, normalize_embeddings=True)
+            embeddings = _safe_encode(model, texts, normalize_embeddings=True)
             for doc_id, emb in zip(ids, embeddings):
                 self._embeddings[doc_id] = emb
             self._matrix_dirty = True
@@ -364,7 +387,7 @@ class SemanticIndex:
         # Expand query with synonyms before encoding
         expanded_query = _expand_query_text(query)
         try:
-            q_emb = model.encode(expanded_query, normalize_embeddings=True)
+            q_emb = _safe_encode(model, expanded_query, normalize_embeddings=True)
         except Exception as exc:
             logger.debug("Query embedding failed: %s", exc)
             return None
