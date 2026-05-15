@@ -1058,6 +1058,19 @@ app.get('/api/data', requireAuth, (req, res) => {
   res.json(currentData);
 });
 
+// R-F548 (2026-05-15) — fast /healthz for seenode platform liveness probe.
+// Pre-R-F548: only /api/health existed and it does meaningful work
+// (uptime calc, sweep state, currentData read). When the event loop is
+// blocked by the sweep or by the email-reader processing the post-restart
+// burst (398-email IMAP inbox + LinkedIn alerts arriving in real time),
+// /api/health can stall past seenode's liveness probe timeout → seenode
+// kills the container as "unresponsive" even though Node is alive.
+// /healthz responds INSTANTLY (no async, no shared state read) so the
+// probe always succeeds while the heavy paths run.
+app.get('/healthz', (_req, res) => {
+  res.status(200).type('text/plain').send('ok');
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
