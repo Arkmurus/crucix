@@ -7,8 +7,27 @@
   <link rel="stylesheet" href="css/crucix.css?v=3">
   <link rel="stylesheet" href="fonts/bootstrap-icons/font-css.css">
   <style>
+    /* ── Claude-warm-dark palette (R-F533, 2026-05-15) ──
+       Replaces the high-saturation #0c0919 brand dark with a calmer
+       charcoal+off-white scheme; purple retained only on accent
+       surfaces (send button, active row tint, ARIA badge, focus ring). */
+    :root {
+      --warm-bg: #1a1a1a;
+      --warm-bg-sidebar: #171717;
+      --warm-bg-input: #232323;
+      --warm-border: rgba(255,255,255,0.07);
+      --warm-border-strong: rgba(255,255,255,0.14);
+      --warm-hover: rgba(255,255,255,0.04);
+      --warm-active: rgba(255,255,255,0.08);
+      --warm-text: #ececec;
+      --warm-text-muted: rgba(255,255,255,0.58);
+      --warm-text-faint: rgba(255,255,255,0.32);
+      --warm-bubble-user: #2a2a2a;
+      --accent: #c896ff;
+      --accent-strong: #a875ff;
+    }
     *, *::before, *::after { box-sizing: border-box; }
-    body { margin: 0; background: #0c0919; font-family: 'Gordita', system-ui, -apple-system, sans-serif; }
+    body { margin: 0; background: var(--warm-bg); font-family: 'Gordita', system-ui, -apple-system, sans-serif; color: var(--warm-text); }
 
     /* 100dvh handles iOS Safari's dynamic viewport (URL bar collapse +
        on-screen keyboard) better than 100vh, which is fixed to the
@@ -20,286 +39,335 @@
       overflow: hidden;
     }
 
-    /* ── Conversations panel (left of chat) ── */
+    /* ── Conversations panel ── */
     .convos-panel {
-      width: 260px; flex-shrink: 0; display: flex; flex-direction: column;
-      background: #0a0716; border-right: 1px solid rgba(255,255,255,0.05);
+      width: 280px; flex-shrink: 0; display: flex; flex-direction: column;
+      background: var(--warm-bg-sidebar); border-right: 1px solid var(--warm-border);
       transition: margin-left .2s ease;
     }
-    .convos-panel.collapsed { margin-left: -260px; }
+    .convos-panel.collapsed { margin-left: -280px; }
     .convos-head {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 12px 14px 10px; border-bottom: 1px solid rgba(255,255,255,0.04);
+      padding: 14px 12px 10px; border-bottom: 1px solid var(--warm-border);
+      display: flex; flex-direction: column; gap: 10px;
     }
-    .convos-title {
-      font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.4);
-      letter-spacing: 1px; text-transform: uppercase;
-    }
+    .convos-head-top { display: flex; align-items: center; gap: 6px; }
     .convos-new-btn {
-      display: flex; align-items: center; gap: 4px;
-      background: rgba(124,58,237,0.15); border: 1px solid rgba(124,58,237,0.3);
-      color: #c4b5fd; font-size: 11px; font-weight: 600;
-      padding: 4px 9px; border-radius: 6px; cursor: pointer; transition: all .15s;
+      flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+      background: transparent; border: 1px solid var(--warm-border-strong);
+      color: var(--warm-text); font-size: 13px; font-weight: 500;
+      padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: all .15s;
     }
-    .convos-new-btn:hover { background: rgba(124,58,237,0.25); color: #fff; }
-    .convos-list { flex: 1; overflow-y: auto; padding: 6px 8px; }
-    .convos-list::-webkit-scrollbar { width: 4px; }
-    .convos-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
+    .convos-new-btn:hover { background: var(--warm-active); border-color: rgba(255,255,255,0.22); }
+    .convos-new-btn i { font-size: 14px; }
+    .convos-collapse-btn {
+      width: 34px; height: 34px; flex-shrink: 0;
+      background: transparent; border: 1px solid transparent;
+      color: var(--warm-text-faint); cursor: pointer;
+      border-radius: 7px; display: flex; align-items: center; justify-content: center;
+      font-size: 14px; transition: all .15s;
+    }
+    .convos-collapse-btn:hover { color: var(--warm-text); background: var(--warm-hover); }
+
+    .convos-search-wrap { position: relative; display: flex; align-items: center; }
+    .convos-search {
+      width: 100%; background: var(--warm-bg);
+      border: 1px solid var(--warm-border); border-radius: 8px;
+      padding: 7px 30px 7px 30px; color: var(--warm-text);
+      font: inherit; font-size: 13px; outline: none; transition: all .15s;
+    }
+    .convos-search::placeholder { color: var(--warm-text-faint); }
+    .convos-search:focus { border-color: var(--warm-border-strong); background: var(--warm-bg-input); }
+    .convos-search-icon {
+      position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+      color: var(--warm-text-faint); font-size: 13px; pointer-events: none;
+    }
+    .convos-search-clear {
+      position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+      width: 22px; height: 22px; border: none; background: transparent;
+      color: var(--warm-text-faint); cursor: pointer; display: none;
+      align-items: center; justify-content: center; border-radius: 4px;
+      font-size: 12px;
+    }
+    .convos-search-clear:hover { background: var(--warm-active); color: var(--warm-text); }
+    .convos-search-wrap.has-text .convos-search-clear { display: flex; }
+
+    .convos-list { flex: 1; overflow-y: auto; padding: 6px 8px 24px; }
+    .convos-list::-webkit-scrollbar { width: 6px; }
+    .convos-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+    .convos-list::-webkit-scrollbar-track { background: transparent; }
+
+    .convos-section {
+      padding: 14px 10px 6px; font-size: 10.5px; font-weight: 600;
+      color: var(--warm-text-faint); letter-spacing: 0.06em;
+      text-transform: uppercase; user-select: none;
+    }
+    .convos-section:first-child { padding-top: 8px; }
+
     .convo-item {
-      position: relative; padding: 9px 30px 9px 12px; margin-bottom: 2px;
-      border-radius: 7px; cursor: pointer; transition: background .12s;
-      font-size: 13px; color: rgba(255,255,255,0.65);
+      position: relative; padding: 8px 56px 8px 10px;
+      margin: 1px 0; border-radius: 7px; cursor: pointer;
+      transition: background .12s; line-height: 1.35;
+      color: var(--warm-text-muted);
+    }
+    .convo-item:hover { background: var(--warm-hover); color: var(--warm-text); }
+    .convo-item.active { background: var(--warm-active); color: var(--warm-text); }
+    .convo-item:focus { outline: none; box-shadow: inset 0 0 0 2px rgba(200,150,255,0.45); }
+    .convo-title-line {
+      font-size: 13.5px; font-weight: 500;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .convo-item:hover { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.9); }
-    .convo-item.active { background: rgba(124,58,237,0.15); color: #fff; }
-    .convo-item .convo-meta {
-      font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 2px;
-      display: flex; gap: 6px; align-items: center;
+    .convo-meta { font-size: 11px; color: var(--warm-text-faint); margin-top: 2px; }
+    .convo-item .convo-actions {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      display: flex; gap: 2px; opacity: 0; transition: opacity .12s;
     }
-    .convo-item .convo-del {
-      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-      width: 22px; height: 22px; border-radius: 5px; border: none;
-      background: transparent; color: rgba(255,255,255,0.3);
-      cursor: pointer; opacity: 0; transition: all .12s; font-size: 12px;
-      display: flex; align-items: center; justify-content: center;
+    .convo-item:hover .convo-actions,
+    .convo-item:focus-within .convo-actions { opacity: 1; }
+    .convo-act-btn {
+      width: 24px; height: 24px; padding: 0; border: none; background: transparent;
+      color: var(--warm-text-faint); cursor: pointer; border-radius: 5px;
+      display: flex; align-items: center; justify-content: center; font-size: 12px;
     }
-    .convo-item:hover .convo-del { opacity: 1; }
-    .convo-item .convo-del:hover { background: rgba(220,38,38,0.2); color: #fca5a5; }
+    .convo-act-btn:hover { background: rgba(255,255,255,0.1); color: var(--warm-text); }
+    .convo-act-btn.danger:hover { background: rgba(220,38,38,0.18); color: #fca5a5; }
+    .convo-title-edit {
+      width: 100%; padding: 0; border: none; border-bottom: 1px solid var(--accent);
+      background: transparent; color: var(--warm-text); font: inherit; font-size: 13.5px;
+      font-weight: 500; outline: none;
+    }
+
     .convos-empty {
-      padding: 20px 14px; font-size: 12px; color: rgba(255,255,255,0.25);
-      text-align: center; line-height: 1.5;
+      padding: 24px 14px; font-size: 12.5px; color: var(--warm-text-faint);
+      text-align: center; line-height: 1.55;
     }
     .convos-load-older {
-      margin: 8px; padding: 7px; text-align: center;
-      font-size: 11px; color: rgba(255,255,255,0.4); cursor: pointer;
-      border: 1px dashed rgba(255,255,255,0.08); border-radius: 6px;
+      margin: 14px 10px 4px; padding: 8px; text-align: center;
+      font-size: 12px; color: var(--warm-text-faint); cursor: pointer;
+      border: 1px dashed var(--warm-border); border-radius: 7px;
+      transition: all .15s;
     }
-    .convos-load-older:hover { color: rgba(255,255,255,0.7); border-color: rgba(255,255,255,0.18); }
+    .convos-load-older:hover { color: var(--warm-text); border-color: var(--warm-border-strong); }
 
+    /* ── Titlebar (shown when sidebar collapsed) ── */
     .chat-titlebar {
       display: none; align-items: center; gap: 10px;
-      padding: 9px 14px; min-height: 44px;
-      border-bottom: 1px solid rgba(255,255,255,0.05);
-      background: rgba(12,9,25,0.92); backdrop-filter: blur(8px);
+      padding: 9px 14px; min-height: 48px;
+      border-bottom: 1px solid var(--warm-border);
+      background: var(--warm-bg);
       position: sticky; top: 0; z-index: 5; flex-shrink: 0;
     }
-    .convos-toggle {
-      width: 36px; height: 36px; flex-shrink: 0;
-      border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);
-      background: transparent; color: rgba(255,255,255,0.55); cursor: pointer;
+    .convos-toggle, .titlebar-new {
+      width: 34px; height: 34px; flex-shrink: 0;
+      border-radius: 7px; border: 1px solid var(--warm-border);
+      background: transparent; color: var(--warm-text-muted); cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      font-size: 15px; transition: all .15s;
+      font-size: 14px; transition: all .15s;
     }
-    .convos-toggle:hover { color: #fff; border-color: rgba(124,58,237,0.4); background: rgba(124,58,237,0.08); }
+    .convos-toggle:hover, .titlebar-new:hover {
+      color: var(--warm-text); border-color: var(--warm-border-strong); background: var(--warm-hover);
+    }
     .chat-title-text {
-      flex: 1; min-width: 0; font-size: 13px; font-weight: 600;
-      color: rgba(255,255,255,0.75);
+      flex: 1; min-width: 0; font-size: 13px; font-weight: 500;
+      color: var(--warm-text);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    /* Show titlebar whenever the convos panel is collapsed (always on
-       mobile, optional on desktop). */
     .convos-panel.collapsed ~ .chat-shell .chat-titlebar { display: flex; }
 
-    /* ── Shell ── */
-    .chat-shell { flex: 1; display: flex; flex-direction: column; height: 100%; background: #0c0919; position: relative; min-width: 0; }
+    /* ── Chat shell ── */
+    .chat-shell {
+      flex: 1; display: flex; flex-direction: column;
+      height: 100%; background: var(--warm-bg);
+      position: relative; min-width: 0;
+    }
 
-    /* ── Messages ── */
+    /* ── Messages scroll ── */
     .chat-scroll { flex: 1; overflow-y: auto; padding: 0; scroll-behavior: smooth; }
-    .chat-scroll::-webkit-scrollbar { width: 5px; }
-    .chat-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
+    .chat-scroll::-webkit-scrollbar { width: 7px; }
+    .chat-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+    .chat-scroll::-webkit-scrollbar-track { background: transparent; }
 
-    .chat-feed { max-width: 720px; margin: 0 auto; padding: 24px 20px 16px; }
+    .chat-feed { max-width: 760px; margin: 0 auto; padding: 28px 24px 16px; }
 
     /* ── Message blocks ── */
-    .msg { margin-bottom: 24px; animation: fadeUp .2s ease; }
+    .msg { margin-bottom: 28px; animation: fadeUp .2s ease; }
     @keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
 
     .msg-user { display: flex; justify-content: flex-end; }
     .msg-user-bubble {
-      max-width: 85%; background: rgba(124,58,237,0.13); border: 1px solid rgba(124,58,237,0.22);
-      border-radius: 20px 20px 4px 20px; padding: 12px 16px;
-      font-size: 14px; line-height: 1.7; color: rgba(255,255,255,0.92); white-space: pre-wrap; word-break: break-word;
+      max-width: 85%;
+      background: var(--warm-bubble-user); border: 1px solid var(--warm-border);
+      border-radius: 18px; padding: 12px 16px;
+      font-size: 15px; line-height: 1.6; color: var(--warm-text);
+      white-space: pre-wrap; word-break: break-word;
     }
 
-    .msg-aria {}
     .msg-aria-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-    .msg-aria-avatar {
-      width: 22px; height: 22px; border-radius: 6px;
-      background: linear-gradient(135deg, #7c3aed, #2563eb);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 9px; font-weight: 900; color: #fff; flex-shrink: 0;
+    .msg-aria-name {
+      font-size: 11px; font-weight: 700; color: var(--warm-text-faint);
+      letter-spacing: 0.08em; text-transform: uppercase;
     }
-    .msg-aria-name { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.45); letter-spacing: 0.5px; }
     .msg-aria-badge {
-      font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
-      background: rgba(124,58,237,0.15); color: #a78bfa; letter-spacing: 0.3px;
+      font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+      background: rgba(200,150,255,0.12); color: var(--accent);
+      letter-spacing: 0.04em; text-transform: uppercase;
     }
-    .streaming-badge {
-      background: rgba(37,99,235,0.2); color: #60a5fa;
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-    @keyframes pulse { 0%,100% { opacity:0.6; } 50% { opacity:1; } }
-    .upload-btn {
-      background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer;
-      font-size: 16px; padding: 4px 8px; border-radius: 6px; transition: all .15s;
-    }
-    .upload-btn:hover { color: #a78bfa; background: rgba(124,58,237,0.1); }
-    .chat-scroll.drag-over {
-      outline: 2px dashed rgba(124,58,237,0.5); outline-offset: -8px;
-      background: rgba(124,58,237,0.03);
-    }
+    .streaming-badge { animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity:0.55; } 50% { opacity:1; } }
+
     .msg-aria-body {
-      font-size: 14px; line-height: 1.8; color: rgba(255,255,255,0.82);
-      padding-left: 30px; white-space: pre-wrap; word-break: break-word;
+      font-size: 15px; line-height: 1.75; color: var(--warm-text);
+      white-space: pre-wrap; word-break: break-word;
     }
-    .msg-aria-body strong { color: #e9e3ff; }
+    .msg-aria-body strong { color: #fff; font-weight: 600; }
+    .msg-aria-body em { color: var(--warm-text-muted); }
     .msg-aria-body code {
-      background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.18);
-      border-radius: 4px; padding: 1px 5px; font-family: 'Courier New', monospace; font-size: 12px; color: #c4b5fd;
+      background: rgba(255,255,255,0.06); border: 1px solid var(--warm-border);
+      border-radius: 4px; padding: 1px 5px;
+      font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 13px;
+      color: #e9d9ff;
     }
-    .msg-aria-body h2 { font-size: 14px; font-weight: 700; color: #e9e3ff; margin: 16px 0 6px; letter-spacing: -0.01em; }
-    .msg-aria-body h3 { font-size: 13px; font-weight: 700; color: #c4b5fd; margin: 12px 0 4px; text-transform: uppercase; letter-spacing: 0.04em; }
-    .msg-aria-body ul, .msg-aria-body ol { margin: 4px 0; padding-left: 18px; }
-    .msg-aria-body li { margin: 3px 0; }
-    .msg-aria-body li::marker { color: #7c3aed; }
-    .msg-aria-body p { margin: 0 0 8px; }
+    .msg-aria-body h2 { font-size: 16px; font-weight: 700; color: #fff; margin: 18px 0 6px; letter-spacing: -0.005em; }
+    .msg-aria-body h3 { font-size: 13.5px; font-weight: 700; color: rgba(255,255,255,0.85); margin: 14px 0 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .msg-aria-body ul, .msg-aria-body ol { margin: 6px 0; padding-left: 22px; }
+    .msg-aria-body li { margin: 4px 0; }
+    .msg-aria-body li::marker { color: var(--accent); }
+    .msg-aria-body p { margin: 0 0 10px; }
     .msg-aria-body p:last-child { margin-bottom: 0; }
     .msg-aria-body blockquote {
-      border-left: 3px solid rgba(124,58,237,0.35); margin: 8px 0; padding: 4px 12px;
-      color: rgba(255,255,255,0.6); font-style: italic;
+      border-left: 2px solid var(--warm-border-strong); margin: 10px 0; padding: 4px 14px;
+      color: var(--warm-text-muted); font-style: italic;
     }
 
-    .msg-actions { display: flex; gap: 4px; padding-left: 30px; margin-top: 6px; opacity: 0; transition: opacity .15s; }
+    .msg-actions { display: flex; gap: 4px; margin-top: 10px; opacity: 0; transition: opacity .15s; flex-wrap: wrap; }
     .msg:hover .msg-actions { opacity: 1; }
-    .msg-action-btn {
-      background: none; border: 1px solid rgba(255,255,255,0.08); border-radius: 5px;
-      color: rgba(255,255,255,0.3); font-size: 11px; padding: 3px 8px; cursor: pointer; transition: all .15s;
-      display: flex; align-items: center; gap: 4px;
+    .msg-action-btn, .regen-btn {
+      background: transparent; border: 1px solid var(--warm-border); border-radius: 6px;
+      color: var(--warm-text-faint); font-size: 11.5px; padding: 4px 9px; cursor: pointer;
+      transition: all .15s; display: flex; align-items: center; gap: 5px;
     }
-    .msg-action-btn:hover { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.6); border-color: rgba(255,255,255,0.15); }
-    .msg-action-btn.copied { color: #22c55e; border-color: rgba(34,197,94,0.3); }
+    .msg-action-btn:hover, .regen-btn:hover {
+      background: var(--warm-hover); color: var(--warm-text); border-color: var(--warm-border-strong);
+    }
+    .msg-action-btn.copied { color: #4ade80; border-color: rgba(74,222,128,0.3); }
 
     /* ── Thinking dots ── */
-    .thinking { display: flex; align-items: center; gap: 10px; padding-left: 30px; margin-bottom: 24px; animation: fadeUp .2s ease; }
-    .thinking-ava {
-      width: 22px; height: 22px; border-radius: 6px;
-      background: linear-gradient(135deg, #7c3aed, #2563eb);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 9px; font-weight: 900; color: #fff; flex-shrink: 0;
-    }
-    .thinking-dots { display: flex; gap: 4px; }
+    .thinking { display: flex; align-items: center; gap: 8px; margin-bottom: 28px; animation: fadeUp .2s ease; }
+    .thinking-dots { display: flex; gap: 5px; }
     .thinking-dots span {
-      width: 5px; height: 5px; border-radius: 50%; background: #7c3aed;
+      width: 6px; height: 6px; border-radius: 50%; background: var(--warm-text-faint);
       animation: dot-pulse 1.2s ease-in-out infinite;
     }
-    .thinking-dots span:nth-child(2) { animation-delay: .15s; background: #5b21b6; }
-    .thinking-dots span:nth-child(3) { animation-delay: .3s; background: #2563eb; }
+    .thinking-dots span:nth-child(2) { animation-delay: .15s; }
+    .thinking-dots span:nth-child(3) { animation-delay: .3s; }
     @keyframes dot-pulse { 0%,70%,100%{transform:scale(.6);opacity:.35} 35%{transform:scale(1.1);opacity:1} }
-    .thinking-text { font-size: 12px; color: rgba(255,255,255,0.25); font-style: italic; }
+    .thinking-text { font-size: 12px; color: var(--warm-text-faint); font-style: italic; }
 
     /* ── Welcome ── */
-    .welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; padding: 40px 20px; text-align: center; }
+    .welcome {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 60vh; padding: 40px 20px; text-align: center;
+    }
     .welcome-mark {
-      width: 56px; height: 56px; border-radius: 16px;
-      background: linear-gradient(135deg, #7c3aed, #2563eb);
+      width: 48px; height: 48px; border-radius: 12px;
+      background: rgba(200,150,255,0.08); border: 1px solid rgba(200,150,255,0.22);
       display: flex; align-items: center; justify-content: center;
-      font-size: 22px; font-weight: 900; color: #fff;
-      box-shadow: 0 0 32px rgba(124,58,237,0.3); margin-bottom: 16px;
+      font-size: 20px; font-weight: 700; color: var(--accent);
+      margin-bottom: 18px;
     }
-    .welcome h2 { font-size: 18px; font-weight: 800; color: rgba(255,255,255,0.9); margin: 0 0 8px; }
-    .welcome p { font-size: 13px; color: rgba(255,255,255,0.3); line-height: 1.6; max-width: 360px; margin: 0 0 28px; }
-    .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 520px; }
+    .welcome h2 { font-size: 22px; font-weight: 600; color: var(--warm-text); margin: 0 0 10px; letter-spacing: -0.01em; }
+    .welcome p { font-size: 14px; color: var(--warm-text-muted); line-height: 1.6; max-width: 480px; margin: 0 0 28px; }
+    .chips { display: flex; flex-direction: column; gap: 6px; max-width: 560px; width: 100%; }
     .chip {
-      background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.18);
-      border-radius: 20px; padding: 8px 14px; font-size: 12.5px; color: rgba(255,255,255,0.55);
-      cursor: pointer; transition: all .15s; line-height: 1.4;
+      text-align: left;
+      background: transparent; border: 1px solid var(--warm-border);
+      border-radius: 9px; padding: 11px 14px; font-size: 13.5px;
+      color: var(--warm-text-muted); cursor: pointer; transition: all .15s;
+      line-height: 1.4; font-family: inherit;
     }
-    .chip:hover { background: rgba(124,58,237,0.18); border-color: rgba(124,58,237,0.35); color: rgba(255,255,255,0.8); }
+    .chip:hover {
+      background: var(--warm-hover); border-color: var(--warm-border-strong);
+      color: var(--warm-text);
+    }
 
-    /* ── Input area ── */
+    /* ── Input ── */
     .input-area {
-      flex-shrink: 0; padding: 0 20px 16px;
-      background: linear-gradient(to top, #0c0919 60%, transparent);
-      position: relative;
+      flex-shrink: 0; padding: 0 24px 14px;
+      background: linear-gradient(to top, var(--warm-bg) 70%, transparent);
     }
     .input-wrap {
-      max-width: 720px; margin: 0 auto;
-      background: #151029; border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 16px; overflow: hidden; transition: border-color .2s, box-shadow .2s;
+      max-width: 760px; margin: 0 auto;
+      background: var(--warm-bg-input); border: 1px solid var(--warm-border);
+      border-radius: 16px; overflow: hidden;
+      transition: border-color .2s, box-shadow .2s;
     }
-    .input-wrap.focused { border-color: rgba(124,58,237,0.4); box-shadow: 0 0 0 3px rgba(124,58,237,0.08); }
-    .input-wrap.think-on { border-color: rgba(124,58,237,0.5); box-shadow: 0 0 0 3px rgba(124,58,237,0.12), 0 0 20px rgba(124,58,237,0.06); }
+    .input-wrap.focused { border-color: var(--warm-border-strong); box-shadow: 0 0 0 4px rgba(255,255,255,0.03); }
+    .input-wrap.think-on { border-color: rgba(200,150,255,0.45); box-shadow: 0 0 0 4px rgba(200,150,255,0.08); }
 
     #chat-input {
       display: block; width: 100%; background: transparent; border: none; outline: none;
-      color: rgba(255,255,255,0.9); font-size: 14px; line-height: 1.6;
-      padding: 14px 16px 4px; resize: none; font-family: inherit;
-      min-height: 24px; max-height: 160px; overflow-y: auto;
+      color: var(--warm-text); font-size: 15px; line-height: 1.55;
+      padding: 14px 16px 6px; resize: none; font-family: inherit;
+      min-height: 24px; max-height: 200px; overflow-y: auto;
     }
-    #chat-input::placeholder { color: rgba(255,255,255,0.2); }
+    #chat-input::placeholder { color: var(--warm-text-faint); }
 
     .input-bar { display: flex; align-items: center; padding: 6px 10px 10px 12px; gap: 6px; }
 
-    .think-btn {
+    .think-btn, .upload-btn {
       display: flex; align-items: center; gap: 5px; padding: 5px 10px;
-      border: 1px solid rgba(255,255,255,0.08); border-radius: 7px;
-      background: transparent; color: rgba(255,255,255,0.3); font-size: 11px; font-weight: 600;
+      border: 1px solid var(--warm-border); border-radius: 7px;
+      background: transparent; color: var(--warm-text-muted); font-size: 12px; font-weight: 500;
       cursor: pointer; transition: all .15s; white-space: nowrap;
     }
-    .think-btn:hover { border-color: rgba(124,58,237,0.3); color: rgba(255,255,255,0.5); }
-    .think-btn.on { background: rgba(124,58,237,0.15); border-color: rgba(124,58,237,0.35); color: #c4b5fd; }
-    .think-btn i { font-size: 12px; }
-
-    .new-btn {
-      display: flex; align-items: center; gap: 4px; padding: 5px 10px;
-      border: 1px solid rgba(255,255,255,0.08); border-radius: 7px;
-      background: transparent; color: rgba(255,255,255,0.3); font-size: 11px; font-weight: 600;
-      cursor: pointer; transition: all .15s;
+    .think-btn:hover, .upload-btn:hover {
+      border-color: var(--warm-border-strong); color: var(--warm-text); background: var(--warm-hover);
     }
-    .new-btn:hover { border-color: rgba(255,255,255,0.15); color: rgba(255,255,255,0.5); }
+    .think-btn.on { background: rgba(200,150,255,0.12); border-color: rgba(200,150,255,0.35); color: var(--accent); }
+    .upload-btn i { font-size: 13px; }
 
-    .input-hint { margin-left: auto; font-size: 10px; color: rgba(255,255,255,0.12); white-space: nowrap; }
+    .input-hint { margin-left: auto; font-size: 11px; color: var(--warm-text-faint); white-space: nowrap; }
 
     .send-btn {
       width: 32px; height: 32px; border-radius: 8px; border: none;
-      background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.06); color: var(--warm-text-faint);
       cursor: pointer; display: flex; align-items: center; justify-content: center;
       font-size: 14px; transition: all .15s; flex-shrink: 0;
     }
-    .send-btn.ready { background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff; box-shadow: 0 2px 12px rgba(124,58,237,0.4); }
-    .send-btn.ready:hover { box-shadow: 0 2px 18px rgba(124,58,237,0.55); transform: translateY(-1px); }
-    .send-btn.stop { background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fff; cursor: pointer; opacity: 1; }
+    .send-btn.ready { background: linear-gradient(135deg, var(--accent), var(--accent-strong)); color: #fff; box-shadow: 0 2px 10px rgba(200,150,255,0.25); }
+    .send-btn.ready:hover { transform: translateY(-1px); box-shadow: 0 3px 14px rgba(200,150,255,0.35); }
+    .send-btn.stop { background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fff; opacity: 1; }
     .send-btn.stop:hover { box-shadow: 0 2px 14px rgba(220,38,38,0.5); }
-    .send-btn:disabled { opacity: .3; cursor: not-allowed; }
-    .regen-btn {
-      background: transparent; border: 1px solid rgba(255,255,255,0.08);
-      color: rgba(255,255,255,0.45); padding: 3px 9px; border-radius: 6px;
-      font-size: 11px; cursor: pointer; margin-left: 8px;
+    .send-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    .input-foot {
+      text-align: center; font-size: 11px; color: var(--warm-text-faint);
+      padding: 8px 0 0; max-width: 760px; margin: 0 auto;
     }
-    .regen-btn:hover { color: #fff; border-color: rgba(124,58,237,0.5); }
+
+    .chat-scroll.drag-over {
+      outline: 2px dashed rgba(200,150,255,0.4); outline-offset: -8px;
+      background: rgba(200,150,255,0.03);
+    }
 
     @media (max-width: 900px) {
-      .convos-panel { position: absolute; top: 0; left: 0; bottom: 0; z-index: 4; box-shadow: 4px 0 18px rgba(0,0,0,0.4); }
-      .convos-panel.collapsed { margin-left: -260px; box-shadow: none; }
-      /* Always show the titlebar on mobile so the user can re-open the
-         drawer + see which conversation they're in. */
+      .convos-panel { position: absolute; top: 0; left: 0; bottom: 0; z-index: 4; box-shadow: 4px 0 18px rgba(0,0,0,0.5); }
+      .convos-panel.collapsed { margin-left: -280px; box-shadow: none; }
+      /* Mobile: always show titlebar so user can re-open drawer. */
       .chat-titlebar { display: flex; }
     }
     @media (max-width: 640px) {
-      .chat-feed, .input-wrap { max-width: 100%; }
-      .input-hint { display: none; }
-      .msg-user-bubble { max-width: 90%; }
-      .convos-panel { width: 80vw; max-width: 280px; }
-      /* 44px minimum tap targets per Apple HIG / Material Design. The
-         desktop 32px send button is too small for thumbs. */
+      .chat-feed { max-width: 100%; padding: 18px 16px 12px; }
+      .input-wrap { max-width: 100%; }
+      .input-hint, .input-foot { display: none; }
+      .msg-user-bubble { max-width: 92%; }
+      .convos-panel { width: 80vw; max-width: 300px; }
+      /* 44px minimum tap targets per Apple HIG / Material Design. */
       .send-btn { width: 40px; height: 40px; font-size: 16px; }
-      .think-btn, .new-btn, .upload-btn { min-height: 36px; padding: 7px 11px; }
-      .convo-item { padding: 12px 36px 12px 14px; }
-      .convo-item .convo-del { opacity: 1; width: 28px; height: 28px; }
-      /* Avoid the iOS keyboard hiding the input — push the input up by
-         the safe-area inset on devices that report it. */
-      .input-area { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+      .think-btn, .upload-btn { min-height: 36px; padding: 7px 11px; }
+      .convo-item { padding: 12px 60px 12px 14px; }
+      .convo-item .convo-actions { opacity: 1; }
+      .input-area { padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+      .welcome h2 { font-size: 19px; }
     }
   </style>
 </head>
@@ -310,8 +378,15 @@
 
 <aside class="convos-panel" id="convos-panel">
   <div class="convos-head">
-    <span class="convos-title">Conversations</span>
-    <button class="convos-new-btn" id="convos-new" title="New conversation"><i class="bi bi-plus-lg"></i> New</button>
+    <div class="convos-head-top">
+      <button class="convos-new-btn" id="convos-new" title="Start a new conversation"><i class="bi bi-plus-lg" aria-hidden="true"></i> New chat</button>
+      <button class="convos-collapse-btn" id="convos-collapse" title="Hide conversations panel" aria-label="Hide conversations panel"><i class="bi bi-layout-sidebar" aria-hidden="true"></i></button>
+    </div>
+    <div class="convos-search-wrap" id="convos-search-wrap">
+      <i class="bi bi-search convos-search-icon" aria-hidden="true"></i>
+      <input id="convos-search" class="convos-search" type="text" placeholder="Search conversations" aria-label="Search conversations" autocomplete="off">
+      <button class="convos-search-clear" id="convos-search-clear" title="Clear search" aria-label="Clear search"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+    </div>
   </div>
   <div class="convos-list" id="convos-list" role="listbox" aria-label="Conversation history">
     <div class="convos-empty" id="convos-empty"><span class="sc-skeleton sc-skeleton-text" aria-label="Loading conversations"></span></div>
@@ -323,21 +398,22 @@
   <div class="chat-titlebar" id="chat-titlebar">
     <button class="convos-toggle" id="convos-toggle" title="Show conversations" aria-label="Show conversations panel"><i class="bi bi-layout-sidebar" aria-hidden="true"></i></button>
     <div class="chat-title-text" id="chat-title-text">New conversation</div>
+    <button class="titlebar-new" id="titlebar-new" title="New conversation" aria-label="New conversation"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
   </div>
 
   <div class="chat-scroll" id="chat-scroll">
     <div class="chat-feed" id="chat-feed">
       <div class="welcome" id="welcome">
         <div class="welcome-mark">A</div>
-        <h2>ARIA</h2>
-        <p>Arkmurus Research Intelligence Agent — your defence market analyst. Ask about procurement, intelligence, compliance, or strategy.</p>
+        <h2>How can I help you today?</h2>
+        <p>I'm ARIA, your defence market analyst. Ask about procurement, intelligence, compliance, or strategy.</p>
         <div class="chips" id="chips">
-          <div class="chip">What are the top procurement opportunities this week?</div>
-          <div class="chip">Summarise the latest Lusophone Africa intelligence</div>
-          <div class="chip">Which markets have active tenders right now?</div>
-          <div class="chip">Brief me on Angola's defence procurement pipeline</div>
-          <div class="chip">Any export control alerts I should know about?</div>
-          <div class="chip">Give me a strategic priority assessment</div>
+          <button class="chip">What are the top procurement opportunities this week?</button>
+          <button class="chip">Summarise the latest Lusophone Africa intelligence</button>
+          <button class="chip">Which markets have active tenders right now?</button>
+          <button class="chip">Brief me on Angola's defence procurement pipeline</button>
+          <button class="chip">Any export control alerts I should know about?</button>
+          <button class="chip">Give me a strategic priority assessment</button>
         </div>
       </div>
     </div>
@@ -348,12 +424,12 @@
       <textarea id="chat-input" placeholder="Message ARIA…" rows="1"></textarea>
       <div class="input-bar">
         <button class="think-btn" id="think-btn" title="Deep analysis mode" aria-label="Toggle deep analysis mode"><i class="bi bi-cpu" aria-hidden="true"></i> Think</button>
-        <button class="new-btn" id="new-btn" title="New conversation" aria-label="Start new conversation"><i class="bi bi-plus-lg" aria-hidden="true"></i> New</button>
-        <button class="upload-btn" id="upload-btn" title="Upload document" aria-label="Upload document"><i class="bi bi-paperclip" aria-hidden="true"></i></button>
+        <button class="upload-btn" id="upload-btn" title="Upload document" aria-label="Upload document"><i class="bi bi-paperclip" aria-hidden="true"></i> Attach</button>
         <span class="input-hint">Enter to send · Drop files here</span>
         <button class="send-btn" id="send-btn" disabled aria-label="Send message"><i class="bi bi-arrow-up" aria-hidden="true"></i></button>
       </div>
     </div>
+    <div class="input-foot">ARIA can make mistakes. Verify critical intelligence.</div>
   </div>
 
 </div>
@@ -385,7 +461,6 @@ var AUTH_READY = Auth.me().then(function(user) {
   if (user) {
     CURRENT_USER = user;
     USER_ID_SLUG = (user.id || user.username || 'anon').toString().replace(/[^A-Za-z0-9]/g, '');
-    // Welcome still visible = no chat yet, so rebuild SID under real user.
     var welcomeEl = document.getElementById('welcome');
     if (welcomeEl && welcomeEl.style.display !== 'none') SID = newSID();
   }
@@ -433,8 +508,8 @@ function setTitlebar(text) {
   var el = document.getElementById('chat-title-text');
   if (el) el.textContent = text || 'New conversation';
 }
-document.getElementById('new-btn').addEventListener('click', startNewConversation);
 document.getElementById('convos-new').addEventListener('click', startNewConversation);
+document.getElementById('titlebar-new').addEventListener('click', startNewConversation);
 
 // ── Input ──
 ta.addEventListener('input', resize);
@@ -446,7 +521,7 @@ ta.addEventListener('keydown', function(e) {
 
 function resize() {
   ta.style.height = 'auto';
-  ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+  ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
   var has = ta.value.trim().length > 0;
   if (sending) {
     // While streaming, button becomes a Stop control — never disabled so the
@@ -486,17 +561,14 @@ function md(text) {
   s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
   s = s.replace(/`(.+?)`/g, '<code>$1</code>');
-  // Convert bullet lines to proper list
   s = s.replace(/((?:^[-•] .+\n?)+)/gm, function(block) {
     var items = block.trim().split('\n').map(function(l) { return '<li>' + l.replace(/^[-•] /, '') + '</li>'; }).join('');
     return '<ul>' + items + '</ul>';
   });
-  // Convert numbered lines to list
   s = s.replace(/((?:^\d+\. .+\n?)+)/gm, function(block) {
     var items = block.trim().split('\n').map(function(l) { return '<li>' + l.replace(/^\d+\. /, '') + '</li>'; }).join('');
     return '<ol>' + items + '</ol>';
   });
-  // Paragraphs from double newlines
   s = s.replace(/\n{2,}/g, '</p><p>');
   s = s.replace(/\n/g, '<br>');
   s = '<p>' + s + '</p>';
@@ -510,9 +582,6 @@ function md(text) {
 function bottom() { scroll.scrollTop = scroll.scrollHeight; }
 
 // ── Message index tracking ──
-// The Python session schema is messages: [{role, content}, ...]. Each
-// message we render has a `data-msg-index` matching its array index so
-// the audit-grade PDF export can address it on the server.
 var nextMsgIndex = 0;
 function resetMsgIndex(n) { nextMsgIndex = n || 0; }
 
@@ -534,7 +603,6 @@ function addAria(html, badge) {
   d.dataset.msgIndex = String(nextMsgIndex++);
   d.innerHTML =
     '<div class="msg-aria-header">' +
-      '<div class="msg-aria-avatar">A</div>' +
       '<span class="msg-aria-name">ARIA</span>' +
       (badge ? '<span class="msg-aria-badge">' + escHtml(badge) + '</span>' : '') +
     '</div>' +
@@ -625,9 +693,8 @@ function showThinking() {
   var d = document.createElement('div');
   d.className = 'thinking'; d.id = 'thk';
   d.innerHTML =
-    '<div class="thinking-ava">A</div>' +
     '<div class="thinking-dots"><span></span><span></span><span></span></div>' +
-    '<span class="thinking-text">' + (thinkMode ? 'Analysing…' : '') + '</span>';
+    '<span class="thinking-text">' + (thinkMode ? 'Analysing…' : 'Thinking…') + '</span>';
   feed.appendChild(d);
   bottom();
 }
@@ -638,10 +705,6 @@ function removeThinking() { var t = document.getElementById('thk'); if (t) t.rem
 async function send(text, opts) {
   opts = opts || {};
   if (!text || sending) return;
-  // First send: wait up to ~600ms for /api/auth/me so the SID prefix is the
-  // real userId. After that we proceed with whatever's resolved (anon
-  // bucket if the user truly isn't authed). This gates only the FIRST turn
-  // — subsequent sends are immediate.
   if (!CURRENT_USER) {
     try {
       await Promise.race([
@@ -691,13 +754,11 @@ async function send(text, opts) {
   }
 
   // ── SSE streaming path ──
-  // Create the ARIA message block with an empty body that we'll fill progressively
   var ariaDiv = document.createElement('div');
   ariaDiv.className = 'msg msg-aria';
   ariaDiv.dataset.msgIndex = String(nextMsgIndex++);
   ariaDiv.innerHTML =
     '<div class="msg-aria-header">' +
-      '<div class="msg-aria-avatar">A</div>' +
       '<span class="msg-aria-name">ARIA</span>' +
       '<span class="msg-aria-badge streaming-badge" id="stream-badge">streaming</span>' +
     '</div>' +
@@ -775,7 +836,6 @@ async function send(text, opts) {
     streamBadge.remove();
     if (!fullText) streamBody.innerHTML = md('No response received.');
 
-    // Add copy + export + tool badge
     var actions = document.createElement('div');
     actions.className = 'msg-actions';
     actions.innerHTML =
@@ -806,25 +866,18 @@ async function send(text, opts) {
     }
   } finally {
     streamAbort = null;
-    // Bump the active conversation to the top of the panel (or insert a
-    // stub if it's the first turn) so the UI reflects the just-saved turn.
     try { if (window._ariaTurnFinished) window._ariaTurnFinished(SID, lastUserMessage); } catch(e) {}
-    // Attach a Regenerate button to the final ARIA message so the user
-    // can retry without retyping. Only offered when we have something
-    // to regenerate from.
     if (ariaDiv && lastUserMessage) {
       var regenBtn = document.createElement('button');
       regenBtn.className = 'regen-btn';
       regenBtn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Regenerate';
       regenBtn.onclick = function() {
-        // Remove this stale assistant bubble and replay the last user turn.
         if (ariaDiv && ariaDiv.parentNode) ariaDiv.parentNode.removeChild(ariaDiv);
         send(lastUserMessage, { skipUserBubble: true });
       };
       var actionsWrap = ariaDiv.querySelector('.msg-actions');
       if (actionsWrap) actionsWrap.appendChild(regenBtn);
     }
-    // Clean up IDs so next message doesn't collide
     if (streamBody) streamBody.removeAttribute('id');
     if (streamBadge) streamBadge.removeAttribute('id');
     sending = false;
@@ -884,16 +937,53 @@ chatScroll.addEventListener('drop', function(e) {
   }
 });
 
-// ── Conversations panel ────────────────────────────────────────────────────
+// ── Conversations panel (R-F533, 2026-05-15) ──
+// Rewritten around a `rows[]` cache so we can re-render with date groups
+// + client-side search on every change. Bumping a conversation to the top
+// after a turn ends preserves the group structure.
 var Convos = (function() {
   var listEl = document.getElementById('convos-list');
   var emptyEl = document.getElementById('convos-empty');
   var panel = document.getElementById('convos-panel');
   var toggleBtn = document.getElementById('convos-toggle');
+  var collapseBtn = document.getElementById('convos-collapse');
+  var searchEl = document.getElementById('convos-search');
+  var searchWrap = document.getElementById('convos-search-wrap');
+  var searchClear = document.getElementById('convos-search-clear');
+  var COLLAPSE_KEY = 'aria_convos_collapsed';
   var loadedOffset = 0;
   var pageSize = 30;
   var allLoaded = false;
   var activeSid = null;
+  // Single source of truth for what's rendered. Each entry is the API row
+  // shape: { session_id, title, createdAt, updatedAt, messageCount }.
+  var rows = [];
+  var searchTerm = '';
+
+  var GROUP_LABELS = {
+    today: 'Today',
+    yesterday: 'Yesterday',
+    past7: 'Previous 7 days',
+    past30: 'Previous 30 days',
+    older: 'Older',
+  };
+  var GROUP_ORDER = ['today', 'yesterday', 'past7', 'past30', 'older'];
+
+  function tsOf(c) { return c.updatedAt || c.createdAt || 0; }
+
+  function groupOf(ts) {
+    if (!ts) return 'older';
+    var nowD = new Date();
+    var todayStart = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate()).getTime() / 1000;
+    var yesterdayStart = todayStart - 86400;
+    var sevenAgo = todayStart - 86400 * 7;
+    var thirtyAgo = todayStart - 86400 * 30;
+    if (ts >= todayStart) return 'today';
+    if (ts >= yesterdayStart) return 'yesterday';
+    if (ts >= sevenAgo) return 'past7';
+    if (ts >= thirtyAgo) return 'past30';
+    return 'older';
+  }
 
   function fmtTime(ts) {
     if (!ts) return '';
@@ -908,10 +998,7 @@ var Convos = (function() {
 
   async function authedJson(method, url, body) {
     var token = localStorage.getItem('crucix_token') || '';
-    var opts = {
-      method: method,
-      headers: { 'Authorization': 'Bearer ' + token },
-    };
+    var opts = { method: method, headers: { 'Authorization': 'Bearer ' + token } };
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
@@ -926,35 +1013,40 @@ var Convos = (function() {
     row.className = 'convo-item' + (c.session_id === activeSid ? ' active' : '');
     row.dataset.sid = c.session_id;
     var title = (c.title && c.title.trim()) || 'Untitled';
-    // R-F114 (2026-05-09): keyboard accessibility for the conversation list.
-    // role=option / parent listbox so screen readers announce "X of N
-    // conversations". tabindex=0 so each row is keyboard-focusable; the
-    // active row gets focus naturally on load.
+    // Keyboard accessibility: role=option / parent listbox so screen
+    // readers announce "X of N conversations".
     row.setAttribute('role', 'option');
     row.setAttribute('tabindex', '0');
     row.setAttribute('aria-selected', c.session_id === activeSid ? 'true' : 'false');
-    row.setAttribute('aria-label', title + ', ' + fmtTime(c.updatedAt || c.createdAt));
+    row.setAttribute('aria-label', title + ', ' + fmtTime(tsOf(c)));
     row.innerHTML =
       '<div class="convo-title-line">' + escHtml(title) + '</div>' +
-      '<div class="convo-meta">' + fmtTime(c.updatedAt || c.createdAt) +
+      '<div class="convo-meta">' + fmtTime(tsOf(c)) +
         (c.messageCount ? ' · ' + c.messageCount + ' msg' : '') +
       '</div>' +
-      '<button class="convo-del" title="Delete conversation" aria-label="Delete conversation"><i class="bi bi-trash" aria-hidden="true"></i></button>';
+      '<div class="convo-actions">' +
+        '<button class="convo-act-btn convo-rename" title="Rename" aria-label="Rename conversation"><i class="bi bi-pencil" aria-hidden="true"></i></button>' +
+        '<button class="convo-act-btn convo-del danger" title="Delete" aria-label="Delete conversation"><i class="bi bi-trash" aria-hidden="true"></i></button>' +
+      '</div>';
     row.addEventListener('click', function(e) {
-      if (e.target.closest('.convo-del')) return;
+      if (e.target.closest('.convo-actions')) return;
+      if (e.target.closest('.convo-title-edit')) return;
       load(c.session_id);
     });
-    // R-F114: keyboard handlers
-    //   Enter / Space  → load this conversation
-    //   ArrowDown      → focus next item
-    //   ArrowUp        → focus previous item
-    //   Home / End     → focus first / last
-    //   Delete / Backspace → delete (with confirmation prompt inside del())
+    // Keyboard handlers
+    //   Enter / Space     → load
+    //   F2                → rename
+    //   ArrowDown/Up      → focus next/prev item
+    //   Home / End        → first / last
+    //   Delete            → delete (with confirmation)
     row.addEventListener('keydown', function(e) {
       var key = e.key;
       if (key === 'Enter' || key === ' ') {
         e.preventDefault();
         load(c.session_id);
+      } else if (key === 'F2') {
+        e.preventDefault();
+        startRename(row, c);
       } else if (key === 'ArrowDown') {
         e.preventDefault();
         var next = row.nextElementSibling;
@@ -974,8 +1066,6 @@ var Convos = (function() {
         var items = listEl.querySelectorAll('.convo-item');
         if (items.length) items[items.length - 1].focus();
       } else if (key === 'Delete' || (key === 'Backspace' && e.shiftKey)) {
-        // Plain Backspace might be triggered when typing — require Shift to
-        // make destructive intent explicit.
         e.preventDefault();
         del(c.session_id, title);
       }
@@ -984,43 +1074,96 @@ var Convos = (function() {
       e.stopPropagation();
       del(c.session_id, title);
     });
+    row.querySelector('.convo-rename').addEventListener('click', function(e) {
+      e.stopPropagation();
+      startRename(row, c);
+    });
     return row;
   }
 
-  function clearList() {
-    Array.prototype.forEach.call(listEl.querySelectorAll('.convo-item, .convos-load-older'), function(n) {
-      n.remove();
+  function startRename(row, c) {
+    var titleEl = row.querySelector('.convo-title-line');
+    if (!titleEl || row.querySelector('.convo-title-edit')) return;
+    var current = c.title || titleEl.textContent || '';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'convo-title-edit';
+    input.value = current;
+    input.maxLength = 120;
+    titleEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    function commit() {
+      var next = (input.value || '').trim();
+      if (!next || next === current) { cancel(); return; }
+      // Optimistic UI; rollback on failure.
+      var optimistic = next;
+      var newTitleLine = document.createElement('div');
+      newTitleLine.className = 'convo-title-line';
+      newTitleLine.textContent = optimistic;
+      input.replaceWith(newTitleLine);
+      c.title = optimistic;
+      authedJson('PUT', '/api/aria/conversations/' + encodeURIComponent(c.session_id) + '/title',
+                 { title: optimistic, user_id: USER_ID_SLUG })
+        .catch(function(err) {
+          console.error('[Convos] rename', err);
+          c.title = current;
+          newTitleLine.textContent = current;
+          alert('Rename failed.');
+        });
+    }
+    function cancel() {
+      var orig = document.createElement('div');
+      orig.className = 'convo-title-line';
+      orig.textContent = current;
+      input.replaceWith(orig);
+    }
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
     });
+    input.addEventListener('blur', commit);
+    input.addEventListener('click', function(e) { e.stopPropagation(); });
   }
 
-  async function refresh() {
-    if (!CURRENT_USER) return;
-    loadedOffset = 0;
-    allLoaded = false;
-    clearList();
-    emptyEl.style.display = '';
-    emptyEl.textContent = 'Loading…';
-    try {
-      var data = await authedJson(
-        'GET',
-        '/api/aria/conversations?user_id=' + encodeURIComponent(USER_ID_SLUG) + '&offset=0&limit=' + pageSize,
-      );
-      emptyEl.style.display = 'none';
-      var convos = (data && data.conversations) || [];
-      if (!convos.length) {
-        emptyEl.style.display = '';
-        emptyEl.textContent = 'No conversations yet — start chatting and they’ll appear here.';
-        return;
+  function render() {
+    // Clear list (preserve nothing — the empty / load-older are recreated).
+    while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+    var term = searchTerm.toLowerCase();
+    var filtered = !term ? rows.slice() : rows.filter(function(c) {
+      return (c.title || '').toLowerCase().indexOf(term) !== -1;
+    });
+    if (!filtered.length) {
+      var msg;
+      if (rows.length && term) {
+        msg = 'No matches for “' + escHtml(searchTerm) + '”.';
+      } else {
+        msg = 'No conversations yet — start chatting and they’ll appear here.';
       }
-      convos.forEach(function(c) { listEl.appendChild(renderRow(c)); });
-      loadedOffset = convos.length;
-      if (convos.length === pageSize) appendLoadOlder();
-      else allLoaded = true;
-    } catch (err) {
-      emptyEl.style.display = '';
-      emptyEl.textContent = 'Failed to load.';
-      console.error('[Convos] refresh', err);
+      var emptyDiv = document.createElement('div');
+      emptyDiv.className = 'convos-empty';
+      emptyDiv.innerHTML = msg;
+      listEl.appendChild(emptyDiv);
+      return;
     }
+    // Build groups in insertion order. The API returns rows already
+    // sorted newest-first; group buckets inherit that order.
+    var groups = {};
+    filtered.forEach(function(c) {
+      var g = groupOf(tsOf(c));
+      (groups[g] = groups[g] || []).push(c);
+    });
+    GROUP_ORDER.forEach(function(g) {
+      if (!groups[g]) return;
+      var header = document.createElement('div');
+      header.className = 'convos-section';
+      header.textContent = GROUP_LABELS[g];
+      listEl.appendChild(header);
+      groups[g].forEach(function(c) { listEl.appendChild(renderRow(c)); });
+    });
+    // Load-older button — only when not searching and the server has more.
+    if (!allLoaded && !term) appendLoadOlder();
   }
 
   function appendLoadOlder() {
@@ -1031,10 +1174,41 @@ var Convos = (function() {
     listEl.appendChild(btn);
   }
 
+  async function refresh() {
+    if (!CURRENT_USER) return;
+    loadedOffset = 0;
+    allLoaded = false;
+    rows = [];
+    // Brief skeleton while we fetch first page.
+    while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+    var skel = document.createElement('div');
+    skel.className = 'convos-empty';
+    skel.textContent = 'Loading…';
+    listEl.appendChild(skel);
+    try {
+      var data = await authedJson(
+        'GET',
+        '/api/aria/conversations?user_id=' + encodeURIComponent(USER_ID_SLUG) + '&offset=0&limit=' + pageSize,
+      );
+      var convos = (data && data.conversations) || [];
+      rows = convos.slice();
+      loadedOffset = convos.length;
+      if (convos.length < pageSize) allLoaded = true;
+      render();
+    } catch (err) {
+      while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+      var fail = document.createElement('div');
+      fail.className = 'convos-empty';
+      fail.textContent = 'Failed to load.';
+      listEl.appendChild(fail);
+      console.error('[Convos] refresh', err);
+    }
+  }
+
   async function loadOlder() {
     if (allLoaded || !CURRENT_USER) return;
     var btn = listEl.querySelector('.convos-load-older');
-    if (btn) btn.remove();
+    if (btn) btn.textContent = 'Loading…';
     try {
       var data = await authedJson(
         'GET',
@@ -1042,13 +1216,13 @@ var Convos = (function() {
           '&offset=' + loadedOffset + '&limit=' + pageSize,
       );
       var convos = (data && data.conversations) || [];
-      convos.forEach(function(c) { listEl.appendChild(renderRow(c)); });
+      rows = rows.concat(convos);
       loadedOffset += convos.length;
-      if (convos.length === pageSize) appendLoadOlder();
-      else allLoaded = true;
+      if (convos.length < pageSize) allLoaded = true;
+      render();
     } catch (err) {
       console.error('[Convos] loadOlder', err);
-      appendLoadOlder();
+      if (btn) btn.textContent = 'Load older (retry)';
     }
   }
 
@@ -1059,9 +1233,10 @@ var Convos = (function() {
       SID = sid;
       activeSid = sid;
       Array.prototype.forEach.call(listEl.querySelectorAll('.convo-item'), function(n) {
-        n.classList.toggle('active', n.dataset.sid === sid);
+        var on = n.dataset.sid === sid;
+        n.classList.toggle('active', on);
+        n.setAttribute('aria-selected', on ? 'true' : 'false');
       });
-      // Render messages
       feed.querySelectorAll('.msg, .thinking').forEach(function(n) { n.remove(); });
       document.getElementById('welcome').style.display = 'none';
       resetMsgIndex(0);
@@ -1072,7 +1247,6 @@ var Convos = (function() {
       });
       bottom();
       setTitlebar(data.title || 'Conversation');
-      // On mobile, collapse the panel after selecting
       if (window.innerWidth <= 900) panel.classList.add('collapsed');
     } catch (err) {
       console.error('[Convos] load', err);
@@ -1082,17 +1256,13 @@ var Convos = (function() {
 
   async function del(sid, title) {
     if (!CURRENT_USER) return;
-    if (!confirm('Delete "' + title + '"? This cannot be undone.')) return;
+    if (!confirm('Delete “' + title + '”? This cannot be undone.')) return;
     try {
       await authedJson('DELETE', '/api/aria/conversations/' + encodeURIComponent(sid) +
         '?user_id=' + encodeURIComponent(USER_ID_SLUG));
-      var row = listEl.querySelector('.convo-item[data-sid="' + sid + '"]');
-      if (row) row.remove();
+      rows = rows.filter(function(c) { return c.session_id !== sid; });
       if (sid === activeSid) startNewConversation();
-      if (!listEl.querySelector('.convo-item')) {
-        emptyEl.style.display = '';
-        emptyEl.textContent = 'No conversations yet.';
-      }
+      render();
     } catch (err) {
       console.error('[Convos] delete', err);
       alert('Delete failed.');
@@ -1102,53 +1272,95 @@ var Convos = (function() {
   function setActive(sid) {
     activeSid = sid;
     Array.prototype.forEach.call(listEl.querySelectorAll('.convo-item'), function(n) {
-      n.classList.toggle('active', n.dataset.sid === sid);
+      var on = n.dataset.sid === sid;
+      n.classList.toggle('active', on);
+      n.setAttribute('aria-selected', on ? 'true' : 'false');
     });
   }
 
-  // Refresh after a chat turn finishes so a new conversation appears at the top.
+  // After a turn ends: move the active conversation to the top of its
+  // group (which is "today" for any active conversation, so it floats to
+  // the very top of the list).
   function bumpToTop(sid, fallbackTitle) {
     if (!CURRENT_USER || !sid) return;
-    var existing = listEl.querySelector('.convo-item[data-sid="' + sid + '"]');
+    var existing = rows.find(function(c) { return c.session_id === sid; });
+    var nowSecs = Date.now() / 1000;
     if (existing) {
-      // Move to top + bump message count
-      listEl.insertBefore(existing, listEl.firstChild);
-      setActive(sid);
-      return;
+      existing.updatedAt = nowSecs;
+      existing.messageCount = (existing.messageCount || 0) + 2;
+      rows = [existing].concat(rows.filter(function(c) { return c.session_id !== sid; }));
+    } else {
+      var stub = {
+        session_id: sid,
+        title: fallbackTitle || 'New conversation',
+        updatedAt: nowSecs,
+        createdAt: nowSecs,
+        messageCount: 2,
+      };
+      rows.unshift(stub);
     }
-    // New conversation — insert a stub row at top, server-side title will
-    // appear on the next full refresh.
-    var title = fallbackTitle || 'New conversation';
-    var stub = renderRow({
-      session_id: sid,
-      title: title,
-      updatedAt: Date.now() / 1000,
-      messageCount: 1,
-    });
-    listEl.insertBefore(stub, listEl.firstChild);
-    emptyEl.style.display = 'none';
-    setActive(sid);
-    setTitlebar(title);
+    activeSid = sid;
+    render();
+    setTitlebar((rows[0] && rows[0].title) || 'Conversation');
   }
 
-  toggleBtn.addEventListener('click', function() {
-    panel.classList.toggle('collapsed');
+  // ── Search ──
+  searchEl.addEventListener('input', function() {
+    searchTerm = searchEl.value || '';
+    searchWrap.classList.toggle('has-text', searchTerm.length > 0);
+    render();
   });
-  // Mobile-first: start collapsed below 900px.
-  if (window.innerWidth <= 900) panel.classList.add('collapsed');
+  searchEl.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && searchTerm) {
+      e.preventDefault();
+      searchEl.value = '';
+      searchTerm = '';
+      searchWrap.classList.remove('has-text');
+      render();
+    } else if (e.key === 'ArrowDown') {
+      var first = listEl.querySelector('.convo-item');
+      if (first) { e.preventDefault(); first.focus(); }
+    }
+  });
+  searchClear.addEventListener('click', function() {
+    searchEl.value = '';
+    searchTerm = '';
+    searchWrap.classList.remove('has-text');
+    render();
+    searchEl.focus();
+  });
+
+  // ── Collapse / expand (desktop persists in localStorage) ──
+  function isDesktop() { return window.innerWidth > 900; }
+  function applyInitialCollapse() {
+    if (isDesktop()) {
+      var stored = localStorage.getItem(COLLAPSE_KEY);
+      panel.classList.toggle('collapsed', stored === '1');
+    } else {
+      // Mobile defaults to collapsed (drawer overlay).
+      panel.classList.add('collapsed');
+    }
+  }
+  function toggle() {
+    panel.classList.toggle('collapsed');
+    if (isDesktop()) {
+      localStorage.setItem(COLLAPSE_KEY, panel.classList.contains('collapsed') ? '1' : '0');
+    }
+  }
+  collapseBtn.addEventListener('click', toggle);
+  toggleBtn.addEventListener('click', toggle);
+  applyInitialCollapse();
 
   return { refresh: refresh, load: load, setActive: setActive, bumpToTop: bumpToTop };
 })();
 
-// Once the auth probe at the top of the script resolves, refresh the
-// conversation list. CURRENT_USER + USER_ID_SLUG are already set by then;
-// AUTH_READY is the single source of truth for "auth resolved".
+// Once the auth probe resolves, refresh the conversation list. CURRENT_USER
+// + USER_ID_SLUG are already set by then.
 AUTH_READY.then(function(user) {
   if (user) Convos.refresh();
 });
 
-// After every successful send, bump the conversation to the top of the list.
-// We hook this from inside send() via a window-level helper.
+// After every successful send, bump the conversation to the top.
 window._ariaTurnFinished = function(sid, firstUserMessage) {
   if (!sid) return;
   Convos.bumpToTop(sid, firstUserMessage ? firstUserMessage.slice(0, 60) : 'New conversation');
