@@ -81,8 +81,15 @@ console.log(`[sync] Done: ${ok} synced, ${fail} failed`);
 // CRUCIX_BUILD_REV constant that drifted (was reporting R-F433 while
 // R-F532 was already live). Hit the GitHub API for the latest commit
 // on main, stash sha + subject into build_rev.txt; server.mjs reads
-// at startup and falls back to a clear sentinel if the file is
-// missing.
+// at startup.
+//
+// R-F547 (2026-05-15): hardened with a date-stamp fallback. First
+// deploy after R-F542 went out, the GitHub API call failed silently
+// (probably rate-limited from a shared seenode CI IP — 60 req/hr
+// unauthenticated cap) and server.mjs reported the UNKNOWN-BUILD
+// sentinel. Even a partial-info fallback ("date · branch ·
+// api-unreachable") is more useful than "check seenode build logs".
+let _r542_wrote_real_rev = false;
 try {
   const headRes = await fetch(
     `https://api.github.com/repos/${REPO}/commits/${BRANCH}`,
@@ -99,9 +106,21 @@ try {
     const rev = `${sha} · ${dateIso.slice(0, 10)} · ${subject}`;
     writeFileSync('build_rev.txt', rev, 'utf8');
     console.log(`[sync] build_rev.txt → ${rev}`);
+    _r542_wrote_real_rev = true;
   } else {
-    console.warn(`[sync] build_rev fetch HTTP ${headRes.status} — leaving build_rev.txt unset`);
+    console.warn(`[sync] build_rev fetch HTTP ${headRes.status} — falling back to date stamp`);
   }
 } catch (err) {
-  console.warn(`[sync] build_rev fetch failed: ${err.message} — leaving build_rev.txt unset`);
+  console.warn(`[sync] build_rev fetch failed: ${err.message} — falling back to date stamp`);
+}
+if (!_r542_wrote_real_rev) {
+  // R-F547 partial-info fallback. Operator still gets the deploy
+  // timestamp — better than UNKNOWN-BUILD.
+  const fallbackRev = `${BRANCH} · ${new Date().toISOString()} · github-api-unreachable`;
+  try {
+    writeFileSync('build_rev.txt', fallbackRev, 'utf8');
+    console.log(`[sync] build_rev.txt fallback → ${fallbackRev}`);
+  } catch (err) {
+    console.warn(`[sync] build_rev.txt fallback write failed: ${err.message}`);
+  }
 }
