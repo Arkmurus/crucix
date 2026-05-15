@@ -66,12 +66,22 @@ def escape_for_delimiter_block(text: str) -> str:
     """
     if not text:
         return ""
-    out = text.replace("[", _MATH_LBRACKET).replace("]", _MATH_RBRACKET)
-    # Wrap suspected meta-instructions in a neutralisation marker.
+    # R-F537 (2026-05-15) — neutralise BEFORE replacing ASCII brackets.
+    # Pre-R-F537 the order was reversed: `[NEW INSTRUCTIONS]` became
+    # `⟦NEW INSTRUCTIONS⟧` first, then the bracket-aware regex
+    # `\[(?:system|admin|root|new\s+instructions?)\]` couldn't match
+    # the math-bracketed version, so the NEUTRALISED marker never wrapped
+    # and the literal phrase leaked into the LLM context. Live evidence:
+    # `test_rf411_escape_neutralises_meta_instructions` failed for the
+    # `[NEW INSTRUCTIONS]` attack. Neutralising first preserves the
+    # delimiter-forge defence below (math-bracket replacement still runs
+    # on every ASCII bracket the attack didn't claim).
+    out = text
     for pat in _META_INSTRUCTION_PATTERNS:
         out = pat.sub(
             lambda m: f"⟦NEUTRALISED:{m.group(0)}⟧", out,
         )
+    out = out.replace("[", _MATH_LBRACKET).replace("]", _MATH_RBRACKET)
     return out
 
 

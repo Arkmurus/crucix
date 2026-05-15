@@ -204,13 +204,29 @@ def build_footer(
     """
     if not is_enabled():
         return ""
-    if not response_text or len(response_text) < 80:
-        # Don't decorate short replies — looks ridiculous on a 1-line answer.
+    if not response_text:
         return ""
 
     tag = _dominant_tag(response_text)
     has_verification = bool(verification)
     has_rag = rag_sources_count > 0
+
+    # R-F536 (2026-05-15) — signal-aware short-reply guard. Pre-R-F536
+    # we blanket-skipped any reply <80 chars to avoid decorating
+    # greetings. But a substantive 1-line DD verdict like "The director
+    # is Joe Bloggs [PROBABLE — single Companies House filing]." (71
+    # chars) deserves a footer; the [PROBABLE] tag is meaningful. Skip
+    # only when there's truly nothing to surface: no tag, no
+    # verification, no RAG hit, no tools attribution, no R-F401
+    # violation. The full _violations scan happens below; for the
+    # short-reply path we use a cheap signal-presence check.
+    if len(response_text) < 80:
+        _short_has_signal = bool(
+            tag or has_verification or has_rag
+            or tools_used or build_rev or trace_id
+        )
+        if not _short_has_signal:
+            return ""
 
     # M4: when no tool ran OR no citations were grounded, no claim in the
     # reply is actually verified — so a [CONFIRMED] headline is misleading.
@@ -255,9 +271,35 @@ def build_footer(
             )
             tag = promoted
 
-    # If we have nothing to say, don't draw the box.
-    if not tag and not has_verification and not has_rag:
-        return ""
+    # R-F536 (2026-05-15) — pre-compute the R-F401 self-claim guard
+    # violations once and reuse below. Pre-R-F536 this scan ran only
+    # inside the late R-F407 block, AFTER a "nothing to say"
+    # early-return that dropped the entire footer when verification=None
+    # and the body had no inline [CONFIRMED] tag. Net effect: an R-F401
+    # invariant violation like "ARIA has 18-month TTL on facts" passed
+    # silently through the most common chat surface. The fix is to (a)
+    # scan once up here, and (b) drop the early-return entirely — every
+    # substantive response (>80 chars, gated above) now gets a footer
+    # with at least the "Tools: (none — from memory / training)"
+    # honesty line, even if no tool, verification, or RAG hit fired.
+    # Live evidence: 7 R-F403 tests failing pre-R-F536 with `'*Tools:*'
+    # in ''` and `R-F403 CRITICAL: response contained 18-month TTL
+    # hallucination but the R-F401 guard block didn't appear in the
+    # footer`.
+    _violations = []
+    _had_introspect = False
+    if tools_used:
+        if isinstance(tools_used, str):
+            _had_introspect = "self_introspect" in tools_used.lower()
+        else:
+            _had_introspect = any(
+                "self_introspect" in str(t).lower() for t in tools_used
+            )
+    try:
+        from .self_claim_guard import scan_response as _pre_scan
+        _violations = _pre_scan(response_text, self_introspect_ran=_had_introspect) or []
+    except Exception:
+        _violations = []
 
     lines: list[str] = ["", "─────"]
 
@@ -345,19 +387,15 @@ def build_footer(
     # Redis counters so the operator dashboard panel can show 24h totals.
     try:
         from .self_claim_guard import (
-            scan_response, render_violation_block,
+            render_violation_block,
             record_violations, record_turn_observed,
         )
-        # Self_introspect ran if any tool name in tools_used matches
-        had_introspect = False
-        if tools_used:
-            if isinstance(tools_used, str):
-                had_introspect = "self_introspect" in tools_used.lower()
-            else:
-                had_introspect = any(
-                    "self_introspect" in str(t).lower() for t in tools_used
-                )
-        violations = scan_response(response_text, self_introspect_ran=had_introspect)
+        # R-F536 (2026-05-15) — reuse the violations already computed by
+        # the early-return guard above. Pre-R-F536 this block re-ran
+        # scan_response, which (a) was wasted work and (b) ran AFTER the
+        # nothing-to-say return, so violations on tag-less / no-verify
+        # responses were silently dropped.
+        violations = _violations
         if violations:
             vblock = render_violation_block(violations)
             if vblock:
