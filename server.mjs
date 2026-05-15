@@ -2,14 +2,6 @@
 // Crucix Intelligence Engine — Dev Server
 // Serves the Jarvis dashboard, runs sweep cycle, pushes live updates via SSE
 
-// R-F360 (2026-05-12): deploy marker. Bumped manually each commit that
-// touches seenode-deployed surfaces (server.mjs / lib/ / apis/ / public/).
-// Logged at boot + exposed in /api/health so we can confirm the deployed
-// commit matches what's in git. Diagnostic added after R-F353 was committed
-// and pushed but seenode kept emitting the pre-R-F353 log shape — uptime
-// alone couldn't tell us whether the deploy had picked up.
-const CRUCIX_BUILD_REV = 'R-F433 · 2026-05-13 · Pending Amendments — Approve/Reject/Bulk now use inline modal (Chrome/Firefox suppress prompt() after first call, made buttons look broken). Inline modal + toast notifications replace window.prompt + alert. Prior: R-F432 bootstrap trace in system-status, R-F431 vertical card stack, R-F427 admin identity transparency';
-
 import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
@@ -82,6 +74,22 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
 const RUNS_DIR = join(ROOT, 'runs');
 const MEMORY_DIR = join(RUNS_DIR, 'memory');
+
+// R-F534 (2026-05-15): build_rev read from sync.mjs-written build_rev.txt
+// at startup. Pre-R-F534 this was a hand-edited const that drifted ~14
+// commits (was reporting R-F433 from 2026-05-13 while R-F532 was already
+// live), so verify-after-fix was unreliable. The companion sync.mjs hits
+// the GitHub API for the latest commit on main and writes the file at
+// seenode build time; if missing, we fall back to a sentinel that lights
+// up obviously in /api/health so the operator knows the build step
+// didn't run.
+let CRUCIX_BUILD_REV;
+try {
+  CRUCIX_BUILD_REV = readFileSync(join(ROOT, 'build_rev.txt'), 'utf8').trim();
+  if (!CRUCIX_BUILD_REV) throw new Error('empty');
+} catch (_e) {
+  CRUCIX_BUILD_REV = 'UNKNOWN-BUILD · sync.mjs build_rev.txt not written (check seenode build logs)';
+}
 
 // ── Trivial-question short-circuit ──────────────────────────────────────────
 // Greetings, liveness probes ('are you online?'), identity questions, and

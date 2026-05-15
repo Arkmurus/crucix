@@ -74,3 +74,33 @@ for (const f of FILES) {
 }
 
 console.log(`[sync] Done: ${ok} synced, ${fail} failed`);
+
+// R-F534 (2026-05-15) — capture the deployed commit at build time so
+// /api/health reports the actual HEAD instead of a hand-edited
+// CRUCIX_BUILD_REV constant that drifted (was reporting R-F433 while
+// R-F532 was already live). Hit the GitHub API for the latest commit
+// on main, stash sha + subject into build_rev.txt; server.mjs reads
+// at startup and falls back to a clear sentinel if the file is
+// missing.
+try {
+  const headRes = await fetch(
+    `https://api.github.com/repos/${REPO}/commits/${BRANCH}`,
+    {
+      headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'crucix-sync' },
+      signal: AbortSignal.timeout(10000),
+    },
+  );
+  if (headRes.ok) {
+    const data = await headRes.json();
+    const sha = (data.sha || '').slice(0, 8);
+    const subject = ((data.commit && data.commit.message) || '').split('\n')[0].slice(0, 200);
+    const dateIso = (data.commit && data.commit.author && data.commit.author.date) || new Date().toISOString();
+    const rev = `${sha} · ${dateIso.slice(0, 10)} · ${subject}`;
+    writeFileSync('build_rev.txt', rev, 'utf8');
+    console.log(`[sync] build_rev.txt → ${rev}`);
+  } else {
+    console.warn(`[sync] build_rev fetch HTTP ${headRes.status} — leaving build_rev.txt unset`);
+  }
+} catch (err) {
+  console.warn(`[sync] build_rev fetch failed: ${err.message} — leaving build_rev.txt unset`);
+}
