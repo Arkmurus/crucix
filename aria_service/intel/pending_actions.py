@@ -169,8 +169,36 @@ async def record(
                     _reason,
                     _at_result.get("http_status") or "-",
                 )
+                # R-F529 (2026-05-15) — buffer for retry instead of
+                # silently dropping. Live 2026-05-15 morning:
+                # "airtable sync DROPPED action=4a19afaeb076c6cb
+                # reason=net:ConnectTimeout" was a HIGH/operator_action
+                # circuit-trip notification — the single most
+                # operationally important signal that turn — and we
+                # lost it forever to a transient network blip.
+                # buffer.enqueue() persists to SQLite; a periodic drain
+                # retries against Airtable on the next sync cycle.
+                try:
+                    from ..integrations import airtable_buffer as _atb
+                    _atb.enqueue(entry, reason=str(_reason)[:200])
+                except Exception as _buf_err:
+                    logger.warning(
+                        "[airtable_buffer] R-F529 enqueue raised: %s "
+                        "(this is bad — both sync and buffer failed for "
+                        "action=%s; check airtable_buffer.db permissions)",
+                        _buf_err, (entry or {}).get("action_id", "?"),
+                    )
     except Exception as e:
         logger.warning("pending_actions airtable sync raised: %s", e)
+        # R-F529 — even when the sync_record call itself raises (not
+        # just returns ok=False), buffer the entry. The action_id
+        # was already minted; the operator-visible record must not
+        # be lost.
+        try:
+            from ..integrations import airtable_buffer as _atb
+            _atb.enqueue(entry, reason=f"raised: {type(e).__name__}")
+        except Exception:
+            pass
 
     # Brain signal — every recorded promise is a self-honesty event.
     # CRITICAL/HIGH severity feeds capability_gap so the predictor
@@ -259,8 +287,25 @@ async def _mark_status(action_id: str, new_status: str, note: str) -> dict:
                     "airtable status-change sync DROPPED action=%s reason=%s http=%s",
                     action_id, _reason, _at_result.get("http_status") or "-",
                 )
+                # R-F529 — buffer status-change drops too. Status
+                # transitions (satisfied/cancelled) are operationally
+                # important: silently losing one leaves the Airtable
+                # view stuck on "open" indefinitely.
+                try:
+                    from ..integrations import airtable_buffer as _atb
+                    _atb.enqueue(entry, reason=str(_reason)[:200])
+                except Exception as _buf_err:
+                    logger.warning(
+                        "[airtable_buffer] R-F529 enqueue raised: %s",
+                        _buf_err,
+                    )
     except Exception as e:
         logger.warning("pending_actions airtable status-change raised: %s", e)
+        try:
+            from ..integrations import airtable_buffer as _atb
+            _atb.enqueue(entry, reason=f"raised: {type(e).__name__}")
+        except Exception:
+            pass
     return {"ok": True, "entry": entry}
 
 

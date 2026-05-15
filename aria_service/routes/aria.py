@@ -8558,6 +8558,43 @@ async def sanctions_check_ep(request: Request):
     )
 
 
+# ──────────────────────────────────────────────────────────────────
+# R-F529 — Airtable retry-buffer admin endpoints
+# ──────────────────────────────────────────────────────────────────
+
+@router.get("/admin/airtable-buffer/status")
+async def airtable_buffer_status_ep():
+    """How many pending-action syncs are buffered for retry?
+    Operator-facing diagnostic. Empty buffer = healthy state."""
+    from ..integrations import airtable_buffer as _atb
+    return _atb.get_status()
+
+
+@router.get("/admin/airtable-buffer/list")
+async def airtable_buffer_list_ep(limit: int = 50):
+    """List buffered pending-action entries, oldest first.
+    Returns action_id + first_failed_at + attempts + last_reason +
+    promise_preview for each."""
+    from ..integrations import airtable_buffer as _atb
+    return {"items": _atb.list_pending(limit=max(1, min(limit, 500)))}
+
+
+@router.post("/admin/airtable-buffer/drain")
+async def airtable_buffer_drain_ep(request: Request):
+    """Re-attempt Airtable sync for up to `max_items` queued entries.
+    Removes each on success. Body (optional):
+        {"max_items": 100}
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    max_items = int(body.get("max_items") or 100)
+    from ..integrations import airtable_buffer as _atb
+    return await _atb.drain(max_items=max_items)
+
+
 @router.post("/admin/purge-gaps")
 async def purge_gaps_ep(request: Request):
     """Purge stale capability gaps from the proactive gap tracker.

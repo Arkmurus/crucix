@@ -436,6 +436,36 @@ tasks:
     mem0_tags: [sanctions, daily, compliance, autonomous]
 
   # ──────────────────────────────────────────────────────────────────
+  # AIRTABLE-BUFFER-DRAIN (R-F529) — retry queued pending-action
+  # Airtable syncs every 30 min. The buffer fills when Airtable is
+  # transiently unreachable (net:ConnectTimeout etc.). Each drain
+  # attempt removes successes from the queue + leaves failures
+  # for the next cycle. Empty-buffer is the healthy steady state.
+  # ──────────────────────────────────────────────────────────────────
+  - id: AIRTABLE-BUFFER-DRAIN
+    name: Drain Airtable retry buffer
+    description: |
+      Every 30 minutes — re-attempt Airtable sync for any pending-
+      action entries buffered by R-F529 after a previous sync
+      failure. Removes successful syncs from the queue. Failures
+      remain for the next cycle. Live 2026-05-15 motivating case:
+      a HIGH/operator_action circuit-trip notification was dropped
+      silently after net:ConnectTimeout; this task ensures such
+      drops are recovered automatically on the next viable window.
+    cron: "*/30 * * * *"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 120
+    cost_cap_usd: 0.0
+    tool_chain:
+      - tool: shell
+        command: |
+          python -c "import asyncio; from aria_service.integrations.airtable_buffer import drain; r=asyncio.run(drain(max_items=100)); print(r)"
+    delivery_channels: [intel_ledger]
+    escalate_if: ["still_failed"]
+    mem0_tags: [airtable, retry-buffer, infrastructure]
+
+  # ──────────────────────────────────────────────────────────────────
   # REFRESH-SANCTIONS-CANONICAL (R-F526) — pull OFAC SDN + EU
   # Consolidated CSV from upstream + replace the local canonical store.
   # Runs slightly BEFORE DAILY-SANCTIONS-SCREENING so the screening
