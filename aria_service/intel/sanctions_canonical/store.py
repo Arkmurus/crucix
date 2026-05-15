@@ -102,8 +102,15 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-def replace_source(source: str, rows: list[dict]) -> int:
+def replace_source(source: str, rows, batch_size: int = 500) -> int:
     """Atomically replace all rows for a single source.
+
+    R-F527 (2026-05-15): `rows` may now be either a list OR an
+    iterator/generator. Generators stream without materialising
+    the whole batch in memory — critical for the 19k-entry OFAC
+    SDN load (pre-R-F527 the full list peaked at ~95MB heap
+    usage during load and contributed to the 08:56-09:08 BST
+    production OOM/wedge).
 
     Each row must have:
       source_uid, formatted_name, normalised_name, entity_type,

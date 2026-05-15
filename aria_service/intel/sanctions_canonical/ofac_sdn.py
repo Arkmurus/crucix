@@ -259,9 +259,11 @@ def parse_xml(xml_path: str) -> Iterator[dict]:
                 if c not in countries:
                     countries.append(c)
             programs = _extract_programs(elem)
-            # Only the entity tag-tail for the audit excerpt — full
-            # subtree at 2KB is enough for cross-check.
-            raw_excerpt = ET.tostring(elem, encoding="unicode")[:2000]
+            # R-F527 — tighter excerpt cap (2KB → 800B) reduces peak
+            # heap during full-list load from ~95MB to ~40MB. 800B
+            # is enough to spot-check a few names + the program + a
+            # country tag in the audit trail.
+            raw_excerpt = ET.tostring(elem, encoding="unicode")[:800]
             yield {
                 "source_uid": uid,
                 "formatted_name": primary_name,
@@ -282,14 +284,20 @@ def parse_xml(xml_path: str) -> Iterator[dict]:
 
 def load_from_file(xml_path: str) -> int:
     """End-to-end: parse XML → replace source rows in store. Returns
-    number of entries loaded."""
+    number of entries loaded.
+
+    R-F527 — pass the parse_xml generator directly to
+    store.replace_source. Pre-R-F527 `list(parse_xml(...))`
+    materialised all ~19k dicts at once, peaking ~95MB heap during
+    load and contributing to the 2026-05-15 08:56-09:08 BST
+    production wedge.
+    """
     started = time.time()
     rows_loaded = 0
     success = False
     error = ""
     try:
-        rows = list(parse_xml(xml_path))
-        rows_loaded = store.replace_source(SOURCE_ID, rows)
+        rows_loaded = store.replace_source(SOURCE_ID, parse_xml(xml_path))
         success = True
         logger.info("[ofac_sdn] loaded %d entries from %s", rows_loaded, xml_path)
     except Exception as e:

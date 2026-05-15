@@ -135,9 +135,10 @@ def parse_csv(csv_path: str) -> Iterator[dict]:
             if programme and programme not in g["programs"]:
                 g["programs"].append(programme)
 
-            # Audit excerpt (cap)
-            if len(g["raw_excerpt_parts"]) < 5:
-                g["raw_excerpt_parts"].append(str(raw)[:400])
+            # Audit excerpt — R-F527 tightened cap (5×400=2000 → 3×200=600
+            # bytes). Reduces peak heap during EU parse from ~12MB to ~4MB.
+            if len(g["raw_excerpt_parts"]) < 3:
+                g["raw_excerpt_parts"].append(str(raw)[:200])
 
         # Yield each group as canonical dict
         for ent_id, g in groups.items():
@@ -157,7 +158,7 @@ def parse_csv(csv_path: str) -> Iterator[dict]:
                 "aliases": g["aliases"],
                 "programs": g["programs"],
                 "designation_at": g["designation_at"] or None,
-                "raw_excerpt": " | ".join(g["raw_excerpt_parts"])[:2000],
+                "raw_excerpt": " | ".join(g["raw_excerpt_parts"])[:800],
             }
     finally:
         fh.close()
