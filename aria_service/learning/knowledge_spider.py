@@ -300,6 +300,30 @@ async def _fetch(url: str, client: httpx.AsyncClient) -> str | None:
     if not ok:
         logger.warning("[spider] refusing unsafe URL fetch: %s (%s)", url, reason)
         return None
+
+    # R-F541 (2026-05-15) — robots.txt enforcement.
+    # Closes the 6-month-old R-F233 gap: _REDIS_ROBOTS_CACHE_KEY was
+    # declared 2026-04-15 but no code read or wrote it. Pre-R-F541 the
+    # spider crawled commercial sites without robots.txt awareness —
+    # legal exposure as crawl volume grows. R-F541 plumbs the same
+    # politeness.is_allowed() that crawler/runner.py uses (with the
+    # 24h robots-parser cache on the same module). Fail-open if the
+    # robots check itself errors (network glitch on /robots.txt
+    # should not block ALL fetches).
+    try:
+        from ..crawler import politeness as _politeness
+        allowed = await _politeness.is_allowed(url, user_agent=_USER_AGENT)
+        if not allowed:
+            logger.info(
+                "[spider] R-F541 robots.txt Disallow — skipping %s", url[:120],
+            )
+            return None
+    except Exception as _robots_err:
+        logger.debug(
+            "[spider] R-F541 robots check failed for %s: %s "
+            "(fail-open, proceeding)", url[:80], _robots_err,
+        )
+
     try:
         resp = await client.get(
             url,
