@@ -75,8 +75,9 @@ for (const f of FILES) {
 
 console.log(`[sync] Done: ${ok} synced, ${fail} failed`);
 
-// R-F534 (2026-05-15) — capture the deployed commit at build time so
-// /api/health reports the actual HEAD instead of a hand-edited
+// R-F542 (2026-05-15, renumbered from R-F534 — collided with commit
+// 63f2041 Premise Verifier) — capture the deployed commit at build
+// time so /api/health reports the actual HEAD instead of a hand-edited
 // CRUCIX_BUILD_REV constant that drifted (was reporting R-F433 while
 // R-F532 was already live). Hit the GitHub API for the latest commit
 // on main, stash sha + subject into build_rev.txt; server.mjs reads

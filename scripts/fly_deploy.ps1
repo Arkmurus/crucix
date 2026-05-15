@@ -1,6 +1,7 @@
-# R-F535 (2026-05-15) — PowerShell wrapper for `flyctl deploy` that bakes
-# git sha + R-number into the fly.io image at build time. Operator runs
-# this on Windows; the Bash sibling fly_deploy.sh covers WSL / Linux.
+# R-F543 (2026-05-15, renumbered from R-F535 due to R-F534 collision) —
+# PowerShell wrapper for `flyctl deploy` that bakes git sha + R-number
+# into the fly.io image at build time. Operator runs this on Windows;
+# the Bash sibling fly_deploy.sh covers WSL / Linux.
 #
 # Use this instead of bare `flyctl deploy`. The CI workflow already does
 # the equivalent; this is for manual deploys. See sibling .sh for the

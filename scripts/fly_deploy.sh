@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# R-F535 (2026-05-15) — wrapper that bakes git sha + R-number into the
-# fly.io image at build time. Use this instead of bare `flyctl deploy`.
+# R-F543 (2026-05-15, renumbered from R-F535 due to R-F534 collision) —
+# wrapper that bakes git sha + R-number into the fly.io image at build
+# time. Use this instead of bare `flyctl deploy`.
 #
-# Pre-R-F535, manual `flyctl deploy` invocations skipped the
+# Pre-R-F543, manual `flyctl deploy` invocations skipped the
 # `--build-arg ARIA_BUILD_GIT_SHA=…` flags that the CI workflow passes.
 # Net effect: every manual deploy left /api/aria/health/live reporting
 # `UNKNOWN-BUILD · ARIA_BUILD_GIT_SHA not set at image build`. Live

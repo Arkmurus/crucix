@@ -211,7 +211,7 @@ def build_footer(
     has_verification = bool(verification)
     has_rag = rag_sources_count > 0
 
-    # R-F536 (2026-05-15) — signal-aware short-reply guard. Pre-R-F536
+    # R-F544 (2026-05-15, renumbered from R-F536 — R-F534 collision) — signal-aware short-reply guard. Pre-R-F544
     # we blanket-skipped any reply <80 chars to avoid decorating
     # greetings. But a substantive 1-line DD verdict like "The director
     # is Joe Bloggs [PROBABLE — single Companies House filing]." (71
@@ -271,8 +271,8 @@ def build_footer(
             )
             tag = promoted
 
-    # R-F536 (2026-05-15) — pre-compute the R-F401 self-claim guard
-    # violations once and reuse below. Pre-R-F536 this scan ran only
+    # R-F544 (2026-05-15, renumbered from R-F536 — R-F534 collision) — pre-compute the R-F401 self-claim guard
+    # violations once and reuse below. Pre-R-F544 this scan ran only
     # inside the late R-F407 block, AFTER a "nothing to say"
     # early-return that dropped the entire footer when verification=None
     # and the body had no inline [CONFIRMED] tag. Net effect: an R-F401
@@ -390,8 +390,8 @@ def build_footer(
             render_violation_block,
             record_violations, record_turn_observed,
         )
-        # R-F536 (2026-05-15) — reuse the violations already computed by
-        # the early-return guard above. Pre-R-F536 this block re-ran
+        # R-F544 (2026-05-15, renumbered from R-F536 — R-F534 collision) — reuse the violations already computed by
+        # the early-return guard above. Pre-R-F544 this block re-ran
         # scan_response, which (a) was wasted work and (b) ran AFTER the
         # nothing-to-say return, so violations on tag-less / no-verify
         # responses were silently dropped.

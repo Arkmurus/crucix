@@ -75,14 +75,15 @@ const ROOT = __dirname;
 const RUNS_DIR = join(ROOT, 'runs');
 const MEMORY_DIR = join(RUNS_DIR, 'memory');
 
-// R-F534 (2026-05-15): build_rev read from sync.mjs-written build_rev.txt
-// at startup. Pre-R-F534 this was a hand-edited const that drifted ~14
-// commits (was reporting R-F433 from 2026-05-13 while R-F532 was already
-// live), so verify-after-fix was unreliable. The companion sync.mjs hits
-// the GitHub API for the latest commit on main and writes the file at
-// seenode build time; if missing, we fall back to a sentinel that lights
-// up obviously in /api/health so the operator knows the build step
-// didn't run.
+// R-F542 (2026-05-15, renumbered from R-F534 due to collision with the
+// Premise Verifier commit 63f2041): build_rev read from sync.mjs-written
+// build_rev.txt at startup. Pre-R-F542 this was a hand-edited const that
+// drifted ~14 commits (was reporting R-F433 from 2026-05-13 while R-F532
+// was already live), so verify-after-fix was unreliable. The companion
+// sync.mjs hits the GitHub API for the latest commit on main and writes
+// the file at seenode build time; if missing, we fall back to a sentinel
+// that lights up obviously in /api/health so the operator knows the
+// build step didn't run.
 let CRUCIX_BUILD_REV;
 try {
   CRUCIX_BUILD_REV = readFileSync(join(ROOT, 'build_rev.txt'), 'utf8').trim();

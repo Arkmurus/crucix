@@ -1,8 +1,9 @@
-"""R-F536 (2026-05-15) — capability test: the R-F401 self-claim guard
-block MUST always appear in the footer when an invariant violation is
-present, regardless of how `build_footer()` is called.
+"""R-F544 (2026-05-15, renumbered from R-F536 due to R-F534 collision) —
+capability test: the R-F401 self-claim guard block MUST always appear
+in the footer when an invariant violation is present, regardless of
+how `build_footer()` is called.
 
-Pre-R-F536, `confidence_footer.build_footer()` had a "nothing to say"
+Pre-R-F544, `confidence_footer.build_footer()` had a "nothing to say"
 early-return that dropped the entire footer when:
   - verification=None (the common /chat/stream case), AND
   - the body had no inline [CONFIRMED] / [PROBABLE] / [ASSESSED] tag,
@@ -20,7 +21,7 @@ carries an R-F401 invariant violation, the footer must surface it.
 from __future__ import annotations
 
 
-def test_rf536_hallucination_surfaces_when_verification_none_and_no_tag():
+def test_rf544_hallucination_surfaces_when_verification_none_and_no_tag():
     """The bug fixture from 2026-05-13: verification=None, body has no
     inline tag, but body carries an 18-month TTL hallucination. The
     R-F401 guard block MUST appear in the footer."""
@@ -32,16 +33,16 @@ def test_rf536_hallucination_surfaces_when_verification_none_and_no_tag():
     )
     footer = build_footer(response_text=body, verification=None)
     assert footer, (
-        "R-F536 regression: footer dropped on chat-path (verification=None, "
+        "R-F544 regression: footer dropped on chat-path (verification=None, "
         "no inline tag). Hallucination would pass through silently."
     )
     assert "R-F401" in footer, (
-        "R-F536 CRITICAL: 18-month TTL hallucination present but R-F401 "
+        "R-F544 CRITICAL: 18-month TTL hallucination present but R-F401 "
         "guard block missing from footer."
     )
 
 
-def test_rf536_hallucination_surfaces_via_chat_stream_args():
+def test_rf544_hallucination_surfaces_via_chat_stream_args():
     """Same body but called with the streaming chat handler's typical
     args (tools_used + build_rev + trace_id, verification=None). The
     guard block must still surface."""
@@ -53,14 +54,14 @@ def test_rf536_hallucination_surfaces_via_chat_stream_args():
         response_text=body,
         verification=None,
         tools_used=["chat_lookup"],
-        build_rev="R-F536",
+        build_rev="R-F544",
         trace_id="abc12345",
     )
     assert footer
     assert "R-F401" in footer
 
 
-def test_rf536_no_tools_disclosure_always_appears():
+def test_rf544_no_tools_disclosure_always_appears():
     """When no tool ran, the footer must explicitly disclose "(none —
     from memory / training)" rather than silently omitting the line.
     Doctrine: team can't infer from silence."""
@@ -70,9 +71,9 @@ def test_rf536_no_tools_disclosure_always_appears():
     assert "(none — from memory / training)" in footer
 
 
-def test_rf536_short_reply_with_tag_still_renders():
+def test_rf544_short_reply_with_tag_still_renders():
     """A substantive 1-line DD verdict carrying a [PROBABLE] tag must
-    still get a footer. Pre-R-F536 the 80-char floor dropped these."""
+    still get a footer. Pre-R-F544 the 80-char floor dropped these."""
     from aria_service.intel.confidence_footer import build_footer
     body = "The director is Joe Bloggs [PROBABLE — single Companies House filing]."
     assert len(body) < 80  # pin the short-reply nature
@@ -86,18 +87,18 @@ def test_rf536_short_reply_with_tag_still_renders():
     assert "companies_house_lookup" in footer
 
 
-def test_rf536_clean_short_reply_with_no_signals_still_skipped():
+def test_rf544_clean_short_reply_with_no_signals_still_skipped():
     """A short greeting with no tag, no tools, no verification, no
     violation — keep the original behaviour: don't decorate."""
     from aria_service.intel.confidence_footer import build_footer
     footer = build_footer(response_text="Hi there!", verification=None)
     assert footer == "", (
-        "R-F536: short cosmetic greeting should not get a footer."
+        "R-F544: short cosmetic greeting should not get a footer."
     )
 
 
-def test_rf536_violation_scan_runs_only_once():
-    """The pre-R-F536 code re-ran scan_response twice (once for early
+def test_rf544_violation_scan_runs_only_once():
+    """The pre-R-F544 code re-ran scan_response twice (once for early
     return, once for rendering). Pin that the scan happens once via
     monkey-patching the underlying module."""
     from aria_service.intel import confidence_footer as cf
@@ -117,6 +118,6 @@ def test_rf536_violation_scan_runs_only_once():
     finally:
         scg.scan_response = original
     assert call_count["n"] == 1, (
-        f"R-F536: scan_response called {call_count['n']} times, expected 1. "
-        "Pre-R-F536 it ran twice (early-return + render block)."
+        f"R-F544: scan_response called {call_count['n']} times, expected 1. "
+        "Pre-R-F544 it ran twice (early-return + render block)."
     )

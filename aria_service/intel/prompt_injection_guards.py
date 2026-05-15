@@ -66,8 +66,9 @@ def escape_for_delimiter_block(text: str) -> str:
     """
     if not text:
         return ""
-    # R-F537 (2026-05-15) — neutralise BEFORE replacing ASCII brackets.
-    # Pre-R-F537 the order was reversed: `[NEW INSTRUCTIONS]` became
+    # R-F545 (2026-05-15, renumbered from R-F537 — R-F534 collision) —
+    # neutralise BEFORE replacing ASCII brackets. Pre-R-F545 (originally
+    # shipped as R-F537) the order was reversed: `[NEW INSTRUCTIONS]` became
     # `⟦NEW INSTRUCTIONS⟧` first, then the bracket-aware regex
     # `\[(?:system|admin|root|new\s+instructions?)\]` couldn't match
     # the math-bracketed version, so the NEUTRALISED marker never wrapped
