@@ -1065,6 +1065,54 @@ async def _run_identity(
     # citations. Each source is wrapped in an individual try so one
     # failure cannot block the others. ~2-4s added to identity layer
     # worst-case (all six fetched in parallel, cached heavily).
+    #
+    # R-F569 (2026-05-16) — name-overlap gate on the per-source HARD_STOP
+    # emissions below. Pre-R-F569 each adapter's `_hits[0]` was emitted
+    # verbatim as a HARD_STOP finding with no similarity check beyond the
+    # adapter's own internal fuzzy_filter threshold (0.70 for ofac_sdn —
+    # too liberal). Live MVP fire-test 2026-05-16 logged
+    #   Embraer S.A. → OFAC SDN "MARANER HOLDINGS LIMITED"  (false)
+    #   Aselsan A.S. → OFAC SDN "Guillermo NIEBLAS NAVA"     (false)
+    #   Aselsan A.S. → UN SC    "ALI SADDAM HUSSEIN AL-TIKRITI" (false)
+    #   Acme Widgets → OFAC SDN "TAMIN KALAYE SABZ ARAS COMPANY" (false on fake input)
+    # The gate below reuses _sanctions_classify._tokenize_entity_name /
+    # _name_overlap (R-F277 / R-F351) so the per-source path applies the
+    # same token-overlap discipline the topic-classifier already uses.
+    # A hit is allowed to remain HARD_STOP only when it shares ≥1
+    # meaningful 5+ char token with the query OR scores ≥0.95.
+    from ._sanctions_classify import (
+        _tokenize_entity_name as _r569_tokenize,
+        _name_overlap as _r569_overlap,
+    )
+
+    def _r569_is_real_sanctions_hit(_hit: dict, _query: str) -> tuple[bool, str]:
+        """Return (is_real_match, reason). False if the hit is fuzzy noise."""
+        if not isinstance(_hit, dict) or not _query:
+            return True, ""  # defensive — don't accidentally suppress
+        _cand = (
+            _hit.get("name") or _hit.get("primary_name")
+            or _hit.get("full_name") or _hit.get("caption") or ""
+        )
+        if not _cand:
+            return True, ""
+        # Exact-or-near-exact scores bypass the gate (1.0 = identical
+        # normalised form, ≥0.95 = trivial spelling/punctuation drift).
+        _score = float(_hit.get("_match_score") or _hit.get("score") or 0.0)
+        if _score >= 0.95:
+            return True, f"score≥0.95 ({_score:.2f}) bypasses overlap gate"
+        # Token-overlap discipline: at least one shared token ≥5 chars.
+        _q_tokens = _r569_tokenize(_query)
+        _c_tokens = _r569_tokenize(_cand)
+        _shared = _q_tokens & _c_tokens
+        if not _shared:
+            return False, f"zero token overlap (query={list(_q_tokens)[:3]}, candidate={list(_c_tokens)[:3]})"
+        # Single-overlap on short token = high false-positive risk (R-F351 pattern).
+        if len(_shared) == 1:
+            _only = next(iter(_shared))
+            if len(_only) < 5:
+                return False, f"single short-token overlap ('{_only}', <5 chars)"
+        return True, f"shared tokens: {sorted(_shared)[:3]}"
+
     try:
         from .sources import (
             sec_edgar as _src_sec,
@@ -1108,50 +1156,97 @@ async def _run_identity(
             # ── Severity mapping per source (semantics differ) ──
             if _lbl == "ofac_sdn":
                 _best = _hits[0]
-                report.identity.findings.append(Finding(
-                    severity="hard_stop",
-                    title=f"OFAC SDN match: {_best.get('name','?')}",
-                    detail=(
-                        f"Match score {_best.get('_match_score', 0):.2f}. "
-                        f"Programme(s): {', '.join(_best.get('programs', []))}. "
-                        f"Designated {_best.get('designation_date','?')}. "
-                        f"50-percent-rule applies to subsidiaries."
-                    ),
-                    source="sources.ofac_sdn",
-                    confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
-                ))
-                hard_stop = True
+                _real, _reason = _r569_is_real_sanctions_hit(_best, name)
+                if _real:
+                    report.identity.findings.append(Finding(
+                        severity="hard_stop",
+                        title=f"OFAC SDN match: {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}. "
+                            f"Programme(s): {', '.join(_best.get('programs', []))}. "
+                            f"Designated {_best.get('designation_date','?')}. "
+                            f"50-percent-rule applies to subsidiaries. "
+                            f"R-F569 gate: {_reason}."
+                        ),
+                        source="sources.ofac_sdn",
+                        confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
+                    ))
+                    hard_stop = True
+                else:
+                    # R-F569: fuzzy noise — surface for operator review at INFO level
+                    # so it doesn't block but stays auditable.
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title=f"OFAC SDN fuzzy hit (filtered): {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}, "
+                            f"but R-F569 name-overlap gate rejected: {_reason}. "
+                            f"Not a refusal ground; surfaced for operator audit."
+                        ),
+                        source="sources.ofac_sdn",
+                        confidence="ASSESSED",
+                    ))
 
             elif _lbl == "un_sc":
                 _best = _hits[0]
-                report.identity.findings.append(Finding(
-                    severity="hard_stop",
-                    title=f"UN Security Council match: {_best.get('name','?')}",
-                    detail=(
-                        f"Match score {_best.get('_match_score', 0):.2f}. "
-                        f"Regime: {_best.get('regime','?')}. "
-                        f"Listed {_best.get('designation_date','?')}."
-                    ),
-                    source="sources.un_sc_sanctions",
-                    confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
-                ))
-                hard_stop = True
+                _real, _reason = _r569_is_real_sanctions_hit(_best, name)
+                if _real:
+                    report.identity.findings.append(Finding(
+                        severity="hard_stop",
+                        title=f"UN Security Council match: {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}. "
+                            f"Regime: {_best.get('regime','?')}. "
+                            f"Listed {_best.get('designation_date','?')}. "
+                            f"R-F569 gate: {_reason}."
+                        ),
+                        source="sources.un_sc_sanctions",
+                        confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
+                    ))
+                    hard_stop = True
+                else:
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title=f"UN SC fuzzy hit (filtered): {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}, "
+                            f"but R-F569 name-overlap gate rejected: {_reason}. "
+                            f"Not a refusal ground; surfaced for operator audit."
+                        ),
+                        source="sources.un_sc_sanctions",
+                        confidence="ASSESSED",
+                    ))
 
             elif _lbl == "uk_ofsi":
                 _best = _hits[0]
-                report.identity.findings.append(Finding(
-                    severity="hard_stop",
-                    title=f"UK OFSI match: {_best.get('name','?')}",
-                    detail=(
-                        f"Match score {_best.get('_match_score', 0):.2f}. "
-                        f"Regime: {_best.get('regime','?')}. "
-                        f"Group ID {_best.get('group_id','?')}. "
-                        f"Designated {_best.get('designation_date','?')}."
-                    ),
-                    source="sources.fcdo_sanctions",
-                    confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
-                ))
-                hard_stop = True
+                _real, _reason = _r569_is_real_sanctions_hit(_best, name)
+                if _real:
+                    report.identity.findings.append(Finding(
+                        severity="hard_stop",
+                        title=f"UK OFSI match: {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}. "
+                            f"Regime: {_best.get('regime','?')}. "
+                            f"Group ID {_best.get('group_id','?')}. "
+                            f"Designated {_best.get('designation_date','?')}. "
+                            f"R-F569 gate: {_reason}."
+                        ),
+                        source="sources.fcdo_sanctions",
+                        confidence="CONFIRMED" if _best.get("_match_score", 0) >= 0.9 else "PROBABLE",
+                    ))
+                    hard_stop = True
+                else:
+                    report.identity.findings.append(Finding(
+                        severity="info",
+                        title=f"UK OFSI fuzzy hit (filtered): {_best.get('name','?')}",
+                        detail=(
+                            f"Match score {_best.get('_match_score', 0):.2f}, "
+                            f"but R-F569 name-overlap gate rejected: {_reason}. "
+                            f"Not a refusal ground; surfaced for operator audit."
+                        ),
+                        source="sources.fcdo_sanctions",
+                        confidence="ASSESSED",
+                    ))
 
             elif _lbl == "wb_debarred":
                 _active = [h for h in _hits if h.get("status") == "active"]

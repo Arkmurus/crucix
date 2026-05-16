@@ -116,17 +116,28 @@ def normalise_name(name: str) -> str:
 def similarity(a: str, b: str) -> float:
     """Return 0.0-1.0 similarity after normalisation. Uses difflib's
     SequenceMatcher ratio — deterministic, no external deps, good enough
-    for the narrow "fuzzy match a cleaned name" job we need."""
+    for the narrow "fuzzy match a cleaned name" job we need.
+
+    R-F569 (2026-05-16) — substring boost is now gated. Pre-R-F569 any
+    a-in-b or b-in-a got at least 0.85 even when the shared substring
+    was 2-3 chars. That made "ES" in "ES SECURITIES" boost an Embraer
+    query to 0.78+, false-flagging a clean Brazilian aerospace giant.
+    Guard: the shorter string must be ≥5 chars AND constitute ≥40% of
+    the longer one. Otherwise we fall through to plain SequenceMatcher.
+    """
     a_n = normalise_name(a)
     b_n = normalise_name(b)
     if not a_n or not b_n:
         return 0.0
     if a_n == b_n:
         return 1.0
-    # If one is a substring of the other, boost the score — "Baykar" in
-    # "Baykar Defense Industries" should match strongly.
+    # If one is a substring of the other, boost — but only if the
+    # substring is long enough to be discriminating.
     if a_n in b_n or b_n in a_n:
-        return max(0.85, difflib.SequenceMatcher(None, a_n, b_n).ratio())
+        shorter = a_n if len(a_n) <= len(b_n) else b_n
+        longer = b_n if shorter is a_n else a_n
+        if len(shorter) >= 5 and len(shorter) / max(len(longer), 1) >= 0.4:
+            return max(0.85, difflib.SequenceMatcher(None, a_n, b_n).ratio())
     return difflib.SequenceMatcher(None, a_n, b_n).ratio()
 
 

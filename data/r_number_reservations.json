@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 569,
+  "next_available": 570,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -185,6 +185,15 @@
       "commit_sha": "d877ba7",
       "notes": null,
       "shipped_at": "2026-05-16T11:30:33Z"
+    },
+    {
+      "r_number": "R-F569",
+      "title": "Sanctions matcher P0 fix — list-class filter + similarity guard + topic-demotion ordering",
+      "claimed_at": "2026-05-16T11:31:16Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "P0 from MVP fire-test 82074cc: Embraer/Aselsan/Acme all HARD_STOP via false fuzzy matches on ir_uani_business_registry + iso9362_bic. Fix gates blocking_matches on real sanctions list whitelist + length-ratio + first-token guard."
     }
   ]
 }

@@ -199,7 +199,7 @@ async def _load_records() -> list[dict]:
 async def lookup(
     name: str,
     *,
-    threshold: float = 0.70,
+    threshold: float = 0.85,
     max_hits: int = 15,
 ) -> dict:
     """Entity-scoped OFAC SDN lookup. Returns canonical source-result dict.
@@ -209,6 +209,14 @@ async def lookup(
     Any hit on SDN is a HARD_STOP — you cannot transact with an SDN-
     designated person/entity (50 Percent Rule extends to subsidiaries).
     Even a fuzzy match deserves human review before clearing.
+
+    R-F569 (2026-05-16) — threshold bumped 0.70 → 0.85 after MVP fire-
+    test showed 0.70 produced 3+ false hits per query (Embraer →
+    MARANER HOLDINGS, Aselsan → "Guillermo NIEBLAS NAVA",
+    Acme → "TAMIN KALAYE SABZ ARAS"). The orchestrator's R-F569
+    name-overlap gate downstream is the second line of defence —
+    raising threshold here cuts the false candidates before they even
+    leave the adapter.
     """
     started = time.time()
     query = {"name": name}

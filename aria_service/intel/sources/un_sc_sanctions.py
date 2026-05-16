@@ -180,7 +180,7 @@ async def _load_records() -> list[dict]:
 async def lookup(
     name: str,
     *,
-    threshold: float = 0.72,  # UN names are short + literal; higher cutoff OK
+    threshold: float = 0.85,  # R-F569: bumped 0.72 → 0.85 after MVP fire-test (Aselsan→ALI SADDAM HUSSEIN false positive)
     max_hits: int = 15,
 ) -> dict:
     """Entity-scoped UN SC consolidated-list lookup.

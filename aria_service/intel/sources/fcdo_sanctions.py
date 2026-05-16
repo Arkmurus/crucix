@@ -177,7 +177,7 @@ async def _load_records() -> list[dict]:
 async def lookup(
     name: str,
     *,
-    threshold: float = 0.70,
+    threshold: float = 0.85,  # R-F569: bumped 0.70 → 0.85 after MVP fire-test false-positive sweep
     max_hits: int = 15,
 ) -> dict:
     """Entity-scoped UK OFSI consolidated-list lookup."""

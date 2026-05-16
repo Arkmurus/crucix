@@ -28,7 +28,19 @@ _TOPIC_SEVERITY: dict[str, str] = {
     "asset.frozen":     "hard_stop",
     "frozen":           "hard_stop",
     "export.control":   "hard_stop",
-    "export.risk":      "hard_stop",
+    # R-F569 (2026-05-16) — `export.risk` is a watchlist-grade topic carried
+    # by lists like UANI's `ir_uani_business_registry` (companies still
+    # trading with Iran) and similar export-risk monitors. These are NOT
+    # legal sanctions — they're due-diligence pointers. Live evidence:
+    # Embraer S.A. HARD_STOP'd at MVP fire-test 2026-05-16 because UANI
+    # had it tagged `export.risk` (correct signal — Embraer historically
+    # delivered E-Jets to Iran) but ARIA's classifier was treating that
+    # as equivalent to OFAC SDN. Demoted to AMBER so the operator sees
+    # the flag, runs enhanced DD, but isn't auto-blocked from transacting
+    # with a publicly-listed clean entity. Real sanctions on the same
+    # entity (if any) still surface via the OFAC SDN / UN SC / EU FSF
+    # lists which carry the `sanction` topic and remain HARD_STOP.
+    "export.risk":      "amber",
     # ── HARD STOP ── ICC warrants / Interpol Red Notices (explicit routing)
     # 2026-04-12: was implicit via "wanted" topic. Now explicit so the DD
     # report can show "ICC warrant" vs generic "wanted" in the finding text.
@@ -480,7 +492,17 @@ def classify_match(match: dict, query_name: str = "") -> str:
     # Cost of false-positive HARD_STOP (defamation, SAR mis-filing) >>
     # cost of false-negative demote-to-info (operator still sees match in
     # per_match[], can manually escalate).
-    if query_name and SEVERITY_RANK[severity] >= 1:
+    # R-F569 (2026-05-16) — near-exact score bypass. Real transliteration
+    # variants (e.g. "Rosoboronexport" / "ROSOBORONEKSPORT OAO", differs
+    # by one letter in the middle) tokenise to non-overlapping sets but
+    # represent the SAME sanctioned entity. When the fuzzy score is
+    # near-identical (≥0.95) the token-overlap discipline is what catches
+    # spelling/punctuation/legal-form drift on a real match — we trust
+    # the score and skip the demotion. The 0.95 floor is conservative:
+    # the Embraer/Aselsan/Acme false positives all sat in the 0.70-0.85
+    # band, well below this bypass.
+    _bypass_overlap_check = float(match.get("score") or 0.0) >= 0.95
+    if query_name and SEVERITY_RANK[severity] >= 1 and not _bypass_overlap_check:
         candidate_name = match.get("name") or match.get("caption") or ""
         q_tokens = _tokenize_entity_name(query_name)
         c_tokens = _tokenize_entity_name(candidate_name)
