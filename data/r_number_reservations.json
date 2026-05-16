@@ -829,9 +829,10 @@
       "title": "cultural_atlas.py — country×dimension knowledge layer",
       "claimed_at": "2026-05-16T23:36:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4083b1e",
+      "notes": null,
+      "shipped_at": "2026-05-16T23:40:56Z"
     },
     {
       "r_number": "R-F635",
