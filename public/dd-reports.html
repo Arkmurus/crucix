@@ -63,6 +63,21 @@
     .dd-pill.clean { background: rgba(34,197,94,0.13); color: #4ade80; }
     .dd-pill.unknown { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.45); }
 
+    /* R-F608 (2026-05-16) — "shared by colleague at same company" badge.
+       Appears next to entity name when a teammate's DD shows up in your
+       company-shared view. UX hint only; Python /dd/reports filter is
+       the security boundary. */
+    .dd-shared-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 1px 7px; margin-left: 4px;
+      border-radius: 4px; font-size: 10.5px; font-weight: 600;
+      letter-spacing: 0.3px; text-transform: uppercase;
+      background: rgba(124,58,237,0.16); color: #c4b5fd;
+      border: 1px solid rgba(124,58,237,0.28);
+      vertical-align: middle;
+    }
+    .dd-shared-badge i { font-size: 11px; }
+
     .dd-detail-row td { padding: 0; background: #14102a; }
     .dd-detail {
       padding: 22px 28px; border-top: 1px solid rgba(124,58,237,0.18);
@@ -268,6 +283,20 @@ const authed = (url, opts = {}) => fetch(url, {
 let _allReports = [];
 let _expandedRow = null;
 
+// R-F608 (2026-05-16): current user identity + domain are used to
+// render the "shared by colleague" badge on rows whose user_id !=
+// mine but whose user_email_domain matches mine. The Node proxy is
+// the security boundary — the badge here is a UX hint only.
+const _CURRENT_USER = (() => {
+  try { return JSON.parse(localStorage.getItem('crucix_user') || '{}'); }
+  catch { return {}; }
+})();
+const _MY_USER_ID = String(_CURRENT_USER.id || _CURRENT_USER.userId || '');
+const _MY_EMAIL_DOMAIN = (() => {
+  const e = String(_CURRENT_USER.email || '').toLowerCase().trim();
+  return e.includes('@') ? e.split('@')[1] : '';
+})();
+
 function fmtDate(d) {
   if (!d) return '';
   return new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
@@ -306,9 +335,25 @@ function renderTable(reports) {
     // for the two real DDs (TARA Aerospace + Assan Group). Reader
     // fallback to generated_at surfaces those dates immediately.
     const created = r.created_at || r.generated_at || r.timestamp || '';
+    // R-F608 (2026-05-16): "shared by colleague" badge — visible only
+    // when the row's user_id is set, differs from mine, and the row's
+    // user_email_domain matches mine. The Python filter on /dd/reports
+    // is the authority for visibility; this badge is a UX hint so the
+    // user knows the run wasn't theirs.
+    let sharedBadge = '';
+    if (
+      r.user_id && _MY_USER_ID && r.user_id !== _MY_USER_ID
+      && r.user_email_domain && _MY_EMAIL_DOMAIN
+      && r.user_email_domain === _MY_EMAIL_DOMAIN
+    ) {
+      const initials = String(r.user_email_lower || '').split('@')[0].slice(0, 12) || 'colleague';
+      sharedBadge = ' <span class="dd-shared-badge" title="Shared by ' + escAttr(initials) + ' (same company)">' +
+        '<i class="bi bi-people-fill"></i> shared</span>';
+    }
     html += '<tr class="dd-row" data-run-id="' + escAttr(r.run_id) + '">' +
       '<td class="col-entity">' + escText(r.entity_name || '(unknown)') +
         (r.jurisdiction ? ' <span style="color:rgba(255,255,255,0.4);font-weight:400">· ' + escText(r.jurisdiction) + '</span>' : '') +
+        sharedBadge +
       '</td>' +
       '<td>' + severityPill(sev) + '</td>' +
       '<td class="col-meta"><code style="font-size:11.5px">' + escText((r.run_id || '').slice(0, 14)) + '</code></td>' +

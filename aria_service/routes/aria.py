@@ -375,6 +375,15 @@ async def dd_orchestrate_ep(req: Request):
     _req_user_id = (body.get("user_id") or "").strip() or None
     _req_user_email = (body.get("user_email") or "").strip() or None
 
+    # R-F608 (2026-05-16): per-DD opt-out toggle. Default True (every DD
+    # run by a user is visible to colleagues on the same email domain).
+    # The orchestrate form can set this to False on sensitive screens.
+    _share_to_company = body.get("share_to_company")
+    if _share_to_company is None:
+        _share_to_company = True
+    else:
+        _share_to_company = bool(_share_to_company)
+
     try:
         from ..intel import dd_orchestrator
         report = await dd_orchestrator.orchestrate_dd(
@@ -384,6 +393,7 @@ async def dd_orchestrate_ep(req: Request):
             trace_id=trace_id,
             user_id=_req_user_id,
             user_email=_req_user_email,
+            share_to_company=_share_to_company,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

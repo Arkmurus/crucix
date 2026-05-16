@@ -444,6 +444,16 @@ class ARKDDReport:
     user_email_lower: Optional[str] = None
     user_email_domain: Optional[str] = None
 
+    # ── R-F608 (2026-05-16) — per-DD company-share toggle ────────────────
+    # Default True: every DD a user runs is visible to colleagues on the
+    # same email domain. Set to False to keep an individual DD private
+    # (sensitive personal screens, board-only counterparty work, etc.).
+    # list_reports honours this via the share_to_company key on the index
+    # entry, NOT this dataclass field — but the dataclass field is the
+    # source of truth at persist time, so the orchestrate response and
+    # the /dd/report/{run_id} body both reflect the operator's intent.
+    share_to_company: bool = True
+
     # ── Serialisation helpers ────────────────────────────────────────────
 
     def as_dict(self) -> dict:

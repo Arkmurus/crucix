@@ -575,18 +575,19 @@
       "claimed_at": "2026-05-16T18:27:36Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "0df769f",
       "notes": null,
-      "shipped_at": "2026-05-16T18:44:36Z"
+      "shipped_at": "2026-05-16T18:45:06Z"
     },
     {
       "r_number": "R-F608",
       "title": "DD reports company-shared scoping (email_domain)",
       "claimed_at": "2026-05-16T18:27:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-16T18:48:40Z"
     },
     {
       "r_number": "R-F609",

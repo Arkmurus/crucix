@@ -4413,6 +4413,10 @@ async def _persist_report(report: ARKDDReport) -> None:
                 "user_id": getattr(report, "user_id", None),
                 "user_email_lower": getattr(report, "user_email_lower", None),
                 "user_email_domain": getattr(report, "user_email_domain", None),
+                # R-F608 (2026-05-16): per-DD opt-out toggle. Default
+                # True; list_reports treats missing as True so pre-R-F608
+                # entries are shared to the company by default.
+                "share_to_company": getattr(report, "share_to_company", True),
             }
             index.insert(0, new_entry)
             index = index[:500]
@@ -4713,6 +4717,7 @@ async def orchestrate_dd(
     trace_id: str | None = None,
     user_id: str | None = None,
     user_email: str | None = None,
+    share_to_company: bool = True,
 ) -> ARKDDReport:
     """Run the 7-layer DD orchestrator on a target entity.
 
@@ -5751,6 +5756,12 @@ async def orchestrate_dd(
             report.user_email_lower = _norm
             if "@" in _norm:
                 report.user_email_domain = _norm.split("@", 1)[1] or None
+
+    # R-F608 (2026-05-16) — per-DD company-share toggle. Default True;
+    # operator sets False on the orchestrate request to keep this run
+    # private even from same-company colleagues. list_reports honours
+    # the resulting share_to_company key on the index entry.
+    report.share_to_company = bool(share_to_company)
 
     # ── Persist + deliver ──
     await _persist_report(report)
