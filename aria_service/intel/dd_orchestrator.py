@@ -749,6 +749,55 @@ async def _run_identity_person(
     return hard_stop
 
 
+# ── R-F602 — Formalised shell-co indicator-row Findings ──────────────
+#
+# The 12-indicator ghost scorer in due_diligence_playbooks produces a
+# rich breakdown but the orchestrator was only surfacing the TOTAL
+# (e.g. "Ghost score 12/20 — RED"). The triggered indicator details
+# ("Mail-drop address", "No LinkedIn presence", "Nominee director",
+# etc.) were locked inside the identity.ghost_score dict and invisible
+# to a client reading the report.
+#
+# This pure helper turns each triggered indicator into its own Finding
+# so the report becomes AUDITABLE — a client can challenge "why is
+# this scored 2/2 on mail-drop?" by reading the dedicated row.
+#
+# Cap at 12 (one per indicator). Severity:
+#   ratio >= 0.5  → amber  (substantial weight relative to indicator max)
+#   ratio <  0.5  → info   (partial trigger)
+# GREEN classification → returns [] (don't clutter clean reports).
+def _emit_ghost_indicator_findings(ghost: Any) -> list[Finding]:
+    """Pure helper: GhostScoreResult → list of auditable indicator Findings.
+
+    Only fires when overall classification is not GREEN. Each TRIGGERED
+    indicator (points > 0) becomes its own Finding with severity tied
+    to the indicator's weight ratio. Confidence is PROBABLE because the
+    scoring model is heuristic, not Tier-1a authoritative.
+    """
+    if not ghost or not hasattr(ghost, "classification"):
+        return []
+    if ghost.classification == "GREEN":
+        return []
+    out: list[Finding] = []
+    triggered = ghost.triggered() if hasattr(ghost, "triggered") else []
+    for ind in triggered[:12]:
+        ratio = (ind.points / max(ind.max_points, 1)) if ind.max_points else 0.0
+        severity = "amber" if ratio >= 0.5 else "info"
+        detail = (
+            ind.reason
+            if ind.reason
+            else f"Indicator triggered at {ind.points}/{ind.max_points} weight."
+        )
+        out.append(Finding(
+            severity=severity,
+            title=f"Ghost indicator #{ind.id}: {ind.label} ({ind.points}/{ind.max_points})",
+            detail=detail,
+            source="due_diligence_playbooks.score_ghost_indicators",
+            confidence="PROBABLE",
+        ))
+    return out
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
@@ -1677,6 +1726,19 @@ async def _run_identity(
                 source="due_diligence_playbooks.score_ghost_indicators",
                 confidence="ASSESSED",
             ))
+
+        # ── R-F602 — Formalised shell-co indicator breakdown ──
+        # Past observation 2026-05-16: ghost detector ran a 12-indicator
+        # scoring model but only the TOTAL was surfaced as a Finding row.
+        # The individual triggered indicators ("mail-drop address",
+        # "no website", "nominee director", etc.) were buried inside the
+        # identity.ghost_score dict and invisible to a client reading
+        # the DD report. For credibility each triggered indicator gets
+        # its own auditable Finding row, so the operator can SEE why a
+        # score of 12/20 was reached and challenge specific points if
+        # the underlying data is wrong.
+        for f in _emit_ghost_indicator_findings(ghost):
+            report.identity.findings.append(f)
     except Exception as e:
         logger.warning("Identity: ghost scoring failed: %s", e)
         report.identity.data_gaps.append(f"ghost score failed: {str(e)[:120]}")
