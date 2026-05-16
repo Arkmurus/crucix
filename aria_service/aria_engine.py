@@ -276,15 +276,16 @@ ACTION BIAS
 - Always give a clear GO/NO-GO/INVESTIGATE recommendation, then explain why — UNLESS the underlying data is fabricated, in which case the recommendation is "GET REAL DATA FIRST".
 
 YOUR AUTONOMOUS CAPABILITIES — KNOW WHAT YOU CAN DO
-You are NOT a passive chatbot. You have a live autonomous engine with 34 scheduled tasks that fire without human intervention. You CAN:
+You are NOT a passive chatbot. You have a live autonomous engine with scheduled tasks that fire without human intervention. You CAN:
 - SET REMINDERS: Create a pipeline lead with a deadline. The daily briefing (05:45 UTC weekdays) and pipeline check (22:00 UTC) will surface it automatically. Use the deal_pipeline module.
 - PUSH TO WHATSAPP: The autonomous engine delivers results to the team WhatsApp group. The daily team briefing fires every weekday morning with action items.
 - TRACK DEALS: The deal pipeline tracks leads from DETECTED → WON/LOST with deadlines, stale alerts, and dormancy detection.
 - TRACK CONTACTS: Contact intelligence monitors relationships and generates re-engagement nudges when contacts go cold (30+ days).
-- MONITOR PROCUREMENT: 34 autonomous tasks scan defence procurement across 15+ countries daily.
+- MONITOR PROCUREMENT: Autonomous tasks scan defence procurement across multiple countries daily.
 - RESEARCH AUTONOMOUSLY: Scheduled tasks run web research, tender crawls, sanctions screening, and knowledge audits without being asked.
 - GENERATE BRIEFINGS: Pre-meeting briefings with verified facts, daily pipeline summaries, weekly intelligence digests.
 NEVER say "I cannot set reminders", "I cannot send notifications", "I do not have scheduling capabilities", or "I cannot push messages autonomously". These statements are FALSE. If the team asks for a reminder, CREATE A PIPELINE LEAD with the deadline and confirm it will appear in the next morning briefing. If they ask for a recurring check, explain the autonomous task that already covers it or suggest creating one.
+NEVER quote a SPECIFIC count of tasks, countries, sources, or signals in this section — those numbers belong in [TOOL: self_introspect] output (R-F593). If asked "how many tasks / sources", call self_introspect; do not state a static number.
 
 OPPORTUNITY ANALYSIS FRAMEWORK (BROKER MODEL)
 For every opportunity or inquiry, work through:
@@ -2921,6 +2922,22 @@ async def _aria_chat_impl(
     except Exception as _scg_err:
         logger.debug("sanctions claim guard failed (non-fatal): %s", _scg_err)
 
+    # R-F595 (2026-05-16): self-capability question guard. When the user
+    # asks "what are your capabilities / how many tasks / your sources",
+    # auto-fire self_introspect (Clause 25) BEFORE the LLM call and
+    # prepend the live inventory + retention block to the context. The
+    # LLM then has real numbers instead of inventing them. Past incident:
+    # 2026-05-16 capability-overview reply emitted "34 autonomous tasks",
+    # "48/49 sources", "18-month TTL" — all fabrications. Real values
+    # were 78 / 431 / no TTL.
+    try:
+        from .intel import self_introspect_guard as _sig
+        _introspect_block = await _sig.self_introspect_context_block(message)
+        if _introspect_block:
+            context = _introspect_block + "\n\n" + (context or "")
+    except Exception as _sig_err:
+        logger.debug("self_introspect guard failed (non-fatal): %s", _sig_err)
+
     # Detect language and add hint
     lang_hint = _detect_language_hint(message)
 
@@ -3485,6 +3502,17 @@ async def _aria_chat_stream_impl(
             context = _guard_block + "\n\n" + (context or "")
     except Exception as _scg_err:
         logger.debug("sanctions claim guard failed (non-fatal): %s", _scg_err)
+
+    # R-F595 (2026-05-16): self-capability question guard — mirrored into
+    # the stream path per CLAUDE.md §13 stream-bypass rule. See the
+    # equivalent block in _aria_chat_impl for full context.
+    try:
+        from .intel import self_introspect_guard as _sig
+        _introspect_block = await _sig.self_introspect_context_block(message)
+        if _introspect_block:
+            context = _introspect_block + "\n\n" + (context or "")
+    except Exception as _sig_err:
+        logger.debug("self_introspect guard failed (non-fatal): %s", _sig_err)
 
     lang_hint = _detect_language_hint(message)
 

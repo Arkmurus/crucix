@@ -256,6 +256,95 @@ def test_rf401_suspicious_phrases_returns_pattern_sources():
 # PART C — Regression — known-good phrasings should NOT trigger
 # ══════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════
+# PART D — R-F594 capability-count pattern (2026-05-16 sweep)
+# ══════════════════════════════════════════════════════════════════
+#
+# Live evidence: ARIA self-assessment response 2026-05-16 emitted
+# "34 autonomous tasks", "48/49 sources OK", "15+ countries" as
+# bare integers. The fuzzy-count regex missed all three because
+# none used "approximately" / "about". R-F594 adds a pattern that
+# matches exact-integer capability claims (task/source/country
+# counts) about ARIA's OWN inventory.
+
+
+def test_rf594_guard_catches_n_autonomous_tasks():
+    """'34 autonomous tasks' / '78 scheduled tasks' must trigger."""
+    from aria_service.intel.self_claim_guard import scan_response
+    for txt in (
+        "34 autonomous tasks scan defence procurement daily",
+        "I have 78 scheduled tasks running",
+        "live autonomous engine with 34 scheduled tasks",
+    ):
+        vs = scan_response(txt, self_introspect_ran=False)
+        assert any(v.pattern_id == "rf594_capability_count" for v in vs), (
+            f"R-F594: failed to catch capability-count phrase {txt!r}"
+        )
+
+
+def test_rf594_guard_catches_sources_ratio():
+    """'48/49 sources OK' / '431 of 432 feeds healthy' must trigger."""
+    from aria_service.intel.self_claim_guard import scan_response
+    for txt in (
+        "Sources 48/49 OK",
+        "431 of 432 sources healthy",
+        "Adapters: 21/22 registries operational",
+    ):
+        vs = scan_response(txt, self_introspect_ran=False)
+        assert any(v.pattern_id == "rf594_capability_count" for v in vs), (
+            f"R-F594: failed to catch source-ratio phrase {txt!r}"
+        )
+
+
+def test_rf594_guard_catches_plus_countries():
+    """'15+ countries' must trigger."""
+    from aria_service.intel.self_claim_guard import scan_response
+    for txt in (
+        "scan defence procurement across 15+ countries daily",
+        "Coverage spans 20+ jurisdictions",
+        "10+ markets monitored",
+    ):
+        vs = scan_response(txt, self_introspect_ran=False)
+        assert any(v.pattern_id == "rf594_capability_count" for v in vs), (
+            f"R-F594: failed to catch plus-countries phrase {txt!r}"
+        )
+
+
+def test_rf594_guard_severity_drops_with_self_introspect():
+    """Severity downgrades to WARN when self_introspect ran."""
+    from aria_service.intel.self_claim_guard import scan_response
+    txt = "34 autonomous tasks across 15+ countries"
+    vs = scan_response(txt, self_introspect_ran=True)
+    matches = [v for v in vs if v.pattern_id == "rf594_capability_count"]
+    assert matches, "R-F594 regex broke — should still match"
+    assert all(v.severity == "WARN" for v in matches), (
+        "R-F594: severity should be WARN when self_introspect ran"
+    )
+
+
+def test_rf594_guard_does_not_catch_deal_values():
+    """Don't catch arbitrary integer-noun pairs outside capability nouns —
+    a deal worth '15 million dollars' or '50 vehicles' should pass."""
+    from aria_service.intel.self_claim_guard import scan_response
+    for txt in (
+        "Contract value 50 million USD",
+        "Order quantity 200 units",
+        "Deal worth 5 million GBP",
+        "Lukoil controls 200 vessels",
+    ):
+        vs = scan_response(txt, self_introspect_ran=False)
+        cap_violations = [v for v in vs if v.pattern_id == "rf594_capability_count"]
+        assert not cap_violations, (
+            f"R-F594 over-catch: deal-value phrase flagged: {txt!r}"
+        )
+
+
+def test_rf594_in_suspicious_phrases():
+    """New pattern must be discoverable via suspicious_phrases()."""
+    from aria_service.intel.self_claim_guard import suspicious_phrases
+    assert "rf594_capability_count" in suspicious_phrases()
+
+
 def test_rf401_guard_lets_through_self_introspect_cited_count():
     """When the LLM explicitly cites self_introspect with an exact
     number, the response should not trigger fuzzy-count (because the

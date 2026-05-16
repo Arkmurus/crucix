@@ -96,15 +96,62 @@ _EVICTION_RE = re.compile(
 # Pattern 4: approximate inventory counts when introspection block absent.
 # "approximately 5,000 facts", "about 25,639 signals", "between 1,000–5,000".
 # These are uncited estimates that should come from self_introspect.
+# R-F594 (2026-05-16): widened to allow up to 2 adjectives between the
+# digit and the noun ("approximately 5,000 VERIFIED facts" was missed by
+# the original regex because "verified" blocked the match).
 _FUZZY_COUNT_RE = re.compile(
     r"\b(?:"
         r"(?:approximately|about|roughly|around|circa|~|maybe)"
         r"\s*\d[\d,]*\s*"
+        r"(?:\w+\s+){0,2}"  # allow up to 2 adjective words
         r"(?:facts?|signals?|chunks?|entries|memories|memorie|neurons?|"
         r"records|items)"
         r"|"
         r"(?:between\s+)?\d[\d,]*\s*[-–—]\s*\d[\d,]*\s+"
+        r"(?:\w+\s+){0,2}"
         r"(?:facts?|signals?|chunks?|entries|memories|memorie|neurons?)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Pattern 5 (R-F594): exact-count claims about ARIA's own inventory of
+# tasks / sources / countries / languages / layers without self_introspect.
+# Caught 2026-05-16: ARIA emitted "34 autonomous tasks", "48/49 sources",
+# "15+ countries", "7 intelligence layers" in a capability overview reply
+# — real values are 78 / 431 / unknown / unknown. The existing fuzzy-count
+# pattern missed these because they're stated as EXACT integers, not
+# "approximately N". Pattern matches integers ≥3 followed by these
+# capability nouns; small counts (≤2) are excluded to avoid trivia
+# matches (e.g. "1 country", "2 sources" inside a sentence about a deal).
+_CAPABILITY_COUNT_RE = re.compile(
+    r"\b(?:"
+        # "34 autonomous tasks", "78 scheduled tasks", "12 cron jobs"
+        r"\d{1,4}\s*\+?\s*"
+        r"(?:autonomous|scheduled|active|running|live)\s+"
+        r"(?:tasks?|jobs?|crons?|schedulers?|engines?)"
+        r"|"
+        # "48/49 sources OK", "431 / 432 feeds healthy", "200 of 250 sources"
+        r"\d{1,4}\s*(?:/|of)\s*\d{1,4}\s+"
+        r"(?:sources?|feeds?|adapters?|registries|registers)"
+        r"|"
+        # Noun-before-digit ordering: "Sources 48/49 OK", "Adapters: 21/22 ..."
+        r"(?:sources?|feeds?|adapters?|registries|registers)"
+        r"\s*:?\s*\d{1,4}\s*/\s*\d{1,4}"
+        r"|"
+        # "15+ countries", "20+ jurisdictions", "12 tiers"
+        r"\d{1,4}\s*\+\s*"
+        r"(?:countries|jurisdictions|markets|regions|tiers|languages|"
+        r"layers?|sources?|feeds?|adapters?)"
+        r"|"
+        # "7 intelligence layers", "10-indicator checklist"
+        r"\d{1,4}[\s-]+"
+        r"(?:intelligence\s+layers?|indicator\s+checklists?|"
+        r"verification\s+steps?|reasoning\s+(?:steps?|chains?))"
+        r"|"
+        # "N autonomous capabilities" / "N defence sources"
+        r"\d{2,4}\s+"
+        r"(?:defence\s+sources?|intel(?:ligence)?\s+sources?|"
+        r"autonomous\s+capabilities?|live\s+feeds?)"
     r")\b",
     re.IGNORECASE,
 )
@@ -183,6 +230,21 @@ def scan_response(
             ),
         ))
 
+    # R-F594: exact capability counts — BLOCK without self_introspect.
+    for m in _CAPABILITY_COUNT_RE.finditer(text):
+        violations.append(Violation(
+            pattern_id="rf594_capability_count",
+            phrase=m.group(0),
+            severity="WARN" if self_introspect_ran else "BLOCK",
+            advice=(
+                "Exact count of own tasks/sources/countries/layers stated "
+                "without self_introspect. Past incident 2026-05-16: ARIA "
+                "claimed '34 autonomous tasks' / '48/49 sources' — real "
+                "values were 78 / 431. Call /api/aria/health/perf or say "
+                "'I don't have the live count in this turn'."
+            ),
+        ))
+
     return violations
 
 
@@ -195,6 +257,7 @@ def suspicious_phrases() -> dict[str, str]:
         "rf401_forget_claim": _FORGET_RE.pattern,
         "rf401_eviction_claim": _EVICTION_RE.pattern,
         "rf401_fuzzy_count": _FUZZY_COUNT_RE.pattern,
+        "rf594_capability_count": _CAPABILITY_COUNT_RE.pattern,
     }
 
 
@@ -338,6 +401,7 @@ async def get_stats() -> dict:
         "rf401_forget_claim",
         "rf401_eviction_claim",
         "rf401_fuzzy_count",
+        "rf594_capability_count",
     )
     for pid in pattern_ids:
         try:
