@@ -279,6 +279,14 @@ class ComplianceSection:
     ihl_criterion_2_risk: Optional[str] = None                 # low | medium | high | clear
     regional_bloc_requirements: list[dict] = field(default_factory=list)  # ECOWAS/SADC/GCC/etc
     licence_path: Optional[str] = None                         # SIEL | SITCL | OIEL | OGEL | DSP-5 | ...
+    # R-F635 (2026-05-17): cultural intelligence read — Hofstede + Hall
+    # + Erin Meyer + practical norms (weekend, formality, gift-giving).
+    # Populated from cultural_atlas.render_context_block() when the
+    # counterparty jurisdiction is non-UK/US and is seeded in the atlas.
+    # Empty string means: jurisdiction outside the operator's familiar
+    # west, but the atlas hasn't been seeded with cultural data yet —
+    # NOT a default of "no culture context exists".
+    cultural_context: str = ""
     findings: list[Finding] = field(default_factory=list)
     data_gaps: list[str] = field(default_factory=list)
 

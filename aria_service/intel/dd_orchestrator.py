@@ -2539,6 +2539,24 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
     except Exception as e:
         logger.debug("Compliance: WB Indicators overlay failed (non-fatal): %s", e)
 
+    # ── 4a-CULTURAL (R-F635) — cultural read for non-UK/US jurisdictions ──
+    # Pulls a population-level cultural profile from cultural_atlas
+    # (R-F634) when the counterparty jurisdiction is seeded and is
+    # outside the operator's default-familiar west (GB/US).
+    # Tagged PROBABLE + population-level by the atlas renderer —
+    # never deterministic about the individual counterparty.
+    try:
+        _cult_iso2 = report.identity.jurisdiction_iso2 or target.get("destination_iso2") or ""
+        _cult_iso2 = (_cult_iso2 or "").upper().strip()
+        if _cult_iso2 and _cult_iso2 not in ("GB", "US"):
+            from . import cultural_atlas as _ca
+            _cult_block = _ca.render_context_block(_cult_iso2, depth="full")
+            if _cult_block:
+                report.compliance.cultural_context = _cult_block
+                report.compliance.meta.subcalls += 1
+    except Exception as e:
+        logger.debug("Compliance: cultural_atlas lookup failed (non-fatal): %s", e)
+
     # ── 4b. Export control classification ──
     product_text = target.get("product_description") or target.get("goods") or ""
     if product_text:
