@@ -15267,6 +15267,54 @@ async def golden_stats_ep():
 
 class _AdversarialRunBody(BaseModel):
     attack_ids: list[str] | None = None
+    # R-F592 (2026-05-16) — opt-in synchronous mode for legacy callers.
+    # Default behaviour is now background-async (returns run_id; poll
+    # /adversarial/runs/{run_id} for state). When sync=true the endpoint
+    # blocks until completion exactly like pre-R-F592.
+    sync: bool = False
+
+
+# R-F592 (2026-05-16) — background-run registry. In-memory by design:
+# adversarial runs are coordination state, not durable history — the
+# completed run is persisted via adversarial_challenge.run_weekly()
+# under its own keys (see /adversarial/stats which reads the canonical
+# history). This dict only tracks the *in-flight* and *just-finished*
+# runs so callers can poll. Entries are evicted after _RUN_REGISTRY_TTL
+# seconds via opportunistic cleanup in the GET endpoint.
+import time as _t
+import uuid as _uuid
+_ADV_RUN_REGISTRY: dict[str, dict] = {}
+_ADV_RUN_REGISTRY_TTL_S = 3600  # 1h — long enough for poll-after-completion
+
+
+def _adv_registry_cleanup() -> None:
+    """Drop entries older than the TTL. Called opportunistically from
+    the GET endpoint so the dict doesn't grow unbounded under steady
+    polling traffic."""
+    now = _t.time()
+    stale = [
+        rid for rid, e in _ADV_RUN_REGISTRY.items()
+        if e.get("finished_at") and (now - e["finished_at"]) > _ADV_RUN_REGISTRY_TTL_S
+    ]
+    for rid in stale:
+        _ADV_RUN_REGISTRY.pop(rid, None)
+
+
+async def _adv_run_background(run_id: str, attack_ids: list[str] | None) -> None:
+    """Background task that actually executes the adversarial sweep.
+    Writes start/progress/completion into _ADV_RUN_REGISTRY[run_id]."""
+    from ..intel import adversarial_challenge as _ac
+    _ADV_RUN_REGISTRY[run_id]["status"] = "running"
+    _ADV_RUN_REGISTRY[run_id]["started_at"] = _t.time()
+    try:
+        result = await _ac.run_weekly(attack_ids=attack_ids)
+        _ADV_RUN_REGISTRY[run_id]["status"] = "completed"
+        _ADV_RUN_REGISTRY[run_id]["result"] = result
+    except Exception as e:
+        _log.exception("R-F592 adversarial background run failed: %s", e)
+        _ADV_RUN_REGISTRY[run_id]["status"] = "failed"
+        _ADV_RUN_REGISTRY[run_id]["error"] = str(e)[:500]
+    _ADV_RUN_REGISTRY[run_id]["finished_at"] = _t.time()
 
 
 @router.post("/adversarial/run_weekly")
@@ -15278,9 +15326,88 @@ async def adversarial_run_weekly_ep(body: _AdversarialRunBody):
 
     R-F253 (2026-05-11): added the hyphen alias because the
     adversarial triage doc routinely uses kebab-case URLs. Both
-    paths route to the same handler — operator can call either."""
-    from ..intel import adversarial_challenge as _ac
-    return await _ac.run_weekly(attack_ids=body.attack_ids)
+    paths route to the same handler — operator can call either.
+
+    R-F592 (2026-05-16): default behaviour is now BACKGROUND-ASYNC.
+    The run takes 4m+ on the degraded LLM chain, which previously
+    blocked the event loop and tripped fly.io health checks
+    (servicecheck-00-http-8000 failures observed 13:23:01 today). The
+    endpoint now returns a run_id immediately and queues the work as
+    an asyncio.create_task; poll /api/aria/adversarial/runs/{run_id}
+    for state. Pass body.sync=true to opt-in to the legacy blocking
+    behaviour (useful for scripted one-shots when the caller wants the
+    full result inline).
+    """
+    if body.sync:
+        # Legacy blocking path
+        from ..intel import adversarial_challenge as _ac
+        return await _ac.run_weekly(attack_ids=body.attack_ids)
+
+    run_id = f"adv_{_uuid.uuid4().hex[:12]}"
+    _ADV_RUN_REGISTRY[run_id] = {
+        "run_id": run_id,
+        "status": "queued",
+        "queued_at": _t.time(),
+        "attack_ids": body.attack_ids,
+        "started_at": None,
+        "finished_at": None,
+        "result": None,
+        "error": None,
+    }
+    # asyncio.create_task — fire-and-forget; the task captures the
+    # current event loop. The task lifetime outlives this HTTP request.
+    import asyncio as _asyncio
+    _asyncio.create_task(_adv_run_background(run_id, body.attack_ids))
+    return {
+        "run_id": run_id,
+        "status": "queued",
+        "poll_url": f"/api/aria/adversarial/runs/{run_id}",
+        "note": (
+            "R-F592 background run — poll the URL above for state. "
+            "Pass {sync: true} on POST to block for the result instead."
+        ),
+    }
+
+
+@router.get("/adversarial/runs/{run_id}")
+async def adversarial_run_status_ep(run_id: str):
+    """R-F592 (2026-05-16) — poll the state of a background adversarial
+    run launched via POST /adversarial/run-weekly (without sync=true).
+
+    Returns:
+      - status: "queued" | "running" | "completed" | "failed" | "unknown"
+      - timing: queued_at / started_at / finished_at (unix seconds)
+      - result: the full run output when status=completed
+      - error: error message when status=failed
+    """
+    _adv_registry_cleanup()
+    entry = _ADV_RUN_REGISTRY.get(run_id)
+    if not entry:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"no adversarial run found for run_id={run_id} "
+                f"(may have completed >1h ago and been evicted)"
+            ),
+        )
+    return entry
+
+
+@router.get("/adversarial/runs")
+async def adversarial_runs_index_ep():
+    """R-F592 — list currently-tracked adversarial runs (in-flight +
+    those completed in the last 1h). For the dashboard's "background
+    jobs" panel."""
+    _adv_registry_cleanup()
+    return {
+        "runs": sorted(
+            _ADV_RUN_REGISTRY.values(),
+            key=lambda e: e.get("queued_at") or 0,
+            reverse=True,
+        ),
+        "count": len(_ADV_RUN_REGISTRY),
+        "ttl_seconds": _ADV_RUN_REGISTRY_TTL_S,
+    }
 
 
 @router.post("/adversarial/run_single")
