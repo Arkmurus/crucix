@@ -46,7 +46,7 @@ import { createStatusRouter } from './lib/status/routes.mjs';
 import { createKeysRouter, createV1Router, publicApiEnabled } from './lib/api_keys/routes.mjs';
 import { initApiKeysStore } from './lib/api_keys/store.mjs';
 import { initIncidentsStore } from './lib/status/store.mjs';
-import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail } from './lib/auth/email.mjs';
+import { sendVerificationEmail, sendPasswordResetEmail, sendPasswordChangedNotification, sendWelcomeEmail, sendAdminNotification, sendRejectionEmail, sendSuspensionEmail, sendReactivationEmail, sendPendingApprovalEmail } from './lib/auth/email.mjs';
 import { logAudit, getAuditLog } from './lib/auth/audit.mjs';
 import { initComplianceAudit, getAuditLog as getComplianceAuditLog, exportAuditLog } from './lib/aria/complianceAudit.mjs';
 import { initVapid, getVapidPublicKey, saveSubscription, removeSubscription, pushFlash, pushDigest } from './lib/push/push.mjs';
@@ -3737,15 +3737,94 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   }
 });
 
+// R-F609 (2026-05-16) — reset-attempt throttle. Pre-R-F609 the 6-digit
+// reset code was checked with a non-timing-safe `!==` compare AND there
+// was no attempt limiter — an attacker could brute-force the 1M-key
+// space within minutes. Now: 5 wrong codes / 15 min for the same email
+// → 1-hour lockout. The IP rate-limit (TIERS.auth 10/15min) is still in
+// front, but the per-email counter survives IP rotation. In-memory Map
+// is fine for the single-instance seenode deploy; for multi-instance we
+// would need Redis. Generic 400 response on lockout so attackers can't
+// tell when they're locked vs simply wrong.
+const _resetAttempts = new Map(); // email_lower → { count, firstAt, lockedUntil }
+const _RESET_MAX_ATTEMPTS = 5;
+const _RESET_WINDOW_MS = 15 * 60 * 1000;
+const _RESET_LOCKOUT_MS = 60 * 60 * 1000;
+
+function _resetThrottleCheck(emailLower) {
+  const now = Date.now();
+  const entry = _resetAttempts.get(emailLower);
+  if (!entry) return { allowed: true };
+  if (entry.lockedUntil && entry.lockedUntil > now) {
+    return { allowed: false, reason: 'locked' };
+  }
+  // Reset the window if the first attempt aged out.
+  if (entry.firstAt && now - entry.firstAt > _RESET_WINDOW_MS) {
+    _resetAttempts.delete(emailLower);
+    return { allowed: true };
+  }
+  return { allowed: true };
+}
+
+function _resetThrottleRecordFailure(emailLower) {
+  const now = Date.now();
+  const entry = _resetAttempts.get(emailLower) || { count: 0, firstAt: now };
+  entry.count += 1;
+  entry.firstAt = entry.firstAt || now;
+  if (entry.count >= _RESET_MAX_ATTEMPTS) {
+    entry.lockedUntil = now + _RESET_LOCKOUT_MS;
+  }
+  _resetAttempts.set(emailLower, entry);
+  return entry;
+}
+
+function _resetThrottleClear(emailLower) {
+  _resetAttempts.delete(emailLower);
+}
+
 app.post('/api/auth/reset-password', async (req, res) => {
   try {
     const { email, code, newPassword } = req.body || {};
     if (!email || !code || !newPassword) return res.status(400).json({ error: 'Email, code, and new password required' });
     if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
-    const user = findUserByEmail(email);
-    if (!user || user.resetCode !== String(code)) return res.status(400).json({ error: 'Invalid or expired reset code' });
+    const emailLower = String(email).toLowerCase().trim();
+
+    // R-F609: throttle BEFORE any user lookup so a locked-out email
+    // can't probe whether a user exists via the timing of the 400.
+    const throttle = _resetThrottleCheck(emailLower);
+    if (!throttle.allowed) {
+      console.warn(`[Auth] reset-password REJECTED throttle email=${emailLower} ip=${req.ip}`);
+      return res.status(400).json({ error: 'Invalid or expired reset code' });
+    }
+
+    const user = findUserByEmail(emailLower);
+
+    // R-F609: timing-safe 6-digit code compare. Pre-fix used `!==`
+    // which leaks byte-by-byte timing — combined with the absent
+    // throttle that made the 6-digit space practically brute-forceable.
+    const expectedCode = user ? String(user.resetCode || '') : '';
+    const providedCode = String(code || '');
+    let codeOk = false;
+    if (expectedCode && providedCode.length === expectedCode.length) {
+      try {
+        const crypto = await import('node:crypto');
+        codeOk = crypto.timingSafeEqual(
+          Buffer.from(expectedCode, 'utf8'),
+          Buffer.from(providedCode, 'utf8'),
+        );
+      } catch {
+        codeOk = false;
+      }
+    }
+
+    if (!user || !codeOk) {
+      _resetThrottleRecordFailure(emailLower);
+      console.warn(`[Auth] reset-password FAIL code-mismatch email=${emailLower} ip=${req.ip}`);
+      return res.status(400).json({ error: 'Invalid or expired reset code' });
+    }
     if (user.resetExpiry && new Date(user.resetExpiry) < new Date()) {
+      _resetThrottleRecordFailure(emailLower);
       return res.status(400).json({ error: 'Reset code expired. Request a new one.' });
     }
 
@@ -3754,6 +3833,16 @@ app.post('/api/auth/reset-password', async (req, res) => {
       resetCode: null,
       resetExpiry: null,
     });
+
+    // R-F609: clear the throttle and notify the owner. Notification is
+    // best-effort (SMTP may be down on the seenode deploy); we don't
+    // block the successful reset on email-send failure.
+    _resetThrottleClear(emailLower);
+    sendPasswordChangedNotification(user.email, user.fullName, req.ip || '').catch(
+      (err) => console.warn('[Auth] post-reset email send failed:', err.message),
+    );
+
+    console.log(`[Auth] reset-password OK email=${user.email} ip=${req.ip}`);
     res.json({ message: 'Password reset successfully. You can now log in.' });
   } catch (err) {
     console.error('[Auth] Reset password error:', err.message);

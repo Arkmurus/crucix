@@ -134,11 +134,20 @@ export function applyRateLimiting(app) {
   app.use('/api/', speedLimiter);
 
   // Auth routes
-  app.use('/api/auth/login',           rateLimit(TIERS.auth));
-  app.use('/api/auth/register',        rateLimit(TIERS.auth));
-  app.use('/api/auth/verify-2fa',      rateLimit(TIERS.auth));
-  app.use('/api/auth/reset-password',  rateLimit(TIERS.auth));
-  app.use('/api/auth/recovery-reset',  rateLimit(TIERS.auth));
+  app.use('/api/auth/login',                rateLimit(TIERS.auth));
+  app.use('/api/auth/register',             rateLimit(TIERS.auth));
+  app.use('/api/auth/verify-2fa',           rateLimit(TIERS.auth));
+  app.use('/api/auth/reset-password',       rateLimit(TIERS.auth));
+  app.use('/api/auth/recovery-reset',       rateLimit(TIERS.auth));
+  // R-F609 (2026-05-16) — add forgot-password and the actual 2FA route.
+  // Pre-R-F609 only /verify-2fa was rate-limited but the live route is
+  // /2fa/authenticate (server.mjs:3497) — the limiter mounted nothing,
+  // so the TOTP code (~ 1M keys with the otplib default window) was
+  // unbounded against the global TIERS.standard 150 req / 15 min only.
+  // forgot-password was likewise unbounded — attackers could spam reset
+  // emails (cost + nuisance) or enumerate users via timing differences.
+  app.use('/api/auth/forgot-password',      rateLimit(TIERS.auth));
+  app.use('/api/auth/2fa/authenticate',     rateLimit(TIERS.auth));
 
   // Expensive compute routes
   app.use('/api/sweep',                rateLimit(TIERS.sweep));

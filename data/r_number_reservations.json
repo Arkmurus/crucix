@@ -585,18 +585,19 @@
       "claimed_at": "2026-05-16T18:27:40Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "7b1bae7",
       "notes": null,
-      "shipped_at": "2026-05-16T18:48:40Z"
+      "shipped_at": "2026-05-16T18:49:06Z"
     },
     {
       "r_number": "R-F609",
       "title": "auth hardening bundle (reset timing-safe + login rate-limit + post-reset email)",
       "claimed_at": "2026-05-16T18:27:45Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-16T18:52:30Z"
     }
   ]
 }
