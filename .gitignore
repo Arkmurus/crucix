@@ -60,3 +60,7 @@ dashboard/public/vercel.json
 
 # Tier C ingest scheduler state (per-machine, not source-controlled)
 aria_service/cli/.tier_c_state.json
+
+# R-F570: generated at build time by sync.mjs from local git;
+# never source-controlled.
+build_rev.txt
