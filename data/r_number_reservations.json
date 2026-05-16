@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 599,
+  "next_available": 603,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -491,6 +491,42 @@
       "commit_sha": "3f26d58",
       "notes": null,
       "shipped_at": "2026-05-16T17:38:49Z"
+    },
+    {
+      "r_number": "R-F599",
+      "title": "bypass reasoning_library cache for self-capability questions",
+      "claimed_at": "2026-05-16T17:51:16Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F600",
+      "title": "DD Layer — litigation + court records (CourtListener, BAILII)",
+      "claimed_at": "2026-05-16T17:51:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F601",
+      "title": "DD Layer — FATF jurisdiction risk (formalised)",
+      "claimed_at": "2026-05-16T17:51:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F602",
+      "title": "DD Layer — shell-co formalised scoring",
+      "claimed_at": "2026-05-16T17:51:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

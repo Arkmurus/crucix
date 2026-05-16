@@ -170,6 +170,42 @@ async def try_local_reasoning(question: str, *, silent: bool = False) -> dict:
             "duration_ms": int((time.time() - started) * 1000),
         }
 
+    # ── Stage 0.5: Self-capability question bypass (R-F599) ───────────────
+    # Capability-overview / "what can you do" / "how many tasks" questions
+    # must escalate to cloud LLM so the R-F595 self_introspect_guard can
+    # inject live /api/aria/health/perf data into context.
+    #
+    # Past incident 2026-05-16 18:45 WhatsApp: operator asked "share an
+    # overview of your full system capabilities" → reasoning_library cache
+    # hit served a stale pre-R-F595 reply with "34 autonomous tasks",
+    # "48/49 sources OK", "Officeholder Verification 18-month TTL" —
+    # all hallucinations contradicting live /health/perf (real values
+    # 78 tasks, 431 sources, no TTL). The R-F594 post-scan guard caught
+    # the violations and appended the warning block, but the cached
+    # response was already delivered.
+    #
+    # This bypass forces the LLM call so R-F595 fires first and the
+    # response is composed against real numbers instead of cached fiction.
+    # Same shape as Stage 0 — soft bypass, returns answered=False so the
+    # caller escalates to cloud LLM.
+    try:
+        from . import self_introspect_guard as _sig
+        if _sig.detect_self_capability_question(question):
+            trace.append({
+                "stage": "self_capability_bypass",
+                "reason": "capability question — forcing cloud LLM so R-F595 self_introspect injects live counts",
+            })
+            return {
+                "answered": False,
+                "reason": "self_capability_bypass",
+                "trace": trace,
+                "duration_ms": int((time.time() - started) * 1000),
+            }
+    except Exception as _sig_err:
+        # Detector failure must NEVER block the chat turn. Log and continue
+        # to the next stage; the post-scan R-F401/R-F594 guard still fires.
+        logger.debug("R-F599 capability-question detector failed: %s", _sig_err)
+
     # ── Stage 1: Symbolic reasoner (rules engine) ─────────────────────────
     try:
         sym = symbolic_reasoner.reason(question, silent_brain_hook=silent)
