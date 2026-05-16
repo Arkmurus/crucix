@@ -1011,6 +1011,104 @@ def _emit_ais_findings(ais_block: Any) -> list[Finding]:
     return out
 
 
+# ── R-F611 — Formalised cyber/cert-transparency Findings ─────────────
+#
+# cert_transparency (R-F585) inspects Certificate Transparency logs for
+# the counterparty's domain and scores a "shell-broker fingerprint"
+# (many apex domains, one issuer, short-lived certs, identical-name
+# clusters). Output sits in report.extensions["by_module"][
+# "cert_transparency"] but never becomes a Finding row. Same gap
+# pattern R-F600 (litigation) / R-F610 (AIS) fixed.
+#
+# This pure helper turns the CT analysis into auditable Findings.
+#
+# Severity:
+#   ELEVATED (shell_score ≥60) → amber headline + amber per-signal
+#   LOW (shell_score 30..59)   → info everything
+#   NONE / no domain inferable → []
+#
+# Confidence: PROBABLE. CT logs are factual (a cert exists or doesn't)
+# but the shell-broker FINGERPRINT is a heuristic — needs operator
+# corroboration with other indicators.
+def _emit_cert_transparency_findings(ct_block: Any) -> list[Finding]:
+    """Pure helper: cert_transparency extension result → list of
+    Findings. Tolerates None / empty / missing fields.
+
+    Returns at most 1 + 5 Findings:
+      - 1 headline: cert_count + apex_count + shell_score
+      - up to 5 individual signal rows
+    """
+    if not ct_block or not isinstance(ct_block, dict):
+        return []
+    severity_label = (ct_block.get("severity") or "NONE").upper()
+    if severity_label == "NONE":
+        return []
+    signals_raw = ct_block.get("signals") or []
+    if not isinstance(signals_raw, list):
+        signals_raw = []
+    headline_severity = "amber" if severity_label == "ELEVATED" else "info"
+    query = ct_block.get("query") or "(unknown)"
+    cert_count = int(ct_block.get("cert_count") or 0)
+    apex_count = int(ct_block.get("apex_count") or 0)
+    issuer_count = int(ct_block.get("issuer_count") or 0)
+    shell_score = int(ct_block.get("shell_score") or 0)
+
+    out: list[Finding] = []
+
+    # Headline row
+    out.append(Finding(
+        severity=headline_severity,
+        title=(
+            f"Cyber footprint [{query}]: {cert_count} cert(s), "
+            f"{apex_count} apex domain(s), {issuer_count} issuer(s), "
+            f"shell-score {shell_score}/100"
+        ),
+        detail=(
+            f"Certificate Transparency log analysis for '{query}': "
+            f"{cert_count} certificates across {apex_count} apex "
+            f"domains, issued by {issuer_count} distinct CA(s). "
+            f"Shell-broker fingerprint score: {shell_score}/100. "
+            "High scores indicate domain-spinning patterns common in "
+            "shell-broker / typo-squat networks. VERIFY by inspecting "
+            "the actual cert SAN list before flagging the counterparty."
+        ),
+        source=(
+            "cert_transparency.detect_shell_pattern (R-F585) "
+            "[from https://crt.sh log feed]"
+        ),
+        confidence="PROBABLE",
+    ))
+
+    # Per-signal rows — cap at 5
+    for sig in signals_raw[:5]:
+        if not isinstance(sig, str) or not sig.strip():
+            continue
+        sig_lower = sig.lower()
+        # Critical signals: many apex domains with one issuer / short-lived
+        # / identical-name clusters
+        is_critical = any(k in sig_lower for k in (
+            "shell", "typo", "squat", "cluster", "many_apex", "one_issuer",
+            "short_lived", "anomal", "suspicious",
+        ))
+        sig_severity = (
+            "amber" if (severity_label == "ELEVATED" and is_critical)
+            else "info"
+        )
+        out.append(Finding(
+            severity=sig_severity,
+            title=f"CT signal: {sig[:120]}",
+            detail=(
+                f"Signal flagged by cert_transparency.detect_shell_pattern "
+                f"for query '{query}'. Treat as indicator, not verdict — "
+                "operator must corroborate with other DD evidence."
+            ),
+            source="cert_transparency.detect_shell_pattern (R-F585)",
+            confidence="PROBABLE",
+        ))
+
+    return out
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
@@ -5543,6 +5641,20 @@ async def orchestrate_dd(
                 logger.debug(
                     "[dd_orchestrator] R-F610 AIS Finding emission failed (non-fatal): %s",
                     _ais_err,
+                )
+            # ── R-F611 — Promote cert-transparency signals to Findings ──
+            # cert_transparency (R-F585) scores a shell-broker fingerprint
+            # from Certificate Transparency logs. Surface high-score
+            # signals as Findings so cyber/domain-spinning evidence
+            # reaches the compliance section.
+            try:
+                _ct_block = (_dlx_result.get("by_module") or {}).get("cert_transparency")
+                for _ct_f in _emit_cert_transparency_findings(_ct_block):
+                    report.compliance.findings.append(_ct_f)
+            except Exception as _ct_err:
+                logger.debug(
+                    "[dd_orchestrator] R-F611 cert_transparency Finding emission failed (non-fatal): %s",
+                    _ct_err,
                 )
         except asyncio.TimeoutError:
             logger.warning("[dd_orchestrator] R-F584-F587 extension bundle timed out (non-fatal)")

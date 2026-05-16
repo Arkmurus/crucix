@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 611,
+  "next_available": 612,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -609,6 +609,15 @@
       "commit_sha": "8fc9212",
       "notes": null,
       "shipped_at": "2026-05-16T22:54:17Z"
+    },
+    {
+      "r_number": "R-F611",
+      "title": "DD Layer — cyber footprint cert_transparency Findings rows",
+      "claimed_at": "2026-05-16T22:54:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
