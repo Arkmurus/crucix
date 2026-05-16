@@ -1017,6 +1017,45 @@ app.use(express.json());  // fallback for non-API routes
 // WhatsApp webhook uses urlencoded body (not JSON), parsed inside the router
 app.use('/api/whatsapp', ariaWhatsApp);
 
+// ── R-F577 (2026-05-16) — public model-card endpoints ────────────────────
+//
+// intel.arkmurus.com/model-card.html is published-by-design — it's the
+// operator's policy statement (constitution version, audit-log fingerprint,
+// adversarial baseline). The previous seenode catch-all at line 4099+
+// required auth on every /api/aria/*, breaking the public model card and
+// forcing "unavailable" placeholders on a page meant to be public.
+//
+// R-F577 registers these 3 endpoints BEFORE all auth-gated routes so
+// Express's order-of-definition gives them to the no-auth handler.
+// They expose ONLY publishable metadata:
+//   - /constitution/version   → {version, clause_count, amendment_count}
+//   - /chat-audit/stats        → {head_hash, total_entries} (no chain body)
+//   - /adversarial/stats        → {last_run.overall_score, last_run.run_at}
+// The full constitution text, audit chain, and attack-by-attack
+// breakdown remain auth-gated under the catch-all.
+//
+// Hot-path note: ariaProxy at this point requires the function to be
+// defined. We forward-declare a thin helper here that defers the import
+// of ariaProxy to request time, since ariaProxy itself is defined below
+// at line ~1818.
+async function _r577PublicProxy(req, res, path) {
+  return ariaProxy(req, res, path, {
+    fallback: async ({ lastStatus } = {}) => {
+      if (res.headersSent) return;
+      res.status(lastStatus || 503).json({
+        error: 'fly endpoint unavailable',
+        path,
+      });
+    },
+  });
+}
+app.get('/api/aria/constitution/version', (req, res) =>
+  _r577PublicProxy(req, res, '/api/aria/constitution/version'));
+app.get('/api/aria/chat-audit/stats', (req, res) =>
+  _r577PublicProxy(req, res, '/api/aria/chat-audit/stats'));
+app.get('/api/aria/adversarial/stats', (req, res) =>
+  _r577PublicProxy(req, res, '/api/aria/adversarial/stats'));
+
 // ── Rate limiting + XSS guard — BEFORE route registration ────────────────────
 applyRateLimiting(app);
 applyInputValidation(app);
