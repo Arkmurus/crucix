@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 576,
+  "next_available": 577,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -251,9 +251,20 @@
       "title": "DD case-file follow-ups: split/merge operator override + read-time backfill + SQLite cold-tier",
       "claimed_at": "2026-05-16T12:27:45Z",
       "claimed_by": "claude-session-B-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Fixes the three items deferred in R-F573 (f832f5b): false-merge/false-split override endpoints, opportunistic canonical_entity_id backfill on list_reports() read, and 90-day SQLite cold-tier so case-file chains survive the 7-day Redis TTL."
+      "status": "shipped",
+      "commit_sha": "e39bb74",
+      "notes": "Fixes the three items deferred in R-F573 (f832f5b): false-merge/false-split override endpoints, opportunistic canonical_entity_id backfill on list_reports() read, and 90-day SQLite cold-tier so case-file chains survive the 7-day Redis TTL.",
+      "shipped_at": "2026-05-16T12:32:48Z"
+    },
+    {
+      "r_number": "R-F576",
+      "title": "composite-score honesty — stop using 50% neutral prior when verification/grounded_rate has real data",
+      "claimed_at": "2026-05-16T12:45:32Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "shipped",
+      "commit_sha": "34a72fc",
+      "notes": null,
+      "shipped_at": "2026-05-16T12:48:52Z"
     }
   ]
 }
