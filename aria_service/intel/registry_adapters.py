@@ -15,6 +15,8 @@ Supported jurisdictions:
   KE — Kenya BRS / eCitizen (HTML scraping + stub fallback)
   SA — Saudi Arabia MOCI (HTML scraping + stub fallback)
   GH — Ghana RGD (HTML scraping + stub fallback)
+  PA — Panama Registro Público (HTML scraping + stub fallback) — R-F598
+  BG — Bulgaria Commercial Register at Registry Agency (HTML scraping + stub) — R-F598
 
 Design principles:
   - Every adapter returns None on failure (graceful degradation)
@@ -35,7 +37,7 @@ logger = logging.getLogger("aria.intel.registry_adapters")
 
 _TIMEOUT = 15.0
 
-_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL", "US", "FI"}
+_SUPPORTED_JURISDICTIONS = {"GI", "PL", "RO", "TR", "BR", "NG", "AE", "IN", "SK", "CZ", "HU", "DE", "FR", "AO", "KE", "SA", "GH", "ZA", "IL", "US", "FI", "PA", "BG"}
 
 
 # ╔══════════════════════════════════════════════════════════════════════╗
@@ -83,6 +85,8 @@ async def lookup_entity(
         "IL": _lookup_israel,
         "US": _lookup_united_states,
         "FI": _lookup_finland,
+        "PA": _lookup_panama,
+        "BG": _lookup_bulgaria,
     }
     adapter_fn = dispatch.get(iso2)
     if not adapter_fn:
@@ -2789,3 +2793,178 @@ async def _lookup_finland(name: str, reg_number: str | None) -> dict | None:
     except Exception as exc:
         logger.warning("Finland PRH lookup failed: %s", exc)
         return None
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Panama Registro Público  (PA)  — R-F598                            ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+# Panama Registro Público de Panamá (https://www.registro-publico.gob.pa)
+# offers a public search portal but no documented free JSON API.  This
+# adapter attempts a best-effort HTML scrape against the consultation page
+# and falls back to a stub with `data_gaps` guidance for manual lookup.
+#
+# Motivation 2026-05-16: ARIA's DD on lngtradinginternationalpanamasa.com
+# could not check the Panama registry directly because no PA adapter
+# existed in the dispatch table. This adapter closes that gap.
+
+_PA_BASE = "https://www.registro-publico.gob.pa"
+_PA_SEARCH = f"{_PA_BASE}/scripts/nwwisapi.dll/conweb/PRINCIPAL"
+
+
+async def _lookup_panama(name: str, reg_number: str | None) -> dict | None:
+    """Panama Registro Público — HTML scraping + stub fallback.
+
+    The public consultation portal is behind a session/form workflow so a
+    direct API hit usually returns the index page rather than results.
+    The adapter still attempts a fetch (in case the portal is updated to
+    expose a search-by-name endpoint) and falls back to a stub result so
+    the DD orchestrator has an explicit PA registry entry with data_gaps.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(
+                _PA_BASE,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)",
+                    "Accept-Language": "es-PA,es;q=0.9,en;q=0.5",
+                },
+            )
+            if resp.status_code == 200:
+                html = resp.text
+                # If the portal happens to show a company name + folio match,
+                # try to extract it. Folio is the Panamanian equivalent of
+                # company number (e.g. "155123456").
+                folio_match = re.search(
+                    r"(?:Folio|N[uú]mero\s+de\s+Folio)[:\s]*(\d{6,12})",
+                    html, re.IGNORECASE,
+                )
+                name_match = re.search(
+                    r"(?:Denominaci[óo]n|Raz[óo]n\s+Social)[:\s]*([^<\n]{3,160})",
+                    html, re.IGNORECASE,
+                )
+                if folio_match or name_match:
+                    return _build_result(
+                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
+                        company_number=folio_match.group(1) if folio_match else reg_number or "",
+                        company_status="unknown",
+                        date_of_creation="",
+                        registered_office_address="",
+                        jurisdiction="PA",
+                        sic_codes=[],
+                        officers=[],
+                        psc=[],
+                        source_url=_PA_BASE,
+                        adapter="panama_registro_publico",
+                    )
+    except Exception as exc:
+        logger.debug("Panama Registro Público unreachable: %s", exc)
+
+    # Stub fallback so the DD report has a registry entry with data_gaps.
+    result = _build_result(
+        company_name=name,
+        company_number=reg_number or "",
+        company_status="unknown",
+        date_of_creation="",
+        registered_office_address="",
+        jurisdiction="PA",
+        sic_codes=[],
+        officers=[],
+        psc=[],
+        source_url=_PA_BASE,
+        adapter="panama_registro_publico_stub",
+    )
+    result["data_gaps"] = [
+        "Panama Registro Público offers no documented free JSON API.",
+        f"Manual search at {_PA_BASE} requires a session + form workflow.",
+        "Folio (company number) lookup is by-folio only — name search needs Spanish-language manual review.",
+        "For high-risk DD (offshore / Panama Papers / shell-co indicators) cross-check with OFAC and OpenSanctions for sanctions exposure.",
+    ]
+    return result
+
+
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Bulgaria Commercial Register  (BG)  — R-F598                       ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+# Bulgaria's Commercial Register is operated by the Registry Agency
+# (Агенция по вписванията) at https://portal.registryagency.bg/.
+# A public search ("Справки в Търговския регистър") is available but the
+# results page is rendered client-side, so an HTTP fetch only returns the
+# search shell.  This adapter attempts the fetch and falls back to a stub
+# with data_gaps guidance.  EIK (Единен идентификационен код) is the
+# Bulgarian company number — 9 or 13 digits.
+
+_BG_BASE = "https://portal.registryagency.bg"
+_BG_SEARCH = f"{_BG_BASE}/CR/Reports/VerificationPersonOrg.aspx"
+
+
+def _is_bg_eik(text: str) -> bool:
+    """Return True if `text` looks like a Bulgarian EIK (9 or 13 digits)."""
+    if not text:
+        return False
+    digits = re.sub(r"\D", "", text)
+    return len(digits) in (9, 13)
+
+
+async def _lookup_bulgaria(name: str, reg_number: str | None) -> dict | None:
+    """Bulgaria Commercial Register — HTML scrape + stub fallback."""
+    eik = (re.sub(r"\D", "", reg_number) if reg_number else "") or None
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(
+                _BG_BASE,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; ARIA-DD/1.0)",
+                    "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.5",
+                },
+            )
+            if resp.status_code == 200:
+                html = resp.text
+                # If the portal happens to inline a search result (rare),
+                # try to extract the company block.
+                eik_match = re.search(
+                    r"(?:ЕИК|EIK)[:\s]*(\d{9}(?:\d{4})?)",
+                    html, re.IGNORECASE,
+                )
+                name_match = re.search(
+                    r"(?:Наименование|Фирма|Company\s+name)[:\s]*([^<\n]{3,200})",
+                    html, re.IGNORECASE,
+                )
+                if eik_match or name_match:
+                    return _build_result(
+                        company_name=_html_unescape(name_match.group(1).strip()) if name_match else name,
+                        company_number=eik_match.group(1) if eik_match else (eik or ""),
+                        company_status="unknown",
+                        date_of_creation="",
+                        registered_office_address="",
+                        jurisdiction="BG",
+                        sic_codes=[],
+                        officers=[],
+                        psc=[],
+                        source_url=_BG_BASE,
+                        adapter="bulgaria_brra",
+                    )
+    except Exception as exc:
+        logger.debug("Bulgaria BRRA portal unreachable: %s", exc)
+
+    # Stub fallback.
+    result = _build_result(
+        company_name=name,
+        company_number=eik or reg_number or "",
+        company_status="unknown",
+        date_of_creation="",
+        registered_office_address="",
+        jurisdiction="BG",
+        sic_codes=[],
+        officers=[],
+        psc=[],
+        source_url=_BG_BASE,
+        adapter="bulgaria_brra_stub",
+    )
+    result["data_gaps"] = [
+        "Bulgaria Commercial Register search renders results client-side.",
+        f"Manual lookup at {_BG_SEARCH} requires JavaScript + EIK input.",
+        "EIK format: 9 digits (legal entity) or 13 digits (sole trader).",
+        "For listed Bulgarian banks/insurers cross-check FSC (Financial Supervision Commission) at https://www.fsc.bg/.",
+        "Bulgarian sanctions designations are mirrored to EU Consolidated and OFSI — check those lists first.",
+    ]
+    return result
