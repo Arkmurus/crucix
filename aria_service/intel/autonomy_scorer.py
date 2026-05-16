@@ -104,13 +104,44 @@ async def compute_composite() -> dict:
     except Exception as e:
         logger.debug("autonomy scorer: mastery failed: %s", e)
 
-    # 2. Verification / grounded rate (35%)
+    # 2. Verification / grounded rate (35%) — R-F576 honesty fix.
+    #
+    # Pre-R-F576 this read `avg_grounded_rate` only. That field is None
+    # when verification entries lack a numeric grounded_rate (the field
+    # gets populated by a follow-up RAG-grounding pass that doesn't
+    # always run on every entry). Result: composite fell back to the
+    # 0.5 neutral prior even when there were 23 real verdicts in the
+    # last 24h (verified/unverified/contradicted). Dashboard showed
+    # "50%* (default — no data yet)" while /verification/stats showed
+    # "verification rate 39%".
+    #
+    # Fix: if `avg_grounded_rate` is None but verdicts exist, compute a
+    # verdict-ratio proxy (verified / total_with_decision). Mark the
+    # signal source so the dashboard can render the honest origin.
     try:
         from . import source_verifier
         stats = await source_verifier.get_verification_stats()
-        signals["verification"] = stats.get("avg_grounded_rate")
+        val = stats.get("avg_grounded_rate")
+        source = "avg_grounded_rate"
+        sample = stats.get("rate_sample_size") or 0
+        if val is None:
+            by_verdict = stats.get("by_verdict") or {}
+            verified = int(by_verdict.get("verified") or 0)
+            unverified = int(by_verdict.get("unverified") or 0)
+            contradicted = int(by_verdict.get("contradicted") or 0)
+            total = verified + unverified + contradicted
+            if total > 0:
+                val = round(verified / total, 4)
+                source = "verdict_ratio_rf576"
+                sample = total
+            else:
+                source = "no_data_neutral_prior"
+        signals["verification"] = val
+        details["verification_source"] = source
+        details["verification_samples"] = sample
     except Exception as e:
         logger.debug("autonomy scorer: verification failed: %s", e)
+        details["verification_source"] = "error"
 
     # 3. Predictor gate health (20%)
     try:
@@ -122,13 +153,37 @@ async def compute_composite() -> dict:
     except Exception as e:
         logger.debug("autonomy scorer: predictor failed: %s", e)
 
-    # 4. Honesty / grounded rate from judge (15%)
+    # 4. Honesty / grounded rate from judge (15%) — R-F576 honesty fix.
+    #
+    # Same shape as the verification signal above. `avg_honesty_score`
+    # is None when judgments exist but their honesty_score field was
+    # never populated. Fall back to status-ratio proxy
+    # (ok / total_with_status) to give the composite a real signal.
     try:
         from . import honesty_judge
         h_stats = await honesty_judge.get_honesty_stats()
-        signals["grounded_rate"] = h_stats.get("avg_honesty_score")
+        val = h_stats.get("avg_honesty_score")
+        source = "avg_honesty_score"
+        sample = h_stats.get("scored_sample_size") or 0
+        if val is None:
+            by_status = h_stats.get("by_status") or {}
+            ok = int(by_status.get("ok") or 0)
+            suspicious = int(by_status.get("suspicious") or 0)
+            failed = int(by_status.get("failed") or 0)
+            contradicted = int(by_status.get("contradicted") or 0)
+            total = ok + suspicious + failed + contradicted
+            if total > 0:
+                val = round(ok / total, 4)
+                source = "status_ratio_rf576"
+                sample = total
+            else:
+                source = "no_data_neutral_prior"
+        signals["grounded_rate"] = val
+        details["grounded_rate_source"] = source
+        details["grounded_rate_samples"] = sample
     except Exception as e:
         logger.debug("autonomy scorer: honesty failed: %s", e)
+        details["grounded_rate_source"] = "error"
 
     # Compute weighted composite (use 0.5 default for missing signals)
     weighted_sum = 0.0
