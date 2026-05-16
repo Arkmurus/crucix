@@ -1828,3 +1828,33 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: []
     mem0_tags: [learning, priorities, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
+  # HOURLY-COST-FREE-LEARN — R-F567 (2026-05-16)
+  # ──────────────────────────────────────────────────────────────────
+  # Hourly preview of the four cost-free self-learning loops:
+  #   1. mastery_decay        — surface stale-high topics
+  #   2. mistake_replay       — re-check ledger against current 35-clause
+  #                              constitution; flag still-failing patterns
+  #   3. cross_corroborate    — 2+ Tier-1a sources for the same claim
+  #   4. qa_distill           — high-confidence verified chats → eval-set
+  # Read-only by default. Writes gated by ARIA_COST_FREE_LEARN_WRITE=1.
+  # NO LLM cost. NO paid API. Aligned with [[aria_mirrors_claude]] +
+  # [[feedback_pay_once_remember_forever]] + [[aria_infinite_memory]].
+  - id: HOURLY-COST-FREE-LEARN
+    name: Cost-free self-learning preview
+    description: |
+      Runs cost_free_learning.run_preview() every hour. Surfaces what
+      would change if writes were enabled — feed to mem0 + dashboard
+      so the operator can sanity-check before flipping the write env.
+    cron: "37 * * * *"
+    enabled: false
+    priority: LOW
+    timeout_seconds: 30
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: cost_free_learn
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, cost-free, autonomous, dry-run]

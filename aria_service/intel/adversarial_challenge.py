@@ -1595,20 +1595,164 @@ async def _stage_amendments_for_failures(results: list[dict]) -> None:
                 # at the top.
                 queue.insert(0, queue.pop(existing_idx))
             else:
-                note = {
-                    "attack_id": attack.id,
-                    "attack_name": attack.name,
-                    "anchor_clauses": attack.anchor_clauses,
-                    "proposed_amendment": _draft_amendment(attack),
-                    "source_cases": attack.source_cases,
-                    "staged_at": now_iso,
-                    "last_failed_at": now_iso,
-                    "fail_count": 1,
-                }
-                queue.insert(0, note)
+                proposed_text = _draft_amendment(attack)
+
+                # R-F566 (2026-05-16) — already in constitution?
+                # If the rule is already deployed in ARIA_SYSTEM_PROMPT,
+                # don't stage a duplicate. The rule exists; this just
+                # means the attack succeeded despite the clause —
+                # better handled via mistake_ledger (already recorded
+                # above) than by re-staging the same prompt text.
+                if _already_in_constitution(proposed_text):
+                    logger.info(
+                        "R-F566 dedupe: SKIPPED staging for %s — proposed "
+                        "amendment text is already covered by a deployed "
+                        "constitution clause (≥0.85 similarity). The "
+                        "mistake_ledger entry above is sufficient signal.",
+                        attack.id,
+                    )
+                else:
+                    # R-F566 (2026-05-16) — similar to an EXISTING queue entry?
+                    # 4 category templates produce identical text across
+                    # different attack_ids; merge into the existing row's
+                    # merged_attacks[] list instead of creating a 2nd entry.
+                    sim_idx = _find_similar_existing_entry(proposed_text, queue)
+                    if sim_idx is not None:
+                        existing_entry = queue[sim_idx]
+                        merged = existing_entry.setdefault("merged_attacks", [])
+                        if attack.id not in merged and attack.id != existing_entry.get("attack_id"):
+                            merged.append(attack.id)
+                        existing_entry["fail_count"] = int(
+                            existing_entry.get("fail_count", 1)
+                        ) + 1
+                        existing_entry["last_failed_at"] = now_iso
+                        # Move to top so operator sees most-recently-failed.
+                        queue.insert(0, queue.pop(sim_idx))
+                        logger.info(
+                            "R-F566 dedupe: MERGED %s into existing %s "
+                            "(merged_attacks=%s)",
+                            attack.id, existing_entry.get("attack_id"),
+                            existing_entry.get("merged_attacks"),
+                        )
+                    else:
+                        note = {
+                            "attack_id": attack.id,
+                            "attack_name": attack.name,
+                            "anchor_clauses": attack.anchor_clauses,
+                            "proposed_amendment": proposed_text,
+                            "source_cases": attack.source_cases,
+                            "staged_at": now_iso,
+                            "last_failed_at": now_iso,
+                            "fail_count": 1,
+                            "merged_attacks": [],
+                        }
+                        queue.insert(0, note)
             await rs.set_json(key, queue[:100], ex=90 * 86400)
         except Exception:
             pass
+
+
+# ── R-F566 (2026-05-16) — amendment text-similarity dedupe ────────────
+#
+# R-F422 deduped on (attack_id, anchor_clauses) tuples — same attack
+# failing repeatedly bumped fail_count instead of creating duplicate
+# rows. But different attack_ids in the same category produce IDENTICAL
+# `_draft_amendment` text (4 templates total: A_FALSE_INFO,
+# B_AUTHORITY, C_GRADUAL, D_CONSTITUTIONAL). The R-F168 batch shipped 9
+# distinct attack_ids that collapsed to 3 unique amendment texts — R-F558
+# had to retroactively unify them.
+#
+# R-F566 closes the source: before queue insert, compute string similarity
+# vs. existing queue entries AND vs. the live constitution. On match:
+#   - existing queue entry → merge new attack_id into merged_attacks[] +
+#     bump fail_count + update last_failed_at. No new row.
+#   - already in constitution → log + skip staging entirely (the rule
+#     already exists in ARIA_SYSTEM_PROMPT).
+#
+# Threshold 0.85 is conservative — chosen so the 4 category templates
+# match themselves at ~1.0 and unrelated rule text scores <0.5.
+
+# Cheap normaliser: case-fold + collapse whitespace. No nltk dependency.
+_AMENDMENT_PREFIX_RX = re.compile(r"^amendment candidate for clause\(s\)[^:]*:\s*", re.I)
+
+
+def _normalise_amendment_text(text: str) -> str:
+    """Strip the per-attack prefix + collapse whitespace + casefold.
+
+    The `Amendment candidate for Clause(s) X, Y:` prefix is per-attack
+    metadata; the SAME rule with different anchor clauses still deserves
+    to dedupe. So we strip the prefix before comparing.
+    """
+    if not text:
+        return ""
+    body = _AMENDMENT_PREFIX_RX.sub("", text)
+    return re.sub(r"\s+", " ", body.casefold()).strip()
+
+
+def _amendment_text_similarity(a: str, b: str) -> float:
+    """Return similarity ratio in [0.0, 1.0] using difflib.
+
+    Pure function — no IO. ~50µs on typical amendment-length strings.
+    """
+    import difflib
+    na, nb = _normalise_amendment_text(a), _normalise_amendment_text(b)
+    if not na or not nb:
+        return 0.0
+    return difflib.SequenceMatcher(None, na, nb).ratio()
+
+
+def _find_similar_existing_entry(
+    proposed_text: str,
+    queue: list[dict],
+    threshold: float = 0.85,
+) -> int | None:
+    """Return the index of the first queue entry with a similar
+    proposed_amendment, or None if none match."""
+    for i, entry in enumerate(queue):
+        if not isinstance(entry, dict):
+            continue
+        existing = entry.get("proposed_amendment") or ""
+        if _amendment_text_similarity(proposed_text, existing) >= threshold:
+            return i
+    return None
+
+
+def _already_in_constitution(
+    proposed_text: str,
+    *,
+    threshold: float = 0.85,
+) -> bool:
+    """Check whether the proposed amendment is already covered by a
+    deployed constitution clause.
+
+    Uses `SequenceMatcher.find_longest_match` to find the longest
+    common substring between the (normalised) proposed text and the
+    (normalised) full constitution. Compares the block length against
+    the proposed text length — so a 300-char amendment that is 85%
+    contained inside the 30KB constitution will register as a match,
+    where naive `.ratio()` would always score low due to length
+    asymmetry.
+
+    Lazy-imports ARIA_SYSTEM_PROMPT to avoid circular deps. Returns
+    False on import failure so staging still proceeds (fail-open).
+    """
+    try:
+        from ..aria_engine import ARIA_SYSTEM_PROMPT
+    except Exception:
+        return False
+    target = _normalise_amendment_text(proposed_text)
+    if not target:
+        return False
+    constitution_norm = re.sub(r"\s+", " ", ARIA_SYSTEM_PROMPT.casefold())
+    if not constitution_norm:
+        return False
+    import difflib
+    matcher = difflib.SequenceMatcher(None, target, constitution_norm)
+    match = matcher.find_longest_match(0, len(target), 0, len(constitution_norm))
+    if match.size == 0:
+        return False
+    overlap_ratio = match.size / len(target)
+    return overlap_ratio >= threshold
 
 
 def _draft_amendment(attack: Attack) -> str:

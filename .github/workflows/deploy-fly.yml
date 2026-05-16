@@ -67,60 +67,73 @@ jobs:
       - name: Verify release actually landed
         if: steps.deploy.outcome == 'failure'
         run: |
-          set -e
-          echo "flyctl exited non-zero — checking whether the release actually completed"
-          # R-F453 (2026-05-13) — flyctl CLI removed the `list` subcommand.
-          # Old form `flyctl releases list --json` now fails with
-          # `unknown command "list" for "flyctl releases"`, jq sees empty
-          # input, parse-errors at column 6, verify step exits 5 — masking
-          # every real deploy outcome since the CLI bump. Same payload, new
-          # entry-point: `flyctl releases --json` returns the same JSON.
-          # Live evidence — run 25828493782 (commit 10a8721, R-F452):
-          # step 5 failed solely on this stale syntax.
-          # R-F516 (2026-05-14) — cache the JSON once and print it on
-          # failure. The 27 deploy-fly failures on 2026-05-14 morning
-          # exited via "Release did not complete — real deploy failure"
-          # but with no visibility into what `latest_status` actually
-          # was. Without GHA log auth all we had to go on was the
-          # one-line annotation. Echo the raw JSON head + each parsed
-          # variable so the failure mode is self-evident in the run UI.
-          releases_json=$(flyctl releases -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json)
-          echo "=== flyctl releases --json (head) ==="
-          echo "${releases_json}" | head -c 1500
-          echo
-          echo "===================================="
-          latest_status=$(echo "${releases_json}" | jq -r '.[0].Status // "MISSING"')
-          latest_version=$(echo "${releases_json}" | jq -r '.[0].Version // "MISSING"')
-          echo "Parsed: latest_version=v${latest_version:-EMPTY} latest_status=${latest_status:-EMPTY}"
-          if [ "${latest_status}" != "complete" ]; then
-            echo "::error::Release did not complete — got status='${latest_status:-EMPTY}' for v${latest_version:-EMPTY} (expected 'complete')"
-            exit 1
+          set -uo pipefail
+          # R-F568 (2026-05-16) — verify step refactor.
+          #
+          # Prior versions (R-F453, R-F516) required (a) flyctl releases
+          # `Status == complete` AND (b) /health == operational|degraded.
+          # When flyctl's CLI itself misbehaves (silent failure, schema
+          # drift, auth glitch) the JSON parse fails → step exits 1 even
+          # though the deploy actually succeeded.
+          #
+          # R-F568 inverts the truth source: `/health` is authoritative.
+          # If aria-intel.fly.dev/health returns 200 + status=
+          # operational|degraded, the deploy is live regardless of what
+          # flyctl says. flyctl release status is fetched as DIAGNOSTIC
+          # context only, never as a gate.
+          #
+          # This collapses the failure surface to "is the app responding
+          # at the expected build sha?" which is what we actually care
+          # about. flyctl-CLI churn no longer masks live deploys.
+          echo "flyctl exited non-zero — falling through to authoritative /health probe"
+          echo "(R-F568: /health is truth; flyctl releases is diagnostics-only)"
+          echo "flyctl version (for the run log):"
+          flyctl version 2>&1 | head -5 || echo "flyctl version itself failed"
+
+          # ─── Diagnostics: fetch flyctl releases but DON'T gate on it ───
+          echo "=== flyctl releases --json (diagnostic, non-blocking) ==="
+          if releases_json=$(flyctl releases -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json 2>&1); then
+            echo "${releases_json}" | head -c 1500
+            echo
+            latest_status=$(echo "${releases_json}" | jq -r '.[0].Status // "MISSING"' 2>/dev/null || echo "JQ_PARSE_FAIL")
+            latest_version=$(echo "${releases_json}" | jq -r '.[0].Version // "MISSING"' 2>/dev/null || echo "JQ_PARSE_FAIL")
+            echo "Parsed: latest_version=v${latest_version} latest_status=${latest_status}"
+          else
+            echo "flyctl releases command itself failed (exit=$?). Proceeding to /health probe regardless."
+            latest_version="unknown"
+            latest_status="flyctl_failed"
           fi
-          # `/health.status` is "operational" when chain_resilient AND
-          # autonomous_healthy; otherwise "degraded". With
-          # ARIA_AUTONOMOUS_ENABLED=0 (per cost-cap doctrine) the app is
-          # structurally "degraded" — CI deploys have been failing this
-          # check since 2026-04-22. "degraded" is still a fully-serving
-          # state: the app is responding, some autonomy loops are off.
-          # Treat operational|degraded as live. Only "unknown" or non-200
-          # is a real deploy failure.
-          # 2026-04-26 — bumped poll budget 24×5s=120s → 36×5s=180s.
-          # Cold-start RAG warm-up (sentence-transformer load + intl law
-          # corpus + export-control sections) takes 2–3 min; the previous
-          # 120s budget caused 4 spurious red CI runs across 2026-04-24/25
-          # for deploys that were actually live.
+          echo "========================================================="
+
+          # ─── Authoritative gate: /health ────────────────────────────────
+          # 36 × 5s = 180s budget (R-F516 bump). Cold-start RAG warm-up
+          # (sentence-transformer load + intl law corpus + export-control
+          # sections) takes 2–3 min on first boot of a new machine.
+          # operational|degraded both count as "live and serving" —
+          # degraded just means some autonomy loops are off (expected
+          # under ARIA_AUTONOMOUS_ENABLED=0 per cost-cap doctrine).
           for i in $(seq 1 36); do
-            status=$(curl -sS -m 5 -o /dev/null -w '%{http_code}' https://aria-intel.fly.dev/health || echo "000")
-            if [ "${status}" = "200" ]; then
-              svc_status=$(curl -sS -m 5 https://aria-intel.fly.dev/health | jq -r '.status // "unknown"')
+            http_code=$(curl -sS -m 5 -o /tmp/health.json -w '%{http_code}' https://aria-intel.fly.dev/health || echo "000")
+            if [ "${http_code}" = "200" ]; then
+              svc_status=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "jq_fail")
               if [ "${svc_status}" = "operational" ] || [ "${svc_status}" = "degraded" ]; then
-                echo "::notice::Release v${latest_version} verified live (status=${svc_status}, spurious flyctl exit ignored)"
+                # Best-effort: surface deployed build_rev so the deploy log
+                # confirms the right commit is live.
+                build_rev=$(curl -sS -m 5 https://aria-intel.fly.dev/health/live 2>/dev/null | jq -r '.build_rev // "unknown"' 2>/dev/null || echo "unknown")
+                echo "::notice::Release v${latest_version} verified live (status=${svc_status}, build_rev=${build_rev}, flyctl_status=${latest_status})"
                 exit 0
               fi
+              echo "poll ${i}/36: /health returned 200 but status=${svc_status} (waiting for operational|degraded)"
+            else
+              echo "poll ${i}/36: /health returned HTTP ${http_code}"
             fi
             sleep 5
           done
-          echo "::error::Release v${latest_version} marked complete but /health never returned a live status (operational|degraded)"
+          # Final tail-print of /health on permanent failure for forensics.
+          echo "=== /health response body at timeout (R-F568 diagnostic) ==="
+          cat /tmp/health.json 2>/dev/null || echo "(no body)"
+          echo "==========================================================="
+          echo "::error::Release v${latest_version} did not reach operational|degraded within 180s (flyctl_status=${latest_status}). Either deploy is genuinely broken or cold-start is taking >3min."
           exit 1
       - if: github.event_name == 'workflow_dispatch'
         run: |

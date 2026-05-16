@@ -764,6 +764,16 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         report = await _er.run_eval(llm, label=label)
         return {"run_eval": report}
 
+    elif tool_kind == "cost_free_learn":
+        # R-F567 (2026-05-16): hourly preview of the four cost-free
+        # learning loops (mastery decay, mistake replay, cross-source
+        # corroborate, Q/A distill). Read-only by default; writes
+        # gated by ARIA_COST_FREE_LEARN_WRITE=1 env. No LLM cost.
+        # Surfaces "would improve X" candidates without spending.
+        from ..intel import cost_free_learning as _cfl
+        report = await _cfl.run_preview()
+        return {"cost_free_learn": report}
+
     elif tool_kind == "adversarial_weekly":
         # Manipulation-resistance bi-weekly sweep — 5 attacks across
         # 4 categories. Failures stage clause-amendment candidates.
