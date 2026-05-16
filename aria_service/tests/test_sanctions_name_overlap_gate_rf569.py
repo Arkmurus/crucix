@@ -204,6 +204,61 @@ def test_rf569_classify_match_still_hard_stops_real_ofac_sanction():
     )
 
 
+def test_rf569_5_acronym_variant_does_not_bypass_overlap_check():
+    """R-F569.5 hotfix: the score≥0.95 bypass must ALSO require
+    string_similarity≥0.50 so short-acronym variant collisions
+    (e.g. Aselsan A.S. → variant "AA" → SDN alias "AA (inisial)" on
+    Abdelbassed Azouz) get demoted to info despite score=1.0.
+
+    Live evidence (2026-05-16 post-R-F569 deploy at 12:48 BST):
+    Aselsan was HARD_STOP'd via OpenSanctions match
+      name='Abdelbassed Azouz', score=1.0, string_similarity=0.067,
+      topics=['export.control','crime.terror','sanction','debarment'],
+      matched_via_variant='AA' (acronym derived from "Aselsan A.S.")
+    Pre-R-F569.5 the score≥0.95 bypass let this through despite
+    obviously-noise similarity.
+    """
+    from aria_service.intel._sanctions_classify import classify_match
+    aselsan_acronym_false_positive = {
+        "name": "Abdelbassed Azouz",
+        "score": 1.0,                   # exact match on the "AA" variant
+        "string_similarity": 0.067,     # but the FULL query name barely overlaps
+        "topics": ["sanction", "crime.terror"],
+        "lists": ["us_ofac_sdn", "un_sc_sanctions", "eu_fsf"],
+    }
+    severity = classify_match(
+        aselsan_acronym_false_positive, query_name="Aselsan A.S.",
+    )
+    assert severity == "info", (
+        f"R-F569.5 REGRESSION: Aselsan→Abdelbassed Azouz via 'AA' variant "
+        f"classified as {severity!r}, expected 'info'. The bypass must "
+        f"NOT fire on string_similarity=0.067 noise."
+    )
+
+
+def test_rf569_5_real_transliteration_still_bypasses():
+    """R-F569.5: real transliteration variants (token sets disjoint but
+    string similarity ≥0.50) must still bypass the token-overlap
+    demotion. This is the path the original R-F569 bypass was built for."""
+    from aria_service.intel._sanctions_classify import classify_match
+    # Rosoboronexport ↔ Rosoboroneksport differ by 1 letter in the
+    # middle — same entity, different transliteration. Token sets
+    # disjoint (no tokens ≥3 chars are shared) but string_similarity
+    # is very high.
+    rosobor_translit = {
+        "name": "ROSOBORONEKSPORT OAO",
+        "score": 1.0,
+        "string_similarity": 0.93,   # ≥0.50 → bypass fires
+        "topics": ["sanction"],
+        "lists": ["us_ofac_sdn"],
+    }
+    severity = classify_match(rosobor_translit, query_name="Rosoboronexport")
+    assert severity == "hard_stop", (
+        f"R-F569.5 OVER-CORRECTED: real transliteration match "
+        f"(sim=0.93) classified as {severity!r}, expected 'hard_stop'"
+    )
+
+
 # ── Threshold bumps (defence-in-depth) ────────────────────────────────────
 
 

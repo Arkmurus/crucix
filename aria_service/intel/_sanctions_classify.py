@@ -498,10 +498,22 @@ def classify_match(match: dict, query_name: str = "") -> str:
     # represent the SAME sanctioned entity. When the fuzzy score is
     # near-identical (≥0.95) the token-overlap discipline is what catches
     # spelling/punctuation/legal-form drift on a real match — we trust
-    # the score and skip the demotion. The 0.95 floor is conservative:
-    # the Embraer/Aselsan/Acme false positives all sat in the 0.70-0.85
-    # band, well below this bypass.
-    _bypass_overlap_check = float(match.get("score") or 0.0) >= 0.95
+    # the score and skip the demotion.
+    #
+    # R-F569.5 (2026-05-16 hotfix) — bypass also requires
+    # string_similarity≥0.50. Live evidence: post-R-F569 deploy at 12:48
+    # logged
+    #   Aselsan A.S. (variant "AA") → "Abdelbassed Azouz" alias "AA (inisial)"
+    #   score=1.0 (exact match on the AA acronym) but
+    #   string_similarity=0.067 (between "Aselsan A.S." and the full
+    #   Abdelbassed Azouz record).
+    # The bypass was meant for real transliterations like
+    # Rosoboronexport↔ROSOBORONEKSPORT (sim ≈ 0.9) — not for short-
+    # acronym variant noise. Requiring sim≥0.50 keeps the Rosoboronexport
+    # path open while closing the acronym-collision noise.
+    _score = float(match.get("score") or 0.0)
+    _sim = float(match.get("string_similarity") or 0.0)
+    _bypass_overlap_check = _score >= 0.95 and _sim >= 0.50
     if query_name and SEVERITY_RANK[severity] >= 1 and not _bypass_overlap_check:
         candidate_name = match.get("name") or match.get("caption") or ""
         q_tokens = _tokenize_entity_name(query_name)
