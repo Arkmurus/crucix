@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 574,
+  "next_available": 576,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -231,9 +231,29 @@
       "title": "DD case file — canonical_entity_id + version chain + diff",
       "claimed_at": "2026-05-16T12:13:08Z",
       "claimed_by": "claude-session-B-2026-05-16",
+      "status": "shipped",
+      "commit_sha": "f832f5b",
+      "notes": "Per docs/dd_versioning_proposal_2026_05_16.md. canonical_entity_id (company:{ISO2}:{REGNUM} for registered; name-hash fallback). Index gets version_number + previous_run_id. version_diff section in report. /api/aria/dd/case/{canonical_entity_id} endpoint. Backfill helper. ~510 LOC.",
+      "shipped_at": "2026-05-16T12:25:23Z"
+    },
+    {
+      "r_number": "R-F574",
+      "title": "POST /self/improvements/{id}/discard — park-then-reject staged improvements (closes 039bf8be staleness)",
+      "claimed_at": "2026-05-16T12:25:49Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "shipped",
+      "commit_sha": "4703a6f",
+      "notes": null,
+      "shipped_at": "2026-05-16T12:29:12Z"
+    },
+    {
+      "r_number": "R-F575",
+      "title": "DD case-file follow-ups: split/merge operator override + read-time backfill + SQLite cold-tier",
+      "claimed_at": "2026-05-16T12:27:45Z",
+      "claimed_by": "claude-session-B-2026-05-16",
       "status": "in_progress",
       "commit_sha": null,
-      "notes": "Per docs/dd_versioning_proposal_2026_05_16.md. canonical_entity_id (company:{ISO2}:{REGNUM} for registered; name-hash fallback). Index gets version_number + previous_run_id. version_diff section in report. /api/aria/dd/case/{canonical_entity_id} endpoint. Backfill helper. ~510 LOC."
+      "notes": "Fixes the three items deferred in R-F573 (f832f5b): false-merge/false-split override endpoints, opportunistic canonical_entity_id backfill on list_reports() read, and 90-day SQLite cold-tier so case-file chains survive the 7-day Redis TTL."
     }
   ]
 }
