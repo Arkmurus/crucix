@@ -18,63 +18,70 @@
       "title": "docs/R_NUMBERS.md narrative complement to R-F540 registry",
       "claimed_at": "2026-05-16T09:00:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Human-readable index pointing at this JSON as canonical. Started as standalone reservation log; yielded that role to R-F540."
+      "status": "shipped",
+      "commit_sha": "c577a35",
+      "notes": "Human-readable index pointing at this JSON as canonical. Started as standalone reservation log; yielded that role to R-F540.",
+      "shipped_at": "2026-05-16T12:55:25Z"
     },
     {
       "r_number": "R-F552",
       "title": "Portals honesty — _subStatus so 49/49 OK doesn't mask 4/28 coverage",
       "claimed_at": "2026-05-16T09:10:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Phase A honesty fix. Mirrors R-F34 _subStatus contract."
+      "status": "shipped",
+      "commit_sha": "c577a35",
+      "notes": "Phase A honesty fix. Mirrors R-F34 _subStatus contract.",
+      "shipped_at": "2026-05-16T12:55:25Z"
     },
     {
       "r_number": "R-F553",
       "title": "AfDB error swallowing — fix enrichFetchError precedence",
       "claimed_at": "2026-05-16T09:15:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "[AfDB] Error: Error → real message. err.name='Error' demoted below err.message."
+      "status": "shipped",
+      "commit_sha": "c577a35",
+      "notes": "[AfDB] Error: Error → real message. err.name='Error' demoted below err.message.",
+      "shipped_at": "2026-05-16T12:55:25Z"
     },
     {
       "r_number": "R-F554",
       "title": "Lusophone proxy-attempt log — distinguish 200(empty)/200(0-items)/200 healthy",
       "claimed_at": "2026-05-16T09:25:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Exported proxyAttemptTag() with unit tests."
+      "status": "shipped",
+      "commit_sha": "c577a35",
+      "notes": "Exported proxyAttemptTag() with unit tests.",
+      "shipped_at": "2026-05-16T12:55:25Z"
     },
     {
       "r_number": "R-F563",
       "title": "Comtrade IMF DOTS — ENOTFOUND-aware circuit (intra+cross-sweep)",
       "claimed_at": "2026-05-16T09:35:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Renamed from R-F555 to avoid collision with R-F540 registry claim."
+      "status": "shipped",
+      "commit_sha": "c577a35",
+      "notes": "Renamed from R-F555 to avoid collision with R-F540 registry claim.",
+      "shipped_at": "2026-05-16T12:55:25Z"
     },
     {
       "r_number": "R-F564",
       "title": "Throttle escalating cooldown (5/10/20/40-min cap) for DefenseNews",
       "claimed_at": "2026-05-16T09:50:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Renamed from R-F556 to avoid collision."
+      "status": "shipped",
+      "commit_sha": "c577a35",
+      "notes": "Renamed from R-F556 to avoid collision.",
+      "shipped_at": "2026-05-16T12:55:25Z"
     },
     {
       "r_number": "R-F565",
       "title": "ARIA sweep-ingest diagnostic enrichment (host+payload+elapsed)",
       "claimed_at": "2026-05-16T10:00:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Renamed from R-F557 (collided with stream-guard-audit claim)."
+      "status": "shipped",
+      "commit_sha": "c577a35",
+      "notes": "Renamed from R-F557 (collided with stream-guard-audit claim).",
+      "shipped_at": "2026-05-16T12:55:25Z"
     },
     {
       "r_number": "R-F555",
