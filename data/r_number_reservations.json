@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 612,
+  "next_available": 613,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -619,6 +619,15 @@
       "commit_sha": "83c8656",
       "notes": null,
       "shipped_at": "2026-05-16T22:57:07Z"
+    },
+    {
+      "r_number": "R-F612",
+      "title": "DD Layer — ECCN keyword indicator Findings rows",
+      "claimed_at": "2026-05-16T22:57:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

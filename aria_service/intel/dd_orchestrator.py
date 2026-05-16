@@ -1109,6 +1109,110 @@ def _emit_cert_transparency_findings(ct_block: Any) -> list[Finding]:
     return out
 
 
+# ── R-F612 — Formalised ECCN keyword-indicator Findings ──────────────
+#
+# eccn_lookup (R-F581) is a deterministic keyword→ECCN lookup against
+# the BIS Commerce Control List + Wassenaar Munitions List. When the
+# extension wrapper (R-F586) returns hits, they sit in
+# report.extensions["by_module"]["eccn_lookup"] but never become
+# Finding rows on report.compliance. Same gap pattern fixed by
+# R-F600/F610/F611 — last of the R-F584-F587 bundle to surface.
+#
+# Severity:
+#   ELEVATED (max_count ≥ 2) → amber headline + amber per-hit
+#   LOW (max_count 1)        → info everything
+#   NONE                     → []
+#
+# Confidence: PROBABLE. Per Clause 3 + Clause 14: ECCN match is an
+# INDICATOR, not a legal determination. Operator must consult
+# licensed export counsel before sharing externally — this is
+# baked into the detail text on EVERY hit.
+def _emit_eccn_findings(eccn_block: Any) -> list[Finding]:
+    """Pure helper: eccn_lookup extension result → list of Findings.
+
+    Tolerates None / empty / missing fields. Each hit becomes a
+    Finding citing the BIS / Wassenaar reference URL inline per
+    Clause 15.
+    """
+    if not eccn_block or not isinstance(eccn_block, dict):
+        return []
+    severity_label = (eccn_block.get("severity") or "NONE").upper()
+    if severity_label == "NONE":
+        return []
+    hits = eccn_block.get("hits") or []
+    if not isinstance(hits, list) or not hits:
+        return []
+    headline_severity = "amber" if severity_label == "ELEVATED" else "info"
+    out: list[Finding] = []
+
+    # Headline summarising the hits
+    summary = eccn_block.get("summary") or (
+        f"{len(hits)} potential ECCN match(es) detected"
+    )
+    out.append(Finding(
+        severity=headline_severity,
+        title=f"Export-control indicator: {len(hits)} ECCN match(es)",
+        detail=(
+            f"{summary} "
+            "INDICATOR ONLY — not a legal classification. Operator MUST "
+            "consult licensed export counsel before applying for an "
+            "export licence or sharing this assessment externally. "
+            "Reference URLs link to the public BIS / Wassenaar source."
+        ),
+        source=(
+            "eccn_lookup.lookup_by_keyword (R-F581) "
+            "[from BIS Commerce Control List + Wassenaar Munitions List]"
+        ),
+        confidence="PROBABLE",
+    ))
+
+    # Per-hit rows — cap at 5
+    for hit in hits[:5]:
+        if not isinstance(hit, dict):
+            continue
+        eccn = (hit.get("eccn") or "").strip() or "?"
+        title = (hit.get("title") or "").strip() or "(unnamed)"
+        regime = (hit.get("regime") or "").strip()
+        ref_url = (hit.get("reference_url") or "").strip()
+        match_count = int(hit.get("match_count") or 0)
+        match_kw = hit.get("match_keywords") or []
+        if not isinstance(match_kw, list):
+            match_kw = []
+        kw_str = ", ".join(str(k) for k in match_kw[:5])
+        # Severity escalates for high match-count
+        hit_severity = (
+            "amber" if (severity_label == "ELEVATED" and match_count >= 2)
+            else "info"
+        )
+
+        detail_parts = []
+        if regime:
+            detail_parts.append(f"Regime: {regime}")
+        if kw_str:
+            detail_parts.append(f"Matched keywords: {kw_str}")
+        detail_parts.append(f"Match count: {match_count}")
+        detail_parts.append(
+            "INDICATOR — operator consults licensed export counsel "
+            "before any licensing decision."
+        )
+        if ref_url:
+            detail_parts.append(f"Reference: {ref_url}")
+
+        out.append(Finding(
+            severity=hit_severity,
+            title=f"ECCN indicator: {eccn} — {title[:100]}",
+            detail=" · ".join(detail_parts),
+            source=(
+                f"eccn_lookup.lookup_by_keyword (R-F581) "
+                f"[from {ref_url}]" if ref_url
+                else "eccn_lookup.lookup_by_keyword (R-F581)"
+            ),
+            confidence="PROBABLE",
+        ))
+
+    return out
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
@@ -5655,6 +5759,22 @@ async def orchestrate_dd(
                 logger.debug(
                     "[dd_orchestrator] R-F611 cert_transparency Finding emission failed (non-fatal): %s",
                     _ct_err,
+                )
+            # ── R-F612 — Promote ECCN keyword-indicator hits to Findings ──
+            # eccn_lookup (R-F581/F586) returns potential ECCN matches
+            # for the equipment text. Each hit is an INDICATOR (Clause 3,
+            # Clause 14) — operator must consult licensed export counsel.
+            # Promoting to Findings surfaces export-control risk in the
+            # compliance section so a client reading the DD report sees
+            # the regulated nature of the goods.
+            try:
+                _ec_block = (_dlx_result.get("by_module") or {}).get("eccn_lookup")
+                for _ec_f in _emit_eccn_findings(_ec_block):
+                    report.compliance.findings.append(_ec_f)
+            except Exception as _ec_err:
+                logger.debug(
+                    "[dd_orchestrator] R-F612 ECCN Finding emission failed (non-fatal): %s",
+                    _ec_err,
                 )
         except asyncio.TimeoutError:
             logger.warning("[dd_orchestrator] R-F584-F587 extension bundle timed out (non-fatal)")
