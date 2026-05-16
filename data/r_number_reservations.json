@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 614,
+  "next_available": 634,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -639,6 +639,186 @@
       "commit_sha": "7e34423",
       "notes": null,
       "shipped_at": "2026-05-16T23:04:31Z"
+    },
+    {
+      "r_number": "R-F614",
+      "title": "dialogue-act response classifier (DIALOGUE/REPORT/COMMAND)",
+      "claimed_at": "2026-05-16T23:21:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F615",
+      "title": "DIALOGUE prompt branch — conversational, no BLUF",
+      "claimed_at": "2026-05-16T23:21:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F616",
+      "title": "dialogue_state SQLite store per-user per-goal",
+      "claimed_at": "2026-05-16T23:21:25Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F617",
+      "title": "user_model.py mental model per team member",
+      "claimed_at": "2026-05-16T23:21:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F618",
+      "title": "per-user open-question tracking + chase logic",
+      "claimed_at": "2026-05-16T23:21:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F619",
+      "title": "recency window dedup so ARIA doesn't re-explain",
+      "claimed_at": "2026-05-16T23:21:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F620",
+      "title": "initiative-level picker 0..4 from GoalContext+UserModel",
+      "claimed_at": "2026-05-16T23:21:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F621",
+      "title": "5 new dialogue-act handlers (CHALLENGE/GAP/NUDGE/OPTION/PRE-MORTEM)",
+      "claimed_at": "2026-05-16T23:21:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F622",
+      "title": "per-act post-scan constitution check",
+      "claimed_at": "2026-05-16T23:21:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F623",
+      "title": "channel-agnostic GoalContext keyed on (user_id, goal_id)",
+      "claimed_at": "2026-05-16T23:21:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F624",
+      "title": "DAILY-CONVO-PROMPT autonomous push (one per user per day)",
+      "claimed_at": "2026-05-16T23:21:30Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F625",
+      "title": "dialogue metrics dashboard + weekly drift detection",
+      "claimed_at": "2026-05-16T23:21:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F626",
+      "title": "DDGoal + AskItem schema + SQLite store",
+      "claimed_at": "2026-05-16T23:21:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F627",
+      "title": "DD suggestion engine — gaps to AskItems",
+      "claimed_at": "2026-05-16T23:21:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F628",
+      "title": "AskItem routing via UserModel domain_strengths",
+      "claimed_at": "2026-05-16T23:21:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F629",
+      "title": "chase scheduler autonomous task + 5-stage ladder",
+      "claimed_at": "2026-05-16T23:21:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F630",
+      "title": "resolution absorber — re-run affected layers on answer",
+      "claimed_at": "2026-05-16T23:21:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F631",
+      "title": "cross-DD contact ledger — reuse verified contacts",
+      "claimed_at": "2026-05-16T23:21:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F632",
+      "title": "operator-accept-residual flow + audit log",
+      "claimed_at": "2026-05-16T23:21:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F633",
+      "title": "DD chase metrics dashboard",
+      "claimed_at": "2026-05-16T23:21:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
