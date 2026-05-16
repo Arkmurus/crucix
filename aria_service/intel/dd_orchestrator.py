@@ -5093,6 +5093,44 @@ async def orchestrate_dd(
         except Exception as _fx_err:
             logger.debug("[dd_orchestrator] forensic layer failed (non-fatal): %s", _fx_err)
 
+        # ── R-F584/585/586/587 (2026-05-16) — extension shim block ──
+        # Runs the 4 capability modules shipped earlier on 2026-05-16:
+        #   - R-F584 court_records   → CourtListener + Bailii lookup
+        #   - R-F585 cert_transparency → crt.sh shell-domain detector
+        #   - R-F586 eccn_lookup       → deterministic ECCN keyword match
+        #   - R-F587 ais_gap_detector  → vessel transponder gap analysis
+        # Bundled via dd_layer_extensions.run_all_extensions() so this
+        # single block replaces 4 scattered inserts (minimises merge
+        # collision with the parallel agent's dd_orchestrator edits).
+        # Each shim is fail-safe; the wrapper itself never raises.
+        # Position: AFTER forensic / BEFORE verification — so the new
+        # findings can feed verification's grounded-rate computation.
+        try:
+            from . import dd_layer_extensions as _dlx
+            _dlx_result = await asyncio.wait_for(
+                _dlx.run_all_extensions(target, report, timeout_per_module=15.0),
+                timeout=45.0,
+            )
+            # Attach onto report.extensions if attribute exists; else log.
+            try:
+                report.extensions = _dlx_result  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            if _dlx_result.get("ran"):
+                logger.info(
+                    "[dd_orchestrator] R-F584-F587 extensions ran=%s skipped=%s max_severity=%s",
+                    _dlx_result.get("ran"),
+                    _dlx_result.get("skipped"),
+                    _dlx_result.get("max_severity"),
+                )
+        except asyncio.TimeoutError:
+            logger.warning("[dd_orchestrator] R-F584-F587 extension bundle timed out (non-fatal)")
+        except Exception as _dlx_err:
+            logger.debug(
+                "[dd_orchestrator] R-F584-F587 extensions failed (non-fatal): %s",
+                _dlx_err,
+            )
+
         # ── LAYER 3: VERIFICATION (runs over what the previous layers collected) ──
         layer_name = "verification"
         report.layers_run.append(layer_name)
