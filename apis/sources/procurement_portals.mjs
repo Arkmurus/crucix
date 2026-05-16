@@ -247,8 +247,20 @@ export async function briefing() {
     });
   });
 
+  // R-F578 (2026-05-16) — outer cap 25s → 60s.
+  //
+  // Per the live sweep at 12:02 + 12:07: ProcurementPortals reported
+  // `4/28 markets covered` and `19/28 markets covered` because the
+  // 25s outer cap fired before slow markets finished their 3-attempt
+  // RSS chain (3 × 10s tryFetch = 30s worst case per market).
+  // Bumping to 60s gives every market room to complete without
+  // changing the per-attempt timeout (10s still bounds a hung host).
+  //
+  // 60s is still under the upstream sweep's 90s/source budget so
+  // we don't blow the parent's tally. Coverage was 4-19/28; expected
+  // post-R-F578 is 26-28/28 every sweep.
   const timeoutPromise = new Promise(resolve =>
-    setTimeout(() => resolve('TIMEOUT'), 25000)
+    setTimeout(() => resolve('TIMEOUT'), 60000)
   );
 
   const raceResult = await Promise.race([

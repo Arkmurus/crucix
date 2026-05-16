@@ -1,0 +1,187 @@
+{
+  "version": "2026-05-16",
+  "source": "R-F581 seed — defence-broking relevance subset of BIS CCL + Wassenaar ML/Dual-Use",
+  "license_note": "ECCN classifications are reproduced from publicly-published US BIS guidance and Wassenaar Arrangement munitions/dual-use lists. ARIA's lookup is an indicator, not legal determination — clause 3 reserves final classification for licensed export-control counsel.",
+  "categories": {
+    "9A010": {
+      "title": "Unmanned aerial vehicles (UAVs) with range >300km or payload >25kg",
+      "regime": "EAR",
+      "wassenaar_ref": "Wassenaar Dual-Use Cat 9 Part A",
+      "keywords": ["uav", "drone", "unmanned aerial", "loitering munition", "rpas", "uas", "bayraktar", "tb2", "predator", "reaper", "anka", "harop", "shahed"],
+      "country_restrictions": ["MTCR cat I/II", "US dual-use country chart"],
+      "license_exceptions": [],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/federal-register-notices/federal-register-2014/963-ccl9-pt2/file"
+    },
+    "9A012": {
+      "title": "UAV components (autopilots, ground-control stations, datalinks for MTCR Cat I/II UAVs)",
+      "regime": "EAR",
+      "wassenaar_ref": "Wassenaar Dual-Use Cat 9 Part A",
+      "keywords": ["autopilot", "ground control station", "gcs", "uav datalink", "uav payload", "flight controller", "gimbal", "isr camera"],
+      "country_restrictions": ["MTCR"],
+      "license_exceptions": [],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/2330-ccl9-pt2"
+    },
+    "5A001": {
+      "title": "Telecommunications systems, equipment and components (incl. military radio, satcom, encrypted comms)",
+      "regime": "EAR",
+      "wassenaar_ref": "Wassenaar Dual-Use Cat 5 Part 1",
+      "keywords": ["software-defined radio", "sdr", "satcom", "military communication", "encrypted radio", "secure voice", "tactical radio", "satellite communication", "frequency hopping", "spread spectrum"],
+      "country_restrictions": ["see EAR Country Chart"],
+      "license_exceptions": ["LVS", "GBS"],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/2326-ccl5-pt1"
+    },
+    "5A002": {
+      "title": "Information security — cryptographic systems > 56-bit symmetric / 512-bit asymmetric",
+      "regime": "EAR",
+      "wassenaar_ref": "Wassenaar Dual-Use Cat 5 Part 2",
+      "keywords": ["encryption", "cryptographic", "vpn", "aes-256", "hardware security module", "hsm", "tempest", "secure messaging", "tls inspection"],
+      "country_restrictions": ["see EAR Country Chart"],
+      "license_exceptions": ["ENC"],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/2327-ccl5-pt2"
+    },
+    "6A005": {
+      "title": "Lasers — high-power, including military designators, range-finders, fibre lasers",
+      "regime": "EAR",
+      "wassenaar_ref": "Wassenaar Dual-Use Cat 6 Part A",
+      "keywords": ["laser designator", "laser rangefinder", "lrf", "high-energy laser", "directed energy", "fibre laser", "co2 laser high power", "yag laser"],
+      "country_restrictions": ["MT", "NS"],
+      "license_exceptions": [],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/2328-ccl6-pt1"
+    },
+    "6A008": {
+      "title": "Radar systems — airborne, ground-based, naval (incl. AESA, SAR)",
+      "regime": "EAR",
+      "wassenaar_ref": "Wassenaar Dual-Use Cat 6 Part A",
+      "keywords": ["radar", "aesa", "sar radar", "synthetic aperture", "phased array", "early warning radar", "fire-control radar", "naval radar"],
+      "country_restrictions": ["MT", "NS"],
+      "license_exceptions": [],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/2328-ccl6-pt1"
+    },
+    "7A003": {
+      "title": "Inertial navigation systems (INS), IMUs, ring-laser gyros, accelerometers > MTCR threshold",
+      "regime": "EAR",
+      "wassenaar_ref": "Wassenaar Dual-Use Cat 7 Part A",
+      "keywords": ["inertial navigation", "ins", "imu", "ring-laser gyro", "fibre-optic gyro", "fog", "mems accelerometer", "navigation grade"],
+      "country_restrictions": ["MT"],
+      "license_exceptions": [],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/2329-ccl7-pt1"
+    },
+    "9A001": {
+      "title": "Aero gas-turbine engines (military helicopter / fighter engines)",
+      "regime": "EAR",
+      "wassenaar_ref": "Wassenaar Dual-Use Cat 9 Part A",
+      "keywords": ["gas turbine engine", "turbofan", "turbojet", "rolls-royce military", "pratt whitney military", "ge military engine", "afterburner"],
+      "country_restrictions": ["NS", "MT"],
+      "license_exceptions": [],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/2330-ccl9-pt2"
+    },
+    "9A002": {
+      "title": "Maritime gas-turbine engines (naval propulsion ≥24,245 kW)",
+      "regime": "EAR",
+      "wassenaar_ref": "Wassenaar Dual-Use Cat 9 Part A",
+      "keywords": ["marine gas turbine", "lm2500", "lm6000", "naval propulsion turbine", "frigate engine", "destroyer engine"],
+      "country_restrictions": ["NS"],
+      "license_exceptions": [],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/2330-ccl9-pt2"
+    },
+    "0A001": {
+      "title": "Nuclear reactors + parts (NSG Trigger List)",
+      "regime": "EAR",
+      "wassenaar_ref": "NSG Part 1 trigger list",
+      "keywords": ["nuclear reactor", "fuel rod", "yellowcake", "centrifuge", "heavy water", "deuterium", "tritium"],
+      "country_restrictions": ["NP", "NPT-non-signatory"],
+      "license_exceptions": [],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/2321-ccl0/file"
+    },
+    "1C351": {
+      "title": "Chemical precursors — CWC Schedules 2/3, mid-tier chemical warfare agents",
+      "regime": "EAR",
+      "wassenaar_ref": "Australia Group dual-use chemicals",
+      "keywords": ["thiodiglycol", "phosphorus oxychloride", "potassium fluoride", "cwc precursor", "chemical weapon precursor"],
+      "country_restrictions": ["CB"],
+      "license_exceptions": [],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/2322-ccl1/file"
+    },
+    "3A001": {
+      "title": "Rad-hard electronic components (microprocessors, ADCs, FPGAs for military spec)",
+      "regime": "EAR",
+      "wassenaar_ref": "Wassenaar Dual-Use Cat 3 Part A",
+      "keywords": ["rad-hard", "radiation hardened", "military spec ic", "mil-std-883", "space-qualified", "rad-hard fpga", "spacewire"],
+      "country_restrictions": ["NS", "MT"],
+      "license_exceptions": [],
+      "reference_url": "https://www.bis.doc.gov/index.php/documents/regulations-docs/2324-ccl3"
+    },
+    "ML1": {
+      "title": "Munitions List Cat 1 — small arms (≤12.7mm), shotguns, smoothbore",
+      "regime": "Wassenaar ML / USML I",
+      "wassenaar_ref": "Wassenaar ML 1",
+      "keywords": ["pistol", "rifle", "shotgun", "submachine gun", "carbine", "kalashnikov", "ak-47", "ar-15", "m4", "g36", "fal", "small arms"],
+      "country_restrictions": ["arms embargo"],
+      "license_exceptions": [],
+      "reference_url": "https://www.wassenaar.org/control-lists/"
+    },
+    "ML2": {
+      "title": "Munitions List Cat 2 — large-calibre armament (>12.7mm, ≤155mm)",
+      "regime": "Wassenaar ML / USML II",
+      "wassenaar_ref": "Wassenaar ML 2",
+      "keywords": ["mortar", "howitzer", "artillery", "tank gun", "naval gun", "cannon", "recoilless rifle"],
+      "country_restrictions": ["arms embargo"],
+      "license_exceptions": [],
+      "reference_url": "https://www.wassenaar.org/control-lists/"
+    },
+    "ML4": {
+      "title": "Munitions List Cat 4 — bombs, torpedoes, rockets, missiles, IEDs",
+      "regime": "Wassenaar ML / USML IV",
+      "wassenaar_ref": "Wassenaar ML 4",
+      "keywords": ["bomb", "torpedo", "missile", "rocket", "guided munition", "icbm", "cruise missile", "anti-tank guided missile", "atgm", "manpads"],
+      "country_restrictions": ["MTCR cat I", "arms embargo"],
+      "license_exceptions": [],
+      "reference_url": "https://www.wassenaar.org/control-lists/"
+    },
+    "ML10": {
+      "title": "Munitions List Cat 10 — military aircraft, helicopters, UCAVs",
+      "regime": "Wassenaar ML / USML VIII",
+      "wassenaar_ref": "Wassenaar ML 10",
+      "keywords": ["fighter aircraft", "military helicopter", "ucav", "f-16", "f-35", "su-30", "apache", "blackhawk", "chinook", "transport aircraft military"],
+      "country_restrictions": ["arms embargo"],
+      "license_exceptions": [],
+      "reference_url": "https://www.wassenaar.org/control-lists/"
+    },
+    "ML11": {
+      "title": "Munitions List Cat 11 — military electronic equipment, EW jammers, counter-UAS",
+      "regime": "Wassenaar ML / USML XI",
+      "wassenaar_ref": "Wassenaar ML 11",
+      "keywords": ["electronic warfare", "ew jammer", "counter-uas", "c-uas", "anti-drone", "spectrum dominance", "comms intercept"],
+      "country_restrictions": ["arms embargo"],
+      "license_exceptions": [],
+      "reference_url": "https://www.wassenaar.org/control-lists/"
+    },
+    "ML15": {
+      "title": "Munitions List Cat 15 — imaging / countermeasures (IR, thermal, NV gear, IRCM)",
+      "regime": "Wassenaar ML / USML XII",
+      "wassenaar_ref": "Wassenaar ML 15",
+      "keywords": ["thermal imager", "night vision", "nvg", "ircm", "flir military", "image intensifier", "starlight scope"],
+      "country_restrictions": ["NS", "arms embargo"],
+      "license_exceptions": [],
+      "reference_url": "https://www.wassenaar.org/control-lists/"
+    },
+    "ML18": {
+      "title": "Munitions List Cat 18 — production equipment for ML items",
+      "regime": "Wassenaar ML / USML XVIII",
+      "wassenaar_ref": "Wassenaar ML 18",
+      "keywords": ["munitions production line", "ml production equipment", "ammunition factory", "explosive press"],
+      "country_restrictions": ["arms embargo"],
+      "license_exceptions": [],
+      "reference_url": "https://www.wassenaar.org/control-lists/"
+    },
+    "ML22": {
+      "title": "Munitions List Cat 22 — technology directly related to other ML items (technical data, training)",
+      "regime": "Wassenaar ML",
+      "wassenaar_ref": "Wassenaar ML 22",
+      "keywords": ["military technical data", "weapons training package", "system integration data", "interface control document military"],
+      "country_restrictions": ["arms embargo"],
+      "license_exceptions": [],
+      "reference_url": "https://www.wassenaar.org/control-lists/"
+    }
+  }
+}
