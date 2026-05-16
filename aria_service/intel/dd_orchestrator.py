@@ -1742,13 +1742,18 @@ async def _run_identity(
                     ))
 
             elif _lbl == "sec_edgar":
+                # R-F613 (2026-05-17): surface ALL material hits, not just
+                # first per severity bucket. Past gap: company with 5
+                # recent RED 8-K events (cyber incident + exec departure
+                # + investigation + restatement + going-concern) only
+                # showed ONE in the DD report — credibility loss for
+                # financial-health DD. Cap at 5 per bucket.
                 _red_hits = [h for h in _hits if (h.get("severity_hint") or "").startswith("RED")]
                 _amber_hits = [h for h in _hits if (h.get("severity_hint") or "").startswith("AMBER")]
                 _info_hits = [h for h in _hits if
                               not (h.get("severity_hint") or "").startswith(("RED", "AMBER"))]
 
-                if _red_hits:
-                    _b = _red_hits[0]
+                for _b in _red_hits[:5]:
                     report.identity.findings.append(Finding(
                         severity="red",
                         title=f"SEC 8-K material event: {_b.get('company_name','?')}",
@@ -1760,15 +1765,20 @@ async def _run_identity(
                         source="sources.sec_edgar",
                         confidence="CONFIRMED",
                     ))
-                if _amber_hits:
-                    _b = _amber_hits[0]
+                for _b in _amber_hits[:5]:
                     report.identity.findings.append(Finding(
                         severity="amber",
                         title=f"SEC filing flagged: {_b.get('company_name','?')}",
-                        detail=f"{_b.get('severity_hint','?')}. Filed {_b.get('filing_date','?')}.",
+                        detail=(
+                            f"{_b.get('severity_hint','?')}. "
+                            f"Filed {_b.get('filing_date','?')}. "
+                            f"Items: {_b.get('items','?')}."
+                        ),
                         source="sources.sec_edgar",
                         confidence="PROBABLE",
                     ))
+                # INFO summary fires only when no red/amber present —
+                # don't clutter when there's already a substantive finding.
                 if _info_hits and not (_red_hits or _amber_hits):
                     report.identity.findings.append(Finding(
                         severity="info",

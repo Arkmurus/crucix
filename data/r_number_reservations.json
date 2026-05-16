@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 613,
+  "next_available": 614,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -629,6 +629,15 @@
       "commit_sha": "2337fc2",
       "notes": null,
       "shipped_at": "2026-05-16T23:00:35Z"
+    },
+    {
+      "r_number": "R-F613",
+      "title": "SEC EDGAR — surface all material 8-K hits, not just first",
+      "claimed_at": "2026-05-16T23:01:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
