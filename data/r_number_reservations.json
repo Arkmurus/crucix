@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 572,
+  "next_available": 574,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -10,7 +10,7 @@
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
       "commit_sha": "3f93f3c",
-      "notes": "Foundational \u2014 every subsequent reservation writes here.",
+      "notes": "Foundational — every subsequent reservation writes here.",
       "shipped_at": "2026-05-16T09:31:19Z"
     },
     {
@@ -24,7 +24,7 @@
     },
     {
       "r_number": "R-F552",
-      "title": "Portals honesty \u2014 _subStatus so 49/49 OK doesn't mask 4/28 coverage",
+      "title": "Portals honesty — _subStatus so 49/49 OK doesn't mask 4/28 coverage",
       "claimed_at": "2026-05-16T09:10:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "in_progress",
@@ -33,16 +33,16 @@
     },
     {
       "r_number": "R-F553",
-      "title": "AfDB error swallowing \u2014 fix enrichFetchError precedence",
+      "title": "AfDB error swallowing — fix enrichFetchError precedence",
       "claimed_at": "2026-05-16T09:15:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "in_progress",
       "commit_sha": null,
-      "notes": "[AfDB] Error: Error \u2192 real message. err.name='Error' demoted below err.message."
+      "notes": "[AfDB] Error: Error → real message. err.name='Error' demoted below err.message."
     },
     {
       "r_number": "R-F554",
-      "title": "Lusophone proxy-attempt log \u2014 distinguish 200(empty)/200(0-items)/200 healthy",
+      "title": "Lusophone proxy-attempt log — distinguish 200(empty)/200(0-items)/200 healthy",
       "claimed_at": "2026-05-16T09:25:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "in_progress",
@@ -51,7 +51,7 @@
     },
     {
       "r_number": "R-F563",
-      "title": "Comtrade IMF DOTS \u2014 ENOTFOUND-aware circuit (intra+cross-sweep)",
+      "title": "Comtrade IMF DOTS — ENOTFOUND-aware circuit (intra+cross-sweep)",
       "claimed_at": "2026-05-16T09:35:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "in_progress",
@@ -78,12 +78,12 @@
     },
     {
       "r_number": "R-F555",
-      "title": "MEMORY.md hard-trim (35KB \u2192 <24.4KB)",
+      "title": "MEMORY.md hard-trim (35KB → <24.4KB)",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
       "commit_sha": "3f93f3c",
-      "notes": "Index entries condensed to \u2264120 chars.",
+      "notes": "Index entries condensed to ≤120 chars.",
       "shipped_at": "2026-05-16T09:31:20Z"
     },
     {
@@ -98,7 +98,7 @@
     },
     {
       "r_number": "R-F557",
-      "title": "Stream guard wiring audit + observation\u2192rewrite if needed",
+      "title": "Stream guard wiring audit + observation→rewrite if needed",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -158,7 +158,7 @@
     },
     {
       "r_number": "R-F566",
-      "title": "Constitution-amendment dedupe gate \u2014 string-similarity refuse before clause-write",
+      "title": "Constitution-amendment dedupe gate — string-similarity refuse before clause-write",
       "claimed_at": "2026-05-16T11:09:54Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -188,7 +188,7 @@
     },
     {
       "r_number": "R-F569",
-      "title": "Sanctions matcher P0 fix \u2014 list-class filter + similarity guard + topic-demotion ordering",
+      "title": "Sanctions matcher P0 fix — list-class filter + similarity guard + topic-demotion ordering",
       "claimed_at": "2026-05-16T11:31:16Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
@@ -198,7 +198,7 @@
     },
     {
       "r_number": "R-F570",
-      "title": "sync.mjs replacement \u2014 repo baked into seenode Docker image (kill build-time GitHub API dep)",
+      "title": "sync.mjs replacement — repo baked into seenode Docker image (kill build-time GitHub API dep)",
       "claimed_at": "2026-05-16T11:54:12Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -208,13 +208,31 @@
     },
     {
       "r_number": "R-F571",
-      "title": "server.mjs runtime build_rev fallback \u2014 git rev-parse at startup if build_rev.txt missing",
+      "title": "server.mjs runtime build_rev fallback — git rev-parse at startup if build_rev.txt missing",
       "claimed_at": "2026-05-16T12:01:58Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
       "commit_sha": "4911230",
       "notes": null,
       "shipped_at": "2026-05-16T12:30:00Z"
+    },
+    {
+      "r_number": "R-F572",
+      "title": "SEC filer-name match tighten (mirror R-F569 gate pattern)",
+      "claimed_at": "2026-05-16T12:13:08Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "From MVP fire-test: Rosoboronexport→E.ON SE, Acme Widgets→CME GROUP INC, Aselsan→ASHLAND INC. Same fuzzy-too-loose pattern as R-F569 in sec_edgar.lookup. Apply name-overlap gate + threshold bump."
+    },
+    {
+      "r_number": "R-F573",
+      "title": "DD case file — canonical_entity_id + version chain + diff",
+      "claimed_at": "2026-05-16T12:13:08Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Per docs/dd_versioning_proposal_2026_05_16.md. canonical_entity_id (company:{ISO2}:{REGNUM} for registered; name-hash fallback). Index gets version_number + previous_run_id. version_diff section in report. /api/aria/dd/case/{canonical_entity_id} endpoint. Backfill helper. ~510 LOC."
     }
   ]
 }

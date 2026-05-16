@@ -188,7 +188,7 @@ async def lookup(
     *,
     cik: str | int | None = None,
     limit: int = 15,
-    threshold: float = 0.62,
+    threshold: float = 0.85,
 ) -> dict:
     """Entity-scoped SEC EDGAR lookup.
 
@@ -201,6 +201,17 @@ async def lookup(
     Returns the canonical source-result dict. `hits` is a list of filing
     dicts, each with form / filing_date / accession_number / filing_url
     / cik / company_name / severity_hint.
+
+    R-F572 (2026-05-16) — defaults hardened. Pre-R-F572 the 0.62
+    threshold produced false-positive filer matches that polluted DD
+    reports with unrelated SEC issuers, every time:
+      Rosoboronexport → "E.ON SE"           (German utility)
+      Aselsan A.S.    → "ASHLAND INC."      (US chemicals)
+      Acme Widgets    → "CME GROUP INC."    (US exchange)
+    Threshold bumped 0.62 → 0.85 + name-overlap gate after the fuzzy
+    filter, mirroring the R-F569 sanctions-match pattern. Real SEC
+    issuer matches (e.g. "Embraer S.A." → "EMBRAER S.A./ADR" — token
+    'embraer' overlaps) still pass cleanly.
     """
     started = time.time()
     query = {"name": name, "cik": cik}
@@ -230,7 +241,44 @@ async def lookup(
                 tickers, name, name_key="title",
                 threshold=threshold, max_hits=5,
             )
-            matched = scored
+            # R-F572 (2026-05-16) — name-overlap gate after fuzzy_filter.
+            # Pre-R-F572 the score-only filter let through pairs that
+            # share a high SequenceMatcher ratio on short strings (CME
+            # GROUP / Acme Widgets — different normalised tokens, but the
+            # raw ratio survived 0.62). The gate adds token-overlap
+            # discipline:
+            #   - score≥0.95 (near-exact normalised match) → pass.
+            #     Handles e.g. BAE Systems plc → BAE SYSTEMS PLC/ADR,
+            #     where the only surviving token after corp-suffix strip
+            #     is "bae" (3 chars) but score=1.0 confirms the match.
+            #   - ≥2 shared meaningful tokens → pass.
+            #   - 1 shared token of ≥5 chars → pass (Embraer / Aselsan).
+            #   - Anything else → reject (logs at debug level for audit).
+            from .._sanctions_classify import _tokenize_entity_name
+            _query_tokens = _tokenize_entity_name(name)
+            gated = []
+            for _hit in scored:
+                _cand = (_hit.get("title") or "").strip()
+                if not _cand:
+                    continue
+                _score = float(_hit.get("_match_score") or 0.0)
+                if _score >= 0.95:
+                    # Exact-or-near-exact normalised match — trust it.
+                    gated.append(_hit)
+                    continue
+                _cand_tokens = _tokenize_entity_name(_cand)
+                _shared = _query_tokens & _cand_tokens
+                if len(_shared) >= 2:
+                    gated.append(_hit)
+                elif len(_shared) == 1 and len(next(iter(_shared))) >= 5:
+                    gated.append(_hit)
+                else:
+                    logger.debug(
+                        "[sec_edgar] R-F572 gate rejected '%s' vs '%s': "
+                        "shared tokens=%s (score=%.3f)",
+                        name, _cand, list(_shared), _score,
+                    )
+            matched = gated
         else:
             return _common.error_result(
                 _SOURCE, query, "must supply name or cik",
