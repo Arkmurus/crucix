@@ -8,9 +8,10 @@
       "title": "R-number reservation log itself",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Foundational — every subsequent reservation writes here."
+      "status": "shipped",
+      "commit_sha": "3f93f3c",
+      "notes": "Foundational — every subsequent reservation writes here.",
+      "shipped_at": "2026-05-16T09:31:19Z"
     },
     {
       "r_number": "R-F551",
@@ -80,72 +81,80 @@
       "title": "MEMORY.md hard-trim (35KB → <24.4KB)",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Index entries condensed to ≤120 chars."
+      "status": "shipped",
+      "commit_sha": "3f93f3c",
+      "notes": "Index entries condensed to ≤120 chars.",
+      "shipped_at": "2026-05-16T09:31:20Z"
     },
     {
       "r_number": "R-F556",
       "title": "Repo CLAUDE.md (binding session-start rules)",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Phase A gates + R-number discipline + verify-after-fix + native-only + infinite-memory."
+      "status": "shipped",
+      "commit_sha": "3f93f3c",
+      "notes": "Phase A gates + R-number discipline + verify-after-fix + native-only + infinite-memory.",
+      "shipped_at": "2026-05-16T09:31:20Z"
     },
     {
       "r_number": "R-F557",
       "title": "Stream guard wiring audit + observation→rewrite if needed",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Resolve agent-disagreement on R-F448 wiring state."
+      "status": "shipped",
+      "commit_sha": "3f93f3c",
+      "notes": "Resolve agent-disagreement on R-F448 wiring state.",
+      "shipped_at": "2026-05-16T09:31:20Z"
     },
     {
       "r_number": "R-F558",
       "title": "Constitution clauses 27-35 structural review",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Collapse where R-F534 covers structurally; adversarial regression mandatory."
+      "status": "shipped",
+      "commit_sha": "3f93f3c",
+      "notes": "Collapse where R-F534 covers structurally; adversarial regression mandatory.",
+      "shipped_at": "2026-05-16T09:31:20Z"
     },
     {
       "r_number": "R-F559",
       "title": "Verify-after-fix automation hook",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "settings.json hook OR scripts/verify_commit.sh wrapper."
+      "status": "shipped",
+      "commit_sha": "3f93f3c",
+      "notes": "settings.json hook OR scripts/verify_commit.sh wrapper.",
+      "shipped_at": "2026-05-16T09:31:21Z"
     },
     {
       "r_number": "R-F560",
       "title": "/health/error-streak endpoint (Phase A gate #3)",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Counter for consecutive fly-ERROR-free days."
+      "status": "shipped",
+      "commit_sha": "3f93f3c",
+      "notes": "Counter for consecutive fly-ERROR-free days.",
+      "shipped_at": "2026-05-16T09:31:21Z"
     },
     {
       "r_number": "R-F561",
       "title": "Operator-pending dashboard panel",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Live env-var + manual-action status on /aria-brain."
+      "status": "shipped",
+      "commit_sha": "3f93f3c",
+      "notes": "Live env-var + manual-action status on /aria-brain.",
+      "shipped_at": "2026-05-16T09:31:21Z"
     },
     {
       "r_number": "R-F562",
       "title": "Cost-free self-learning module",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Six deterministic learning loops: QA-extract, mistake-replay, cross-source-corroborate, calibration-outcome, mastery-decay, self-distill."
+      "status": "shipped",
+      "commit_sha": "3f93f3c",
+      "notes": "Six deterministic learning loops: QA-extract, mistake-replay, cross-source-corroborate, calibration-outcome, mastery-decay, self-distill.",
+      "shipped_at": "2026-05-16T09:31:21Z"
     }
   ]
 }
