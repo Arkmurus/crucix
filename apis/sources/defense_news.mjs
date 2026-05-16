@@ -220,14 +220,24 @@ export async function briefing() {
   // exhaustion on 2026-05-01 09:39 (0/13 sources OK across 13×3 = 39
   // simultaneous outbound calls). Per-feed circuit breaker skips a
   // source after 3 consecutive empty returns for 5 minutes.
+  //
+  // R-F564 (2026-05-16) — opt the per-feed circuit into escalating
+  // cooldown. Without escalation the 5-min default cooldown matches
+  // the sweep cadence, so chronic-broken feeds (DefenseWeb / UN News
+  // Africa / Breaking Defense / Jane's-Shephard on 2026-05-16) auto-
+  // reset every cycle and waste outbound budget on the next sweep.
+  // With escalation, each consecutive trip doubles the cooldown (5 →
+  // 10 → 20 → 40 min cap), so a truly-dead feed locks out for ~40 min
+  // and a transient blip still recovers fast.
+  const _CIRCUIT_OPTS = { escalating: true };
   const results = await withConcurrency(FEEDS, async (feed) => {
     const ckey = `defense_news:${feed.name}`;
-    if (shouldSkip(ckey)) return [];  // circuit open — skip wasted call
+    if (shouldSkip(ckey, _CIRCUIT_OPTS)) return [];  // circuit open — skip wasted call
     const items = await fetchFeed(feed);
     if (Array.isArray(items) && items.length > 0) {
       recordSuccess(ckey);
     } else {
-      recordFailure(ckey);
+      recordFailure(ckey, _CIRCUIT_OPTS);
     }
     return items;
   }, { concurrency: 4 });

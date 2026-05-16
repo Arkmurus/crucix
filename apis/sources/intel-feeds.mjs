@@ -2,6 +2,8 @@
 // New intelligence sources: UN Security Council, BIS, think tanks, UN Comtrade
 // All free, no API keys required
 
+import { shouldSkip, recordFailure, recordSuccess } from '../../lib/util/throttle.mjs';
+
 // ── UN Security Council RSS ──────────────────────────────────────────────────
 export async function fetchUNSecurityCouncil() {
   const results = { updates: [], error: null };
@@ -173,8 +175,37 @@ export async function fetchThinkTanks() {
 // IMF Direction of Trade Statistics — free, no API key required
 // Replaces UN Comtrade (now requires paid subscription)
 // Monitors trade between key geopolitical country pairs for anomaly detection
+
+// R-F563 (2026-05-16) — DNS-aware short-circuit. The 2026-05-16 morning
+// log showed every sweep producing
+//   [Comtrade] 0 IMF DOTS trade flows · 0 anomalies · per-pair:
+//   [China → Russia=fetch_ENOTFOUND, Russia → China=fetch_ENOTFOUND,
+//    China → Iran=fetch_ENOTFOUND, US → China=fetch_ENOTFOUND]
+// dataservices.imf.org is not resolving from the production node. After
+// the first pair returns `fetch_ENOTFOUND`, the remaining 3 pairs are
+// guaranteed to fail with the same DNS-layer error in the next ~3s ×
+// (1 + retries) of sweep budget. R-F563 adds two layers:
+//   (a) intra-sweep: as soon as ANY pair throws fetch_ENOTFOUND, mark
+//       the host unresolvable for the rest of this sweep and stop
+//       attempting subsequent pairs. The per-pair status line records
+//       `skipped_host_unresolvable` so operators can still see the
+//       fan-out shape.
+//   (b) cross-sweep: piggyback on shouldSkip()/recordFailure() so 3
+//       consecutive DNS-fail sweeps trip the throttle circuit and the
+//       function exits in <1ms for the next 5 minutes.
+const _IMF_DOTS_CIRCUIT = 'imf_dots:dataservices_unresolvable';
+
 export async function fetchTradeFLows() {
   const results = { flows: [], anomalies: [], error: null };
+
+  // R-F563: cross-sweep circuit. After 3 consecutive total-failure
+  // sweeps, skip the entire IMF DOTS block for 5 min. Saves ~3s of
+  // sweep budget when the upstream is hard-down.
+  if (shouldSkip(_IMF_DOTS_CIRCUIT)) {
+    console.log('[Comtrade] IMF DOTS circuit open — dataservices.imf.org has been unresolvable across recent sweeps; skipping');
+    results.error = 'IMF DOTS circuit open (R-F563)';
+    return results;
+  }
 
   // Country pairs to monitor (ISO2 codes for IMF DOTS)
   // Focus: sanctioned/monitored bilateral flows
@@ -241,7 +272,17 @@ export async function fetchTradeFLows() {
       'DNT': '1',
     };
 
+    // R-F563: when any pair surfaces a DNS-layer failure we set this
+    // flag so the remaining pairs short-circuit without another network
+    // attempt. fetch_ENOTFOUND / fetch_EAI_AGAIN affect the whole host
+    // resolution, not the specific URL, so retrying other corridors
+    // against the same hostname adds zero new information.
+    let hostUnresolvable = false;
     for (const pair of COUNTRY_PAIRS.slice(0, 4)) { // limit calls
+      if (hostUnresolvable) {
+        perPairStatus.push(`${pair.label}=skipped_host_unresolvable`);
+        continue;
+      }
       let status = 'ok';
       try {
         // IMF DOTS compact data: exports (TXG_FOB_USD) between pair.
@@ -272,6 +313,14 @@ export async function fetchTradeFLows() {
             const detail = (cause.code || cause.errno || fetchErr?.code || fetchErr?.name || fetchErr?.message || 'unknown').toString();
             lastFetchErr = `fetch_${detail.slice(0, 40)}`;
             res = null;
+            // R-F563: DNS-layer error → host is unresolvable, not just
+            // a single URL transient. Break the retry loop early and
+            // hoist the flag so the surrounding pair loop skips the
+            // remaining 3 corridors without re-trying the same host.
+            if (detail === 'ENOTFOUND' || detail === 'EAI_AGAIN') {
+              hostUnresolvable = true;
+              break;
+            }
           }
         }
         if (!res || !res.ok) {
@@ -351,9 +400,23 @@ export async function fetchTradeFLows() {
       `[Comtrade] ${results.flows.length} IMF DOTS trade flows · ${results.anomalies.length} anomalies` +
       (perPairStatus.length ? ` · per-pair: [${perPairStatus.join(', ')}]` : ''),
     );
+
+    // R-F563: circuit-breaker accounting. If we got at least one
+    // successful flow back this sweep, reset the failure counter — the
+    // host is reachable. If everything failed AND the host was flagged
+    // unresolvable, record a failure so 3 consecutive total-fail
+    // sweeps trip the 5-min cool-down.
+    if (results.flows.length > 0) {
+      recordSuccess(_IMF_DOTS_CIRCUIT);
+    } else if (hostUnresolvable) {
+      recordFailure(_IMF_DOTS_CIRCUIT);
+    }
   } catch (err) {
     results.error = err.message;
     console.error('[Comtrade] Error:', err.message);
+    // R-F563: an unexpected throw from the outer try (rare — most
+    // errors are caught per-pair) still counts as a failure.
+    recordFailure(_IMF_DOTS_CIRCUIT);
   }
 
   return results;

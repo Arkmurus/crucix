@@ -304,6 +304,9 @@ export async function briefing() {
   const lusophone = top.filter(i => i.lusophone);
   const highPri  = top.filter(i => i.priority === 'HIGH' && !i.lusophone);
   const okCount  = Object.values(sourceStatus).filter(s => s === 'ok').length;
+  const failedMarkets = Object.entries(sourceStatus)
+    .filter(([, s]) => s !== 'ok')
+    .map(([n]) => n);
 
   console.log(`[Portals] ${top.length} total items · ${lusophone.length} Lusophone · ${okCount}/${PRIORITY_MARKETS.length} markets covered`);
 
@@ -360,6 +363,18 @@ export async function briefing() {
       highPriority: highPri.length,
       marketsOk: okCount,
       marketsTotal: PRIORITY_MARKETS.length,
+    },
+    // R-F552 (2026-05-16) — honesty fix. Without _subStatus the
+    // top-level sweep tally counted ProcurementPortals as fully OK
+    // even when the 25s internal cap left ≥80% of markets uncovered
+    // (live: 4/28 markets, 19/28 markets — still reported "49/49 OK").
+    // Mirrors R-F34's contract: when ok < total the orchestrator
+    // demotes us to 'partial' and the operator sees `partial:
+    // ProcurementPortals(N/28 failed:...)` instead of a silent lie.
+    _subStatus: {
+      ok:     okCount,
+      total:  PRIORITY_MARKETS.length,
+      failed: failedMarkets,
     },
   };
 }

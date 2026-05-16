@@ -1860,16 +1860,45 @@ async function ariaProxy(req, res, path, { method = 'GET', fallback, timeoutMs }
 // Send sweep data to Python ARIA service (called after each sweep)
 // Bumped to 30s — sweep payload can be 2-5 MB and ARIA service has cold-start
 // disk I/O when persisting to Redis, so 10s was timing out ~30% of sweeps.
+//
+// R-F565 (2026-05-16) — diagnostic enrichment. The 2026-05-16 08:38:59 log
+// produced one occurrence of `[ARIA] sweep ingest failed: The operation
+// was aborted due to timeout` with no payload size, no duration, no
+// indication of which host. With sweeps firing every 5 min, a single
+// failure in isolation could be a flaky network blip, a payload bloat,
+// or ARIA backend stalling on cold-start I/O — we couldn't tell. The
+// catch block now logs:
+//   - elapsed ms before the abort fired (was it ~30s = the timeout, or
+//     a fast network reset?)
+//   - payload byte count (bloat regression check)
+//   - target host + error code via enrichFetchError
+// so the next single occurrence is self-diagnosing instead of opaque.
 async function pushSweepToARIA(data) {
   if (!ARIA_SERVICE_URL) return;
+  const t0 = Date.now();
+  let bodySize = 0;
   try {
+    const body = JSON.stringify(data);
+    bodySize = body.length;
     await fetch(`${ARIA_SERVICE_URL}/api/aria/ingest`, {
       method: 'POST',
       headers: _ariaHeaders(),
-      body: JSON.stringify(data),
+      body,
       signal: AbortSignal.timeout(30000),
     });
-  } catch (e) { console.warn('[ARIA] sweep ingest failed:', e.message); }
+  } catch (e) {
+    const elapsedMs = Date.now() - t0;
+    const cause = (e && e.cause && typeof e.cause === 'object') ? e.cause : {};
+    const code = cause.code || cause.errno || e?.code || e?.name || 'unknown';
+    let host = 'unknown';
+    try { host = new URL(ARIA_SERVICE_URL).host; } catch {}
+    const sizeKB = Math.round(bodySize / 1024);
+    console.warn(
+      `[ARIA] sweep ingest failed: ${e?.message || 'no message'} `
+      + `· code=${code} · host=${host} · payload=${sizeKB}KB `
+      + `· elapsed=${elapsedMs}ms`,
+    );
+  }
 }
 
 app.get('/api/aria/identity', requireAuth, async (req, res) => {

@@ -304,6 +304,32 @@ function _cacheKey(src) {
   return `crucix:rss_cache:${(src.name || 'unnamed').replace(/\s+/g, '_').toLowerCase()}:${(h >>> 0).toString(36)}`;
 }
 
+// R-F554 (2026-05-16) — proxy-attempt tag formatter.
+//
+// Pre-R-F554 the per-feed `attempts` array recorded only the HTTP status
+// (`codetabs=200`, `allorigins=200`) even when the response body was empty
+// or an HTML rejection page that parseRSS couldn't yield any items from.
+// Live evidence (2026-05-16 08:32 sweep, 9 Lusophone feeds): `codetabs=200`
+// was logged for every one of them while the source still reported
+// "failed" — the operator could not distinguish "proxy is up and parsing
+// cleanly" from "proxy returned junk".
+//
+// The tag function makes the failure-mode grep-distinguishable:
+//   - `name=N`            — 2xx and items > 0  (healthy path; never reaches here)
+//   - `name=N(empty)`     — 2xx with body < 64 bytes
+//   - `name=N(0-items)`   — 2xx with body present but parseRSS yielded nothing
+//   - `name=N`            — non-numeric status (passthrough, defensive)
+// Exported so unit tests can cover the format contract without re-creating
+// the surrounding fetch machinery.
+export function proxyAttemptTag(name, status, items, bodyLen) {
+  if (items && items.length > 0) {
+    return `${name}=${status}`;
+  }
+  if (typeof status !== 'number') return `${name}=${status}`;
+  if (!bodyLen || bodyLen < 64) return `${name}=${status}(empty)`;
+  return `${name}=${status}(0-items)`;
+}
+
 async function fetchSource(src) {
   // ReliefWeb JSON API — always works, no proxy needed
   if (src.type === 'reliefweb_api') {
@@ -355,6 +381,8 @@ async function fetchSource(src) {
   // Direct fetch — bumped timeout 10s -> 15s. Lusophone PT/AO/MZ
   // government sites can be slow without being unreachable; the previous
   // 10s cap was timing out on perfectly working endpoints.
+  // R-F554 (2026-05-16) — see proxyAttemptTag() exported below.
+  const _tag = proxyAttemptTag;
   try {
     const res = await fetch(src.url, {
       headers: {
@@ -365,14 +393,17 @@ async function fetchSource(src) {
       signal: AbortSignal.timeout(15000),
       redirect: 'follow',
     });
-    attempts.push(`direct=${res.status}`);
     if (res.ok) {
       const xml = await res.text();
       const items = parseRSS(xml);
       if (items.length > 0) {
+        attempts.push(`direct=${res.status}`);
         try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
         return items;
       }
+      attempts.push(_tag('direct', res.status, items, xml.length));
+    } else {
+      attempts.push(`direct=${res.status}`);
     }
   } catch (e) { attempts.push(`direct=err(${(e && e.message || 'unknown').slice(0, 40)})`); }
 
@@ -387,14 +418,17 @@ async function fetchSource(src) {
       headers: { 'User-Agent': _ua, 'Accept': 'application/xml, text/xml, */*' },
       signal: AbortSignal.timeout(15000),
     });
-    attempts.push(`jina=${res.status}`);
     if (res.ok) {
       const xml = await res.text();
       const items = parseRSS(xml);
       if (items.length > 0) {
+        attempts.push(`jina=${res.status}`);
         try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
         return items;
       }
+      attempts.push(_tag('jina', res.status, items, xml.length));
+    } else {
+      attempts.push(`jina=${res.status}`);
     }
   } catch { attempts.push(`jina=err`); }
 
@@ -402,7 +436,6 @@ async function fetchSource(src) {
   try {
     const proxyUrl = 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(src.url);
     const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-    attempts.push(`rss2json=${res.status}`);
     if (res.ok) {
       const data = await res.json();
       if (data.status === 'ok' && data.items?.length > 0) {
@@ -412,9 +445,15 @@ async function fetchSource(src) {
           description: item.description || item.content || '',
           pubDate:     item.pubDate || '',
         }));
+        attempts.push(`rss2json=${res.status}`);
         try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
         return items;
       }
+      // R-F554: distinguish 200(error-status) from 200(0-items) so a
+      // rate-limit 200-with-error-JSON doesn't look like a healthy parse.
+      attempts.push(`rss2json=${res.status}(${data?.status || 'no-items'})`);
+    } else {
+      attempts.push(`rss2json=${res.status}`);
     }
   } catch (e) { attempts.push(`rss2json=err`); }
 
@@ -423,16 +462,21 @@ async function fetchSource(src) {
     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(src.url)}`, {
       signal: AbortSignal.timeout(12000),
     });
-    attempts.push(`allorigins=${res.status}`);
     if (res.ok) {
       const data = await res.json();
       if (data.contents) {
         const items = parseRSS(data.contents);
         if (items.length > 0) {
+          attempts.push(`allorigins=${res.status}`);
           try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
           return items;
         }
+        attempts.push(_tag('allorigins', res.status, items, (data.contents || '').length));
+      } else {
+        attempts.push(`allorigins=${res.status}(no-contents)`);
       }
+    } else {
+      attempts.push(`allorigins=${res.status}`);
     }
   } catch { attempts.push(`allorigins=err`); }
 
@@ -442,14 +486,17 @@ async function fetchSource(src) {
       headers: { 'User-Agent': _ua },
       signal: AbortSignal.timeout(12000),
     });
-    attempts.push(`corsproxy=${res.status}`);
     if (res.ok) {
       const xml = await res.text();
       const items = parseRSS(xml);
       if (items.length > 0) {
+        attempts.push(`corsproxy=${res.status}`);
         try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
         return items;
       }
+      attempts.push(_tag('corsproxy', res.status, items, xml.length));
+    } else {
+      attempts.push(`corsproxy=${res.status}`);
     }
   } catch { attempts.push(`corsproxy=err`); }
 
@@ -461,14 +508,21 @@ async function fetchSource(src) {
       headers: { 'User-Agent': _ua },
       signal: AbortSignal.timeout(12000),
     });
-    attempts.push(`codetabs=${res.status}`);
     if (res.ok) {
       const xml = await res.text();
       const items = parseRSS(xml);
       if (items.length > 0) {
+        attempts.push(`codetabs=${res.status}`);
         try { await persist.redisSet(cacheKey, { items, at: Date.now() }, FEED_CACHE_TTL_S); } catch {}
         return items;
       }
+      // R-F554: codetabs was the canonical confusion vector — every
+      // sweep logged `codetabs=200` for 9 feeds where the body parsed
+      // empty. Now reads e.g. `codetabs=200(empty)` or
+      // `codetabs=200(0-items)` so the failure mode is unambiguous.
+      attempts.push(_tag('codetabs', res.status, items, xml.length));
+    } else {
+      attempts.push(`codetabs=${res.status}`);
     }
   } catch { attempts.push(`codetabs=err`); }
 

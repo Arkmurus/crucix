@@ -27,11 +27,23 @@
 export function enrichFetchError(err) {
   if (!err) return 'unknown';
   const cause = (err.cause && typeof err.cause === 'object') ? err.cause : {};
+  // R-F553 (2026-05-16) — skip err.name when it's the bare base-class
+  // string "Error". Live evidence: afdb.mjs throws
+  //   new Error('All AfDB endpoints unreachable: rss2json=429 | ...')
+  // every sweep when its 5 fallbacks all fail. Pre-R-F553 enrichFetchError
+  // hit err.name === 'Error' before err.message and returned the literal
+  // "Error", producing the unhelpful seenode log line `[AfDB] Error: Error`
+  // 3 of 4 sweeps in the 2026-05-16 morning log. TypeError / AbortError /
+  // DOMException etc. stay preferred since their class name IS the
+  // diagnostic (R-F369 rationale). Only the base "Error" sentinel is
+  // demoted — for it, the message text is strictly more informative.
+  const nameDetail = (err.name && err.name !== 'Error') ? err.name : null;
   const detail = cause.code
     || cause.errno
     || err.code
-    || err.name
+    || nameDetail
     || err.message
+    || err.name
     || 'unknown';
   return String(detail).slice(0, 80);
 }
