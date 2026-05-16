@@ -157,6 +157,76 @@ _CAPABILITY_COUNT_RE = re.compile(
 )
 
 
+# Pattern 6 (R-F604): self-capability DENIAL claims.
+#
+# Past incident 2026-05-16 18:58 + 19:19: ARIA emitted phrases like
+#   "I cannot query OFSI directly through my tooling"
+#   "No UK OFSI direct access"
+#   "No outbound email capability"
+#   "No corporate registry direct adapters for Saudi, Panama, Bulgaria"
+# while every one of those tools was wired and operational. The R-F594
+# count-pattern doesn't catch these because they're qualitative
+# denials, not numeric claims.
+#
+# The pattern matches a denial phrase + a tool keyword from the
+# R-F603 inventory in proximity. The tool-keyword list is the source
+# of truth for "ARIA actually has this capability".
+_TOOL_KEYWORDS = (
+    r"ofsi"
+    r"|ofac(?:\s+sdn)?"
+    r"|fcdo[\s_-]?sanctions"
+    r"|(?:hm\s+treasury|uk)\s+(?:sanctions?|consolidated\s+list)"
+    r"|panama\s+(?:registry|registro)"
+    r"|bulgarian?\s+(?:registry|brra)"
+    r"|saudi(?:\s+(?:cr|moci|registry))"
+    r"|turkish?\s+mersis"
+    r"|indian?\s+mca"
+    r"|(?:corporate\s+)?registry\s+(?:direct\s+)?adapters?"
+    r"|corporate\s+registries"
+    r"|companies\s+house"
+    r"|outbound\s+email"
+    r"|smtp\s+bridge"
+    r"|email\s+bridge"
+    r"|self[_\s-]?introspect"
+    r"|health\s*/\s*perf"
+    r"|deep[_\s-]?research"
+    r"|crawl[_\s-]?website"
+    r"|dd[_\s-]?orchestrator"
+    r"|due[_\s-]?diligence\s+orchestrator"
+)
+
+_SELF_DENIAL_RE = re.compile(
+    r"(?:"
+        # "I cannot/can't ... <tool>"
+        r"\bi\s+(?:cannot|can'?t|do(?:es)?\s+not|don'?t)\s+"
+        r"(?:\w+\s+){0,5}"
+        r"(?:" + _TOOL_KEYWORDS + r")"
+    r"|"
+        # "no <tool>" / "no direct <tool> access" / "no <tool> capability"
+        r"\bno\s+(?:direct\s+)?(?:\w+\s+){0,3}"
+        r"(?:" + _TOOL_KEYWORDS + r")"
+        r"(?:\s+(?:access|capability|tooling|integration|adapter|tool))?"
+    r"|"
+        # "<tool> is/are not available / unavailable / missing"
+        r"(?:" + _TOOL_KEYWORDS + r")"
+        r"\s+(?:is|are)\s+(?:not\s+available|unavailable|missing)"
+    r"|"
+        # "missing <tool>" / "lacking <tool>"
+        r"\b(?:missing|lacking)\s+(?:\w+\s+){0,3}"
+        r"(?:" + _TOOL_KEYWORDS + r")"
+    r"|"
+        # "we need [a] tool integration for <tool>"
+        r"\bneed\s+(?:a\s+)?(?:tool\s+)?integration\s+for\s+"
+        r"(?:\w+\s+){0,2}(?:" + _TOOL_KEYWORDS + r")"
+    r"|"
+        # "without <tool>"
+        r"\bwithout\s+(?:a\s+)?(?:\w+\s+){0,2}"
+        r"(?:" + _TOOL_KEYWORDS + r")"
+    r")",
+    re.IGNORECASE,
+)
+
+
 # ── Public API ──────────────────────────────────────────────────────
 
 def scan_response(
@@ -245,6 +315,25 @@ def scan_response(
             ),
         ))
 
+    # R-F604: self-capability DENIAL claims — always BLOCK.
+    # Phrases like "I cannot query OFSI" or "no outbound email capability"
+    # contradict the R-F603 TOOL INVENTORY. These are never WARN: even
+    # if self_introspect ran, the LLM is denying a capability it has.
+    for m in _SELF_DENIAL_RE.finditer(text):
+        violations.append(Violation(
+            pattern_id="rf604_capability_denial",
+            phrase=m.group(0),
+            severity="BLOCK",
+            advice=(
+                "Self-capability DENIAL contradicting the R-F603 TOOL "
+                "INVENTORY. The named tool IS wired and operational — "
+                "describe a specific call failure if it happened, never "
+                "claim the capability is missing. Past incident "
+                "2026-05-16: ARIA claimed 'no UK OFSI access' while "
+                "fcdo_sanctions.lookup() was actively fetching ConList.xml."
+            ),
+        ))
+
     return violations
 
 
@@ -258,6 +347,7 @@ def suspicious_phrases() -> dict[str, str]:
         "rf401_eviction_claim": _EVICTION_RE.pattern,
         "rf401_fuzzy_count": _FUZZY_COUNT_RE.pattern,
         "rf594_capability_count": _CAPABILITY_COUNT_RE.pattern,
+        "rf604_capability_denial": _SELF_DENIAL_RE.pattern,
     }
 
 
@@ -402,6 +492,7 @@ async def get_stats() -> dict:
         "rf401_eviction_claim",
         "rf401_fuzzy_count",
         "rf594_capability_count",
+        "rf604_capability_denial",
     )
     for pid in pattern_ids:
         try:
