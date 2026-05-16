@@ -635,9 +635,10 @@
       "title": "SEC EDGAR — surface all material 8-K hits, not just first",
       "claimed_at": "2026-05-16T23:01:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7e34423",
+      "notes": null,
+      "shipped_at": "2026-05-16T23:04:31Z"
     }
   ]
 }
