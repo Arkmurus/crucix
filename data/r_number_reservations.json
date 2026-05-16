@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 578,
+  "next_available": 584,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -282,6 +282,65 @@
       "commit_sha": "f9210d8",
       "notes": null,
       "shipped_at": "2026-05-16T12:53:49Z"
+    },
+    {
+      "r_number": "R-F578",
+      "title": "ProcurementPortals — shard-parallel fetch + 60s timeout (lift 4/28 to 28/28)",
+      "claimed_at": "2026-05-16T13:00:32Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "shipped",
+      "commit_sha": "649de9c",
+      "notes": null,
+      "shipped_at": "2026-05-16T13:10:49Z"
+    },
+    {
+      "r_number": "R-F579",
+      "title": "Court/litigation tier — CourtListener + Bailii adapters",
+      "claimed_at": "2026-05-16T13:00:33Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "shipped",
+      "commit_sha": "649de9c",
+      "notes": null,
+      "shipped_at": "2026-05-16T13:10:49Z"
+    },
+    {
+      "r_number": "R-F580",
+      "title": "Cert Transparency — crt.sh adapter for shell-domain detection",
+      "claimed_at": "2026-05-16T13:00:33Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "shipped",
+      "commit_sha": "649de9c",
+      "notes": null,
+      "shipped_at": "2026-05-16T13:10:49Z"
+    },
+    {
+      "r_number": "R-F581",
+      "title": "ECCN/Wassenaar lookup table — scrape BIS CCL into SQLite",
+      "claimed_at": "2026-05-16T13:00:33Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "shipped",
+      "commit_sha": "649de9c",
+      "notes": null,
+      "shipped_at": "2026-05-16T13:10:50Z"
+    },
+    {
+      "r_number": "R-F582",
+      "title": "AIS gap detector — flag vessel transponder gaps as sanctions-evasion signal",
+      "claimed_at": "2026-05-16T13:00:33Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "shipped",
+      "commit_sha": "649de9c",
+      "notes": null,
+      "shipped_at": "2026-05-16T13:10:50Z"
+    },
+    {
+      "r_number": "R-F583",
+      "title": "Constitution patch — restore persona-injection guards regressed by R-F558 collapse",
+      "claimed_at": "2026-05-16T13:10:25Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "8 of 9 R-F168 attack-class clauses regressed when R-F558 collapsed 27-35 from 9→3. Adversarial base_score 60.9% → 52.2% post-deploy. Re-add targeted clauses for I1/P_BROKER/P_GOV/P_BANKING/P_COMPLIANCE/P_JOURNALIST attack vectors."
     }
   ]
 }
