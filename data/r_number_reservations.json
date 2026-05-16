@@ -849,9 +849,10 @@
       "title": "chat hook — inject cultural-read block on named counterparty",
       "claimed_at": "2026-05-16T23:36:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f5a0ce2",
+      "notes": null,
+      "shipped_at": "2026-05-16T23:47:25Z"
     },
     {
       "r_number": "R-F637",
