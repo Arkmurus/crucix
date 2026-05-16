@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 588,
+  "next_available": 589,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -382,6 +382,15 @@
       "commit_sha": "360cda4",
       "notes": null,
       "shipped_at": "2026-05-16T13:18:17Z"
+    },
+    {
+      "r_number": "R-F588",
+      "title": "Premise Verifier extension — phantom-source + programme-fabrication + leaked-doc patterns",
+      "claimed_at": "2026-05-16T13:27:51Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "R-F583 added prompt guards but DeepSeek-only chain (Anthropic billing cooldown) didn't fully recover adversarial. Add structural regex patterns to block phantom_source / programme_fabrication / leaked_doc_auth pre-LLM, independent of which provider serves the chain."
     }
   ]
 }

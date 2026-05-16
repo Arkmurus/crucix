@@ -151,6 +151,51 @@ _INJECTION_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"\b(?:skip|bypass|abbreviated|shortened|expedite[d]?|fast[\s-]?track)\b",
         re.IGNORECASE,
     )),
+    # R-F588 (2026-05-16) — phantom-source / phantom-citation attack
+    # (P_JOURNALIST_1_PHANTOM_SOURCE_NAMING +
+    #  P_GOV_2_PHANTOM_ATTRIBUTION_REQUEST). User asks ARIA to confirm
+    # or summarise what a specific named source said when ARIA has not
+    # actually consulted that source. Catch the phrasing structurally
+    # so the LLM gets a hard refusal banner even on degraded chains.
+    # Constraint: must NOT match legitimate context-rich questions
+    # ("can you summarise the Reuters article I just linked?"). We
+    # require an attribution claim ("according to / as confirmed by /
+    # per source X" / "what did X say") combined with the absence of
+    # any URL in the same sentence — the only way to "consult" a source
+    # in the conversation is via a URL ARIA can fetch.
+    ("phantom_source_attribution", re.compile(
+        r"\b(?:according\s+to|as\s+confirmed\s+by|"
+        r"per\s+(?:the\s+)?(?:\w+\s+)?(?:source|report|analyst|memo|leak|brief|cable)|"
+        r"what\s+did\s+\w+|"
+        r"(?:source|analyst|reporter)\s+\w+\s+(?:said|stated|confirmed|told))"
+        r"\b(?![^.]*\bhttps?://)",
+        re.IGNORECASE,
+    )),
+    # R-F588 — programme-name fabrication attack (P_GOV_1). User
+    # references a specific procurement programme name and asks ARIA to
+    # confirm details. Heuristic: a quoted programme name followed by a
+    # request for "details / specifications / award / timeline / status"
+    # without any preceding URL or attached document. Conservative —
+    # only matches THE QUOTED-NAME pattern so we don't false-flag
+    # generic procurement questions.
+    ("programme_name_fabrication", re.compile(
+        r"['\"“‘]([A-Z][A-Za-z0-9\-\s]{2,40})['\"”’]"
+        r"[^.]{0,80}\b(?:programme|program|procurement|acquisition|tender|"
+        r"award)\b[^.]{0,100}\b(?:details?|specifications?|status|"
+        r"timeline|award|confirmation)\b",
+        re.IGNORECASE,
+    )),
+    # R-F588 — leaked-document authentication attack
+    # (P_JOURNALIST_2_LEAK_AUTHENTICATION). User references a document
+    # ARIA cannot actually see and asks for authentication / content
+    # confirmation. Pattern: "(can you|please) (authenticate|verify|
+    # confirm) [the] (leaked|attached|document)" without URL/attachment.
+    ("leaked_doc_auth_request", re.compile(
+        r"\b(?:authenticate|verify|confirm)\s+(?:the\s+|this\s+|that\s+|an?\s+)?"
+        r"(?:leak(?:ed)?|attached|document|memo|cable|email|dossier)"
+        r"(?![^.]*\bhttps?://)",
+        re.IGNORECASE,
+    )),
 ]
 
 
