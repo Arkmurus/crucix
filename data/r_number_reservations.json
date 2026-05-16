@@ -507,9 +507,10 @@
       "title": "DD Layer — litigation + court records (CourtListener, BAILII)",
       "claimed_at": "2026-05-16T17:51:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f2c3149",
+      "notes": null,
+      "shipped_at": "2026-05-16T22:48:10Z"
     },
     {
       "r_number": "R-F601",
