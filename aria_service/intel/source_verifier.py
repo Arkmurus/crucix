@@ -535,15 +535,41 @@ async def get_verification_stats() -> dict:
         lifetime_rate = (
             round(rate_sum_all / rate_n_all, 3) if rate_n_all > 0 else None
         )
+
+        # R-F590 (2026-05-16) — when the 24h window has zero entries
+        # with grounded_rate set (typical when all recent verifications
+        # are "no_tool" / "no_citations" — see verdicts above), fall
+        # back to lifetime_rate so operating_modes.py + the dashboard
+        # have a non-null signal to read instead of treating a quiet
+        # 24h window as "unknown ground". The data_source tag tells
+        # the consumer which window the number came from so it can
+        # still distinguish "fresh 24h evidence" from "lifetime stable
+        # baseline" when that matters.
+        if rolling_rate_24h is not None:
+            effective_rate = rolling_rate_24h
+            data_source = "24h_window"
+        elif lifetime_rate is not None:
+            effective_rate = lifetime_rate
+            data_source = "lifetime_fallback"
+        else:
+            effective_rate = None
+            data_source = "no_data"
+
         return {
             "total": len(index),
             "by_verdict": by_verdict,
             "recent_24h": recent_24h,
             # The "rolling" name and its alias are the operating-mode
             # input -- those consumers want a current-conditions signal.
-            "rolling_grounded_rate": rolling_rate_24h,
-            "avg_grounded_rate": rolling_rate_24h,
+            # R-F590: now lifetime-fallback-aware instead of nullable.
+            "rolling_grounded_rate": effective_rate,
+            "avg_grounded_rate": effective_rate,
             "rate_sample_size": rate_n_24h,
+            "data_source": data_source,
+            # R-F590: 24h breakdown so consumers can see WHY the
+            # effective rate may have fallen back to lifetime.
+            "grounded_attempts_24h": rate_n_24h,
+            "total_attempts_24h": recent_24h,
             # Lifetime average kept under a clearly-named field for any
             # caller that wants long-horizon trend (none today, but
             # leaving the door open without ambiguity).

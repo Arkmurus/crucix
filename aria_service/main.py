@@ -63,15 +63,82 @@ logger = logging.getLogger("aria.main")
 # logs and /health so we know to redeploy with the args.
 _BUILD_GIT_SHA = _os.environ.get("ARIA_BUILD_GIT_SHA", "").strip()
 _BUILD_R_TAG = _os.environ.get("ARIA_BUILD_R_TAG", "").strip()
+
+
+def _resolve_git_head_from_image(git_dir: str = "/app/.git") -> str:
+    """R-F589 (2026-05-16) — runtime build_rev fallback.
+
+    Pre-R-F589 the only path to build_rev was the --build-arg passed at
+    docker build time. Manual `flyctl deploy` invocations (no wrapper)
+    skipped the flag, so the Dockerfile ARG defaulted to "unknown" and
+    /api/aria/health.build_rev reported UNKNOWN-BUILD even though the
+    code was live.
+
+    R-F589 bakes .git/HEAD + .git/refs/ into the image (via
+    .dockerignore exceptions + COPY in the Dockerfile) so we can
+    resolve HEAD at runtime regardless of how the deploy was invoked.
+    Returns the resolved 40-char SHA, or "" if anything is missing.
+
+    Pure-Python git ref resolution — no `git` binary needed in the
+    image. Handles three HEAD shapes:
+      - "ref: refs/heads/main"  → reads refs/heads/main
+      - "ref: refs/heads/feature/foo" → reads refs/heads/feature/foo
+      - "<40-char-sha>"         → detached HEAD; return SHA directly
+    Also handles packed-refs fallback (long-lived clones with many tags).
+    """
+    try:
+        head_path = _os.path.join(git_dir, "HEAD")
+        if not _os.path.isfile(head_path):
+            return ""
+        with open(head_path, "r", encoding="utf-8") as f:
+            head = f.read().strip()
+        if not head.startswith("ref:"):
+            # Detached HEAD — first 40 chars are the SHA
+            return head[:40] if len(head) >= 40 else head
+        ref_path = head[len("ref:"):].strip()
+        ref_file = _os.path.join(git_dir, ref_path)
+        if _os.path.isfile(ref_file):
+            with open(ref_file, "r", encoding="utf-8") as f:
+                return f.read().strip()[:40]
+        # Fallback to packed-refs (long-lived clones often pack refs)
+        packed = _os.path.join(git_dir, "packed-refs")
+        if _os.path.isfile(packed):
+            with open(packed, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("#") or line.startswith("^"):
+                        continue
+                    parts = line.strip().split(" ", 1)
+                    if len(parts) == 2 and parts[1] == ref_path:
+                        return parts[0][:40]
+        return ""
+    except Exception:
+        return ""
+
+
 if _BUILD_GIT_SHA and _BUILD_GIT_SHA != "unknown":
     _sha_short = _BUILD_GIT_SHA[:8]
+    _source = "build-arg"
+elif (_runtime_sha := _resolve_git_head_from_image()):
+    # R-F589 fallback — operator skipped --build-arg, but .git/HEAD is
+    # in the image so we still know which commit is running.
+    _BUILD_GIT_SHA = _runtime_sha
+    _sha_short = _runtime_sha[:8]
+    _source = "git-head-runtime"
+else:
+    _sha_short = ""
+    _source = "unknown"
+
+if _sha_short:
     if _BUILD_R_TAG:
         ARIA_BUILD_REV = f"{_BUILD_R_TAG} · sha {_sha_short}"
     else:
         ARIA_BUILD_REV = f"sha {_sha_short}"
+    if _source == "git-head-runtime":
+        ARIA_BUILD_REV += " · R-F589 runtime fallback (build-arg missing)"
 else:
-    # Build-args were not passed — flag loudly so the operator knows
-    # /health/live build_rev is stale.
+    # Build-arg AND .git/HEAD both missing — final fallback string.
+    # Operator should run `scripts/fly_deploy.sh` or pass --build-arg
+    # explicitly so the metadata reflects the running commit.
     ARIA_BUILD_REV = "UNKNOWN-BUILD · ARIA_BUILD_GIT_SHA not set at image build (pass --build-arg)"
 
 

@@ -82,6 +82,22 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 
 COPY aria_service/ ./aria_service/
 
+# R-F589 (2026-05-16) — runtime build_rev fallback. The CI workflow +
+# scripts/fly_deploy.sh wrapper pass --build-arg ARIA_BUILD_GIT_SHA,
+# but bare `flyctl deploy` invocations skip the flag, leaving the
+# ARG at its "unknown" default. /api/aria/health.build_rev then
+# reports UNKNOWN-BUILD even though the code IS live. Belt-and-braces:
+# bake .git/HEAD + refs into the image (~50KB) so main.py can resolve
+# the SHA at runtime regardless of how the deploy was invoked. See the
+# matching .dockerignore exceptions for !.git/HEAD / !.git/refs.
+COPY .git/HEAD ./.git/HEAD
+COPY .git/refs ./.git/refs
+# packed-refs is optional — present on long-lived clones with many tags
+# (most production deploys), absent on fresh shallow clones. The COPY
+# would fail if the source file doesn't exist — guard with a conditional
+# RUN against a probed copy instead.
+COPY .git/packed-refs* ./.git/
+
 # ── One-shot scripts (migrations, evals, smoke tests) ─────────────────────
 # R-F261 (2026-05-11) — the Upstash → SQLite state migration script lives
 # under scripts/migrate_state.py and is invoked via the HTTP admin endpoint

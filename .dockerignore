@@ -1,6 +1,13 @@
 node_modules
 npm-debug.log*
 .git
+# R-F589 (2026-05-16) — exceptions so the image carries enough of .git
+# to resolve HEAD at runtime. Lets main.py fall back to a real SHA when
+# --build-arg ARIA_BUILD_GIT_SHA was omitted (manual flyctl deploy with
+# no wrapper). Adds ~50KB to image.
+!.git/HEAD
+!.git/refs
+!.git/packed-refs
 .gitignore
 .github
 .omc
