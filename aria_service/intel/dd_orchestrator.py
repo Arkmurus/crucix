@@ -4189,8 +4189,16 @@ async def _persist_report(report: ARKDDReport) -> None:
         except Exception as _rm_err:
             logger.debug("render_markdown failed during persist: %s", _rm_err)
 
-        # R-F573: inject versioning fields onto the persisted body so
-        # /api/aria/dd/report/{run_id} surfaces the chain.
+        # R-F573 (initial) + R-F591 (2026-05-16): set the versioning
+        # fields on BOTH the dataclass (so /dd/orchestrate's synchronous
+        # response carries them — pre-R-F591 it only got Nones because
+        # report.as_dict() ran on the dataclass before this hook) AND
+        # the persisted body (so /dd/report/{run_id} reads them back
+        # from Redis). The dataclass now has the fields as first-class
+        # attributes per ARKDDReport.canonical_entity_id et al.
+        report.canonical_entity_id = canonical_id
+        report.version_number = version_number
+        report.previous_run_id = previous_run_id
         _body["canonical_entity_id"] = canonical_id
         _body["version_number"] = version_number
         _body["previous_run_id"] = previous_run_id
@@ -4208,11 +4216,16 @@ async def _persist_report(report: ARKDDReport) -> None:
                     previous_report=previous_body,
                     current_report=_body,
                 )
+                # R-F591: write to dataclass AND body (same rationale as
+                # canonical_entity_id et al above).
+                report.version_diff = version_diff
                 _body["version_diff"] = version_diff
             except Exception as _diff_err:
                 logger.debug("dd_orchestrator: version diff failed: %s", _diff_err)
+                report.version_diff = None
                 _body["version_diff"] = None
         else:
+            report.version_diff = None
             _body["version_diff"] = None
 
         await rs.set_json(

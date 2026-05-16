@@ -409,6 +409,24 @@ class ARKDDReport:
     discipline_coverage: dict = field(default_factory=dict)
     adverse_media: dict = field(default_factory=dict)
 
+    # ── R-F591 (2026-05-16) — case-file versioning fields ────────────────
+    # R-F573 added canonical_entity_id + version_number + previous_run_id
+    # + version_diff to the PERSISTED body (the Redis blob) inside
+    # _persist_report. But the synchronous /api/aria/dd/orchestrate
+    # response is built from `report.as_dict()` which serialises the
+    # dataclass — so the chat / WhatsApp / web client got None for
+    # these fields even though they were correctly set on the Redis
+    # copy that /dd/report/{run_id} returns later. R-F591 promotes the
+    # 4 fields to first-class dataclass attributes so as_dict()
+    # exports them on every code path (orchestrate response AND Redis
+    # body AND case-file endpoint AND markdown render). _persist_report
+    # now sets these directly on the dataclass instead of injecting
+    # into the dict after as_dict().
+    canonical_entity_id: Optional[str] = None
+    version_number: int = 1
+    previous_run_id: Optional[str] = None
+    version_diff: Optional[dict] = None
+
     # ── Serialisation helpers ────────────────────────────────────────────
 
     def as_dict(self) -> dict:

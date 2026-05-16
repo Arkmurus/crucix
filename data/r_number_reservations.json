@@ -398,18 +398,20 @@
       "title": "Fly.io build_rev metadata propagation — ARG/ENV/Python plumbing",
       "claimed_at": "2026-05-16T13:33:10Z",
       "claimed_by": "claude-session-B-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "deploy-fly.yml already passes --build-arg but /api/aria/health.build_rev still shows UNKNOWN-BUILD. Trace Dockerfile ARG and ENV declarations + the Python read path."
+      "status": "shipped",
+      "commit_sha": "53a2225",
+      "notes": "deploy-fly.yml already passes --build-arg but /api/aria/health.build_rev still shows UNKNOWN-BUILD. Trace Dockerfile ARG and ENV declarations + the Python read path.",
+      "shipped_at": "2026-05-16T13:41:01Z"
     },
     {
       "r_number": "R-F590",
       "title": "C:/Program Files/Git/verify/stats rolling_grounded_rate aggregation",
       "claimed_at": "2026-05-16T13:33:11Z",
       "claimed_by": "claude-session-B-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "Endpoint returns rolling_grounded_rate=null despite 434 lifetime verifications. Wire 24h-window aggregation."
+      "status": "shipped",
+      "commit_sha": "53a2225",
+      "notes": "Endpoint returns rolling_grounded_rate=null despite 434 lifetime verifications. Wire 24h-window aggregation.",
+      "shipped_at": "2026-05-16T13:41:01Z"
     },
     {
       "r_number": "R-F591",
