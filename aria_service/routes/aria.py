@@ -12969,10 +12969,20 @@ async def list_conversations_ep(user_id: str = "", offset: int = 0, limit: int =
 
 
 @router.get("/conversations/{session_id}/detail")
-async def get_conversation_detail_ep(session_id: str):
-    """Load a conversation with full message history."""
+async def get_conversation_detail_ep(session_id: str, user_id: str = ""):
+    """Load a conversation with full message history.
+
+    R-F606 (2026-05-16): require user_id query param + verify ownership via
+    conversation_store.get_conversation(session_id, user_id). Pre-R-F606 the
+    endpoint accepted only session_id and any authenticated user could read
+    any other user's chat by guessing/enumerating session_id (wa_group_*
+    patterns were trivial). Returns 404 on missing OR ownership mismatch
+    (deliberately conflated so we don't leak conversation existence).
+    """
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
     from ..intel import conversation_store
-    convo = await conversation_store.get_conversation(session_id)
+    convo = await conversation_store.get_conversation(session_id, user_id=user_id)
     if not convo:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return convo
@@ -12980,12 +12990,22 @@ async def get_conversation_detail_ep(session_id: str):
 
 @router.delete("/conversations/{session_id}")
 async def delete_conversation_ep(session_id: str, user_id: str = ""):
-    """Delete a conversation."""
+    """Delete a conversation.
+
+    R-F606 (2026-05-16): ownership now enforced inside
+    conversation_store.delete_conversation. Pre-R-F606 the store unconditionally
+    deleted meta + session keys and only zrem'd from the caller's user-keyed
+    index — so user A could destroy user B's conversation by passing B's
+    session_id with A's own user_id. delete_conversation now returns False
+    (no-op) on ownership mismatch; surface that as 404.
+    """
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id required")
     from ..intel import conversation_store
     removed = await conversation_store.delete_conversation(user_id, session_id)
-    return {"deleted": removed, "session_id": session_id}
+    if not removed:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"deleted": True, "session_id": session_id}
 
 
 class RenameConversationRequest(BaseModel):
@@ -12993,10 +13013,18 @@ class RenameConversationRequest(BaseModel):
 
 
 @router.put("/conversations/{session_id}/title")
-async def rename_conversation_ep(session_id: str, req: RenameConversationRequest):
-    """Rename a conversation."""
+async def rename_conversation_ep(session_id: str, req: RenameConversationRequest, user_id: str = ""):
+    """Rename a conversation.
+
+    R-F606 (2026-05-16): require user_id query param + ownership check.
+    Pre-R-F606 the endpoint didn't even accept user_id and any authenticated
+    user could rename any other user's conversation (annoyance / phishing
+    vector via spoofed titles).
+    """
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
     from ..intel import conversation_store
-    ok = await conversation_store.rename_conversation(session_id, req.title)
+    ok = await conversation_store.rename_conversation(session_id, req.title, user_id=user_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"ok": True, "session_id": session_id, "title": req.title}

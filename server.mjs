@@ -2989,24 +2989,35 @@ app.get('/api/aria/conversations', requireAuth, async (req, res) => {
 });
 
 app.get('/api/aria/conversations/:sessionId', requireAuth, async (req, res) => {
+  // R-F606 (2026-05-16): forward the JWT-derived user_id to the Python
+  // backend so it can enforce ownership. Pre-R-F606 we proxied only the
+  // session_id and Python returned the conversation unconditionally.
   const sid = req.params.sessionId;
-  await ariaProxy(req, res, `/api/aria/conversations/${sid}/detail`, {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  await ariaProxy(req, res, `/api/aria/conversations/${sid}/detail?user_id=${encodeURIComponent(userId)}`, {
     fallback: null,
   });
 });
 
 app.delete('/api/aria/conversations/:sessionId', requireAuth, async (req, res) => {
   const sid = req.params.sessionId;
-  const userId = req.user?.id || '';
+  // R-F606 (2026-05-16): JWT field is `userId`, not `id` — pre-fix this
+  // sent user_id='' on every delete, which combined with the store-layer
+  // bug let any authenticated user destroy any other user's conversation
+  // (zrem from your own empty set + unconditional delete of the target's
+  // meta + session keys). Both halves fixed in this R-number.
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
   if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'ARIA service unavailable' });
   try {
-    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/conversations/${sid}?user_id=${userId}`, {
+    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/conversations/${sid}?user_id=${encodeURIComponent(userId)}`, {
       method: 'DELETE',
       headers: _ariaHeaders(),
       signal: AbortSignal.timeout(10000),
     });
     const data = await r.json();
-    res.json(data);
+    res.status(r.status).json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -3016,16 +3027,23 @@ app.put('/api/aria/conversations/:sessionId/title', requireAuth, async (req, res
   const sid = req.params.sessionId;
   const { title } = req.body || {};
   if (!title) return res.status(400).json({ error: 'title required' });
+  // R-F606 (2026-05-16): pin user_id to the JWT-resolved value, not to
+  // whatever the client sent in the body. Python now enforces ownership.
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
   if (!ARIA_SERVICE_URL) return res.status(503).json({ error: 'ARIA service unavailable' });
   try {
-    const r = await fetch(`${ARIA_SERVICE_URL}/api/aria/conversations/${sid}/title`, {
-      method: 'PUT',
-      headers: _ariaHeaders(),
-      body: JSON.stringify({ title }),
-      signal: AbortSignal.timeout(10000),
-    });
+    const r = await fetch(
+      `${ARIA_SERVICE_URL}/api/aria/conversations/${sid}/title?user_id=${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        headers: _ariaHeaders(),
+        body: JSON.stringify({ title }),
+        signal: AbortSignal.timeout(10000),
+      },
+    );
     const data = await r.json();
-    res.json(data);
+    res.status(r.status).json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

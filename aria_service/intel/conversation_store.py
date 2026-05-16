@@ -107,10 +107,20 @@ async def list_conversations(
     return conversations
 
 
-async def get_conversation(session_id: str) -> dict | None:
-    """Load a conversation: metadata + full message history."""
+async def get_conversation(session_id: str, user_id: str | None = None) -> dict | None:
+    """Load a conversation: metadata + full message history.
+
+    R-F606: when ``user_id`` is passed, the conversation is only returned if the
+    stored ``userId`` on the meta hash matches. This is the load-bearing
+    ownership check — without it, any authenticated user can read any other
+    user's chat by passing their session_id. Callers from authenticated route
+    handlers MUST pass user_id; pass None only for trusted internal paths
+    (e.g. backfill / admin export).
+    """
     meta = await rs.hgetall(_META_KEY.format(session_id=session_id))
     if not meta:
+        return None
+    if user_id is not None and (meta.get("userId") or "") != user_id:
         return None
 
     session_data = await rs.get_json(_SESSION_KEY.format(session_id=session_id))
@@ -127,18 +137,35 @@ async def get_conversation(session_id: str) -> dict | None:
 
 
 async def delete_conversation(user_id: str, session_id: str) -> bool:
-    """Remove a conversation from the index, metadata, and session data."""
-    removed = await rs.zrem(_CONV_KEY.format(user_id=user_id), session_id)
+    """Remove a conversation from the index, metadata, and session data.
+
+    R-F606: previously deleted meta+session keys unconditionally and only
+    zrem'd from the caller's index — so passing someone else's session_id
+    with your own user_id silently destroyed their conversation. Now verifies
+    ownership against meta.userId before touching anything; mismatched or
+    missing meta → no-op, returns False.
+    """
+    meta = await rs.hgetall(_META_KEY.format(session_id=session_id))
+    if not meta or (meta.get("userId") or "") != user_id:
+        return False
+    await rs.zrem(_CONV_KEY.format(user_id=user_id), session_id)
     await rs.delete(_META_KEY.format(session_id=session_id))
     await rs.delete(_SESSION_KEY.format(session_id=session_id))
-    return removed
+    return True
 
 
-async def rename_conversation(session_id: str, title: str) -> bool:
-    """Update the title of a conversation."""
+async def rename_conversation(session_id: str, title: str, user_id: str | None = None) -> bool:
+    """Update the title of a conversation.
+
+    R-F606: ownership check via user_id. With user_id=None the function still
+    works for back-compat with any internal admin call, but the route layer
+    must pass user_id from the authenticated session.
+    """
     meta_key = _META_KEY.format(session_id=session_id)
     existing = await rs.hgetall(meta_key)
     if not existing:
+        return False
+    if user_id is not None and (existing.get("userId") or "") != user_id:
         return False
     await rs.hset(meta_key, {"title": title.strip()[:100]})
     return True

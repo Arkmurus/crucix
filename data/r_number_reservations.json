@@ -563,9 +563,10 @@
       "title": "ARIA chat conversation ownership check",
       "claimed_at": "2026-05-16T18:27:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-16T18:35:23Z"
     },
     {
       "r_number": "R-F607",
