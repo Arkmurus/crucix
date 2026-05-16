@@ -554,9 +554,10 @@
       "title": "purge poisoned reasoning_library capability cache",
       "claimed_at": "2026-05-16T18:23:46Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c94af63",
+      "notes": null,
+      "shipped_at": "2026-05-16T18:36:25Z"
     },
     {
       "r_number": "R-F606",
