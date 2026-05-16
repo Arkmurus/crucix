@@ -798,6 +798,116 @@ def _emit_ghost_indicator_findings(ghost: Any) -> list[Finding]:
     return out
 
 
+# ── R-F600 — Formalised litigation / court-record Findings ────────────
+#
+# court_records (R-F584) + dd_layer_extensions (R-F584/F585/F586/F587)
+# already query CourtListener (US) + BAILII (UK) and stash the result
+# inside `report.extensions["by_module"]["court_records"]` — but the
+# individual case hits never surface as Findings rows in any report
+# section. A client reading the DD report sees "litigation_history"
+# under "extensions" (if at all) but no auditable "Smith v. ABC Corp
+# · 2024-03-15 · S.D.N.Y." rows.
+#
+# This pure helper turns each hit into a Finding so the litigation
+# history appears as first-class evidence in compliance, alongside
+# FATF (R-F601) and shell-co indicators (R-F602).
+#
+# Severity:
+#   ELEVATED (any US federal court hit) → amber headline + amber per-case
+#   LOW (non-federal / BAILII only)     → info headline + info per-case
+#   NONE                                → returns [] (no clutter)
+#
+# Confidence: PROBABLE. Court records are Tier-1a authoritative, but
+# fuzzy-name matches need human disambiguation (the headline ALWAYS
+# notes "verify name match against the entity"). Using PROBABLE
+# bypasses the R-5005 gate's CONFIRMED→ASSESSED demotion path.
+def _emit_court_record_findings(court_records_block: Any) -> list[Finding]:
+    """Pure helper: court_records extension result → list of Findings.
+
+    Inputs: the dict produced by
+        dd_layer_extensions.run_court_records_check(...) or its slot in
+        run_all_extensions()["by_module"]["court_records"]. Tolerates
+        None / empty / missing fields.
+
+    Returns at most 1 + 5 Findings:
+      - 1 headline summarising us_count + uk_count
+      - up to 5 individual case rows with citation URL inline
+    """
+    if not court_records_block or not isinstance(court_records_block, dict):
+        return []
+    hits = court_records_block.get("hits") or []
+    # Defensive: upstream contract says list[dict] but tolerate garbage
+    if not isinstance(hits, list):
+        return []
+    severity_label = (court_records_block.get("severity") or "NONE").upper()
+    if severity_label == "NONE" or not hits:
+        return []
+    us_count = int(court_records_block.get("us_count") or 0)
+    uk_count = int(court_records_block.get("uk_count") or 0)
+    headline_severity = "amber" if severity_label == "ELEVATED" else "info"
+    out: list[Finding] = []
+
+    # Headline row
+    summary = court_records_block.get("summary") or (
+        f"Litigation history: {us_count} US case(s), {uk_count} UK/BAILII case(s)."
+    )
+    out.append(Finding(
+        severity=headline_severity,
+        title=f"Litigation history: {us_count} US · {uk_count} UK case(s)",
+        detail=(
+            summary
+            + " VERIFY each case is the same entity (court records are "
+            "Tier-1a authoritative but fuzzy-name matches require human "
+            "disambiguation against the registered legal name)."
+        ),
+        source=(
+            "dd_layer_extensions.run_court_records_check "
+            "[from https://www.courtlistener.com + https://www.bailii.org]"
+        ),
+        confidence="PROBABLE",
+    ))
+
+    # Per-case rows — cap at 5 (the extension dict already enforces this
+    # but defending the helper too).
+    for hit in hits[:5]:
+        if not isinstance(hit, dict):
+            continue
+        title = (hit.get("title") or "").strip() or "Untitled case"
+        court = (hit.get("court") or "").strip() or "?"
+        date = (hit.get("date") or "").strip() or "?"
+        citation_url = (hit.get("citation_url") or "").strip()
+        snippet = (hit.get("snippet") or "").strip()
+        jurisdiction = (hit.get("jurisdiction") or "?").strip()
+        source_name = (hit.get("source") or "court_records").strip()
+        # Federal-court detection — narrowed from run_court_records_check
+        # to avoid false-firing on "New York Supreme Court" (which is a
+        # state trial court). Federal cases always carry one of the
+        # specific federal-jurisdiction markers below.
+        federal_kw = ("U.S.", "S.D.", "E.D.", "N.D.", "W.D.", "D.C.",
+                      "Cir.", "Federal", "U.S. Supreme")
+        is_federal = any(k in court for k in federal_kw)
+        # Severity escalates for federal court hits
+        case_severity = "amber" if (severity_label == "ELEVATED" and is_federal) else "info"
+
+        detail_bits = [f"Court: {court}", f"Date: {date}"]
+        if snippet:
+            detail_bits.append(f"Snippet: {snippet[:240]}")
+        if citation_url:
+            detail_bits.append(f"URL: {citation_url}")
+        out.append(Finding(
+            severity=case_severity,
+            title=f"Litigation [{jurisdiction}] {title[:120]}",
+            detail=" · ".join(detail_bits),
+            source=(
+                f"{source_name} [from {citation_url}]"
+                if citation_url else source_name
+            ),
+            confidence="PROBABLE",
+        ))
+
+    return out
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
@@ -5300,6 +5410,22 @@ async def orchestrate_dd(
                     _dlx_result.get("ran"),
                     _dlx_result.get("skipped"),
                     _dlx_result.get("max_severity"),
+                )
+            # ── R-F600 — Promote court-record hits to compliance Findings ──
+            # The extension wrapper stores litigation hits inside
+            # by_module["court_records"]["hits"] but never surfaces them
+            # as Finding rows. This block turns each hit into an
+            # auditable row on report.compliance.findings so a client
+            # reading the DD report sees "Smith v. ABC Corp · 2024-03-15
+            # · S.D.N.Y." as first-class evidence.
+            try:
+                _cr_block = (_dlx_result.get("by_module") or {}).get("court_records")
+                for _cr_f in _emit_court_record_findings(_cr_block):
+                    report.compliance.findings.append(_cr_f)
+            except Exception as _cr_err:
+                logger.debug(
+                    "[dd_orchestrator] R-F600 court-record Finding emission failed (non-fatal): %s",
+                    _cr_err,
                 )
         except asyncio.TimeoutError:
             logger.warning("[dd_orchestrator] R-F584-F587 extension bundle timed out (non-fatal)")
