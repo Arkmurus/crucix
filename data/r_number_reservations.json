@@ -221,9 +221,10 @@
       "title": "SEC filer-name match tighten (mirror R-F569 gate pattern)",
       "claimed_at": "2026-05-16T12:13:08Z",
       "claimed_by": "claude-session-B-2026-05-16",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": "From MVP fire-test: Rosoboronexport→E.ON SE, Acme Widgets→CME GROUP INC, Aselsan→ASHLAND INC. Same fuzzy-too-loose pattern as R-F569 in sec_edgar.lookup. Apply name-overlap gate + threshold bump."
+      "status": "shipped",
+      "commit_sha": "209ea4e",
+      "notes": "From MVP fire-test: Rosoboronexport→E.ON SE, Acme Widgets→CME GROUP INC, Aselsan→ASHLAND INC. Same fuzzy-too-loose pattern as R-F569 in sec_edgar.lookup. Apply name-overlap gate + threshold bump.",
+      "shipped_at": "2026-05-16T12:18:51Z"
     },
     {
       "r_number": "R-F573",

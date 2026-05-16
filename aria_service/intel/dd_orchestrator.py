@@ -4143,9 +4143,40 @@ async def _assemble_bluf(report: ARKDDReport) -> None:
 
 async def _persist_report(report: ARKDDReport) -> None:
     """Store the finished report in Redis + append a summary signal to
-    the intel_ledger + write a notebook entry to mem0 (async, non-blocking)."""
+    the intel_ledger + write a notebook entry to mem0 (async, non-blocking).
+
+    R-F573 (2026-05-16) — DD case file. Before persisting, compute the
+    canonical_entity_id, resolve the version chain (looking up existing
+    runs with the same canonical_id in the index), fetch the previous
+    report if this is v2+, and attach a version_diff section. The three
+    versioning fields (canonical_entity_id, version_number,
+    previous_run_id) are added to the index entry so the
+    /api/aria/dd/case/{canonical_entity_id} endpoint can fold N runs
+    into a single case file.
+    """
     try:
         from . import redis_store as rs
+        from . import dd_versioning as _ver
+
+        # R-F573: compute canonical entity ID + resolve version chain
+        # before writing. Failure to compute the canonical_id is non-
+        # fatal — we just persist as v1 / unkeyed (existing behaviour).
+        canonical_id = None
+        version_number = 1
+        previous_run_id = None
+        version_diff = None
+        existing_index: list[dict] = []
+        try:
+            canonical_id = _ver.canonical_entity_id_from_report(report)
+            existing_index = await rs.get_json(REPORT_INDEX_KEY) or []
+            if canonical_id:
+                version_number, previous_run_id = _ver.resolve_version_chain(
+                    canonical_id, existing_index,
+                )
+        except Exception as _ver_err:
+            logger.debug("dd_orchestrator: version resolve failed: %s", _ver_err)
+            existing_index = []
+
         # Persist the full serialised report plus a pre-rendered markdown
         # copy. training_export.dd_reports reads `rendered` for the
         # fine-tune capture payload — without it the collector always
@@ -4157,13 +4188,40 @@ async def _persist_report(report: ARKDDReport) -> None:
             _body["rendered"] = report.render_markdown(concise=False)
         except Exception as _rm_err:
             logger.debug("render_markdown failed during persist: %s", _rm_err)
+
+        # R-F573: inject versioning fields onto the persisted body so
+        # /api/aria/dd/report/{run_id} surfaces the chain.
+        _body["canonical_entity_id"] = canonical_id
+        _body["version_number"] = version_number
+        _body["previous_run_id"] = previous_run_id
+
+        # R-F573: when this is a re-run (version_number > 1), load the
+        # previous report and compute a finding-level diff. Best-effort
+        # — if the previous report has aged out of the 7-day TTL or
+        # otherwise can't be fetched, we still persist with diff=None.
+        if version_number > 1 and previous_run_id:
+            try:
+                previous_body = await rs.get_json(
+                    REPORT_REDIS_KEY.format(run_id=previous_run_id),
+                )
+                version_diff = _ver.compute_version_diff(
+                    previous_report=previous_body,
+                    current_report=_body,
+                )
+                _body["version_diff"] = version_diff
+            except Exception as _diff_err:
+                logger.debug("dd_orchestrator: version diff failed: %s", _diff_err)
+                _body["version_diff"] = None
+        else:
+            _body["version_diff"] = None
+
         await rs.set_json(
             REPORT_REDIS_KEY.format(run_id=report.run_id),
             _body,
             ex=REPORT_TTL_SECONDS,
         )
         try:
-            index = await rs.get_json(REPORT_INDEX_KEY) or []
+            index = existing_index  # already loaded above for version resolution
             index.insert(0, {
                 "run_id": report.run_id,
                 "generated_at": report.generated_at,
@@ -4179,6 +4237,11 @@ async def _persist_report(report: ARKDDReport) -> None:
                 "risk": report.risk_classification,
                 "risk_classification": report.risk_classification,
                 "created_at": report.generated_at,
+                # R-F573: case-file fields. Nullable so pre-R-F573
+                # entries still load cleanly.
+                "canonical_entity_id": canonical_id,
+                "version_number": version_number,
+                "previous_run_id": previous_run_id,
             })
             index = index[:500]
             await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
@@ -5722,6 +5785,52 @@ async def get_watchlist() -> list[dict]:
 async def get_report(run_id: str) -> dict | None:
     from . import redis_store as rs
     return await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))
+
+
+async def get_case_file(
+    canonical_entity_id: str,
+    *,
+    include_reports: bool = False,
+) -> dict:
+    """R-F573 — return the full version chain for one DD case file.
+
+    Reads the report index, filters by canonical_entity_id, sorts
+    newest-first. When include_reports=True also fetches each run's
+    body from Redis — costlier, used by the dashboard's "case file
+    detail" view.
+    """
+    from . import redis_store as rs
+    from . import dd_versioning as _ver
+
+    index = await rs.get_json(REPORT_INDEX_KEY) or []
+    versions = _ver.filter_index_by_canonical_id(canonical_entity_id, index)
+    out: dict = {
+        "canonical_entity_id": canonical_entity_id,
+        "total_versions": len(versions),
+        "versions": [
+            {
+                "run_id": v.get("run_id"),
+                "version_number": v.get("version_number"),
+                "generated_at": v.get("generated_at"),
+                "risk_classification": v.get("risk_classification"),
+                "previous_run_id": v.get("previous_run_id"),
+                "entity_name": v.get("entity_name"),
+                "jurisdiction": v.get("jurisdiction"),
+            }
+            for v in versions
+        ],
+    }
+    if include_reports:
+        bodies: list[dict] = []
+        for v in versions:
+            rid = v.get("run_id")
+            if not rid:
+                continue
+            body = await rs.get_json(REPORT_REDIS_KEY.format(run_id=rid))
+            if body:
+                bodies.append(body)
+        out["reports"] = bodies
+    return out
 
 
 async def list_reports(limit: int = 50) -> list[dict]:

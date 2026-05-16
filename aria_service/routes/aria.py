@@ -425,6 +425,41 @@ async def dd_reports_index_ep(limit: int = 50):
     return {"reports": await dd_orchestrator.list_reports(limit=limit)}
 
 
+@router.get("/dd/case/{canonical_entity_id:path}")
+async def dd_case_ep(canonical_entity_id: str, include_reports: bool = False):
+    """R-F573 (2026-05-16) — return the full version chain for a single
+    DD case file. canonical_entity_id is the deterministic key
+    (`company:BR:0768900200018-89`, `person:johnsmith:GB:1972`, …)
+    computed by dd_versioning.canonical_entity_id().
+
+    Response:
+      {
+        "canonical_entity_id": "company:BR:0768900200018-89",
+        "total_versions": 3,
+        "versions": [
+          {"run_id": "dd_...", "version_number": 3, "generated_at": ...,
+           "risk_classification": "AMBER", "previous_run_id": "dd_..."},
+          {"run_id": "dd_...", "version_number": 2, ...},
+          {"run_id": "dd_...", "version_number": 1, ...}
+        ],
+        "reports": [<full body>, ...]   # only if include_reports=true
+      }
+
+    The path is `:path`-typed so colon-separated keys
+    (`person:johnsmith:GB:1972`) survive URL routing without encoding.
+    """
+    from ..intel import dd_orchestrator
+    chain = await dd_orchestrator.get_case_file(
+        canonical_entity_id, include_reports=include_reports,
+    )
+    if not chain or not chain.get("total_versions"):
+        raise HTTPException(
+            status_code=404,
+            detail=f"no DD case file found for canonical_entity_id={canonical_entity_id}",
+        )
+    return chain
+
+
 @router.delete("/dd/report/{run_id}")
 async def dd_report_delete_ep(run_id: str):
     """R-F162 (2026-05-11): drop a single DD report + its index entry.
