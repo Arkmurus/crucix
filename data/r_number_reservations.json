@@ -564,9 +564,9 @@
       "claimed_at": "2026-05-16T18:27:33Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "8e8f6da",
       "notes": null,
-      "shipped_at": "2026-05-16T18:35:23Z"
+      "shipped_at": "2026-05-16T18:36:09Z"
     },
     {
       "r_number": "R-F607",

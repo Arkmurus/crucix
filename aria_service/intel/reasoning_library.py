@@ -1033,6 +1033,57 @@ async def purge_by_keywords(
     }
 
 
+# ── R-F605 — Purge known capability-hallucination cases ──────────────
+#
+# Past incident 2026-05-16 18:45 + 19:19: the operator asked the same
+# capability-overview question three times in a row. ARIA's first
+# answer was a cloud-LLM response with hallucinated numbers ("34
+# autonomous tasks", "48/49 sources OK", "Officeholder Verification
+# 18-month TTL", "5,000–10,000 verified facts"). That answer was
+# absorbed into the reasoning_library via the pay-once-remember-forever
+# pattern. Subsequent identical questions hit the library cache
+# (footer: "used 3x") and re-emitted the SAME hallucinated content
+# even after R-F593/F594/F595 shipped.
+#
+# R-F599 stops NEW capability questions from hitting the cache. This
+# function removes the EXISTING poisoned entries so they cannot
+# resurface via semantically-adjacent queries that R-F599's regex
+# might miss.
+#
+# Needles below are EXACT substrings from the observed bad responses.
+# Adding a needle is a one-line change.
+_CAPABILITY_HALLUCINATION_NEEDLES: tuple[str, ...] = (
+    # Numeric inventions (the R-F594 surface)
+    "34 autonomous tasks",
+    "48/49 sources",
+    "18-month ttl",
+    "5,000-10,000 verified facts",
+    "5,000–10,000 verified facts",  # en-dash variant
+    # Capability denials (the R-F604 surface)
+    "no uk ofsi direct access",
+    "i cannot query ofsi",
+    "no outbound email capability",
+    "no corporate registry direct adapters",
+    # Fabricated component names (the 2026-04-24 OpenClaw class)
+    "openclaw",
+    "arkmurus gateway",
+)
+
+
+async def purge_capability_hallucinations(*, dry_run: bool = False) -> dict:
+    """R-F605: remove cached responses containing the 2026-05-16
+    capability-overview hallucinations + the 2026-04-24 OpenClaw
+    fabrications. Wraps `purge_by_keywords` with a curated needle list.
+
+    Returns the same shape as purge_by_keywords:
+        {scanned, removed, dry_run, keywords_used, removed_samples}
+    """
+    return await purge_by_keywords(
+        list(_CAPABILITY_HALLUCINATION_NEEDLES),
+        dry_run=dry_run,
+    )
+
+
 # ── Public API: outcome feedback ────────────────────────────────────────────
 
 async def record_outcome(case_id: str, positive: bool) -> dict:
