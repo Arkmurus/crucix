@@ -1,0 +1,25 @@
+#!/bin/sh
+# R-F559 pre-push hook.
+#
+# Install via: python scripts/install_git_hooks.py
+# Or manually: git config core.hooksPath scripts/git-hooks
+#
+# Skip via: git push --no-verify   (use only when explicitly authorised)
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Detect available Python interpreter — prefer repo venv.
+if [ -x "$REPO_ROOT/.venv/Scripts/python.exe" ]; then
+    PY="$REPO_ROOT/.venv/Scripts/python.exe"
+elif [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+    PY="$REPO_ROOT/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    PY=python3
+else
+    PY=python
+fi
+
+echo "[R-F559 pre-push] running verifier via $PY"
+"$PY" "$REPO_ROOT/scripts/verify_commit.py" --fast

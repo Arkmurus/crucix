@@ -15732,6 +15732,41 @@ async def health_live_ep():
     return {"status": "alive", "build_rev": _build_rev}
 
 
+@router.get("/learning/cost-free/preview")
+async def learning_cost_free_preview_ep():
+    """R-F562 (2026-05-16): preview the four cost-free self-learning
+    loops (mastery decay, mistake replay, cross-source corroborate,
+    Q/A distill). Read-only — never writes. Used by the dashboard and
+    by an autonomous task to surface what would change if writes were
+    enabled. See `aria_service/intel/cost_free_learning.py`."""
+    from ..intel import cost_free_learning as _cfl
+    return await _cfl.run_preview()
+
+
+@router.get("/operator-pending")
+async def operator_pending_ep():
+    """R-F561 (2026-05-16): single panel listing every outstanding
+    operator-action item (env var unset, API top-up, manual UI click)
+    with live status. Replaces hand-grepping memory files at session
+    start. Dashboard renders this directly."""
+    from ..intel import operator_pending as _op
+    return _op.build_status()
+
+
+@router.get("/health/error-streak")
+async def health_error_streak_ep():
+    """R-F560 (2026-05-16): Phase A exit-gate #3 counter.
+
+    Gate text: "0 fly ERROR logs in last 7 days". This endpoint computes
+    consecutive_clean_days from the in-ledger ERROR/CRITICAL events
+    (populated by error_log_handler) and returns gate_pass:bool +
+    last_error + 24h/7d windowed totals. Dashboard panel reads here so
+    the gate is observable from the UI, not by hand-grepping fly logs.
+    See `memory/platform_buildout_north_star.md`."""
+    from ..intel import error_streak as _es
+    return await _es.compute_error_streak()
+
+
 @router.get("/read-document/stats")
 async def read_document_stats_ep():
     """R-F473 (2026-05-14): in-process latency stats for /read-document.
@@ -16775,10 +16810,16 @@ async def chat_audit_verify_ep(sample: int = 100):
 
 @router.get("/stream-guards/stats")
 async def stream_guards_stats_ep():
-    """Observation-only stats for the 5 output guards on the streaming
-    chat path. /chat/stream bypasses all guards (they run only in /chat);
-    this surface shows the violation rate so the rewrite-UX scope can be
-    set against real numbers. See memory/stream_bypass_pattern.md."""
+    """Stream-guard violation stats.
+
+    R-F557 (2026-05-16): comment update — R-F448 (2026-05-13) wired
+    `stream_honesty.apply_stream_honesty` into the /chat/stream
+    generator so the 7-guard chain now REWRITES the response and emits
+    a correction banner chunk before the confidence footer. The
+    observer (this endpoint's source) remains for the rolling 24h
+    baseline + pre-R-F448 historical comparison, but it is no longer
+    the only enforcement surface. See `memory/stream_bypass_pattern.md`
+    (updated R-F557)."""
     from ..intel import stream_guard_observer as sgo
     return await sgo.get_stats()
 
@@ -16790,8 +16831,10 @@ async def stream_guards_stats_ep():
 #   - R-F401 self_claim_guard (post-response scan for invented TTLs,
 #     "I will forget", "overwrites older", fuzzy counts) — fires from
 #     confidence_footer chain.
-#   - 5 stream guards (officeholder / commitment / tool_claim /
-#     propaganda / ground_truth) — fire from stream_guard_observer.
+#   - 7 stream guards (officeholder / citation_injector /
+#     response_verifier / commitment / tool_claim / propaganda /
+#     ground_truth) — observer stats here; live rewrite via R-F448
+#     `stream_honesty.apply_stream_honesty` in the SSE generator.
 #
 # Single endpoint so the dashboard panel can render both side-by-side
 # without two roundtrips.

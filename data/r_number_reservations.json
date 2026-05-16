@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
+  "next_available": 566,
+  "reservations": [
+    {
+      "r_number": "R-F540",
+      "title": "R-number reservation log itself",
+      "claimed_at": "2026-05-16T00:00:00Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Foundational — every subsequent reservation writes here."
+    },
+    {
+      "r_number": "R-F551",
+      "title": "docs/R_NUMBERS.md narrative complement to R-F540 registry",
+      "claimed_at": "2026-05-16T09:00:00Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Human-readable index pointing at this JSON as canonical. Started as standalone reservation log; yielded that role to R-F540."
+    },
+    {
+      "r_number": "R-F552",
+      "title": "Portals honesty — _subStatus so 49/49 OK doesn't mask 4/28 coverage",
+      "claimed_at": "2026-05-16T09:10:00Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Phase A honesty fix. Mirrors R-F34 _subStatus contract."
+    },
+    {
+      "r_number": "R-F553",
+      "title": "AfDB error swallowing — fix enrichFetchError precedence",
+      "claimed_at": "2026-05-16T09:15:00Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "[AfDB] Error: Error → real message. err.name='Error' demoted below err.message."
+    },
+    {
+      "r_number": "R-F554",
+      "title": "Lusophone proxy-attempt log — distinguish 200(empty)/200(0-items)/200 healthy",
+      "claimed_at": "2026-05-16T09:25:00Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Exported proxyAttemptTag() with unit tests."
+    },
+    {
+      "r_number": "R-F563",
+      "title": "Comtrade IMF DOTS — ENOTFOUND-aware circuit (intra+cross-sweep)",
+      "claimed_at": "2026-05-16T09:35:00Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Renamed from R-F555 to avoid collision with R-F540 registry claim."
+    },
+    {
+      "r_number": "R-F564",
+      "title": "Throttle escalating cooldown (5/10/20/40-min cap) for DefenseNews",
+      "claimed_at": "2026-05-16T09:50:00Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Renamed from R-F556 to avoid collision."
+    },
+    {
+      "r_number": "R-F565",
+      "title": "ARIA sweep-ingest diagnostic enrichment (host+payload+elapsed)",
+      "claimed_at": "2026-05-16T10:00:00Z",
+      "claimed_by": "claude-session-B-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Renamed from R-F557 (collided with stream-guard-audit claim)."
+    },
+    {
+      "r_number": "R-F555",
+      "title": "MEMORY.md hard-trim (35KB → <24.4KB)",
+      "claimed_at": "2026-05-16T00:00:00Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Index entries condensed to ≤120 chars."
+    },
+    {
+      "r_number": "R-F556",
+      "title": "Repo CLAUDE.md (binding session-start rules)",
+      "claimed_at": "2026-05-16T00:00:00Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Phase A gates + R-number discipline + verify-after-fix + native-only + infinite-memory."
+    },
+    {
+      "r_number": "R-F557",
+      "title": "Stream guard wiring audit + observation→rewrite if needed",
+      "claimed_at": "2026-05-16T00:00:00Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Resolve agent-disagreement on R-F448 wiring state."
+    },
+    {
+      "r_number": "R-F558",
+      "title": "Constitution clauses 27-35 structural review",
+      "claimed_at": "2026-05-16T00:00:00Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Collapse where R-F534 covers structurally; adversarial regression mandatory."
+    },
+    {
+      "r_number": "R-F559",
+      "title": "Verify-after-fix automation hook",
+      "claimed_at": "2026-05-16T00:00:00Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "settings.json hook OR scripts/verify_commit.sh wrapper."
+    },
+    {
+      "r_number": "R-F560",
+      "title": "/health/error-streak endpoint (Phase A gate #3)",
+      "claimed_at": "2026-05-16T00:00:00Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Counter for consecutive fly-ERROR-free days."
+    },
+    {
+      "r_number": "R-F561",
+      "title": "Operator-pending dashboard panel",
+      "claimed_at": "2026-05-16T00:00:00Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Live env-var + manual-action status on /aria-brain."
+    },
+    {
+      "r_number": "R-F562",
+      "title": "Cost-free self-learning module",
+      "claimed_at": "2026-05-16T00:00:00Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": "Six deterministic learning loops: QA-extract, mistake-replay, cross-source-corroborate, calibration-outcome, mastery-decay, self-distill."
+    }
+  ]
+}
