@@ -373,6 +373,102 @@ async def deploy_improvement(improvement_id: str) -> dict:
     }
 
 
+# ── R-F574 (2026-05-16) — discard staged improvements ─────────────────
+#
+# Pre-R-F574: amendments_queue had /reject + /reject-bulk, but staged
+# improvements (the next step in the pipeline after amendment approval)
+# had no reject endpoint. Operator-approved amendments that turned out
+# to be duplicates (e.g. 039bf8be P_BANKING_1, an R-F558-covered rule)
+# accumulated in STAGED_KEY with no clean exit path — they had to be
+# either deployed (bloats constitution) or left to silently TTL-expire
+# after 7 days. R-F574 closes that gap: explicit operator rejection
+# moves the entry to a long-lived DISCARDED_KEY for audit, removes it
+# from STAGED_KEY, never modifies the live file.
+#
+# Mirrors the adversarial_amendments_reject pattern at routes/aria.py:15355.
+
+DISCARDED_KEY = "crucix:aria:discarded_improvements"
+
+
+async def discard_improvement(
+    improvement_id: str,
+    reason: str,
+) -> dict:
+    """Reject a staged improvement without deploying it.
+
+    Moves the entry from STAGED_KEY → DISCARDED_KEY with operator
+    rejection timestamp + reason. The live file is never touched.
+    Idempotent against already-discarded entries (returns ok=False
+    with explanation rather than crashing).
+
+    Body shape on success:
+        {
+            "ok": True,
+            "improvement_id": "...",
+            "discarded_at": "ISO timestamp",
+            "queue_depth_now": int,
+            "discarded_count": int,
+        }
+    """
+    if not improvement_id or not improvement_id.strip():
+        return {"ok": False, "error": "improvement_id required"}
+    if not reason or not reason.strip():
+        return {"ok": False, "error": "reason required — operator must note why the improvement is rejected"}
+
+    staged = await rs.get_json(STAGED_KEY) or []
+    target_idx = -1
+    for i, s in enumerate(staged):
+        if not isinstance(s, dict):
+            continue
+        if s.get("id") == improvement_id and s.get("status") == "staged":
+            target_idx = i
+            break
+
+    if target_idx < 0:
+        return {
+            "ok": False,
+            "error": f"no staged improvement found for id={improvement_id} "
+                     f"(may already be deployed, rolled-back, or discarded)",
+        }
+
+    target = staged.pop(target_idx)
+    target["status"] = "discarded"
+    target["discarded_at"] = time.time()
+    target["discard_reason"] = reason.strip()[:500]
+
+    # Persist updated STAGED_KEY (without the discarded entry).
+    await rs.set_json(STAGED_KEY, staged, ex=7 * 86400)
+
+    # Append to DISCARDED_KEY for audit trail. Keep last 500 entries
+    # with 365-day TTL — long enough that operators can retrace
+    # historical decisions during audit/post-mortem reviews.
+    discarded = await rs.get_json(DISCARDED_KEY) or []
+    discarded.insert(0, target)
+    await rs.set_json(DISCARDED_KEY, discarded[:500], ex=365 * 86400)
+
+    await _log_improvement("discarded", target)
+
+    logger.info(
+        "[R-F574] discarded staged improvement %s (reason=%s)",
+        improvement_id, reason.strip()[:120],
+    )
+    return {
+        "ok": True,
+        "improvement_id": improvement_id,
+        "discarded_at": target["discarded_at"],
+        "queue_depth_now": sum(1 for s in staged if isinstance(s, dict) and s.get("status") == "staged"),
+        "discarded_count": len(discarded),
+    }
+
+
+async def list_discarded_improvements(limit: int = 100) -> list[dict]:
+    """Return the most recent discarded improvements for dashboard /
+    operator-pending panel display. Useful when an operator wants to
+    review their own past rejections or surface patterns."""
+    discarded = await rs.get_json(DISCARDED_KEY) or []
+    return discarded[:limit]
+
+
 async def rollback_improvement(improvement_id: str) -> dict:
     """Rollback a deployed improvement."""
     staged = await rs.get_json(STAGED_KEY) or []

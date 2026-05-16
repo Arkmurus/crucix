@@ -9659,6 +9659,48 @@ async def self_rollback_ep(improvement_id: str):
     return await self_improve.rollback_improvement(improvement_id)
 
 
+# R-F574 (2026-05-16) — operator-rejection for staged improvements.
+# Pre-R-F574 the only exits from STAGED_KEY were deploy (live ARIA
+# constitution change) or TTL-expire. R-F574 adds an explicit
+# rejection path with operator reason + 365-day audit trail. Closes
+# the 039bf8be (P_BANKING_1, duplicate of Clause 27/R-F534) class of
+# staged-but-shouldn't-deploy entries.
+@router.post("/self/improvements/{improvement_id}/discard")
+async def self_improvement_discard_ep(improvement_id: str, request: Request):
+    """Discard a staged improvement with an operator reason.
+
+    Body: {"reason": "<operator note>"}
+
+    Returns:
+        {"ok": true, "improvement_id": ..., "discarded_at": ts,
+         "queue_depth_now": N, "discarded_count": N}
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body must be JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(
+            status_code=400,
+            detail="reason required — operator must note why the improvement is rejected",
+        )
+    result = await self_improve.discard_improvement(improvement_id, reason)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("error") or "discard failed")
+    return result
+
+
+@router.get("/self/improvements/discarded")
+async def self_improvements_discarded_ep(limit: int = 100):
+    """List recently-discarded improvements for audit / dashboard
+    panel. Read-only. Capped at 500 entries by underlying store."""
+    items = await self_improve.list_discarded_improvements(limit=limit)
+    return {"count": len(items), "items": items}
+
+
 # 41. POST /api/aria/self/evolve-prompt — Evolve system prompt
 @router.post("/self/evolve-prompt")
 async def self_evolve_prompt_ep(request: Request):
