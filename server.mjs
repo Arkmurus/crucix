@@ -2321,12 +2321,57 @@ app.get('/api/aria/dd/watchlist/alerts/unread-count', requireAuth, (req, res) =>
 app.post('/api/aria/dd/watchlist/alerts/read', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/dd/watchlist/alerts/read', { method: 'POST', fallback: async () => res.status(503).json(_brainFallback()) }));
 // R-F52 DD report library
-app.get('/api/aria/dd/reports', requireAuth, (req, res) =>
-  ariaProxy(req, res, `/api/aria/dd/reports${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
+//
+// R-F607 (2026-05-16) — DD reports per-user scoping. Pre-R-F607 every
+// authenticated user got the global Redis index (any user could read any
+// other user's DD runs). The proxy now appends `user_id` from the JWT
+// to the upstream URL so the Python list_reports filters to "your own
+// runs only". The Python endpoint also accepts `user_email_domain` for
+// R-F608 same-company visibility — wired here via findUserById lookup
+// so the JWT-only payload doesn't have to carry email.
+app.get('/api/aria/dd/reports', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  let userEmailDomain = '';
+  try {
+    const u = findUserById(userId);
+    const e = String(u?.email || '').toLowerCase().trim();
+    if (e.includes('@')) userEmailDomain = e.split('@', 2)[1] || '';
+  } catch {}
+  const existingQs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+  const params = new URLSearchParams(existingQs);
+  // Pin user_id to the JWT-resolved value — never trust whatever the
+  // client put on the URL.
+  params.set('user_id', userId);
+  if (userEmailDomain) params.set('user_email_domain', userEmailDomain);
+  return ariaProxy(req, res, `/api/aria/dd/reports?${params.toString()}`, {
+    fallback: async () => res.status(503).json(_brainFallback()),
+  });
+});
 app.get('/api/aria/dd/report/:run_id', requireAuth, (req, res) =>
   ariaProxy(req, res, `/api/aria/dd/report/${encodeURIComponent(req.params.run_id)}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, { fallback: async () => res.status(503).json(_brainFallback()) }));
-app.post('/api/aria/dd/orchestrate', requireAuth, (req, res) =>
-  ariaProxy(req, res, '/api/aria/dd/orchestrate', { method: 'POST', timeoutMs: parseInt(process.env.ARIA_DD_PROXY_TIMEOUT_MS || '600000', 10), fallback: async () => res.status(503).json(_brainFallback()) }));
+// R-F607 (2026-05-16) — stamp originating user identity onto the
+// orchestrate request body so the persisted report carries `user_id`
+// (and user_email + derived domain for R-F608 same-company sharing).
+// Pinning to the JWT-resolved values means the client can't forge
+// these on the wire.
+app.post('/api/aria/dd/orchestrate', requireAuth, (req, res) => {
+  const userId = req.user?.userId || '';
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
+  let userEmail = '';
+  try {
+    const u = findUserById(userId);
+    userEmail = String(u?.email || '').trim();
+  } catch {}
+  req.body = req.body || {};
+  req.body.user_id = userId;
+  if (userEmail) req.body.user_email = userEmail;
+  return ariaProxy(req, res, '/api/aria/dd/orchestrate', {
+    method: 'POST',
+    timeoutMs: parseInt(process.env.ARIA_DD_PROXY_TIMEOUT_MS || '600000', 10),
+    fallback: async () => res.status(503).json(_brainFallback()),
+  });
+});
 app.get('/api/aria/rlaif/stats', requireAuth, (req, res) =>
   ariaProxy(req, res, '/api/aria/rlaif/stats', { fallback: async () => res.status(503).json(_brainFallback()) }));
 app.post('/api/aria/rlaif/evaluate', requireAuth, (req, res) =>

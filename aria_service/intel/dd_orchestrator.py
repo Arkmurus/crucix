@@ -4407,6 +4407,12 @@ async def _persist_report(report: ARKDDReport) -> None:
                 "canonical_entity_id": canonical_id,
                 "version_number": version_number,
                 "previous_run_id": previous_run_id,
+                # R-F607 (2026-05-16): per-user scoping fields. Nullable
+                # for back-compat — pre-R-F607 entries persist with None
+                # and are hidden from user-filtered list_reports calls.
+                "user_id": getattr(report, "user_id", None),
+                "user_email_lower": getattr(report, "user_email_lower", None),
+                "user_email_domain": getattr(report, "user_email_domain", None),
             }
             index.insert(0, new_entry)
             index = index[:500]
@@ -4705,6 +4711,8 @@ async def orchestrate_dd(
     mode: str = "standard",
     cost_cap_usd: float | None = None,
     trace_id: str | None = None,
+    user_id: str | None = None,
+    user_email: str | None = None,
 ) -> ARKDDReport:
     """Run the 7-layer DD orchestrator on a target entity.
 
@@ -5728,6 +5736,22 @@ async def orchestrate_dd(
         except Exception as _ce:
             logger.debug("[dd_orchestrator] cost backfill failed: %s", _ce)
 
+    # ── R-F607 (2026-05-16) — stamp originating user identity on the
+    # report before persist so list_reports() can filter to "your own
+    # runs" and so R-F608's company-shared visibility can OR-match on
+    # email domain. All three fields are best-effort: if the caller
+    # didn't supply them (autonomous loops, internal admin calls) they
+    # stay None and the entry becomes admin-only in the user-filtered
+    # list path.
+    if user_id:
+        report.user_id = user_id
+    if user_email:
+        _norm = (user_email or "").strip().lower()
+        if _norm:
+            report.user_email_lower = _norm
+            if "@" in _norm:
+                report.user_email_domain = _norm.split("@", 1)[1] or None
+
     # ── Persist + deliver ──
     await _persist_report(report)
 
@@ -6082,14 +6106,33 @@ async def get_case_file(
     return out
 
 
-async def list_reports(limit: int = 50) -> list[dict]:
+async def list_reports(
+    limit: int = 50,
+    *,
+    user_id: str | None = None,
+    user_email_domain: str | None = None,
+) -> list[dict]:
     """Return the report index, opportunistically repairing entries whose
     stored entity_name fails the current validator. R-F162 (2026-05-11)
     extends R-F153: when an index entry has a bad name (e.g. the live
     2026-05-10 12:39 'this company, which has nothing to do' case), try
     to derive a usable name from the stored target_input.website / url
     on the full report blob. If repair succeeds the index entry AND the
-    report blob's identity.entity_name are both updated in place."""
+    report blob's identity.entity_name are both updated in place.
+
+    R-F607 (2026-05-16) — per-user scoping. When ``user_id`` is passed,
+    only entries whose stored ``user_id`` matches are returned. Pre-R-F607
+    entries (user_id=None) are intentionally hidden from user-filtered
+    lists — only the admin / no-filter branch (user_id=None) sees them.
+
+    R-F608 (2026-05-16) — company-shared visibility. When
+    ``user_email_domain`` is ALSO passed alongside user_id, entries are
+    returned if EITHER the entry's user_id matches OR the entry's
+    user_email_domain matches AND the entry hasn't opted out of company
+    sharing. Domain-only matching means colleagues @arkmurus.com see
+    each other's runs without the requester having to know specific
+    user_ids.
+    """
     from . import redis_store as rs
     index = await rs.get_json(REPORT_INDEX_KEY) or []
     if not index:
@@ -6242,6 +6285,38 @@ async def list_reports(limit: int = 50) -> list[dict]:
             await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
         except Exception as e:
             logger.debug("R-F162 index repair write failed: %s", e)
+
+    # R-F607 / R-F608 — apply user-scoped filter AFTER repair/backfill so
+    # admin-side rewrites still happen unconditionally. The filter only
+    # narrows what we hand back to the requester; the persisted index
+    # always contains the full set so admin / autonomous paths can still
+    # see everything.
+    if user_id is not None or user_email_domain is not None:
+        filtered: list[dict] = []
+        _norm_domain = (user_email_domain or "").strip().lower() or None
+        for entry in index:
+            if not isinstance(entry, dict):
+                continue
+            entry_user = entry.get("user_id") or None
+            entry_domain = (entry.get("user_email_domain") or "").strip().lower() or None
+            # Owner match (R-F607)
+            if user_id and entry_user and entry_user == user_id:
+                filtered.append(entry)
+                continue
+            # Same-company match (R-F608) — respect explicit opt-out by
+            # honouring share_to_company=False when present. Default
+            # (missing key) is shared, matching the operator requirement
+            # that DD is company-visible by default for users on the
+            # same email domain.
+            if (
+                _norm_domain
+                and entry_domain
+                and entry_domain == _norm_domain
+                and entry.get("share_to_company", True) is not False
+            ):
+                filtered.append(entry)
+                continue
+        return filtered[:limit]
 
     return index[:limit]
 

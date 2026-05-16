@@ -367,6 +367,14 @@ async def dd_orchestrate_ep(req: Request):
         source="dd_orchestrator",
     )
 
+    # R-F607 (2026-05-16): forward the originating user's identity into
+    # the orchestrator so the persisted report carries `user_id` (and the
+    # R-F608 `user_email_domain` for company-shared visibility). The Node
+    # proxy pins these to JWT-resolved values, so the body fields can be
+    # trusted at this layer.
+    _req_user_id = (body.get("user_id") or "").strip() or None
+    _req_user_email = (body.get("user_email") or "").strip() or None
+
     try:
         from ..intel import dd_orchestrator
         report = await dd_orchestrator.orchestrate_dd(
@@ -374,6 +382,8 @@ async def dd_orchestrate_ep(req: Request):
             llm=llm,
             mode=mode,
             trace_id=trace_id,
+            user_id=_req_user_id,
+            user_email=_req_user_email,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -420,9 +430,29 @@ async def dd_report_ep(run_id: str, format: str = "json"):
 
 
 @router.get("/dd/reports")
-async def dd_reports_index_ep(limit: int = 50):
+async def dd_reports_index_ep(
+    limit: int = 50,
+    user_id: str = "",
+    user_email_domain: str = "",
+):
+    """List recent DD runs.
+
+    R-F607 / R-F608 (2026-05-16): when `user_id` is provided, only that
+    user's own runs are returned. When `user_email_domain` is provided
+    too, runs from other users on the same email domain are also
+    included (unless they explicitly opted out via share_to_company).
+    Pre-R-F607 entries (user_id=None on the index row) are hidden from
+    user-filtered lists — admin / autonomous paths leave both filters
+    empty to see everything.
+    """
     from ..intel import dd_orchestrator
-    return {"reports": await dd_orchestrator.list_reports(limit=limit)}
+    return {
+        "reports": await dd_orchestrator.list_reports(
+            limit=limit,
+            user_id=user_id or None,
+            user_email_domain=user_email_domain or None,
+        )
+    }
 
 
 @router.post("/dd/case/{canonical_entity_id:path}/split")

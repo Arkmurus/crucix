@@ -429,6 +429,21 @@ class ARKDDReport:
     previous_run_id: Optional[str] = None
     version_diff: Optional[dict] = None
 
+    # ── R-F607 (2026-05-16) — per-user scoping ───────────────────────────
+    # The DD report index used to be globally readable: every authenticated
+    # user calling /api/aria/dd/reports got the full Redis index, including
+    # reports run by other operators. R-F607 stamps the originating user's
+    # identity onto the report at orchestrate time so list_reports can
+    # filter to "your own runs only" by default. Email-domain shoulders
+    # the R-F608 company-shared follow-up (members of the same company
+    # email domain see each other's runs). All three fields are
+    # nullable for back-compat — pre-R-F607 entries persist with None
+    # and are excluded from user-filtered lists (admin-only path can
+    # still see them via the no-filter branch).
+    user_id: Optional[str] = None
+    user_email_lower: Optional[str] = None
+    user_email_domain: Optional[str] = None
+
     # ── Serialisation helpers ────────────────────────────────────────────
 
     def as_dict(self) -> dict:
