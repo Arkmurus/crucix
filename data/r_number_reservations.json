@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 603,
+  "next_available": 610,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -530,6 +530,69 @@
       "commit_sha": "9e67366",
       "notes": null,
       "shipped_at": "2026-05-16T18:17:53Z"
+    },
+    {
+      "r_number": "R-F603",
+      "title": "TOOL INVENTORY enumeration in system prompt",
+      "claimed_at": "2026-05-16T18:23:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F604",
+      "title": "self-capability-denial guard",
+      "claimed_at": "2026-05-16T18:23:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F605",
+      "title": "purge poisoned reasoning_library capability cache",
+      "claimed_at": "2026-05-16T18:23:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F606",
+      "title": "ARIA chat conversation ownership check",
+      "claimed_at": "2026-05-16T18:27:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F607",
+      "title": "DD reports per-user scoping",
+      "claimed_at": "2026-05-16T18:27:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F608",
+      "title": "DD reports company-shared scoping (email_domain)",
+      "claimed_at": "2026-05-16T18:27:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F609",
+      "title": "auth hardening bundle (reset timing-safe + login rate-limit + post-reset email)",
+      "claimed_at": "2026-05-16T18:27:45Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
