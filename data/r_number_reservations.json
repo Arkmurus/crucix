@@ -605,9 +605,10 @@
       "title": "DD Layer — maritime / AIS dark-voyage Findings rows",
       "claimed_at": "2026-05-16T22:50:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8fc9212",
+      "notes": null,
+      "shipped_at": "2026-05-16T22:54:17Z"
     }
   ]
 }
