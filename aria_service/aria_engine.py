@@ -2989,6 +2989,26 @@ async def _aria_chat_impl(
     except Exception as _sig_err:
         logger.debug("self_introspect guard failed (non-fatal): %s", _sig_err)
 
+    # R-F615 (2026-05-17): response-mode directive. Classify the user
+    # message into DIALOGUE / REPORT / COMMAND and prepend a one-block
+    # mode hint so the LLM knows what response shape to use. DIALOGUE
+    # drops BLUF for conversational replies; REPORT preserves the
+    # existing format; COMMAND keeps tool-dispatch terse. Phase 1 of
+    # the spec-v2.1 dialogue overhaul. Constitution clauses still bind
+    # in every mode.
+    try:
+        from .intel import dialogue_router as _dr
+        _has_tool_block = "[TOOL:" in (message or "")
+        _intent = _dr.classify_dialogue_intent(
+            message, has_tool_block=_has_tool_block,
+        )
+        _mode_block = _dr.build_response_mode_block(_intent)
+        # Prepend as the FIRST line so the LLM sees it before any guard
+        # or intel layer. Mode directive is the response-shape anchor.
+        context = _mode_block + "\n\n" + (context or "")
+    except Exception as _dr_err:
+        logger.debug("dialogue_router mode-block failed (non-fatal): %s", _dr_err)
+
     # Detect language and add hint
     lang_hint = _detect_language_hint(message)
 
@@ -3564,6 +3584,20 @@ async def _aria_chat_stream_impl(
             context = _introspect_block + "\n\n" + (context or "")
     except Exception as _sig_err:
         logger.debug("self_introspect guard failed (non-fatal): %s", _sig_err)
+
+    # R-F615 (2026-05-17): response-mode directive — mirrored into the
+    # stream path per CLAUDE.md §13 stream-bypass rule. See the
+    # equivalent block in _aria_chat_impl for full context.
+    try:
+        from .intel import dialogue_router as _dr
+        _has_tool_block_s = "[TOOL:" in (message or "")
+        _intent_s = _dr.classify_dialogue_intent(
+            message, has_tool_block=_has_tool_block_s,
+        )
+        _mode_block_s = _dr.build_response_mode_block(_intent_s)
+        context = _mode_block_s + "\n\n" + (context or "")
+    except Exception as _dr_err:
+        logger.debug("dialogue_router mode-block failed (non-fatal): %s", _dr_err)
 
     lang_hint = _detect_language_hint(message)
 

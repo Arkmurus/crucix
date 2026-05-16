@@ -170,6 +170,74 @@ def classify_dialogue_intent(
     return DialogueIntent.DIALOGUE
 
 
+# ── R-F615 — Response-mode block for prompt injection ─────────────────
+#
+# Once the classifier has resolved the intent, aria_engine prepends
+# this block to the LLM context so the model knows what response
+# format to use. Three shapes:
+#
+#   DIALOGUE — conversational, ≤200 words, no BLUF
+#   REPORT   — preserve current BLUF + section-header style
+#   COMMAND  — terse tool-dispatch confirmation, structured
+#
+# Constitution clauses still bind in EVERY mode — DIALOGUE doesn't
+# relax honesty discipline, confidence tagging, or self-capability
+# denial guards.
+
+_DIALOGUE_BLOCK = (
+    "[ARIA RESPONSE MODE: DIALOGUE]\n"
+    "Conversational turn. Drop BLUF banners, section headers, emoji "
+    "anchors, and visual separators. Reply in ≤200 words, plain prose. "
+    "Match the user's tone — short answer to a short question, full "
+    "thought to a substantive one.\n"
+    "You MAY end with ONE short clarifying question OR observation if "
+    "it advances a deal goal — but only when there's a genuine gap. "
+    "Otherwise just answer.\n"
+    "All Constitution clauses still bind: epistemic honesty, confidence "
+    "tags, no fabrication (Clause 14), no self-capability denial "
+    "(R-F604), no architectural self-claims without /health/perf "
+    "(Clause 25)."
+)
+
+_REPORT_BLOCK = (
+    "[ARIA RESPONSE MODE: REPORT]\n"
+    "Structured briefing requested. Use the standard format: BLUF "
+    "banner first (one-sentence verdict prefixed with 🟢/🟡/🔴/🔵), "
+    "section headers with emoji anchors, blank lines between sections, "
+    "visual separators on long replies. See RESPONSE STYLE section "
+    "above for the full discipline."
+)
+
+_COMMAND_BLOCK = (
+    "[ARIA RESPONSE MODE: COMMAND]\n"
+    "Tool dispatch / imperative. Reply terse and structured: which "
+    "tool, what target, what result (or 'running, ETA Xm'), what next "
+    "step. No BLUF banner unless the verdict IS the only output. If "
+    "the tool fired in this turn, cite its output inline per Clause 15."
+)
+
+
+def build_response_mode_block(intent: DialogueIntent) -> str:
+    """Return the mode-directive block to prepend to the LLM context.
+
+    Pure function. Cheap. No I/O.
+
+    Args:
+        intent: from classify_dialogue_intent().
+
+    Returns:
+        Multi-line string starting with `[ARIA RESPONSE MODE: ...]`.
+    """
+    if intent == DialogueIntent.DIALOGUE:
+        return _DIALOGUE_BLOCK
+    if intent == DialogueIntent.REPORT:
+        return _REPORT_BLOCK
+    if intent == DialogueIntent.COMMAND:
+        return _COMMAND_BLOCK
+    # Defensive fallback — DIALOGUE is the safest default
+    return _DIALOGUE_BLOCK
+
+
 # ── Public surface helpers for diagnostics ──────────────────────────
 
 

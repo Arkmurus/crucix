@@ -645,9 +645,10 @@
       "title": "dialogue-act response classifier (DIALOGUE/REPORT/COMMAND)",
       "claimed_at": "2026-05-16T23:21:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4654e91",
+      "notes": null,
+      "shipped_at": "2026-05-16T23:25:11Z"
     },
     {
       "r_number": "R-F615",
