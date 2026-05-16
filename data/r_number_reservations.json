@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 566,
+  "next_available": 569,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -155,6 +155,36 @@
       "commit_sha": "3f93f3c",
       "notes": "Six deterministic learning loops: QA-extract, mistake-replay, cross-source-corroborate, calibration-outcome, mastery-decay, self-distill.",
       "shipped_at": "2026-05-16T09:31:21Z"
+    },
+    {
+      "r_number": "R-F566",
+      "title": "Constitution-amendment dedupe gate — string-similarity refuse before clause-write",
+      "claimed_at": "2026-05-16T11:09:54Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "shipped",
+      "commit_sha": "d877ba7",
+      "notes": null,
+      "shipped_at": "2026-05-16T11:30:32Z"
+    },
+    {
+      "r_number": "R-F567",
+      "title": "Wire cost_free_learning as hourly autonomous task (dry-run)",
+      "claimed_at": "2026-05-16T11:09:54Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "shipped",
+      "commit_sha": "d877ba7",
+      "notes": null,
+      "shipped_at": "2026-05-16T11:30:33Z"
+    },
+    {
+      "r_number": "R-F568",
+      "title": "deploy-fly.yml CI verify-step debug + fix",
+      "claimed_at": "2026-05-16T11:09:54Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "shipped",
+      "commit_sha": "d877ba7",
+      "notes": null,
+      "shipped_at": "2026-05-16T11:30:33Z"
     }
   ]
 }
