@@ -908,6 +908,109 @@ def _emit_court_record_findings(court_records_block: Any) -> list[Finding]:
     return out
 
 
+# ── R-F610 — Formalised maritime AIS dark-voyage Findings ─────────────
+#
+# ais_gap_detector (R-F587) already runs inside dd_layer_extensions.
+# run_ais_gap_check when the target carries `ais_positions` /
+# `vessel_positions` — but the result (vessel_id + total_gaps +
+# longest_gap_h + score + signals + severity) sits inside
+# report.extensions["by_module"]["ais_gap_detector"] and never
+# becomes a Finding row on report.compliance. Same pattern R-F600
+# fixed for court records.
+#
+# This pure helper turns the AIS analysis into auditable Findings
+# so dark-voyage indicators surface as first-class evidence in
+# compliance alongside FATF (R-F601) + shell-co (R-F602) +
+# litigation (R-F600).
+#
+# Severity:
+#   ELEVATED (score ≥50 or any critical gap) → amber headline + amber signals
+#   LOW (score 15..49)                       → info everything
+#   NONE / no vessel data                    → []
+#
+# Confidence: PROBABLE. AIS gaps are factual (positions either exist
+# or don't), but interpretation requires human assessment of context
+# (legitimate maintenance vs sanctions-evasion). Bypasses the R-5005
+# CONFIRMED→ASSESSED gate path.
+def _emit_ais_findings(ais_block: Any) -> list[Finding]:
+    """Pure helper: ais_gap_detector extension result → list of Findings.
+
+    Inputs: dict from dd_layer_extensions.run_ais_gap_check(...) or
+        its slot in by_module["ais_gap_detector"]. Tolerates None /
+        empty / missing fields.
+
+    Returns at most 1 + 5 Findings:
+      - 1 headline: total_gaps + longest_gap_h + score
+      - up to 5 individual signal rows
+    """
+    if not ais_block or not isinstance(ais_block, dict):
+        return []
+    severity_label = (ais_block.get("severity") or "NONE").upper()
+    if severity_label == "NONE":
+        return []
+    signals_raw = ais_block.get("signals") or []
+    if not isinstance(signals_raw, list):
+        signals_raw = []
+    headline_severity = "amber" if severity_label == "ELEVATED" else "info"
+    vessel_id = ais_block.get("vessel_id") or "(unspecified)"
+    total_gaps = int(ais_block.get("total_gaps") or 0)
+    longest_gap_h = ais_block.get("longest_gap_h") or 0
+    score = int(ais_block.get("score") or 0)
+
+    out: list[Finding] = []
+
+    # Headline row
+    out.append(Finding(
+        severity=headline_severity,
+        title=(
+            f"Maritime AIS [vessel={vessel_id}]: {total_gaps} gap(s), "
+            f"longest {longest_gap_h}h, score {score}/100"
+        ),
+        detail=(
+            f"AIS-gap analysis flagged {total_gaps} transponder gap(s); "
+            f"longest gap {longest_gap_h}h; suspicion score {score}/100. "
+            "AIS-off periods can indicate legitimate operations (port "
+            "stay, antenna failure) OR sanctions-evasion / illicit "
+            "trade. VERIFY by cross-referencing port-call records and "
+            "AIS-on resumption coordinates against declared voyage."
+        ),
+        source=(
+            "ais_gap_detector.detect_gaps (R-F587) "
+            "[from vessel AIS positions in target]"
+        ),
+        confidence="PROBABLE",
+    ))
+
+    # Per-signal rows — cap at 5
+    for sig in signals_raw[:5]:
+        if not isinstance(sig, str) or not sig.strip():
+            continue
+        sig_lower = sig.lower()
+        # Severity escalates for critical-tagged signals
+        is_critical = (
+            "critical" in sig_lower
+            or "dark" in sig_lower
+            or "anomal" in sig_lower
+        )
+        sig_severity = (
+            "amber" if (severity_label == "ELEVATED" and is_critical)
+            else "info"
+        )
+        out.append(Finding(
+            severity=sig_severity,
+            title=f"AIS signal: {sig[:120]}",
+            detail=(
+                f"Signal flagged by ais_gap_detector for vessel "
+                f"{vessel_id}. Treat as indicator, not verdict — "
+                "operator must contextualise."
+            ),
+            source="ais_gap_detector.detect_gaps (R-F587)",
+            confidence="PROBABLE",
+        ))
+
+    return out
+
+
 async def _run_identity(
     target: dict,
     report: ARKDDReport,
@@ -5426,6 +5529,20 @@ async def orchestrate_dd(
                 logger.debug(
                     "[dd_orchestrator] R-F600 court-record Finding emission failed (non-fatal): %s",
                     _cr_err,
+                )
+            # ── R-F610 — Promote AIS dark-voyage signals to Findings ──
+            # ais_gap_detector (R-F587) already produces a structured
+            # block when vessel positions are supplied. Surface the
+            # signals as Findings so maritime DD on a counterparty's
+            # vessels shows dark-voyage evidence in the report.
+            try:
+                _ais_block = (_dlx_result.get("by_module") or {}).get("ais_gap_detector")
+                for _ais_f in _emit_ais_findings(_ais_block):
+                    report.compliance.findings.append(_ais_f)
+            except Exception as _ais_err:
+                logger.debug(
+                    "[dd_orchestrator] R-F610 AIS Finding emission failed (non-fatal): %s",
+                    _ais_err,
                 )
         except asyncio.TimeoutError:
             logger.warning("[dd_orchestrator] R-F584-F587 extension bundle timed out (non-fatal)")
