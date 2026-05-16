@@ -425,6 +425,69 @@ async def dd_reports_index_ep(limit: int = 50):
     return {"reports": await dd_orchestrator.list_reports(limit=limit)}
 
 
+@router.post("/dd/case/{canonical_entity_id:path}/split")
+async def dd_case_split_ep(canonical_entity_id: str, req: Request):
+    """R-F575 (2026-05-16) — operator override: extract a subset of
+    runs from a canonical case file into a new sibling.
+
+    Use when the auto-canonicalisation wrongly collapsed two different
+    entities (e.g. two distinct John Smiths landing on the same
+    `person:john_smith:GB:????` key).
+
+    Body: {"run_ids": [str, ...], "suffix": str (optional)}
+    """
+    body = await req.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="JSON object required")
+    run_ids = body.get("run_ids") or body.get("run_ids_to_extract")
+    if not isinstance(run_ids, list) or not run_ids:
+        raise HTTPException(status_code=400, detail="run_ids: non-empty list required")
+    from ..intel import dd_orchestrator
+    try:
+        return await dd_orchestrator.split_case(
+            canonical_entity_id, run_ids,
+            new_canonical_id_suffix=body.get("suffix"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/dd/case/merge")
+async def dd_case_merge_ep(req: Request):
+    """R-F575 (2026-05-16) — operator override: merge one case file
+    into another, reparenting every run.
+
+    Use when the auto-canonicalisation wrongly forked the same entity
+    across cosmetic variations the normaliser missed (or across
+    jurisdictions for global brands).
+
+    Body: {"from": str, "into": str}
+    """
+    body = await req.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="JSON object required")
+    from_cid = body.get("from") or body.get("from_canonical_id")
+    into_cid = body.get("into") or body.get("into_canonical_id")
+    if not from_cid or not into_cid:
+        raise HTTPException(
+            status_code=400,
+            detail="both 'from' and 'into' canonical_entity_id required",
+        )
+    from ..intel import dd_orchestrator
+    try:
+        return await dd_orchestrator.merge_cases(from_cid, into_cid)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/dd/case-archive/stats")
+async def dd_case_archive_stats_ep():
+    """R-F575 (2026-05-16) — diagnostic: SQLite cold-tier stats
+    (row count, oldest/newest archive timestamps, retention window)."""
+    from ..intel import dd_case_archive
+    return dd_case_archive.stats()
+
+
 @router.get("/dd/case/{canonical_entity_id:path}")
 async def dd_case_ep(canonical_entity_id: str, include_reports: bool = False):
     """R-F573 (2026-05-16) — return the full version chain for a single

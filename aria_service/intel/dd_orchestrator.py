@@ -4222,7 +4222,7 @@ async def _persist_report(report: ARKDDReport) -> None:
         )
         try:
             index = existing_index  # already loaded above for version resolution
-            index.insert(0, {
+            new_entry = {
                 "run_id": report.run_id,
                 "generated_at": report.generated_at,
                 # Mirror entity name + jurisdiction into the columns the
@@ -4242,9 +4242,18 @@ async def _persist_report(report: ARKDDReport) -> None:
                 "canonical_entity_id": canonical_id,
                 "version_number": version_number,
                 "previous_run_id": previous_run_id,
-            })
+            }
+            index.insert(0, new_entry)
             index = index[:500]
             await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
+            # R-F575: mirror into the SQLite cold tier so the case-file
+            # chain survives the 7-day Redis TTL. Best-effort — failure
+            # is non-fatal (Redis is authoritative for the next 7 days).
+            try:
+                from . import dd_case_archive
+                dd_case_archive.archive_entry(new_entry)
+            except Exception as _arc_err:
+                logger.debug("dd_orchestrator: cold-tier archive failed: %s", _arc_err)
         except Exception as e:
             logger.debug("dd_orchestrator: report index write failed: %s", e)
     except Exception as e:
@@ -5794,19 +5803,45 @@ async def get_case_file(
 ) -> dict:
     """R-F573 — return the full version chain for one DD case file.
 
-    Reads the report index, filters by canonical_entity_id, sorts
-    newest-first. When include_reports=True also fetches each run's
-    body from Redis — costlier, used by the dashboard's "case file
-    detail" view.
+    Reads the report index from Redis, merges with the R-F575 SQLite
+    cold-tier archive (so entries older than the 7-day Redis TTL still
+    appear), filters by canonical_entity_id, sorts newest-first.
+
+    When include_reports=True also fetches each run's body from Redis
+    — costlier, used by the dashboard's "case file detail" view.
+    Archived-only runs that no longer have a body in Redis return
+    `body_archived=true` instead.
     """
     from . import redis_store as rs
     from . import dd_versioning as _ver
+    from . import dd_case_archive
 
+    # 1. Hot tier (Redis) — current 7-day index
     index = await rs.get_json(REPORT_INDEX_KEY) or []
-    versions = _ver.filter_index_by_canonical_id(canonical_entity_id, index)
+    redis_versions = _ver.filter_index_by_canonical_id(canonical_entity_id, index)
+    # 2. Cold tier (SQLite) — up to 90 days
+    archived_versions = dd_case_archive.lookup_by_canonical_id(canonical_entity_id)
+    # 3. Merge — dedupe by run_id, prefer Redis entry (newer metadata)
+    seen_run_ids: set[str] = set()
+    merged: list[dict] = []
+    for v in redis_versions:
+        rid = v.get("run_id")
+        if rid and rid not in seen_run_ids:
+            seen_run_ids.add(rid)
+            merged.append({**v, "_source_tier": "redis"})
+    for v in archived_versions:
+        rid = v.get("run_id")
+        if rid and rid not in seen_run_ids:
+            seen_run_ids.add(rid)
+            merged.append({**v, "_source_tier": "sqlite_archive"})
+    # 4. Sort newest-first across the merged set
+    merged.sort(key=lambda e: e.get("generated_at") or "", reverse=True)
+
     out: dict = {
         "canonical_entity_id": canonical_entity_id,
-        "total_versions": len(versions),
+        "total_versions": len(merged),
+        "redis_versions": len(redis_versions),
+        "archived_versions": len(archived_versions),
         "versions": [
             {
                 "run_id": v.get("run_id"),
@@ -5816,19 +5851,30 @@ async def get_case_file(
                 "previous_run_id": v.get("previous_run_id"),
                 "entity_name": v.get("entity_name"),
                 "jurisdiction": v.get("jurisdiction"),
+                "source_tier": v.get("_source_tier"),
             }
-            for v in versions
+            for v in merged
         ],
     }
     if include_reports:
         bodies: list[dict] = []
-        for v in versions:
+        for v in merged:
             rid = v.get("run_id")
             if not rid:
                 continue
             body = await rs.get_json(REPORT_REDIS_KEY.format(run_id=rid))
             if body:
                 bodies.append(body)
+            else:
+                bodies.append({
+                    "run_id": rid,
+                    "body_archived": True,
+                    "note": (
+                        "Report body aged out of Redis 7-day TTL; index "
+                        "entry preserved in R-F575 SQLite cold tier. "
+                        "Re-run DD on this entity to regenerate a fresh body."
+                    ),
+                })
         out["reports"] = bodies
     return out
 
@@ -5927,6 +5973,67 @@ async def list_reports(limit: int = 50) -> list[dict]:
             except Exception as e:
                 logger.debug("R-F162 blob mirror write failed: %s", e)
 
+    # R-F575 (2026-05-16) — opportunistic canonical_entity_id backfill
+    # for pre-R-F573 index entries. We compute the key from the stored
+    # entity_name + jurisdiction + entity_type and write it back so the
+    # /api/aria/dd/case/{canonical_entity_id} chain self-heals on read.
+    # Cheap (in-memory only) when most entries are already populated.
+    try:
+        from . import dd_versioning as _ver
+        from . import dd_case_archive as _arc
+    except Exception:
+        _ver = None
+        _arc = None
+    if _ver is not None:
+        for i, entry in enumerate(index[:limit]):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("canonical_entity_id"):
+                continue
+            ent_name = (entry.get("entity_name") or "").strip()
+            if not ent_name:
+                continue
+            # Pull entity_type + jurisdiction_iso2 + registration_number
+            # from the full report body — the index entry doesn't carry
+            # those columns historically.
+            run_id = entry.get("run_id")
+            try:
+                blob = (await rs.get_json(REPORT_REDIS_KEY.format(run_id=run_id))) or {}
+            except Exception:
+                blob = {}
+            ident = (blob.get("identity") or {}) if isinstance(blob, dict) else {}
+            cid = _ver.canonical_entity_id(
+                entity_type=ident.get("entity_type") or "company",
+                name=ent_name,
+                jurisdiction_iso2=(ident.get("jurisdiction_iso2") or "").strip() or None,
+                registration_number=ident.get("registration_number") or None,
+                imo=ident.get("imo_number") or None,
+                dob=ident.get("date_of_birth") or None,
+                nationality_iso2=ident.get("nationality_iso2") or None,
+            )
+            if not cid:
+                continue
+            entry["canonical_entity_id"] = cid
+            entry["_backfilled_by"] = "R-F575_list_reports_backfill"
+            # Also write the body so /dd/report/{run_id} sees the field.
+            if isinstance(blob, dict):
+                blob.setdefault("canonical_entity_id", cid)
+                try:
+                    await rs.set_json(
+                        REPORT_REDIS_KEY.format(run_id=run_id), blob,
+                        ex=REPORT_TTL_SECONDS,
+                    )
+                except Exception:
+                    pass
+            index[i] = entry
+            _changed = True
+            # Mirror to cold tier so old entries also enter the case-file index
+            if _arc is not None:
+                try:
+                    _arc.archive_entry(entry)
+                except Exception:
+                    pass
+
     if _changed:
         try:
             await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
@@ -5934,6 +6041,165 @@ async def list_reports(limit: int = 50) -> list[dict]:
             logger.debug("R-F162 index repair write failed: %s", e)
 
     return index[:limit]
+
+
+# =============================================================================
+# R-F575 — CASE-FILE SPLIT / MERGE OPERATOR OVERRIDES
+# =============================================================================
+
+async def split_case(
+    canonical_entity_id: str,
+    run_ids_to_extract: list[str],
+    *,
+    new_canonical_id_suffix: str | None = None,
+) -> dict:
+    """Extract a subset of runs from one canonical_entity_id into a new
+    sibling case file.
+
+    Use when the auto-canonicalisation wrongly collapsed two different
+    entities (e.g. two distinct John Smiths land on
+    `person:john_smith:GB:????`).
+
+    Args:
+      canonical_entity_id: the existing case file containing the runs.
+      run_ids_to_extract: which runs to peel off into a new case file.
+      new_canonical_id_suffix: optional override; if None we append
+          ":split:<timestamp>" to keep the new key human-readable.
+
+    Returns:
+      {moved: int, from: str, to: str, run_ids: [str, ...]}
+    """
+    from . import redis_store as rs
+    from . import dd_case_archive
+
+    if not canonical_entity_id or not run_ids_to_extract:
+        raise ValueError("canonical_entity_id and run_ids_to_extract are required")
+
+    suffix = new_canonical_id_suffix or f"split:{int(datetime.now(timezone.utc).timestamp())}"
+    new_canonical = f"{canonical_entity_id}:{suffix}"
+
+    index = await rs.get_json(REPORT_INDEX_KEY) or []
+    moved_run_ids: list[str] = []
+    for i, entry in enumerate(index):
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("canonical_entity_id") != canonical_entity_id:
+            continue
+        if entry.get("run_id") not in run_ids_to_extract:
+            continue
+        entry["canonical_entity_id"] = new_canonical
+        entry["_split_from"] = canonical_entity_id
+        entry["_split_at"] = datetime.now(timezone.utc).isoformat()
+        index[i] = entry
+        moved_run_ids.append(entry["run_id"])
+        # Mirror to cold tier
+        try:
+            dd_case_archive.update_canonical_id(entry["run_id"], new_canonical)
+        except Exception as e:
+            logger.debug("split_case cold-tier update failed: %s", e)
+        # Mirror to report body
+        try:
+            blob = await rs.get_json(REPORT_REDIS_KEY.format(run_id=entry["run_id"]))
+            if isinstance(blob, dict):
+                blob["canonical_entity_id"] = new_canonical
+                blob["_split_from"] = canonical_entity_id
+                await rs.set_json(
+                    REPORT_REDIS_KEY.format(run_id=entry["run_id"]),
+                    blob,
+                    ex=REPORT_TTL_SECONDS,
+                )
+        except Exception as e:
+            logger.debug("split_case body mirror failed: %s", e)
+
+    if not moved_run_ids:
+        return {
+            "moved": 0,
+            "from": canonical_entity_id,
+            "to": new_canonical,
+            "run_ids": [],
+            "warning": "no matching runs found",
+        }
+
+    try:
+        await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
+    except Exception as e:
+        logger.debug("split_case index write failed: %s", e)
+
+    return {
+        "moved": len(moved_run_ids),
+        "from": canonical_entity_id,
+        "to": new_canonical,
+        "run_ids": moved_run_ids,
+    }
+
+
+async def merge_cases(
+    from_canonical_id: str,
+    into_canonical_id: str,
+) -> dict:
+    """Reparent every run currently under from_canonical_id into
+    into_canonical_id.
+
+    Use when the auto-canonicalisation wrongly forked the same entity
+    across spellings/jurisdictions/registration numbers.
+    """
+    from . import redis_store as rs
+    from . import dd_case_archive
+
+    if not from_canonical_id or not into_canonical_id:
+        raise ValueError("from_canonical_id and into_canonical_id are required")
+    if from_canonical_id == into_canonical_id:
+        return {"moved": 0, "from": from_canonical_id, "into": into_canonical_id,
+                "warning": "same canonical id — no-op"}
+
+    index = await rs.get_json(REPORT_INDEX_KEY) or []
+    moved_run_ids: list[str] = []
+    for i, entry in enumerate(index):
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("canonical_entity_id") != from_canonical_id:
+            continue
+        entry["canonical_entity_id"] = into_canonical_id
+        entry["_merged_from"] = from_canonical_id
+        entry["_merged_at"] = datetime.now(timezone.utc).isoformat()
+        index[i] = entry
+        moved_run_ids.append(entry["run_id"])
+        try:
+            dd_case_archive.update_canonical_id(entry["run_id"], into_canonical_id)
+        except Exception as e:
+            logger.debug("merge_cases cold-tier update failed: %s", e)
+        try:
+            blob = await rs.get_json(REPORT_REDIS_KEY.format(run_id=entry["run_id"]))
+            if isinstance(blob, dict):
+                blob["canonical_entity_id"] = into_canonical_id
+                blob["_merged_from"] = from_canonical_id
+                await rs.set_json(
+                    REPORT_REDIS_KEY.format(run_id=entry["run_id"]),
+                    blob,
+                    ex=REPORT_TTL_SECONDS,
+                )
+        except Exception as e:
+            logger.debug("merge_cases body mirror failed: %s", e)
+
+    if not moved_run_ids:
+        return {
+            "moved": 0,
+            "from": from_canonical_id,
+            "into": into_canonical_id,
+            "warning": "no matching runs found",
+        }
+
+    try:
+        await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
+    except Exception as e:
+        logger.debug("merge_cases index write failed: %s", e)
+
+    return {
+        "moved": len(moved_run_ids),
+        "from": from_canonical_id,
+        "into": into_canonical_id,
+        "run_ids": moved_run_ids,
+    }
 
 
 async def delete_report(run_id: str) -> dict:
