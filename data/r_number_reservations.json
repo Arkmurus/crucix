@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 584,
+  "next_available": 588,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -341,6 +341,42 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": "8 of 9 R-F168 attack-class clauses regressed when R-F558 collapsed 27-35 from 9→3. Adversarial base_score 60.9% → 52.2% post-deploy. Re-add targeted clauses for I1/P_BROKER/P_GOV/P_BANKING/P_COMPLIANCE/P_JOURNALIST attack vectors."
+    },
+    {
+      "r_number": "R-F584",
+      "title": "dd_orchestrator wires court_records into Layer 3 (compliance)",
+      "claimed_at": "2026-05-16T13:11:39Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F585",
+      "title": "dd_orchestrator wires cert_transparency into Layer 8 (counter_intelligence)",
+      "claimed_at": "2026-05-16T13:11:39Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F586",
+      "title": "dd_orchestrator wires eccn_lookup into export-control sub-layer",
+      "claimed_at": "2026-05-16T13:11:40Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F587",
+      "title": "dd_orchestrator wires ais_gap_detector when vessel context detected",
+      "claimed_at": "2026-05-16T13:11:40Z",
+      "claimed_by": "claude-session-2026-05-16",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
