@@ -438,27 +438,30 @@
       "title": "scrub invented architecture numbers from prompt",
       "claimed_at": "2026-05-16T17:12:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ed3b96e",
+      "notes": null,
+      "shipped_at": "2026-05-16T17:38:47Z"
     },
     {
       "r_number": "R-F594",
       "title": "widen R-F401 guard to count-invention patterns",
       "claimed_at": "2026-05-16T17:13:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ed3b96e",
+      "notes": null,
+      "shipped_at": "2026-05-16T17:38:47Z"
     },
     {
       "r_number": "R-F595",
       "title": "force self_introspect on self-capability questions",
       "claimed_at": "2026-05-16T17:13:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ed3b96e",
+      "notes": null,
+      "shipped_at": "2026-05-16T17:38:48Z"
     },
     {
       "r_number": "R-F596",
@@ -474,18 +477,20 @@
       "title": "outbound email bridge (draft-only)",
       "claimed_at": "2026-05-16T17:13:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "f6f73fa",
+      "notes": null,
+      "shipped_at": "2026-05-16T17:38:49Z"
     },
     {
       "r_number": "R-F598",
       "title": "Panama + Bulgaria registry adapters",
       "claimed_at": "2026-05-16T17:13:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3f26d58",
+      "notes": null,
+      "shipped_at": "2026-05-16T17:38:49Z"
     }
   ]
 }
