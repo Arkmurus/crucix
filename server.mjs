@@ -6,7 +6,7 @@ import express from 'express';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { exec } from 'child_process';
+import { exec, execSync } from 'child_process';
 import { createHash } from 'node:crypto';
 import cron from 'node-cron';
 import config from './crucix.config.mjs';
@@ -75,22 +75,53 @@ const ROOT = __dirname;
 const RUNS_DIR = join(ROOT, 'runs');
 const MEMORY_DIR = join(RUNS_DIR, 'memory');
 
-// R-F542 (2026-05-15, renumbered from R-F534 due to collision with the
-// Premise Verifier commit 63f2041): build_rev read from sync.mjs-written
-// build_rev.txt at startup. Pre-R-F542 this was a hand-edited const that
-// drifted ~14 commits (was reporting R-F433 from 2026-05-13 while R-F532
-// was already live), so verify-after-fix was unreliable. The companion
-// sync.mjs hits the GitHub API for the latest commit on main and writes
-// the file at seenode build time; if missing, we fall back to a sentinel
-// that lights up obviously in /api/health so the operator knows the
-// build step didn't run.
-let CRUCIX_BUILD_REV;
-try {
-  CRUCIX_BUILD_REV = readFileSync(join(ROOT, 'build_rev.txt'), 'utf8').trim();
-  if (!CRUCIX_BUILD_REV) throw new Error('empty');
-} catch (_e) {
-  CRUCIX_BUILD_REV = 'UNKNOWN-BUILD · sync.mjs build_rev.txt not written (check seenode build logs)';
+// R-F542/F547/F570/F571 (2026-05-15/16): build_rev resolution chain.
+//
+// Truth-source order at startup:
+//   1. build_rev.txt — written by sync.mjs at seenode build time (cheap)
+//   2. `git rev-parse HEAD` from local checkout at server.mjs startup
+//      (R-F571 fallback — covers the case where seenode skipped sync.mjs
+//      or wrote to a different cwd; build_rev then becomes immune to
+//      build-step fragility)
+//   3. Date-stamp sentinel — last resort
+//
+// History:
+//   - R-F542 introduced build_rev.txt + sync.mjs fetching from
+//     GitHub API.
+//   - R-F547 added date-stamp fallback inside sync.mjs.
+//   - R-F570 removed GitHub-API dep from sync.mjs (local git only).
+//   - R-F571 (2026-05-16): seenode shipped R-F570 but reported
+//     UNKNOWN-BUILD anyway — seenode caching or cwd-drift meant the
+//     build-time write didn't survive to runtime. This makes the
+//     runtime the authoritative computation; sync.mjs becomes
+//     advisory cache.
+function _resolveBuildRev() {
+  // 1. Build-time write (cheap path).
+  try {
+    const fromFile = readFileSync(join(ROOT, 'build_rev.txt'), 'utf8').trim();
+    if (fromFile && !fromFile.startsWith('UNKNOWN-BUILD')) {
+      return fromFile;
+    }
+  } catch (_) { /* fall through */ }
+
+  // 2. R-F571 runtime git fallback. seenode's container has the repo
+  // checked out via its own deploy mechanism, so .git is present at
+  // ROOT in normal operation.
+  try {
+    const opts = { cwd: ROOT, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] };
+    const sha = execSync('git rev-parse --short HEAD', opts).trim();
+    if (!sha) throw new Error('empty sha');
+    const date = execSync('git log -1 --pretty=%cs', opts).trim();
+    const subject = execSync('git log -1 --pretty=%s', opts).trim().slice(0, 200);
+    return `${sha} · ${date} · ${subject} (R-F571 runtime resolve)`;
+  } catch (_) { /* fall through */ }
+
+  // 3. Final sentinel — never bare 'UNKNOWN-BUILD' alone; always carry
+  // a date stamp so the operator can correlate the deploy.
+  return `UNKNOWN-BUILD · ${new Date().toISOString().slice(0, 10)} · build_rev.txt missing AND git unavailable`;
 }
+
+const CRUCIX_BUILD_REV = _resolveBuildRev();
 
 // ── Trivial-question short-circuit ──────────────────────────────────────────
 // Greetings, liveness probes ('are you online?'), identity questions, and
