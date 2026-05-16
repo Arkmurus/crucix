@@ -839,9 +839,10 @@
       "title": "DD orchestrator hook — cultural section for non-UK/US jurisdictions",
       "claimed_at": "2026-05-16T23:36:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1138ed4",
+      "notes": null,
+      "shipped_at": "2026-05-16T23:43:28Z"
     },
     {
       "r_number": "R-F636",

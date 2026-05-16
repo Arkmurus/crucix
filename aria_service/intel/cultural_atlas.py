@@ -637,6 +637,37 @@ def suggest_negotiation_approach(iso2: str) -> str:
     return f"{p.name} negotiation: " + " ".join(parts)
 
 
+def detect_jurisdiction_in_text(text: str) -> Optional[str]:
+    """R-F636: scan a chat message for a seeded jurisdiction reference.
+
+    Returns the FIRST matched ISO2 code, or None. Used by the chat
+    handler to inject a cultural-read block when the user names a
+    counterparty country.
+
+    Matching is deliberately conservative — country name (case-
+    insensitive) or ISO2 surrounded by word boundaries. We do NOT
+    match partial demonyms (e.g. "Saudi" matches but "Saudi Aramco"
+    is detected via "Saudi"; "Korea" intentionally doesn't fire on
+    "Korean War" because of the word-boundary anchor).
+    """
+    if not text or not isinstance(text, str):
+        return None
+    import re as _re
+    text_lc = text.lower()
+    # Prefer name matches (more specific) over ISO2 (could collide with
+    # short tokens like "IT" / "IN").
+    for iso2, profile in _COUNTRIES.items():
+        name_lc = profile.name.lower()
+        if _re.search(rf"\b{_re.escape(name_lc)}\b", text_lc):
+            return iso2
+    # ISO2 fallback — require WORD-BOUNDARY + UPPERCASE in original text
+    # so we don't false-fire on "it" / "in" / "us" in prose.
+    for iso2 in _COUNTRIES.keys():
+        if _re.search(rf"\b{_re.escape(iso2)}\b", text):
+            return iso2
+    return None
+
+
 def pair_compare(a_iso2: str, b_iso2: str) -> dict:
     """Cross-cultural deal helper: highlight the largest deltas between
     two jurisdictions. Returns dict with `gaps` list of (dim, delta_pp,

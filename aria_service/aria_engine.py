@@ -2989,6 +2989,33 @@ async def _aria_chat_impl(
     except Exception as _sig_err:
         logger.debug("self_introspect guard failed (non-fatal): %s", _sig_err)
 
+    # R-F636 (2026-05-17): cultural intelligence inject. When the user
+    # message names a seeded jurisdiction (counterparty country),
+    # prepend the cultural-read block from cultural_atlas (R-F634) so
+    # the LLM frames its response with the right communication +
+    # negotiation context. Skips UK/US (operator's default-familiar
+    # baseline) and any non-seeded jurisdiction (silent — no fabrication).
+    try:
+        from .intel import cultural_atlas as _ca
+        _cult_iso2 = _ca.detect_jurisdiction_in_text(message)
+        if _cult_iso2 and _cult_iso2 not in ("GB", "US"):
+            _cult_chat_block = _ca.render_context_block(_cult_iso2, depth="brief")
+            if _cult_chat_block:
+                context = _cult_chat_block + "\n\n" + (context or "")
+    except Exception as _ca_err:
+        logger.debug("cultural_atlas chat inject failed (non-fatal): %s", _ca_err)
+
+    # R-F636: user_model.touch_active — record the user is engaging
+    # right now. Fire-and-forget, fail-open. Used by R-F619 anti-
+    # repeat + R-F624 autonomous-push routing.
+    try:
+        from .intel import user_model as _um
+        _uid_for_touch = (user_id or session.get("userId") or "").strip()
+        if _uid_for_touch and _uid_for_touch != "anon":
+            await _um.touch_active(_uid_for_touch)
+    except Exception as _um_err:
+        logger.debug("user_model touch_active failed (non-fatal): %s", _um_err)
+
     # R-F615 (2026-05-17): response-mode directive. Classify the user
     # message into DIALOGUE / REPORT / COMMAND and prepend a one-block
     # mode hint so the LLM knows what response shape to use. DIALOGUE
@@ -3584,6 +3611,26 @@ async def _aria_chat_stream_impl(
             context = _introspect_block + "\n\n" + (context or "")
     except Exception as _sig_err:
         logger.debug("self_introspect guard failed (non-fatal): %s", _sig_err)
+
+    # R-F636 (2026-05-17): cultural intelligence inject + user_model
+    # touch — mirrored into the stream path per §13 stream-bypass rule.
+    # See _aria_chat_impl for full context.
+    try:
+        from .intel import cultural_atlas as _ca
+        _cult_iso2_s = _ca.detect_jurisdiction_in_text(message)
+        if _cult_iso2_s and _cult_iso2_s not in ("GB", "US"):
+            _cult_chat_block_s = _ca.render_context_block(_cult_iso2_s, depth="brief")
+            if _cult_chat_block_s:
+                context = _cult_chat_block_s + "\n\n" + (context or "")
+    except Exception as _ca_err_s:
+        logger.debug("cultural_atlas stream inject failed (non-fatal): %s", _ca_err_s)
+    try:
+        from .intel import user_model as _um
+        _uid_for_touch_s = (user_id or "").strip()
+        if _uid_for_touch_s and _uid_for_touch_s != "anon":
+            await _um.touch_active(_uid_for_touch_s)
+    except Exception as _um_err_s:
+        logger.debug("user_model stream touch_active failed (non-fatal): %s", _um_err_s)
 
     # R-F615 (2026-05-17): response-mode directive — mirrored into the
     # stream path per CLAUDE.md §13 stream-bypass rule. See the
