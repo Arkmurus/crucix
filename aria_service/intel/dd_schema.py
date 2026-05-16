@@ -115,6 +115,8 @@ _TIER_1A_SOURCE_PREFIXES: tuple[str, ...] = (
     "courtlistener", "bailii.org",
     # Treaty / multilateral records
     "un.org", "icrc.org", "icj-cij.org",
+    # FATF — international AML standard-setter (Tier-1a, R-F601)
+    "fatf-gafi.org", "risk_indices.fatf",
 )
 
 

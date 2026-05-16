@@ -1863,6 +1863,86 @@ async def _run_network(target: dict, report: ARKDDReport) -> None:
     report.network.meta.duration_ms = int((time.time() - t0) * 1000)
 
 
+# ── R-F601 — Formalised FATF jurisdiction-risk Finding builder ────────────
+#
+# Past observation 2026-05-16: ARIA's self-assessment claimed "no FATF
+# formalised layer". Verified — FATF status WAS loaded at
+# risk_indices.FATF_STATUS_2025_FEB:178 but only surfaced as an embedded
+# "FATF=grey" substring inside a single country-risk detail line, AND
+# only when the overall headline hit RED/HARD_STOP. Grey-list
+# jurisdictions (BG, NG, KE, PH, etc.) never got their own row, so a
+# client reading the DD report didn't see FATF as an explicit signal.
+#
+# This pure helper builds the Finding regardless of overall country
+# headline:
+#   black  → hard_stop  (Call for Action — DPRK / IR / MM)
+#   grey   → amber      (Increased Monitoring)
+#   clear  → None       (silent — clean jurisdiction, no clutter)
+#
+# Pure function: no I/O, no async, deterministic — testable in
+# isolation. Called from _run_compliance.
+def _build_fatf_finding(
+    *,
+    fatf_status: Optional[str],
+    iso2: Optional[str],
+    jurisdiction: Optional[str],
+) -> Optional[Finding]:
+    """Return a Finding for FATF-listed jurisdictions, or None for clear.
+
+    Inputs:
+      fatf_status: 'black' | 'grey' | 'clear' | None — case-insensitive
+      iso2:        ISO-3166-1 alpha-2 country code (display only)
+      jurisdiction: Human-readable country name (display only)
+
+    Source citation follows Clause 15 (inline URL); confidence is
+    CONFIRMED because FATF is a Tier-1a authoritative source (Clause 24
+    — government-publication anchor).
+    """
+    status = (fatf_status or "").lower().strip()
+    if status not in ("black", "grey"):
+        return None
+
+    iso2_disp = iso2 or "?"
+    juris_disp = jurisdiction or iso2_disp
+
+    if status == "black":
+        label = "FATF Call for Action (high-risk jurisdiction)"
+        list_description = "high-risk / Call for Action list"
+        implications = (
+            "TRANSACTIONS BLOCKED by most major banks; "
+            "DSP licence likely refused; reputational risk severe. "
+            "Treat as HARD STOP unless explicit FCDO/OFSI authorisation."
+        )
+        severity = "hard_stop"
+    else:  # grey
+        label = "FATF Increased Monitoring (grey-list)"
+        list_description = "jurisdictions under increased monitoring list"
+        implications = (
+            "Enhanced Due Diligence (EDD) required; "
+            "UK banks apply friction on USD/EUR clearing; "
+            "Tier-1 source for current status must be re-verified."
+        )
+        severity = "amber"
+
+    detail = (
+        f"Jurisdiction {iso2_disp} ({juris_disp}) appears on the FATF "
+        f"{list_description}. Implications for defence broking: {implications} "
+        "Snapshot: risk_indices.FATF_STATUS_2025_FEB (FATF updates 3x/year — "
+        "verify currency against the live page)."
+    )
+
+    return Finding(
+        severity=severity,
+        title=f"FATF status: {status.upper()} — {label}",
+        detail=detail,
+        source=(
+            "risk_indices.FATF_STATUS_2025_FEB "
+            "[from https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html]"
+        ),
+        confidence="CONFIRMED",
+    )
+
+
 async def _run_compliance(target: dict, report: ARKDDReport) -> None:
     """Layer 4 — Compliance. Composes risk_indices + tech_classifier +
     international_law / global_export_control / regional_compliance via
@@ -1887,6 +1967,16 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                     source="risk_indices.get_country_risk",
                     confidence="ASSESSED",
                 ))
+
+            # ── 4a-FATF (R-F601). Formalised FATF status finding. ──
+            _fatf_finding = _build_fatf_finding(
+                fatf_status=risk.fatf_status,
+                iso2=iso2,
+                jurisdiction=report.identity.jurisdiction or iso2,
+            )
+            if _fatf_finding is not None:
+                report.compliance.findings.append(_fatf_finding)
+                report.compliance.meta.subcalls += 1
     except Exception as e:
         logger.warning("Compliance: country risk failed: %s", e)
         report.compliance.data_gaps.append(f"country risk lookup failed: {str(e)[:120]}")
