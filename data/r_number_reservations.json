@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 644,
+  "next_available": 645,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -922,6 +922,16 @@
       "commit_sha": "fe29849",
       "notes": null,
       "shipped_at": "2026-05-17T00:56:15Z"
+    },
+    {
+      "r_number": "R-F644",
+      "title": "WIRE F638-F643 expert-knowledge layer into dd_orchestrator",
+      "claimed_at": "2026-05-17T01:00:46Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "af50fd4",
+      "notes": null,
+      "shipped_at": "2026-05-17T01:00:46Z"
     }
   ]
 }
