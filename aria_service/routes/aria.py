@@ -7478,6 +7478,34 @@ async def chat_ep(req: ChatRequest, request: Request):
         except Exception as e:
             _log.debug("[critique] dispatch failed: %s", e)
 
+        # R-F655 (2026-05-17) — clause 15 pay-once-remember-forever.
+        # Audit 2026-05-17 found chat_ep made paid Anthropic/DeepSeek calls
+        # whose output was returned to the user and then dropped — never fed
+        # to brain_hook → rag → ledger → mastery. Every subsequent equivalent
+        # query had to pay for the LLM again. Fire-and-forget absorb so chat
+        # latency stays flat; brain_hook fans out to all 4 learning tiers
+        # (student mastery, knowledge facts, neural memory, capability gaps).
+        try:
+            from ..intel import brain_hook as _bh655
+            _bh655_final_text = (result.get("response") if isinstance(result, dict) else None) or response_text or ""
+            if _bh655_final_text.strip():
+                import asyncio as _aio655
+                async def _r655_absorb_bg():
+                    try:
+                        await _bh655.absorb(
+                            module="aria_chat",
+                            summary=f"chat turn: {(req.message or '')[:120]}",
+                            detail=_bh655_final_text,
+                            user_id=getattr(req, "user_id", "") or "",
+                            success=True,
+                            confidence="PROBABLE",
+                        )
+                    except Exception as _e:
+                        _log.debug("[R-F655] aria_chat brain_hook absorb failed: %s", _e)
+                _aio655.create_task(_r655_absorb_bg())
+        except Exception as _e:
+            _log.debug("[R-F655] aria_chat brain_hook dispatch failed: %s", _e)
+
         return result
     finally:
         # Always finalise the trace so /trace doesn't show stuck
@@ -7711,6 +7739,31 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                         "R-F412 stream footer build failed (non-fatal): %s",
                         _fe,
                     )
+
+                # R-F655 (2026-05-17) — clause 15 pay-once-remember-forever.
+                # Mirror the non-stream chat_ep absorb so the WA-default path
+                # also feeds learning. _full_text is the post-honesty-pass
+                # body (footer excluded — footer is metadata, not knowledge).
+                # Fire-and-forget so the deferred-done emit isn't blocked.
+                try:
+                    if _full_text and _full_text.strip():
+                        from ..intel import brain_hook as _bh655s
+                        import asyncio as _aio655s
+                        async def _r655_stream_absorb_bg():
+                            try:
+                                await _bh655s.absorb(
+                                    module="aria_chat_stream",
+                                    summary=f"chat-stream turn: {(req.message or '')[:120]}",
+                                    detail=_full_text,
+                                    user_id=user_id or "",
+                                    success=True,
+                                    confidence="PROBABLE",
+                                )
+                            except Exception as _e:
+                                _log.debug("[R-F655] aria_chat_stream brain_hook absorb failed: %s", _e)
+                        _aio655s.create_task(_r655_stream_absorb_bg())
+                except Exception as _e:
+                    _log.debug("[R-F655] aria_chat_stream brain_hook dispatch failed: %s", _e)
 
                 # Finally emit the deferred done event so the client closes
                 # cleanly. If we never got a done event (shouldn't happen),

@@ -110,6 +110,16 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "portuguese_legal_writer":   ["legal", "compliance", "general"],
     # Output guard for Clause 13 — propaganda + uncited current events
     "propaganda_guard":          ["compliance", "general"],
+    # R-F655 (2026-05-17) — clause 15 pay-once-remember-forever: every paid
+    # LLM completion on the chat path feeds the brain. aria_chat (non-stream,
+    # /api/aria/chat) and aria_chat_stream (/api/aria/chat/stream, WhatsApp
+    # default) emit one absorb call per turn, fire-and-forget after all guards
+    # have settled the response_text. Pre-R-F655 audit (2026-05-17) found
+    # zero brain_hook.absorb calls on either path — every paid chat answer
+    # was paid for, served once, and never written back to rag/ledger/mastery.
+    # Broad topic set because chat touches everything the user asks about.
+    "aria_chat":         ["general", "compliance", "osint", "market_intel", "procurement", "geopolitics", "relationships", "legal"],
+    "aria_chat_stream":  ["general", "compliance", "osint", "market_intel", "procurement", "geopolitics", "relationships", "legal"],
     # NAK / SERBAN / F3 learnings (2026-04-17) — six new capabilities closing
     # the gaps observed on the live KNDS / FK-3000 engagement.
     "virtual_office_registry":    ["compliance", "osint", "finance"],
