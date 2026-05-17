@@ -26,10 +26,22 @@ def _run(coro):
 
 
 class TestSeed:
-    def test_seed_has_12_oems_x_5_slots(self):
+    def test_seed_has_n_oems_x_5_slots(self):
+        # R-F665 (2026-05-17): rewritten as an INVARIANT not a fixed
+        # count. Original test asserted 60 (12 OEMs × 5 slots) but seed
+        # grew to 43 OEMs × 5 slots = 215. The original test broke as
+        # soon as seed expansion landed; the actual invariant is that
+        # every tracked OEM has exactly 5 anchor roles. Pin that.
         data = _run(og._load())
-        # 12 OEMs × 5 anchor roles each = 60
-        assert len(data["items"]) == 60
+        oems = og.list_oems()
+        assert len(oems) >= 12, (
+            "OEM seed cannot shrink below the original 12-OEM baseline. "
+            f"Found {len(oems)} — has the seed been gutted?"
+        )
+        assert len(data["items"]) == len(oems) * 5, (
+            f"Anchor-role invariant violated: {len(oems)} OEMs but "
+            f"{len(data['items'])} items (expected {len(oems) * 5} = N×5)."
+        )
 
     def test_all_seed_records_are_placeholders(self):
         data = _run(og._load())
@@ -39,8 +51,10 @@ class TestSeed:
             assert c["confidence"] == "LOW"
             assert c["source"] == "placeholder"
 
-    def test_list_oems_returns_twelve(self):
-        assert len(og.list_oems()) == 12
+    def test_list_oems_returns_at_least_twelve(self):
+        # R-F665: original test asserted exactly 12; seed grew. Floor
+        # is the invariant — additions are fine, removals are not.
+        assert len(og.list_oems()) >= 12
 
 
 class TestMatching:
@@ -103,9 +117,13 @@ class TestAddContact:
 
 class TestEnrichAndBriefing:
     def test_enrich_reports_placeholders(self):
+        # R-F665: dynamic — placeholders_total must match the actual
+        # seed size (N OEMs × 5 anchor roles), placeholders_by_oem
+        # must enumerate every tracked OEM once.
         result = _run(og.enrich_from_linkedin())
-        assert result["placeholders_total"] == 60
-        assert len(result["placeholders_by_oem"]) == 12
+        oem_count = len(og.list_oems())
+        assert result["placeholders_total"] == oem_count * 5
+        assert len(result["placeholders_by_oem"]) == oem_count
 
     def test_briefing_surfaces_coverage_gaps(self):
         text = _run(og.generate_oem_briefing())
@@ -139,9 +157,13 @@ class TestChatContext:
 
 class TestStats:
     def test_stats_shape(self):
+        # R-F665: dynamic — fresh-seed invariants are that all records
+        # are unfilled placeholders, fill_rate is 0, and per-OEM count
+        # is 5 anchor slots. Hard-coded 60/12 broke as seed grew to 43.
         snap = _run(og.stats())
-        assert snap["contacts_total"] == 60
+        oem_count = len(og.list_oems())
+        assert snap["contacts_total"] == oem_count * 5
         assert snap["contacts_filled"] == 0
         assert snap["fill_rate"] == 0.0
-        assert snap["oems_tracked"] == 12
-        assert snap["by_confidence"]["LOW"] == 60
+        assert snap["oems_tracked"] == oem_count
+        assert snap["by_confidence"]["LOW"] == oem_count * 5

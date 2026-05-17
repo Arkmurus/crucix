@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 665,
+  "next_available": 666,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1057,9 +1057,10 @@
       "title": "R-F557 closure plan — stream-vs-chat parity architecture doc",
       "claimed_at": "2026-05-17T08:31:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d245ac2",
+      "notes": null,
+      "shipped_at": "2026-05-17T08:50:41Z"
     },
     {
       "r_number": "R-F658",
@@ -1120,6 +1121,15 @@
       "r_number": "R-F664",
       "title": "wire py-fsrs scheduler into student.py mastery (Tier-1 learning framework foundation)",
       "claimed_at": "2026-05-17T08:39:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F665",
+      "title": "fix test_oem_contact_graph fixture drift (12 OEMs -> 43)",
+      "claimed_at": "2026-05-17T08:52:20Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
