@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 664,
+  "next_available": 665,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1037,9 +1037,10 @@
       "title": "wire brain_hook.absorb into chat + chat_stream (clause 15 close)",
       "claimed_at": "2026-05-17T08:31:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9acbdd7",
+      "notes": null,
+      "shipped_at": "2026-05-17T08:38:11Z"
     },
     {
       "r_number": "R-F656",
@@ -1108,6 +1109,15 @@
       "r_number": "R-F663",
       "title": "learning controller bookmarks + persistent state",
       "claimed_at": "2026-05-17T08:35:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F664",
+      "title": "wire py-fsrs scheduler into student.py mastery (Tier-1 learning framework foundation)",
+      "claimed_at": "2026-05-17T08:39:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -1321,6 +1321,18 @@ async def lifespan(app: FastAPI):
         rag_backfill_task.cancel()
     if tender_monitor_task:
         tender_monitor_task.cancel()
+    # R-F656 (2026-05-17): full-system audit found these 3 background
+    # tasks were started in lifespan but never cancelled on shutdown.
+    # Without cancel, the task survives the lifespan return, fly's
+    # graceful-stop window expires before SIGKILL, and the loop
+    # accumulates wakeups across deploys. Net effect on fly: deploy
+    # latency creeps + intermittent worker-zombie warnings in logs.
+    if reasoning_purge_task:
+        reasoning_purge_task.cancel()
+    if weekly_report_task:
+        weekly_report_task.cancel()
+    if watchlist_rescreen_task:
+        watchlist_rescreen_task.cancel()
     # F94: flush any pending knowledge writes to disk before exit so the
     # last <FLUSH_DEBOUNCE_S of in-memory mutations aren't lost on a
     # clean shutdown / deploy.
