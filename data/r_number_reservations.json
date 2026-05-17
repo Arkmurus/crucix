@@ -868,9 +868,10 @@
       "title": "weapon-name to manufacturer to origin to sanctions lookup catalogue",
       "claimed_at": "2026-05-17T00:28:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "3885377",
+      "notes": null,
+      "shipped_at": "2026-05-17T00:35:44Z"
     },
     {
       "r_number": "R-F639",
