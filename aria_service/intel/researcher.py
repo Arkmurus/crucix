@@ -3036,6 +3036,66 @@ async def extract_url_text(url: str, timeout: float = 15.0) -> dict:
 
 # ── Public: Read a specific article URL ──────────────────────────────────────
 
+# R-F652 (2026-05-17): CDN-asset and static-resource URL filter. The LinkedIn-
+# newsletter intake extracts every href from the email HTML and submits each
+# one to read_article. That meant ~4 static.licdn.com/aero-v1/sc/h/* URLs per
+# newsletter (CSS sprites, fonts) hit the researcher pipeline — each burning
+# a DeepSeek call (~5s) and producing 0 facts because the body is binary or
+# minified asset data. RAG dedup logged "skipping 3 of 3 chunks (content
+# already in RAG)" for each one. Live evidence 2026-05-17 08:01:40 onward.
+#
+# Hosts + path patterns here are intentionally narrow — only block sites we
+# have direct live evidence of leaking through. Add more as they surface.
+_STATIC_ASSET_HOSTS = (
+    "static.licdn.com",       # LinkedIn images/CSS/fonts
+    "static.fbcdn.net",       # Facebook CDN
+    "static.xx.fbcdn.net",
+    "static.twimg.com",       # Twitter/X CDN
+    "abs.twimg.com",
+    "pbs.twimg.com",          # Twitter image CDN
+    "media.licdn.com",        # LinkedIn user-uploaded media
+)
+_STATIC_ASSET_PATH_PREFIXES = (
+    "/aero-v1/sc/",            # LinkedIn's static-component path
+    "/aero-v1/sc/h/",
+)
+_STATIC_ASSET_EXTENSIONS = (
+    ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+    ".webp", ".ico", ".woff", ".woff2", ".ttf", ".otf",
+    ".mp4", ".webm", ".mp3", ".wav",
+)
+
+
+def _is_static_asset_url(url: str) -> bool:
+    """Return True for URLs that are CDN assets or static resources — these
+    are not articles and submitting them to read_article wastes an LLM call.
+    Returns False for ambiguous URLs (let the fetcher decide)."""
+    if not url:
+        return False
+    u = url.lower().strip()
+    # Path-extension match (cheapest, catches *.css etc.)
+    # Strip query string before checking extension
+    path_only = u.split("?", 1)[0].split("#", 1)[0]
+    if path_only.endswith(_STATIC_ASSET_EXTENSIONS):
+        return True
+    # Host match
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(u)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path or ""
+        if host in _STATIC_ASSET_HOSTS:
+            return True
+        # Host + path-prefix match (catches the LinkedIn aero-v1 pattern even
+        # if a wrapper subdomain is added later)
+        for prefix in _STATIC_ASSET_PATH_PREFIXES:
+            if path.startswith(prefix):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
     """
     Read a specific article URL and extract intelligence.
@@ -3043,6 +3103,17 @@ async def read_article(llm: LLMProvider, url: str, context: str = "") -> dict:
     """
     if not llm or not llm.is_configured:
         return {"error": "LLM not configured"}
+
+    # R-F652: short-circuit static-asset URLs before any fetch or LLM call.
+    if _is_static_asset_url(url):
+        logger.info("R-F652 read_article: skipped static-asset URL %s", url[:120])
+        return {
+            "url": url,
+            "facts_learned": 0,
+            "hypotheses_generated": 0,
+            "facts": [],
+            "skipped_reason": "static_asset_url",
+        }
 
     t_start = time.time()
     logger.info(f"ARIA reading article: {url[:80]}")

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 652,
+  "next_available": 654,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -996,6 +996,25 @@
       "r_number": "R-F651",
       "title": "enforce cost_cap_usd + timeout_seconds on autonomous tasks (RUN-EVAL-DAILY bypass)",
       "claimed_at": "2026-05-17T07:47:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6f7296e",
+      "notes": null,
+      "shipped_at": "2026-05-17T08:02:23Z"
+    },
+    {
+      "r_number": "R-F652",
+      "title": "filter LinkedIn CDN static-asset URLs from researcher (cost leak: ~/usr/bin/bash.01/email)",
+      "claimed_at": "2026-05-17T08:05:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F653",
+      "title": "robots.txt redirect-loop dedup (imo.org 11x retries)",
+      "claimed_at": "2026-05-17T08:05:44Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
