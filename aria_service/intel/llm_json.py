@@ -234,6 +234,118 @@ def _insert_missing_object_commas(s: str) -> str:
     return "".join(out)
 
 
+def _insert_missing_value_commas(s: str) -> str:
+    """R-F649 (2026-05-17): extend _insert_missing_object_commas to cover
+    ALL value-value adjacencies, not just `}{`/`}[`/`]{`/`][`.
+
+    Patterns repaired (none valid JSON, all observed in LLM output):
+      string-string:      `"foo" "bar"`        → `"foo", "bar"`
+      string-number:      `"foo" 42`           → `"foo", 42`
+      string-bool/null:   `"foo" true`         → `"foo", true`
+      string-object:      `"foo" {"x": 1}`     → `"foo", {"x": 1}`
+      string-array:       `"foo" ["x"]`        → `"foo", ["x"]`
+      object/array-string `}` or `]` + `"foo"` → comma inserted
+      number-string:      `42 "bar"`           → `42, "bar"`
+      bool/null-string:   `true "bar"`         → `true, "bar"`
+
+    Live evidence 2026-05-17 07:23:17: `R-F472 all 5 repair strategies
+    failed (source=researcher): Expecting ',' delimiter: line 1 column
+    4736` on a researcher payload. The 5th strategy `_nuclear_clean`
+    cannot insert structural commas — only this strategy can.
+
+    Walks character-by-character to skip patterns inside string values.
+    Order: run AFTER _insert_missing_object_commas so the simpler {}/[]
+    cases are already fixed and we never double-insert.
+    """
+    out: list[str] = []
+    in_string = False
+    escape = False
+    n = len(s)
+    # End-of-value characters that legitimately CAN be followed by `,` or
+    # the parent close. If we see one of these and the next non-ws char
+    # is a value-START char, we are looking at a missing comma.
+    _VALUE_END = {'"', "}", "]"}
+    _VALUE_START = {'"', "{", "[", "-", "+"}
+    _NUMBER_DIGITS = set("0123456789")
+    _LITERAL_START = set("tfn")  # true/false/null
+    _LITERAL_END = set("elr")     # last char of true/false/null is e/e/l ; "true"->e, "false"->e, "null"->l. Plus number digits.
+
+    for i, ch in enumerate(s):
+        out.append(ch)
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            # Treat the closing-quote moment as a potential end-of-value.
+            # `in_string` just flipped from True→False on a close quote.
+            if not in_string:
+                _check_and_insert_comma(s, i, n, out)
+            continue
+        if in_string:
+            continue
+        # Outside strings: trigger on number-end / literal-end / brace-end
+        if ch in _VALUE_END or ch in _NUMBER_DIGITS or ch in _LITERAL_END:
+            # Only fire on a "true end" — for digits, only when the next
+            # char is NOT another digit / `.` / `e` / `E` etc. (still
+            # inside the same number). For literals e/l, only when the
+            # preceding context made it a literal end.
+            j = i + 1
+            while j < n and s[j] in (" ", "\n", "\r", "\t"):
+                j += 1
+            if j >= n:
+                continue
+            nxt = s[j]
+            # Skip if this digit is part of a longer number
+            if ch in _NUMBER_DIGITS and (
+                nxt in _NUMBER_DIGITS or nxt in (".", "e", "E", "+", "-")
+            ):
+                continue
+            # Skip when the next char is part of normal JSON punctuation
+            if nxt in (",", ":", "}", "]"):
+                continue
+            # Insert comma only if next is a value-START character
+            if nxt in _VALUE_START or nxt in _NUMBER_DIGITS or nxt in _LITERAL_START:
+                # Avoid double-insert if `}` or `]` already handled by
+                # _insert_missing_object_commas (which only fires when
+                # nxt in {`{`,`[`}). That path inserts inline; this
+                # function runs AFTER, so if a comma is already the very
+                # next non-ws char we would have skipped above. Safe.
+                # But we must only insert when ch is genuinely the end
+                # of a JSON value — for }/], that's always true.
+                if ch in _VALUE_END or ch in _NUMBER_DIGITS:
+                    out.append(",")
+                elif ch in _LITERAL_END:
+                    # Confirm we just closed a literal by sniffing back.
+                    # Cheapest heuristic: the previous 4-5 chars include
+                    # "true" / "false" / "null".
+                    tail = s[max(0, i - 4):i + 1]
+                    if tail.endswith("true") or tail.endswith("false") or tail.endswith("null"):
+                        out.append(",")
+    return "".join(out)
+
+
+def _check_and_insert_comma(s: str, i: int, n: int, out: list[str]) -> None:
+    """Helper for the string-close branch of _insert_missing_value_commas.
+    `i` is the index of the closing `"`. Look at the next non-whitespace
+    char and append a comma to `out` if a value would start immediately."""
+    j = i + 1
+    while j < n and s[j] in (" ", "\n", "\r", "\t"):
+        j += 1
+    if j >= n:
+        return
+    nxt = s[j]
+    if nxt in (",", ":", "}", "]"):
+        return  # legitimate next token
+    # Anything else after a closed string outside an object key context
+    # is a missing comma if a new value is starting
+    if nxt in ('"', "{", "[", "-", "+") or nxt.isdigit() or nxt in ("t", "f", "n"):
+        out.append(",")
+
+
 def _nuclear_clean(s: str) -> str:
     """Last resort: strip control chars + collapse whitespace.
     Matches what bd_intelligence.mjs Fix 5 does."""
@@ -310,6 +422,18 @@ def parse_llm_json(text: str, *, default: Any = None, source: str = "") -> Any:
     # fire on otherwise-clean DeepSeek output.
     try:
         repaired = _insert_missing_object_commas(repaired)
+        return json.loads(repaired)
+    except Exception:
+        pass
+
+    # Strategy 1c (R-F649 2026-05-17): insert missing commas between ANY
+    # adjacent values, not just `}{`/`}[`/`]{`/`][`. Covers string-string,
+    # string-number, number-string, string-object, etc. — the Rwanda
+    # researcher payload at char 4735 hit one of these on live traffic
+    # and the prior 5 strategies all failed. Runs AFTER 1b so the easier
+    # {}/[] cases are already fixed.
+    try:
+        repaired = _insert_missing_value_commas(repaired)
         return json.loads(repaired)
     except Exception:
         pass

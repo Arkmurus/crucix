@@ -983,9 +983,10 @@
       "title": "disable RUN-EVAL-DAILY cron (cost-cap bypass — was 3/day)",
       "claimed_at": "2026-05-17T07:47:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "223e6ab",
+      "notes": null,
+      "shipped_at": "2026-05-17T07:48:37Z"
     },
     {
       "r_number": "R-F651",

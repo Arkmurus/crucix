@@ -1058,6 +1058,14 @@ _HIGH_RISK_SIGNALS = {"sanctioned", "high risk", "embargo", "blacklist", "fraud"
 _LOW_RISK_SIGNALS = {"compliant", "low risk", "cleared", "verified", "reputable",
                      "legitimate", "approved", "clean"}
 
+# R-F647 (2026-05-17): operator-self entities are the user's own org, not
+# counterparties. They appear in nearly every eval prompt and many chat
+# turns alongside risk-language because the prompts describe scenarios
+# Arkmurus is screening — the resulting "conflict" entries are noise, not
+# real contradictions about a counterparty. Compare entity-lowercased
+# against this set; skip detect_conflict entirely on a hit.
+_OPERATOR_SELF_ENTITIES = {"arkmurus", "crucix"}
+
 
 def detect_conflict(entity: str, new_text: str) -> dict | None:
     """Check if new intelligence about an entity contradicts stored knowledge.
@@ -1065,9 +1073,15 @@ def detect_conflict(entity: str, new_text: str) -> dict | None:
     Scans new text for risk signals and compares against existing neuron
     metadata and connected neurons. Returns a conflict dict if opposing
     signals are found, or None if no conflict.
+
+    R-F647: skips operator-self entities (Arkmurus, Crucix) — those are
+    not counterparties and the conflict log was filling with eval-traffic
+    noise about the operator's own org.
     """
     if not _loaded:
         return None  # Neural memory not initialized yet
+    if entity.strip().lower() in _OPERATOR_SELF_ENTITIES:
+        return None  # operator-self: not a counterparty
     neuron = _find_neuron(entity)
     if not neuron:
         return None

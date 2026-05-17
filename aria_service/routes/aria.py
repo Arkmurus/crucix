@@ -9559,6 +9559,21 @@ async def neural_cluster_ep(concept: str):
     return await neural_memory.get_cluster(concept)
 
 
+# 33-c. GET /api/aria/neural/conflicts — R-F648 (2026-05-17)
+# Surfaces the conflict log captured by neural_memory.log_conflict (a list
+# of {entity, existing_assessment, new_assessment, source, detected_at,
+# new_text_preview}). The log has permanent retention since 2026-04-21 but
+# was only reachable via the legacy /corpus/conflicts handler (no limit,
+# no count). Default limit=50; cap at 500 to protect response size.
+# Function name kept distinct from the legacy `neural_conflicts_ep` at
+# /corpus/conflicts to avoid Python module-level shadowing.
+@router.get("/neural/conflicts")
+async def neural_conflicts_list_ep(limit: int = 50):
+    capped = max(1, min(limit, 500))
+    conflicts = await neural_memory.get_conflicts(limit=capped)
+    return {"limit": capped, "count": len(conflicts), "conflicts": conflicts}
+
+
 # 33a. GET /api/aria/neural/graph — Knowledge graph visualization
 @router.get("/neural/graph")
 async def neural_graph_ep(limit: int = 200):

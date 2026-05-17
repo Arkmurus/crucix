@@ -3889,6 +3889,25 @@ async def _aria_chat_stream_impl(
     except Exception as e:
         logger.debug("Chat audit trail hook failed (non-fatal, stream): %s", e)
 
+    # R-F646 (2026-05-17): output sanitization mirrored from aria_chat.
+    # security_protocol.sanitize_output redacts leaked API keys, internal
+    # URLs, Redis keys, file paths and stack traces. The non-stream path
+    # has this at line 3372; without it on the stream path, the harvested
+    # corpus + the downstream metacog/core_develop/guard hooks all carried
+    # any leaked internals forward. Note: SSE tokens are already emitted
+    # to the client by this point — full real-time rewrite requires the
+    # SSE-rewrite work described in memory/stream_bypass_pattern.md. What
+    # we CAN protect: harvester corpus + downstream learning + guard logs.
+    # Failure mode logged (not silent-passed) per R-F455 stream hygiene.
+    try:
+        from .intel import security_protocol as _sp_stream
+        response_text = _sp_stream.sanitize_output(response_text)
+    except Exception as _sp_e:
+        logger.debug(
+            "R-F455 stream: security_protocol.sanitize_output failed: %s",
+            _sp_e,
+        )
+
     try:
         from .metacognitive import engine as _metacog_engine
         if _metacog_engine.is_enabled():
