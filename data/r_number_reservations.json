@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 675,
+  "next_available": 676,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1205,23 +1205,34 @@
       "title": "lifespan silent except:pass promotion → logger.warning (punch list #12)",
       "claimed_at": "2026-05-17T10:50:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "HEAD",
+      "notes": null,
+      "shipped_at": "2026-05-17T10:57:31Z"
     },
     {
       "r_number": "R-F673",
       "title": "explicit dialogue_state DB init in main.py lifespan + pin test (punch list #10)",
       "claimed_at": "2026-05-17T10:51:03Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "HEAD",
+      "notes": null,
+      "shipped_at": "2026-05-17T10:57:31Z"
     },
     {
       "r_number": "R-F674",
       "title": "symbolic_reasoner pins: embargo/licence/intent (punch list #9 — R-F645 reconcile)",
       "claimed_at": "2026-05-17T10:51:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F675",
+      "title": "R-F667 absorb backpressure — semaphore-bounded dispatch to prevent wedge amplification",
+      "claimed_at": "2026-05-17T11:00:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
