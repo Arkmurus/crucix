@@ -10,7 +10,7 @@
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
       "commit_sha": "3f93f3c",
-      "notes": "Foundational \u00e2\u20ac\u201d every subsequent reservation writes here.",
+      "notes": "Foundational â€” every subsequent reservation writes here.",
       "shipped_at": "2026-05-16T09:31:19Z"
     },
     {
@@ -25,7 +25,7 @@
     },
     {
       "r_number": "R-F552",
-      "title": "Portals honesty \u00e2\u20ac\u201d _subStatus so 49/49 OK doesn't mask 4/28 coverage",
+      "title": "Portals honesty â€” _subStatus so 49/49 OK doesn't mask 4/28 coverage",
       "claimed_at": "2026-05-16T09:10:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
@@ -35,17 +35,17 @@
     },
     {
       "r_number": "R-F553",
-      "title": "AfDB error swallowing \u00e2\u20ac\u201d fix enrichFetchError precedence",
+      "title": "AfDB error swallowing â€” fix enrichFetchError precedence",
       "claimed_at": "2026-05-16T09:15:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
       "commit_sha": "c577a35",
-      "notes": "[AfDB] Error: Error \u00e2\u2020\u2019 real message. err.name='Error' demoted below err.message.",
+      "notes": "[AfDB] Error: Error â†’ real message. err.name='Error' demoted below err.message.",
       "shipped_at": "2026-05-16T12:55:25Z"
     },
     {
       "r_number": "R-F554",
-      "title": "Lusophone proxy-attempt log \u00e2\u20ac\u201d distinguish 200(empty)/200(0-items)/200 healthy",
+      "title": "Lusophone proxy-attempt log â€” distinguish 200(empty)/200(0-items)/200 healthy",
       "claimed_at": "2026-05-16T09:25:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
@@ -55,7 +55,7 @@
     },
     {
       "r_number": "R-F563",
-      "title": "Comtrade IMF DOTS \u00e2\u20ac\u201d ENOTFOUND-aware circuit (intra+cross-sweep)",
+      "title": "Comtrade IMF DOTS â€” ENOTFOUND-aware circuit (intra+cross-sweep)",
       "claimed_at": "2026-05-16T09:35:00Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
@@ -85,12 +85,12 @@
     },
     {
       "r_number": "R-F555",
-      "title": "MEMORY.md hard-trim (35KB \u00e2\u2020\u2019 <24.4KB)",
+      "title": "MEMORY.md hard-trim (35KB â†’ <24.4KB)",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
       "commit_sha": "3f93f3c",
-      "notes": "Index entries condensed to \u00e2\u2030\u00a4120 chars.",
+      "notes": "Index entries condensed to â‰¤120 chars.",
       "shipped_at": "2026-05-16T09:31:20Z"
     },
     {
@@ -105,7 +105,7 @@
     },
     {
       "r_number": "R-F557",
-      "title": "Stream guard wiring audit + observation\u00e2\u2020\u2019rewrite if needed",
+      "title": "Stream guard wiring audit + observationâ†’rewrite if needed",
       "claimed_at": "2026-05-16T00:00:00Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -165,7 +165,7 @@
     },
     {
       "r_number": "R-F566",
-      "title": "Constitution-amendment dedupe gate \u00e2\u20ac\u201d string-similarity refuse before clause-write",
+      "title": "Constitution-amendment dedupe gate â€” string-similarity refuse before clause-write",
       "claimed_at": "2026-05-16T11:09:54Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -195,7 +195,7 @@
     },
     {
       "r_number": "R-F569",
-      "title": "Sanctions matcher P0 fix \u00e2\u20ac\u201d list-class filter + similarity guard + topic-demotion ordering",
+      "title": "Sanctions matcher P0 fix â€” list-class filter + similarity guard + topic-demotion ordering",
       "claimed_at": "2026-05-16T11:31:16Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
@@ -205,7 +205,7 @@
     },
     {
       "r_number": "R-F570",
-      "title": "sync.mjs replacement \u00e2\u20ac\u201d repo baked into seenode Docker image (kill build-time GitHub API dep)",
+      "title": "sync.mjs replacement â€” repo baked into seenode Docker image (kill build-time GitHub API dep)",
       "claimed_at": "2026-05-16T11:54:12Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -215,7 +215,7 @@
     },
     {
       "r_number": "R-F571",
-      "title": "server.mjs runtime build_rev fallback \u00e2\u20ac\u201d git rev-parse at startup if build_rev.txt missing",
+      "title": "server.mjs runtime build_rev fallback â€” git rev-parse at startup if build_rev.txt missing",
       "claimed_at": "2026-05-16T12:01:58Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -230,12 +230,12 @@
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
       "commit_sha": "209ea4e",
-      "notes": "From MVP fire-test: Rosoboronexport\u00e2\u2020\u2019E.ON SE, Acme Widgets\u00e2\u2020\u2019CME GROUP INC, Aselsan\u00e2\u2020\u2019ASHLAND INC. Same fuzzy-too-loose pattern as R-F569 in sec_edgar.lookup. Apply name-overlap gate + threshold bump.",
+      "notes": "From MVP fire-test: Rosoboronexportâ†’E.ON SE, Acme Widgetsâ†’CME GROUP INC, Aselsanâ†’ASHLAND INC. Same fuzzy-too-loose pattern as R-F569 in sec_edgar.lookup. Apply name-overlap gate + threshold bump.",
       "shipped_at": "2026-05-16T12:18:51Z"
     },
     {
       "r_number": "R-F573",
-      "title": "DD case file \u00e2\u20ac\u201d canonical_entity_id + version chain + diff",
+      "title": "DD case file â€” canonical_entity_id + version chain + diff",
       "claimed_at": "2026-05-16T12:13:08Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
@@ -245,7 +245,7 @@
     },
     {
       "r_number": "R-F574",
-      "title": "POST /self/improvements/{id}/discard \u00e2\u20ac\u201d park-then-reject staged improvements (closes 039bf8be staleness)",
+      "title": "POST /self/improvements/{id}/discard â€” park-then-reject staged improvements (closes 039bf8be staleness)",
       "claimed_at": "2026-05-16T12:25:49Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -265,7 +265,7 @@
     },
     {
       "r_number": "R-F576",
-      "title": "composite-score honesty \u00e2\u20ac\u201d stop using 50% neutral prior when verification/grounded_rate has real data",
+      "title": "composite-score honesty â€” stop using 50% neutral prior when verification/grounded_rate has real data",
       "claimed_at": "2026-05-16T12:45:32Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -275,7 +275,7 @@
     },
     {
       "r_number": "R-F577",
-      "title": "model-card.html \u00e2\u20ac\u201d live constitution version + fingerprint + clause count",
+      "title": "model-card.html â€” live constitution version + fingerprint + clause count",
       "claimed_at": "2026-05-16T12:49:54Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -285,7 +285,7 @@
     },
     {
       "r_number": "R-F578",
-      "title": "ProcurementPortals \u00e2\u20ac\u201d shard-parallel fetch + 60s timeout (lift 4/28 to 28/28)",
+      "title": "ProcurementPortals â€” shard-parallel fetch + 60s timeout (lift 4/28 to 28/28)",
       "claimed_at": "2026-05-16T13:00:32Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -295,7 +295,7 @@
     },
     {
       "r_number": "R-F579",
-      "title": "Court/litigation tier \u00e2\u20ac\u201d CourtListener + Bailii adapters",
+      "title": "Court/litigation tier â€” CourtListener + Bailii adapters",
       "claimed_at": "2026-05-16T13:00:33Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -305,7 +305,7 @@
     },
     {
       "r_number": "R-F580",
-      "title": "Cert Transparency \u00e2\u20ac\u201d crt.sh adapter for shell-domain detection",
+      "title": "Cert Transparency â€” crt.sh adapter for shell-domain detection",
       "claimed_at": "2026-05-16T13:00:33Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -315,7 +315,7 @@
     },
     {
       "r_number": "R-F581",
-      "title": "ECCN/Wassenaar lookup table \u00e2\u20ac\u201d scrape BIS CCL into SQLite",
+      "title": "ECCN/Wassenaar lookup table â€” scrape BIS CCL into SQLite",
       "claimed_at": "2026-05-16T13:00:33Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -325,7 +325,7 @@
     },
     {
       "r_number": "R-F582",
-      "title": "AIS gap detector \u00e2\u20ac\u201d flag vessel transponder gaps as sanctions-evasion signal",
+      "title": "AIS gap detector â€” flag vessel transponder gaps as sanctions-evasion signal",
       "claimed_at": "2026-05-16T13:00:33Z",
       "claimed_by": "claude-session-2026-05-16",
       "status": "shipped",
@@ -335,12 +335,12 @@
     },
     {
       "r_number": "R-F583",
-      "title": "Constitution patch \u00e2\u20ac\u201d restore persona-injection guards regressed by R-F558 collapse",
+      "title": "Constitution patch â€” restore persona-injection guards regressed by R-F558 collapse",
       "claimed_at": "2026-05-16T13:10:25Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
       "commit_sha": "88c2604",
-      "notes": "8 of 9 R-F168 attack-class clauses regressed when R-F558 collapsed 27-35 from 9\u00e2\u2020\u20193. Adversarial base_score 60.9% \u00e2\u2020\u2019 52.2% post-deploy. Re-add targeted clauses for I1/P_BROKER/P_GOV/P_BANKING/P_COMPLIANCE/P_JOURNALIST attack vectors.",
+      "notes": "8 of 9 R-F168 attack-class clauses regressed when R-F558 collapsed 27-35 from 9â†’3. Adversarial base_score 60.9% â†’ 52.2% post-deploy. Re-add targeted clauses for I1/P_BROKER/P_GOV/P_BANKING/P_COMPLIANCE/P_JOURNALIST attack vectors.",
       "shipped_at": "2026-05-16T13:15:32Z"
     },
     {
@@ -385,7 +385,7 @@
     },
     {
       "r_number": "R-F588",
-      "title": "Premise Verifier extension \u00e2\u20ac\u201d phantom-source + programme-fabrication + leaked-doc patterns",
+      "title": "Premise Verifier extension â€” phantom-source + programme-fabrication + leaked-doc patterns",
       "claimed_at": "2026-05-16T13:27:51Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
@@ -395,7 +395,7 @@
     },
     {
       "r_number": "R-F589",
-      "title": "Fly.io build_rev metadata propagation \u00e2\u20ac\u201d ARG/ENV/Python plumbing",
+      "title": "Fly.io build_rev metadata propagation â€” ARG/ENV/Python plumbing",
       "claimed_at": "2026-05-16T13:33:10Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
@@ -415,7 +415,7 @@
     },
     {
       "r_number": "R-F591",
-      "title": "ARKDDReport dataclass \u00e2\u20ac\u201d canonical_entity_id/version_number/previous_run_id/version_diff fields",
+      "title": "ARKDDReport dataclass â€” canonical_entity_id/version_number/previous_run_id/version_diff fields",
       "claimed_at": "2026-05-16T13:33:11Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
@@ -425,12 +425,12 @@
     },
     {
       "r_number": "R-F592",
-      "title": "Background adversarial worker \u00e2\u20ac\u201d async fire-and-poll for /adversarial/run-weekly",
+      "title": "Background adversarial worker â€” async fire-and-poll for /adversarial/run-weekly",
       "claimed_at": "2026-05-16T13:33:11Z",
       "claimed_by": "claude-session-B-2026-05-16",
       "status": "shipped",
       "commit_sha": "7a9bc0d",
-      "notes": "Sync run blocks event loop 4m25s \u00e2\u2020\u2019 fly.io health check fails. Convert to background task + /adversarial/runs/{run_id} poll endpoint.",
+      "notes": "Sync run blocks event loop 4m25s â†’ fly.io health check fails. Convert to background task + /adversarial/runs/{run_id} poll endpoint.",
       "shipped_at": "2026-05-16T13:46:29Z"
     },
     {
@@ -504,7 +504,7 @@
     },
     {
       "r_number": "R-F600",
-      "title": "DD Layer \u00e2\u20ac\u201d litigation + court records (CourtListener, BAILII)",
+      "title": "DD Layer â€” litigation + court records (CourtListener, BAILII)",
       "claimed_at": "2026-05-16T17:51:17Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -514,7 +514,7 @@
     },
     {
       "r_number": "R-F601",
-      "title": "DD Layer \u00e2\u20ac\u201d FATF jurisdiction risk (formalised)",
+      "title": "DD Layer â€” FATF jurisdiction risk (formalised)",
       "claimed_at": "2026-05-16T17:51:18Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -524,7 +524,7 @@
     },
     {
       "r_number": "R-F602",
-      "title": "DD Layer \u00e2\u20ac\u201d shell-co formalised scoring",
+      "title": "DD Layer â€” shell-co formalised scoring",
       "claimed_at": "2026-05-16T17:51:19Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -602,7 +602,7 @@
     },
     {
       "r_number": "R-F610",
-      "title": "DD Layer \u00e2\u20ac\u201d maritime / AIS dark-voyage Findings rows",
+      "title": "DD Layer â€” maritime / AIS dark-voyage Findings rows",
       "claimed_at": "2026-05-16T22:50:31Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -612,7 +612,7 @@
     },
     {
       "r_number": "R-F611",
-      "title": "DD Layer \u00e2\u20ac\u201d cyber footprint cert_transparency Findings rows",
+      "title": "DD Layer â€” cyber footprint cert_transparency Findings rows",
       "claimed_at": "2026-05-16T22:54:48Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -622,7 +622,7 @@
     },
     {
       "r_number": "R-F612",
-      "title": "DD Layer \u00e2\u20ac\u201d ECCN keyword indicator Findings rows",
+      "title": "DD Layer â€” ECCN keyword indicator Findings rows",
       "claimed_at": "2026-05-16T22:57:28Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -632,7 +632,7 @@
     },
     {
       "r_number": "R-F613",
-      "title": "SEC EDGAR \u00e2\u20ac\u201d surface all material 8-K hits, not just first",
+      "title": "SEC EDGAR â€” surface all material 8-K hits, not just first",
       "claimed_at": "2026-05-16T23:01:31Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -652,7 +652,7 @@
     },
     {
       "r_number": "R-F615",
-      "title": "DIALOGUE prompt branch \u00e2\u20ac\u201d conversational, no BLUF",
+      "title": "DIALOGUE prompt branch â€” conversational, no BLUF",
       "claimed_at": "2026-05-16T23:21:25Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -763,7 +763,7 @@
     },
     {
       "r_number": "R-F627",
-      "title": "DD suggestion engine \u00e2\u20ac\u201d gaps to AskItems",
+      "title": "DD suggestion engine â€” gaps to AskItems",
       "claimed_at": "2026-05-16T23:21:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
@@ -790,7 +790,7 @@
     },
     {
       "r_number": "R-F630",
-      "title": "resolution absorber \u00e2\u20ac\u201d re-run affected layers on answer",
+      "title": "resolution absorber â€” re-run affected layers on answer",
       "claimed_at": "2026-05-16T23:21:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
@@ -799,7 +799,7 @@
     },
     {
       "r_number": "R-F631",
-      "title": "cross-DD contact ledger \u00e2\u20ac\u201d reuse verified contacts",
+      "title": "cross-DD contact ledger â€” reuse verified contacts",
       "claimed_at": "2026-05-16T23:21:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
@@ -826,7 +826,7 @@
     },
     {
       "r_number": "R-F634",
-      "title": "cultural_atlas.py \u00e2\u20ac\u201d country\u00c3\u2014dimension knowledge layer",
+      "title": "cultural_atlas.py â€” countryÃ—dimension knowledge layer",
       "claimed_at": "2026-05-16T23:36:35Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -836,7 +836,7 @@
     },
     {
       "r_number": "R-F635",
-      "title": "DD orchestrator hook \u00e2\u20ac\u201d cultural section for non-UK/US jurisdictions",
+      "title": "DD orchestrator hook â€” cultural section for non-UK/US jurisdictions",
       "claimed_at": "2026-05-16T23:36:35Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -846,7 +846,7 @@
     },
     {
       "r_number": "R-F636",
-      "title": "chat hook \u00e2\u20ac\u201d inject cultural-read block on named counterparty",
+      "title": "chat hook â€” inject cultural-read block on named counterparty",
       "claimed_at": "2026-05-16T23:36:35Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -935,7 +935,7 @@
     },
     {
       "r_number": "R-F645",
-      "title": "symbolic-reasoner RU/ZH rule pack \u00e2\u20ac\u201d close capture gaps",
+      "title": "symbolic-reasoner RU/ZH rule pack â€” close capture gaps",
       "claimed_at": "2026-05-17T07:29:07Z",
       "claimed_by": "claude",
       "status": "in_progress",
@@ -984,7 +984,7 @@
     },
     {
       "r_number": "R-F650",
-      "title": "disable RUN-EVAL-DAILY cron (cost-cap bypass \u00e2\u20ac\u201d was 3/day)",
+      "title": "disable RUN-EVAL-DAILY cron (cost-cap bypass â€” was 3/day)",
       "claimed_at": "2026-05-17T07:47:33Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -1054,7 +1054,7 @@
     },
     {
       "r_number": "R-F657",
-      "title": "R-F557 closure plan \u00e2\u20ac\u201d stream-vs-chat parity architecture doc",
+      "title": "R-F557 closure plan â€” stream-vs-chat parity architecture doc",
       "claimed_at": "2026-05-17T08:31:14Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -1082,7 +1082,7 @@
     },
     {
       "r_number": "R-F660",
-      "title": "per-topic completion criteria measurement (verified facts \u00c3\u2014 tier-1 sources \u00c3\u2014 open sub-Qs)",
+      "title": "per-topic completion criteria measurement (verified facts Ã— tier-1 sources Ã— open sub-Qs)",
       "claimed_at": "2026-05-17T08:35:46Z",
       "claimed_by": "claude",
       "status": "shipped",
@@ -1092,7 +1092,7 @@
     },
     {
       "r_number": "R-F661",
-      "title": "failed-quiz \u00e2\u2020\u2019 reading-list auto-enrollment",
+      "title": "failed-quiz â†’ reading-list auto-enrollment",
       "claimed_at": "2026-05-17T08:35:47Z",
       "claimed_by": "claude",
       "status": "in_progress",
@@ -1122,9 +1122,10 @@
       "title": "wire py-fsrs scheduler into student.py mastery (Tier-1 learning framework foundation)",
       "claimed_at": "2026-05-17T08:39:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "327cb02",
+      "notes": null,
+      "shipped_at": "2026-05-17T09:16:34Z"
     },
     {
       "r_number": "R-F665",
@@ -1138,7 +1139,7 @@
     },
     {
       "r_number": "R-F666",
-      "title": "expand R-F455 test window \u00e2\u20ac\u201d post-hooks span >8000 chars now",
+      "title": "expand R-F455 test window â€” post-hooks span >8000 chars now",
       "claimed_at": "2026-05-17T08:54:04Z",
       "claimed_by": "claude",
       "status": "shipped",

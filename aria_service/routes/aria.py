@@ -2647,6 +2647,18 @@ async def student_mastery_ep():
     return await student.get_mastery_report()
 
 
+# R-F661 (2026-05-17) — reading queue (failed-quiz → reading-list).
+# Read-only listing endpoint so operator can inspect the backlog the
+# Phase B controller (R-F662) will drain. The enqueue path is wired
+# into student.self_quiz automatically — no manual POST needed.
+@router.get("/learning/reading-queue")
+async def learning_reading_queue_ep(limit: int = 50):
+    from ..learning import reading_queue as _rq
+    items = await _rq.list_pending(limit=max(1, min(int(limit), 200)))
+    stats = await _rq.stats()
+    return {"count": len(items), "items": items, "stats": stats}
+
+
 # R-F660 (2026-05-17) — per-topic completion measurement.
 # Read-only. Zero LLM calls. Phase A slice 2 of the learning-framework
 # buildout. The Phase B learning controller (R-F662) consumes this to

@@ -743,6 +743,32 @@ async def self_quiz(num_questions: int = 5) -> dict:
         topics = detect_topics(question)
         await update_mastery(topics, correct=passed_quiz, weight=0.5)
 
+        # R-F661 (2026-05-17): failed-quiz → reading-list auto-enrol.
+        # Failed quiz = a topic we *thought* we knew but the local stack
+        # couldn't reproduce. Enqueue each failed topic so the Phase B
+        # controller (R-F662) can drain the queue with local-only reads.
+        # Failure non-fatal: the EWMA / FSRS mastery update above is the
+        # authoritative signal; the queue entry is a follow-up signal.
+        if not passed_quiz:
+            try:
+                from ..learning import reading_queue as _rq
+                for _t in topics:
+                    await _rq.enqueue(
+                        _t,
+                        source_question=question[:500],
+                        source_case_id=str(case.get("id") or ""),
+                        reason="failed_quiz",
+                        notes=(
+                            f"local_answered={local_answered} "
+                            f"similarity={round(similarity, 3)}"
+                        ),
+                    )
+            except Exception as _rq_e:
+                logger.debug(
+                    "R-F661 reading_queue enqueue failed (non-fatal): %s",
+                    _rq_e,
+                )
+
         results.append({
             "case_id": case.get("id"),
             "question": question[:120],
