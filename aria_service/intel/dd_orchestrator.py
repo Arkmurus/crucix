@@ -5260,6 +5260,85 @@ _URL_SCHEME_FRAGMENTS = {
     "file", "about", "data", "mailto",
 }
 
+# R-F659 (2026-05-17): tokens/labels that are never a real entity name.
+# Mirrors the on-demand crawler's R-F654 set so the DD-pipeline entry gate
+# rejects the same garbage class that the crawler now refuses. If the
+# operator queries "Acme Widgets" or "test corp", the DD pipeline refuses
+# at the gate instead of producing noise findings on placeholder strings.
+_DD_PLACEHOLDER_TOKENS = frozenset({
+    "acme", "widgets", "widget", "example", "foo", "bar", "baz",
+    "qux", "test", "tests", "sample", "samples", "todo", "tbd",
+    "placeholder", "dummy", "mock", "demo",
+})
+
+# R-F659: hard whitelist of entity_type values that may enter the DD
+# pipeline. EntityType.UNKNOWN is intentionally excluded — if we don't
+# know what kind of entity it is, we can't run the right layer mix and
+# the resulting findings won't be sound. Callers must classify upstream.
+_DD_VALID_ENTITY_TYPES = frozenset({
+    "company", "person", "address", "vessel", "aircraft",
+    "organisation", "organization", "oem",  # synonyms accepted; canonicalised downstream
+})
+
+
+def _validate_entity_type_for_dd(target: dict) -> tuple[bool, str]:
+    """R-F659 — hard-whitelist of entity_type values that may enter the
+    DD pipeline. Returns (is_valid, reject_reason).
+
+    EntityType.UNKNOWN is intentionally excluded. If the caller didn't
+    classify, we refuse to run rather than guess. The design-analysis
+    requirement was 'entity_type IN (org, person, oem)'; we kept a
+    slightly broader allow-set to preserve existing legitimate
+    vessel/aircraft/address DD flows, while still enforcing the
+    'typed-input, refuse UNKNOWN' principle."""
+    if not isinstance(target, dict):
+        return False, "target must be a dict"
+    entity_type = (target.get("type") or "").strip().lower()
+    if not entity_type:
+        return False, "entity_type missing (required)"
+    if entity_type == "unknown":
+        return False, "entity_type=UNKNOWN refused (caller must classify before DD)"
+    if entity_type not in _DD_VALID_ENTITY_TYPES:
+        return False, (
+            f"entity_type {entity_type!r} not in allowed set "
+            f"{sorted(_DD_VALID_ENTITY_TYPES)}"
+        )
+    return True, ""
+
+
+def _validate_entity_name_extras(name: str) -> tuple[bool, str]:
+    """R-F659 — name heuristics that supplement _validate_entity_name.
+
+    Runs AFTER the existing name validation + R-F153 website fallback
+    have done their work. Rejects names that are technically well-formed
+    strings but obvious junk:
+      - first-token is purely numeric ('283', '2026')
+      - first-token is in _DD_PLACEHOLDER_TOKENS (RFC 2606 / tutorial)
+      - hyphenated label where every segment is a placeholder
+        ('acme-widgets')
+
+    Returns (is_valid, reject_reason). On valid, reject_reason is empty.
+    """
+    if not name or not name.strip():
+        return False, "empty"
+    label = name.strip().lower()
+    # Strip common corporate suffixes before the placeholder check so
+    # "Acme Ltd" still gets caught.
+    _stripped = re.sub(
+        r"\b(ltd|llc|inc|gmbh|sa|sarl|spa|plc|ltda|s\.?a\.?)\.?$",
+        "", label,
+    ).strip()
+    first_token = _stripped.split()[0] if _stripped.split() else _stripped
+    if first_token.isdigit():
+        return False, f"name first-token is purely numeric ({first_token!r})"
+    if first_token in _DD_PLACEHOLDER_TOKENS:
+        return False, f"name starts with placeholder token {first_token!r}"
+    if "-" in first_token:
+        segments = [s for s in first_token.split("-") if s]
+        if segments and all(s in _DD_PLACEHOLDER_TOKENS for s in segments):
+            return False, f"name hyphenated-placeholder label {first_token!r}"
+    return True, ""
+
 
 def _validate_entity_name(name: str) -> tuple[bool, str]:
     """Return (is_valid, reject_reason). Reject reason is empty on valid."""
@@ -5363,6 +5442,19 @@ async def orchestrate_dd(
     if not target or not (target.get("name") or target.get("entity") or target.get("query")):
         raise ValueError("target must include 'name', 'entity', or 'query'")
 
+    # ── R-F659 (2026-05-17) entity-type whitelist gate ──────────────────────
+    # Hard input validation per the design-analysis principle: "nothing
+    # without entity_type IN (org, person, oem) and a passing name-heuristic
+    # enters the DD pipeline." If the caller didn't classify the entity,
+    # we refuse rather than guess — UNKNOWN-type runs produced noise findings
+    # that then polluted mem0 and claim_ledger for future conversations.
+    _type_ok, _type_reason = _validate_entity_type_for_dd(target)
+    if not _type_ok:
+        raise ValueError(
+            f"R-F659: refusing DD on unclassified target: {_type_reason}. "
+            f"Pass target['type'] as one of {sorted(_DD_VALID_ENTITY_TYPES)}."
+        )
+
     # ── Entity-name sanity gate (2026-04-17 21:40 fix; extended R-F153 2026-05-10) ──
     # Original: rejected URL scheme fragments ("https") that came from the
     # intent regex stripping at `/`. Extended: rejects prompt-fragment names
@@ -5414,6 +5506,20 @@ async def orchestrate_dd(
                 f"instead of the scheme. If you have a URL, pass it as `website` "
                 f"or `url` and the orchestrator will derive the entity name from it."
             )
+
+    # ── R-F659 (2026-05-17) name-heuristic extras ───────────────────────────
+    # The name passed the existing sanity gate (and any R-F153 website
+    # fallback) — now apply the additional heuristics from the 2026-05-17
+    # design analysis: reject purely-numeric labels ("283", "2026") and
+    # RFC 2606 / tutorial placeholder words ("acme widgets", "test corp"),
+    # which slipped past _validate_entity_name because they're technically
+    # well-formed strings.
+    _extras_ok, _extras_reason = _validate_entity_name_extras(_raw_name)
+    if not _extras_ok:
+        raise ValueError(
+            f"R-F659: refusing DD on placeholder/numeric entity name "
+            f"{_raw_name!r}: {_extras_reason}."
+        )
 
     cost_cap = cost_cap_usd if cost_cap_usd is not None else DEFAULT_COST_CAP_USD
     t_run_start = time.time()

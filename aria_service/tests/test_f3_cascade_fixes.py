@@ -65,11 +65,15 @@ def test_validator_accepts_short_with_dot():
 
 def test_orchestrate_dd_raises_on_malformed_entity():
     """End-to-end: orchestrate_dd must raise cleanly on bad entity name
-    rather than running the 7-layer pipeline and poisoning mem0."""
+    rather than running the 7-layer pipeline and poisoning mem0.
+
+    R-F659 update (2026-05-17): type=company added so the new entity-type
+    whitelist gate doesn't shadow the URL-fragment check this test
+    targets. The test's intent is preserved — bad name still raises."""
     from aria_service.intel import dd_orchestrator
 
     async def run():
-        return await dd_orchestrator.orchestrate_dd({"name": "https"})
+        return await dd_orchestrator.orchestrate_dd({"name": "https", "type": "company"})
 
     with pytest.raises(ValueError) as excinfo:
         asyncio.run(run())
