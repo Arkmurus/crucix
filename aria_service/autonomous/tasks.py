@@ -1320,7 +1320,42 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
             from ..intel import cost_tracker as _ct
             _direct_token = _ct.set_feature(f"tool:{tool_kind}")
             try:
-                direct_result = await _execute_direct_tool(tool_kind, task, llm)
+                # R-F651 (2026-05-17): wrap direct-tool dispatch in
+                # asyncio.wait_for so timeout_seconds is actually enforced.
+                # Pre-R-F651 the chat-pipeline branch (below) had this
+                # wrap but the direct-tool branch did not — RUN-EVAL-DAILY
+                # at 0:6:* fired on 2026-05-17 06:00 UTC and ran for 2h
+                # (12x the 600s timeout), burning $12.76 on Sonnet. Mirror
+                # the chat-pipeline timeout pattern + safety cost charge
+                # so the per-task cost_cap_usd at least lands on the
+                # daily-cap circuit breaker after a runaway.
+                try:
+                    direct_result = await asyncio.wait_for(
+                        _execute_direct_tool(tool_kind, task, llm),
+                        timeout=task.timeout_seconds,
+                    )
+                except asyncio.TimeoutError:
+                    record["status"] = "timeout"
+                    record["error"] = (
+                        f"direct tool {tool_kind} exceeded "
+                        f"timeout {task.timeout_seconds}s"
+                    )
+                    record["duration_ms"] = int((time.time() - t0) * 1000)
+                    try:
+                        from . import safety as _sf
+                        await _sf.record_task_cost(float(task.cost_cap_usd or 0))
+                        logger.warning(
+                            "[autonomous] direct tool %s timed out — "
+                            "charged cap $%.2f to safety counter",
+                            tool_kind, task.cost_cap_usd or 0,
+                        )
+                    except Exception as _cost_e:
+                        logger.debug(
+                            "R-F651 direct-tool timeout cost charge failed: %s",
+                            _cost_e,
+                        )
+                    await record_run(record)
+                    return record
                 record["status"] = "ok"
                 record["response_preview"] = str(direct_result)[:400]
                 record["response_length"] = len(str(direct_result))
