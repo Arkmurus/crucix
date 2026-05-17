@@ -94,12 +94,14 @@ async def crawl_seed_homepages(limit: int | None = None,
             continue
         fetched += 1
 
+        _indexed_this_iter = False
         if has_indexer:
             try:
                 from aria_service.search_index import indexer
                 doc_id = await indexer.index_fetch_result(result)
                 if doc_id:
                     indexed += 1
+                    _indexed_this_iter = True
             except Exception as e:
                 errors += 1
                 logger.warning("runner: index raised for %s: %s",
@@ -118,10 +120,54 @@ async def crawl_seed_homepages(limit: int | None = None,
                     canonical_url=result.get("canonical_url"),
                 )
                 indexed += 1
+                _indexed_this_iter = True
             except Exception as e:
                 errors += 1
                 logger.warning("runner: direct upsert raised for %s: %s",
                                d["domain"], e)
+
+        # R-F667 (2026-05-17): close the 6h autonomous-crawl knowledge
+        # leak per CLAUDE.md §15 (pay-once-remember-forever). Audit
+        # 2026-05-17 found the crawl loop wrote 100+ pages to
+        # search_index.db (FTS) but emitted ZERO signals to brain_hook
+        # / mastery / neural_memory — so ARIA could search the pages
+        # via /search but didn't *know* them. Every equivalent customer
+        # question still paid an LLM call.
+        #
+        # Fire-and-forget brain_hook.absorb with module="web_atlas"
+        # (already registered in _MODULE_TOPICS:78 with osint +
+        # market_intel topics). Failure is non-fatal — the crawl loop
+        # continues regardless. Confidence ASSESSED (one source, no
+        # corroboration — verified_intel pipeline handles upgrades).
+        if _indexed_this_iter:
+            try:
+                from aria_service.intel import brain_hook as _bh
+                _title = (result.get("title") or "").strip()
+                _domain = (result.get("domain") or d["domain"]).strip()
+                _body = (result.get("body") or "")
+                _summary = (
+                    f"Indexed page from {_domain}: "
+                    f"{_title[:160] if _title else result.get('url','')[:160]}"
+                )
+                # Cap detail at ~2 KB — neural_memory.learn_from_text
+                # needs >50 chars but doesn't benefit from MB-scale
+                # bodies (the indexer already chunks for FTS).
+                _detail = _body[:2000] if _body else _summary
+                _t = asyncio.create_task(_bh.absorb(
+                    module="web_atlas",
+                    summary=_summary,
+                    detail=_detail,
+                    entity_name=_domain,
+                    success=True,
+                    source_id=result.get("canonical_url") or result.get("url") or "",
+                    confidence="ASSESSED",
+                ))
+                _t.add_done_callback(lambda t: t.result() if not t.cancelled() and t.exception() is None else None)
+            except Exception as e:
+                logger.debug(
+                    "R-F667: brain_hook.absorb dispatch failed for %s "
+                    "(non-fatal): %s", d["domain"], e,
+                )
 
     return {
         "fetched": fetched, "indexed": indexed, "skipped": skipped,
