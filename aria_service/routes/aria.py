@@ -2647,6 +2647,41 @@ async def student_mastery_ep():
     return await student.get_mastery_report()
 
 
+# R-F660 (2026-05-17) — per-topic completion measurement.
+# Read-only. Zero LLM calls. Phase A slice 2 of the learning-framework
+# buildout. The Phase B learning controller (R-F662) consumes this to
+# decide when to stop a learning session on a given topic; Phase A ships
+# the measurement endpoint so operator can observe completion progress
+# now.
+@router.get("/mastery/topic-completion")
+async def mastery_topic_completion_ep(
+    topic: str,
+    verified_facts_min: int = 5,
+    tier1_sources_min: int = 3,
+    open_questions_max: int = 0,
+):
+    """Compute per-topic completion criteria.
+
+    Query params:
+      topic                   required — the topic string to evaluate
+      verified_facts_min      default 5 — gate threshold per design analysis
+      tier1_sources_min       default 3 — gate threshold
+      open_questions_max      default 0 — gate threshold
+
+    Returns:
+      {topic, complete, criteria, blockers}
+    """
+    from ..intel import topic_completion as _tc
+    if not topic or not topic.strip():
+        raise HTTPException(status_code=400, detail="topic query param required")
+    return await _tc.topic_completion(
+        topic,
+        verified_facts_min=max(0, int(verified_facts_min)),
+        tier1_sources_min=max(0, int(tier1_sources_min)),
+        open_questions_max=max(0, int(open_questions_max)),
+    )
+
+
 @router.post("/student/mastery/reset")
 async def student_mastery_reset_ep():
     """Reset mastery scores to accuracy-based baseline. Use after fixing

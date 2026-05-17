@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 666,
+  "next_available": 667,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1130,6 +1130,16 @@
       "r_number": "R-F665",
       "title": "fix test_oem_contact_graph fixture drift (12 OEMs -> 43)",
       "claimed_at": "2026-05-17T08:52:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9d47c4d",
+      "notes": null,
+      "shipped_at": "2026-05-17T08:53:21Z"
+    },
+    {
+      "r_number": "R-F666",
+      "title": "expand R-F455 test window — post-hooks span >8000 chars now",
+      "claimed_at": "2026-05-17T08:54:04Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
