@@ -1101,6 +1101,40 @@ tasks:
     escalate_if: ["score_delta_negative", "pass_rate_below_70"]
     mem0_tags: [eval, regression, daily, autonomous]
 
+  # ──────────────────────────────────────────────────────────────────
+  # R-F662 (2026-05-17) — LEARNING-CYCLE: OSS-only learning controller.
+  # Drains the FSRS-due queue + reading-list using local code only
+  # (rag_store + neural_memory + topic_completion). Zero cloud LLM
+  # calls inside the loop — that's the point of R-F662. Gated by the
+  # ARIA_LEARNING_CONTROLLER_ENABLED env flag (default off) so this
+  # cron entry can exist in yaml without firing until the operator
+  # explicitly opts in.
+  - id: LEARNING-CYCLE
+    name: OSS-only learning controller cycle
+    description: |
+      Hourly local-only learning cycle. Picks topics from the FSRS due
+      queue (R-F664) + reading-queue backlog (R-F661), reads local RAG
+      chunks, computes corpus agreement, updates mastery + FSRS, and
+      checks completion via R-F660.
+
+      Cost discipline (R-F650/F651 lesson):
+        - cost_cap_usd 0.00     (no LLM calls expected)
+        - timeout_seconds 120   (enforced via R-F651 wait_for wrap)
+        - ARIA_LEARNING_CONTROLLER_ENABLED env flag default off
+    cron: "5 * * * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 120
+    cost_cap_usd: 0.00
+    tool_chain:
+      - tool: learning_cycle
+        max_topics: 5
+        time_budget_s: 100
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [learning, controller, autonomous, oss_only]
+
   # ADVERSARIAL-AUDIT — Wed + Sun 06:00 UTC, 5 attacks across 4
   # categories (false info, authority spoof, multi-turn drift, social
   # engineering, red-herring overload). Every failure stages a clause-

@@ -764,6 +764,21 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         report = await _er.run_eval(llm, label=label)
         return {"run_eval": report}
 
+    elif tool_kind == "learning_cycle":
+        # R-F662 (2026-05-17): OSS-only learning controller.
+        # Zero cloud LLM calls in the loop — uses FSRS schedule +
+        # reading_queue + rag_store + neural_memory. Gated by env flag
+        # ARIA_LEARNING_CONTROLLER_ENABLED. Hard timeout via the R-F651
+        # asyncio.wait_for wrap in the direct-tool dispatch.
+        from ..learning import learning_controller as _lc
+        first = (task.tool_chain[0] or {}) if task.tool_chain else {}
+        max_topics = int(first.get("max_topics", 5))
+        time_budget_s = float(first.get("time_budget_s", 120.0))
+        report = await _lc.run_cycle(
+            max_topics=max_topics, time_budget_s=time_budget_s,
+        )
+        return {"learning_cycle": report}
+
     elif tool_kind == "cost_free_learn":
         # R-F567 (2026-05-16): hourly preview of the four cost-free
         # learning loops (mastery decay, mistake replay, cross-source
@@ -1301,6 +1316,8 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "self_diagnostic",
                            # R-F470 [2026-05-14]: daily golden-set eval
                            "run_eval",
+                           # R-F662 [2026-05-17]: OSS-only learning controller
+                           "learning_cycle",
                            # R-F470 bonus [2026-05-14]: 4 pre-existing
                            # handlers were dark — production tasks using
                            # these would have errored "unsupported tool

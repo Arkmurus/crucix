@@ -1095,9 +1095,10 @@
       "title": "failed-quiz â†’ reading-list auto-enrollment",
       "claimed_at": "2026-05-17T08:35:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "43d5482",
+      "notes": null,
+      "shipped_at": "2026-05-17T09:39:20Z"
     },
     {
       "r_number": "R-F662",
