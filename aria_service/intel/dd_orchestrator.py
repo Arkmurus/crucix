@@ -2557,6 +2557,177 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
     except Exception as e:
         logger.debug("Compliance: cultural_atlas lookup failed (non-fatal): %s", e)
 
+    # ── 4a-EXPERT-KNOWLEDGE (R-F644) — wire R-F638..F643 expert layers ──
+    # Direct response to the 2026-05-17 ADSM case. When the target dict
+    # carries `goods_list`, `mou_text` or `end_user_statement`, fire the
+    # six expert-knowledge modules and append their findings to
+    # report.compliance.findings.
+    #
+    # Modules wired:
+    #   R-F638 weapon_origin_catalogue        — per-item OEM+sanctions
+    #   R-F639 eliminated_weapons_watchlist   — INF/CWC/BWC/Ottawa/CCM
+    #   R-F640 evasion_typology_detector      — TR-RU-MENA + composites
+    #   R-F641 end_user_granularity           — Saudi-Gov-generic catch
+    #   R-F642 mou_clause_gate_analyser       — 4.5(e)-style gates
+    #   R-F643 goods_list_aggregator_detector — calibre-mix + diversion
+    #
+    # All wired defensively — any single failure does NOT break compliance.
+    try:
+        from . import weapon_origin_catalogue as _woc
+        from . import eliminated_weapons_watchlist as _ewl
+        from . import evasion_typology_detector as _etd
+        from . import end_user_granularity as _eug
+        from . import mou_clause_gate_analyser as _mcga
+        from . import goods_list_aggregator_detector as _glad
+
+        # Parse goods_list from target — accept list[str] OR multi-line str
+        _goods_list_raw = target.get("goods_list")
+        _goods_items: list[str] = []
+        if isinstance(_goods_list_raw, list):
+            _goods_items = [str(x) for x in _goods_list_raw if x]
+        elif isinstance(_goods_list_raw, str):
+            _goods_items = [
+                line.strip() for line in _goods_list_raw.splitlines()
+                if line.strip()
+            ]
+
+        # Aggregate weapon-origin + sanctions matches per line
+        _weapon_origins: list[str] = []
+        _weapon_statuses: list[str] = []
+        _has_inf = False
+        _has_cwc_bwc = False
+
+        for _item in _goods_items[:30]:  # cap line-items processed
+            # Weapon catalogue (R-F638)
+            try:
+                _w_finding = _woc.render_finding_for_text(_item)
+                if _w_finding:
+                    report.compliance.findings.append(Finding(
+                        severity=_w_finding["severity"],
+                        title=_w_finding["title"],
+                        detail=_w_finding["detail"],
+                        source=_w_finding["source"],
+                        confidence=_w_finding["confidence"],
+                    ))
+                    _weapon_origins.append(_w_finding.get("origin_iso2", ""))
+                    _weapon_statuses.append(_w_finding.get("sanctions_status", ""))
+                    report.compliance.meta.subcalls += 1
+            except Exception as _e1:
+                logger.debug("R-F644 weapon-catalogue line failed: %s", _e1)
+
+            # Eliminated/banned watchlist (R-F639)
+            try:
+                _e_finding = _ewl.render_finding_for_text(_item)
+                if _e_finding:
+                    report.compliance.findings.append(Finding(
+                        severity=_e_finding["severity"],
+                        title=_e_finding["title"],
+                        detail=_e_finding["detail"],
+                        source=_e_finding["source"],
+                        confidence=_e_finding["confidence"],
+                    ))
+                    if "inf" in (_e_finding.get("treaty") or "").lower():
+                        _has_inf = True
+                    if "chemical" in (_e_finding.get("treaty") or "").lower() \
+                       or "biological" in (_e_finding.get("treaty") or "").lower():
+                        _has_cwc_bwc = True
+                    report.compliance.meta.subcalls += 1
+            except Exception as _e2:
+                logger.debug("R-F644 eliminated-watchlist line failed: %s", _e2)
+
+        # Aggregator pattern (R-F643)
+        if _goods_items:
+            try:
+                _agg_finding = _glad.render_finding(
+                    _goods_items,
+                    buyer_country_iso2=(report.identity.jurisdiction_iso2
+                                        or target.get("destination_iso2")),
+                )
+                if _agg_finding:
+                    report.compliance.findings.append(Finding(
+                        severity=_agg_finding["severity"],
+                        title=_agg_finding["title"],
+                        detail=_agg_finding["detail"],
+                        source=_agg_finding["source"],
+                        confidence=_agg_finding["confidence"],
+                    ))
+                    report.compliance.meta.subcalls += 1
+            except Exception as _e3:
+                logger.debug("R-F644 aggregator failed: %s", _e3)
+
+        # Evasion typology (R-F640)
+        try:
+            _routing_iso2 = (target.get("routing_location_iso2")
+                             or target.get("stockholding_location_iso2"))
+            _eu_statement = target.get("end_user_statement") or ""
+            _buyer_iso2 = (report.identity.jurisdiction_iso2
+                           or target.get("destination_iso2"))
+            # Best-effort: is the buyer's end-user specific?
+            _eu_specific = False
+            if _eu_statement and _buyer_iso2:
+                _eu_specific = _eug.is_sufficient_for_euc(_eu_statement, _buyer_iso2)
+
+            _ctx = _etd.DealContext(
+                weapon_origins_iso2=tuple(o for o in _weapon_origins if o),
+                weapon_sanctions_statuses=tuple(_weapon_statuses),
+                routing_location_iso2=_routing_iso2,
+                buyer_country_iso2=_buyer_iso2,
+                buyer_named_end_user_specific=_eu_specific,
+                has_inf_eliminated_items=_has_inf,
+                has_categorically_banned_items=_has_cwc_bwc,
+                goods_list_mixed_nato_and_non_nato_calibres=False,
+                no_timeline_indicated=bool(target.get("no_timeline_indicated")),
+                no_commission_discussed=bool(target.get("no_commission_discussed")),
+                informal_channel_received=bool(target.get("informal_channel_received")),
+            )
+            for _typ_f in _etd.render_findings_for_ctx(_ctx):
+                report.compliance.findings.append(Finding(
+                    severity=_typ_f["severity"],
+                    title=_typ_f["title"],
+                    detail=_typ_f["detail"],
+                    source=_typ_f["source"],
+                    confidence=_typ_f["confidence"],
+                ))
+                report.compliance.meta.subcalls += 1
+        except Exception as _e4:
+            logger.debug("R-F644 typology detector failed: %s", _e4)
+
+        # End-user granularity (R-F641)
+        try:
+            _eu_statement = target.get("end_user_statement") or ""
+            if _eu_statement:
+                _buyer_iso2 = (report.identity.jurisdiction_iso2
+                               or target.get("destination_iso2"))
+                _eu_f = _eug.render_finding(_eu_statement, country_iso2=_buyer_iso2)
+                report.compliance.findings.append(Finding(
+                    severity=_eu_f["severity"],
+                    title=_eu_f["title"],
+                    detail=_eu_f["detail"],
+                    source=_eu_f["source"],
+                    confidence=_eu_f["confidence"],
+                ))
+                report.compliance.meta.subcalls += 1
+        except Exception as _e5:
+            logger.debug("R-F644 end-user granularity failed: %s", _e5)
+
+        # MOU clause-gate analysis (R-F642)
+        try:
+            _mou_text = target.get("mou_text") or ""
+            if _mou_text and len(_mou_text) > 200:
+                for _gate_f in _mcga.render_finding(_mou_text)[:5]:
+                    report.compliance.findings.append(Finding(
+                        severity=_gate_f["severity"],
+                        title=_gate_f["title"],
+                        detail=_gate_f["detail"],
+                        source=_gate_f["source"],
+                        confidence=_gate_f["confidence"],
+                    ))
+                    report.compliance.meta.subcalls += 1
+        except Exception as _e6:
+            logger.debug("R-F644 mou-gate analyser failed: %s", _e6)
+    except Exception as _expert_err:
+        logger.debug("R-F644 expert-knowledge block failed (non-fatal): %s", _expert_err)
+
     # ── 4b. Export control classification ──
     product_text = target.get("product_description") or target.get("goods") or ""
     if product_text:
