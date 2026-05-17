@@ -1185,9 +1185,10 @@
       "title": "R-F435 fixture cluster — shared app.state.llm_provider fixture closes 6 test fails (audit action 5)",
       "claimed_at": "2026-05-17T10:21:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ac7fda2",
+      "notes": null,
+      "shipped_at": "2026-05-17T10:32:01Z"
     },
     {
       "r_number": "R-F671",
