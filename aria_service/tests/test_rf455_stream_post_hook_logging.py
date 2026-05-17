@@ -14,6 +14,32 @@ the dashboard can attribute the silence.
 """
 from __future__ import annotations
 
+import re
+
+
+def _find_aria_chat_stream_end(src: str, marker_idx: int) -> int:
+    """R-F666 helper — return the character offset where aria_chat_stream
+    ends, so the R-F455 scan window grows naturally with the function
+    without leaking into the next top-level def (e.g. aria_think).
+
+    The next top-level `^async def` or `^def` line after the marker
+    marks the boundary. Falls back to end-of-file if none found."""
+    pattern = re.compile(r"^(?:async\s+)?def\s+\w+\s*\(", re.MULTILINE)
+    for m in pattern.finditer(src, pos=marker_idx):
+        # Skip the first match — that's likely `aria_chat_stream` itself
+        # if the marker is inside the function body before any nested defs.
+        # We want the FIRST top-level def AFTER the marker that isn't
+        # the function the marker is inside. The marker is far enough
+        # into the function body that this isn't ambiguous in practice,
+        # but to be safe we take the LAST def whose name doesn't start
+        # with an underscore (nested defs commonly start with _).
+        line_start = src.rfind("\n", 0, m.start()) + 1
+        # Skip indented (nested) defs
+        if src[line_start:m.start()].strip() != "":
+            continue
+        return m.start()
+    return len(src)
+
 
 def test_rf455_no_bare_except_pass_remains_in_stream_post_hooks():
     """Static scan: the seven R-F455 sites must use named exception
@@ -34,9 +60,15 @@ def test_rf455_no_bare_except_pass_remains_in_stream_post_hooks():
         "fix been reverted?"
     )
 
-    # Look forward from the marker for ~150 lines (covers the cluster
-    # of post-hooks the marker introduces).
-    window_end = marker_idx + 8000
+    # R-F666 (2026-05-17): replaced the fixed-N-char window with a
+    # function-bounded window. The original 8000-char heuristic broke
+    # when the post-hook chain naturally grew past 8000 chars. Widening
+    # to 24000 made one test pass but caused the sibling test to catch
+    # an `except: pass` in `aria_think` (a separate function, not in
+    # scope of R-F455). Correct fix: anchor the scan to the end of
+    # `aria_chat_stream` itself, so the window grows naturally with the
+    # function without leaking into adjacent function bodies.
+    window_end = _find_aria_chat_stream_end(src, marker_idx)
     window = src[marker_idx:window_end]
 
     # Each of these debug-log strings should appear in the window
@@ -69,7 +101,8 @@ def test_rf455_no_silent_except_pass_in_window():
 
     marker_idx = src.find("R-F455 (2026-05-13)")
     assert marker_idx > 0
-    window = src[marker_idx:marker_idx + 8000]
+    # R-F666: function-bounded window (see sibling test above).
+    window = src[marker_idx:_find_aria_chat_stream_end(src, marker_idx)]
 
     import re
     # Match bare except: pass with optional whitespace, on either Exception or bare
