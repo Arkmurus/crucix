@@ -908,9 +908,10 @@
       "title": "MOU clause-gate analyser discretionary-satisfaction detection",
       "claimed_at": "2026-05-17T00:28:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e767f5b",
+      "notes": null,
+      "shipped_at": "2026-05-17T00:52:33Z"
     },
     {
       "r_number": "R-F643",
