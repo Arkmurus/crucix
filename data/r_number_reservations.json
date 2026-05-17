@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 668,
+  "next_available": 669,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1154,6 +1154,16 @@
       "r_number": "R-F667",
       "title": "wire crawler/runner.py into brain_hook — close 6h autonomous-crawl knowledge leak (CLAUDE.md §15)",
       "claimed_at": "2026-05-17T09:59:58Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "74dc13a",
+      "notes": null,
+      "shipped_at": "2026-05-17T10:04:05Z"
+    },
+    {
+      "r_number": "R-F668",
+      "title": "stale-module alert for email_reader — catch 2026-04-18-class silent-loss",
+      "claimed_at": "2026-05-17T10:06:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

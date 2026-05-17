@@ -1273,15 +1273,53 @@ async def get_stats() -> dict:
     }
 
 
+# R-F668 (2026-05-17): load-bearing modules whose silence is a real
+# incident (not a "module idle for a day" non-event). Going stale on
+# any of these should fire a CRITICAL alert, not just a warning —
+# load-bearing modules feed the chat pipeline directly and a silent
+# stop = ARIA losing a sense.
+#
+# Audit 2026-05-17: "email_reader → 2026-04-18 silent loss: 302 emails
+# read, 0 brain signals. No stale-module alert fires when email_reader
+# goes silent for days." Adding email_reader as load-bearing surfaces
+# the same class of regression next time at the dashboard, not in the
+# weekly report 7 days later.
+_LOAD_BEARING_MODULES = frozenset({
+    "email_reader",      # seenode→Python email pipeline (R-F468 era)
+    "aria_chat",         # R-F655 chat ingest (highest signal volume)
+    "knowledge_ingestor", # /api/aria/read-document
+    "web_atlas",         # R-F667 autonomous crawl
+    "knowledge_spider",  # hourly autonomous spider
+})
+
+
+def _stale_severity(module: str) -> str:
+    """R-F668: critical for load-bearing modules; warning otherwise."""
+    return "critical" if module in _LOAD_BEARING_MODULES else "warning"
+
+
+def _never_seen_severity(module: str) -> str:
+    """R-F668: load-bearing module that has NEVER sent a signal is an
+    install/wiring bug, not informational. Critical."""
+    return "critical" if module in _LOAD_BEARING_MODULES else "info"
+
+
 async def get_stale_alerts() -> list[dict]:
-    """Return alert dicts for modules that haven't sent a signal in 24h."""
+    """Return alert dicts for modules that haven't sent a signal in 24h.
+
+    R-F668: load-bearing modules (email_reader, aria_chat, web_atlas,
+    knowledge_ingestor, knowledge_spider) report severity=critical so
+    they surface in proactive alerts, not just weekly_report. Other
+    modules stay at severity=warning (info for never-seen).
+    """
     stats = await get_stats()
     alerts = []
     for mod in stats.get("stale_modules", []):
         m = stats["modules"].get(mod, {})
         alerts.append({
             "module": mod,
-            "severity": "warning",
+            "severity": _stale_severity(mod),
+            "load_bearing": mod in _LOAD_BEARING_MODULES,
             "title": f"Brain signal stale: {mod}",
             "detail": f"{mod} last sent a signal {m.get('last_signal_ago_h', '?')}h ago (threshold: {_ALERT_STALE_HOURS}h)",
             "last_signal_ago_h": m.get("last_signal_ago_h"),
@@ -1289,7 +1327,8 @@ async def get_stale_alerts() -> list[dict]:
     for mod in stats.get("never_seen", []):
         alerts.append({
             "module": mod,
-            "severity": "info",
+            "severity": _never_seen_severity(mod),
+            "load_bearing": mod in _LOAD_BEARING_MODULES,
             "title": f"Brain signal never seen: {mod}",
             "detail": f"{mod} is registered but has never sent a signal to brain_hook",
         })
