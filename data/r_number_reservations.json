@@ -1105,9 +1105,10 @@
       "title": "learning controller (topic picker + sequencer + completion judge)",
       "claimed_at": "2026-05-17T08:35:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "91214af",
+      "notes": null,
+      "shipped_at": "2026-05-17T09:43:17Z"
     },
     {
       "r_number": "R-F663",

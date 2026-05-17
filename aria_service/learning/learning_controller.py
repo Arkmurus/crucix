@@ -120,7 +120,7 @@ async def study_topic(topic: str) -> dict:
 
     Returns:
         {topic, chunks_retrieved, agreement, mastery_updated, complete,
-         duration_ms, error?}
+         duration_ms, error?, debounced?}
     """
     t0 = time.time()
     result: dict[str, Any] = {"topic": topic}
@@ -128,6 +128,21 @@ async def study_topic(topic: str) -> dict:
         result["error"] = "empty_topic"
         result["duration_ms"] = int((time.time() - t0) * 1000)
         return result
+
+    # R-F663: debounce — skip topics studied within the last 5 minutes
+    # so a tight cron interval doesn't redo the same RAG retrieval over
+    # and over. Time window short enough that operator-visible turnaround
+    # stays low; long enough to absorb hourly cron firings.
+    try:
+        from . import bookmarks
+        since = await bookmarks.since_last_studied(topic)
+        if since is not None and since < 300.0:
+            result["debounced"] = True
+            result["seconds_since_last_study"] = round(since, 1)
+            result["duration_ms"] = int((time.time() - t0) * 1000)
+            return result
+    except Exception as e:
+        logger.debug("R-F663: bookmark debounce check failed: %s", e)
 
     # 1. RAG retrieval — pure local sentence-transformer + chroma
     chunks: list[dict] = []
@@ -161,6 +176,18 @@ async def study_topic(topic: str) -> dict:
     except Exception as e:
         logger.debug("R-F662 study_topic %s: completion check failed: %s", topic, e)
         result["complete"] = False
+
+    # R-F663: record bookmark for this study pass
+    try:
+        from . import bookmarks
+        await bookmarks.record_bookmark(
+            topic,
+            chunks_count=len(chunks),
+            agreement=agreement,
+            notes=f"complete={result.get('complete', False)}",
+        )
+    except Exception as e:
+        logger.debug("R-F663: bookmark record failed: %s", e)
 
     result["duration_ms"] = int((time.time() - t0) * 1000)
     return result

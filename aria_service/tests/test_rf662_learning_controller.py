@@ -118,9 +118,15 @@ def test_rf662_collect_respects_max_topics(monkeypatch):
 
 # ── study_topic: local-only, no LLM ───────────────────────────────────────
 
-def test_rf662_study_topic_high_agreement_marks_correct(monkeypatch):
+def test_rf662_study_topic_high_agreement_marks_correct(monkeypatch, tmp_path):
     """When RAG chunks agree (high mean score), update_mastery is called
     with correct=True."""
+    # R-F663 debounce isolation: use a fresh bookmarks DB per test so
+    # cross-test pollution can't trigger the 5-min debounce.
+    monkeypatch.setenv("ARIA_BOOKMARKS_DB_PATH", str(tmp_path / "bm_high.db"))
+    from aria_service.learning import bookmarks as _bm
+    asyncio.run(_bm._close_conn())
+
     captured: dict = {}
 
     async def _fake_rag(query, top_k=20, min_similarity=0.4):
@@ -140,7 +146,7 @@ def test_rf662_study_topic_high_agreement_marks_correct(monkeypatch):
         with patch.object(rag_store, "search", _fake_rag), \
              patch.object(student, "update_mastery", _fake_update), \
              patch.object(topic_completion, "topic_completion", _fake_completion):
-            return await lc.study_topic("sanctions")
+            return await lc.study_topic("rf662_high_topic_unique")
 
     result = asyncio.run(runner())
     assert result["chunks_retrieved"] == 2
@@ -151,7 +157,11 @@ def test_rf662_study_topic_high_agreement_marks_correct(monkeypatch):
     assert captured["weight"] == 0.4
 
 
-def test_rf662_study_topic_low_agreement_marks_wrong(monkeypatch):
+def test_rf662_study_topic_low_agreement_marks_wrong(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARIA_BOOKMARKS_DB_PATH", str(tmp_path / "bm_low.db"))
+    from aria_service.learning import bookmarks as _bm
+    asyncio.run(_bm._close_conn())
+
     captured: dict = {}
 
     async def _fake_rag(query, top_k=20, min_similarity=0.4):
@@ -169,7 +179,7 @@ def test_rf662_study_topic_low_agreement_marks_wrong(monkeypatch):
         with patch.object(rag_store, "search", _fake_rag), \
              patch.object(student, "update_mastery", _fake_update), \
              patch.object(topic_completion, "topic_completion", _fake_completion):
-            return await lc.study_topic("sanctions")
+            return await lc.study_topic("rf662_low_topic_unique")
 
     result = asyncio.run(runner())
     assert result["passed"] is False
