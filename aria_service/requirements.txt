@@ -67,6 +67,14 @@ Pillow>=10.0.0
 # their LLM-powered methods return empty results if it is missing.
 anthropic>=0.40.0
 
+# ── R-F664 (2026-05-17) — FSRS spaced-repetition scheduler (OSS Tier-1) ──
+# Free Spaced Repetition Scheduler v6 — what Anki/RemNote use. Replaces
+# hand-rolled mastery decay in student.py with the SOTA forgetting-curve
+# model. Pure-Python, ~22 KB, MIT licence, no network calls, no LLM. Part
+# of the OSS-only learning framework (R-F664 + R-F662) that lets ARIA's
+# learning loop run without Anthropic / DeepSeek.
+fsrs>=6.3.0
+
 # ── Lightpanda headless browser (JS rendering fallback) ──────────────────
 # Playwright acts as a thin CDP client connecting to Lightpanda's server —
 # no Chromium browser install needed. Lightpanda binary is installed in the

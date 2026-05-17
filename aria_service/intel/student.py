@@ -405,6 +405,22 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
             # Cap: single update cannot move score by more than 15pp
             delta = min(delta, 0.15)
             m["score"] = max(MASTERY_FLOOR, m["score"] - delta)
+
+        # R-F664 (2026-05-17): FSRS spaced-repetition update. Additive to
+        # the EWMA score above — FSRS schedules the NEXT review, EWMA
+        # tracks running competence. Failure here is non-fatal; if the
+        # scheduler can't run we still persist the EWMA delta.
+        try:
+            from ..learning import fsrs_scheduler as _fsrs
+            new_card = _fsrs.review_topic(
+                topic, correct, prior_card=m.get("fsrs_card"),
+            )
+            m["fsrs_card"] = new_card
+        except Exception as _fsrs_e:
+            logger.debug(
+                "R-F664: FSRS update for topic %s failed (non-fatal): %s",
+                topic, _fsrs_e,
+            )
         # Hard floor check — flag for remediation if breached
         floor = HARD_FLOORS.get(topic, 0.50)
         if m["score"] < floor:
@@ -473,6 +489,59 @@ async def reset_mastery_scores() -> dict:
     _mark_mastery_dirty()  # R-F267 — recalibration is genuine state change, persist
     await _save_mastery()
     return {t: round(mastery[t]["score"], 3) for t in mastery}
+
+
+async def get_due_topics(limit: int = 20) -> list[dict]:
+    """R-F664 (2026-05-17): topics whose FSRS card is due for review NOW.
+
+    Used by the Phase B learning controller (R-F662) to pick what to
+    study next. Returns oldest-due first. Topics with no FSRS card yet
+    (never reviewed) are treated as due — that gives new topics
+    immediate visibility in the controller's queue.
+
+    Output: list of {topic, score, retention_now, due_at, fsrs_state}.
+    """
+    from ..learning import fsrs_scheduler as _fsrs
+    mastery = await _load_mastery()
+    out: list[dict] = []
+    for topic, m in mastery.items():
+        if not isinstance(m, dict):
+            continue
+        card_dict = m.get("fsrs_card")
+        if not _fsrs.is_due(card_dict):
+            continue
+        retention = _fsrs.retention_now(card_dict)
+        due_at = None
+        if card_dict and isinstance(card_dict, dict):
+            due_at = card_dict.get("due") or card_dict.get("due_at")
+        out.append({
+            "topic": topic,
+            "score": round(m.get("score", INITIAL_MASTERY), 3),
+            "retention_now": round(retention, 3),
+            "due_at": due_at,
+            "fsrs_state": (card_dict or {}).get("state"),
+        })
+    # Order: never-reviewed first (no due_at), then by due_at ASC (oldest).
+    out.sort(key=lambda r: (r["due_at"] is not None, r["due_at"] or ""))
+    return out[: max(1, min(limit, 100))]
+
+
+async def get_topic_retention(topic: str) -> dict:
+    """R-F664: FSRS-predicted retention probability for one topic right now."""
+    from ..learning import fsrs_scheduler as _fsrs
+    mastery = await _load_mastery()
+    m = mastery.get(topic) if isinstance(mastery, dict) else None
+    if not m:
+        return {"topic": topic, "retention_now": 0.0, "score": INITIAL_MASTERY,
+                "has_card": False}
+    card = m.get("fsrs_card")
+    return {
+        "topic": topic,
+        "retention_now": round(_fsrs.retention_now(card), 3),
+        "score": round(m.get("score", INITIAL_MASTERY), 3),
+        "has_card": bool(card),
+        "due_at": (card or {}).get("due") if isinstance(card, dict) else None,
+    }
 
 
 async def get_mastery_report() -> dict:
