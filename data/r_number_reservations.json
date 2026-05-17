@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 638,
+  "next_available": 644,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -858,6 +858,60 @@
       "r_number": "R-F637",
       "title": "pre-meeting cultural coaching slash-command",
       "claimed_at": "2026-05-16T23:36:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F638",
+      "title": "weapon-name to manufacturer to origin to sanctions lookup catalogue",
+      "claimed_at": "2026-05-17T00:28:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F639",
+      "title": "treaty-eliminated / non-existent weapons watchlist",
+      "claimed_at": "2026-05-17T00:28:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F640",
+      "title": "regional sanctions-evasion typology detector",
+      "claimed_at": "2026-05-17T00:28:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F641",
+      "title": "end-user granularity scorer per-country directorate map",
+      "claimed_at": "2026-05-17T00:28:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F642",
+      "title": "MOU clause-gate analyser discretionary-satisfaction detection",
+      "claimed_at": "2026-05-17T00:28:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F643",
+      "title": "goods-list aggregator-broker pattern detector",
+      "claimed_at": "2026-05-17T00:28:34Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
