@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 672,
+  "next_available": 675,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1194,6 +1194,34 @@
       "r_number": "R-F671",
       "title": "backfill CLAUDE.md §1 override phrase doc trail for R-F661/F662 (audit action 6)",
       "claimed_at": "2026-05-17T10:22:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "68ddb38",
+      "notes": null,
+      "shipped_at": "2026-05-17T10:36:34Z"
+    },
+    {
+      "r_number": "R-F672",
+      "title": "lifespan silent except:pass promotion → logger.warning (punch list #12)",
+      "claimed_at": "2026-05-17T10:50:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F673",
+      "title": "explicit dialogue_state DB init in main.py lifespan + pin test (punch list #10)",
+      "claimed_at": "2026-05-17T10:51:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F674",
+      "title": "symbolic_reasoner pins: embargo/licence/intent (punch list #9 — R-F645 reconcile)",
+      "claimed_at": "2026-05-17T10:51:05Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -403,6 +403,25 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning(f"LLM provider not configured — set LLM_PROVIDER + LLM_API_KEY")
 
+    # ── R-F673 (2026-05-17) — explicit dialogue_state DB init ──────────
+    # dialogue_state.py lazily creates its aiosqlite connection + schema
+    # on first call. That's fine for normal traffic, but it means a
+    # boot-time misconfiguration (volume not mounted, schema mismatch)
+    # only surfaces when the FIRST chat turn lands — sometimes minutes
+    # after deploy. Calling _ensure_conn here forces the failure into
+    # the boot log so /api/aria/health/live can't go green over a
+    # broken dialogue store.
+    try:
+        from .intel import dialogue_state as _ds_boot
+        await _ds_boot._ensure_conn()
+        logger.info("[R-F673] dialogue_state DB init ✓")
+    except Exception as _ds_e:
+        logger.warning(
+            "[R-F673] dialogue_state init failed at boot — open-question "
+            "tracking will be degraded until DB is reachable: %s",
+            _ds_e,
+        )
+
     # ── R-F248 (2026-05-11) — startup state snapshot ──────────────────────
     # Log a single "ARIA state at boot" line with the size of every
     # persistent store. This is the FIRST line operators should see if
@@ -469,8 +488,16 @@ async def lifespan(app: FastAPI):
             await _rs_b.lpush("crucix:aria:boot_snapshots",
                               __import__("json").dumps(snapshot, default=str))
             await _rs_b.ltrim("crucix:aria:boot_snapshots", 0, 49)
-        except Exception:
-            pass
+        except Exception as _snap_e:
+            # R-F672 (2026-05-17): promoted from silent pass per audit
+            # — boot-snapshot persistence failure means R-F248 boot-state
+            # diff loses the previous baseline, silently masking the next
+            # regression. Log so the operator sees it in fly logs.
+            logger.warning(
+                "R-F672: boot snapshot persistence failed (next boot-diff "
+                "will be against an older baseline): %s",
+                _snap_e,
+            )
 
         # R-F251 (2026-05-11) — regression detection. Diff this boot's
         # snapshot against the PREVIOUS one (index 1 in the list). If any
@@ -522,8 +549,18 @@ async def lifespan(app: FastAPI):
                                 gap_type="boot_state_regression",
                                 gap_detail="; ".join(drops),
                             )
-                        except Exception:
-                            pass
+                        except Exception as _absorb_e:
+                            # R-F672 (2026-05-17): promoted from silent
+                            # pass — if brain_hook fails to record the
+                            # regression, we still want the failure
+                            # itself logged so the operator knows the
+                            # alert was generated but didn't land.
+                            logger.warning(
+                                "R-F672: brain_hook.absorb for boot_state "
+                                "regression failed (alert may not surface "
+                                "on dashboard): %s",
+                                _absorb_e,
+                            )
         except Exception as _diff_err:
             logger.debug("R-F251 boot-diff failed: %s", _diff_err)
     asyncio.create_task(_log_boot_state())
@@ -978,8 +1015,16 @@ async def lifespan(app: FastAPI):
                             + "\n".join(summary_lines)
                         )
                         asyncio.create_task(whatsapp.send_message(msg))
-                    except Exception:
-                        pass  # WhatsApp not configured — no-op
+                    except Exception as _wa_e:
+                        # R-F672 (2026-05-17): keep at debug not warning
+                        # — most fires here ARE "WA not configured"
+                        # which is operationally fine. But promote out
+                        # of silent-pass so a real WA outage isn't
+                        # invisible.
+                        logger.debug(
+                            "R-F672: watchlist WA notification skipped: %s",
+                            _wa_e,
+                        )
             except Exception as e:
                 logger.warning("[Watchlist] Re-screen failed: %s", e)
             await asyncio.sleep(86400)  # Every 24 hours
