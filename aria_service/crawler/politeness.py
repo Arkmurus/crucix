@@ -36,8 +36,18 @@ _buckets: dict[str, dict] = {}
 # domain -> RobotFileParser
 _robots_cache: dict[str, RobotFileParser] = {}
 
+# R-F653 (2026-05-17): per-domain async lock so N concurrent callers
+# don't all fire _fetch_robots_txt in parallel. Live evidence at
+# 08:03:09 UTC: 11 hits to www.imo.org/robots.txt in 150ms because
+# every parallel chat-pipeline caller raced past the cache check.
+_robots_fetch_locks: dict[str, asyncio.Lock] = {}
+
 # How long to keep robots.txt in the DB before re-fetching.
 _ROBOTS_TTL_SEC = 24 * 60 * 60
+# R-F653: shorter TTL when the cached result is empty (server returned
+# nothing or hit a redirect loop). Long enough to dampen the burst,
+# short enough that a fixed server is re-probed within an hour.
+_ROBOTS_EMPTY_TTL_SEC = 60 * 60
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -89,28 +99,60 @@ async def _fetch_robots_txt(domain: str, timeout: float = 10.0) -> str:
 
 async def _get_robots_parser(domain: str) -> RobotFileParser:
     """Return a parsed robots.txt for `domain`, using the SQLite cache
-    when fresh and re-fetching when stale or missing."""
+    when fresh and re-fetching when stale or missing.
+
+    R-F653 (2026-05-17): wrapped in a per-domain lock so concurrent
+    callers don't all fire _fetch_robots_txt in parallel (live evidence
+    of 11 racing fetches on www.imo.org/robots.txt in 150ms). Empty
+    results are now ALWAYS cached — pre-R-F653 the `if d_row and robots`
+    gate threw away empty fetches, causing the next caller to refetch
+    from scratch even though we'd just learned the server was broken."""
+    # Fast path — already-parsed parser available.
     rp = _robots_cache.get(domain)
     if rp is not None:
         return rp
 
-    d_row = await db.get_domain(domain)
-    cached_at = d_row.get("robots_fetched_at") if d_row else None
-    robots = d_row.get("robots_txt") if d_row else None
+    # Serialise concurrent fills for this domain.
+    lock = _robots_fetch_locks.get(domain)
+    if lock is None:
+        lock = asyncio.Lock()
+        _robots_fetch_locks[domain] = lock
 
-    if not robots or not cached_at or _now() - cached_at > _ROBOTS_TTL_SEC:
-        robots = await _fetch_robots_txt(domain)
-        if d_row and robots:
-            await db.cache_robots(domain, robots)
+    async with lock:
+        # Re-check inside the lock — a peer may have filled it while we
+        # were waiting on the lock.
+        rp = _robots_cache.get(domain)
+        if rp is not None:
+            return rp
 
-    rp = RobotFileParser()
-    if robots:
-        rp.parse(robots.splitlines())
-    else:
-        # Empty parser allows everything by default.
-        rp.parse([])
-    _robots_cache[domain] = rp
-    return rp
+        d_row = await db.get_domain(domain)
+        cached_at = d_row.get("robots_fetched_at") if d_row else None
+        robots = d_row.get("robots_txt") if d_row else None
+
+        # R-F653: distinguish staleness from "no cache" — once we have a
+        # cached_at timestamp, the SQLite row is the source of truth even
+        # if the cached body is empty. TTL is shorter for empty results
+        # so a fixed upstream is re-probed within an hour.
+        is_empty = not robots
+        ttl = _ROBOTS_EMPTY_TTL_SEC if is_empty else _ROBOTS_TTL_SEC
+        stale = (cached_at is None) or (_now() - cached_at > ttl)
+
+        if stale:
+            robots = await _fetch_robots_txt(domain)
+            # Always cache, including empty — that's the whole point of
+            # R-F653. The previous `if robots:` gate meant a broken
+            # robots endpoint refetched on every request.
+            if d_row is not None:
+                await db.cache_robots(domain, robots or "")
+
+        rp = RobotFileParser()
+        if robots:
+            rp.parse(robots.splitlines())
+        else:
+            # Empty parser allows everything by default.
+            rp.parse([])
+        _robots_cache[domain] = rp
+        return rp
 
 
 async def is_allowed(url: str, user_agent: str = "ARIAsBot/1.0") -> bool:
@@ -193,6 +235,8 @@ async def reset_bucket(domain: str | None = None) -> None:
     if domain is None:
         _buckets.clear()
         _robots_cache.clear()
+        _robots_fetch_locks.clear()
         return
     _buckets.pop(domain, None)
     _robots_cache.pop(domain, None)
+    _robots_fetch_locks.pop(domain, None)
