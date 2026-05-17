@@ -283,8 +283,52 @@ async def get(key: str) -> str | None:
     return row[0] if row else None
 
 
+# R-F669 (2026-05-17): CLAUDE.md §7 — "ARIA has infinite memory. No TTL
+# on knowledge." Defensive guard: refuse to set an expiry on any key
+# whose prefix matches a canonical knowledge namespace. Caught by an
+# explicit ValueError so a buggy caller fails loudly in test rather
+# than silently rotting data months later.
+#
+# Audit 2026-05-17 flagged: "state_store.sweep_expired() deletes
+# entries with expires_at <= now. Safe today because no code writes
+# knowledge with a TTL. Fragile because nothing structurally prevents
+# a future caller from passing ex= on a knowledge key. Worth a
+# defensive assert in state_store.set_json() if namespace='knowledge'."
+_INFINITE_KEY_PREFIXES: tuple[str, ...] = (
+    "crucix:aria:knowledge",         # primary knowledge store + shards
+    "crucix:aria:verified_intel",    # verified facts + sources
+    "crucix:aria:intel_ledger",      # signal ledger (R-F239 100yr)
+    "crucix:aria:neural",            # neural memory + sub-spaces
+    "crucix:aria:neural_edges",      # edge weights (variant w/o colon)
+    "crucix:aria:neural_meta",       # neuron metadata
+    "crucix:aria:neural_conflicts",  # flagged contradictions
+)
+
+
+def _is_infinite_key(key: str) -> bool:
+    """True if `key` belongs to a knowledge namespace that must never
+    carry a TTL per CLAUDE.md §7. Matches exact prefix OR prefix
+    followed by ':' (sub-keyspace). Variants without colon (e.g.,
+    'crucix:aria:neural_edges') are listed explicitly in
+    _INFINITE_KEY_PREFIXES."""
+    if not key:
+        return False
+    return any(key == p or key.startswith(p + ":") for p in _INFINITE_KEY_PREFIXES)
+
+
 async def set(key: str, value: str, ex: int | None = None,
               keepttl: bool = False) -> None:
+    # R-F669: refuse TTL on knowledge namespaces. Raise loudly so a
+    # buggy caller fails in test, not in production six months later
+    # when the data silently disappears.
+    if ex is not None and _is_infinite_key(key):
+        raise ValueError(
+            f"R-F669: refusing TTL ex={ex}s on knowledge key {key!r} — "
+            f"CLAUDE.md §7 mandates infinite retention on knowledge "
+            f"namespaces ({_INFINITE_KEY_PREFIXES}). If you genuinely "
+            f"need a TTL on this data, it does not belong in the "
+            f"knowledge store — pick a different key prefix."
+        )
     expires_at = _ttl_to_expires(ex)
     await _upsert(key, value, kind="string", expires_at=expires_at, keepttl=keepttl)
 
