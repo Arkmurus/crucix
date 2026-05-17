@@ -55,8 +55,14 @@ def test_rf435_ubo_chain_preserves_pre_existing_reader_contract():
 
 
 def _make_report():
+    # R-F670 (2026-05-17): ARKDDReport schema was refactored after R-F435
+    # was written — `subject_input` is no longer a field; the trigger
+    # input now lives in `target: dict`. Closes 6 R-F435 test fails the
+    # audit 2026-05-17 mis-identified as an `app.state.llm_provider`
+    # fixture cluster. The real cause was a schema-drift between the
+    # fixture and the dataclass.
     from aria_service.intel.dd_schema import ARKDDReport, EntityType
-    r = ARKDDReport(run_id="test-rf435", subject_input="Acme Ltd")
+    r = ARKDDReport(run_id="test-rf435", target={"name": "Acme Ltd"})
     r.identity.entity_name = "Acme Holdings Ltd"
     r.identity.entity_type = EntityType.COMPANY.value
     r.identity.jurisdiction_iso2 = "GB"
