@@ -72,7 +72,12 @@ def test_guess_entity_urls_caps_at_limit():
 # ─────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("good", [
-    "example.com", "modirumgespi.com", "press.example.co.uk",
+    # R-F654 (2026-05-17): replaced "example.com" — its label is the
+    # RFC 2606 reserved placeholder and is now correctly rejected by
+    # _safe_domain_for_register. The other entries use "example" only
+    # as a sub-label, so their leading label ("press", "sub") still
+    # passes the new placeholder check.
+    "defensenews.com", "modirumgespi.com", "press.example.co.uk",
     "sub.example.org",
 ])
 def test_safe_domain_accepts_normal(good):

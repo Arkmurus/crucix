@@ -62,9 +62,41 @@ _GUESS_TLDS = (
 )
 
 
+# R-F654 (2026-05-17): tokens that produce useless candidate domains.
+# Live evidence 2026-05-17 08:11-08:13 — chat queries containing 2-char
+# numeric or placeholder tokens fed guess_entity_urls and produced URLs
+# like 283.com, 2b.org, 2026.co, acme-widgets.com — each auto-registered
+# at tier 4 then re-crawled by the daily loop forever.
+#
+# Reject:
+#   - tokens that are PURE DIGITS (e.g., "283", "2026") — never a real
+#     org domain, just years / version numbers / generic counts
+#   - tokens shorter than 3 chars (e.g., "2b", "ai") — too short to
+#     uniquely identify an org; combine with another token if needed
+#   - well-known RFC 2606 / tutorial placeholder words — "acme", "widgets",
+#     "example", "foo", "bar", "baz", "test", "sample", "todo"
+_PLACEHOLDER_TOKENS = frozenset({
+    "acme", "widgets", "widget", "example", "foo", "bar", "baz",
+    "qux", "test", "tests", "sample", "samples", "todo", "tbd",
+    "placeholder", "dummy", "mock", "demo",
+})
+
+
 def _tokens(query: str) -> list[str]:
-    return [t.lower() for t in _TOKEN_RX.findall(query or "")
-            if len(t) >= 2]
+    """Tokenise + drop low-quality tokens that would produce parked /
+    placeholder / numeric guess URLs. R-F654 raises the floor from
+    len>=2 to len>=3 AND rejects pure-digit + placeholder tokens."""
+    out: list[str] = []
+    for t in _TOKEN_RX.findall(query or ""):
+        if len(t) < 3:
+            continue
+        low = t.lower()
+        if low.isdigit():
+            continue
+        if low in _PLACEHOLDER_TOKENS:
+            continue
+        out.append(low)
+    return out
 
 
 def guess_entity_urls(query: str, limit: int = 30) -> list[str]:
@@ -126,6 +158,27 @@ def _safe_domain_for_register(domain: str) -> bool:
     # Numeric IPv4 / IPv6 — reject; we only crawl named hosts.
     if all(p.isdigit() for p in parts):
         return False
+    # R-F654 (2026-05-17): the LABEL (everything before the public TLD)
+    # must not be purely numeric and must be at least 3 chars. Catches
+    # the live-evidence cases 283.com, 2026.org, 2b.com that slipped past
+    # the all-parts-numeric check (those have alphabetic TLDs).
+    label = parts[0]
+    if label.isdigit():
+        return False
+    if len(label) < 3:
+        return False
+    # Reject RFC 2606 / placeholder labels even if length passes.
+    label_low = label.lower()
+    if label_low in _PLACEHOLDER_TOKENS:
+        return False
+    # Hyphenated placeholder labels (e.g., "acme-widgets") — if every
+    # non-empty hyphen segment is a known placeholder, the whole label
+    # is junk. (Mixed labels like "bae-systems" survive because "bae"
+    # isn't a placeholder.)
+    if "-" in label_low:
+        segments = [s for s in label_low.split("-") if s]
+        if segments and all(s in _PLACEHOLDER_TOKENS for s in segments):
+            return False
     return True
 
 
