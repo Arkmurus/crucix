@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 645,
+  "next_available": 652,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -932,6 +932,69 @@
       "commit_sha": "af50fd4",
       "notes": null,
       "shipped_at": "2026-05-17T01:00:46Z"
+    },
+    {
+      "r_number": "R-F645",
+      "title": "symbolic-reasoner RU/ZH rule pack — close capture gaps",
+      "claimed_at": "2026-05-17T07:29:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F646",
+      "title": "stream-bypass: mirror security_protocol.sanitize_output into aria_chat_stream",
+      "claimed_at": "2026-05-17T07:32:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F647",
+      "title": "neural_memory: exclude operator-self org from detect_conflict",
+      "claimed_at": "2026-05-17T07:32:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F648",
+      "title": "expose GET /api/aria/neural/conflicts for audit visibility",
+      "claimed_at": "2026-05-17T07:32:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F649",
+      "title": "llm_json strategy-6: missing-comma + unescaped-quote repair",
+      "claimed_at": "2026-05-17T07:32:03Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F650",
+      "title": "disable RUN-EVAL-DAILY cron (cost-cap bypass — was 3/day)",
+      "claimed_at": "2026-05-17T07:47:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F651",
+      "title": "enforce cost_cap_usd + timeout_seconds on autonomous tasks (RUN-EVAL-DAILY bypass)",
+      "claimed_at": "2026-05-17T07:47:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

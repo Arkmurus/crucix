@@ -1080,8 +1080,16 @@ tasks:
       path and emit pass_rate + score_delta vs the previous run. Surfaces
       regression honestly to the dashboard and (eventually) WhatsApp.
       Closes the loop opened by DAILY-GOLDEN-AUTOGEN.
+
+      R-F650 (2026-05-17): DISABLED. The 06:00 UTC firing burned $12.76
+      in 2 hours against claude-sonnet-4-6 — 40× the configured
+      cost_cap_usd ($0.30) and 12× the timeout_seconds (600s). Neither
+      gate fired because tool:run_eval bypasses the autonomous-task
+      cost meter (calls show under the feature but not under by_task).
+      Re-enable only after R-F651 closes that bypass AND the task is
+      reconfigured to a weekly schedule or pinned to a cheaper provider.
     cron: "0 6 * * *"
-    enabled: true
+    enabled: false  # R-F650 (2026-05-17) — see description
     priority: MEDIUM
     timeout_seconds: 600
     cost_cap_usd: 0.30
