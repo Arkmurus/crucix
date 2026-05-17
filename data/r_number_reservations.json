@@ -1206,7 +1206,7 @@
       "claimed_at": "2026-05-17T10:50:58Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "HEAD",
+      "commit_sha": "95bf708",
       "notes": null,
       "shipped_at": "2026-05-17T10:57:31Z"
     },
@@ -1216,7 +1216,7 @@
       "claimed_at": "2026-05-17T10:51:03Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "HEAD",
+      "commit_sha": "95bf708",
       "notes": null,
       "shipped_at": "2026-05-17T10:57:31Z"
     },
@@ -1225,9 +1225,10 @@
       "title": "symbolic_reasoner pins: embargo/licence/intent (punch list #9 — R-F645 reconcile)",
       "claimed_at": "2026-05-17T10:51:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "530d40b",
+      "notes": null,
+      "shipped_at": "2026-05-17T11:05:41Z"
     },
     {
       "r_number": "R-F675",
