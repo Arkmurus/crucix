@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 686,
+  "next_available": 687,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1353,9 +1353,10 @@
       "title": "server-side wa-auth backup idempotency — debounce storm",
       "claimed_at": "2026-05-18T09:57:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c0d0541",
+      "notes": null,
+      "shipped_at": "2026-05-18T10:10:28Z"
     },
     {
       "r_number": "R-F684",
@@ -1376,6 +1377,15 @@
       "commit_sha": "6631e8e",
       "notes": null,
       "shipped_at": "2026-05-18T10:03:28Z"
+    },
+    {
+      "r_number": "R-F686",
+      "title": "self-diagnostic auth — send ARIA_INTERNAL_TOKEN on outbound probes",
+      "claimed_at": "2026-05-18T10:12:57Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -499,26 +499,78 @@ def _check_autonomous_task(task_id: str) -> tuple[str, str]:
         return ("WARN", f"tasks.yaml check failed: {e}")
 
 
+def _self_diag_bearer_token() -> str | None:
+    """R-F686 (2026-05-18) — pick up the same bearer token the rest of
+    fly accepts so self-diagnostic probes can see PAST the auth wall.
+    Without this, every probe returns 401 and the diagnostic can't tell
+    a healthy route from a broken one. Prefer ARIA_INTERNAL_TOKEN (the
+    machine-to-machine token used by other internal callers like the
+    seenode listener); fall back to ARIA_API_TOKEN."""
+    for var in ("ARIA_INTERNAL_TOKEN", "ARIA_API_TOKEN"):
+        val = (os.getenv(var) or "").strip()
+        if val:
+            return val
+    return None
+
+
 async def _check_endpoint(
     path: str,
     unauth_ok_codes: tuple[int, ...] = (401,),
 ) -> tuple[str, str]:
-    """Probe fly.io directly for the endpoint. Expect one of the
-    unauth_ok_codes — that means the route exists, auth enforcement
-    works. 404 means the route is missing (our most common bug)."""
+    """Probe fly.io directly for the endpoint.
+
+    R-F686 (2026-05-18) — sends the Bearer token when one is set in env
+    so the probe can see actual endpoint behaviour, not just the auth
+    wall. Live fly logs 2026-05-18 10:01:24 showed 16+ self-diagnostic
+    probes hitting `aria-intel.fly.dev` and getting 401 because no token
+    was being sent — silently masking any 5xx behind those endpoints.
+
+    Accept rules:
+      - With token: success means HTTP 200 OR one of the spec's
+        unauth_ok_codes (covers POST-only 405s + body-required 422s +
+        intentional 404s). HTTP 401 in this branch is a TOKEN PROBLEM,
+        not "route exists" — bubbled up as FAIL.
+      - Without token: keep the original behaviour — the listed
+        unauth_ok_codes are "route exists, auth enforced". 401 is a
+        valid PASS signal.
+      - 404 is always FAIL unless the spec includes it (trace lookup).
+      - 5xx is WARN.
+    """
     fly_url = os.getenv("ARIA_FLY_URL") or "https://aria-intel.fly.dev"
+    token = _self_diag_bearer_token()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         import httpx
         async with httpx.AsyncClient(timeout=6.0) as client:
             # Try GET; some endpoints are POST-only and return 405
-            r = await client.get(f"{fly_url.rstrip('/')}{path}")
-            if r.status_code in unauth_ok_codes:
-                return ("PASS", f"route exists (HTTP {r.status_code})")
-            if r.status_code == 404:
+            r = await client.get(
+                f"{fly_url.rstrip('/')}{path}", headers=headers,
+            )
+            status = r.status_code
+
+            # R-F686 — with a bearer, a 401 means token was rejected.
+            # That's a configuration bug worth surfacing, not a PASS.
+            if token and status == 401:
+                return (
+                    "FAIL",
+                    "HTTP 401 with bearer token — token may be invalid / "
+                    "rotated; check ARIA_INTERNAL_TOKEN secret",
+                )
+
+            # With a token, also accept HTTP 200 as PASS even if the
+            # spec only listed unauth codes (the spec was authored
+            # assuming no auth).
+            effective_ok = set(unauth_ok_codes)
+            if token:
+                effective_ok.add(200)
+
+            if status in effective_ok:
+                return ("PASS", f"route exists (HTTP {status})")
+            if status == 404:
                 return ("FAIL", "HTTP 404 — route MISSING on fly.io")
-            if r.status_code >= 500:
-                return ("WARN", f"HTTP {r.status_code} — route exists but erroring")
-            return ("PASS", f"HTTP {r.status_code}")
+            if status >= 500:
+                return ("WARN", f"HTTP {status} — route exists but erroring")
+            return ("PASS", f"HTTP {status}")
     except Exception as e:
         return ("WARN", f"probe failed (network?): {str(e)[:100]}")
 
