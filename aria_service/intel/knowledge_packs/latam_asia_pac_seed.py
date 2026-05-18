@@ -367,8 +367,22 @@ async def seed_facts(skip_if_seeded: bool = True) -> dict:
         except Exception:
             pass
 
+    # R-F685 (2026-05-18) — pull update_regional_mastery into scope so
+    # each curated fact also contributes a light positive mastery signal
+    # for its (topic, region) cell. The operator vouching for the data
+    # is a correctness signal; weight=0.05 keeps the per-fact lift small
+    # so this doesn't overwhelm real quiz/chat signal (alpha ≈ 0.005 per
+    # fact). With ~35 facts spread across the pack, seeded cells lift
+    # ~0.05-0.10 toward 1.0 — visible but not artificial. Failures here
+    # must NOT break the seed run; mastery is a soft signal.
+    try:
+        from .. import student as _student
+    except Exception:
+        _student = None  # mastery update silently skipped if import fails
+
     added = 0
     errors = 0
+    mastery_updated = 0
     for topic, content, source, confidence, region, source_url in _FACTS:
         try:
             await _k.store_fact(
@@ -384,6 +398,25 @@ async def seed_facts(skip_if_seeded: bool = True) -> dict:
         except Exception as e:
             logger.debug("[knowledge_pack] failed %s: %s", topic, e)
             errors += 1
+            continue
+
+        # R-F685 — light mastery signal for the (topic, region) cell.
+        # Out-of-band from the fact-store success counter: a mastery
+        # update failure doesn't count as a seed error.
+        if _student is not None:
+            try:
+                await _student.update_regional_mastery(
+                    topics=[topic],
+                    regions=[region],
+                    correct=True,
+                    weight=0.05,
+                )
+                mastery_updated += 1
+            except Exception as e:
+                logger.debug(
+                    "[knowledge_pack] mastery update for (%s,%s) failed: %s",
+                    topic, region, e,
+                )
 
     # Persist the marker fact
     try:
@@ -413,13 +446,15 @@ async def seed_facts(skip_if_seeded: bool = True) -> dict:
         pass
 
     logger.info(
-        "[knowledge_pack] LatAm + Asia-Pacific seed complete: added=%d errors=%d",
-        added, errors,
+        "[knowledge_pack] LatAm + Asia-Pacific seed complete: "
+        "added=%d errors=%d mastery_updated=%d",
+        added, errors, mastery_updated,
     )
     return {
         "ok": errors == 0,
         "added": added,
         "errors": errors,
+        "mastery_updated": mastery_updated,  # R-F685
         "total": len(_FACTS),
     }
 

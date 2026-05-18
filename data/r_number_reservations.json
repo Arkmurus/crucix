@@ -1361,9 +1361,10 @@
       "title": "heatmap dead-keys filter + general-topic exclusion (gate #2 floor)",
       "claimed_at": "2026-05-18T09:58:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c6ad3c6",
+      "notes": null,
+      "shipped_at": "2026-05-18T10:01:19Z"
     },
     {
       "r_number": "R-F685",
