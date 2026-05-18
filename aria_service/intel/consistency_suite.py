@@ -108,7 +108,23 @@ async def _similarity(a: str, b: str) -> float:
         embedder = await _get_embedder()
         if embedder is not None:
             import numpy as np
-            vecs = embedder.encode([a_n[:2000], b_n[:2000]])
+            # R-F703 (2026-05-18) — wrap sync encode in to_thread. The
+            # _similarity helper is async but the underlying
+            # sentence_transformers encode() is a GIL-holding C call;
+            # before this fix every consistency-suite pair invocation
+            # blocked the event loop for the encode duration (~50-100ms
+            # warm, 22-28s on a cold model). On run_all() with N pairs
+            # the loop stalled N × ~50ms straight, and the recurring
+            # fly /health/live timeout pattern at 19:52:34 (autonomy_
+            # surface 4-way 8s wait_for() expiring simultaneously) is
+            # the symptom of exactly this kind of synchronous CPU
+            # squatting on the loop. Use the process-wide _safe_encode
+            # lock-aware wrapper so we honour R-F530's lock semantics.
+            import asyncio as _aio
+            from .semantic_search import _safe_encode
+            vecs = await _aio.to_thread(
+                _safe_encode, embedder, [a_n[:2000], b_n[:2000]],
+            )
             v1 = vecs[0] / max(np.linalg.norm(vecs[0]), 1e-9)
             v2 = vecs[1] / max(np.linalg.norm(vecs[1]), 1e-9)
             return float(np.clip(v1 @ v2, -1.0, 1.0))

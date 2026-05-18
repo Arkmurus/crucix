@@ -293,6 +293,64 @@ async def lifespan(app: FastAPI):
             )
     asyncio.create_task(_embedder_prewarm_bg())
 
+    # ── R-F703 (2026-05-18) — event-loop stall detector ────────────────
+    # The fly /health/live timeout pattern is consistent: the event loop
+    # gets blocked by sync CPU work (most commonly sentence_transformers
+    # encode under torch's GIL, occasionally large JSON load/save) for
+    # 8-30s; during the stall /health/live can't respond → fly LB marks
+    # the machine unhealthy → PR04 cascade. The 19:52:34 wedge showed
+    # this exactly — autonomy_surface's 4 parallel asyncio.wait_for(...,
+    # timeout=8.0) calls all expired at the same wall-clock instant,
+    # which is only possible if the loop was wall-clock-stuck for ≥8s.
+    #
+    # Pre-this-detector we had no on-line signal of *what* was blocking
+    # the loop; gate #3 (0 fly ERRORs/7d) has been blocked by recurring
+    # ~4-min outage cycles with the actual blocker invisible. This
+    # background task wakes every 1s; whenever the real elapsed wall-
+    # clock between wakeups exceeds 5s, it logs WARNING with the
+    # measured stall duration. The next wedge will be timestamped so
+    # we can correlate against what was running at that instant.
+    #
+    # Implementation is deliberately tiny:
+    #   - one asyncio.sleep(1.0) per iteration (zero CPU when idle)
+    #   - monotonic-clock measurement (immune to wall-clock jumps)
+    #   - logs at WARNING so it joins the error-ledger (R-F381) and
+    #     surfaces on the operator dashboard's recent-errors panel.
+    #   - 5s threshold chosen so spurious GC pauses (typically <1s)
+    #     don't spam; an 8s autonomy_surface timeout = real wedge.
+    async def _event_loop_stall_detector():
+        import asyncio as _aio
+        import time as _time
+        _STALL_WARN_THRESHOLD_S = 5.0
+        # Wait until the lifespan settle window has fully passed before
+        # starting to measure. Cold-boot hydration legitimately stalls
+        # the loop for tens of seconds (RAG, knowledge load, OCR
+        # prewarm); we only care about post-warm stalls.
+        await _aio.sleep(120)
+        logger.info(
+            "[R-F703] event-loop stall detector armed (threshold=%.1fs)",
+            _STALL_WARN_THRESHOLD_S,
+        )
+        last = _time.monotonic()
+        while True:
+            try:
+                await _aio.sleep(1.0)
+            except _aio.CancelledError:
+                return
+            now = _time.monotonic()
+            elapsed = now - last
+            last = now
+            if elapsed > _STALL_WARN_THRESHOLD_S:
+                logger.warning(
+                    "[R-F703] event loop stalled for %.2fs (threshold=%.1fs) — "
+                    "synchronous CPU work blocked the loop. Likely culprits: "
+                    "sync sentence_transformers.encode(), large JSON load/save, "
+                    "or unwrapped CPU-bound work. Correlate with concurrent "
+                    "log lines around this timestamp.",
+                    elapsed, _STALL_WARN_THRESHOLD_S,
+                )
+    asyncio.create_task(_event_loop_stall_detector())
+
     async def _rag_init_bg():
         # Wait for the server to bind and answer initial health checks
         # before we touch chromadb. The model download alone can take

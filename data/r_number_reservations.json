@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 703,
+  "next_available": 704,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1532,14 +1532,25 @@
       "title": "self-diag probe timeout bump + clearer error",
       "claimed_at": "2026-05-18T19:55:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "a8c8749",
+      "notes": null,
+      "shipped_at": "2026-05-18T19:59:11Z"
     },
     {
       "r_number": "R-F702",
       "title": "strip stale Upstash hint from dashboard",
       "claimed_at": "2026-05-18T19:55:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a8c8749",
+      "notes": null,
+      "shipped_at": "2026-05-18T19:59:11Z"
+    },
+    {
+      "r_number": "R-F703",
+      "title": "threadpool sync encoder calls in dashboard hot path — R-F379 close",
+      "claimed_at": "2026-05-18T20:24:56Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
