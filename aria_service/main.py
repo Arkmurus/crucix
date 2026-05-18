@@ -1433,6 +1433,27 @@ app.add_middleware(
 app.include_router(aria_router)
 
 
+@app.get("/health/live")
+async def health_live_top_level():
+    """R-F690 (2026-05-18) — top-level /health/live alias.
+
+    Live fly logs 2026-05-18 10:43:28 / 10:47:15 / 10:52:53 showed
+    monitoring callers hitting `/health/live` without the
+    `/api/aria/` prefix and getting 404. The canonical
+    `/api/aria/health/live` (R-F372) is the fly.io load-balancer
+    probe path; this alias keeps Kubernetes-style monitoring tools
+    (which default to `/health/live`) happy without forcing them to
+    re-config.
+
+    Same payload shape as the canonical handler — no Redis, no
+    stats, in-process only."""
+    try:
+        _build_rev = ARIA_BUILD_REV
+    except Exception:
+        _build_rev = "unknown"
+    return {"status": "alive", "build_rev": _build_rev}
+
+
 @app.get("/health")
 async def health():
     """Public liveness + minimal autonomy state.

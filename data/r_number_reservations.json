@@ -1413,9 +1413,10 @@
       "title": "R-F687 blocklist expansion — live-evidence labels from 10:42-10:47 window",
       "claimed_at": "2026-05-18T10:50:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0f965cd",
+      "notes": null,
+      "shipped_at": "2026-05-18T10:53:15Z"
     },
     {
       "r_number": "R-F690",
