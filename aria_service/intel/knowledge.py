@@ -442,14 +442,14 @@ async def _flush_loop() -> None:
                     _dirty_since_snapshot = False
                     last_snapshot = now
                     logger.info(
-                        "knowledge: R-F334 sharded Redis snapshot written "
+                        "knowledge: R-F334 sharded state snapshot written "
                         "(%d facts in %d shards, %d total bytes gzip)",
                         result["items"]["facts"],
                         result["shard_count"],
                         result["total_bytes"],
                     )
                 except Exception as e:
-                    logger.warning("knowledge: Redis snapshot failed: %s", e)
+                    logger.warning("knowledge: state snapshot failed: %s", e)
         except asyncio.CancelledError:
             raise
         except Exception as e:

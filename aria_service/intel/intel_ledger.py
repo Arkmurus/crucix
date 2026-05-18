@@ -217,11 +217,11 @@ async def _flush_loop() -> None:
                     _dirty_since_snapshot = False
                     last_snapshot = now
                     logger.info(
-                        "intel_ledger: Redis snapshot written (%d signals, %d bytes gzip)",
+                        "intel_ledger: state snapshot written (%d signals, %d bytes gzip)",
                         len(_cache.get("signals", [])), len(payload),
                     )
                 except Exception as e:
-                    logger.warning("intel_ledger: Redis snapshot failed: %s", e)
+                    logger.warning("intel_ledger: state snapshot failed: %s", e)
         except asyncio.CancelledError:
             raise
         except Exception as e:
