@@ -42,8 +42,24 @@ primary_region = 'lhr'
 # /health/live can't respond when the event loop is stalled. 20s
 # timeout absorbs the burst; the proper fix (move blocking work to a
 # thread pool) is queued as R-F379 for next session.
+#
+# R-F700 (2026-05-18) — grace_period 30s → 90s. Live deploy
+# 2026-05-18 18:55 failed with `Unrecoverable error: timeout reached
+# waiting for health checks to pass for machine 18592e0b72d238`. App
+# WAS healthy (logs show `ARIA Service ready on 0.0.0.0:8000` at
+# T+~3s and active web_atlas absorbs throughout), but cold-start
+# hydration continued past T+50s (OCR pre-warm T+40, RAG store ready
+# T+52, knowledge load, RAG-store + R-F248 boot diagnostic). During
+# that window, sentence-transformer encode bursts + sync writes
+# stalled the event loop intermittently — /health/live couldn't
+# always respond within the 20s timeout. With 30s grace_period the
+# LB started probing at T+30 and timed out before hydration settled.
+# 90s grace_period gives the cold-start burst room to clear before
+# the LB starts probing. The proper-someday fix (threadpool the
+# blocking encoders) is bigger work; this is the small-blast-radius
+# unblocker for deploys.
 [[http_service.checks]]
-  grace_period = "30s"
+  grace_period = "90s"
   interval = "15s"
   method = "GET"
   timeout = "20s"

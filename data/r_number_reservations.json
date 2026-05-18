@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 700,
+  "next_available": 701,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1511,6 +1511,16 @@
       "r_number": "R-F699",
       "title": "shard the Redis neurons blob (extend R-F334 pattern to neural_memory)",
       "claimed_at": "2026-05-18T18:40:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "84e72d7",
+      "notes": null,
+      "shipped_at": "2026-05-18T18:45:09Z"
+    },
+    {
+      "r_number": "R-F700",
+      "title": "bump fly grace_period 30s to 90s — cold-start hydration exceeds 30s",
+      "claimed_at": "2026-05-18T19:05:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
