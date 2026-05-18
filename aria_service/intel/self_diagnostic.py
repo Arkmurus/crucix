@@ -384,6 +384,12 @@ _MODULES: list[dict] = [
         "module": "aria_service.intel.counter_intelligence",
         "entry": "scan_entity",
         "endpoint": "/api/aria/security/counter-intel/scan",
+        # R-F707 (2026-05-18) — probe with sentinel entity so endpoint
+        # short-circuits to 200 instead of 422. Pre-R-F707 every dashboard
+        # poll left a 422 in fly logs because the probe sent no params.
+        # The endpoint recognises the sentinel and returns {probed: True}
+        # without touching upstream APIs (no OpenSanctions cost).
+        "endpoint_probe_query": "?entity=__probe__",
         "endpoint_unauth_ok_codes": (200, 401, 422),
         "critical": False,
     },
@@ -392,6 +398,8 @@ _MODULES: list[dict] = [
         "module": "aria_service.intel.sanctions_divergence",
         "entry": "analyze_divergence",
         "endpoint": "/api/aria/sanctions/divergence",
+        # R-F707 (2026-05-18) — see counter_intelligence above.
+        "endpoint_probe_query": "?name=__probe__",
         "endpoint_unauth_ok_codes": (200, 401, 422),
         "critical": False,
     },
@@ -516,6 +524,7 @@ def _self_diag_bearer_token() -> str | None:
 async def _check_endpoint(
     path: str,
     unauth_ok_codes: tuple[int, ...] = (401,),
+    probe_query: str = "",
 ) -> tuple[str, str]:
     """Probe fly.io directly for the endpoint.
 
@@ -553,9 +562,12 @@ async def _check_endpoint(
         # extending the diagnostic's total wall-clock noticeably (probes
         # run with an 8-way semaphore).
         async with httpx.AsyncClient(timeout=15.0) as client:
-            # Try GET; some endpoints are POST-only and return 405
+            # Try GET; some endpoints are POST-only and return 405.
+            # R-F707 (2026-05-18) — append probe_query (e.g. ?entity=__probe__)
+            # for endpoints whose required params would otherwise 422 on
+            # a bare probe. Endpoints recognise the sentinel and 200 early.
             r = await client.get(
-                f"{fly_url.rstrip('/')}{path}", headers=headers,
+                f"{fly_url.rstrip('/')}{path}{probe_query}", headers=headers,
             )
             status = r.status_code
 
@@ -657,6 +669,7 @@ async def _check_module(spec: dict) -> dict:
         ep_status, ep_note = await _check_endpoint(
             spec["endpoint"],
             unauth_ok_codes=spec.get("endpoint_unauth_ok_codes", (401,)),
+            probe_query=spec.get("endpoint_probe_query", ""),
         )
         entry_row["checks"].append({"check": "endpoint", "status": ep_status, "note": ep_note})
 

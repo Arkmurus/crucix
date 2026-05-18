@@ -29,8 +29,10 @@ Public API
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,6 +40,19 @@ from typing import Any
 logger = logging.getLogger("aria.vendor_registry")
 
 _YAML_PATH = Path(__file__).parent / "vendor_registry.yaml"
+
+# R-F705 (2026-05-18) — shared TTL cache for availability_ping().
+# Three concurrent call sites (capability_card.get_vendor_availability,
+# /api/aria/vendors, /api/aria/diagnostic/details health-status) each
+# fire every vendor's is_available(), which means a single dashboard
+# refresh hits OFAC/UN/HMT/SEC 3x within ~500ms (visible as duplicate
+# httpx GETs to sdn.xml + sec.gov + ofsi within milliseconds in fly
+# logs). Cache the full result for 60s so the second and third
+# concurrent callers reuse the first one's work. Direct §15 fix
+# (pay-once-remember-forever for the dashboard window).
+_PING_CACHE: dict[str, Any] = {"result": None, "fetched_at": 0.0}
+_PING_LOCK: asyncio.Lock | None = None  # lazily created on first call
+_PING_CACHE_TTL_S = 60.0
 
 # Tiers govern the recommended budget approach:
 TIERS = {
@@ -482,7 +497,35 @@ async def availability_ping() -> dict:
     """Ping each live source's `is_available()` to get real status (not
     just credential-presence). Used by the cross-server health endpoint
     and the daily briefing parity panel.
+
+    R-F705 (2026-05-18) — result is TTL-cached for 60s across concurrent
+    callers. Pre-R-F705 each dashboard refresh fired this function from
+    three places (vendors / capability_card / diagnostic-details) and
+    each call re-fetched every OFAC/UN/HMT/SEC feed (~12 upstream GETs
+    each, ~36 per refresh). Now first call does the work, next two reuse.
     """
+    global _PING_LOCK
+    if _PING_LOCK is None:
+        _PING_LOCK = asyncio.Lock()
+
+    # Cheap path — return cached without grabbing the lock.
+    now = time.monotonic()
+    cached = _PING_CACHE.get("result")
+    if cached is not None and (now - _PING_CACHE["fetched_at"]) < _PING_CACHE_TTL_S:
+        return cached
+
+    async with _PING_LOCK:
+        # Re-check under lock — another waiter may have filled it.
+        now = time.monotonic()
+        cached = _PING_CACHE.get("result")
+        if cached is not None and (now - _PING_CACHE["fetched_at"]) < _PING_CACHE_TTL_S:
+            return cached
+        return await _availability_ping_uncached()
+
+
+async def _availability_ping_uncached() -> dict:
+    """The uncached implementation. Always called under _PING_LOCK; the
+    public availability_ping() wraps it with the TTL cache."""
     import importlib
     results: list[dict] = []
     for v in load_vendors():
@@ -546,4 +589,7 @@ async def availability_ping() -> dict:
     except Exception:
         pass
 
+    # R-F705 — populate the TTL cache used by the public wrapper.
+    _PING_CACHE["result"] = summary
+    _PING_CACHE["fetched_at"] = time.monotonic()
     return summary

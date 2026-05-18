@@ -91,7 +91,15 @@ async def run_calibration_review() -> dict:
         # calibration would collapse mastery via R-F166 in ~30h. The
         # signal isn't a real adversarial result — it's an outage echo.
         if last.get("degraded") or last.get("invalid"):
-            logger.warning(
+            # R-F706 (2026-05-18): demoted WARNING→INFO. Same pattern as
+            # R-F681 (Anthropic billing cooldown): when a fallback is
+            # working and the degraded signal is being correctly skipped,
+            # this is operational, not degraded — fires every dashboard
+            # poll (~every 60s) and was the loudest WARNING on the
+            # operator surface. Skipping degraded runs is the *correct*
+            # behavior; logging at INFO keeps the audit trail without
+            # mirroring into the error ledger.
+            logger.info(
                 "[calibration] R-F199 — skipping adversarial signal: "
                 "last run is degraded (%s)",
                 last.get("invalid_reason") or "empty-response cluster",
@@ -143,7 +151,9 @@ async def run_calibration_review() -> dict:
                 # response run produces pass_rate=0 which is an outage
                 # signal, not a learning signal.
                 if _summary.get("degraded"):
-                    logger.warning(
+                    # R-F706 (2026-05-18): demoted WARNING→INFO — see
+                    # adversarial-skip comment above.
+                    logger.info(
                         "[calibration] R-F199 — skipping eval signal: "
                         "last run is degraded (%d/%d empty responses)",
                         _summary.get("empty_response_count", 0),

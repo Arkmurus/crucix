@@ -2503,6 +2503,10 @@ async def counter_intel_scan_ep(entity: str, window_days: int = 14):
     """Run the three counter-intelligence patterns against one entity."""
     if not entity or not entity.strip():
         raise HTTPException(status_code=400, detail="entity required")
+    # R-F707 (2026-05-18): self_diagnostic probe sentinel — short-circuit
+    # to a 200 so dashboard polls don't leave 422s in fly logs every refresh.
+    if entity.strip() == "__probe__":
+        return {"ok": True, "probed": True, "route": "counter_intel_scan"}
     try:
         from ..intel import counter_intelligence as _ci
         return await _ci.scan_entity(entity.strip(), window_days=window_days)
@@ -2568,6 +2572,11 @@ async def sanctions_divergence_ep(name: str, threshold: float = 0.78):
     """
     if not name or not name.strip():
         raise HTTPException(status_code=400, detail="name parameter required")
+    # R-F707 (2026-05-18): self_diagnostic probe sentinel — short-circuit
+    # to a 200 so dashboard polls don't hit OpenSanctions and don't leave
+    # 422s in fly logs every refresh.
+    if name.strip() == "__probe__":
+        return {"ok": True, "probed": True, "route": "sanctions_divergence"}
     try:
         from ..intel import sanctions_divergence as _sd
         return await _sd.analyze_divergence(name.strip(), threshold=threshold)

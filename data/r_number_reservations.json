@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 704,
+  "next_available": 709,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1552,9 +1552,60 @@
       "title": "threadpool sync encoder calls in dashboard hot path — R-F379 close",
       "claimed_at": "2026-05-18T20:24:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "aef26a0",
+      "notes": null,
+      "shipped_at": "2026-05-18T20:33:49Z"
+    },
+    {
+      "r_number": "R-F704",
+      "title": "R-F703 stall detector stack capture via faulthandler",
+      "claimed_at": "2026-05-18T21:28:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-18T21:51:58Z"
+    },
+    {
+      "r_number": "R-F705",
+      "title": "Dedupe sanctions registry fetches TTL cache per pay-once-remember-forever",
+      "claimed_at": "2026-05-18T21:28:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-18T21:51:58Z"
+    },
+    {
+      "r_number": "R-F706",
+      "title": "Demote R-F199 calibration degraded-run WARNING to INFO",
+      "claimed_at": "2026-05-18T21:28:13Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-18T21:51:58Z"
+    },
+    {
+      "r_number": "R-F707",
+      "title": "Fix self_diagnostic 422 probes counter-intel-scan sanctions-divergence",
+      "claimed_at": "2026-05-18T21:28:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-18T21:51:58Z"
+    },
+    {
+      "r_number": "R-F708",
+      "title": "Register vendor_outage gap type in capability_gaps",
+      "claimed_at": "2026-05-18T21:28:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-18T21:51:58Z"
     }
   ]
 }

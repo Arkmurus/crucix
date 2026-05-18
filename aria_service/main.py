@@ -318,18 +318,100 @@ async def lifespan(app: FastAPI):
     #     surfaces on the operator dashboard's recent-errors panel.
     #   - 5s threshold chosen so spurious GC pauses (typically <1s)
     #     don't spam; an 8s autonomy_surface timeout = real wedge.
+    #
+    # R-F704 (2026-05-18) — stack-capture extension. Pre-R-F704 the
+    # detector logged "stall happened" but not "what was running". The
+    # wedge had already ended by the time the detector iteration runs
+    # (it can only wake AFTER the blocking sync work returned and the
+    # loop became schedulable again). So we add a sibling daemon
+    # *thread* (not coroutine) that updates from a wall-clock heartbeat
+    # that the loop posts; when the heartbeat goes stale the thread
+    # captures live stack frames via faulthandler.dump_traceback. The
+    # daemon thread is OS-scheduled — torch / numpy / sentence_transformers
+    # release the GIL during their actual compute, so a 1-second sleep
+    # in the daemon can wake and grab the GIL even mid-stall.
+    import faulthandler as _fh
+    import threading as _threading
+    import time as _time
+
+    _wedge_dir = _os.path.join(_os.path.dirname(__file__), "..", "data", "wedge_stacks")
+    try:
+        _os.makedirs(_wedge_dir, exist_ok=True)
+    except Exception:
+        pass
+    _wedge_log_path = _os.path.join(
+        _wedge_dir, f"wedge_{_os.getpid()}_{int(_time.time())}.log"
+    )
+    try:
+        _wedge_log_fh = open(_wedge_log_path, "a", buffering=1, encoding="utf-8")
+        logger.info("[R-F704] wedge stack log → %s", _wedge_log_path)
+    except Exception as _exc:
+        logger.warning("[R-F704] could not open wedge log (non-fatal): %s", _exc)
+        _wedge_log_fh = None
+
+    # Shared monotonic heartbeat the async detector bumps every 1s.
+    # Initialised in the future — the daemon won't begin until after
+    # the 120s settle window passes (matching the async detector).
+    _wedge_state = {
+        "heartbeat": _time.monotonic(),
+        "armed": False,
+        "last_dump": 0.0,
+    }
+    _STALL_WARN_THRESHOLD_S = 5.0
+    _WEDGE_DUMP_DEBOUNCE_S = 30.0  # don't dump more than once per 30s
+
+    def _wedge_watchdog():
+        # Daemon thread. Runs forever; cleanly exits when fh closed.
+        while True:
+            try:
+                _time.sleep(1.0)
+                if not _wedge_state.get("armed"):
+                    continue
+                now = _time.monotonic()
+                stale = now - _wedge_state["heartbeat"]
+                if (
+                    stale > _STALL_WARN_THRESHOLD_S
+                    and (now - _wedge_state["last_dump"]) > _WEDGE_DUMP_DEBOUNCE_S
+                    and _wedge_log_fh is not None
+                ):
+                    _wedge_state["last_dump"] = now
+                    try:
+                        _wedge_log_fh.write(
+                            f"\n=== [R-F704] event-loop heartbeat stale "
+                            f"by {stale:.2f}s at wall-clock "
+                            f"{_time.strftime('%Y-%m-%d %H:%M:%S UTC', _time.gmtime())} "
+                            f"(epoch {_time.time():.3f}) ===\n"
+                        )
+                        _fh.dump_traceback(file=_wedge_log_fh, all_threads=True)
+                        _wedge_log_fh.write("=== end stack dump ===\n")
+                        _wedge_log_fh.flush()
+                    except Exception:
+                        # Daemon must never crash — swallow and continue.
+                        pass
+            except Exception:
+                # Defensive: keep watchdog alive across any failure.
+                continue
+
+    _threading.Thread(
+        target=_wedge_watchdog,
+        daemon=True,
+        name="rf704-wedge-watchdog",
+    ).start()
+
     async def _event_loop_stall_detector():
         import asyncio as _aio
-        import time as _time
-        _STALL_WARN_THRESHOLD_S = 5.0
         # Wait until the lifespan settle window has fully passed before
         # starting to measure. Cold-boot hydration legitimately stalls
         # the loop for tens of seconds (RAG, knowledge load, OCR
         # prewarm); we only care about post-warm stalls.
         await _aio.sleep(120)
+        _wedge_state["heartbeat"] = _time.monotonic()
+        _wedge_state["armed"] = True
         logger.info(
-            "[R-F703] event-loop stall detector armed (threshold=%.1fs)",
+            "[R-F703] event-loop stall detector armed (threshold=%.1fs); "
+            "[R-F704] watchdog will dump live stacks to %s on stall",
             _STALL_WARN_THRESHOLD_S,
+            _wedge_log_path,
         )
         last = _time.monotonic()
         while True:
@@ -340,14 +422,16 @@ async def lifespan(app: FastAPI):
             now = _time.monotonic()
             elapsed = now - last
             last = now
+            _wedge_state["heartbeat"] = now
             if elapsed > _STALL_WARN_THRESHOLD_S:
                 logger.warning(
                     "[R-F703] event loop stalled for %.2fs (threshold=%.1fs) — "
                     "synchronous CPU work blocked the loop. Likely culprits: "
                     "sync sentence_transformers.encode(), large JSON load/save, "
                     "or unwrapped CPU-bound work. Correlate with concurrent "
-                    "log lines around this timestamp.",
-                    elapsed, _STALL_WARN_THRESHOLD_S,
+                    "log lines around this timestamp. [R-F704] check %s for "
+                    "live-stack capture from the wedge watchdog.",
+                    elapsed, _STALL_WARN_THRESHOLD_S, _wedge_log_path,
                 )
     asyncio.create_task(_event_loop_stall_detector())
 

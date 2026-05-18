@@ -109,6 +109,12 @@ VALID_GAP_TYPES = frozenset({
     "billing_required",                # 402 / credit exhausted
     "rate_limited",                    # 429 / quota exceeded
     "auth_failure",                    # 401 / 403
+    # R-F708 (2026-05-18) — vendor health dropped below 50% live.
+    # Emitted by vendor_registry.all_vendor_statuses() via brain_hook
+    # when live_pct < 0.5. Was logging "Unknown gap type" on every
+    # dashboard poll while >50% of vendors were dark (acled +
+    # worldbank_debarred + worldbank_documents in current state).
+    "vendor_outage",
 })
 
 
