@@ -1371,9 +1371,10 @@
       "title": "seed_facts → update_regional_mastery scaffolding (gate #2 floor)",
       "claimed_at": "2026-05-18T09:58:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6631e8e",
+      "notes": null,
+      "shipped_at": "2026-05-18T10:03:28Z"
     }
   ]
 }
