@@ -41,6 +41,30 @@ _CDP_PORT = int(os.environ.get("LIGHTPANDA_CDP_PORT", "9222"))
 # Max time to wait for page JS rendering (seconds)
 _RENDER_TIMEOUT = float(os.environ.get("LIGHTPANDA_RENDER_TIMEOUT", "20"))
 
+# R-F679 (2026-05-18): serialise concurrent fetch_rendered_html calls.
+# Live fly logs 2026-05-18 07:16:08-12 showed three back-to-back
+# "address already in use host=127.0.0.1 port=9222" WARNINGs as
+# concurrent extraction attempts raced for the single Lightpanda CDP
+# port. Some extractions succeeded (dsca.net rendered 211048 chars)
+# while peers in the same race silently returned empty strings —
+# making extraction outcomes non-deterministic. The fix serialises
+# fetch_rendered_html across the whole process so only one renderer
+# is running at any moment. Lightpanda renders take 1-3 s typically;
+# queueing on a single lock is acceptable for the extraction path
+# (caller is a background indexer / researcher, not the chat hot path).
+_RENDER_LOCK: asyncio.Lock | None = None
+
+
+def _get_render_lock() -> asyncio.Lock:
+    """Lazy-init the module-level render lock. Lazy because asyncio.Lock()
+    binds to the current event loop on construction in some Python versions,
+    and we want this module to import cleanly even before any loop is
+    running (lifespan smoke + tests)."""
+    global _RENDER_LOCK
+    if _RENDER_LOCK is None:
+        _RENDER_LOCK = asyncio.Lock()
+    return _RENDER_LOCK
+
 # Minimum content length from httpx that we consider "thin" — below this
 # we suspect JS rendering is needed
 THIN_CONTENT_THRESHOLD = 500
@@ -86,11 +110,25 @@ async def fetch_rendered_html(
     URL, waits for network idle, extracts rendered HTML, then cleans up.
 
     Returns empty string on any failure (caller should fall back to httpx).
+
+    R-F679 (2026-05-18): wrapped in module-level asyncio.Lock so concurrent
+    callers queue cleanly instead of racing for port 9222.
     """
     if not is_available():
         logger.debug("Lightpanda binary not available at %s", _LIGHTPANDA_BIN)
         return ""
 
+    # R-F679: serialise renders process-wide. Lightpanda renders are
+    # fast (1-3 s) so queueing on this lock for an extraction path is
+    # acceptable. Without the lock, three concurrent extractions all
+    # spawn Lightpanda on the same port; only one wins.
+    async with _get_render_lock():
+        return await _fetch_rendered_html_locked(url, timeout)
+
+
+async def _fetch_rendered_html_locked(url: str, timeout: float) -> str:
+    """Inner body — runs under the module render lock. Separated so the
+    happy-path body is easy to read and the lock acquisition is one line."""
     proc = None
     try:
         # Start Lightpanda CDP server
