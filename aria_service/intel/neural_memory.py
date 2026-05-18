@@ -41,6 +41,23 @@ NEURONS_KEY = "crucix:aria:neurons"
 EDGES_KEY = "crucix:aria:neural_edges"
 NEURAL_META_KEY = "crucix:aria:neural_meta"
 
+# R-F699 (2026-05-18) — shard the neurons blob to stop the 4MB-per-absorb
+# write that was tripping the brain_hook breaker (live logs 2026-05-18
+# 17:59:40 + 18:37:07: PR04 cascades right after `Redis SET neurons:
+# value size 4025697 bytes exceeds warn threshold`). Same pattern R-F334
+# applied to knowledge.py — N shards × ~500KB each, plus a meta key
+# carrying the total-neuron count for the R-F371 disk-check.
+#
+# Migration: first boot after deploy reads legacy NEURONS_KEY (still
+# present in Redis), populates memory, and on first _persist() writes
+# the sharded form. Subsequent boots read sharded. Legacy key is left
+# in place (no destructive cleanup) — operator can DEL after a clean
+# week or it'll TTL eventually depending on the backend policy.
+NEURONS_SHARD_META_KEY = "crucix:aria:neurons:meta"
+NEURONS_SHARD_KEY_FMT = "crucix:aria:neurons:shard:{i}"
+NEURONS_SHARD_TARGET_BYTES = 500_000
+NEURONS_SHARD_MAX_PER_SHARD = 3000   # hard cap on neurons per shard
+
 # R-F240 (2026-05-11) — WARN thresholds, not hard caps.
 # Per the "ARIA has infinite memory" rule (memory/aria_infinite_memory.md),
 # neurons and edges persist forever. Activation DECAY is fine (relevance
@@ -166,11 +183,145 @@ def _make_neuron(concept: str, category: str = "general", source: str = "auto",
     }
 
 
+# R-F699 (2026-05-18) — sharded neurons helpers ─────────────────────────────
+
+def _split_neurons_into_shards(neurons: dict) -> list[dict]:
+    """Split the in-memory neurons dict into shards each carrying at
+    most NEURONS_SHARD_MAX_PER_SHARD entries (and roughly fitting the
+    NEURONS_SHARD_TARGET_BYTES gzipped size on average — caller writes
+    JSON, gzip is downstream)."""
+    if not neurons:
+        return [{"neurons": {}, "shard_index": 0, "shard_count": 1}]
+    # Stable order: sort by neuron-id (dict iteration is insertion-order
+    # in CPython 3.7+ but we want deterministic split across reboots).
+    ids = sorted(neurons.keys())
+    n_total = len(ids)
+    n_shards = max(1, (n_total + NEURONS_SHARD_MAX_PER_SHARD - 1)
+                       // NEURONS_SHARD_MAX_PER_SHARD)
+    shards: list[dict] = []
+    per_shard = (n_total + n_shards - 1) // n_shards
+    for i in range(n_shards):
+        start = i * per_shard
+        end = min(start + per_shard, n_total)
+        chunk = {nid: neurons[nid] for nid in ids[start:end]}
+        shards.append({
+            "neurons": chunk,
+            "shard_index": i,
+            "shard_count": n_shards,
+        })
+    return shards
+
+
+def _merge_neurons_shards(shards: list[dict]) -> dict:
+    """Reassemble shards into a single neurons dict ordered by shard_index."""
+    if not shards:
+        return {}
+    sorted_shards = sorted(
+        shards, key=lambda s: s.get("shard_index", 0)
+        if isinstance(s, dict) else 0,
+    )
+    merged: dict = {}
+    for s in sorted_shards:
+        if not isinstance(s, dict):
+            continue
+        chunk = s.get("neurons")
+        if isinstance(chunk, dict):
+            merged.update(chunk)
+    return merged
+
+
+async def _save_neurons_sharded(neurons: dict) -> dict:
+    """Write the neurons dict as N sharded keys + a meta key.
+
+    Returns {shard_count, total_neurons, total_bytes} for the caller's
+    log line. Meta written LAST so a reader either sees the full sharded
+    set or falls back to legacy NEURONS_KEY (atomic-ish across keys)."""
+    shards = _split_neurons_into_shards(neurons)
+    total_bytes = 0
+    write_tasks = []
+    for shard in shards:
+        encoded = json.dumps(shard)
+        total_bytes += len(encoded)
+        idx = shard["shard_index"]
+        key = NEURONS_SHARD_KEY_FMT.format(i=idx)
+        write_tasks.append(rs.set(key, encoded))
+    if write_tasks:
+        await asyncio.gather(*write_tasks, return_exceptions=True)
+    n_shards = len(shards)
+    meta = {
+        "version": 2,
+        "shard_count": n_shards,
+        "total_neurons": len(neurons),
+        "total_bytes": total_bytes,
+        "written_at": time.time(),
+    }
+    await rs.set(NEURONS_SHARD_META_KEY, json.dumps(meta))
+    return meta
+
+
+async def _load_neurons_sharded() -> dict | None:
+    """Read the sharded neurons set. Returns None if the meta key is
+    absent (signals: fall back to legacy NEURONS_KEY)."""
+    meta_raw = await rs.get(NEURONS_SHARD_META_KEY)
+    if not meta_raw:
+        return None
+    try:
+        meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
+    except Exception:
+        return None
+    if not isinstance(meta, dict) or "shard_count" not in meta:
+        return None
+    n_shards = int(meta.get("shard_count", 0))
+    if n_shards <= 0:
+        return None
+    keys = [NEURONS_SHARD_KEY_FMT.format(i=i) for i in range(n_shards)]
+    raws = await asyncio.gather(
+        *(rs.get(k) for k in keys), return_exceptions=True,
+    )
+    shards: list[dict] = []
+    for r in raws:
+        if isinstance(r, Exception) or r is None:
+            return None  # partial set — caller falls back to legacy
+        try:
+            s = json.loads(r) if isinstance(r, str) else r
+            if isinstance(s, dict):
+                shards.append(s)
+        except Exception:
+            return None
+    return _merge_neurons_shards(shards)
+
+
+async def _peek_neurons_disk_count() -> int:
+    """R-F371 disk-check support: return the on-disk neuron count from
+    the sharded meta key. Falls back to len(legacy NEURONS_KEY) on miss.
+    Cheap — reads one small meta key in the happy path."""
+    try:
+        meta_raw = await rs.get(NEURONS_SHARD_META_KEY)
+        if meta_raw:
+            meta = (json.loads(meta_raw)
+                    if isinstance(meta_raw, str) else meta_raw)
+            if isinstance(meta, dict) and "total_neurons" in meta:
+                return int(meta["total_neurons"])
+    except Exception:
+        pass
+    try:
+        legacy = await rs.get_json(NEURONS_KEY)
+        if isinstance(legacy, dict):
+            return len(legacy)
+    except Exception:
+        pass
+    return 0
+
+
 # ── Init ─────────────────────────────────────────────────────────────────────
 async def init() -> None:
     global _neurons, _edges, _meta, _loaded, _edges_dirty
     try:
-        neurons_raw = await rs.get_json(NEURONS_KEY)
+        # R-F699: prefer sharded read; fall back to legacy NEURONS_KEY
+        # if sharded meta absent or shard set is incomplete.
+        neurons_raw = await _load_neurons_sharded()
+        if neurons_raw is None:
+            neurons_raw = await rs.get_json(NEURONS_KEY)
         # R-F442: edges may be gzipped (new) or raw JSON (legacy). Use the
         # raw rs.get + _decode_edges so we can handle the GZ1: prefix.
         edges_value = await rs.get(EDGES_KEY)
@@ -242,30 +393,40 @@ async def _persist() -> None:
         # significantly MORE neurons than memory, the disk is the source
         # of truth (most likely a migration just landed). Reload from disk
         # into memory and SKIP the write.
+        # R-F699: cheap count-only check from sharded meta (1 small read)
+        # instead of pulling the entire 4MB legacy NEURONS_KEY. Only if
+        # the on-disk count is suspiciously larger do we pull full state.
         try:
-            disk_neurons = await rs.get_json(NEURONS_KEY)
-            if isinstance(disk_neurons, dict) and len(disk_neurons) > max(len(_neurons), 0) * 1.1:
-                _neurons.clear()
-                _neurons.update(disk_neurons)
-                try:
-                    # R-F442: disk edges may be gzipped — go through _decode_edges.
-                    disk_edges_raw = await rs.get(EDGES_KEY)
-                    disk_edges = _decode_edges(disk_edges_raw)
-                    if isinstance(disk_edges, dict):
-                        _edges.clear()
-                        _edges.update(disk_edges)
-                except Exception:
-                    pass
-                _meta["total_neurons"] = len(_neurons)
-                _meta["total_edges"] = sum(len(v) for v in _edges.values())
-                _edges_dirty = False  # R-F442: just reloaded from disk, in sync
-                logger.warning(
-                    "[neural] R-F371 — disk had %d neurons but in-memory only had "
-                    "%d before reload. Reloaded from disk instead of overwriting "
-                    "(infinite-memory protection).",
-                    len(_neurons), _meta.get("total_neurons", 0),
-                )
-                return  # don't overwrite — disk already has the larger snapshot
+            disk_count = await _peek_neurons_disk_count()
+            if disk_count > max(len(_neurons), 0) * 1.1:
+                # Disk has materially more — reload full state from disk
+                # (paying the bigger read this once, infinite-memory
+                # protection).
+                disk_neurons = await _load_neurons_sharded()
+                if disk_neurons is None:
+                    disk_neurons = await rs.get_json(NEURONS_KEY)
+                if isinstance(disk_neurons, dict):
+                    _neurons.clear()
+                    _neurons.update(disk_neurons)
+                    try:
+                        # R-F442: disk edges may be gzipped — go through _decode_edges.
+                        disk_edges_raw = await rs.get(EDGES_KEY)
+                        disk_edges = _decode_edges(disk_edges_raw)
+                        if isinstance(disk_edges, dict):
+                            _edges.clear()
+                            _edges.update(disk_edges)
+                    except Exception:
+                        pass
+                    _meta["total_neurons"] = len(_neurons)
+                    _meta["total_edges"] = sum(len(v) for v in _edges.values())
+                    _edges_dirty = False  # R-F442: just reloaded from disk, in sync
+                    logger.warning(
+                        "[neural] R-F371 — disk had %d neurons but in-memory only "
+                        "had %d before reload. Reloaded from disk instead of "
+                        "overwriting (infinite-memory protection).",
+                        len(_neurons), _meta.get("total_neurons", 0),
+                    )
+                    return  # don't overwrite — disk already has the larger snapshot
         except Exception as _guard_err:
             logger.debug("[neural] R-F371 disk-check failed (non-fatal): %s", _guard_err)
 
@@ -280,19 +441,26 @@ async def _persist() -> None:
         write_edges = _edges_dirty
         encoded_edges = _encode_edges(dict(_edges)) if write_edges else None
 
-        if rs._client:
-            import json as _json
-            pipe = rs._client.pipeline()
-            pipe.set(NEURONS_KEY, _json.dumps(dict(_neurons)))
-            if write_edges:
-                pipe.set(EDGES_KEY, encoded_edges)
-            pipe.set(NEURAL_META_KEY, _json.dumps(_meta))
-            await pipe.execute()
-        else:
-            await rs.set_json(NEURONS_KEY, dict(_neurons))
-            if write_edges:
-                await rs.set(EDGES_KEY, encoded_edges)
-            await rs.set_json(NEURAL_META_KEY, _meta)
+        # R-F699 (2026-05-18) — sharded neurons write replaces the
+        # legacy single 4MB blob SET. Edges + meta keep their
+        # existing single-key writes (edges are already gzipped per
+        # R-F442; meta is small). The sharded write loop fires
+        # asyncio.gather across N shards (~500KB each) which the
+        # backend can pipeline efficiently and does not trigger the
+        # 4MB-warn threshold per individual key.
+        save_result = await _save_neurons_sharded(dict(_neurons))
+        if write_edges:
+            await rs.set(EDGES_KEY, encoded_edges)
+        await rs.set_json(NEURAL_META_KEY, _meta)
+        if save_result.get("shard_count", 1) > 1:
+            # Only log when actually sharded (avoid noise for tiny states)
+            logger.debug(
+                "[neural] R-F699 sharded write: %d neurons in %d shards "
+                "(%d total bytes)",
+                save_result.get("total_neurons", 0),
+                save_result.get("shard_count", 0),
+                save_result.get("total_bytes", 0),
+            )
 
         # R-F442: clear the dirty flag AFTER a successful write. If the
         # write raised, we keep the flag True so the next persist retries.

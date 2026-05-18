@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 699,
+  "next_available": 700,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1482,18 +1482,20 @@
       "title": "seed_facts mastery_weight param — gate #2 lift mechanism",
       "claimed_at": "2026-05-18T18:02:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2c0c78f",
+      "notes": null,
+      "shipped_at": "2026-05-18T18:19:57Z"
     },
     {
       "r_number": "R-F697",
       "title": "gate #2 closure — knowledge pack expansion for turkey/gulf/north_africa/south_asia weak cells",
       "claimed_at": "2026-05-18T18:02:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2c0c78f",
+      "notes": null,
+      "shipped_at": "2026-05-18T18:19:58Z"
     },
     {
       "r_number": "R-F698",
@@ -1504,6 +1506,15 @@
       "commit_sha": "bc2eb8f",
       "notes": null,
       "shipped_at": "2026-05-18T18:12:16Z"
+    },
+    {
+      "r_number": "R-F699",
+      "title": "shard the Redis neurons blob (extend R-F334 pattern to neural_memory)",
+      "claimed_at": "2026-05-18T18:40:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
