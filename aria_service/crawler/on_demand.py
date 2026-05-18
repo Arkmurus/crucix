@@ -106,11 +106,21 @@ def guess_entity_urls(query: str, limit: int = 30) -> list[str]:
     Heuristic: for tokens [a, b, c] we try
         ab.tld           — concatenated
         a-b.tld          — hyphenated
-        a.tld            — head-only (when there are ≥ 2 tokens, this
-                           captures parent-org sites like "modirum.com")
-    across a small set of TLDs. Returns the candidate list, capped at
-    `limit`. Domain validity is not checked here — the fetcher's
-    politeness + SSRF guards do that downstream.
+        a.tld            — head-only (parent-org sites like "modirum.com")
+        b.tld            — second-only (subsidiary-as-brand like "gespi.ao")
+
+    R-F676 (2026-05-18): single-token shapes (head-only, second-only)
+    are ONLY emitted when the query has ≤2 tokens — i.e., the original
+    "Modirum Gespi" design case. Live evidence 2026-05-18 07:14-07:19
+    showed autonomous-research sentence queries ("Indonesia Philippines
+    defence modernisation 2026", "DSCA FMS notification …") going
+    through `background_ensure` and feeding the head-only shape, which
+    happily produced `indonesia.com`, `philippines.com`, `dsca.com`,
+    `koreas.com`, `britain.net`, `news.co`, `article.org` — all real
+    parking / unrelated domains that got Lightpanda-rendered and
+    indexed as if they were intel. 3+ token queries now only emit
+    combined + hyphenated shapes, which DNS-fail harmlessly for
+    sentence inputs.
     """
     toks = _tokens(query)
     if not toks:
@@ -124,17 +134,20 @@ def guess_entity_urls(query: str, limit: int = 30) -> list[str]:
             seen.add(host)
             candidates.append(f"https://{host}/")
 
+    # R-F676: only emit head-only / second-only shapes when the query
+    # is short enough to plausibly BE an entity name (≤2 tokens).
+    emit_single_token_shapes = len(toks) <= 2
+
     # TLD-outer / shape-inner iteration so the limit cap doesn't cut
-    # before high-value shapes (head-only, hyphenated) reach the list
-    # for the common TLDs. With limit=30 and 4 shapes per TLD, the
-    # first 7 TLDs all contribute every shape.
+    # before high-value shapes reach the list for the common TLDs.
     for tld in _GUESS_TLDS:
         if len(toks) >= 2:
             _add(f"{toks[0]}{toks[1]}{tld}")   # combined (modirumgespi.com)
             _add(f"{toks[0]}-{toks[1]}{tld}")  # hyphenated (modirum-gespi.com)
-        _add(f"{toks[0]}{tld}")                # head-only (modirum.com parent)
-        if len(toks) >= 2:
-            _add(f"{toks[1]}{tld}")            # second-only (gespi.ao brand)
+        if emit_single_token_shapes:
+            _add(f"{toks[0]}{tld}")            # head-only (modirum.com parent)
+            if len(toks) >= 2:
+                _add(f"{toks[1]}{tld}")        # second-only (gespi.ao brand)
     return candidates[:limit]
 
 
@@ -336,6 +349,16 @@ async def background_ensure(query: str,
                               time_budget_s: float = 25.0,
                               max_pages: int = 10) -> None:
     """Fire-and-forget wrapper. Never raises. Logs the outcome."""
+    # R-F676 (2026-05-18) defensive double-check: refuse sentence /
+    # topic queries even if a caller forgot to gate via
+    # looks_like_entity_query. Production caller researcher.py:1481
+    # already checks; this is belt-and-braces against future callers.
+    if not looks_like_entity_query(query):
+        logger.debug(
+            "on_demand.background_ensure(%r): rejected — not entity-like",
+            (query or "")[:60],
+        )
+        return
     if not _background_lock_check(query):
         logger.debug("on_demand.background_ensure(%r): lockout active",
                      query[:60])
@@ -356,12 +379,69 @@ _ENTITY_HINT_RX = re.compile(
     r"\b([A-Z][A-Za-z0-9]+(?:\s+[A-Z][A-Za-z0-9]+){1,4})\b"
 )
 
+# R-F676 (2026-05-18): words that signal a topic / sentence query
+# rather than an entity name. Live evidence 2026-05-18 07:14-07:19
+# showed autonomous-research queries like "Indonesia Philippines
+# defence modernisation 2026" passing the old _ENTITY_HINT_RX
+# regex (it matches any 2-word capitalised run anywhere), reaching
+# `background_ensure`, and producing hallucinated URLs like
+# philippines.com / dsca.com / news.co / article.org.
+_SENTENCE_STOPWORDS = frozenset({
+    # Generic English sentence connectors
+    "the", "a", "an", "and", "or", "of", "to", "for", "by", "in", "on",
+    "with", "from", "is", "are", "was", "were", "be", "been", "being",
+    "as", "at", "but", "if", "then", "than", "this", "that", "these",
+    "those", "may", "might", "could", "should", "would", "have", "has",
+    "had", "do", "does", "did", "into", "over", "under", "about",
+    # Research / topic phrasing
+    "evidence", "summary", "article", "news", "report", "analysis",
+    "modernisation", "modernization", "strategy", "spending",
+    "acquisition", "tender", "notification", "establishment",
+    "regional", "shift", "package", "export", "licence", "license",
+    "used", "open", "source", "public", "records", "given",
+    "recipients", "role", "partner", "lead", "contract", "next", "gen",
+    "signal", "coordinated", "aircraft", "platforms", "consultancy",
+    "security", "defence", "defense", "industry", "industries",
+    "stakeholders", "tender", "review", "regulation", "regulations",
+    "aggregating",
+})
+
 
 def looks_like_entity_query(query: str) -> bool:
-    """True if the query contains a multi-word capitalised name —
-    i.e., the kind of query where guessing a corporate URL is plausibly
-    productive. Conservative — false negatives are fine (we just don't
-    trigger), false positives waste budget."""
+    """True iff the WHOLE query reads like an entity NAME, not a
+    sentence containing entity names.
+
+    R-F676 (2026-05-18): the previous heuristic matched any 2-5
+    consecutive capitalised words anywhere in the string. That made
+    sentence queries like "Indonesia Philippines defence
+    modernisation 2026" trigger background_ensure via the "Indonesia
+    Philippines" prefix, which then produced hallucinated URLs.
+    The tightened heuristic requires:
+      1. ≤4 total words (entities are short)
+      2. No sentence/topic stopwords ("evidence", "modernisation", ...)
+      3. Most words are Capitalised (entity names are)
+    Conservative: false negatives are fine (we just don't fire);
+    false positives waste budget AND pollute the index.
+    """
     if not query:
         return False
-    return bool(_ENTITY_HINT_RX.search(query))
+    raw_words = query.split()
+    # Drop trailing 4-digit years ("2026") — common in autonomous
+    # research queries but not part of an entity name.
+    words = [w for w in raw_words if not (w.isdigit() and len(w) == 4)]
+    if not (2 <= len(words) <= 4):
+        return False
+    # Reject if any word is a sentence/topic stopword.
+    for w in words:
+        if w.lower().strip(",.;:!?()'\"") in _SENTENCE_STOPWORDS:
+            return False
+    # Most words must start with an uppercase letter — entity names
+    # almost always do. Allow one non-capitalised token (e.g., "de"
+    # in "Banco de Brasil") by requiring cap_count >= len-1, with a
+    # floor of 2 (two-token entities must have both capitalised).
+    cap_count = sum(
+        1 for w in words if w[:1].isalpha() and w[:1].isupper()
+    )
+    if cap_count < max(2, len(words) - 1):
+        return False
+    return True

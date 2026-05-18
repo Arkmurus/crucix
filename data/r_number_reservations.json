@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 676,
+  "next_available": 677,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1234,6 +1234,15 @@
       "r_number": "R-F675",
       "title": "R-F667 absorb backpressure — semaphore-bounded dispatch to prevent wedge amplification",
       "claimed_at": "2026-05-17T11:00:07Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F676",
+      "title": "researcher URL hallucination — gate background_ensure and restrict guess shapes",
+      "claimed_at": "2026-05-18T07:22:34Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

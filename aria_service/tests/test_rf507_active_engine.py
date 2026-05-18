@@ -216,6 +216,105 @@ def test_looks_like_entity_query():
 
 
 # ─────────────────────────────────────────────────────────────────
+# R-F676 (2026-05-18): block sentence queries that triggered the
+# URL hallucination → parking-domain ingest pipeline. The cases
+# below are LIVE-EVIDENCE queries captured from fly logs on
+# 2026-05-18 07:14-07:19 that produced indexed garbage like
+# philippines.com / dsca.com / news.co / article.org / koreas.com.
+# ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("sentence_query", [
+    "Indonesia Philippines defence modernisation 2026",
+    "Poland NATO defence spending 2026",
+    "India defence acquisition tender 2026",
+    "DSCA FMS notification major arms sale 2026",
+    "UK ECJU export licence defence 2026",
+    "South Koreas coordinated package export strategy 2026",
+    "Quakers Britain used open source intelligence public records 2026",
+    "article news summary Google News aggregating South China 2026",
+    "Ingalls award Navy next gen frigate lead contract 2026",
+    "HAVELSANs establishment regional hub Malaysia signal strategic shift",
+    "Arkmurus defence security consultancy given recipients role Partner",
+])
+def test_rf676_sentence_queries_rejected_as_non_entity(sentence_query):
+    """Every one of these queries appeared in live fly logs on
+    2026-05-18 and produced indexed garbage. They must all now be
+    rejected by looks_like_entity_query."""
+    assert on_demand.looks_like_entity_query(sentence_query) is False, (
+        f"sentence query slipped through: {sentence_query!r}"
+    )
+
+
+def test_rf676_short_entity_queries_still_pass():
+    """The 2-token entity case (the original R-F507 design) must
+    still pass after the heuristic tightening."""
+    assert on_demand.looks_like_entity_query("Modirum Gespi") is True
+    assert on_demand.looks_like_entity_query("Apple Inc") is True
+    # 3-token capitalised entity name also fine.
+    assert on_demand.looks_like_entity_query("Lockheed Martin Corporation") is True
+
+
+def test_rf676_guess_urls_no_single_token_shapes_for_3plus_tokens():
+    """With 3+ tokens the head-only / second-only shapes must NOT
+    appear — those are what produced philippines.com, dsca.com, etc.
+    from sentence queries that slipped past the gate."""
+    urls = on_demand.guess_entity_urls("indonesia philippines defence modernisation")
+    # No host that is just a single token (any single token from the query).
+    for u in urls:
+        host = u.replace("https://", "").rstrip("/")
+        # The host's first label is what we care about.
+        label = host.split(".", 1)[0]
+        # Combined / hyphenated shapes contain multiple source tokens,
+        # so the label is at least two of our tokens. Single-token
+        # shape would be exactly one source token.
+        assert label not in {"indonesia", "philippines", "defence", "modernisation"}, (
+            f"single-token shape leaked through for 3+ token query: {u}"
+        )
+
+
+def test_rf676_guess_urls_keeps_single_token_shapes_for_2_tokens():
+    """The original Modirum-Gespi design case: 2-token queries MUST
+    still get the head-only + second-only shapes (modirum.com,
+    gespi.ao). This is the regression guard for the parent-org /
+    subsidiary-as-brand patterns."""
+    urls = on_demand.guess_entity_urls("Modirum Gespi")
+    assert any(u.startswith("https://modirum.com/")
+               or u.startswith("https://modirum.pt/") for u in urls)
+    assert any("gespi" in u and ".ao" in u for u in urls)
+
+
+def test_rf676_background_ensure_defensive_gate():
+    """background_ensure must refuse to run a sentence query even if
+    a future caller forgets to gate via looks_like_entity_query."""
+    async def go():
+        # Use the same lockout-clearing trick as the other tests —
+        # we just need to confirm no fetch happens.
+        on_demand._recent_bg_queries.clear()
+        fetch_calls: list[str] = []
+
+        async def spy_fetch(url, timeout=8.0):
+            fetch_calls.append(url)
+            return None
+
+        # Sentence query — should be rejected BEFORE any fetch fires.
+        await on_demand.background_ensure(
+            "Indonesia Philippines defence modernisation 2026",
+            time_budget_s=2.0, max_pages=2,
+        )
+        # background_ensure delegates to ensure_indexed which uses the
+        # real fetcher; we can't easily spy on the real fetcher here,
+        # but the lockout cache must NOT have an entry — that proves
+        # the early-return path fired before _background_lock_check
+        # would have stamped the query.
+        assert "indonesia philippines defence modernisation 2026" not in \
+               on_demand._recent_bg_queries, (
+            "lockout cache stamped despite sentence-query rejection"
+        )
+
+    _run(go())
+
+
+# ─────────────────────────────────────────────────────────────────
 # Capability — cold to indexed in one call
 # ─────────────────────────────────────────────────────────────────
 
