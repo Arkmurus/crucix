@@ -53,14 +53,36 @@ class FallbackProvider(LLMProvider):
         return len(self.providers) > 0
 
     # Cooldown policy:
-    #   - auth / billing failures: HARD cooldown 30 min — these don't fix themselves
+    #   - auth failures:           HARD cooldown 30 min — operator may rotate
+    #                              the key in minutes; re-probe is acceptable
+    #   - billing failures:        HARD cooldown 24h (R-F678) — top-ups are
+    #                              not instant + the operator has explicitly
+    #                              committed to NOT topping up Anthropic at
+    #                              this stage (2026-05-18). 30-min re-probes
+    #                              wasted 96 calls/day on a provider with no
+    #                              credit. 24h slashes that to ≤2 wasted calls
+    #                              per race window per day. Operator can
+    #                              force-reset by setting the secret to fresh
+    #                              billing and bouncing the machine, which
+    #                              clears in-memory stats AND the redis-mirror
+    #                              TTL has already expired.
     #   - rate_limit:              short 60s cooldown — transient
     #   - server / timeout / other: 60s cooldown after 2 consecutive failures
     # Any success resets the provider entirely. This prevents the old trap
     # where 3 transient failures within 5 min locked the whole chain into
     # "All LLM providers failed".
     _HARD_COOLDOWN_SECONDS = 1800
+    _HARD_BILLING_COOLDOWN_SECONDS = 86400  # R-F678 (2026-05-18) — see note above
     _SOFT_COOLDOWN_SECONDS = 60
+
+    @classmethod
+    def _hard_cooldown_for_kind(cls, kind: str) -> int:
+        """R-F678: pick the right HARD cooldown duration for the failure kind.
+        Billing failures get the long lock; auth + non-retryable still use
+        the 30-min lock so a key rotation can recover quickly."""
+        if kind == "billing":
+            return cls._HARD_BILLING_COOLDOWN_SECONDS
+        return cls._HARD_COOLDOWN_SECONDS
 
     # F94 fix 2026-04-30: each non-cooling provider gets its own
     # `timeout`-second budget (not a slice of a shared wall clock).
@@ -110,9 +132,17 @@ class FallbackProvider(LLMProvider):
             # first to land — debounce the rest so we get one ERROR per
             # cooldown event, not N. We still record the failure count so
             # health metrics stay accurate.
+            #
+            # R-F678 (2026-05-18): cooldown duration is now kind-specific —
+            # billing failures get 24h; auth + non-retryable keep 30min.
+            # The debounce window is "the cooldown was set within the last
+            # 5 seconds, so we're in the burst race", which still works
+            # because we compare against `hard_cooldown - 5` for the
+            # appropriate kind.
+            hard_cooldown = self._hard_cooldown_for_kind(kind)
             existing_cooldown = stats.get("cooldown_until", 0)
-            new_cooldown = now + self._HARD_COOLDOWN_SECONDS
-            if existing_cooldown > now and (existing_cooldown - now) > self._HARD_COOLDOWN_SECONDS - 5:
+            new_cooldown = now + hard_cooldown
+            if existing_cooldown > now and (existing_cooldown - now) > hard_cooldown - 5:
                 # A peer call set the cooldown within the last 5 seconds.
                 # Don't re-set or re-log; the in-flight burst is racing.
                 logger.debug(
@@ -123,7 +153,7 @@ class FallbackProvider(LLMProvider):
                 stats["cooldown_until"] = new_cooldown
                 logger.error(
                     "Provider %s HARD cooldown (%s) for %ds: %s",
-                    provider.name, kind, self._HARD_COOLDOWN_SECONDS, str(error)[:200],
+                    provider.name, kind, hard_cooldown, str(error)[:200],
                 )
                 # F68: mirror to Redis so a fly restart / new VM honours
                 # the cooldown instead of re-probing the failed backend.
