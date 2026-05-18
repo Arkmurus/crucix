@@ -53,6 +53,24 @@ async def crawl_seed_homepages(limit: int | None = None,
     """
     t0 = time.time()
     domains = await db.list_domains(enabled_only=True)
+    # R-F687 (2026-05-18) — drop auto-registered hallucination garbage
+    # (tier=4 + sector="discovered" + common-noun label) from the sweep.
+    # R-F676 closed the upstream generator; this filter stops the
+    # existing polluted registry rows from being re-crawled every cycle
+    # and tripping the web_atlas brain_hook breaker. Rows stay in the
+    # registry as historical artifacts (no destructive delete).
+    from . import on_demand as _on_demand
+    before_count = len(domains)
+    domains = [
+        d for d in domains
+        if not _on_demand.is_auto_registered_garbage(d)
+    ]
+    skipped_garbage = before_count - len(domains)
+    if skipped_garbage:
+        logger.info(
+            "R-F687: crawl sweep skipped %d auto-registered garbage domain(s) "
+            "from %d total", skipped_garbage, before_count,
+        )
     if limit is not None:
         domains = domains[:limit]
 

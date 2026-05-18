@@ -82,6 +82,70 @@ _PLACEHOLDER_TOKENS = frozenset({
 })
 
 
+# R-F687 (2026-05-18) — common-noun labels that match the
+# auto-registered hallucination pattern from the pre-R-F676 era.
+# Live fly logs 2026-05-18 10:23-10:37 showed the daily crawler
+# alphabetically polling these domains and the web_atlas brain_hook
+# absorbing each as intel, tripping the brain_hook breaker (3500ms
+# threshold) repeatedly: 10:32:32 (p95=5573ms), 10:33:47 (p95=4560ms),
+# 10:37:46 (p95=5195ms). Each trip = ~70s of degraded absorb for real
+# intel arriving in that window.
+#
+# Curation rule: defence-industry / intel queries virtually NEVER
+# produce these single-word labels as legitimate entity names. Real
+# defence orgs are compound ("baykar", "modirumgespi", "leonardo",
+# "embraer", "lockheedmartin") or acronyms with specific meaning
+# ("baykar", "drdo", "hal", "sami"). Generic English nouns and
+# adjectives that landed in the registry came from the pre-R-F676
+# head-only / second-only shape generator processing sentence queries.
+_GARBAGE_COMMON_NOUN_LABELS = frozenset({
+    # From live fly logs 2026-05-18 (alphabetical pollution batches):
+    "application", "applications", "approval", "arabia", "arabian",
+    "armes", "armoured", "article", "articles", "articlenews",
+    "august", "billion", "boycott", "britain", "broil", "cancellation",
+    "capital", "chapter", "cia", "cisco", "com", "competitive",
+    "competitiveintelligence", "compliance", "compliancerequirements",
+    "conditionality", "contain", "contract", "counter-intelligence",
+    "cve", "dedicated", "deeply", "defence", "defense", "directors",
+    "dispute", "drone", "dynamics", "east", "email", "embedded",
+    # Bare top-level English nouns/adjectives commonly hallucinated:
+    "news", "article", "south", "north", "west",
+    "philippines", "indonesia", "koreas", "fms", "dsca", "ecju",
+    "quakers", "fujimoto",
+})
+
+
+def is_auto_registered_garbage(domain_row: dict) -> bool:
+    """R-F687 (2026-05-18) — True if a domain row matches the
+    auto-registered hallucination pattern that R-F676 closed upstream
+    but left behind in the registry.
+
+    Three conditions must ALL match (conservative — false negatives
+    are fine, false positives waste crawl budget AND pollute corpus):
+      1. tier == 4 (auto-registered, not operator-curated)
+      2. sector == "discovered" (auto-register marker from
+         `on_demand.auto_register_domain` notes)
+      3. The leftmost label of the domain is in the common-noun
+         blocklist (`_GARBAGE_COMMON_NOUN_LABELS`)
+
+    Operator-curated tier-1/2/3 domains are NEVER filtered, even if
+    their label happens to match — e.g., a hypothetical tier-1
+    `cisco.com` entry would survive (we'd only get there via explicit
+    operator add, never via the auto-register path).
+    """
+    if not domain_row:
+        return False
+    if domain_row.get("tier") != 4:
+        return False
+    if (domain_row.get("sector") or "") != "discovered":
+        return False
+    domain = (domain_row.get("domain") or "").strip().lower()
+    if not domain or "." not in domain:
+        return False
+    label = domain.split(".", 1)[0]
+    return label in _GARBAGE_COMMON_NOUN_LABELS
+
+
 def _tokens(query: str) -> list[str]:
     """Tokenise + drop low-quality tokens that would produce parked /
     placeholder / numeric guess URLs. R-F654 raises the floor from

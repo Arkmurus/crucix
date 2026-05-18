@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 687,
+  "next_available": 688,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1382,6 +1382,16 @@
       "r_number": "R-F686",
       "title": "self-diagnostic auth — send ARIA_INTERNAL_TOKEN on outbound probes",
       "claimed_at": "2026-05-18T10:12:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "68ec2f9",
+      "notes": null,
+      "shipped_at": "2026-05-18T10:16:05Z"
+    },
+    {
+      "r_number": "R-F687",
+      "title": "crawler-time stopword filter — block common-noun garbage domains from registry sweep",
+      "claimed_at": "2026-05-18T10:38:20Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
