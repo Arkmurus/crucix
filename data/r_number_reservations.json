@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 677,
+  "next_available": 678,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1243,6 +1243,16 @@
       "r_number": "R-F676",
       "title": "researcher URL hallucination — gate background_ensure and restrict guess shapes",
       "claimed_at": "2026-05-18T07:22:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "64307f2",
+      "notes": null,
+      "shipped_at": "2026-05-18T07:33:41Z"
+    },
+    {
+      "r_number": "R-F677",
+      "title": "mount 404 dashboard endpoints — health/composite mastery/heatmap eval/count",
+      "claimed_at": "2026-05-18T07:40:56Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

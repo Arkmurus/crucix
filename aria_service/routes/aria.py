@@ -178,6 +178,16 @@ _PUBLIC_AUTH_BYPASS_PATHS = frozenset({
     "/api/aria/adversarial/stats",        # R-F221 model-card field
     "/api/aria/health",                   # operational status probe (rich, may touch Redis)
     "/api/aria/health/live",              # R-F372 fastpath — fly.io load-balancer probe
+    # R-F677 (2026-05-18): Phase A gate-indicator endpoints. Live log
+    # evidence 2026-05-18 07:09:02-05 showed the operator dashboard
+    # hitting these without a bearer token and 404-ing (because they
+    # weren't mounted). Mounted now + public-bypass like /health so the
+    # gate panels render without operator having to wire token auth into
+    # the frontend. Read-only aggregated metrics; no PII or sensitive
+    # data exposed.
+    "/api/aria/health/composite",         # R-F677 gate #1 composite-score indicator
+    "/api/aria/mastery/heatmap",          # R-F677 gate #2 heatmap-floor indicator
+    "/api/aria/eval/count",               # R-F677 gate #6 frozen-eval-set size
 })
 
 
@@ -1572,6 +1582,27 @@ async def eval_coverage_ep():
     the operator still owes to close Phase A gate #6."""
     items = await eval_runner.get_golden_set()
     return eval_golden_seed.coverage_report(items)
+
+
+@router.get("/eval/count")
+async def eval_count_ep():
+    """R-F677 (2026-05-18): Phase A exit-gate #6 indicator.
+
+    Gate text: "500-Q eval frozen". Returns the current golden-set
+    size + the gate target (500) so the dashboard can render the
+    progress bar. Light-weight wrapper over `eval_runner.get_golden_set`
+    that returns count only (no full payload).
+
+    Live evidence 2026-05-18 07:09:05 — dashboard hit this path and
+    got 404. Endpoint was missing despite the underlying compute being
+    a single len() on data already loaded by /eval/coverage.
+    """
+    items = await eval_runner.get_golden_set()
+    return {
+        "count": len(items),
+        "target": 500,
+        "gate_pass": len(items) >= 500,
+    }
 
 
 # ── Source verification: deterministic citation grounding check ──────────
@@ -16217,6 +16248,23 @@ async def health_error_streak_ep():
     return await _es.compute_error_streak()
 
 
+@router.get("/health/composite")
+async def health_composite_ep():
+    """R-F677 (2026-05-18): Phase A exit-gate #1 indicator.
+
+    Gate text: "composite ≥ 71%". Returns the four-signal autonomy
+    score (mastery + verification + predictor_gate + grounded_rate)
+    aggregated into a single composite_score. The dashboard panel
+    reads here so the gate is observable from the UI.
+
+    Live evidence 2026-05-18 07:09:02 — dashboard hit this path and
+    got 404. Endpoint was missing despite the underlying compute
+    living at `autonomy_scorer.compute_composite` since R-F576.
+    """
+    from ..intel import autonomy_scorer
+    return await autonomy_scorer.compute_composite()
+
+
 @router.get("/read-document/stats")
 async def read_document_stats_ep():
     """R-F473 (2026-05-14): in-process latency stats for /read-document.
@@ -17231,6 +17279,19 @@ async def predictor_block_rate_ep():
 @router.get("/student/mastery/heatmap")
 async def mastery_heatmap_ep():
     """Mastery heat map — topic x region scores with weak cells."""
+    from ..intel import student
+    return await student.get_regional_heatmap()
+
+
+@router.get("/mastery/heatmap")
+async def mastery_heatmap_alias_ep():
+    """R-F677 (2026-05-18): Phase A exit-gate #2 indicator.
+
+    Gate text: "heatmap floor ≥ 70%". Alias of /student/mastery/heatmap
+    at the path the dashboard actually calls. Live evidence
+    2026-05-18 07:09:02 showed the dashboard hit /api/aria/mastery/heatmap
+    and got 404 because only the /student/-prefixed route existed.
+    """
     from ..intel import student
     return await student.get_regional_heatmap()
 
