@@ -230,6 +230,15 @@ async def fetch_for_crawl(url: str, timeout: float = 10.0) -> dict | None:
     try:
         async with httpx.AsyncClient(
             timeout=timeout, follow_redirects=True,
+            # R-F688 (2026-05-18) — cap redirect chains at 5 hops.
+            # httpx's default is 20; live fly logs 2026-05-18 10:36:45
+            # showed a single email.net crawl burning ~30 hops looping on
+            # `/mailfence.com/` (parked domain rotation). 5 is enough for
+            # any legitimate chain (https→http, www, region-redirect,
+            # canonical) and bounds wasted bandwidth + log spam when an
+            # auto-registered hallucinated parked domain loops on itself.
+            # Mirrors politeness.py:90 which already capped at 5.
+            max_redirects=5,
             headers={
                 "User-Agent": _CRAWLER_USER_AGENT,
                 "Accept": ("text/html,application/xhtml+xml,"
