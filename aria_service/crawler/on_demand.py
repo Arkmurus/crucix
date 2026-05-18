@@ -117,6 +117,9 @@ _GARBAGE_COMMON_NOUN_LABELS = frozenset({
     "geopolitical", "government", "hypothesis",
     "ieee", "india", "indo", "informa", "intelligence",
     "interpols", "japan", "key", "killing", "korea",
+    # R-F691 (2026-05-18) further expansion — fly logs 10:50-10:53:
+    "lacks", "layer", "likely", "mhi", "microsoft",
+    "middle", "middleeast", "military", "million", "model",
     # Bare top-level English nouns/adjectives commonly hallucinated:
     "news", "article", "south", "north", "west",
     "philippines", "indonesia", "koreas", "fms", "dsca", "ecju",
