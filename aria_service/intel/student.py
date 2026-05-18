@@ -1440,13 +1440,43 @@ async def update_regional_mastery(
 
 
 async def get_regional_heatmap() -> dict:
-    """Return mastery heat map: topic × region scores."""
+    """Return mastery heat map: topic × region scores.
+
+    R-F684 (2026-05-18) — filter measurement noise so the operator
+    dashboard shows an honest floor for Phase A gate #2:
+
+      (A) Drop stale keys whose region isn't in current REGIONS list.
+          The 2026-04-17 split renamed `latam` → `latam_lusophone` +
+          `latam_non_lusophone` and removed the umbrella `asia_pacific`
+          tag. Pre-split keys like `procurement:latam` (0.507) and
+          `competitor_intel:asia_pacific` (0.557) still sit in
+          _regional_cache near INITIAL_MASTERY and were dragging the
+          visible floor — detect_regions() no longer emits those tags
+          so they'll never update.
+
+      (B) Drop topic=`general` from the heatmap entirely. `general` is
+          a catch-all fallback that fires when detect_topics() can't
+          classify; measuring regional mastery against it is noise.
+          The mastery EWMA for `general` stays near INITIAL_MASTERY
+          (0.5) regardless of what ARIA actually knows in that region.
+
+    After A+B the floor reflects legitimate weak cells (real coverage
+    gaps), pointing the operator at work that would actually close
+    gate #2.
+    """
     rm = await _load_regional_mastery()
+    valid_regions = set(REGIONS)
     heatmap: dict[str, dict[str, float]] = {}
     for key, val in rm.items():
         if ":" not in key:
             continue
         topic, region = key.split(":", 1)
+        # R-F684 (A) — drop dead region keys (renamed / removed in split).
+        if region not in valid_regions:
+            continue
+        # R-F684 (B) — drop general-topic noise from heatmap floor.
+        if topic == "general":
+            continue
         if topic not in heatmap:
             heatmap[topic] = {}
         heatmap[topic][region] = round(val.get("score", INITIAL_MASTERY), 3)
