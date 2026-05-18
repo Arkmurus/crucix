@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import uuid
 
 MAX_DOC_CHARS = int(os.environ.get("ARIA_MAX_DOC_CHARS", "500000"))  # bumped 2026-04-18 from 200k
@@ -9037,6 +9038,18 @@ async def admin_migrate_state_ep(request: Request):
 # Bundle size cap matches the seenode-side guard: 500 KB total. Anything
 # larger means the WA session has drifted (corrupt / very busy session
 # history) and a fresh scan is healthier than keeping a bloated blob.
+# R-F683 (2026-05-18) — wa-auth/backup idempotency / storm debounce.
+# Live fly logs 2026-05-18 09:51:46-09:52:02 + 2026-05-18 07:51:46-07:52:02
+# both showed 31+ POSTs from the seenode WA listener inside ~18 seconds.
+# Root cause is on the seenode side: `backupAuthToRedis` is called from
+# every Baileys `creds.update` event (key rotation, message send, app-state
+# sync) with no client-side debounce. We can't change the seenode caller
+# from here, but we CAN bound the damage server-side: hash the bundle on
+# arrival and short-circuit if the same bundle was just written.
+_WA_BACKUP_DEBOUNCE_SEC = 5.0
+_WA_LAST_BACKUP: dict = {"hash": None, "at": 0.0, "result": None}
+
+
 @router.post("/wa-auth/backup")
 async def wa_auth_backup_ep(request: Request):
     """Persist the WhatsApp Baileys auth bundle.
@@ -9044,12 +9057,19 @@ async def wa_auth_backup_ep(request: Request):
     Body:
         {"files": {"creds.json": "...", "app-state-...": "...", ...}}
 
-    Response: {"ok": true, "files": N, "bytes": M}
+    Response: {"ok": true, "files": N, "bytes": M, "debounced": bool}
 
     The bundle is stored under SQLite key ``wa_listener:auth_bundle`` and
     survives fly.io restarts via the /data volume. No TTL — auth bundles
     are only invalidated by an explicit DELETE (operator action) or a
     fresh backup overwriting the slot.
+
+    R-F683 idempotency: if the incoming bundle's content-hash matches the
+    previous backup AND the previous backup landed within
+    _WA_BACKUP_DEBOUNCE_SEC, we return the cached success without writing
+    to SQLite. The response shape stays the same with an additional
+    ``debounced: true`` field so the caller can tell. This bounds the
+    damage from the seenode storm (no SQLite write churn, no /data IO).
     """
     try:
         body = await request.json()
@@ -9076,6 +9096,21 @@ async def wa_auth_backup_ep(request: Request):
             detail=f"bundle {total_bytes} bytes exceeds {MAX_BUNDLE_BYTES} cap",
         )
 
+    # R-F683 — content-hash the bundle for idempotency. sort_keys ensures
+    # the same files dict in any order hashes the same. Stable separators
+    # avoid whitespace-only differences. SHA-256 is fast (~5µs for 500KB).
+    import hashlib as _hashlib
+    bundle_serial = json.dumps(files, sort_keys=True, separators=(",", ":"))
+    bundle_hash = _hashlib.sha256(bundle_serial.encode("utf-8")).hexdigest()
+    now_ts = time.time()
+    if (
+        _WA_LAST_BACKUP["hash"] == bundle_hash
+        and (now_ts - _WA_LAST_BACKUP["at"]) < _WA_BACKUP_DEBOUNCE_SEC
+        and _WA_LAST_BACKUP["result"] is not None
+    ):
+        # Same bundle, very recent — short-circuit. SQLite is untouched.
+        return {**_WA_LAST_BACKUP["result"], "debounced": True}
+
     from aria_service.intel import state_store
 
     bundle = {
@@ -9085,7 +9120,11 @@ async def wa_auth_backup_ep(request: Request):
         "bytes": total_bytes,
     }
     await state_store.set_json("wa_listener:auth_bundle", bundle)
-    return {"ok": True, "files": len(files), "bytes": total_bytes}
+    result = {"ok": True, "files": len(files), "bytes": total_bytes}
+    _WA_LAST_BACKUP["hash"] = bundle_hash
+    _WA_LAST_BACKUP["at"] = now_ts
+    _WA_LAST_BACKUP["result"] = result
+    return {**result, "debounced": False}
 
 
 @router.get("/wa-auth/restore")
