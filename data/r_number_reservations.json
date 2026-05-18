@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 692,
+  "next_available": 693,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1432,6 +1432,16 @@
       "r_number": "R-F691",
       "title": "second blocklist expansion — new labels from 10:50-10:53 window",
       "claimed_at": "2026-05-18T10:58:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a074d30",
+      "notes": null,
+      "shipped_at": "2026-05-18T11:01:28Z"
+    },
+    {
+      "r_number": "R-F692",
+      "title": "algorithmic garbage detection — single-word labels + allow-list (replaces whack-a-mole)",
+      "claimed_at": "2026-05-18T11:07:24Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

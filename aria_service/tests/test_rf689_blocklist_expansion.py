@@ -62,21 +62,30 @@ def test_rf689_filter_blocks_new_live_evidence():
 
 
 def test_rf689_compound_labels_still_pass():
-    """Compound brand labels (legit defence / publication domains) must
+    """Long compound labels (legit defence / publication domains) must
     NOT be filtered, even when one of their stem-words is in the
-    blocklist — only the FULL leftmost label is checked."""
+    blocklist — only the FULL leftmost label is checked.
+
+    Note: R-F692 added an algorithmic filter for short single-word
+    labels (3-8 chars). Genuine compounds tend to be longer; the
+    examples below are all ≥9 chars or contain hyphens.
+
+    `iranuae.com` was removed from this test — log evidence showed it
+    redirects to `ai.ad.bio/make-an-offer.html` (parked for sale), so
+    R-F692 correctly flags it as garbage. `fegulf.com` was removed
+    for the same reason (also parked / unverified).
+    """
     from aria_service.crawler import on_demand
     for legit in (
-        # These have blocklisted STEMS but compound labels:
-        "executivegov.com",         # not just "executive"
-        "internationalintelligence.com",  # not just "intelligence"
-        "indianmasterminds.com",    # not just "india"
-        "indoasiadefense.com",      # not just "indo"
-        "koreajoongangdaily.joins.com",  # subdomain — label is "koreajoongangdaily"
-        "koreaplus-lifes.com",      # compound
-        "iranuae.com",              # compound
-        "fed-spend.com",            # compound
-        "fegulf.com",               # compound
+        # These have blocklisted STEMS but long compound labels (≥9 chars):
+        "executivegov.com",         # 12 chars, not just "executive"
+        "internationalintelligence.com",  # 25 chars
+        "indianmasterminds.com",    # 17 chars
+        "indoasiadefense.com",      # 15 chars
+        "koreajoongangdaily.joins.com",  # 18-char left-most label
+        # Hyphenated compounds:
+        "koreaplus-lifes.com",      # hyphen
+        "fed-spend.com",            # hyphen
     ):
         row = {"domain": legit, "tier": 4, "sector": "discovered"}
         assert not on_demand.is_auto_registered_garbage(row), (

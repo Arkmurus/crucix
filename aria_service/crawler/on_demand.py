@@ -127,23 +127,112 @@ _GARBAGE_COMMON_NOUN_LABELS = frozenset({
 })
 
 
-def is_auto_registered_garbage(domain_row: dict) -> bool:
-    """R-F687 (2026-05-18) — True if a domain row matches the
-    auto-registered hallucination pattern that R-F676 closed upstream
-    but left behind in the registry.
+# R-F692 (2026-05-18) — algorithmic detection of auto-registered
+# garbage labels, replacing whack-a-mole blocklist expansion.
+#
+# Live fly logs 2026-05-18 10:23-10:53 showed every alphabetical batch
+# revealing new single-word common-noun labels (R-F687: 24 labels,
+# R-F689: 27, R-F691: 10 — and counting). The pre-R-F676 hallucination
+# pollution left HUNDREDS of such rows in the registry. Reactive
+# blocklist expansion keeps the breaker tripping until the next labels
+# arrive.
+#
+# Pattern check: ANY label matching ^[a-z]{3,10}$ (lowercase ASCII, no
+# hyphens, no digits, 3-10 chars) at tier-4 + sector=discovered is
+# almost certainly the head-only/second-only hallucination shape.
+# Real defence-industry compound labels are either ≥11 chars
+# (rheinmetall, lockheedmartin, defencenews, modirumgespi) or contain
+# hyphens / digits / subdomains (baykar.com.tr, kongsberg-defence.no).
+#
+# Allow-list below catches the SHORT legitimate single-word brand
+# names that match the regex but should NEVER be filtered.
+_LEGITIMATE_SINGLE_WORD_ENTITY_LABELS = frozenset({
+    # Defence OEMs (Tier 1 / Tier 2 primes + major subsystem suppliers)
+    "baykar",     # Turkish drone OEM
+    "embraer",    # Brazilian aerospace
+    "leonardo",   # Italian conglomerate (Helicopters / Electronics)
+    "lockheed",   # US prime (label only — full is "lockheedmartin")
+    "raytheon",   # US prime (RTX legacy brand)
+    "northrop",   # US prime
+    "boeing",     # US prime
+    "airbus",     # European prime
+    "thales",     # French electronics/defence
+    "saab",       # Swedish aerospace
+    "dassault",   # French aerospace
+    "qinetiq",    # UK defence sci/tech
+    "nammo",      # Norwegian munitions
+    "patria",     # Finnish defence
+    "otokar",     # Turkish armoured vehicles
+    "aselsan",    # Turkish electronics
+    "roketsan",   # Turkish missiles
+    "havelsan",   # Turkish C4I
+    "nexter",     # French land systems
+    "hanwha",     # Korean defence
+    "hyundai",    # Korean conglomerate (also defence)
+    "doosan",     # Korean machinery / defence
+    "modirum",    # operator-curated example (Lusophone integration)
+    "fnss",       # Turkish armoured (acronym)
+    "drdo",       # Indian DRDO (acronym)
+    "iai",        # Israel Aerospace Industries (acronym)
+    "kai",        # Korea Aerospace Industries (acronym)
+    # Research / strategic studies / intel hubs (single-word labels)
+    "arxiv",      # preprint archive
+    "rusi",       # UK Royal United Services Institute
+    "sipri",      # Stockholm International Peace Research Institute
+    "iiss",       # Int. Institute for Strategic Studies
+    "csis",       # Center for Strategic & International Studies
+    "rand",       # RAND Corporation
+    "uscc",       # US-China Economic & Security Review Commission
+    # Useful generic-but-legit sources
+    "janes",      # Janes (defence intelligence)
+    "wapo",       # Washington Post (acronym sometimes used)
+    "nikkei",     # Japanese business / Asia
+    "reuters",    # global wire
+})
 
-    Three conditions must ALL match (conservative — false negatives
-    are fine, false positives waste crawl budget AND pollute corpus):
+# Pattern: lowercase ASCII letters only, 3-8 chars, no hyphen/digit.
+# This is the shape head-only/second-only hallucination produces for
+# single English common nouns. The 8-char upper bound is calibrated
+# to avoid catching legitimate compound labels — `defenceweb` (10),
+# `executivegov` (12), `armyrecognition` (15), `eastafricanpolicyobserver`
+# (24) all pass through. Specific 9-12 char garbage nouns
+# (`executive`, `intelligence`, etc.) still get caught by the
+# explicit blocklist above.
+_GARBAGE_LABEL_RX = re.compile(r"^[a-z]{3,8}$")
+
+
+def _looks_like_garbage_label_algorithmic(label: str) -> bool:
+    """R-F692 — return True if `label` matches the auto-registered
+    hallucination pattern AND is not on the legitimate-entity
+    allow-list. Caller guarantees `label` is lowercase already."""
+    if not _GARBAGE_LABEL_RX.match(label):
+        return False
+    return label not in _LEGITIMATE_SINGLE_WORD_ENTITY_LABELS
+
+
+def is_auto_registered_garbage(domain_row: dict) -> bool:
+    """Return True if a domain row matches the auto-registered
+    hallucination pattern that R-F676 closed upstream but left behind
+    in the registry.
+
+    R-F687 conditions still apply (conservative — false positives waste
+    crawl budget AND pollute corpus, false negatives are fine):
       1. tier == 4 (auto-registered, not operator-curated)
-      2. sector == "discovered" (auto-register marker from
-         `on_demand.auto_register_domain` notes)
-      3. The leftmost label of the domain is in the common-noun
-         blocklist (`_GARBAGE_COMMON_NOUN_LABELS`)
+      2. sector == "discovered" (auto-register marker)
+
+    R-F692 (2026-05-18) added a SECOND match path on top of the
+    explicit blocklist (R-F687/689/691):
+
+      EITHER: leftmost label is in `_GARBAGE_COMMON_NOUN_LABELS`
+        (operator-curated hard block — wins regardless of allow-list)
+      OR    : label matches the algorithmic garbage pattern AND is
+        NOT on `_LEGITIMATE_SINGLE_WORD_ENTITY_LABELS` (the
+        catch-all that stopped the whack-a-mole expansion at 60+
+        labels by 10:53)
 
     Operator-curated tier-1/2/3 domains are NEVER filtered, even if
-    their label happens to match — e.g., a hypothetical tier-1
-    `cisco.com` entry would survive (we'd only get there via explicit
-    operator add, never via the auto-register path).
+    their label matches — a `cisco.com` entry at tier-1 survives
+    (only the auto-register path lands at tier-4).
     """
     if not domain_row:
         return False
@@ -155,7 +244,12 @@ def is_auto_registered_garbage(domain_row: dict) -> bool:
     if not domain or "." not in domain:
         return False
     label = domain.split(".", 1)[0]
-    return label in _GARBAGE_COMMON_NOUN_LABELS
+    # Explicit blocklist — operator-curated, hard block.
+    if label in _GARBAGE_COMMON_NOUN_LABELS:
+        return True
+    # R-F692 algorithmic catch — single-word common-noun pattern,
+    # allow-list overrides for legitimate short brand names.
+    return _looks_like_garbage_label_algorithmic(label)
 
 
 def _tokens(query: str) -> list[str]:
