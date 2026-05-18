@@ -1563,9 +1563,9 @@
       "claimed_at": "2026-05-18T21:28:12Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "132d5e3da94b049d451a5df2969b5e3b25f93cf4",
       "notes": null,
-      "shipped_at": "2026-05-18T21:51:58Z"
+      "shipped_at": "2026-05-18T21:55:56Z"
     },
     {
       "r_number": "R-F705",
@@ -1573,9 +1573,9 @@
       "claimed_at": "2026-05-18T21:28:13Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "132d5e3da94b049d451a5df2969b5e3b25f93cf4",
       "notes": null,
-      "shipped_at": "2026-05-18T21:51:58Z"
+      "shipped_at": "2026-05-18T21:55:56Z"
     },
     {
       "r_number": "R-F706",
@@ -1583,9 +1583,9 @@
       "claimed_at": "2026-05-18T21:28:13Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "132d5e3da94b049d451a5df2969b5e3b25f93cf4",
       "notes": null,
-      "shipped_at": "2026-05-18T21:51:58Z"
+      "shipped_at": "2026-05-18T21:55:57Z"
     },
     {
       "r_number": "R-F707",
@@ -1593,9 +1593,9 @@
       "claimed_at": "2026-05-18T21:28:14Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "132d5e3da94b049d451a5df2969b5e3b25f93cf4",
       "notes": null,
-      "shipped_at": "2026-05-18T21:51:58Z"
+      "shipped_at": "2026-05-18T21:55:57Z"
     },
     {
       "r_number": "R-F708",
@@ -1603,9 +1603,9 @@
       "claimed_at": "2026-05-18T21:28:15Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "132d5e3da94b049d451a5df2969b5e3b25f93cf4",
       "notes": null,
-      "shipped_at": "2026-05-18T21:51:58Z"
+      "shipped_at": "2026-05-18T21:55:57Z"
     }
   ]
 }
