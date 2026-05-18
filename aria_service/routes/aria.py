@@ -1757,15 +1757,13 @@ async def cost_external_ep():
 
 async def _upstash_usage_probe() -> dict:
     """Read DBSIZE + INFO from Upstash REST API to surface live usage.
-    Cluster: adapted-ostrich-92296 (per upstash_redis_provider memory).
-    Fail-open — every error returns configured=False so the dashboard
-    has something to render."""
-    # R-F172 (2026-05-11): read both env-var names. The Node side (server.mjs,
-    # redisAdapter.mjs, dedup.mjs) uses UPSTASH_REDIS_URL / UPSTASH_REDIS_TOKEN
-    # — that's the production set the operator already has configured. The
-    # legacy UPSTASH_REST_* names are kept as a fallback so anyone with the
-    # old config still works. Without this fix the panel rendered "Not
-    # configured" forever even though Upstash WAS configured.
+    Historical: cluster `adapted-ostrich-92296` was decommissioned
+    2026-05-12 (operator cancelled the subscription — see
+    upstash_redis_provider memory). The probe is retained only in case
+    the operator ever re-attaches an Upstash cluster; the absent-config
+    branch now returns `decommissioned=True` so the dashboard renders a
+    historical-state line instead of prompting the operator to set
+    env vars that should NOT be set."""
     rest_url = (
         os.getenv("UPSTASH_REDIS_URL")
         or os.getenv("UPSTASH_REST_URL")
@@ -1777,9 +1775,15 @@ async def _upstash_usage_probe() -> dict:
         or ""
     ).strip()
     if not rest_url or not rest_token:
+        # R-F702 (2026-05-18) — Upstash decommissioned 2026-05-12.
+        # The previous "Set UPSTASH_REDIS_URL + UPSTASH_REDIS_TOKEN ..."
+        # hint contradicted the canonical state (SQLite backend in use,
+        # subscription cancelled). Surface the decommissioned status so
+        # the dashboard frontend can render an accurate panel.
         return {
             "configured": False,
-            "hint": "Set UPSTASH_REDIS_URL + UPSTASH_REDIS_TOKEN env vars to enable live usage panel",
+            "decommissioned": True,
+            "hint": "Upstash decommissioned 2026-05-12 — SQLite state backend in use.",
         }
     out: dict = {"configured": True}
     try:

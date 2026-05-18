@@ -541,7 +541,18 @@ async def _check_endpoint(
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         import httpx
-        async with httpx.AsyncClient(timeout=6.0) as client:
+        # R-F701 (2026-05-18) — bump timeout 6.0 → 15.0. Live dashboard
+        # 2026-05-18 20:42 showed capability_card + pending_actions
+        # flagged "probe failed (network?)" while every other endpoint
+        # passed. Both endpoints touch heavyweight subsystems (capability
+        # card builds the full doc + brain_hook lookup; pending_actions
+        # iterates Redis lists) and routinely exceed 6s under event-loop
+        # pressure even when the route itself is healthy. The smoke
+        # check already uses 30s for the same reason; aligning the
+        # endpoint probe at 15s removes the false-negative without
+        # extending the diagnostic's total wall-clock noticeably (probes
+        # run with an 8-way semaphore).
+        async with httpx.AsyncClient(timeout=15.0) as client:
             # Try GET; some endpoints are POST-only and return 405
             r = await client.get(
                 f"{fly_url.rstrip('/')}{path}", headers=headers,
@@ -572,7 +583,13 @@ async def _check_endpoint(
                 return ("WARN", f"HTTP {status} — route exists but erroring")
             return ("PASS", f"HTTP {status}")
     except Exception as e:
-        return ("WARN", f"probe failed (network?): {str(e)[:100]}")
+        # R-F701 — include exception type so the dashboard line isn't
+        # just `probe failed (network?):` when str(e) is empty (e.g.
+        # httpx.ReadTimeout() with no args). The type alone tells the
+        # operator whether it was a timeout, DNS, refused-connection,
+        # or something else.
+        err = str(e)[:100] or type(e).__name__
+        return ("WARN", f"probe failed (network?): {err}")
 
 
 def _check_env_var(var: str) -> tuple[str, str]:

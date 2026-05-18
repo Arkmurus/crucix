@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 701,
+  "next_available": 703,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1521,6 +1521,25 @@
       "r_number": "R-F700",
       "title": "bump fly grace_period 30s to 90s — cold-start hydration exceeds 30s",
       "claimed_at": "2026-05-18T19:05:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b5e9a86",
+      "notes": null,
+      "shipped_at": "2026-05-18T19:11:24Z"
+    },
+    {
+      "r_number": "R-F701",
+      "title": "self-diag probe timeout bump + clearer error",
+      "claimed_at": "2026-05-18T19:55:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F702",
+      "title": "strip stale Upstash hint from dashboard",
+      "claimed_at": "2026-05-18T19:55:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

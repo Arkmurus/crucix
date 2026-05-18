@@ -1708,10 +1708,14 @@ async function loadLlmCost() {
         html += '<div class="neutral" style="font-size:0.78em">No external API calls recorded yet this window.</div></div>';
       }
 
-      // Upstash usage panel
+      // State backend panel (R-F702 — Upstash decommissioned 2026-05-12;
+      // SQLite is canonical. Panel kept only as audit trail of the prior
+      // backend; renders historical line if no Upstash creds present,
+      // live usage if the operator ever re-attaches a cluster.)
       const ups = ext.upstash || {};
-      html += '<div><div style="font-size:0.78em;color:#8b949e;margin-bottom:4px">Upstash Redis (cluster: adapted-ostrich-92296)</div>';
+      html += '<div><div style="font-size:0.78em;color:#8b949e;margin-bottom:4px">State backend</div>';
       if (ups.configured) {
+        html += '<div style="font-size:0.78em;color:#8b949e;margin-bottom:4px">Upstash Redis (cluster: adapted-ostrich-92296)</div>';
         html += '<table style="font-size:0.78em">';
         if (ups.dbsize != null) {
           html += `<tr><td>DB size (keys)</td><td style="text-align:right">${(ups.dbsize||0).toLocaleString()}</td></tr>`;
@@ -1728,8 +1732,10 @@ async function loadLlmCost() {
         }
         html += '</table>';
         html += '<div style="margin-top:4px;font-size:0.72em;color:#6e7681">For bandwidth + commands billing, see Upstash Console</div>';
+      } else if (ups.decommissioned) {
+        html += `<div class="neutral" style="font-size:0.78em">SQLite (fly volume /data) · Upstash decommissioned 2026-05-12</div>`;
       } else {
-        html += `<div class="warn" style="font-size:0.78em">Not configured. ${escapeHtml(ups.hint || 'Set UPSTASH_REST_URL + UPSTASH_REST_TOKEN to enable.')}</div>`;
+        html += `<div class="warn" style="font-size:0.78em">Not configured. ${escapeHtml(ups.hint || '')}</div>`;
       }
       html += '</div>';
 
