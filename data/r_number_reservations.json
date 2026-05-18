@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 680,
+  "next_available": 681,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1273,6 +1273,16 @@
       "r_number": "R-F679",
       "title": "Lightpanda port-9222 collision — serialise renders with asyncio.Lock",
       "claimed_at": "2026-05-18T07:48:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e516c7f",
+      "notes": null,
+      "shipped_at": "2026-05-18T07:50:01Z"
+    },
+    {
+      "r_number": "R-F680",
+      "title": "dashboard 401 endpoints — public bypass for non-sensitive gate indicators",
+      "claimed_at": "2026-05-18T07:50:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

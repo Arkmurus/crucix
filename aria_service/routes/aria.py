@@ -188,6 +188,15 @@ _PUBLIC_AUTH_BYPASS_PATHS = frozenset({
     "/api/aria/health/composite",         # R-F677 gate #1 composite-score indicator
     "/api/aria/mastery/heatmap",          # R-F677 gate #2 heatmap-floor indicator
     "/api/aria/eval/count",               # R-F677 gate #6 frozen-eval-set size
+    # R-F680 (2026-05-18): four existing operator-dashboard endpoints
+    # that were returning 401 because the dashboard caller wasn't sending
+    # a bearer token. Same fix posture as R-F677: read-only aggregated
+    # metrics; safe to expose. /autonomous/cost-summary stays behind auth
+    # because it reveals billing burn data (intentional exclusion).
+    "/api/aria/health/error-streak",          # gate #3 indicator (already shown ⏳→✅)
+    "/api/aria/dd/quarantine/closure-summary",  # gate #4 indicator (closed)
+    "/api/aria/learning/reading-queue",        # operational telemetry — what ARIA is reading
+    "/api/aria/mastery/topic-completion",      # mastery-progress aggregated %
 })
 
 
