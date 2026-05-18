@@ -96,13 +96,23 @@ def test_rf510_clause_26_pairs_with_clause_17():
     assert "Clause 23" in body
 
 
-def test_rf509_eval_seed_count_now_454():
-    """R-F509 brings the seed total to 454/500 (sanctions_divergence 33/50)."""
+def test_rf693_eval_seed_count_now_500():
+    """R-F693 (2026-05-18) closes Phase A gate #6: 500/500 total
+    (counter_intel 50/50, sanctions_divergence 50/50, multi_lang_ar
+    10/10, multi_lang_ru 10/10, multi_lang_zh 10/10, multi_lang_sw
+    10/10). Previously was 454/500 after R-F509."""
     from aria_service.intel import eval_golden_seed as eg
     total = len(eg.SEED_ENTRIES)
-    assert total == 454, f"expected 454 total after R-F509, got {total}"
+    assert total == 500, f"expected 500 total after R-F693, got {total}"
     sd = sum(1 for e in eg.SEED_ENTRIES if e["category"] == "sanctions_divergence")
-    assert sd == 33, f"expected sanctions_divergence=33 after R-F509, got {sd}"
+    assert sd == 50, f"expected sanctions_divergence=50 after R-F693, got {sd}"
+    ci = sum(1 for e in eg.SEED_ENTRIES if e["category"] == "counter_intel")
+    assert ci == 50, f"expected counter_intel=50 after R-F693, got {ci}"
+    # Verify the four multi-lang gaps all closed
+    for lang in ("ar", "ru", "zh", "sw"):
+        n = sum(1 for e in eg.SEED_ENTRIES
+                if e["category"] == f"multi_lang_{lang}")
+        assert n == 10, f"expected multi_lang_{lang}=10 after R-F693, got {n}"
 
 
 if __name__ == "__main__":
