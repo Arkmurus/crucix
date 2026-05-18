@@ -8,5 +8,6 @@ Each pack exposes:
   def catalogue() -> dict
 """
 from . import latam_asia_pac_seed  # noqa: F401
+from . import balkans_seed  # R-F697 (2026-05-18) — gate #2 closure
 
-__all__ = ["latam_asia_pac_seed"]
+__all__ = ["latam_asia_pac_seed", "balkans_seed"]

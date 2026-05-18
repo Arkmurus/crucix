@@ -328,15 +328,24 @@ _FACTS: list[tuple[str, str, str, str, str, str]] = [
 ]
 
 
-async def seed_facts(skip_if_seeded: bool = True) -> dict:
+async def seed_facts(
+    skip_if_seeded: bool = True,
+    mastery_weight: float = 0.05,
+) -> dict:
     """Inject the curated knowledge pack into the knowledge base.
 
     Args:
         skip_if_seeded: when True (default), checks if the canonical
             marker fact already exists and skips the full seed if so.
             Pass False to force re-seeding.
+        mastery_weight: R-F696 (2026-05-18) — weight passed to
+            update_regional_mastery per fact. Default 0.05 (alpha
+            ≈0.005) keeps the per-fact lift modest. Bump to 0.3
+            (alpha ≈0.03) when re-seeding for explicit gate-#2
+            closure — operator-curated content can carry stronger
+            signal than chat/quiz traffic.
 
-    Returns: {added, skipped, errors, total}
+    Returns: {added, skipped, errors, total, mastery_updated}
     """
     try:
         from .. import knowledge as _k
@@ -409,7 +418,7 @@ async def seed_facts(skip_if_seeded: bool = True) -> dict:
                     topics=[topic],
                     regions=[region],
                     correct=True,
-                    weight=0.05,
+                    weight=mastery_weight,
                 )
                 mastery_updated += 1
             except Exception as e:

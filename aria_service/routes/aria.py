@@ -326,14 +326,54 @@ async def knowledge_reseed_ep(request: Request, force: bool = True):
 # Lifts LatAm-non-Lusophone (51%) + Asia-Pacific (52% on compliance/finance)
 # from the heatmap floor by injecting curated, source-cited facts.
 @router.post("/knowledge/seed-latam-asia")
-async def knowledge_seed_latam_asia_ep(force: bool = False):
+async def knowledge_seed_latam_asia_ep(
+    force: bool = False, mastery_weight: float = 0.05,
+):
     """Seed the LatAm + Asia-Pacific knowledge pack.
 
     Idempotent — checks for the marker fact and skips if already
-    applied unless force=true. Returns {ok, added, errors, total}.
+    applied unless force=true. Returns {ok, added, errors, total,
+    mastery_updated}.
+
+    R-F696 (2026-05-18): `mastery_weight` query param threads through
+    to update_regional_mastery for each fact. Default 0.05 (gentle).
+    Bump to 0.3 when re-seeding for Phase A gate #2 closure.
     """
     from ..intel.knowledge_packs import latam_asia_pac_seed as _pack
-    return await _pack.seed_facts(skip_if_seeded=not force)
+    return await _pack.seed_facts(
+        skip_if_seeded=not force, mastery_weight=mastery_weight,
+    )
+
+
+@router.post("/knowledge/seed-balkans")
+async def knowledge_seed_balkans_ep(
+    force: bool = False, mastery_weight: float = 0.3,
+):
+    """R-F697 (2026-05-18) — seed the Balkans knowledge pack for
+    Phase A gate #2 closure.
+
+    Targets the 7 weakest Balkan cells (61-68% per 2026-05-18 dashboard):
+    competitor_intel, finance, legal, procurement, compliance,
+    relationships, geopolitics. 15 facts covering Serbia (Yugoimport,
+    Krušik), Bulgaria (VMZ Sopot, Arsenal), Romania (ROMARM, F-35),
+    Croatia (DOK-ING, TB2), and the wider PfP / EU-accession framework.
+
+    Default mastery_weight=0.3 — calibrated for ~10pp lift per cell
+    given the EWMA dynamics. Use force=true on initial run.
+
+    Returns {ok, added, errors, total, mastery_updated, mastery_weight}.
+    """
+    from ..intel.knowledge_packs import balkans_seed as _pack
+    return await _pack.seed_facts(
+        skip_if_seeded=not force, mastery_weight=mastery_weight,
+    )
+
+
+@router.get("/knowledge/seed-balkans/catalogue")
+async def knowledge_seed_balkans_catalogue_ep():
+    """R-F697 — read-only catalogue of the Balkans pack."""
+    from ..intel.knowledge_packs import balkans_seed as _pack
+    return _pack.catalogue()
 
 
 @router.get("/knowledge/seed-latam-asia/catalogue")
