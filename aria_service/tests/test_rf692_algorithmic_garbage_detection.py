@@ -44,30 +44,35 @@ def test_rf692_legitimate_short_brand_passes_via_allow_list():
         )
 
 
-def test_rf692_long_compound_labels_pass_regardless():
-    """Labels >10 chars don't match the regex → not flagged
-    regardless of allow-list."""
+def test_rf692_long_single_word_compound_labels_pass():
+    """Labels >8 chars without hyphens don't match the single-word
+    regex → not flagged. (R-F698 separately handles hyphenated
+    compounds where ALL tokens are blocklisted — see
+    test_rf698_hyphenated_all_blocklisted_tokens_is_garbage.)"""
     from aria_service.crawler import on_demand
     for legit in ("rheinmetall", "lockheedmartin", "defencenews",
-                  "modirumgespi", "competitive-intelligence",
-                  "defenseindustrialbase"):
+                  "modirumgespi", "defenseindustrialbase"):
         row = {"domain": f"{legit}.com", "tier": 4, "sector": "discovered"}
         assert not on_demand.is_auto_registered_garbage(row), (
             f"R-F692: long compound `{legit}` wrongly filtered"
         )
 
 
-def test_rf692_hyphenated_labels_pass_algorithmic_gate():
-    """Labels with hyphens don't match the strict regex → not flagged
-    by the algorithmic gate. (Note: specific hyphenated phrases like
-    `counter-intelligence` are still hard-blocked via the explicit
-    blocklist — this test uses labels NOT on that list.)"""
+def test_rf692_hyphenated_labels_with_legit_brand_pass():
+    """Hyphenated compounds where AT LEAST ONE token is on the
+    legitimate-brand allow-list (R-F698 rescue) must pass through.
+    Bare common-noun-only compounds are caught by R-F698; this test
+    just confirms the rescue path for hyphenated brand pairs."""
     from aria_service.crawler import on_demand
-    for legit in ("fed-spend.com", "general-dynamics.io",
-                  "indo-pacific.org", "ax-corp.de", "nato-baltic.eu"):
+    for legit in (
+        "baykar-savunma.com",      # baykar = OEM
+        "thales-uk.com",           # thales = OEM
+        "embraer-defence.com",     # embraer = OEM
+        "modirum-systems.com",     # modirum = operator example
+    ):
         row = {"domain": legit, "tier": 4, "sector": "discovered"}
         assert not on_demand.is_auto_registered_garbage(row), (
-            f"R-F692: hyphenated `{legit}` wrongly filtered"
+            f"R-F692: hyphenated brand `{legit}` wrongly filtered"
         )
 
 

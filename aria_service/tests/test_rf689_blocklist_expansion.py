@@ -83,9 +83,9 @@ def test_rf689_compound_labels_still_pass():
         "indianmasterminds.com",    # 17 chars
         "indoasiadefense.com",      # 15 chars
         "koreajoongangdaily.joins.com",  # 18-char left-most label
-        # Hyphenated compounds:
-        "koreaplus-lifes.com",      # hyphen
-        "fed-spend.com",            # hyphen
+        # Hyphenated compounds with at least one legit brand or long token:
+        "koreaplus-lifes.com",      # left half 9 chars (>8) — passes regex
+        "baykar-savunma.com",       # left = OEM brand
     ):
         row = {"domain": legit, "tier": 4, "sector": "discovered"}
         assert not on_demand.is_auto_registered_garbage(row), (

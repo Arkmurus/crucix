@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 695,
+  "next_available": 699,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1462,6 +1462,43 @@
       "r_number": "R-F694",
       "title": "git-durable clause 36 multi-turn compliance drift (mirror live R-F168 deploy 2026-05-18T17:33Z)",
       "claimed_at": "2026-05-18T17:36:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "59be058",
+      "notes": null,
+      "shipped_at": "2026-05-18T17:46:36Z"
+    },
+    {
+      "r_number": "R-F695",
+      "title": "minor: self-diag accept 422 + autonomous status data shape + cost projection",
+      "claimed_at": "2026-05-18T18:02:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F696",
+      "title": "seed_facts mastery_weight param — gate #2 lift mechanism",
+      "claimed_at": "2026-05-18T18:02:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F697",
+      "title": "gate #2 closure — knowledge pack expansion for turkey/gulf/north_africa/south_asia weak cells",
+      "claimed_at": "2026-05-18T18:02:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F698",
+      "title": "garbage filter — handle hyphenated common-noun compounds",
+      "claimed_at": "2026-05-18T18:03:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

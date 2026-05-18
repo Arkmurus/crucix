@@ -200,14 +200,59 @@ _LEGITIMATE_SINGLE_WORD_ENTITY_LABELS = frozenset({
 # explicit blocklist above.
 _GARBAGE_LABEL_RX = re.compile(r"^[a-z]{3,8}$")
 
+# R-F698 (2026-05-18) — hyphenated common-noun compound garbage filter.
+# Live fly logs 2026-05-18 17:59:40 showed `competitive-intelligence.com`
+# slipping past R-F687/F692 (regex rejected hyphens; explicit blocklist
+# only had `counter-intelligence`). Tripped web_atlas breaker (p95=5533ms)
+# → PR04 cascade at 18:00:43.
+#
+# Algorithm: split on `-`. Hyphenated label is garbage iff EVERY
+# token is itself either (a) in the explicit blocklist OR (b) matches
+# the single-word garbage shape AND not in allow-list. ANY token
+# being a known legitimate brand (allow-list) immediately rescues
+# the whole compound — `baykar-savunma`, `thales-uk` etc. pass.
+_HYPHEN_TOKEN_RX = re.compile(r"^[a-z]{3,}$")
+
 
 def _looks_like_garbage_label_algorithmic(label: str) -> bool:
-    """R-F692 — return True if `label` matches the auto-registered
-    hallucination pattern AND is not on the legitimate-entity
-    allow-list. Caller guarantees `label` is lowercase already."""
-    if not _GARBAGE_LABEL_RX.match(label):
-        return False
-    return label not in _LEGITIMATE_SINGLE_WORD_ENTITY_LABELS
+    """R-F692 + R-F698 — return True if `label` matches the
+    auto-registered hallucination pattern AND is not on the
+    legitimate-entity allow-list. Caller guarantees `label` is
+    lowercase already.
+
+    Two pattern shapes:
+      - R-F692: single word, 3-8 lowercase ASCII letters
+      - R-F698: hyphen-joined compound where every token is either
+                a known garbage common-noun (explicit blocklist) OR
+                matches the short single-word shape — and NO token
+                is on the legitimate-brand allow-list.
+    """
+    # R-F692 single-word path
+    if _GARBAGE_LABEL_RX.match(label):
+        return label not in _LEGITIMATE_SINGLE_WORD_ENTITY_LABELS
+    # R-F698 hyphenated path — CONSERVATIVE: every token must be
+    # in the EXPLICIT blocklist. Pure shape-match would false-positive
+    # on legitimate thinktanks like `east-african-policy.org` (token
+    # `east` is blocklisted but `african` + `policy` are not).
+    if "-" in label:
+        # Whole-label allow-list (e.g. operator-trusted compounds)
+        if label in _LEGITIMATE_SINGLE_WORD_ENTITY_LABELS:
+            return False
+        tokens = label.split("-")
+        # Need at least 2 non-empty tokens, all lowercase ASCII
+        if len(tokens) < 2 or any(not _HYPHEN_TOKEN_RX.match(t) for t in tokens):
+            return False
+        # ANY token on the legit-brand allow-list rescues the whole label
+        # (`baykar-savunma`, `thales-uk`, `modirum-systems` etc.)
+        if any(t in _LEGITIMATE_SINGLE_WORD_ENTITY_LABELS for t in tokens):
+            return False
+        # ALL tokens must be in the explicit blocklist for flag.
+        # Catches `competitive-intelligence` (both blocklisted),
+        # `general-dynamics` (both blocklisted), `defence-news` (both
+        # blocklisted) — without false-positiving on legit compounds
+        # where only some tokens look common-noun-ish.
+        return all(t in _GARBAGE_COMMON_NOUN_LABELS for t in tokens)
+    return False
 
 
 def is_auto_registered_garbage(domain_row: dict) -> bool:
