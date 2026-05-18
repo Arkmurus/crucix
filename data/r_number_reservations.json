@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 689,
+  "next_available": 691,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1402,6 +1402,25 @@
       "r_number": "R-F688",
       "title": "fetcher redirect-loop guard + max-redirects cap",
       "claimed_at": "2026-05-18T10:43:28Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "369d7c2",
+      "notes": null,
+      "shipped_at": "2026-05-18T10:45:43Z"
+    },
+    {
+      "r_number": "R-F689",
+      "title": "R-F687 blocklist expansion — live-evidence labels from 10:42-10:47 window",
+      "claimed_at": "2026-05-18T10:50:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F690",
+      "title": "top-level /health/live alias for non-prefixed monitoring callers",
+      "claimed_at": "2026-05-18T10:50:43Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

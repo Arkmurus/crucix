@@ -108,10 +108,19 @@ _GARBAGE_COMMON_NOUN_LABELS = frozenset({
     "conditionality", "contain", "contract", "counter-intelligence",
     "cve", "dedicated", "deeply", "defence", "defense", "directors",
     "dispute", "drone", "dynamics", "east", "email", "embedded",
+    # R-F689 (2026-05-18) expansion — labels observed in fly logs
+    # 10:35-10:50 alphabetical sweep that R-F687 didn't catch.
+    # All single-word common-noun labels at tier-4 + sector=discovered.
+    "establishment", "european", "executive", "expedite", "export",
+    "failed", "financial", "finnish", "fire", "fiscal",
+    "fujimoto", "funding", "further", "general", "generic",
+    "geopolitical", "government", "hypothesis",
+    "ieee", "india", "indo", "informa", "intelligence",
+    "interpols", "japan", "key", "killing", "korea",
     # Bare top-level English nouns/adjectives commonly hallucinated:
     "news", "article", "south", "north", "west",
     "philippines", "indonesia", "koreas", "fms", "dsca", "ecju",
-    "quakers", "fujimoto",
+    "quakers",
 })
 
 
