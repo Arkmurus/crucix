@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 722,
+  "next_available": 723,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1731,6 +1731,16 @@
       "r_number": "R-F721",
       "title": "import asyncio at module level in routes/aria.py (extract_url NameError fix)",
       "claimed_at": "2026-05-19T10:50:31Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f3f16c3",
+      "notes": null,
+      "shipped_at": "2026-05-19T10:52:25Z"
+    },
+    {
+      "r_number": "R-F722",
+      "title": "frontend auto-resume last active conversation on page load (Claude-style)",
+      "claimed_at": "2026-05-19T10:56:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

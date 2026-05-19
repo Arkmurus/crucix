@@ -452,6 +452,26 @@ function newSID() {
 }
 var SID = newSID();
 
+// R-F722 (2026-05-19) — Claude-style conversation auto-resume.
+// Pre-R-F722 the side panel listed past conversations but never auto-
+// opened one — chat feed always started empty on page load even though
+// conversation_store had everything persisted. Users hit refresh, lost
+// their UI state, didn't realise the side panel had their chats, and
+// reported "Aria isn't saving conversations". Fix: persist active SID
+// per-user in localStorage; on auth resolve + Convos.refresh(), if the
+// saved SID belongs to this user and appears in their list, auto-load
+// it. New-chat button clears the key so next refresh stays fresh.
+function LAST_SID_KEY() { return 'aria_last_sid_' + USER_ID_SLUG; }
+function saveLastSid(sid) {
+  try { if (sid) localStorage.setItem(LAST_SID_KEY(), sid); } catch(e) {}
+}
+function clearLastSid() {
+  try { localStorage.removeItem(LAST_SID_KEY()); } catch(e) {}
+}
+function getLastSid() {
+  try { return localStorage.getItem(LAST_SID_KEY()) || ''; } catch(e) { return ''; }
+}
+
 // AUTH_READY resolves once /api/auth/me returns. send() awaits this before
 // the first turn so the SID prefix is the real userId, not 'anon'. Without
 // this, a user clicking a chip within the first ~200ms could get their
@@ -496,6 +516,7 @@ document.getElementById('upload-btn').addEventListener('click', function() {
 // ── New session ──
 function startNewConversation() {
   SID = newSID();
+  clearLastSid();  // R-F722 — don't auto-resume after explicit New chat
   feed.querySelectorAll('.msg, .thinking').forEach(function(n) { n.remove(); });
   document.getElementById('welcome').style.display = '';
   Convos.setActive(null);
@@ -1273,6 +1294,7 @@ var Convos = (function() {
       var data = await authedJson('GET', '/api/aria/conversations/' + encodeURIComponent(sid) + '/detail');
       SID = sid;
       activeSid = sid;
+      saveLastSid(sid);  // R-F722 — remember which conversation is open
       Array.prototype.forEach.call(listEl.querySelectorAll('.convo-item'), function(n) {
         var on = n.dataset.sid === sid;
         n.classList.toggle('active', on);
@@ -1397,14 +1419,29 @@ var Convos = (function() {
 
 // Once the auth probe resolves, refresh the conversation list. CURRENT_USER
 // + USER_ID_SLUG are already set by then.
+// R-F722 (2026-05-19) — after the list loads, auto-resume the last
+// active conversation for this user (Claude-style). Only loads if the
+// saved SID belongs to this user (prefix match) AND appears in their
+// returned conversations list (defensive against stale localStorage
+// entries pointing at deleted convos). Falls through silently to a
+// fresh chat if anything is missing.
 AUTH_READY.then(function(user) {
-  if (user) Convos.refresh();
+  if (!user) return;
+  Convos.refresh().then(function() {
+    var saved = getLastSid();
+    if (!saved || !saved.indexOf || saved.indexOf(USER_ID_SLUG + '_') !== 0) return;
+    Convos.load(saved).catch(function(e) {
+      console.warn('[Convos] auto-resume failed, starting fresh:', e);
+      clearLastSid();
+    });
+  });
 });
 
 // After every successful send, bump the conversation to the top.
 window._ariaTurnFinished = function(sid, firstUserMessage) {
   if (!sid) return;
   Convos.bumpToTop(sid, firstUserMessage ? firstUserMessage.slice(0, 60) : 'New conversation');
+  saveLastSid(sid);  // R-F722 — remember current SID so refresh resumes here
 };
 </script>
 </body>
