@@ -146,31 +146,40 @@ async def set(key: str, value: str, ex: int | None = None,
     window every event under continuous traffic, turning what was meant
     to be a rolling window into a lifetime tally.
     """
-    # F87 + F88 observability 2026-04-29: Upstash caps single-value
-    # sizes. The cap depends on tier (free ~1 MB, Pro ~100 MB). The
-    # original F87 commit assumed free-tier and warned at 700 KB / 950
-    # KB, which fired on every knowledge save (current blob ≈ 2.6 MB)
-    # because this account is on a higher tier — a noise problem.
-    # Now: env-configurable thresholds, defaulting to 4 MB warn / 25 MB
-    # error. Override via ARIA_REDIS_WARN_BYTES / ARIA_REDIS_ERROR_BYTES
-    # to match your tier's actual cap.
+    # R-F726 (2026-05-19): size warn is Upstash-specific noise on
+    # SQLite/memory backends. Upstash had a per-value tier cap (free
+    # ~1MB, Pro ~100MB) — the warning was telling the operator "split
+    # before you hit it". SQLite has no per-value cap; in-memory dict
+    # has no cap. With Upstash cancelled 2026-05-12 (upstash_redis_
+    # provider memory) the warn was firing ~12× per signal_generator
+    # cycle on the neural_edges blob (steady ~4.04MB, past the 4MB
+    # default warn threshold) and never going to clear because §7
+    # mandates infinite memory + no eviction. Pure noise.
     #
-    # Why we still warn at all: the 2026-04-29 ledger collapse (4587 →
-    # 2000 signals) shows that *some* truncation pathway exists on this
-    # account at large blob sizes. Until knowledge + ledger are
-    # restructured off the one-giant-JSON-blob shape (F88 architectural
-    # follow-up), early visibility into blob growth is what tells us
-    # when the next collapse is imminent.
+    # Gate is BOTH env intent AND live-client presence — the env
+    # default is still "upstash" (per next_session_pickup_2026_05_18b,
+    # gate #5 hidden item), but if the Upstash client failed to
+    # connect (subscription cancelled), _client is None and writes
+    # fall through to the in-process _mem_store — also no cap. So:
+    # only warn when we have a real Upstash client that the operator
+    # configured intentionally. Error threshold still applies to all
+    # backends — a 25MB+ blob is a write-amp concern regardless of
+    # storage (SQLite would rewrite the full row on every flush).
     val_len = len(value) if isinstance(value, str) else 0
     _warn_bytes = int(os.getenv("ARIA_REDIS_WARN_BYTES", "4000000"))
     _error_bytes = int(os.getenv("ARIA_REDIS_ERROR_BYTES", "25000000"))
     if val_len > _error_bytes:
         logger.error(
-            "Redis SET %s: value size %d bytes exceeds error threshold "
-            "(%d). Write may silently truncate. Reduce payload or split "
-            "across keys.", key, val_len, _error_bytes,
+            "state SET %s: value size %d bytes exceeds error threshold "
+            "(%d). Reduce payload or split across keys — large blobs "
+            "amplify write cost on every flush.",
+            key, val_len, _error_bytes,
         )
-    elif val_len > _warn_bytes:
+    elif (
+        val_len > _warn_bytes
+        and _BACKEND == "upstash"
+        and _client is not None
+    ):
         logger.warning(
             "Redis SET %s: value size %d bytes exceeds warn threshold "
             "(%d). Plan a key split before this hits the tier cap.",

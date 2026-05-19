@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 726,
+  "next_available": 728,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1771,6 +1771,25 @@
       "r_number": "R-F725",
       "title": "cap /read-document at 45s via asyncio.wait_for to prevent loop wedges",
       "claimed_at": "2026-05-19T12:31:39Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4a5eaad",
+      "notes": null,
+      "shipped_at": "2026-05-19T12:33:42Z"
+    },
+    {
+      "r_number": "R-F726",
+      "title": "redis SET warn backend-aware (silence post-Upstash noise)",
+      "claimed_at": "2026-05-19T21:20:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F727",
+      "title": "fly wedge round 7 root-cause + fix",
+      "claimed_at": "2026-05-19T21:20:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
