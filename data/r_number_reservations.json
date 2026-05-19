@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 725,
+  "next_available": 726,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1766,6 +1766,15 @@
       "commit_sha": "5878265",
       "notes": null,
       "shipped_at": "2026-05-19T12:00:40Z"
+    },
+    {
+      "r_number": "R-F725",
+      "title": "cap /read-document at 45s via asyncio.wait_for to prevent loop wedges",
+      "claimed_at": "2026-05-19T12:31:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

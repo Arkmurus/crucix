@@ -8097,6 +8097,53 @@ def _r473_record_read_doc(elapsed_s: float, filename: str, byte_len: int, detect
 
 @router.post("/read-document")
 async def read_document_ep(request: Request):
+    """R-F725 (2026-05-19) — hard 45s wall-clock cap.
+
+    Live evidence 2026-05-19 12:26:47: seenode email reader sent a
+    LinkedIn marketing alert ("47 new lead suggestions", 9531 bytes)
+    to this endpoint. fly processed it for 111s — 16 RAG chunk
+    encodes + compliance LLM analysis + 4+ chained DeepSeek calls.
+    During those 111s the event loop was effectively saturated;
+    next /health/live probe at 12:28:56 timed out → PR04 cascade.
+
+    The 111s wasn't strictly sync-CPU-bound (most was awaiting
+    httpx LLM responses), but it monopolised this endpoint and the
+    sentence-transformer encode bursts in between caused enough
+    transient stalls that the health-check probe couldn't slot in.
+
+    Fix: wrap the whole handler body in asyncio.wait_for with a
+    45s timeout. 45s covers legit large-PDF OCR + multi-page
+    extraction (observed ~30s P95); anything beyond that is
+    almost certainly a runaway compliance chain (LinkedIn marketing
+    emails, hugely chained LLM analysis on low-value content).
+    On timeout: 504 + a structured body so the caller (seenode
+    email reader) can log + skip + move on, instead of holding
+    the connection open for 2 minutes.
+
+    This is the LOOP-PROTECTION fix; the proper structural fix
+    (background-job queue with status polling, so seenode can
+    fire-and-forget) is bigger work."""
+    import asyncio as _r725_asyncio
+    try:
+        return await _r725_asyncio.wait_for(
+            _read_document_ep_impl(request), timeout=45.0,
+        )
+    except _r725_asyncio.TimeoutError:
+        _log.warning(
+            "R-F725 read-document HARD TIMEOUT at 45s — aborting to "
+            "protect event loop. Caller should retry with smaller "
+            "payload or skip the source."
+        )
+        return Response(
+            status_code=504,
+            content='{"ok":false,"error":"read-document exceeded 45s '
+                    'hard cap (R-F725) — payload too heavy or LLM '
+                    'chain runaway. Skip or split."}',
+            media_type="application/json",
+        )
+
+
+async def _read_document_ep_impl(request: Request):
     import time as _r473_time
     _r473_t0 = _r473_time.monotonic()
     # R-F528 (2026-05-15): seenode→fly proxy disconnects mid-body-read
