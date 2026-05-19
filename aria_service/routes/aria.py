@@ -16393,9 +16393,31 @@ async def metrics_grounded_rate_ep(days: int = 14):
 #   - GET /api/aria/health       — rich diagnostic (unchanged), used
 #     by operator + dashboard.
 @router.get("/health/live")
-async def health_live_ep():
+def health_live_ep():
     """R-F372: ultra-cheap liveness check for fly.io load balancer.
-    No Redis. No stats. Returns instantly from in-process state."""
+    No Redis. No stats. Returns instantly from in-process state.
+
+    R-F723 (2026-05-19): DELIBERATELY SYNC `def` (not `async def`).
+    FastAPI auto-runs sync routes in starlette's threadpool, which is
+    NOT blocked when the asyncio event loop is wedged by sync CPU work
+    (sentence-transformers encode, large JSON+gzip, regex on big HTML,
+    etc.). Pre-R-F723 this was `async def` → ran on the event loop →
+    a 20s wedge meant fly's health probe timed out → machine marked
+    critical → PR04 cascade across the entire app even though the
+    process was alive and the wedge would clear in seconds. With sync
+    def the threadpool keeps responding regardless of loop state, so
+    the LB sees `alive` continuously and stops cascading 503s for
+    transient wedges. The wedge itself is still a problem (queued
+    work piles up), but it stops being an *outage*.
+
+    Live evidence justifying the change: fly logs 2026-05-19
+    showed 4 separate health-check failure → PR04 cascades within
+    90 min on v939 + v940, each caused by 5-25s loop stalls. Even
+    after R-F714/F716/F719 wrapped the worst offenders, residual
+    sync paths (learn_from_text concept extraction, _classify_signal
+    generator, watchlist re-screen, security audit) kept producing
+    >20s stalls. Threadpool the health probe → wedges no longer
+    cascade into user-visible outages."""
     try:
         from ..main import ARIA_BUILD_REV as _build_rev
     except Exception:

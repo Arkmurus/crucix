@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 723,
+  "next_available": 724,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1741,6 +1741,16 @@
       "r_number": "R-F722",
       "title": "frontend auto-resume last active conversation on page load (Claude-style)",
       "claimed_at": "2026-05-19T10:56:12Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2cd2b7e",
+      "notes": null,
+      "shipped_at": "2026-05-19T10:58:26Z"
+    },
+    {
+      "r_number": "R-F723",
+      "title": "make /health/live sync def so threadpool absorbs event-loop wedges",
+      "claimed_at": "2026-05-19T11:49:09Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
