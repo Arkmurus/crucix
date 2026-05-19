@@ -3,6 +3,14 @@ ARIA API Routes — all 18 endpoints matching the Node.js API surface.
 """
 from __future__ import annotations
 
+import asyncio  # R-F721 (2026-05-19) — _execute_tool extract_url branch
+                # at line ~6156 uses asyncio.gather. Pre-R-F721 this file
+                # only had scoped `import asyncio as _aio_e` aliases, so
+                # the unaliased call raised NameError: name 'asyncio' is
+                # not defined for every URL-extraction tool call. Live
+                # evidence: 2026-05-19 10:47:43 — operator uploaded the
+                # Peru PDF, ARIA detected arkmurus.com in the text and
+                # tried extract_url, threw, never-awaited coroutines.
 import json
 import os
 import re
