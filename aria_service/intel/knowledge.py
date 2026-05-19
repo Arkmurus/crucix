@@ -125,7 +125,14 @@ _GZ_PREFIX = "GZ1:"
 
 
 def _encode_snapshot(obj: dict) -> str:
-    raw = json.dumps(obj, default=str).encode("utf-8")
+    # R-F727 (2026-05-19): same GIL fast-path as _write_to_disk_atomic
+    # — sharded snapshot encode runs in to_thread per R-F714 but
+    # `default=str` forces CPython's pure-Python encoder which holds the
+    # GIL through the iteration. wedge_673 captured this exact pattern.
+    try:
+        raw = json.dumps(obj).encode("utf-8")
+    except TypeError:
+        raw = json.dumps(obj, default=str).encode("utf-8")
     gz = gzip.compress(raw, compresslevel=6)
     return _GZ_PREFIX + base64.b64encode(gz).decode("ascii")
 
@@ -392,7 +399,16 @@ def _read_from_disk() -> dict | None:
 
 def _write_to_disk_atomic(data: dict) -> None:
     """Atomic write via temp file + rename so a crash mid-write can't
-    corrupt the canonical knowledge file."""
+    corrupt the canonical knowledge file.
+
+    R-F727 (2026-05-19): json.dump fast path without `default=`. The
+    C-accelerated `_json` encoder releases the GIL between operations;
+    passing `default=str` forces the pure-Python encoder, which holds
+    the GIL through the whole serialisation. See wedge_673 root-cause:
+    5 worker threads (3× neural_memory encode + 1× ledger dump + this
+    one) all in pure-Python json frames simultaneously starved the
+    event loop for 213.97s. Fast path first; fall back to default=str
+    on TypeError to stay safe against any stray non-native value."""
     target = _DISK_PATH
     target_dir = os.path.dirname(target) or "."
     # mkstemp in the same directory so rename is atomic on the same FS.
@@ -401,7 +417,12 @@ def _write_to_disk_atomic(data: dict) -> None:
     )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, default=str)
+            try:
+                json.dump(data, f)
+            except TypeError:
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f, default=str)
         os.replace(tmp_path, target)
     except Exception:
         try:

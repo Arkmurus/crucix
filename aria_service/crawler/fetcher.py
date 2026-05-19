@@ -43,6 +43,7 @@ try:
 except Exception:
     pass
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -290,7 +291,15 @@ async def fetch_for_crawl(url: str, timeout: float = 10.0) -> dict | None:
                 "extraction_ok": False,
                 "duration_ms": duration_ms}
 
-    title, headings, body = _strip_html_to_text(html)
+    # R-F727 (2026-05-19) — wedge_673 captured a stale heartbeat
+    # (5.89s) with the main thread mid-`bs4/builder/_lxml.py feed` inside
+    # `_strip_html_to_text` called from this line. BeautifulSoup + lxml
+    # holds the GIL through C-extension calls but the surrounding Python
+    # bookkeeping (tree walk, decompose, get_text) is pure-Python and
+    # runs on the loop. On a large feed page (multi-100 KB), the parse
+    # routinely takes 5–15s. Move to a worker so concurrent crawl
+    # fetches + chat requests can run while a page is being stripped.
+    title, headings, body = await asyncio.to_thread(_strip_html_to_text, html)
     if not body or len(body.split()) < 20:
         return {"url": url, "domain": domain,
                 "status_class": "thin",

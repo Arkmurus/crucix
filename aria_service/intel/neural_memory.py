@@ -127,8 +127,23 @@ _GZ_PREFIX = "GZ1:"
 
 
 def _encode_edges(edges_dict: dict) -> str:
-    """R-F442: gzip+base64-encode the edges blob for Redis storage."""
-    raw = json.dumps(edges_dict, default=str).encode("utf-8")
+    """R-F442: gzip+base64-encode the edges blob for Redis storage.
+
+    R-F727 (2026-05-19): drop `default=str` on the fast path. The
+    C-accelerated `_json` encoder is bypassed whenever `default=` is
+    passed, forcing CPython's pure-Python JSONEncoder which holds the
+    GIL across the entire iteration. Live wedge stack (wedge_673,
+    213.97s loop stall) had 3 worker threads simultaneously in
+    `json/encoder.py iterencode` + `gzip.compress` here, each
+    holding the GIL through its Python frames; the main loop
+    starved. `_edges` is structurally `{str: {str: float}}` so
+    `default` is a defensive no-op. Try fast path first; fall back
+    to default=str on the impossible TypeError so a non-native type
+    leaking in does NOT crash persist."""
+    try:
+        raw = json.dumps(edges_dict).encode("utf-8")
+    except TypeError:
+        raw = json.dumps(edges_dict, default=str).encode("utf-8")
     gz = gzip.compress(raw, compresslevel=6)
     return _GZ_PREFIX + base64.b64encode(gz).decode("ascii")
 
