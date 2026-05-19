@@ -1040,7 +1040,15 @@ async def _fetch_article_text(url: str, timeout: float = 15.0) -> str:
         html = strip_dangerous_content(html)
 
     # ── STRUCTURED EXTRACTION (replaces the old blob slice) ──
-    extracted = _extract_structured_html(html)
+    # R-F719 (2026-05-19): wedge stack /data/wedge_stacks/wedge_675_1779182544.log
+    # captured the main thread in _extract_structured_html doing regex
+    # walks over large HTML payloads (re.finditer over <tr>/<td>/email
+    # patterns on multi-hundred-KB articles). With R-F714 having killed
+    # the persistence-path wedges, this researcher pipeline is the new
+    # tallest tree — 6-9s circuit trips on absorb(web_search) during
+    # research cycles trace here. Move the CPU-bound regex walk into a
+    # worker thread; the surrounding httpx fetches stay on the loop.
+    extracted = await asyncio.to_thread(_extract_structured_html, html)
     text = extracted.get("text", "")
     if not text:
         # Fallback to plain text strip if structured returned nothing

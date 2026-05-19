@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 719,
+  "next_available": 721,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1701,6 +1701,25 @@
       "r_number": "R-F718",
       "title": "frontend: attach extracted document text to next chat-stream payload",
       "claimed_at": "2026-05-19T10:09:35Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1b024e1",
+      "notes": null,
+      "shipped_at": "2026-05-19T10:12:18Z"
+    },
+    {
+      "r_number": "R-F719",
+      "title": "wrap researcher._extract_structured_html in executor (residual wedge source)",
+      "claimed_at": "2026-05-19T10:34:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F720",
+      "title": "suppress BS4 XMLParsedAsHTMLWarning in crawler.fetcher",
+      "claimed_at": "2026-05-19T10:34:29Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

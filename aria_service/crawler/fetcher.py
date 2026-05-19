@@ -29,6 +29,20 @@ end-user reads of a single article are not the bot scenario.
 """
 from __future__ import annotations
 
+# R-F720 (2026-05-19) — BeautifulSoup emits XMLParsedAsHTMLWarning when
+# we pass an XML payload (RSS, sitemap, OpenSearch) to the HTML parser.
+# Behaviourally the HTML parser handles it fine and we have lxml + a
+# html.parser fallback already; the warning was just noise in fly logs
+# (seen 2026-05-19 09:33:14). Silence it at module load — we'd already
+# need to detect XML payloads to pick the `features="xml"` parser, and
+# the existing dual-parser logic doesn't care.
+import warnings as _warnings
+try:
+    from bs4 import XMLParsedAsHTMLWarning as _XMLParsedAsHTMLWarning
+    _warnings.filterwarnings("ignore", category=_XMLParsedAsHTMLWarning)
+except Exception:
+    pass
+
 import logging
 import time
 from typing import Any
