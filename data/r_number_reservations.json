@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 710,
+  "next_available": 711,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1613,9 +1613,18 @@
       "claimed_at": "2026-05-19T07:19:29Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "fc6d68dd51dfb4b615b78bea02ae9bd147309911",
       "notes": null,
-      "shipped_at": "2026-05-19T07:23:18Z"
+      "shipped_at": "2026-05-19T07:24:14Z"
+    },
+    {
+      "r_number": "R-F710",
+      "title": "Move wedge stack log to persistent /data volume so it survives fly reboots",
+      "claimed_at": "2026-05-19T07:25:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

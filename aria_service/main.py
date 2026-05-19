@@ -334,7 +334,18 @@ async def lifespan(app: FastAPI):
     import threading as _threading
     import time as _time
 
-    _wedge_dir = _os.path.join(_os.path.dirname(__file__), "..", "data", "wedge_stacks")
+    # R-F710 (2026-05-19) — prefer fly's persistent /data volume so the
+    # wedge log survives reboots. Pre-R-F710 the path resolved to
+    # /app/data/wedge_stacks/ inside the container, which is wiped on
+    # every fly machine restart — including every deploy. The 07:18:58
+    # wedge captured immediately after R-F704's deploy would have been
+    # gone the moment the next deploy landed. /data is the fly volume
+    # mount (same root as aria_state.db / aria_knowledge.json / aria_rag).
+    # Local dev (no /data dir) falls back to the repo-local path.
+    if _os.path.isdir("/data") and _os.access("/data", _os.W_OK):
+        _wedge_dir = "/data/wedge_stacks"
+    else:
+        _wedge_dir = _os.path.join(_os.path.dirname(__file__), "..", "data", "wedge_stacks")
     try:
         _os.makedirs(_wedge_dir, exist_ok=True)
     except Exception:
