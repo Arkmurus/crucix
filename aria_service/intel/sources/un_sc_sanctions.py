@@ -169,7 +169,9 @@ async def _load_records() -> list[dict]:
                            len(_CACHE["records"]))
             return _CACHE["records"]
 
-        records = _parse_xml(xml_text)
+        # R-F716 (2026-05-19): sync ElementTree parse on the event
+        # loop — see ofac_sdn.py rationale. Moved to worker thread.
+        records = await asyncio.to_thread(_parse_xml, xml_text)
         if records:
             _CACHE["records"] = records
             _CACHE["fetched_at"] = now

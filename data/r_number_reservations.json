@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 716,
+  "next_available": 718,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1662,14 +1662,34 @@
       "title": "wrap neural_memory._persist + knowledge gzip in executor (fix loop wedge)",
       "claimed_at": "2026-05-19T08:27:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0265397",
+      "notes": null,
+      "shipped_at": "2026-05-19T08:35:05Z"
     },
     {
       "r_number": "R-F715",
       "title": "install pdfplumber + verify Peru PDF extraction path",
       "claimed_at": "2026-05-19T08:27:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0265397",
+      "notes": null,
+      "shipped_at": "2026-05-19T08:35:06Z"
+    },
+    {
+      "r_number": "R-F716",
+      "title": "wrap OFAC/UN/OFSI sanctions XML parse in executor",
+      "claimed_at": "2026-05-19T08:51:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F717",
+      "title": "trace + purge seed contamination (acme-widgets, 2026.co, etc)",
+      "claimed_at": "2026-05-19T08:51:44Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

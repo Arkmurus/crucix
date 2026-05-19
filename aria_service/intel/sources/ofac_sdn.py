@@ -188,7 +188,13 @@ async def _load_records() -> list[dict]:
             )
             return _CACHE["records"]
 
-        records = _parse_xml(xml_text)
+        # R-F716 (2026-05-19): _parse_xml walks ~28MB XML for ~19k SDN
+        # records — synchronous ElementTree work on the event loop
+        # stalled it for 5s+ at every refresh (live evidence: fly logs
+        # 2026-05-19 08:47:35 wedged ~3s after this log line). Run in
+        # a worker thread so concurrent chat-stream + brain-absorb stay
+        # responsive during the refresh.
+        records = await asyncio.to_thread(_parse_xml, xml_text)
         if records:
             _CACHE["records"] = records
             _CACHE["fetched_at"] = now
