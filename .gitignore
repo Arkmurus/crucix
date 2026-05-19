@@ -64,3 +64,10 @@ aria_service/cli/.tier_c_state.json
 # R-F570: generated at build time by sync.mjs from local git;
 # never source-controlled.
 build_rev.txt
+
+# R-F712 (2026-05-19) — operator-local files that kept appearing in
+# `git status` untracked and risked accidental commit:
+#   .aria-token     — bearer-token cache (operator workstation)
+#   .adv_post.json  — adversarial-post CLI scratch artefact
+.aria-token
+.adv_post.json

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 711,
+  "next_available": 713,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1622,9 +1622,30 @@
       "title": "Move wedge stack log to persistent /data volume so it survives fly reboots",
       "claimed_at": "2026-05-19T07:25:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e2f2e29da72609b77c03cad51c35e1299841eda9",
+      "notes": null,
+      "shipped_at": "2026-05-19T07:29:07Z"
+    },
+    {
+      "r_number": "R-F711",
+      "title": "Heatmap floor_breach_cells field — surface cells below gate-2 target (0.70)",
+      "claimed_at": "2026-05-19T07:46:14Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-19T07:48:50Z"
+    },
+    {
+      "r_number": "R-F712",
+      "title": "Repo cleanup — drop dead render/railway/crucix-upgrades + gitignore stragglers",
+      "claimed_at": "2026-05-19T07:46:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-19T07:48:50Z"
     }
   ]
 }

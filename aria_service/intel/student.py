@@ -88,6 +88,12 @@ MASTERY_LR_NEGATIVE = 0.12    # keep down-rate lower — be honest about gaps;
 MASTERY_FLOOR = 0.05
 MASTERY_CEILING = 0.98
 WEAK_THRESHOLD = 0.55         # below this = "weak topic, needs study"
+# R-F711 (2026-05-19) — Phase A exit-gate #2 floor target ("heatmap floor ≥ 70%").
+# Cells between WEAK_THRESHOLD (0.55) and this floor are NOT "weak" by the
+# study-priority signal but DO block gate-2 closure. Surfaced separately
+# via `floor_breach_cells` in get_regional_heatmap() so the operator
+# dashboard can see exactly which cells are dragging the floor below 0.70.
+GATE_2_FLOOR_TARGET = 0.70
 
 # Hard floors per domain — if mastery drops below this, automatic
 # remediation triggers (knowledge injection from domain modules).
@@ -1480,14 +1486,29 @@ async def get_regional_heatmap() -> dict:
         if topic not in heatmap:
             heatmap[topic] = {}
         heatmap[topic][region] = round(val.get("score", INITIAL_MASTERY), 3)
-    # Find weak cells
+    # Find weak cells (< WEAK_THRESHOLD = 0.55, "needs study")
     weak_cells = []
+    # R-F711 (2026-05-19) — find floor-breach cells (< GATE_2_FLOOR_TARGET
+    # = 0.70, "blocking Phase A gate #2"). Cells between WEAK_THRESHOLD
+    # and GATE_2_FLOOR_TARGET are operationally fine for study-priority
+    # but still drag the heatmap floor below the gate-2 target. Pre-R-F711
+    # the dashboard could see floor=0.662 with weak_cells=[] and not
+    # surface WHICH cells were blocking — making the gate signal opaque.
+    floor_breach_cells = []
     for topic, regions in heatmap.items():
         for region, score in regions.items():
             if score < WEAK_THRESHOLD:
                 weak_cells.append({"topic": topic, "region": region, "score": score})
+            if score < GATE_2_FLOOR_TARGET:
+                floor_breach_cells.append({"topic": topic, "region": region, "score": score})
     weak_cells.sort(key=lambda x: x["score"])
-    return {"heatmap": heatmap, "weak_cells": weak_cells[:20]}
+    floor_breach_cells.sort(key=lambda x: x["score"])
+    return {
+        "heatmap": heatmap,
+        "weak_cells": weak_cells[:20],
+        "floor_breach_cells": floor_breach_cells[:20],
+        "gate_2_floor_target": GATE_2_FLOOR_TARGET,
+    }
 
 
 # ── Stats and reporting ────────────────────────────────────────────────────
