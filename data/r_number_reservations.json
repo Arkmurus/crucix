@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 718,
+  "next_available": 719,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1691,6 +1691,16 @@
       "r_number": "R-F717",
       "title": "trace + purge seed contamination (acme-widgets, 2026.co, etc)",
       "claimed_at": "2026-05-19T08:51:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8b3cab7",
+      "notes": null,
+      "shipped_at": "2026-05-19T09:13:28Z"
+    },
+    {
+      "r_number": "R-F718",
+      "title": "frontend: attach extracted document text to next chat-stream payload",
+      "claimed_at": "2026-05-19T10:09:35Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

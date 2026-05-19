@@ -898,12 +898,27 @@ fileInput.addEventListener('change', async function() {
   var file = fileInput.files[0];
   fileInput.value = '';
 
+  // R-F718 (2026-05-19) — capture the textarea query BEFORE clearing it,
+  // and inject the extracted document text into a chat-stream call so the
+  // LLM actually sees the file. Pre-R-F718 the extract-document response
+  // was rendered to the DOM and nothing else — chat-stream never saw the
+  // text, so "review these documents" follow-ups returned "no parsed text
+  // or file content reached my context". Symptom: user uploaded Peru
+  // economics PDF 2026-05-19 10:41/10:50, both times ARIA couldn't see it.
+  var userContext = ta.value.trim();
+  var queryForLLM = userContext || 'Review this document and flag blockers or anything missed.';
+
   var formData = new FormData();
   formData.append('file', file);
-  formData.append('context', ta.value.trim() || 'Review this document');
+  formData.append('context', queryForLLM);
   var token = localStorage.getItem('crucix_token') || '';
 
-  addUser('📎 ' + file.name + (ta.value.trim() ? '\n' + ta.value.trim() : ''));
+  addUser('📎 ' + file.name + (userContext ? '\n' + userContext : ''));
+  // Clear textarea immediately so the user doesn't see their query lingering
+  // through the extraction wait — send() would clear it anyway.
+  ta.value = '';
+  ta.style.height = 'auto';
+  resize();
   showThinking();
 
   try {
@@ -913,12 +928,38 @@ fileInput.addEventListener('change', async function() {
       body: formData,
     });
     removeThinking();
-    if (resp.ok) {
-      var data = await resp.json();
-      addAria(md(data.summary || data.analysis || data.text || 'Document processed.'), file.name);
-    } else {
+    if (!resp.ok) {
       addAria(md('Failed to process ' + file.name + ': ' + resp.status));
+      return;
     }
+    var data = await resp.json();
+    if (data.error) {
+      addAria(md('Failed to process ' + file.name + ': ' + data.error));
+      return;
+    }
+    var docText = (data.text || '').trim();
+    if (!docText) {
+      // Strategies all failed (or gave only metadata) — fall back to
+      // the legacy display path so the user at least sees what happened.
+      addAria(md(data.summary || data.gap_description || 'Document processed but no usable text extracted.'), file.name);
+      return;
+    }
+    // R-F718 — fire a streaming chat with the extracted text embedded as
+    // an [ATTACHED DOCUMENT] block. send() handles the SSE reply, persists
+    // the turn into conversation_store, and any future follow-up in this
+    // session will see the doc via conversation history.
+    var label = file.name + ' · ' + (data.method || 'extracted') +
+                ' · ' + Math.round((data.confidence || 0) * 100) + '%' +
+                (data.pages_extracted && data.total_pages
+                  ? ' · ' + data.pages_extracted + '/' + data.total_pages + ' pages'
+                  : '');
+    var promptText =
+      '[ATTACHED DOCUMENT: ' + label + ']\n' +
+      docText + '\n' +
+      '[/ATTACHED DOCUMENT]\n\n' +
+      queryForLLM;
+    // skipUserBubble — the upload bubble was already added above.
+    send(promptText, { skipUserBubble: true });
   } catch(err) {
     removeThinking();
     addAria(md('Upload failed: ' + err.message));
