@@ -1682,9 +1682,10 @@
       "title": "wrap OFAC/UN/OFSI sanctions XML parse in executor",
       "claimed_at": "2026-05-19T08:51:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d1505e0",
+      "notes": null,
+      "shipped_at": "2026-05-19T09:08:30Z"
     },
     {
       "r_number": "R-F717",

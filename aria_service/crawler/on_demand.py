@@ -200,6 +200,16 @@ _LEGITIMATE_SINGLE_WORD_ENTITY_LABELS = frozenset({
 # explicit blocklist above.
 _GARBAGE_LABEL_RX = re.compile(r"^[a-z]{3,8}$")
 
+# R-F717 (2026-05-19) — categorical garbage: domain labels that can
+# NEVER be a legitimate entity name regardless of tier or sector.
+# Live fly logs 2026-05-19 08:52:41-08:52:57 showed 2026.co / 2026.com
+# / 2026.net / 2026.org / 283.co / 23227526.fs1.hubspotusercontent...
+# all being re-crawled every sweep. R-F687's _GARBAGE_LABEL_RX requires
+# lowercase letters → pure-digit labels slip past. Pure-digit first
+# labels (years like 2026, IDs like 283, tracking codes like 23227526)
+# are never a real entity — apply this filter ahead of the tier check.
+_DIGIT_ONLY_LABEL_RX = re.compile(r"^[0-9]+$")
+
 # R-F698 (2026-05-18) — hyphenated common-noun compound garbage filter.
 # Live fly logs 2026-05-18 17:59:40 showed `competitive-intelligence.com`
 # slipping past R-F687/F692 (regex rejected hyphens; explicit blocklist
@@ -281,14 +291,20 @@ def is_auto_registered_garbage(domain_row: dict) -> bool:
     """
     if not domain_row:
         return False
-    if domain_row.get("tier") != 4:
-        return False
-    if (domain_row.get("sector") or "") != "discovered":
-        return False
     domain = (domain_row.get("domain") or "").strip().lower()
     if not domain or "." not in domain:
         return False
     label = domain.split(".", 1)[0]
+    # R-F717 (2026-05-19) — categorical garbage: pure-digit first label
+    # is never a legitimate entity. Fire BEFORE the tier check because
+    # `2026.co` / `283.com` / `23227526.fs1.hubspot...` can never be a
+    # real operator-curated source regardless of tier/sector metadata.
+    if _DIGIT_ONLY_LABEL_RX.match(label):
+        return True
+    if domain_row.get("tier") != 4:
+        return False
+    if (domain_row.get("sector") or "") != "discovered":
+        return False
     # Explicit blocklist — operator-curated, hard block.
     if label in _GARBAGE_COMMON_NOUN_LABELS:
         return True
