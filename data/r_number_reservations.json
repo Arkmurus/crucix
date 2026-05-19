@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 713,
+  "next_available": 714,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1633,9 +1633,9 @@
       "claimed_at": "2026-05-19T07:46:14Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "1b3b0a8e397618c8325acc3e4592d176faf9246b",
       "notes": null,
-      "shipped_at": "2026-05-19T07:48:50Z"
+      "shipped_at": "2026-05-19T07:50:30Z"
     },
     {
       "r_number": "R-F712",
@@ -1643,9 +1643,19 @@
       "claimed_at": "2026-05-19T07:46:15Z",
       "claimed_by": "claude",
       "status": "shipped",
+      "commit_sha": "1b3b0a8e397618c8325acc3e4592d176faf9246b",
+      "notes": null,
+      "shipped_at": "2026-05-19T07:50:30Z"
+    },
+    {
+      "r_number": "R-F713",
+      "title": "Seenode /extract-document streams multipart to fly (was eaten by express.json)",
+      "claimed_at": "2026-05-19T07:54:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
       "commit_sha": "PENDING",
       "notes": null,
-      "shipped_at": "2026-05-19T07:48:50Z"
+      "shipped_at": "2026-05-19T07:54:39Z"
     }
   ]
 }

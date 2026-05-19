@@ -1007,6 +1007,72 @@ applySecurityHeaders(app);
 // match" — an obscure error to debug, hence the explicit ordering here.
 app.use('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }));
 
+// ── R-F713 (2026-05-19) — multipart pass-through for /extract-document ───
+//
+// The aria.html chat composer's 📎 Attach button POSTs multipart/form-data
+// to /api/aria/extract-document. The catch-all `app.use('/api/aria', express
+// .json())` below consumed the body before ariaProxy could see it, leaving
+// the proxy to JSON.stringify(undefined) and ship a JSON envelope to fly's
+// multipart-only endpoint → 422 every time. Live evidence 2026-05-19:
+// operator hit "Failed to process Peru - Internal Economics Breakdown.pdf:
+// 422" twice in a row.
+//
+// This handler MUST be registered BEFORE the json mount so express never
+// touches the body. We stream the raw request body straight to fly,
+// preserving Content-Type (multipart with boundary) + Authorization, and
+// stream the response back. No parsing on either hop.
+//
+// Other /api/aria/* endpoints continue through ariaProxy + express.json —
+// only the multipart route diverges.
+app.post('/api/aria/extract-document', async (req, res) => {
+  const ARIA_URL = process.env.ARIA_SERVICE_URL || '';
+  if (!ARIA_URL) {
+    return res.status(503).json({ error: 'ARIA service unavailable' });
+  }
+  // Auth: require the client to have sent a Bearer header. Don't gate on
+  // requireAuth here because that middleware can vary by env and we want a
+  // clear 401 from fly when the token is wrong.
+  const clientAuth = req.headers.authorization || '';
+  if (!clientAuth.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const ct = req.headers['content-type'] || '';
+  if (!ct.includes('multipart/')) {
+    return res.status(400).json({
+      error: 'expected multipart/form-data',
+      hint: 'use the /api/aria/extract-document-json route for JSON callers',
+    });
+  }
+  try {
+    const { Readable } = await import('node:stream');
+    // Use the seenode-side token (matches every other ariaProxy call): if
+    // client sent ARIA_API_TOKEN we still re-issue from env so a leaked
+    // client token can't escalate. Same pattern as _ariaHeaders().
+    const upstreamToken = process.env.ARIA_API_TOKEN || process.env.ARIA_INTERNAL_TOKEN || '';
+    const headers = {
+      'Content-Type': ct,
+      'Authorization': upstreamToken ? `Bearer ${upstreamToken}` : clientAuth,
+    };
+    if (req.headers['content-length']) {
+      headers['Content-Length'] = req.headers['content-length'];
+    }
+    const upstream = await fetch(`${ARIA_URL}/api/aria/extract-document`, {
+      method: 'POST',
+      headers,
+      body: Readable.toWeb(req),
+      duplex: 'half',                 // required by undici when body is a stream
+      signal: AbortSignal.timeout(120000), // PDF OCR can take ~60-90s on cold cache
+    });
+    const respCt = upstream.headers.get('content-type') || 'application/json';
+    const bodyText = await upstream.text();
+    res.status(upstream.status).type(respCt).send(bodyText);
+  } catch (e) {
+    const detail = e && e.message ? e.message : String(e);
+    console.warn(`[ARIA proxy] /extract-document threw: ${detail}`);
+    res.status(502).json({ error: 'proxy_error', detail });
+  }
+});
+
 app.use('/api/aria',  express.json({ limit: '500kb' }));
 app.use('/api/brain', express.json({ limit: '500kb' }));
 app.use('/api/',      express.json({ limit: '100kb' }));
