@@ -16,6 +16,13 @@ python-dotenv>=1.0.0
 sentence-transformers>=3.0.0
 numpy>=1.26.0
 PyMuPDF>=1.24.0
+# R-F715 (2026-05-19) — primary PDF text extractor (Strategy 1 in
+# document_reader.py). PyMuPDF/fitz handles OCR + vision strategies,
+# but the fast text-extraction path uses pdfplumber. Without it, every
+# PDF upload (e.g. /extract-document from aria.html attach) falls
+# straight to slow OCR or fails outright — the "Failed to process
+# <pdf>: 502" UX symptom traces to this gap.
+pdfplumber>=0.10.0
 openpyxl>=3.1.0
 xlrd>=2.0.1  # legacy .xls (BIFF) fallback; openpyxl only reads .xlsx/.xlsm
 

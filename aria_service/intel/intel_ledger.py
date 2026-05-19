@@ -212,7 +212,12 @@ async def _flush_loop() -> None:
                 and _cache
             ):
                 try:
-                    payload = _encode_snapshot(_cache)
+                    # R-F714 (2026-05-19): _encode_snapshot does
+                    # json.dumps + gzip.compress on the full ledger
+                    # (~36k signals → 2MB gzip); running this on the
+                    # loop wedged the server for 5-20s. Move to a
+                    # worker thread.
+                    payload = await asyncio.to_thread(_encode_snapshot, _cache)
                     await rs.set(KEY, payload)
                     _dirty_since_snapshot = False
                     last_snapshot = now

@@ -227,16 +227,24 @@ def _merge_shards(shards: list[dict]) -> dict | None:
 async def _save_sharded_snapshot(cache: dict) -> dict:
     """R-F334: write the cache as N sharded keys + a meta key.
     Returns {shard_count, total_bytes, items} for the caller's log line."""
-    shards = _split_into_shards(cache)
-    total_bytes = 0
-    write_tasks = []
+    # R-F714 (2026-05-19): the per-shard _encode_snapshot loop ran
+    # synchronously on the event loop — with 18 shards × ~500KB gzip
+    # each, live fly stacks captured 19-25s wedges here. Encode in a
+    # worker thread so the loop stays responsive to other coroutines.
+    def _encode_all():
+        s = _split_into_shards(cache)
+        encoded = []
+        total = 0
+        for sh in s:
+            enc = _encode_snapshot(sh)
+            total += len(enc)
+            encoded.append((sh["shard_index"], enc))
+        return s, encoded, total
 
-    for shard in shards:
-        encoded = _encode_snapshot(shard)
-        total_bytes += len(encoded)
-        idx = shard["shard_index"]
-        key = SHARD_KEY_FMT.format(i=idx)
-        write_tasks.append(rs.set(key, encoded))
+    shards, encoded_shards, total_bytes = await asyncio.to_thread(_encode_all)
+    write_tasks = [
+        rs.set(SHARD_KEY_FMT.format(i=idx), enc) for idx, enc in encoded_shards
+    ]
 
     # Write all shards concurrently
     if write_tasks:

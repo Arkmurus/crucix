@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 714,
+  "next_available": 716,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1653,9 +1653,27 @@
       "claimed_at": "2026-05-19T07:54:05Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "PENDING",
+      "commit_sha": "f0ef26f7b7e795a447c791978f6c5b9b182e629c",
       "notes": null,
-      "shipped_at": "2026-05-19T07:54:39Z"
+      "shipped_at": "2026-05-19T07:59:21Z"
+    },
+    {
+      "r_number": "R-F714",
+      "title": "wrap neural_memory._persist + knowledge gzip in executor (fix loop wedge)",
+      "claimed_at": "2026-05-19T08:27:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F715",
+      "title": "install pdfplumber + verify Peru PDF extraction path",
+      "claimed_at": "2026-05-19T08:27:33Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -236,13 +236,22 @@ async def _save_neurons_sharded(neurons: dict) -> dict:
     Returns {shard_count, total_neurons, total_bytes} for the caller's
     log line. Meta written LAST so a reader either sees the full sharded
     set or falls back to legacy NEURONS_KEY (atomic-ish across keys)."""
-    shards = _split_neurons_into_shards(neurons)
-    total_bytes = 0
+    # R-F714 (2026-05-19): sharding + json.dumps for every shard ran
+    # synchronously on the event loop. With ~10k+ neurons across 18
+    # shards this could stall for seconds. Encode in a worker thread.
+    def _encode_shards():
+        s = _split_neurons_into_shards(neurons)
+        encoded = []
+        total = 0
+        for sh in s:
+            enc = json.dumps(sh)
+            total += len(enc)
+            encoded.append((sh["shard_index"], enc))
+        return s, encoded, total
+
+    shards, encoded_shards, total_bytes = await asyncio.to_thread(_encode_shards)
     write_tasks = []
-    for shard in shards:
-        encoded = json.dumps(shard)
-        total_bytes += len(encoded)
-        idx = shard["shard_index"]
+    for idx, encoded in encoded_shards:
         key = NEURONS_SHARD_KEY_FMT.format(i=idx)
         write_tasks.append(rs.set(key, encoded))
     if write_tasks:
@@ -439,7 +448,15 @@ async def _persist() -> None:
         # _persist() calls skip the 4 MB edges write entirely. When edges
         # ARE dirty, write them gzipped (~700 KB instead of 4.14 MB).
         write_edges = _edges_dirty
-        encoded_edges = _encode_edges(dict(_edges)) if write_edges else None
+        # R-F714 (2026-05-19): json.dumps + gzip.compress on ~4MB edges
+        # blob was running on the event loop; live fly stacks showed
+        # 5-25s wedges with `_encode_edges` at the top of the main
+        # thread. Move to a worker so concurrent chat-stream + brain
+        # absorb don't block each other.
+        if write_edges:
+            encoded_edges = await asyncio.to_thread(_encode_edges, dict(_edges))
+        else:
+            encoded_edges = None
 
         # R-F699 (2026-05-18) — sharded neurons write replaces the
         # legacy single 4MB blob SET. Edges + meta keep their
