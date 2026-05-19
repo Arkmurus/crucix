@@ -1762,9 +1762,10 @@
       "title": "bump fly health-check timeout 20s->60s and interval 15s->60s to absorb wedges",
       "claimed_at": "2026-05-19T12:00:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5878265",
+      "notes": null,
+      "shipped_at": "2026-05-19T12:00:40Z"
     }
   ]
 }
