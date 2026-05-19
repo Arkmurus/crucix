@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 724,
+  "next_available": 725,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1751,6 +1751,16 @@
       "r_number": "R-F723",
       "title": "make /health/live sync def so threadpool absorbs event-loop wedges",
       "claimed_at": "2026-05-19T11:49:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c5d164e",
+      "notes": null,
+      "shipped_at": "2026-05-19T11:49:53Z"
+    },
+    {
+      "r_number": "R-F724",
+      "title": "bump fly health-check timeout 20s->60s and interval 15s->60s to absorb wedges",
+      "claimed_at": "2026-05-19T12:00:00Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

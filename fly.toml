@@ -58,11 +58,41 @@ primary_region = 'lhr'
 # the LB starts probing. The proper-someday fix (threadpool the
 # blocking encoders) is bigger work; this is the small-blast-radius
 # unblocker for deploys.
+# R-F724 (2026-05-19) — timeout 20s→60s, interval 15s→60s.
+# R-F723 attempted to fix wedge→PR04 cascades by making /health/live
+# a sync def (auto-threadpool via FastAPI). That helps for handler
+# execution but doesn't help for request DISPATCH — starlette
+# dispatches requests via the asyncio event loop, so a wedged loop
+# blocks the LB probe before it ever reaches the threadpool.
+#
+# Pragmatic structural fix: widen the probe envelope so transient
+# loop stalls don't trigger PR04 cascades:
+#   timeout 20s → 60s — absorbs the 10-25s wedges we see in practice
+#     (residual sync paths: learn_from_text concept extraction,
+#     _classify_signal generator, sentence-transformers encode bursts
+#     during research cycles, security audit, watchlist re-screen).
+#     R-F714/F716/F719/F721 fixed the biggest offenders but multiple
+#     smaller paths remain and wrapping each is whack-a-mole.
+#   interval 15s → 60s — fewer concurrent probes during a wedge so
+#     the LB doesn't queue 4 simultaneous attempts that all time out
+#     when the wedge clears (which previously made the PR04 cascade
+#     last ~5 min even though the actual wedge was ~25s).
+#   grace_period stays at 90s — covers cold-start (sentence-transformer
+#     load + RAG hydration + knowledge load).
+#
+# Trade-off: a genuinely dead process now takes up to 120s
+# (timeout + interval) to be marked unhealthy instead of 35s.
+# That's acceptable because:
+#   - genuine dead = stays dead = next probe also fails
+#   - transient wedge = clears in <60s = no false-positive cascade
+# The brain_hook circuit breaker + R-F703 stall warnings still
+# detect real wedges in the logs; they just stop being USER-VISIBLE
+# outages via the fly proxy.
 [[http_service.checks]]
   grace_period = "90s"
-  interval = "15s"
+  interval = "60s"
   method = "GET"
-  timeout = "20s"
+  timeout = "60s"
   path = "/api/aria/health/live"
 
 # ── Persistent storage for chromadb (RAG store) ─────────────────────────────
