@@ -1,6 +1,12 @@
 # ARIA Python Service — Dependencies
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
+# R-F709 (2026-05-19) — required by FastAPI when an endpoint declares
+# `UploadFile`/`File`/`Form`. /extract-document needs it for the
+# aria.html "📎 Attach" chat composer upload. Without it, FastAPI
+# refuses to start any endpoint declaring multipart fields — pure-Python
+# wheel (~30 KB), no native deps.
+python-multipart>=0.0.20
 httpx>=0.28.0
 redis>=5.0.0
 tenacity>=9.0.0

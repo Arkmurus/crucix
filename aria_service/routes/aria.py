@@ -46,7 +46,7 @@ def _stamp_partial_extraction(extracted: str, dropped_summary: str) -> str:
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel
 
 from ..aria_engine import aria_chat, aria_chat_stream, aria_think, get_identity
@@ -13188,13 +13188,29 @@ class ReadDocumentRequest(BaseModel):
     language_hint: str = ""
 
 
-@router.post("/extract-document")
-async def extract_document_ep(
+# R-F709 (2026-05-19) — /extract-document accepts EITHER a multipart
+# upload (file=…&context=…) from the aria.html chat composer OR the
+# original JSON {source, query, language_hint} shape. Pre-R-F709 only
+# the JSON shape was wired, so the aria.html "📎 Attach" path always
+# returned 422 (frontend was POSTing multipart since at least 2026-05-1x).
+# Live evidence: operator 2026-05-19 — "Failed to process X.pdf: 422".
+#
+# Two endpoint defs because FastAPI cannot dispatch on Content-Type
+# within a single endpoint signature: the JSON one binds a BaseModel
+# from body; the multipart one binds UploadFile + Form. Same path
+# would be ambiguous, so the multipart variant lives on a sibling
+# `/extract-document-upload` path AND the original path is now a
+# multipart endpoint too (frontend works). For programmatic JSON
+# callers there is `/extract-document-json` (the original behaviour).
+@router.post("/extract-document-json")
+async def extract_document_json_ep(
     req: ReadDocumentRequest,
     llm=Depends(get_llm),
 ):
-    """POST /api/aria/extract-document — extract text from any document
-    using the v3 4-strategy fallback pipeline (file path or URL)."""
+    """POST /api/aria/extract-document-json — extract text from any
+    document using the v3 4-strategy fallback pipeline (file path or
+    URL). R-F709 — was at /extract-document until the frontend's
+    multipart upload took that path."""
     try:
         from ..intel import document_reader
         result = await document_reader.read_document(
@@ -13217,6 +13233,71 @@ async def extract_document_ep(
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.post("/extract-document")
+async def extract_document_ep(
+    file: UploadFile = File(...),
+    context: str = Form(""),
+    language_hint: str = Form(""),
+    llm=Depends(get_llm),
+):
+    """POST /api/aria/extract-document — multipart upload variant for the
+    aria.html composer (📎 Attach). Saves to a temp file preserving the
+    extension so document_reader's ext-based strategy dispatch
+    (pdf/docx/txt/image) keeps working, runs the 4-strategy pipeline,
+    then cleans up. R-F709 (2026-05-19)."""
+    import os as _os_local
+    import tempfile
+
+    # Preserve extension — document_reader.read_document branches on it.
+    filename = (file.filename or "upload.bin")
+    _, ext = _os_local.path.splitext(filename)
+    if not ext:
+        ext = ".bin"
+
+    tmp_path: str | None = None
+    try:
+        # NamedTemporaryFile delete=False — we manage cleanup ourselves
+        # so document_reader can read the path after the FH is closed.
+        with tempfile.NamedTemporaryFile(
+            suffix=ext, prefix="aria_extract_", delete=False
+        ) as tmp:
+            tmp_path = tmp.name
+            # UploadFile.read() returns the full bytes; size cap is the
+            # FastAPI / uvicorn body limit, not enforced here.
+            data = await file.read()
+            tmp.write(data)
+            tmp.flush()
+
+        from ..intel import document_reader
+        result = await document_reader.read_document(
+            source=tmp_path,
+            llm=llm,
+            query=context,
+            language_hint=language_hint,
+        )
+        return {
+            "text": result.text[:10000],
+            "method": result.method,
+            "confidence": result.confidence,
+            "is_usable": result.is_usable,
+            "pages_extracted": result.pages_extracted,
+            "total_pages": result.total_pages,
+            "summary": result.summary,
+            "warnings": result.warnings,
+            "strategies_attempted": result.strategies_attempted,
+            "gap_description": result.gap_description,
+            "filename": filename,
+        }
+    except Exception as e:
+        return {"error": str(e), "filename": filename}
+    finally:
+        if tmp_path and _os_local.path.exists(tmp_path):
+            try:
+                _os_local.unlink(tmp_path)
+            except Exception:
+                pass
 
 
 class ReadContractRequest(BaseModel):

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 709,
+  "next_available": 710,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1606,6 +1606,16 @@
       "commit_sha": "132d5e3da94b049d451a5df2969b5e3b25f93cf4",
       "notes": null,
       "shipped_at": "2026-05-18T21:55:57Z"
+    },
+    {
+      "r_number": "R-F709",
+      "title": "Fix /extract-document to accept multipart file upload — was JSON-only",
+      "claimed_at": "2026-05-19T07:19:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-19T07:23:18Z"
     }
   ]
 }
