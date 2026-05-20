@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 757,
+  "next_available": 758,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2081,6 +2081,16 @@
       "r_number": "R-F756",
       "title": "alert when CRITICAL chat response ships unverified (no secondary provider) — promote log + /health red flag",
       "claimed_at": "2026-05-20T19:50:56Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "cf70757",
+      "notes": null,
+      "shipped_at": "2026-05-20T19:54:53Z"
+    },
+    {
+      "r_number": "R-F757",
+      "title": "apply per-user quota to /read-document upload path (close DoS flood vector)",
+      "claimed_at": "2026-05-20T19:55:10Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

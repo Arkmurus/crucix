@@ -8355,6 +8355,46 @@ async def _read_document_ep_impl(request: Request):
     context = body.get("context", "")
     encoding = body.get("encoding", "utf-8")
     mimetype = body.get("mimetype", "")
+
+    # R-F757 (2026-05-20) — per-uploader quota gate. Pre-R-F757 the
+    # upload path had ONLY the R-F725 45s hard cap and the
+    # MAX_DOC_CHARS char-cap. There was NO per-caller throttle, so a
+    # single source (e.g. a misbehaving email reader, a script that
+    # spams 30MB PDFs, a leaked admin token) could trivially burn the
+    # event loop with back-to-back uploads — each one is up to 45s of
+    # event-loop saturation. R-F757 reuses the same user_quota module
+    # the chat path enforces (CLAUDE.md §H3) so the upload path
+    # shares the same DoS guardrail. Identity is derived from the
+    # `source` body field (typed by the caller: "email:<from>",
+    # "whatsapp:<chat>", "manual", "linkedin", etc.) so the most
+    # likely flooder — the seenode email reader, source-tagged
+    # "email:<from>" — is rate-limited per sender rather than as a
+    # single "seenode" identity.
+    try:
+        from ..intel import user_quota as _r757_uq
+        _r757_who = (source or "upload:anon")
+        # Cap identity length to avoid filling redis keys with full
+        # email headers; user_quota does its own normalisation but a
+        # 256-char key would still be wasteful.
+        _r757_who = _r757_who[:80]
+        _r757_allowed, _r757_reason = await _r757_uq.check(_r757_who)
+        if not _r757_allowed:
+            _log.warning(
+                "R-F757 read-document quota: rejecting source=%r reason=%s",
+                _r757_who, _r757_reason,
+            )
+            raise HTTPException(status_code=429, detail=_r757_reason)
+        await _r757_uq.register_request(_r757_who)
+    except HTTPException:
+        raise
+    except Exception as _r757_e:
+        # Fail-open on quota module bugs — better to accept an upload
+        # than to lose document ingestion entirely if user_quota itself
+        # crashes. Log so the bug doesn't hide.
+        _log.error(
+            "R-F757 read-document quota check failed (FAILING OPEN — fix asap): %s",
+            _r757_e, exc_info=True,
+        )
     _r473_byte_len = len(content) if isinstance(content, str) else 0
     _r473_detected = "unknown"
 
