@@ -1,0 +1,163 @@
+"""R-F728 (2026-05-20) — regression tests for the build_heatmap wedge fix.
+
+Wedge round 8 captured a 186.89s main-thread stall in
+`coverage_heatmap._count_facts_for_cell` driven by the
+`/api/aria/learning/coverage` route. Pre-R-F728 shape:
+  - 28 domains × 31 jurisdictions = 868 cells
+  - Each cell `await`ed `_count_facts_for_cell(d, j)` which:
+      a) re-fetched the entire facts list (~55k facts in prod)
+      b) awaited a fresh `intel_ledger.get_recent()`
+      c) iterated everything synchronously on the event loop
+  - Total: 868 × ~60k items = ~50M iterations on the loop, plus 868
+    duplicate fetches.
+
+Post-R-F728: facts + signals are fetched ONCE in `build_heatmap`, the
+whole nested cell loop runs in a single `asyncio.to_thread` worker.
+The event loop is free during the compute.
+
+These tests cover:
+  1. `_count_facts_for_cell_sync` produces the same shape + counts as
+     the legacy async `_count_facts_for_cell` for identical input.
+  2. `build_heatmap` returns the expected matrix shape end-to-end.
+  3. The loop stays responsive WHILE `build_heatmap` is running — a
+     concurrent `asyncio.sleep(0)` heartbeat completes well before
+     the compute finishes. (This is the wedge-prevention assertion.)
+"""
+from __future__ import annotations
+
+import asyncio
+import time
+from unittest.mock import patch
+
+
+# Sample data — small enough for unit test, structured like prod.
+_SAMPLE_FACTS = [
+    {"entity": "OFAC", "topic": "sanctions", "content": "Saudi Arabia SDN list update", "source": "treasury.gov"},
+    {"entity": "EU", "topic": "sanctions", "content": "Russia restrictive measures", "source": "europa.eu"},
+    {"entity": "UK", "topic": "export_controls", "content": "license decisions Israel", "source": "gov.uk"},
+    {"entity": "FCDO", "topic": "compliance", "content": "screening procedure Iran", "source": "fcdo"},
+    {"entity": "US", "topic": "procurement", "content": "Turkey contract award", "source": "sam.gov"},
+]
+
+_SAMPLE_SIGNALS = [
+    {"source": "ofac.sdn", "summary": "SDN updated", "entity": "Iran", "topic": "sanctions"},
+    {"source": "news", "summary": "Turkey arms deal", "entity": "Turkey", "topic": "procurement"},
+]
+
+
+def test_sync_scorer_matches_async_scorer():
+    """R-F728: the new sync scorer produces the same counts the legacy
+    async path produced for the same inputs. Regression guard against
+    accidental matcher-semantics drift."""
+    from aria_service.intel import coverage_heatmap as ch
+
+    domain = "sanctions_screening"
+    jurisdiction = "saudi_arabia"
+
+    sync_result = ch._count_facts_for_cell_sync(
+        domain, jurisdiction, _SAMPLE_FACTS, _SAMPLE_SIGNALS,
+    )
+
+    # Run the legacy async path with the same data via mocked module fns
+    fake_k = type("K", (), {"all_facts": staticmethod(lambda: _SAMPLE_FACTS)})()
+    fake_il = type("IL", (), {"get_recent": staticmethod(lambda: _SAMPLE_SIGNALS)})()
+
+    async def _run():
+        with patch.object(ch, "_count_facts_for_cell_sync", wraps=ch._count_facts_for_cell_sync) as spy, \
+             patch.dict("sys.modules", {
+                 "aria_service.intel.knowledge": fake_k,
+                 "aria_service.intel.intel_ledger": fake_il,
+             }):
+            return await ch._count_facts_for_cell(domain, jurisdiction)
+
+    async_result = asyncio.run(_run())
+    assert sync_result == async_result, (
+        f"R-F728: sync scorer diverged from async — sync={sync_result} async={async_result}"
+    )
+
+
+def test_build_heatmap_returns_expected_shape():
+    """R-F728: end-to-end shape regression. Mock the data fetchers so the
+    matrix has predictable cells and the output keys match the contract
+    the route handler expects."""
+    from aria_service.intel import coverage_heatmap as ch
+
+    fake_k = type("K", (), {"all_facts": staticmethod(lambda: _SAMPLE_FACTS)})()
+    fake_il = type("IL", (), {"get_recent": staticmethod(lambda: _SAMPLE_SIGNALS)})()
+
+    async def _fake_get_all_domains():
+        return []
+
+    fake_lp = type("LP", (), {"get_all_domains": staticmethod(_fake_get_all_domains)})()
+
+    async def _run():
+        with patch.dict("sys.modules", {
+            "aria_service.intel.knowledge": fake_k,
+            "aria_service.intel.intel_ledger": fake_il,
+            "aria_service.intel.learning_progress": fake_lp,
+        }):
+            return await ch.build_heatmap()
+
+    result = asyncio.run(_run())
+    assert set(result.keys()) >= {
+        "domains", "jurisdictions", "matrix", "summary", "coverage_score",
+    }
+    # 28 default domains × 31 default jurisdictions (from DOMAINS/JURISDICTIONS)
+    assert len(result["domains"]) >= 17
+    assert len(result["jurisdictions"]) >= 31
+    # Spot-check that the matrix has all cells
+    for d in result["domains"]:
+        assert d in result["matrix"]
+        for j in result["jurisdictions"]:
+            cell = result["matrix"][d][j]
+            assert "fact_count" in cell
+            assert "signal_count" in cell
+            assert "tier" in cell
+
+
+def test_build_heatmap_runs_matrix_compute_in_to_thread():
+    """R-F728 STRUCTURAL TEST: the wedge fix is implemented by running
+    the matrix compute in `asyncio.to_thread`. A timing-based heartbeat
+    assertion would be too fragile (depends on facts-list size in test
+    env). Instead, spy on `asyncio.to_thread` and assert it's called
+    with a callable whose name resolves to the matrix-compute closure.
+
+    Pre-R-F728 the cell loop ran on the event loop directly; no
+    `to_thread` call was made. Any future refactor that drops the
+    `to_thread` wrapping would put 868 cells × 55k facts back on the
+    loop — caught by this test."""
+    from aria_service.intel import coverage_heatmap as ch
+
+    fake_k = type("K", (), {"all_facts": staticmethod(lambda: _SAMPLE_FACTS)})()
+    fake_il = type("IL", (), {"get_recent": staticmethod(lambda: _SAMPLE_SIGNALS)})()
+
+    async def _fake_get_all_domains():
+        return []
+
+    fake_lp = type("LP", (), {"get_all_domains": staticmethod(_fake_get_all_domains)})()
+
+    to_thread_calls: list[str] = []
+    real_to_thread = asyncio.to_thread
+
+    async def _spy(fn, *args, **kwargs):
+        to_thread_calls.append(getattr(fn, "__name__", repr(fn)))
+        return await real_to_thread(fn, *args, **kwargs)
+
+    async def _run():
+        with patch.dict("sys.modules", {
+            "aria_service.intel.knowledge": fake_k,
+            "aria_service.intel.intel_ledger": fake_il,
+            "aria_service.intel.learning_progress": fake_lp,
+        }), patch.object(ch, "asyncio", asyncio), \
+             patch("asyncio.to_thread", new=_spy):
+            return await ch.build_heatmap()
+
+    result = asyncio.run(_run())
+    assert result["matrix"], "build_heatmap returned empty matrix"
+    # The matrix compute must have been dispatched to a worker thread.
+    assert any("_compute_matrix_sync" in name for name in to_thread_calls), (
+        f"R-F728 regression: asyncio.to_thread was not called with the matrix "
+        f"compute closure during build_heatmap. Calls observed: {to_thread_calls}. "
+        f"The matrix compute MUST run via to_thread or the event loop wedges "
+        f"under production data volume (wedge_674 captured 186.89s here)."
+    )

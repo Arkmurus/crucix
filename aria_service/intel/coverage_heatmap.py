@@ -46,6 +46,7 @@ Public API
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -179,53 +180,72 @@ def _matches_cell(text: str, dom_tokens: list[str],
     return all(tok in text for tok in dom_tokens)
 
 
-async def _count_facts_for_cell(domain: str, jurisdiction: str) -> tuple[int, int]:
-    """Return (fact_count, signal_count) for one matrix cell.
+def _fact_text(fact: dict) -> str:
+    """Lowercase concatenation of the fact-text fields used for matching."""
+    return " ".join(
+        str(fact.get(k) or "") for k in
+        ("entity", "topic", "content", "summary", "detail", "source")
+    ).lower()
 
-    Both knowledge base + intel_ledger are queried with token-level
-    matching on domain + jurisdiction synonyms. R-F128 (2026-05-10)
-    replaced the previous adjacency-required substring matcher (which
-    scored 867/867 cells absent on 20k facts because "sanctions
-    screening" rarely appears verbatim — facts say "OFAC sanctions
-    list updated" + "screened against SDN" in separate fields).
 
-    O(N) per cell today (no indexed query); 17×51 = 867 cells take
-    ~2-4 seconds to build. Result is cached for 1h via the routes
-    layer.
-    """
+def _signal_text(s: dict) -> str:
+    return " ".join(
+        str(s.get(k) or "") for k in
+        ("source", "summary", "detail", "entity", "topic")
+    ).lower()
+
+
+def _count_facts_for_cell_sync(
+    domain: str,
+    jurisdiction: str,
+    facts: list[dict],
+    signals: list[dict],
+) -> tuple[int, int]:
+    """R-F728 (2026-05-20): pure-sync per-cell scorer for `build_heatmap`'s
+    worker-thread loop. Pre-R-F728 `_count_facts_for_cell` was an `async
+    def` invoked once per cell (28 × 31 = 868 cells), and each call
+    re-fetched the entire fact set + awaited a fresh `intel_ledger.
+    get_recent()` — 868× duplicate work on top of the iteration cost.
+    With ~55k facts in production, the per-cell iteration ran 48M+
+    times entirely on the event loop; wedge_674 captured a 186.89s
+    main-thread stall here (route /api/aria/learning/coverage).
+
+    Now the caller hoists facts + signals fetching above the loop and
+    runs the entire matrix in a single `asyncio.to_thread` so the
+    event loop stays responsive while one worker thread iterates."""
     fact_count = 0
     signal_count = 0
     dom_tokens = _domain_tokens(domain)
     jur_synonyms = _juris_synonyms(jurisdiction)
 
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        if _matches_cell(_fact_text(fact), dom_tokens, jur_synonyms):
+            fact_count += 1
+
+    for s in signals:
+        if not isinstance(s, dict):
+            continue
+        if _matches_cell(_signal_text(s), dom_tokens, jur_synonyms):
+            signal_count += 1
+
+    return fact_count, signal_count
+
+
+async def _count_facts_for_cell(domain: str, jurisdiction: str) -> tuple[int, int]:
+    """Backwards-compatible single-cell scorer. Fetches facts + signals
+    fresh on every call — kept for any caller that needs a one-off
+    cell. `build_heatmap` hoists the fetch and uses the sync scorer."""
+    facts: list[dict] = []
     try:
         from . import knowledge as _k
-        # R-F164 (2026-05-11): knowledge has no `search` function — the
-        # previous hasattr probe silently failed for every cell, so fact_
-        # count was 0/867 forever. Use the new `all_facts()` accessor and
-        # iterate locally. With ~20k facts × 867 cells this is O(N*M), but
-        # the matcher short-circuits hard on jurisdiction-synonym misses
-        # (fact_text rarely contains the country) so most cells stop after
-        # the synonym check. Cached for 1h via the routes layer.
         facts = _k.all_facts() if hasattr(_k, "all_facts") else []
-        for fact in facts:
-            if not isinstance(fact, dict):
-                continue
-            # Include `content` — facts store the body there. The previous
-            # field list (entity, topic, summary, detail, source) missed
-            # the actual fact body so even a "Saudi Arabia OFAC sanctions"
-            # fact stored at `content` was scored as 0-match.
-            text = " ".join(
-                str(fact.get(k) or "") for k in
-                ("entity", "topic", "content", "summary", "detail", "source")
-            ).lower()
-            if _matches_cell(text, dom_tokens, jur_synonyms):
-                fact_count += 1
     except Exception as e:
         logger.debug("coverage knowledge query failed for %s/%s: %s",
                      domain, jurisdiction, e)
 
-    # Same logic against intel_ledger if accessible
+    signals: list[dict] = []
     try:
         from . import intel_ledger as _il
         for method_name in ("get_recent", "all_signals"):
@@ -233,25 +253,18 @@ async def _count_facts_for_cell(domain: str, jurisdiction: str) -> tuple[int, in
             if not callable(fn):
                 continue
             try:
-                signals = fn()
-                if hasattr(signals, "__await__"):
-                    signals = await signals
+                got = fn()
+                if hasattr(got, "__await__"):
+                    got = await got
             except Exception:
                 continue
-            if isinstance(signals, list):
-                for s in signals:
-                    if not isinstance(s, dict):
-                        continue
-                    text = " ".join(str(s.get(k) or "") for k in
-                                    ("source", "summary", "detail",
-                                     "entity", "topic")).lower()
-                    if _matches_cell(text, dom_tokens, jur_synonyms):
-                        signal_count += 1
+            if isinstance(got, list):
+                signals = got
                 break
     except Exception as e:
         logger.debug("coverage ledger query failed: %s", e)
 
-    return fact_count, signal_count
+    return _count_facts_for_cell_sync(domain, jurisdiction, facts, signals)
 
 
 async def build_heatmap(
@@ -281,29 +294,68 @@ async def build_heatmap(
     except Exception:
         pass
 
-    matrix: dict[str, dict[str, Any]] = {}
-    for d in domain_list:
-        matrix[d] = {}
-        for j in juris_list:
-            fact_count, signal_count = await _count_facts_for_cell(d, j)
-            # R-F164: tier off the combined density. Signal_count was being
-            # collected but never used in the grade, so a cell with 200
-            # intel_ledger signals but 0 fact-store hits still rendered
-            # 'absent'. Weight signals at 0.5 (they're noisier than curated
-            # facts) so cells with strong ledger coverage but thin curated
-            # knowledge still surface as moderate / strong.
-            combined = fact_count + int(signal_count * 0.5)
-            tier = density_tier(combined)
-            # freshness for the domain (jurisdiction-specific freshness
-            # would require finer-grained tagging — defer to next iter)
+    # R-F728 (2026-05-20) — hoist facts + signals OUT of the per-cell
+    # loop. Pre-R-F728 each of the 868 cells fetched its own copy of
+    # ~55k facts and awaited a fresh `intel_ledger.get_recent()`,
+    # then iterated locally on the event loop. wedge_674 captured
+    # 186.89s of main-thread time in this nested loop. With facts
+    # + signals pre-fetched, the entire matrix compute is sync and
+    # runs in a single worker thread; the loop is free.
+    facts: list[dict] = []
+    try:
+        from . import knowledge as _k
+        facts = _k.all_facts() if hasattr(_k, "all_facts") else []
+    except Exception as e:
+        logger.debug("coverage facts fetch failed: %s", e)
+
+    signals: list[dict] = []
+    try:
+        from . import intel_ledger as _il
+        for method_name in ("get_recent", "all_signals"):
+            fn = getattr(_il, method_name, None)
+            if not callable(fn):
+                continue
+            try:
+                got = fn()
+                if hasattr(got, "__await__"):
+                    got = await got
+            except Exception:
+                continue
+            if isinstance(got, list):
+                signals = got
+                break
+    except Exception as e:
+        logger.debug("coverage signals fetch failed: %s", e)
+
+    def _compute_matrix_sync() -> dict[str, dict[str, Any]]:
+        m: dict[str, dict[str, Any]] = {}
+        for d in domain_list:
+            m[d] = {}
             domain_freshness = freshness_records.get(d, {})
-            matrix[d][j] = {
-                "fact_count":          fact_count,
-                "signal_count":        signal_count,
-                "tier":                tier,
-                "is_stale":            domain_freshness.get("is_stale", True),
-                "hours_since_refresh": domain_freshness.get("hours_since_refresh"),
-            }
+            for j in juris_list:
+                fact_count, signal_count = _count_facts_for_cell_sync(
+                    d, j, facts, signals,
+                )
+                # R-F164: tier off the combined density. Signal_count was being
+                # collected but never used in the grade, so a cell with 200
+                # intel_ledger signals but 0 fact-store hits still rendered
+                # 'absent'. Weight signals at 0.5 (they're noisier than curated
+                # facts) so cells with strong ledger coverage but thin curated
+                # knowledge still surface as moderate / strong.
+                combined = fact_count + int(signal_count * 0.5)
+                tier = density_tier(combined)
+                # freshness for the domain (jurisdiction-specific freshness
+                # would require finer-grained tagging — defer to next iter)
+                m[d][j] = {
+                    "fact_count":          fact_count,
+                    "signal_count":        signal_count,
+                    "tier":                tier,
+                    "is_stale":            domain_freshness.get("is_stale", True),
+                    "hours_since_refresh": domain_freshness.get("hours_since_refresh"),
+                }
+        return m
+
+    matrix = await asyncio.to_thread(_compute_matrix_sync)
 
     score, summary_stats = _compute_score(matrix, domain_list, juris_list)
     return {
