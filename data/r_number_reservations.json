@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 762,
+  "next_available": 763,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2131,6 +2131,16 @@
       "r_number": "R-F761",
       "title": "expose cache_hit boolean on chat response so pay-once-remember-forever is measurable",
       "claimed_at": "2026-05-20T20:22:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ee263f7",
+      "notes": null,
+      "shipped_at": "2026-05-20T20:25:19Z"
+    },
+    {
+      "r_number": "R-F762",
+      "title": "surface state-backend health at boot + /health (red flag when sqlite/upstash backend unreachable)",
+      "claimed_at": "2026-05-20T20:25:29Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

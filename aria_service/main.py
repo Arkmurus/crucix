@@ -148,8 +148,35 @@ async def lifespan(app: FastAPI):
     logger.info("ARIA Service starting...")
     logger.info("ARIA Build: %s", ARIA_BUILD_REV)
 
-    # Connect Redis
-    await rs.connect(settings.redis_url)
+    # Connect Redis / SQLite / memory backend per ARIA_STATE_BACKEND.
+    # R-F762 (2026-05-20): capture the result so /health can flag the
+    # backend as RED when connect fails. Pre-R-F762 a Redis-unreachable
+    # boot would silently fall back to in-process _mem_store
+    # (knowledge cache grows in RAM, lost on restart) and the operator
+    # only noticed by manually inspecting fly logs or seeing /health
+    # report degraded for unrelated reasons. Now the state-backend
+    # health rolls up into /health's top-level status and the
+    # /health.state_backend block shows backend (sqlite/upstash/memory)
+    # + reachable bool + a status string for observers.
+    try:
+        _state_connect_ok = await rs.connect(settings.redis_url)
+    except Exception as _state_e:
+        logger.error(
+            "[R-F762] state-backend connect raised — falling back to "
+            "in-memory dict (data lost on restart): %s",
+            _state_e, exc_info=True,
+        )
+        _state_connect_ok = False
+    app.state.state_backend = (rs._BACKEND if hasattr(rs, "_BACKEND") else "unknown")
+    app.state.state_backend_reachable = bool(_state_connect_ok)
+    if not _state_connect_ok:
+        logger.error(
+            "[R-F762] state-backend connect FAILED (backend=%s). "
+            "Knowledge cache will grow in RAM and be lost on restart. "
+            "Check ARIA_STATE_BACKEND env var + /data volume mount + "
+            "Upstash subscription state. /health will show backend=red.",
+            app.state.state_backend,
+        )
 
     # F28 fix 2026-04-27: every Lightpanda / Playwright render emits
     # `(node:NNN) [DEP0169] DeprecationWarning: url.parse() behavior is
@@ -1692,8 +1719,25 @@ async def health():
     # cooling primary with a live fallback is NOT degraded — the chain
     # is doing its job.
     chain_resilient = llm_chain.get("resilient") if llm_chain else bool(llm and llm.is_configured)
+
+    # R-F762 (2026-05-20) — state-backend health surfaced. Pre-R-F762
+    # a Redis-unreachable boot silently fell back to in-memory dict
+    # and the operator had no signal from /health that knowledge was
+    # not being persisted. Now: reachable=False rolls up into degraded
+    # status so any monitor watching /health sees the regression
+    # without log scraping.
+    state_backend_ind = {
+        "backend": getattr(app.state, "state_backend", "unknown"),
+        "reachable": bool(getattr(app.state, "state_backend_reachable", True)),
+    }
+    state_backend_ind["status"] = "green" if state_backend_ind["reachable"] else "red"
+
     return {
-        "status": "operational" if (chain_resilient and autonomous_healthy) else "degraded",
+        "status": "operational" if (
+            chain_resilient
+            and autonomous_healthy
+            and state_backend_ind["reachable"]
+        ) else "degraded",
         "service": "aria",
         "llm_provider": llm.name if llm else "none",
         "llm_configured": bool(llm and llm.is_configured),
@@ -1701,6 +1745,7 @@ async def health():
         "llm_fallback_stats": llm_stats,
         "autonomous": autonomous_ind,
         "diagnostic": diagnostic_ind,
+        "state_backend": state_backend_ind,
     }
 
 
