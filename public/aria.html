@@ -1157,6 +1157,12 @@ async function send(text, opts) {
   var fullText = '';
   var toolUsed = '';
 
+  // R-F753 — reset per-stream malformed-event counter so each new
+  // /chat/stream call starts at zero. The global total
+  // _ariaSseMalformedTotal accumulates across the session for the
+  // browser-console diagnostic.
+  window._ariaSseMalformedThisStream = 0;
+
   streamAbort = new AbortController();
   try {
     var token = localStorage.getItem('crucix_token') || '';
@@ -1243,7 +1249,36 @@ async function send(text, opts) {
                      + '⚠️ [!stream cut: ' + _r467_reason + ']';
             streamBody.innerHTML = md(fullText);
           }
-        } catch(e) { /* skip malformed SSE */ }
+        } catch(e) {
+          // R-F753 (2026-05-20) — was a silent `catch { }`. Audit on
+          // 2026-05-20 flagged that malformed SSE events were dropped
+          // with no observability: a backend regression that started
+          // emitting bad JSON would degrade the chat without any
+          // signal in the UI or browser console. Now: count, log, and
+          // — if the failure rate crosses a threshold within the same
+          // stream — surface a visible badge so the user knows the
+          // stream is degraded rather than just slow.
+          window._ariaSseMalformedTotal = (window._ariaSseMalformedTotal || 0) + 1;
+          window._ariaSseMalformedThisStream = (window._ariaSseMalformedThisStream || 0) + 1;
+          try {
+            console.warn(
+              '[R-F753] SSE event drop (#' + window._ariaSseMalformedTotal
+              + ', this-stream=' + window._ariaSseMalformedThisStream + '):',
+              e && e.message || e,
+              '— raw head:', (raw || '').slice(0, 200)
+            );
+          } catch (_) {}
+          // Degraded-stream banner threshold — 5 bad events in one
+          // stream is the operational cliff; show the badge so the
+          // user can decide whether to retry.
+          if (window._ariaSseMalformedThisStream >= 5 && streamBadge && !streamBadge.dataset.degradedShown) {
+            try {
+              streamBadge.textContent = '⚠ degraded stream — ' + window._ariaSseMalformedThisStream + ' bad events';
+              streamBadge.style.opacity = '1';
+              streamBadge.dataset.degradedShown = '1';
+            } catch (_) {}
+          }
+        }
       }
     }
 
