@@ -3016,6 +3016,7 @@ async def _aria_chat_impl(
     # DD audit, this closes the "Artur Group Angola" → "Arturo's
     # Restaurant" class of error. Fail-soft + wedge-protected (sync
     # scans inside dispatch through asyncio.to_thread per R-F727).
+    _resolved = None
     try:
         from .intel import entity_resolver as _er
         _resolved = await _er.resolve(message, persona=persona)
@@ -3024,6 +3025,32 @@ async def _aria_chat_impl(
             context = _entity_block + "\n\n" + (context or "")
     except Exception as _er_err:
         logger.debug("R-F730 entity_resolver failed (non-fatal): %s", _er_err)
+
+    # R-F734 (2026-05-20) — investigation-thread cross-turn continuity.
+    # Read the prior thread from session; if the new user message looks
+    # like a follow-up on the current focus entity, prepend the
+    # [INVESTIGATION THREAD] block so the LLM has accumulated context
+    # without re-fetching tools. After the resolver above produces a
+    # new canonical, update the thread shape for the NEXT turn. Per
+    # Agent 1 audit: "ARIA re-analyzes the entity from scratch each
+    # turn" — this fixes that.
+    try:
+        from .intel import investigation_thread as _it
+        _prior_thread = _it.get_thread(session)
+        if _it.is_likely_followup(message, _prior_thread):
+            _thread_block = _it.render_context_block(_prior_thread)
+            if _thread_block:
+                context = _thread_block + "\n\n" + (context or "")
+        # Stamp the new resolution onto the thread for the NEXT turn
+        if _resolved and isinstance(_resolved, dict) and _resolved.get("query"):
+            _it.update(
+                session,
+                entity=_resolved.get("query") or "",
+                canonical=_resolved.get("canonical") or "",
+                entity_type=_resolved.get("entity_type") or "",
+            )
+    except Exception as _it_err:
+        logger.debug("R-F734 investigation_thread failed (non-fatal): %s", _it_err)
 
     # R-F636: user_model.touch_active — record the user is engaging
     # right now. Fire-and-forget, fail-open. Used by R-F619 anti-
@@ -3707,6 +3734,7 @@ async def _aria_chat_stream_impl(
 
     # R-F730 (2026-05-20) — stream mirror of the entity resolution
     # pre-flight per CLAUDE.md §13 stream-bypass rule.
+    _resolved_s = None
     try:
         from .intel import entity_resolver as _er_s
         _resolved_s = await _er_s.resolve(message, persona=persona)
@@ -3715,6 +3743,25 @@ async def _aria_chat_stream_impl(
             context = _entity_block_s + "\n\n" + (context or "")
     except Exception as _er_err_s:
         logger.debug("R-F730 stream entity_resolver failed (non-fatal): %s", _er_err_s)
+
+    # R-F734 (2026-05-20) — stream mirror of the investigation-thread
+    # cross-turn continuity, per CLAUDE.md §13 stream-bypass rule.
+    try:
+        from .intel import investigation_thread as _it_s
+        _prior_thread_s = _it_s.get_thread(session)
+        if _it_s.is_likely_followup(message, _prior_thread_s):
+            _thread_block_s = _it_s.render_context_block(_prior_thread_s)
+            if _thread_block_s:
+                context = _thread_block_s + "\n\n" + (context or "")
+        if _resolved_s and isinstance(_resolved_s, dict) and _resolved_s.get("query"):
+            _it_s.update(
+                session,
+                entity=_resolved_s.get("query") or "",
+                canonical=_resolved_s.get("canonical") or "",
+                entity_type=_resolved_s.get("entity_type") or "",
+            )
+    except Exception as _it_err_s:
+        logger.debug("R-F734 stream investigation_thread failed (non-fatal): %s", _it_err_s)
 
     try:
         from .intel import user_model as _um
