@@ -33,10 +33,11 @@ xlrd>=2.0.1  # legacy .xls (BIFF) fallback; openpyxl only reads .xlsx/.xlsm
 python-pptx>=0.6.21
 PyYAML>=6.0  # corpus_registry.yaml loader
 
-# ── R-F235 (2026-05-11) — SQLite state backend ──────────────────────────
+# ── R-F235 (2026-05-11) + R-F745 (2026-05-20) — SQLite state backend ────
 # Replaces Upstash Redis on single-instance fly.io. state_store.py uses
-# aiosqlite for the async API surface. ARIA_STATE_BACKEND=sqlite env var
-# activates it; default still 'upstash' so existing deploys are untouched.
+# aiosqlite for the async API surface. ARIA_STATE_BACKEND env var picks
+# 'sqlite' (default since R-F745), 'upstash' (legacy, subscription cancelled
+# 2026-05-12), or 'memory' (tests/break-glass).
 # See docs/dependency_minimisation_2026_05_11.md.
 aiosqlite>=0.19.0
 

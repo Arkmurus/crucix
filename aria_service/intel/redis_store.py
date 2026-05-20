@@ -3,9 +3,17 @@ Redis persistence layer — shared across all intel modules.
 Falls back to in-memory dicts if Redis is unavailable.
 
 R-F235 (2026-05-11) — backend selector. ARIA_STATE_BACKEND picks:
-  upstash  — original Upstash Redis path (default, backwards compatible)
-  sqlite   — disk-resident SQLite via state_store.py (recommended)
+  sqlite   — disk-resident SQLite via state_store.py (default, R-F745)
+  upstash  — original Upstash Redis path (legacy, declined 2026-05-12)
   memory   — in-process dict only (tests / break-glass)
+
+R-F745 (2026-05-20) — flipped the default from "upstash" to "sqlite"
+to close the Phase A gate #5 false-closure documented in CLAUDE.md:97.
+Upstash was cancelled 2026-05-12 so "upstash" as a default invited a
+dead-provider lookup on any deploy where the operator forgot to set
+the env var. The fly secret ARIA_STATE_BACKEND=sqlite is already set
+in production, so this change is a safety net for new envs + local
+dev, not a runtime behaviour change.
 
 Per the "ARIA mirrors Claude" rule (aria_mirrors_claude.md feedback
 memory), the target architecture is files-on-disk + LLM, with Upstash
@@ -33,11 +41,12 @@ logger = logging.getLogger("aria.redis")
 _client: Optional[aioredis.Redis] = None
 _mem_store: dict[str, str] = {}
 
-# R-F235: backend selector. Default 'upstash' so existing deploys are
-# untouched. Operator flips to 'sqlite' (after running the migration
-# script) to drop Upstash. 'memory' is for tests + break-glass when
-# both Upstash and SQLite are unavailable.
-_BACKEND = (os.getenv("ARIA_STATE_BACKEND") or "upstash").strip().lower()
+# R-F235 + R-F745: backend selector. Default 'sqlite' (was 'upstash'
+# until R-F745 — Upstash subscription cancelled 2026-05-12, defaulting
+# to a dead provider was a Phase A gate #5 false-closure). Operators
+# can still pin to 'upstash' or 'memory' explicitly. SQLite at
+# /data/aria_state.db is the prod path (state_store.py).
+_BACKEND = (os.getenv("ARIA_STATE_BACKEND") or "sqlite").strip().lower()
 
 
 def _use_sqlite() -> bool:
@@ -157,9 +166,9 @@ async def set(key: str, value: str, ex: int | None = None,
     # mandates infinite memory + no eviction. Pure noise.
     #
     # Gate is BOTH env intent AND live-client presence — the env
-    # default is still "upstash" (per next_session_pickup_2026_05_18b,
-    # gate #5 hidden item), but if the Upstash client failed to
-    # connect (subscription cancelled), _client is None and writes
+    # default flipped to "sqlite" in R-F745 (was "upstash"), but if
+    # the operator still pins to upstash AND the Upstash client failed
+    # to connect (subscription cancelled), _client is None and writes
     # fall through to the in-process _mem_store — also no cap. So:
     # only warn when we have a real Upstash client that the operator
     # configured intentionally. Error threshold still applies to all
