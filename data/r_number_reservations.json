@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 729,
+  "next_available": 739,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1801,6 +1801,97 @@
       "r_number": "R-F728",
       "title": "wedge round 8 — coverage_heatmap + security_audit on main loop",
       "claimed_at": "2026-05-20T06:36:55Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d88b30d",
+      "notes": null,
+      "shipped_at": "2026-05-20T06:46:25Z"
+    },
+    {
+      "r_number": "R-F729",
+      "title": "A: dd_orchestrator auto-fire on DD intent",
+      "claimed_at": "2026-05-20T07:51:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F730",
+      "title": "B: entity-resolution pre-flight before tool dispatch",
+      "claimed_at": "2026-05-20T07:51:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F731",
+      "title": "C: quick sanctions_screen tool (5-sec primary check)",
+      "claimed_at": "2026-05-20T07:51:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F732",
+      "title": "D: structured sources[] in chat response JSON",
+      "claimed_at": "2026-05-20T07:51:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F733",
+      "title": "E: wire deception/propaganda/tool_claim guards into chat",
+      "claimed_at": "2026-05-20T07:51:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F734",
+      "title": "F: investigation-thread state across chat turns",
+      "claimed_at": "2026-05-20T07:51:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F735",
+      "title": "G: entity card right-rail in aria.html",
+      "claimed_at": "2026-05-20T07:51:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F736",
+      "title": "H: persona-specific output structure (broker/compliance/journalist)",
+      "claimed_at": "2026-05-20T07:51:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F737",
+      "title": "I: granular tool-progress SSE events",
+      "claimed_at": "2026-05-20T07:51:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F738",
+      "title": "J: chat quick wins (paste/share/tables/shortcuts)",
+      "claimed_at": "2026-05-20T07:51:40Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

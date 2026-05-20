@@ -3128,6 +3128,51 @@ async def _aria_chat_impl(
             "intent": degraded.get("intent"),
         }
 
+    # R-F733 (2026-05-20) — wire propaganda_guard + tool_claim_guard as
+    # post-response rewriters on the chat path. Pre-R-F733 these guards
+    # existed in `aria_service/intel/` but only fired in autonomous
+    # background loops; chat responses bypassed them entirely. Per
+    # CLAUDE.md §13 stream-bypass rule, mirrored into aria_chat_stream
+    # below. Both guards are fail-open — log + continue with the
+    # original `response_text` if either raises.
+    try:
+        from .intel import propaganda_guard as _pg
+        _pg_result = await _aio.to_thread(_pg.guard, response_text)
+        if _pg_result and not _pg_result.get("unchanged"):
+            rewritten = _pg_result.get("rewritten")
+            if rewritten and isinstance(rewritten, str):
+                response_text = rewritten
+                logger.info(
+                    "[R-F733] propaganda_guard rewrote %d tag(s): "
+                    "current_uncited=%d propaganda_downgrades=%d",
+                    len(_pg_result.get("tags_added") or []),
+                    _pg_result.get("current_uncited", 0),
+                    _pg_result.get("propaganda_downgrades", 0),
+                )
+    except Exception as _pg_err:
+        logger.debug("R-F733 propaganda_guard failed (non-fatal): %s", _pg_err)
+
+    try:
+        from .intel import tool_claim_guard as _tcg
+        _has_tool_in_msg = "[TOOL:" in (message or "")
+        _tcg_result = await _tcg.guard(
+            response_text,
+            tool_used=("tool" if _has_tool_in_msg else None),
+            user_message=message,
+            user_id=session.get("userId", ""),
+            chat_id=session_id,
+        )
+        if _tcg_result and _tcg_result.get("changed"):
+            guarded = _tcg_result.get("guarded")
+            if guarded and isinstance(guarded, str):
+                response_text = guarded
+                logger.info(
+                    "[R-F733] tool_claim_guard rewrote %d fabricated tool claim(s)",
+                    _tcg_result.get("violations_found", 0),
+                )
+    except Exception as _tcg_err:
+        logger.debug("R-F733 tool_claim_guard failed (non-fatal): %s", _tcg_err)
+
     # Update session — but strip tool_context blocks from the user message
     # and cap the response, otherwise the per-session conversation history
     # bleeds prior fabricated content into every subsequent reply.
@@ -3719,6 +3764,48 @@ async def _aria_chat_stream_impl(
         return
 
     response_text = full_text
+
+    # R-F733 (2026-05-20) — mirror of the non-stream guard wiring per
+    # CLAUDE.md §13. The stream chunks already left the wire; the
+    # guarded text is what gets persisted to session history so
+    # future turns don't replay un-guarded content. Fail-open.
+    try:
+        from .intel import propaganda_guard as _pg
+        _pg_result = await _aio.to_thread(_pg.guard, response_text)
+        if _pg_result and not _pg_result.get("unchanged"):
+            rewritten = _pg_result.get("rewritten")
+            if rewritten and isinstance(rewritten, str):
+                response_text = rewritten
+                logger.info(
+                    "[R-F733 stream] propaganda_guard rewrote %d tag(s): "
+                    "current_uncited=%d propaganda_downgrades=%d",
+                    len(_pg_result.get("tags_added") or []),
+                    _pg_result.get("current_uncited", 0),
+                    _pg_result.get("propaganda_downgrades", 0),
+                )
+    except Exception as _pg_err:
+        logger.debug("R-F733 stream propaganda_guard failed (non-fatal): %s", _pg_err)
+
+    try:
+        from .intel import tool_claim_guard as _tcg
+        _has_tool_in_msg = "[TOOL:" in (message or "")
+        _tcg_result = await _tcg.guard(
+            response_text,
+            tool_used=("tool" if _has_tool_in_msg else None),
+            user_message=message,
+            user_id=session.get("userId", ""),
+            chat_id=session_id,
+        )
+        if _tcg_result and _tcg_result.get("changed"):
+            guarded = _tcg_result.get("guarded")
+            if guarded and isinstance(guarded, str):
+                response_text = guarded
+                logger.info(
+                    "[R-F733 stream] tool_claim_guard rewrote %d fabricated tool claim(s)",
+                    _tcg_result.get("violations_found", 0),
+                )
+    except Exception as _tcg_err:
+        logger.debug("R-F733 stream tool_claim_guard failed (non-fatal): %s", _tcg_err)
 
     # ── Persist session (same as aria_chat) ───────────────────────────
     _user_persist = _strip_tool_context_for_history(message)
