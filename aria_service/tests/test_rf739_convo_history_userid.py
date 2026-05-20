@@ -1,0 +1,104 @@
+"""R-F739 (2026-05-20) — conversation-history load wiring.
+
+Bug: clicking a conversation in the sidebar showed "Failed to load
+conversation." for every user. Root cause: the frontend's `load(sid)`
+function fetched `/api/aria/conversations/{sid}/detail` WITHOUT a
+`user_id` query param, but the backend endpoint (R-F606, 2026-05-16)
+requires `user_id` for the ownership check and returns HTTP 400
+otherwise.
+
+R-F739:
+  1. Frontend now passes `?user_id=<USER_ID_SLUG>` on every /detail
+     fetch — matching the list/delete/rename endpoints.
+  2. Both convos-refresh + load-conversation catch blocks now surface
+     the real error message (with HTTP status) so operators can debug
+     instead of seeing the generic "Failed to load." string.
+
+These tests catch the regression: removing `user_id` from the detail
+call, or reverting the error-message surfacing, would fail here.
+"""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+ARIA_HTML = Path(__file__).resolve().parents[2] / "public" / "aria.html"
+
+
+def _read_html() -> str:
+    return ARIA_HTML.read_text(encoding="utf-8")
+
+
+def test_load_detail_passes_user_id():
+    """R-F739: frontend MUST include user_id when fetching conversation
+    detail, or R-F606 ownership check returns HTTP 400."""
+    src = _read_html()
+    # Locate the load(sid) function block
+    m = re.search(r"async function load\(sid\)[\s\S]{0,800}", src)
+    assert m is not None, "load(sid) function missing"
+    block = m.group(0)
+    # Must use the /detail endpoint and pass user_id as a query param
+    assert "/detail" in block
+    assert "user_id=" in block, (
+        "R-F739 regression: load(sid) does not pass user_id query "
+        "param — clicking a conversation will return HTTP 400 from "
+        "the R-F606 ownership check."
+    )
+    assert "USER_ID_SLUG" in block
+
+
+def test_load_detail_url_well_formed():
+    """R-F739: the constructed URL string must put user_id after a
+    single `?` (not `&`)."""
+    src = _read_html()
+    # Frontend builds the URL via string concat:
+    #   '/api/aria/conversations/' + encodeURIComponent(sid) + '/detail?user_id=' + ...
+    assert "'/detail?user_id=' +" in src or '"/detail?user_id=" +' in src, (
+        "R-F739: expected `/detail?user_id=` concatenation token not "
+        "found — URL may use & instead of ?"
+    )
+
+
+def test_refresh_error_surfaces_message():
+    """R-F739: convos-panel error state must surface the actual error,
+    not the generic 'Failed to load.' string."""
+    src = _read_html()
+    # The improved string starts with "Failed to load conversations: "
+    assert "Failed to load conversations: " in src
+    assert "err && err.message" in src
+
+
+def test_load_error_surfaces_message():
+    """R-F739: per-conversation load error must surface the actual error."""
+    src = _read_html()
+    # The improved string starts with "Failed to load conversation: "
+    # Use a regex because there's a stray "Failed to load conversation."
+    # in the legacy comment block we kept for the changelog.
+    assert "Failed to load conversation: ' + (err && err.message" in src
+
+
+def test_rf739_markers_present():
+    """R-F739: marker present in at least 3 places (load fix, refresh
+    error message, load error message)."""
+    src = _read_html()
+    count = src.count("R-F739")
+    assert count >= 3, (
+        f"R-F739: expected ≥3 markers across the addition zones, "
+        f"found {count}."
+    )
+
+
+def test_no_regression_in_other_convos_endpoints():
+    """R-F739: list / delete / rename calls already passed user_id —
+    must not have been touched by the fix."""
+    src = _read_html()
+    # List: ?user_id=<SLUG>&offset=...
+    assert re.search(
+        r"/api/aria/conversations\?user_id=' \+ encodeURIComponent\(USER_ID_SLUG\)",
+        src,
+    )
+    # Delete: /api/aria/conversations/<sid>?user_id=<SLUG>
+    assert re.search(
+        r"/conversations/' \+ encodeURIComponent\(sid\) \+\s*\n?\s*'\?user_id=' \+ encodeURIComponent\(USER_ID_SLUG\)",
+        src,
+    )

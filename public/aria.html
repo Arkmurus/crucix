@@ -1641,7 +1641,11 @@ var Convos = (function() {
       while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
       var fail = document.createElement('div');
       fail.className = 'convos-empty';
-      fail.textContent = 'Failed to load.';
+      // R-F739 (2026-05-20) — surface the real error so the operator
+      // can debug. Pre-R-F739 the message was always the generic
+      // "Failed to load." with no signal whether it's auth, HTTP
+      // status, or a network drop.
+      fail.textContent = 'Failed to load conversations: ' + (err && err.message ? err.message : 'unknown error');
       listEl.appendChild(fail);
       console.error('[Convos] refresh', err);
     }
@@ -1671,7 +1675,12 @@ var Convos = (function() {
   async function load(sid) {
     if (sending) return;
     try {
-      var data = await authedJson('GET', '/api/aria/conversations/' + encodeURIComponent(sid) + '/detail');
+      // R-F739 (2026-05-20) — R-F606 ownership check on the backend
+      // requires `user_id` on every /conversations/{sid}/detail GET.
+      // Pre-R-F739 the frontend silently omitted it, every "click to
+      // resume conversation" returned HTTP 400 → caught below → user
+      // saw "Failed to load conversation." with no explanation.
+      var data = await authedJson('GET', '/api/aria/conversations/' + encodeURIComponent(sid) + '/detail?user_id=' + encodeURIComponent(USER_ID_SLUG));
       SID = sid;
       activeSid = sid;
       saveLastSid(sid);  // R-F722 — remember which conversation is open
@@ -1692,8 +1701,12 @@ var Convos = (function() {
       setTitlebar(data.title || 'Conversation');
       if (window.innerWidth <= 900) panel.classList.add('collapsed');
     } catch (err) {
+      // R-F739 — surface the real error. Pre-R-F739 the operator saw
+      // a generic "Failed to load conversation." with no clue whether
+      // it was auth (HTTP 401), ownership mismatch (HTTP 400/404),
+      // or backend down.
       console.error('[Convos] load', err);
-      addAria(md('Failed to load conversation.'));
+      addAria(md('Failed to load conversation: ' + (err && err.message ? err.message : 'unknown error')));
     }
   }
 
