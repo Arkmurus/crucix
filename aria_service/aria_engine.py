@@ -3194,7 +3194,19 @@ async def _aria_chat_impl(
                     _pg_result.get("propaganda_downgrades", 0),
                 )
     except Exception as _pg_err:
-        logger.debug("R-F733 propaganda_guard failed (non-fatal): %s", _pg_err)
+        # R-F758 (2026-05-20): promoted debug→error for symmetry with
+        # R-F752's chat-path promotion. A silent propaganda_guard crash
+        # here ships uncited current-event CONFIRMED tags + propaganda
+        # source citations untouched — the exact 2026-04-09 Vision RFQ
+        # incident class. The non-stream chat path runs THIS guard
+        # first (in aria_engine) and then again in routes/aria.py
+        # post-response — but if the engine pass crashes, the routes
+        # pass operates on the un-rewritten text, so this is still the
+        # primary line of defence and must be loud.
+        logger.error(
+            "R-F733 propaganda_guard failed (engine pass — response shipped UNGUARDED, fix asap): %s",
+            _pg_err, exc_info=True,
+        )
 
     try:
         from .intel import tool_claim_guard as _tcg
@@ -3215,7 +3227,13 @@ async def _aria_chat_impl(
                     _tcg_result.get("violations_found", 0),
                 )
     except Exception as _tcg_err:
-        logger.debug("R-F733 tool_claim_guard failed (non-fatal): %s", _tcg_err)
+        # R-F758: promoted debug→error. Mirrors R-F752 chat-path
+        # promotion — a tool_claim_guard crash ships fabricated-tool-
+        # execution prose untouched (Clause 20(f) regression).
+        logger.error(
+            "R-F733 tool_claim_guard failed (engine pass — response shipped UNGUARDED, fix asap): %s",
+            _tcg_err, exc_info=True,
+        )
 
     # Update session — but strip tool_context blocks from the user message
     # and cap the response, otherwise the per-session conversation history
@@ -3875,7 +3893,15 @@ async def _aria_chat_stream_impl(
                     _pg_result.get("propaganda_downgrades", 0),
                 )
     except Exception as _pg_err:
-        logger.debug("R-F733 stream propaganda_guard failed (non-fatal): %s", _pg_err)
+        # R-F758: stream-path equivalent of the non-stream propaganda_
+        # guard promotion above. Note the stream chunks have already
+        # left the wire — this guard's job is to keep PERSISTED session
+        # history clean so future turns don't replay un-guarded text.
+        # Failure means future turns get poisoned context. ERROR-level.
+        logger.error(
+            "R-F733 stream propaganda_guard failed (persisted history will replay UNGUARDED, fix asap): %s",
+            _pg_err, exc_info=True,
+        )
 
     try:
         from .intel import tool_claim_guard as _tcg
@@ -3896,7 +3922,13 @@ async def _aria_chat_stream_impl(
                     _tcg_result.get("violations_found", 0),
                 )
     except Exception as _tcg_err:
-        logger.debug("R-F733 stream tool_claim_guard failed (non-fatal): %s", _tcg_err)
+        # R-F758: stream-path tool_claim_guard promotion. Same
+        # rationale as the propaganda one above — stream chunks left
+        # the wire, but persisted history must stay clean.
+        logger.error(
+            "R-F733 stream tool_claim_guard failed (persisted history will replay UNGUARDED, fix asap): %s",
+            _tcg_err, exc_info=True,
+        )
 
     # ── Persist session (same as aria_chat) ───────────────────────────
     _user_persist = _strip_tool_context_for_history(message)

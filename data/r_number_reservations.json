@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 758,
+  "next_available": 760,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2091,6 +2091,25 @@
       "r_number": "R-F757",
       "title": "apply per-user quota to /read-document upload path (close DoS flood vector)",
       "claimed_at": "2026-05-20T19:55:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "952b867",
+      "notes": null,
+      "shipped_at": "2026-05-20T19:57:52Z"
+    },
+    {
+      "r_number": "R-F758",
+      "title": "extend R-F752 promotion to R-F733 stream-path guard exceptions in aria_engine.py (4 sites)",
+      "claimed_at": "2026-05-20T20:01:46Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F759",
+      "title": "lightweight chat smoke harness (curl + auth + SSE) for autonomous 360 verification",
+      "claimed_at": "2026-05-20T20:01:56Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
