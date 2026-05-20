@@ -1447,6 +1447,52 @@ async def _run_identity(
         screen["verified_sources"] = _dvs_co(
             _matches_for_dvs, screen_succeeded=_screen_ok_co,
         )
+
+        # R-F740 (2026-05-20) — explicit UK OFSI primary-source check
+        # alongside the OpenSanctions aggregate screen. OpenSanctions
+        # DOES include UK OFSI data transitively, but UK DD clients
+        # need a citation_url anchored at ofsi.gov.uk, not at a
+        # third-party aggregator. Pre-R-F740 dd_orchestrate's gap-table
+        # listed "OFSI UK sanctions | tool has no OFSI adapter" — a
+        # false claim because fcdo_sanctions.lookup() IS wired (live
+        # since R-F569+) just not called from this orchestrator path.
+        # Fail-open: OFSI failures don't block the OpenSanctions
+        # verdict — the screen still completes and we just lose the
+        # explicit primary-source citation.
+        try:
+            from .sources import fcdo_sanctions as _fcdo
+            _ofsi_result = await _fcdo.lookup(name)
+            _ofsi_hits = (_ofsi_result or {}).get("hits") or []
+            if _ofsi_hits:
+                _existing = list(screen.get("matches") or [])
+                # Normalise OFSI hits into the same shape the
+                # downstream classifier expects (name + list label
+                # + score).
+                for h in _ofsi_hits:
+                    _existing.append({
+                        "name":   h.get("name") or name,
+                        "list":   "UK_OFSI",
+                        "score":  float(h.get("score") or 1.0),
+                        "regime": h.get("regime") or "",
+                        "source": "uk_ofsi",
+                        "citation_url": h.get("citation_url") or
+                            "https://ofsistorage.blob.core.windows.net/publishlive/2022format/ConList.xml",
+                        "designation_date": h.get("designation_date") or "",
+                    })
+                screen["matches"] = _existing
+            # Always declare uk_ofsi as a verified source when the
+            # lookup completed (zero hits is still a verified clean).
+            if not (_ofsi_result or {}).get("error"):
+                _vs = list(screen.get("verified_sources") or [])
+                if "uk_ofsi" not in _vs:
+                    _vs.append("uk_ofsi")
+                screen["verified_sources"] = _vs
+        except Exception as _ofsi_e:
+            logger.debug(
+                "R-F740: fcdo_sanctions.lookup failed for %s: %s",
+                name, _ofsi_e,
+            )
+
         report.identity.sanctions_screen = screen
         report.identity.meta.subcalls += 1
 

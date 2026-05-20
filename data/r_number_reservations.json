@@ -1931,9 +1931,10 @@
       "title": "tighten rf604 capability-denial guard — exempt 'no X match/hit/result' negative findings",
       "claimed_at": "2026-05-20T18:06:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0a04fa6",
+      "notes": null,
+      "shipped_at": "2026-05-20T18:20:11Z"
     },
     {
       "r_number": "R-F742",
