@@ -53,8 +53,20 @@ _TAG_TO_CONFIDENCE = {
 # silently dropped UNCERTAIN tags, picked the next-strongest tag instead,
 # and undercounted confidence floors. Now matches an optional caveat after
 # the tag word.
+#
+# R-F765 (2026-05-20) — also matches `[CONFIRMED from ATTACHED DOCUMENT]`
+# and `[ASSESSED via OFSI lookup]` patterns where the separator between
+# the tag word and the caveat is whitespace + a preposition ("from", "via",
+# "based on") rather than the em-dash. Live transcript 2026-05-20 found
+# a turn whose body had [CONFIRMED from ATTACHED DOCUMENT] inline but
+# the footer headline still read "(no tag — treat as unverified)" —
+# the regex missed the space-separated caveat. The new optional-group
+# matches whitespace + ANY non-`]` continuation, NOT just dash-prefixed.
+# Backwards-compatible — every previously-matched form (no caveat,
+# em-dash caveat, en-dash caveat, hyphen caveat) still matches.
 _TAG_RE = re.compile(
-    r"\[(CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN|SPECULATIVE)(?:\s*[—–-][^\]]*)?\]",
+    r"\[(CONFIRMED|PROBABLE|ASSESSED|UNCERTAIN|SPECULATIVE)"
+    r"(?:\s+[^\]]*)?\]",
     re.IGNORECASE,
 )
 
