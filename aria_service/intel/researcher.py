@@ -2411,8 +2411,45 @@ async def deep_research(
     except Exception as _mexp_e:
         logger.debug("R-F330 memory expansion failed: %s", _mexp_e)
 
-    # Merge: base + memory expansions + people-specific, capped at max_queries
-    angles = (_base_angles + _memory_expansions)[:max_queries]
+    # R-F766 (2026-05-20) — entity-name variant fanout. Live bug
+    # 2026-05-20 transcript: deep_research on 'Efdal Colpan' ran 4
+    # queries on the ASCII spelling -> 0 results. The gap-analysis
+    # section itself listed better variants (Çolpan, Cholpan,
+    # Djolpan) but never auto-ran them, forcing the user to ask for
+    # the variants in a follow-up turn (also asking permission per
+    # the Clause-37 bug R-F764 fixes). R-F766 generates plausible
+    # romanisation/transliteration variants for non-English-shaped
+    # names and adds one search angle per variant. Cheap pre-check
+    # `likely_needs_variants` skips the fanout for plain Western
+    # names (John Smith) where the variant generation would waste
+    # max_queries budget.
+    _variant_angles: list[str] = []
+    try:
+        from .name_variants import generate_variants, likely_needs_variants
+        if likely_needs_variants(entity):
+            # Take up to 3 NEW variants (excluding the original which is
+            # already covered by _base_angles[0]).
+            _variants = generate_variants(entity, limit=4)
+            for v in _variants[1:]:  # skip original
+                _variant_angles.append(v)
+            if _variant_angles:
+                logger.info(
+                    "R-F766: name-variant fanout added %d angles for "
+                    "entity=%r: %r",
+                    len(_variant_angles), entity[:80],
+                    [a[:80] for a in _variant_angles],
+                )
+    except Exception as _v_e:
+        logger.debug("R-F766 name-variant fanout failed: %s", _v_e)
+
+    # Merge: base + variant fanout + memory expansions, capped at max_queries.
+    # Variant fanout comes BEFORE memory expansions because (a) memory
+    # expansions are derived from prior RAG hits which presuppose the
+    # canonical spelling was searchable in the first place — for a
+    # transliterated name with zero prior coverage, the variants ARE the
+    # discovery angles, and (b) memory expansions already include "<entity>
+    # <name>" combos which we don't want to crowd out the variant angles.
+    angles = (_base_angles + _variant_angles + _memory_expansions)[:max_queries]
 
     # ── Step 2: parallel web searches with overall budget cap ────────
     # Pre-Phase-3 latency cap 2026-04-09: previously the gather had no
