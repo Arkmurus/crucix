@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 752,
+  "next_available": 753,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1982,9 +1982,10 @@
       "title": "remove Brave dead endpoint + web_search stubs (declined 2026-05-18)",
       "claimed_at": "2026-05-20T18:25:39Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "517f07e",
+      "notes": null,
+      "shipped_at": "2026-05-20T19:14:29Z"
     },
     {
       "r_number": "R-F747",
@@ -2027,6 +2028,15 @@
       "r_number": "R-F751",
       "title": "A3: wrap self_diagnostic _check_smoke SSL handshake in to_thread",
       "claimed_at": "2026-05-20T19:13:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F752",
+      "title": "promote guard exception logging WARNING/debug to ERROR + mark response guard_error",
+      "claimed_at": "2026-05-20T19:23:18Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -7267,11 +7267,18 @@ async def chat_ep(req: ChatRequest, request: Request):
                     len(demotions), trace_id,
                 )
         except Exception as e:
-            # Bumped from debug to warning so silent failures show up in fly logs.
-            _log.warning(
-                "[officeholder_guard] failed: %r — trace=%s",
+            # R-F752 (2026-05-20) — promoted to ERROR (was WARNING) so the
+            # audit's "guard crash ships unguarded response" failure mode is
+            # undeniable in fly logs. Also surfaces via result.guard_errors
+            # so callers (and the chat UI banner) can detect the regression
+            # without log scraping.
+            _log.error(
+                "[officeholder_guard] failed (response shipped UNGUARDED — fix asap): %r — trace=%s",
                 e, trace_id,
                 exc_info=True,
+            )
+            result.setdefault("guard_errors", []).append(
+                {"guard": "officeholder_guard", "error": str(e)[:200]}
             )
 
         # ── Clause 15 inline citation injector (2026-04-18 evening) ──
@@ -7303,7 +7310,16 @@ async def chat_ep(req: ChatRequest, request: Request):
                     inj_result["claims_uncitable"],
                 )
         except Exception as e:
-            _log.debug("citation_injector failed (non-fatal): %s", e)
+            # R-F752: promoted debug→error. Citation injector crash means
+            # claims ship without auto-cite — verification pass tags them
+            # UNVERIFIED. Surface so future runs see the regression.
+            _log.error(
+                "[citation_injector] failed (response shipped UNGUARDED — fix asap): %s",
+                e, exc_info=True,
+            )
+            result.setdefault("guard_errors", []).append(
+                {"guard": "citation_injector", "error": str(e)[:200]}
+            )
 
         # ── Three-pass response verification (Week 3 — inline tags) ──
         # Post-processes the response to add [VERIFIED], [UNVERIFIED],
@@ -7332,7 +7348,16 @@ async def chat_ep(req: ChatRequest, request: Request):
                     rv_result["unverified"], rv_result["contradicted"],
                 )
         except Exception as e:
-            _log.debug("response_verifier failed (non-fatal): %s", e)
+            # R-F752: promoted debug→error. Without verifier the
+            # [VERIFIED]/[UNVERIFIED]/[CONTRADICTED] inline tags are gone
+            # — user can't tell what the brain trusts.
+            _log.error(
+                "[response_verifier] failed (response shipped UNGUARDED — fix asap): %s",
+                e, exc_info=True,
+            )
+            result.setdefault("guard_errors", []).append(
+                {"guard": "response_verifier", "error": str(e)[:200]}
+            )
 
         # ── Commitment guard (Clause 20 enforcement) ──────────────────
         # Detects and rewrites fabricated commitments: "Within 24 hours
@@ -7369,7 +7394,17 @@ async def chat_ep(req: ChatRequest, request: Request):
                 except Exception:
                     pass
         except Exception as e:
-            _log.debug("commitment_guard failed (non-fatal): %s", e)
+            # R-F752: promoted debug→error. Commitment guard catches
+            # Clause-20 fabricated promises ("Within 24h I will..."). A
+            # crash here ships those promises unrewritten — a P1 honesty
+            # regression on a known incident class (2026-04-16/17).
+            _log.error(
+                "[commitment_guard] failed (response shipped UNGUARDED — fix asap): %s",
+                e, exc_info=True,
+            )
+            result.setdefault("guard_errors", []).append(
+                {"guard": "commitment_guard", "error": str(e)[:200]}
+            )
 
         # ── Tool-claim guard (Clause 20(f), 2026-04-18) ───────────────
         # Past incident 2026-04-18 — Baykar: user asked "crawl the known
@@ -7422,7 +7457,17 @@ async def chat_ep(req: ChatRequest, request: Request):
                 except Exception:
                     pass
         except Exception as e:
-            _log.debug("tool_claim_guard failed (non-fatal): %s", e)
+            # R-F752: promoted debug→error. tool_claim_guard catches
+            # Clause 20(f) fabricated-tool-execution prose ("I have begun
+            # the deep crawl..."). A crash means those fabrications go
+            # out unrewritten — see 2026-04-18 Baykar incident.
+            _log.error(
+                "[tool_claim_guard] failed (response shipped UNGUARDED — fix asap): %s",
+                e, exc_info=True,
+            )
+            result.setdefault("guard_errors", []).append(
+                {"guard": "tool_claim_guard", "error": str(e)[:200]}
+            )
 
         # ── Propaganda guard (Clause 13, 2026-04-18 night) ──────────
         # Post-LLM check for Clause 13(a) [no uncited current-events
@@ -7472,7 +7517,17 @@ async def chat_ep(req: ChatRequest, request: Request):
                     except Exception:
                         pass
         except Exception as e:
-            _log.debug("propaganda_guard failed (non-fatal): %s", e)
+            # R-F752: promoted debug→error. propaganda_guard enforces
+            # Clause 13(a)+(b): no uncited current-event CONFIRMED claims
+            # and no propaganda-source elevation. A silent crash here
+            # is the worst-case path — propaganda goes out high-tagged.
+            _log.error(
+                "[propaganda_guard] failed (response shipped UNGUARDED — fix asap): %s",
+                e, exc_info=True,
+            )
+            result.setdefault("guard_errors", []).append(
+                {"guard": "propaganda_guard", "error": str(e)[:200]}
+            )
 
         # ── Ground-truth guard (2026-04-18) ──────────────────────────
         # Past incident 2026-04-18 — CSG Group: user asked about
@@ -7532,7 +7587,18 @@ async def chat_ep(req: ChatRequest, request: Request):
                 except Exception:
                     pass
         except Exception as e:
-            _log.debug("ground_truth_guard failed (non-fatal): %s", e)
+            # R-F752: promoted debug→error. ground_truth_guard catches
+            # CONFIRMED claims that aren't in tool_context (e.g. the
+            # 2026-04-18 CSG-Group "Jurisdiction: Turkey" hallucination
+            # where the extract clearly said Czechoslovak Group). A crash
+            # ships those un-corrected.
+            _log.error(
+                "[ground_truth_guard] failed (response shipped UNGUARDED — fix asap): %s",
+                e, exc_info=True,
+            )
+            result.setdefault("guard_errors", []).append(
+                {"guard": "ground_truth_guard", "error": str(e)[:200]}
+            )
 
         # ── Confidence-tagged reply footer ──
         # Wires existing observability signals (confidence tags +
@@ -7938,8 +8004,13 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                                 session_id, _r446_result.get("changes"),
                             )
                 except Exception as _r446_e:
-                    _log.warning(
-                        "R-F448 stream honesty pass failed (non-fatal): %r",
+                    # R-F752 (2026-05-20): promoted to ERROR so a stream-
+                    # path guard crash is undeniable in fly logs — pre-
+                    # R-F752 it was WARNING which fly's structured-error
+                    # alerting ignores. Stream-path equivalent of the 7
+                    # chat-path promotions on the non-stream side.
+                    _log.error(
+                        "R-F448 stream honesty pass failed (stream shipped UNGUARDED — fix asap): %r",
                         _r446_e,
                         exc_info=True,
                     )
