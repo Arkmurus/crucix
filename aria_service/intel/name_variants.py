@@ -179,12 +179,21 @@ _WESTERN_SURNAMES = {
 
 
 def _looks_turkish(name: str) -> bool:
-    """Heuristic: does this name match Turkish-name shape?"""
+    """Heuristic: does this name match Turkish-name shape?
+
+    R-F767 (2026-05-20) tightened the non-ASCII check: 'ç' / 'ö' / 'ü'
+    are shared between Turkish, French, Portuguese, German and Hungarian.
+    Pre-tightening, 'François Lefèvre' (French) was misclassified as
+    Turkish because of the 'ç'. Now: require at least one
+    Turkish-DISTINCTIVE diacritic ('ğ', 'ı' dotless-i, 'ş' / 'İ') to
+    confirm — these have no counterpart in French / Portuguese / German.
+    """
     if not name:
         return False
     lower = name.lower()
-    # Non-ASCII with Turkish diacritics
-    if not name.isascii() and any(c in name for c in "çğıöşüÇĞIİÖŞÜ"):
+    # Non-ASCII with TURKISH-DISTINCTIVE diacritics. Distinct from
+    # French/Portuguese (which use ç, é, ã but not ğ/ı/ş).
+    if not name.isascii() and any(c in name for c in "ğıİşĞŞ"):
         return True
     tokens = lower.split()
     if not tokens:
@@ -388,6 +397,122 @@ def generate_variants(name: str, limit: int = VARIANT_LIMIT) -> list[str]:
         _push(stripped)
 
     return variants
+
+
+# R-F767 (2026-05-20) — name-origin → registry-jurisdiction routing.
+# Other-agent audit 2026-05-20 noted: 'Investigate Efdal Colpan tied
+# to ECDI procurement' is clearly DD-shaped (named person + foreign
+# procurement body + Turkish-origin surname); R-F729 broadened DD-
+# intent regex but didn't route to MERSIS preferentially. This
+# heuristic returns the ordered ISO2 jurisdiction list a downstream
+# orchestrator should try FIRST when a name origin is detectable.
+#
+# Mapping is intentionally conservative — only emits jurisdictions
+# that are SUPPORTED by aria_service.intel.registry_adapters
+# (_SUPPORTED_JURISDICTIONS), since suggesting RU when there's no RU
+# adapter is wasted work. As the adapter inventory grows, extend the
+# mapping table here. Unsupported origins return [].
+
+# Origin → ordered list of supported ISO2 jurisdictions. Ordered by
+# default-best-guess; the orchestrator may re-rank by context.
+_ORIGIN_TO_JURISDICTIONS = {
+    "turkish":  ["TR"],
+    "cyrillic": ["BG"],          # Russia/Ukraine not yet supported; BG is closest match.
+    "arabic":   ["SA", "AE"],
+    "slavic":   ["PL", "SK", "CZ", "HU"],
+    "iberian":  ["BR", "AO"],    # Lusophone moat — Portuguese / Brazilian
+    "francophone": ["FR"],
+}
+
+
+def detect_name_origin(name: str) -> str | None:
+    """Classify the name's apparent origin.
+
+    Returns one of: 'turkish' | 'cyrillic' | 'arabic' | 'slavic' |
+    'iberian' | 'francophone' | None.
+
+    None means: no confident origin detected (plain Western name, or
+    too short to classify). The orchestrator should treat None as
+    'use the default adapter set, no preference'.
+    """
+    if not name or not isinstance(name, str):
+        return None
+    s = name.strip()
+    if not s:
+        return None
+    lower = s.lower()
+    tokens = lower.split()
+    if not tokens:
+        return None
+
+    # Turkish — first/last name set + diacritics
+    if _looks_turkish(s):
+        return "turkish"
+
+    # Cyrillic — known Cyrillic-canonical names in the transliteration
+    # alternates list, OR Slavic surname suffix when paired with
+    # Cyrillic-canonical first name. Stay conservative: only return
+    # 'cyrillic' on positive match, fall through to 'slavic' for
+    # generic -ski/-ov endings.
+    for canonical, _alts in _CYRILLIC_TRANSLIT_ALTS:
+        if canonical.lower() in tokens:
+            return "cyrillic"
+
+    # Arabic — known Arabic-canonical first names
+    for canonical, _alts in _ARABIC_TRANSLIT_ALTS:
+        if canonical.lower() in tokens:
+            return "arabic"
+
+    # Slavic surname suffix (-ski/-sky/-ov/-ev/-off/-yi)
+    last = tokens[-1]
+    for suffix, _alts in _SUFFIX_SWAPS:
+        if last.endswith(suffix):
+            return "slavic"
+
+    # Iberian (Portuguese/Spanish) — require a DISTINCTIVE diacritic
+    # (ã, õ, ñ) or a Portuguese-style ending. 'ç' / 'é' / 'á' alone are
+    # shared with French and don't disambiguate.
+    if not s.isascii() and any(c in s for c in "ãõñÃÕÑ"):
+        return "iberian"
+    for tok in tokens:
+        if tok.endswith(("ões", "ção", "inho", "inha", "eiro", "eira")):
+            return "iberian"
+
+    # Francophone — French-distinctive diacritics (è, ê, ë, œ, æ, ÿ)
+    # or French-style surname endings. Checked AFTER iberian so a
+    # Portuguese 'ç+ã' name doesn't fall through to French.
+    if not s.isascii() and any(c in s for c in "èêëîïùûüÿœæÈÊËÎÏÙÛÜŸŒÆ"):
+        return "francophone"
+    for tok in tokens:
+        if tok.endswith(("eau", "ault", "ois", "eux", "ière", "èvre")):
+            return "francophone"
+
+    return None
+
+
+def suggest_jurisdictions(name: str) -> list[str]:
+    """Return the ordered list of ISO2 jurisdictions to try FIRST when
+    looking up a registry record for `name`. Empty list when no origin
+    is detected (orchestrator should fall back to its default).
+
+    Example:
+        >>> suggest_jurisdictions("Efdal Colpan")
+        ['TR']
+        >>> suggest_jurisdictions("Sergey Mikhailov")
+        ['BG']     # closest supported jurisdiction; RU/UA not yet wired
+        >>> suggest_jurisdictions("Mohammed Ahmed")
+        ['SA', 'AE']
+        >>> suggest_jurisdictions("Jan Kowalski")
+        ['PL', 'SK', 'CZ', 'HU']
+        >>> suggest_jurisdictions("John Smith")
+        []
+        >>> suggest_jurisdictions("João Silva")
+        ['BR', 'AO']
+    """
+    origin = detect_name_origin(name)
+    if not origin:
+        return []
+    return list(_ORIGIN_TO_JURISDICTIONS.get(origin, []))
 
 
 def likely_needs_variants(name: str) -> bool:
