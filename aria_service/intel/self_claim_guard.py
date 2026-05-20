@@ -350,11 +350,57 @@ def scan_response(
         r"(?:access|capability|tooling|integration|adapter|tool)\b\s*$",
         re.IGNORECASE,
     )
+    # R-F763 (2026-05-20) — second false-positive class.
+    # Other-agent audit 2026-05-20 caught: "No search performed on
+    # Turkish MERSIS" was flagged rf604_capability_denial. Same
+    # class as R-F741 ("not yet done" negative-finding, not
+    # capability denial) but with the action-verb sitting BETWEEN
+    # the leader "no" and the tool keyword, not after — so the
+    # tail-scan post-filter in R-F741 missed it. Two patterns to
+    # exempt now:
+    #
+    #   (a) action-noun + past-participle action-verb inside the
+    #       matched span — "no search performed on MERSIS",
+    #       "no scan run against OFAC", "no query executed on..."
+    #   (b) action-verb anywhere in the matched span — "no MERSIS
+    #       query performed", "no OFSI lookup attempted yet"
+    #
+    # Implementation: scan the matched span itself for either an
+    # action-noun (search|scan|query|lookup|check|probe|screen) OR
+    # a past-participle action-verb (performed|run|executed|queried|
+    # attempted|triggered|called|fired|invoked|tried) — if EITHER is
+    # present AND the span doesn't end with the explicit-capability
+    # tail, treat as "not yet done" finding.
+    _ACTION_NOUNS = re.compile(
+        r"\b(?:search(?:es)?|scan(?:s)?|quer(?:y|ies)|"
+        r"lookup(?:s)?|check(?:s)?|probe(?:s)?|screen(?:ing)?|"
+        r"crawl(?:s)?|fetch(?:es)?|pull(?:s)?|hit(?:s)?)\b",
+        re.IGNORECASE,
+    )
+    _ACTION_VERBS_PAST = re.compile(
+        r"\b(?:performed|run|ran|executed|queried|attempted|"
+        r"triggered|called|fired|invoked|tried|completed|"
+        r"conducted|undertaken)\b",
+        re.IGNORECASE,
+    )
     for m in _SELF_DENIAL_RE.finditer(text):
         matched = m.group(0)
         # If the match itself ends with an explicit capability modifier,
         # it's a clear denial regardless of what follows — keep it.
         if not _CAPABILITY_TAIL.search(matched):
+            # R-F763: action-noun / action-verb suppression applies ONLY
+            # to the "no ... <tool>" branch (#2 in _SELF_DENIAL_RE).
+            # Branch 1 ("I cannot query OFSI") legitimately contains an
+            # action verb ("query") as part of the denial structure, so
+            # we must NOT suppress those. Anchor on the matched-span
+            # starting with "no " (case-insensitive, allowing leading
+            # whitespace from word boundary).
+            starts_with_no = matched.lstrip()[:3].lower() == "no "
+            if starts_with_no and (
+                _ACTION_NOUNS.search(matched)
+                or _ACTION_VERBS_PAST.search(matched)
+            ):
+                continue  # skip — "no <action> on <tool>" is a finding
             # Look ahead ~80 chars past the match end for a result word.
             # 80 is chosen to span typical intermediate-clause widths
             # like ", EU consolidated, or OpenSanctions match" (41
@@ -368,6 +414,14 @@ def scan_response(
                 tail = tail[:sentence_end.start()]
             if _RESULT_WORDS.search(tail):
                 continue  # skip — this is a no-match finding, not a denial
+            # R-F763 tail check: same branch-1 carve-out — only suppress
+            # on action-verb-in-tail when the matched span started with
+            # "no ". Otherwise "I cannot query OFSI. We attempted X"
+            # would suppress the real denial.
+            if starts_with_no and (
+                _ACTION_VERBS_PAST.search(tail) or _ACTION_NOUNS.search(tail)
+            ):
+                continue  # skip — "no <tool> ... performed" is a finding
         violations.append(Violation(
             pattern_id="rf604_capability_denial",
             phrase=matched,
