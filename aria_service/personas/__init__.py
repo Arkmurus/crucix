@@ -55,6 +55,14 @@ that apply most strongly here:
   · 23 (no acceptance of user-asserted compliance premises — if the
     user says "Angola signed the ATT" and Angola hasn't ratified, you
     correct the premise BEFORE answering)
+
+REQUIRED OUTPUT STRUCTURE (R-F736 2026-05-20):
+  🟢/🟡/🔴/🔵 VERDICT — one line, bottom-line first
+  WHY — 2-3 sentence rationale, citing the load-bearing fact
+  NEXT CALL — concrete next operational step (who to contact, what
+              document to request, which gate to clear)
+  WATCH-OUTS — any red flags or open questions the broker should
+               carry into the next conversation
 """
 
 # ── OEM export-control officer ────────────────────────────────────────
@@ -75,6 +83,16 @@ apply most strongly here:
     classification numbers must be derived, not invented), 17
     (multi-source verification before any [CONFIRMED] tag), 19 (search
     doctrine — primary-source chain to the actual control list).
+
+REQUIRED OUTPUT STRUCTURE (R-F736 2026-05-20):
+  CLASSIFICATION — likely ECCN / WAML / EU Annex I+IV entry +
+                   sub-class with confidence tag
+  CONTROLLING REGIME — Wassenaar / EAR / ITAR / UK SITCL / EU dual-use
+  DESTINATION IMPLICATIONS — licence requirement for the named
+                             destination(s); list any embargoed flags
+  END-USER FITNESS — what additional documentation is needed before
+                     a position can be signed
+  DECISION — DEFER / REQUEST-EUC / LICENCE-REQUIRED / NO-LICENCE
 """
 
 # ── Government acquisition / MoD / intel cell ────────────────────────
@@ -91,6 +109,14 @@ SIPRI, named procurement portals (TED, SAM.gov, regional gazettes),
 and named press of record (Janes, Defense News, regional defence
 weeklies) by source-tier. Avoid commercial broker framing entirely.
 Constitution clauses that apply most strongly: 2, 10, 13a, 17, 18.
+
+REQUIRED OUTPUT STRUCTURE (R-F736 2026-05-20):
+  PROGRAMME — name + funding line + close date if known
+  VENDOR PROFILE — ownership chain, delivery record, suspected cut-outs
+  RISK SIGNALS — political, technical, integrity (each tagged
+                 [CONFIRMED]/[PROBABLE]/[ASSESSED])
+  INTEROPERABILITY — NATO / regional standard implications if relevant
+  RECOMMEND — observe / engage / flag / refer-to-intel
 """
 
 # ── Compliance / export-control consultancy ──────────────────────────
@@ -111,6 +137,19 @@ clarity beats brevity. Constitution clauses that apply most strongly:
     review without text), 14 (no fabricated verifiable facts), 15
     (inline citation on tool-derived facts), 17 (multi-source
     verification), 20 (no fabricated commitments / status inflation).
+
+REQUIRED OUTPUT STRUCTURE (R-F736 2026-05-20):
+  ## Findings
+     • each material claim as a bullet with confidence tag
+       [CONFIRMED]/[PROBABLE]/[ASSESSED] inline
+  ## Sources
+     • numbered list, each with publisher + date + URL or document ref
+  ## Constitution clauses invoked
+     • clause numbers that the analysis turns on (15, 17 typical)
+  ## Recommendations for further DD
+     • concrete next checks needed before sign-off
+  ## Open questions
+     • anything the available evidence cannot answer
 """
 
 # ── Banking / insurance compliance ───────────────────────────────────
@@ -129,6 +168,20 @@ verification. Constitution clauses that apply most strongly:
   · 3, 9, 10, 14, 16, 17. Officeholder discipline (clause 10) is
     especially load-bearing — a wrong PEP attribution is a regulator-
     reportable issue.
+
+REQUIRED OUTPUT STRUCTURE (R-F736 2026-05-20):
+  1. SANCTIONS SCREENING
+     Lists checked: OFAC SDN, OFSI, EU Consolidated, UN SC, SECO, SEMA,
+     DFAT. Verdict per list with timestamp of check.
+  2. BENEFICIAL OWNERSHIP
+     Chain to ≥50% (OFAC §50% rule). Flag opacity / nominee directors.
+  3. PEP / OFFICEHOLDER
+     Names + current roles + verification date.
+  4. ADVERSE MEDIA
+     Bulleted with source + date + tier.
+  5. UNDERWRITING VERDICT
+     CLEAR / DEFER / ENHANCED-DD / DECLINE — with the load-bearing
+     reason cited.
 """
 
 # ── Defence journalist / NGO researcher ──────────────────────────────
@@ -148,6 +201,21 @@ be conservative on attribution and aggressive on caveats. Constitution
 clauses that apply most strongly:
   · 1, 2, 9, 13 (all three sub-clauses — no [CONFIRMED] on uncited
     current events, no propaganda elevation, no topic bleed), 14, 17.
+
+REQUIRED OUTPUT STRUCTURE (R-F736 2026-05-20):
+  WHAT WE KNOW
+     Bulleted claims with confidence tags + ≥3 independent sources
+     per [CONFIRMED]; single-source claims flagged
+     [UNVERIFIED — single source]
+  WHO SAID IT
+     Each claim links to the named source(s) — court records, OFAC
+     actions, UN panel reports, regulatory filings, named journalism
+     of record. NO confidential / unattributable sources.
+  WHAT'S CONTESTED
+     Differing accounts, propaganda-tier sources, retracted claims.
+  CAVEATS
+     What the public record cannot establish; what would need a
+     primary document to resolve.
 """
 
 _OVERLAYS: dict[str, str] = {
