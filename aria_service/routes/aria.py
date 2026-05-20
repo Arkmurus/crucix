@@ -3226,6 +3226,18 @@ _DD_INTENT_RE = re.compile(
     r"\brun\s+a?\s*(?:full\s+)?(?:background|compliance|dd|pdd)\s+(?:check|report)\b|"
     r"\borchestrate\s+(?:p)?dd\b|"
     r"\b(?:profile|dossier)\s+on\s+|"
+    # R-F729 (2026-05-20) — natural-language DD intent extensions.
+    # Pre-R-F729 these phrasings fell through to deep_research, missing
+    # the 7-layer orchestrator the system prompt advertises. Each
+    # requires a directional preposition (on/of/about/for) and a name
+    # to follow, so generic mentions like "we did some investigation"
+    # do not over-fire. Conservative additions only — entity capture
+    # still gates downstream via _DD_ENTITY_CAPTURE_RE.
+    r"\binvestigate\s+(?:the\s+)?counterparty\s+|"
+    r"\bcounterparty\s+(?:check|diligence|review)\s+(?:on|of|for|about)\s+|"
+    r"\bdeep\s+dive\s+(?:on|of|about|into)\s+|"
+    r"\b(?:full\s+)?background\s+(?:on|of|about)\s+[A-Z]|"
+    r"\b(?:vet|vetting)\s+(?:the\s+)?(?:counterparty|company|firm|entity)\s+|"
     # Bare "person: NAME" or "person NAME" — structured-form trigger.
     # 2026-04-11 Colin Risso incident: user typed 'person: Colin Risso /
     # Nationality: UK / Role: ...' expecting the PDD path to fire, but
@@ -3281,6 +3293,14 @@ _DD_ENTITY_CAPTURE_RE = re.compile(
     r"background\s+(?:dd|check)\s+on\s+|"
     r"(?:profile|dossier)\s+on\s+|"
     r"run\s+a?\s*(?:full\s+)?(?:background|compliance|dd|pdd)\s+(?:check|report)\s+(?:on|for|about)\s+|"
+    # R-F729 (2026-05-20) — entity capture for natural-language DD
+    # intents added to _DD_INTENT_RE. Each phrase must be followed by
+    # an entity capture group; the head matches the trigger phrase.
+    r"investigate\s+(?:the\s+)?counterparty\s+|"
+    r"counterparty\s+(?:check|diligence|review)\s+(?:on|of|for|about)\s+|"
+    r"deep\s+dive\s+(?:on|of|about|into)\s+|"
+    r"(?:full\s+)?background\s+(?:on|of|about)\s+|"
+    r"(?:vet|vetting)\s+(?:the\s+)?(?:counterparty|company|firm|entity)\s+|"
     # Structured form: capture name after "person: " / "individual: " /
     # "subject: " / "officer: " / "director: ".
     r"(?:^|[,.!?\n]\s*)(?:person|individual|subject|officer|director)\s*[:\-]\s*"
@@ -4051,6 +4071,33 @@ def _detect_tool_intent(message: str) -> dict | None:
                 "entity": entity[:200],
                 "context": msg,
                 "_reason": "screen_slash_command",
+            }
+
+    # ── R-F729 (2026-05-20) — slash command for full DD orchestrator ──
+    # Pre-R-F729 the dd_orchestrator path required prose phrasing
+    # ("DD on X" / "due diligence on X" / "ark-dd on X") with the
+    # exact verb form. The Agent 1 DD audit found that natural-language
+    # asks like "investigate counterparty X" / "deep dive on X" / "tell
+    # me everything about Y" silently fell through to the lighter
+    # deep_research path, never reaching the 7-layer orchestrator the
+    # system prompt promises is available. The slash form mirrors
+    # R-F731's pattern: `/dd Acme Corp` / `/diligence Acme Corp` /
+    # `/due-diligence Acme Corp` → dd_orchestrate, with no verb-
+    # guessing. Slash is explicit, so we pass straight to the
+    # orchestrator without re-running the heavier DD intent regex.
+    _DD_SLASH_RE = re.compile(
+        r"^\s*/(?:dd|diligence|due-?diligence|pdd|ark-?dd)\s+(.+?)\s*$",
+        re.IGNORECASE,
+    )
+    _dd_slash = _DD_SLASH_RE.match(msg)
+    if _dd_slash:
+        entity = _dd_slash.group(1).strip(" .,:;-?!\"'")
+        if entity and len(entity) >= 3:
+            return {
+                "tool": "dd_orchestrate",
+                "entity": entity[:500],
+                "context": msg,
+                "_reason": "dd_slash_command",
             }
 
     # ── Pre-meeting briefing intent ──
