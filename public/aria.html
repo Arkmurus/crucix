@@ -237,6 +237,40 @@
       border-left: 2px solid var(--warm-border-strong); margin: 10px 0; padding: 4px 14px;
       color: var(--warm-text-muted); font-style: italic;
     }
+    /* R-F738 (2026-05-20) — markdown tables for DD reports / compliance
+       matrix output. Horizontal scroll on overflow keeps wide tables
+       readable on mobile without breaking the chat column. */
+    .msg-aria-body .md-table {
+      display: block; max-width: 100%; overflow-x: auto;
+      border-collapse: collapse; margin: 10px 0;
+      font-size: 13px;
+    }
+    .msg-aria-body .md-table th,
+    .msg-aria-body .md-table td {
+      border: 1px solid var(--warm-border);
+      padding: 6px 10px; text-align: left;
+      vertical-align: top;
+      background: rgba(255,255,255,0.02);
+    }
+    .msg-aria-body .md-table th {
+      background: rgba(255,255,255,0.06);
+      color: #fff; font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+    .msg-aria-body .md-table tr:hover td { background: rgba(255,255,255,0.04); }
+    /* R-F738 — fenced code blocks. Bigger affordance than inline code,
+       monospace, horizontal scroll on long lines. */
+    .msg-aria-body .md-code {
+      background: rgba(0,0,0,0.35); border: 1px solid var(--warm-border);
+      border-radius: 6px; padding: 10px 12px; margin: 10px 0;
+      overflow-x: auto; max-width: 100%;
+      font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 12.5px;
+      line-height: 1.55; color: #e9d9ff;
+    }
+    .msg-aria-body .md-code code {
+      background: transparent; border: none; padding: 0;
+      color: inherit; font-size: inherit;
+    }
 
     .msg-actions { display: flex; gap: 4px; margin-top: 10px; opacity: 0; transition: opacity .15s; flex-wrap: wrap; }
     .msg:hover .msg-actions { opacity: 1; }
@@ -425,7 +459,7 @@
       <div class="input-bar">
         <button class="think-btn" id="think-btn" title="Deep analysis mode" aria-label="Toggle deep analysis mode"><i class="bi bi-cpu" aria-hidden="true"></i> Think</button>
         <button class="upload-btn" id="upload-btn" title="Upload document" aria-label="Upload document"><i class="bi bi-paperclip" aria-hidden="true"></i> Attach</button>
-        <span class="input-hint">Enter to send · Drop files here</span>
+        <span class="input-hint">Enter to send · Drop or paste files · Ctrl+K new · Ctrl+/ screen</span>
         <button class="send-btn" id="send-btn" disabled aria-label="Send message"><i class="bi bi-arrow-up" aria-hidden="true"></i></button>
       </div>
     </div>
@@ -540,6 +574,68 @@ ta.addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sendBtn.disabled) send(ta.value.trim()); }
 });
 
+// R-F738 (2026-05-20) — clipboard image paste. Pre-R-F738 the only
+// way to attach an image was the upload picker (3-click flow). Now
+// Ctrl+V on the textarea picks up any image in the clipboard and
+// dispatches it through the existing fileInput.change handler. Keeps
+// the upload chain intact; just removes friction.
+ta.addEventListener('paste', function(e) {
+  try {
+    if (!e.clipboardData || !e.clipboardData.files || !e.clipboardData.files.length) return;
+    var imgFile = null;
+    for (var i = 0; i < e.clipboardData.files.length; i++) {
+      var f = e.clipboardData.files[i];
+      if (f && f.type && f.type.indexOf('image/') === 0) { imgFile = f; break; }
+    }
+    if (!imgFile) return;
+    e.preventDefault();
+    if (typeof fileInput === 'undefined') return;
+    var dt = new DataTransfer();
+    dt.items.add(imgFile);
+    fileInput.files = dt.files;
+    fileInput.dispatchEvent(new Event('change'));
+  } catch (err) {
+    // Fall through to default paste behaviour (text)
+    console.warn('[R-F738] clipboard paste fallback:', err);
+  }
+});
+
+// R-F738 (2026-05-20) — keyboard shortcuts. Three only:
+//   Ctrl/Cmd + K        — new conversation
+//   Ctrl/Cmd + /        — focus input + prefill /screen
+//   Ctrl/Cmd + Shift + L — focus the conversation search (jump to history)
+// Scoped to ignore key events when an input/textarea OTHER than the
+// chat input is focused (so users typing into the convo search aren't
+// hijacked).
+document.addEventListener('keydown', function(e) {
+  var meta = e.ctrlKey || e.metaKey;
+  if (!meta) return;
+  var tag = (document.activeElement && document.activeElement.tagName) || '';
+  var inForeignInput = (tag === 'INPUT' || tag === 'TEXTAREA') && document.activeElement !== ta;
+  if (inForeignInput && e.key !== 'k' && e.key !== 'K') return;
+
+  if (e.key === 'k' || e.key === 'K') {
+    e.preventDefault();
+    if (typeof startNewConversation === 'function') startNewConversation();
+    return;
+  }
+  if (e.key === '/' && !e.shiftKey) {
+    e.preventDefault();
+    ta.focus();
+    if (!ta.value.trim()) {
+      ta.value = '/screen ';
+      try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (_) {}
+      resize();
+    }
+    return;
+  }
+  if (e.shiftKey && (e.key === 'L' || e.key === 'l')) {
+    e.preventDefault();
+    var search = document.getElementById('convos-search');
+    if (search) { search.focus(); search.select(); }
+  }
+});
+
 function resize() {
   ta.style.height = 'auto';
   ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
@@ -574,9 +670,50 @@ sendBtn.addEventListener('click', function() {
 });
 
 // ── Markdown renderer ──
+// R-F738 (2026-05-20) — added pipe-table rendering, code fences, and
+// proper handling so DD reports / compliance output (which use tables
+// for matrix views) render as actual HTML <table> instead of raw
+// markdown soup. Standard GFM pipe-table syntax:
+//   | col | col |
+//   | --- | --- |
+//   | a   | b   |
 function md(text) {
   if (!text) return '';
   var s = escHtml(text);
+
+  // R-F738: pipe tables. Match a header row + separator row + 1+ body
+  // rows. Detect on the escaped text (escHtml leaves `|` alone). The
+  // separator row is `| --- | --- |` (any number of dashes ≥3) optionally
+  // with colons for alignment.
+  s = s.replace(
+    /(?:^|\n)((?:\|[^\n]*\|\s*\n)\|\s*[:\-\s|]+\|\s*\n(?:\|[^\n]*\|\s*\n?)+)/g,
+    function(match, table) {
+      try {
+        var lines = table.trim().split(/\n/).map(function(l){ return l.trim(); });
+        if (lines.length < 3) return match;
+        var header = lines[0];
+        var body = lines.slice(2);
+        function cells(row) {
+          var inner = row.replace(/^\|/, '').replace(/\|$/, '');
+          return inner.split('|').map(function(c){ return c.trim(); });
+        }
+        var hdrCells = cells(header).map(function(c){ return '<th>' + c + '</th>'; }).join('');
+        var bodyHtml = body.map(function(row) {
+          return '<tr>' + cells(row).map(function(c){ return '<td>' + c + '</td>'; }).join('') + '</tr>';
+        }).join('');
+        return '\n<table class="md-table"><thead><tr>' + hdrCells + '</tr></thead><tbody>' + bodyHtml + '</tbody></table>\n';
+      } catch (e) {
+        return match;
+      }
+    }
+  );
+
+  // R-F738: fenced code blocks. Render ```lang\ncode``` as <pre><code>.
+  s = s.replace(/```([a-z0-9_+-]*)\n?([\s\S]*?)```/gi, function(_, lang, code) {
+    var langAttr = lang ? ' data-lang="' + escHtml(lang) + '"' : '';
+    return '<pre class="md-code"' + langAttr + '><code>' + code.trim() + '</code></pre>';
+  });
+
   s = s.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   s = s.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
@@ -593,8 +730,8 @@ function md(text) {
   s = s.replace(/\n{2,}/g, '</p><p>');
   s = s.replace(/\n/g, '<br>');
   s = '<p>' + s + '</p>';
-  s = s.replace(/<p><(h[23]|ul|ol)/g, '<$1');
-  s = s.replace(/<\/(h[23]|ul|ol)><\/p>/g, '</$1>');
+  s = s.replace(/<p><(h[23]|ul|ol|table|pre)/g, '<$1');
+  s = s.replace(/<\/(h[23]|ul|ol|table|pre)><\/p>/g, '</$1>');
   s = s.replace(/<p><\/p>/g, '');
   return s;
 }
