@@ -237,6 +237,90 @@
       border-left: 2px solid var(--warm-border-strong); margin: 10px 0; padding: 4px 14px;
       color: var(--warm-text-muted); font-style: italic;
     }
+    /* R-F735 (2026-05-20) — entity card right-rail. Sticky context
+       card showing the current investigation entity + structured
+       sources + quick-action buttons. Hidden on screens narrower than
+       1100px so the chat column stays readable on mobile / laptops. */
+    .entity-rail {
+      width: 280px; flex-shrink: 0;
+      background: var(--warm-bg-sidebar);
+      border-left: 1px solid var(--warm-border);
+      overflow-y: auto;
+      padding: 18px 16px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    @media (max-width: 1100px) { .entity-rail { display: none; } }
+    .entity-rail-empty {
+      color: var(--warm-text-muted); font-size: 13px;
+      padding: 30px 6px; text-align: center; line-height: 1.55;
+    }
+    .entity-rail-empty-icon { font-size: 28px; opacity: 0.45; margin-bottom: 8px; }
+    .entity-rail-empty-title {
+      font-size: 13px; font-weight: 600; color: var(--warm-text);
+      letter-spacing: 0.04em; text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .entity-rail-empty-body { font-size: 12.5px; }
+    .entity-rail-card {
+      display: flex; flex-direction: column; gap: 18px;
+      padding: 4px 0;
+    }
+    .entity-rail-section { display: flex; flex-direction: column; gap: 6px; }
+    .entity-rail-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+      color: var(--warm-text-muted); text-transform: uppercase;
+    }
+    .entity-rail-count {
+      font-weight: 400; opacity: 0.7; margin-left: 4px;
+    }
+    .entity-rail-name {
+      font-size: 15px; font-weight: 600; color: #fff;
+      line-height: 1.35; word-break: break-word;
+    }
+    .entity-rail-type {
+      font-size: 12px; color: var(--warm-text-muted);
+      text-transform: capitalize;
+    }
+    .entity-rail-sources {
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .entity-rail-source {
+      background: rgba(255,255,255,0.04); border: 1px solid var(--warm-border);
+      border-radius: 4px; padding: 6px 8px;
+      font-size: 12px; color: var(--warm-text);
+      display: flex; gap: 6px; align-items: center;
+      text-decoration: none;
+    }
+    .entity-rail-source:hover { background: rgba(255,255,255,0.08); }
+    .entity-rail-source .src-type {
+      font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; padding: 1px 4px; border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .entity-rail-source .src-type.tool { background: rgba(151, 110, 240, 0.18); color: #c0a3ff; }
+    .entity-rail-source .src-type.url { background: rgba(72, 187, 120, 0.18); color: #98e3b5; }
+    .entity-rail-source .src-type.primary_source { background: rgba(236, 153, 75, 0.18); color: #f3c08b; }
+    .entity-rail-source .src-type.rag { background: rgba(110, 168, 240, 0.18); color: #a3c7ff; }
+    .entity-rail-source .src-label {
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .entity-rail-actions {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    }
+    .entity-rail-action {
+      background: rgba(255,255,255,0.04); border: 1px solid var(--warm-border);
+      color: var(--warm-text); padding: 7px 8px; border-radius: 4px;
+      font-size: 12px; cursor: pointer;
+      display: flex; align-items: center; gap: 5px;
+      transition: background .12s, border-color .12s;
+    }
+    .entity-rail-action:hover {
+      background: rgba(255,255,255,0.08);
+      border-color: var(--warm-border-strong);
+    }
+    .entity-rail-action i { font-size: 12.5px; opacity: 0.85; }
+
     /* R-F738 (2026-05-20) — markdown tables for DD reports / compliance
        matrix output. Horizontal scroll on overflow keeps wide tables
        readable on mobile without breaking the chat column. */
@@ -467,6 +551,43 @@
   </div>
 
 </div>
+
+<!-- R-F735 (2026-05-20) — entity card right-rail. Surfaces the current
+     investigation focus + structured sources from the R-F732 sources
+     extractor. Hidden on screens <1100px so the chat column stays
+     readable on mobile / narrow laptops. -->
+<aside class="entity-rail" id="entity-rail" aria-label="Entity context">
+  <div class="entity-rail-empty" id="entity-rail-empty">
+    <div class="entity-rail-empty-icon"><i class="bi bi-radar"></i></div>
+    <div class="entity-rail-empty-title">No active entity</div>
+    <div class="entity-rail-empty-body">
+      When ARIA investigates an entity, a sticky context card will appear
+      here with the canonical name, sources, and a one-click prompt to
+      drill deeper.
+    </div>
+  </div>
+  <div class="entity-rail-card" id="entity-rail-card" style="display:none;">
+    <div class="entity-rail-section">
+      <div class="entity-rail-label">CURRENT FOCUS</div>
+      <div class="entity-rail-name" id="entity-rail-name"></div>
+      <div class="entity-rail-type" id="entity-rail-type"></div>
+    </div>
+    <div class="entity-rail-section" id="entity-rail-sources-section" style="display:none;">
+      <div class="entity-rail-label">SOURCES <span class="entity-rail-count" id="entity-rail-sources-count"></span></div>
+      <div class="entity-rail-sources" id="entity-rail-sources"></div>
+    </div>
+    <div class="entity-rail-section">
+      <div class="entity-rail-label">QUICK ACTIONS</div>
+      <div class="entity-rail-actions">
+        <button class="entity-rail-action" data-action="screen" title="Run a fast sanctions screen on this entity"><i class="bi bi-shield-check"></i> Screen</button>
+        <button class="entity-rail-action" data-action="dd" title="Full DD orchestrator"><i class="bi bi-diagram-3"></i> Full DD</button>
+        <button class="entity-rail-action" data-action="profile" title="Build a profile dossier"><i class="bi bi-person-badge"></i> Profile</button>
+        <button class="entity-rail-action" data-action="clear" title="Clear this entity context"><i class="bi bi-x-circle"></i> Clear</button>
+      </div>
+    </div>
+  </div>
+</aside>
+
 </main>
 
 <script src="js/app.js?v=3"></script>
@@ -668,6 +789,98 @@ sendBtn.addEventListener('click', function() {
   }
   if (!sendBtn.disabled) send(ta.value.trim());
 });
+
+// ── R-F735 (2026-05-20) — entity rail update logic ──
+// Reads window._ariaLatestSources (set by the R-F732/R-F737 SSE handler)
+// + the last-mentioned entity tracked across turns. Renders into the
+// right-rail card. Best-effort — never throws into the chat loop.
+window._ariaCurrentEntity = window._ariaCurrentEntity || { name: '', type: '' };
+
+function updateEntityRail() {
+  try {
+    var emptyEl = document.getElementById('entity-rail-empty');
+    var cardEl = document.getElementById('entity-rail-card');
+    if (!emptyEl || !cardEl) return;
+
+    var entity = window._ariaCurrentEntity || {};
+    var sources = window._ariaLatestSources || [];
+    var hasEntity = !!(entity.name || (sources && sources.length));
+    if (!hasEntity) {
+      emptyEl.style.display = '';
+      cardEl.style.display = 'none';
+      return;
+    }
+    emptyEl.style.display = 'none';
+    cardEl.style.display = '';
+
+    var nameEl = document.getElementById('entity-rail-name');
+    var typeEl = document.getElementById('entity-rail-type');
+    if (nameEl) nameEl.textContent = entity.name || '(sources detected — no entity name yet)';
+    if (typeEl) typeEl.textContent = entity.type && entity.type !== 'unknown' ? entity.type : '';
+
+    var srcSection = document.getElementById('entity-rail-sources-section');
+    var srcList = document.getElementById('entity-rail-sources');
+    var srcCount = document.getElementById('entity-rail-sources-count');
+    if (sources && sources.length && srcSection && srcList) {
+      srcSection.style.display = '';
+      if (srcCount) srcCount.textContent = '(' + sources.length + ')';
+      srcList.innerHTML = '';
+      sources.slice(0, 12).forEach(function(s) {
+        var node;
+        if (s.url) {
+          node = document.createElement('a');
+          node.href = s.url;
+          node.target = '_blank';
+          node.rel = 'noopener noreferrer';
+        } else {
+          node = document.createElement('div');
+        }
+        node.className = 'entity-rail-source';
+        var typ = document.createElement('span');
+        typ.className = 'src-type ' + (s.type || 'unknown');
+        typ.textContent = (s.type || 'src').slice(0, 5);
+        var lbl = document.createElement('span');
+        lbl.className = 'src-label';
+        lbl.title = s.label || s.url || '';
+        lbl.textContent = s.label || s.url || '(unnamed)';
+        node.appendChild(typ);
+        node.appendChild(lbl);
+        srcList.appendChild(node);
+      });
+    } else if (srcSection) {
+      srcSection.style.display = 'none';
+    }
+  } catch (err) {
+    console.warn('[R-F735] updateEntityRail failed:', err);
+  }
+}
+
+// Wire the quick-action buttons (one-shot delegation; idempotent).
+(function wireRailActions() {
+  var card = document.getElementById('entity-rail-card');
+  if (!card || card.dataset.wired === '1') return;
+  card.dataset.wired = '1';
+  card.addEventListener('click', function(e) {
+    var btn = e.target.closest('.entity-rail-action');
+    if (!btn) return;
+    var action = btn.dataset.action;
+    var name = (window._ariaCurrentEntity || {}).name || '';
+    if (action === 'clear') {
+      window._ariaCurrentEntity = { name: '', type: '' };
+      window._ariaLatestSources = [];
+      updateEntityRail();
+      return;
+    }
+    if (!name) return;
+    var prefix = '';
+    if (action === 'screen') prefix = '/screen ';
+    else if (action === 'dd') prefix = '/dd ';
+    else if (action === 'profile') prefix = 'Profile on ';
+    if (prefix && typeof send === 'function') {
+      send(prefix + name);
+    }
+  });
+})();
 
 // ── Markdown renderer ──
 // R-F738 (2026-05-20) — added pipe-table rendering, code fences, and
@@ -982,6 +1195,14 @@ async function send(text, opts) {
             streamBadge.textContent = evt.message;
             streamBadge.style.opacity = '1';
             streamBadge.dataset.progressStage = evt.stage || 'unknown';
+            // R-F735 — capture entity from the same event so the rail
+            // shows current focus even before sources arrive.
+            try {
+              if (evt.entity) {
+                window._ariaCurrentEntity = { name: evt.entity, type: '' };
+                if (typeof updateEntityRail === 'function') updateEntityRail();
+              }
+            } catch (_) {}
           } else if (evt.type === 'sources' && Array.isArray(evt.sources) && evt.sources.length) {
             // R-F732 (2026-05-20) — structured sources emitted before
             // the `done` event. Stash on the streamBody so the entity
@@ -990,6 +1211,8 @@ async function send(text, opts) {
             try {
               streamBody.dataset.sources = JSON.stringify(evt.sources);
               window._ariaLatestSources = evt.sources;
+              // R-F735 — refresh the entity rail with the new sources.
+              if (typeof updateEntityRail === 'function') updateEntityRail();
             } catch (_) { /* dataset write best-effort */ }
           } else if (evt.type === 'done') {
             SID = evt.session_id || SID;

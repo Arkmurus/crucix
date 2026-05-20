@@ -1891,9 +1891,10 @@
       "title": "I: granular tool-progress SSE events",
       "claimed_at": "2026-05-20T07:51:40Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1611fc5",
+      "notes": null,
+      "shipped_at": "2026-05-20T08:47:37Z"
     },
     {
       "r_number": "R-F738",
