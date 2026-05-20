@@ -1161,28 +1161,17 @@ async def dd_adverse_media_search_ep(req: AdverseMediaRequest):
     )
 
 
-# ── Brave Answers — single-call AI answer with citations ──────────────────
-# Separate product from Web Search. Pricey (~$0.04/call against the $10/mo
-# cap), so exposed explicitly rather than auto-invoked from every web_search.
-# Integration into deep_research's flow is a follow-up once the helper is
-# validated live.
-@router.get("/research/brave-answer")
-async def research_brave_answer_ep(q: str):
-    """Ask Brave Answers (AI-generated answer + citations).
-
-    Refuses to call when the monthly spend cap is reached — returns
-    ok=False with error='budget_cap' so callers can fall back to the
-    cheaper web_search path.
-    """
-    from ..intel import brave_answers
-    return await brave_answers.ask(q)
-
-
-@router.get("/research/brave-answer/spend")
-async def research_brave_answer_spend_ep():
-    """Month-to-date Brave Answers spend + call count against the cap."""
-    from ..intel import brave_answers
-    return await brave_answers.get_month_spend()
+# ── Brave Answers endpoints — REMOVED in R-F746 (2026-05-20) ──────────────
+# R-F320 (2026-05-11) stubbed the underlying brave_answers module after the
+# operator declined Brave; the routes themselves stayed exposed and showed
+# up as live endpoints on intel.arkmurus.com/health-style probes despite
+# always returning the "removed" sentinel. R-F746 deletes the routes so
+# the surface area shrinks honestly. brave_answers.py is intentionally
+# preserved as a stub because several capability tests (test_brave_removed
+# _rf320 + test_rf336 + test_dd_ecosystem) use it as a mock-attach target
+# to prove the stub stays cold; deleting the module would break those
+# guards. If brave is ever rehabilitated, restore the routes from git
+# history at HEAD ~ R-F745 (pre-removal SHA recorded in the R-F746 commit).
 
 
 # ── Airtable health — reads 1 row from Task Register + Pipeline ──

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 749,
+  "next_available": 752,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1999,6 +1999,34 @@
       "r_number": "R-F748",
       "title": "extend balkans_seed with technical/market_intel/osint facts to close gate #2 floor",
       "claimed_at": "2026-05-20T18:40:38Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "305fecf",
+      "notes": null,
+      "shipped_at": "2026-05-20T18:59:21Z"
+    },
+    {
+      "r_number": "R-F749",
+      "title": "A1: wrap security_protocol.run_security_audit in to_thread (Wedge Round 10 main-thread sync)",
+      "claimed_at": "2026-05-20T19:13:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F750",
+      "title": "A2: cache error_log_handler._project_relative_path to drop pathlib.realpath from each emit",
+      "claimed_at": "2026-05-20T19:13:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F751",
+      "title": "A3: wrap self_diagnostic _check_smoke SSL handshake in to_thread",
+      "claimed_at": "2026-05-20T19:13:42Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
