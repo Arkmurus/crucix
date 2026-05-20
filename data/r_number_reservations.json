@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 754,
+  "next_available": 755,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2051,6 +2051,16 @@
       "r_number": "R-F753",
       "title": "count + surface malformed SSE events in aria.html stream parser (audit P1 observability)",
       "claimed_at": "2026-05-20T19:34:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0cb6741",
+      "notes": null,
+      "shipped_at": "2026-05-20T19:35:45Z"
+    },
+    {
+      "r_number": "R-F754",
+      "title": "delete unused locales/*.json (en/fr/pt/ar never imported) — Oct 2026 launches en-only",
+      "claimed_at": "2026-05-20T19:38:14Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
