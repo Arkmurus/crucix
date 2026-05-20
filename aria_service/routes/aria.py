@@ -4029,6 +4029,30 @@ def _detect_tool_intent(message: str) -> dict | None:
             "_reason": "capability_introspection_rf399",
         }
 
+    # ── R-F731 (2026-05-20) — slash command for fast sanctions screen ──
+    # Pre-R-F731 users had to know the magic verb ("screen X" / "compliance
+    # check X" / "fuzzy match X") to fire the cheap primary-source path.
+    # Generic "is X sanctioned?" routed to the heavier deep_research path
+    # (60s narrative). The slash form removes the verb-guessing friction:
+    # `/screen Acme Corp` or `/sanctions Acme Corp` → existing screen tool.
+    # Per Agent 1 DD audit, this is the gap between "user asked a sanctions
+    # question" (~30% of DD chat traffic) and "expensive deep_research
+    # fired by default".
+    _SCREEN_SLASH_RE = re.compile(
+        r"^\s*/(?:screen|sanctions|sanction-?check|compliance)\s+(.+?)\s*$",
+        re.IGNORECASE,
+    )
+    _screen_slash = _SCREEN_SLASH_RE.match(msg)
+    if _screen_slash:
+        entity = _screen_slash.group(1).strip(" .,:;-?!\"'")
+        if entity and len(entity) >= 2:
+            return {
+                "tool": "screen",
+                "entity": entity[:200],
+                "context": msg,
+                "_reason": "screen_slash_command",
+            }
+
     # ── Pre-meeting briefing intent ──
     # "brief me for my meeting with Angola" / "prepare briefing for FADM"
     # "meeting prep for Ghana defence minister" / "pre-meeting brief Angola"
