@@ -2559,6 +2559,147 @@ async def deep_research(
 
     all_snippets = list(snippets_by_url.values())
 
+    # ── Step 3.5: 0-result escalation (R-F768, 2026-05-20) ────────────
+    # Live bug 2026-05-20 transcript: deep_research on 'Efdal Colpan' ran
+    # 4 angles (+R-F766 variants) → 0 snippets. Pre-R-F768 the function
+    # returned an empty result and the chat handler proposed retry
+    # options for the user to pick — wasting a turn (Clause 37 / R-F764
+    # anti-pattern). R-F768 walks the escalation tree IN-TURN:
+    #   (a) native-language web_search via search_multilingual when
+    #       R-F767's suggest_jurisdictions maps the entity name to a
+    #       non-English region (Turkish → tr, Arabic → ar, Slavic →
+    #       pl/sk/cz/hu, etc.)
+    #   (b) registry-adapter lookup_entity for the same jurisdictions
+    #       (limited to first 2 ISO2 + 8s cap each) so MERSIS / EDR /
+    #       Companies House / etc. get queried directly when the
+    #       open-web returned nothing
+    # Caps prevent runaway: native-language 10s, registry 18s total,
+    # respecting the overall_budget (default 45s). Each escalation
+    # phase appends to escalation_chain so observers can see what
+    # was tried.
+    escalation_chain: list[str] = []
+    escalation_registry: dict[str, dict] = {}
+    if not all_snippets:
+        _esc_t0 = time.time()
+        _esc_budget = max(2.0, overall_budget - (_esc_t0 - t0) - 2.0)
+        if _esc_budget < 3.0:
+            logger.info(
+                "R-F768 escalation: no budget left (%.1fs) — skipping",
+                _esc_budget,
+            )
+        else:
+            try:
+                from .name_variants import suggest_jurisdictions as _r768_juris
+                _jurisdictions = _r768_juris(entity)
+            except Exception as _juri_e:
+                logger.debug("R-F768 suggest_jurisdictions failed: %s", _juri_e)
+                _jurisdictions = []
+
+            # ISO2 → search_multilingual language code. Limited to the
+            # jurisdictions that have an aria_service registry adapter
+            # AND a search_multilingual language pair.
+            _ISO_TO_LANG = {
+                "TR": "tr",  "BG": "bg",  "SA": "ar",  "AE": "ar",
+                "PL": "pl",  "SK": "sk",  "CZ": "cs",  "HU": "hu",
+                "BR": "pt",  "AO": "pt",  "FR": "fr",  "DE": "de",
+                "RO": "ro",
+            }
+            _esc_langs = list({
+                _ISO_TO_LANG[j] for j in _jurisdictions if j in _ISO_TO_LANG
+            })
+
+            # ── (a) Native-language search ───────────────────────────
+            if _esc_langs:
+                escalation_chain.append(f"native_search:{','.join(sorted(_esc_langs))}")
+                try:
+                    from .web_search import search_multilingual as _r768_ml
+                    _native_results = await asyncio.wait_for(
+                        _r768_ml(entity, languages=_esc_langs, max_results=8),
+                        timeout=min(10.0, _esc_budget * 0.5),
+                    )
+                    for sr in (_native_results or []):
+                        _url = getattr(sr, "url", "") or ""
+                        if not _url or _url in snippets_by_url:
+                            continue
+                        try:
+                            _tier = classify_url_tier(_url)
+                        except Exception:
+                            _tier = 0
+                        snippets_by_url[_url] = {
+                            "url": _url,
+                            "title": getattr(sr, "title", "") or "",
+                            "snippet": (getattr(sr, "description", "") or "")[:300],
+                            "tier_score": _tier,
+                            "angles": ["__r768_native_escalation__"],
+                            "source_provider": "search_multilingual",
+                        }
+                    all_snippets = list(snippets_by_url.values())
+                    logger.info(
+                        "R-F768 native-language escalation: %d new snippets in %s "
+                        "(entity=%r, jurisdictions=%r)",
+                        max(0, len(all_snippets)),
+                        _esc_langs, entity[:80], _jurisdictions,
+                    )
+                except asyncio.TimeoutError:
+                    logger.info(
+                        "R-F768 native-language escalation timed out (%s)",
+                        _esc_langs,
+                    )
+                except Exception as _ml_e:
+                    logger.debug("R-F768 native-language escalation failed: %s", _ml_e)
+
+            # ── (b) Registry adapter lookup ──────────────────────────
+            # Try the first 2 jurisdictions only — registry adapters can
+            # be slow (15-25s each for some). The 18s hard cap below
+            # prevents runaway when both jurisdictions hang.
+            _esc_remaining = _esc_budget - (time.time() - _esc_t0)
+            if _jurisdictions and _esc_remaining > 5.0:
+                _registry_cap = min(18.0, _esc_remaining - 1.0)
+                _registry_per_call = _registry_cap / min(2, len(_jurisdictions))
+                escalation_chain.append(
+                    f"registry:{','.join(_jurisdictions[:2])}"
+                )
+                try:
+                    from . import registry_adapters as _r768_ra
+                    for _iso2 in _jurisdictions[:2]:
+                        if (time.time() - _esc_t0) > _registry_cap:
+                            break
+                        try:
+                            _reg_result = await asyncio.wait_for(
+                                _r768_ra.lookup_entity(entity, _iso2),
+                                timeout=_registry_per_call,
+                            )
+                            if _reg_result:
+                                escalation_registry[_iso2] = _reg_result
+                                logger.info(
+                                    "R-F768 registry escalation [%s]: %r → "
+                                    "%r",
+                                    _iso2, entity[:80],
+                                    (_reg_result.get("profile") or {}).get(
+                                        "company_name", "matched"
+                                    ),
+                                )
+                        except asyncio.TimeoutError:
+                            logger.info(
+                                "R-F768 registry [%s] timed out at %.1fs",
+                                _iso2, _registry_per_call,
+                            )
+                        except Exception as _ra_e:
+                            logger.debug(
+                                "R-F768 registry [%s] failed: %s", _iso2, _ra_e,
+                            )
+                except Exception as _ra_setup_e:
+                    logger.debug(
+                        "R-F768 registry-adapter import failed: %s",
+                        _ra_setup_e,
+                    )
+
+            if escalation_chain:
+                logger.info(
+                    "R-F768 escalation complete: chain=%r snippets=%d registry_hits=%d",
+                    escalation_chain, len(all_snippets), len(escalation_registry),
+                )
+
     # ── Step 4: rank URLs (tier_score + cross-angle bonus) ────────────
     for s in all_snippets:
         # Cross-angle bonus: a URL that appears in 2+ angle results is
@@ -2639,6 +2780,14 @@ async def deep_research(
         "prior_brave_knowledge": prior_brave_knowledge,
         "duration_ms": total_elapsed_ms,
         "budget_ms": int(overall_budget * 1000),
+        # R-F768 (2026-05-20) — observable escalation trail. Empty list
+        # when initial angles returned >=1 snippet. List of escalation
+        # phase tags (e.g. 'native_search:tr', 'registry:TR,BG') when
+        # the cross-tool fallback fired. escalation_registry maps ISO2
+        # to the registry-adapter result so the chat handler can
+        # render directorships / officers without a second tool call.
+        "escalation_chain": escalation_chain,
+        "escalation_registry": escalation_registry,
     }
 
 
