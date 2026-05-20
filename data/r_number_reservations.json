@@ -1950,9 +1950,10 @@
       "title": "convos panel timeout + clearer error so backend wedge doesn't hang Loading… forever",
       "claimed_at": "2026-05-20T18:14:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "807e8f5",
+      "notes": null,
+      "shipped_at": "2026-05-20T18:16:08Z"
     }
   ]
 }

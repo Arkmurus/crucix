@@ -203,6 +203,12 @@ _SELF_DENIAL_RE = re.compile(
         r"(?:" + _TOOL_KEYWORDS + r")"
     r"|"
         # "no <tool>" / "no direct <tool> access" / "no <tool> capability"
+        # Match the bare/modifier-tailed shape here; the R-F741
+        # negative-result-word exemption is applied as a post-filter in
+        # `scan_response()` so the regex backtracking doesn't bypass
+        # it (the `ofac(?:\s+sdn)?` greedy-with-fallback variants slip
+        # past a regex-level lookahead — see R-F741 comment in scan_
+        # response for the post-filter detail).
         r"\bno\s+(?:direct\s+)?(?:\w+\s+){0,3}"
         r"(?:" + _TOOL_KEYWORDS + r")"
         r"(?:\s+(?:access|capability|tooling|integration|adapter|tool))?"
@@ -319,10 +325,52 @@ def scan_response(
     # Phrases like "I cannot query OFSI" or "no outbound email capability"
     # contradict the R-F603 TOOL INVENTORY. These are never WARN: even
     # if self_introspect ran, the LLM is denying a capability it has.
+    #
+    # R-F741 (2026-05-20) post-filter: skip matches that are actually
+    # a NEGATIVE-RESULT phrase, not a capability denial. The regex
+    # itself can't reliably distinguish "no OFAC SDN match" (no list
+    # hit — a finding) from "no OFAC SDN tool" (a denial) because
+    # `ofac(?:\s+sdn)?` backtracks the SDN portion off and a regex-
+    # level lookahead misses the result word that comes after "SDN".
+    # Cheap fix: scan the next ~40 chars after each match for a
+    # result-word (match/hit/result/record/finding/etc.) — if one is
+    # present AND the match itself didn't end in an explicit
+    # capability modifier (access/capability/adapter/etc.), it's a
+    # negative finding, not a denial. Live evidence: dd_orchestrate
+    # 2026-05-20 output had the rf604 guard flag "no OFAC SDN" while
+    # the full phrase was "no OFAC SDN, EU consolidated, or
+    # OpenSanctions match" — a no-MATCH finding, not a capability
+    # claim.
+    _RESULT_WORDS = re.compile(
+        r"\b(?:match(?:es)?|hit(?:s)?|result(?:s)?|record(?:s)?|"
+        r"entry|entries|finding(?:s)?|listing(?:s)?|return(?:s)?)\b",
+        re.IGNORECASE,
+    )
+    _CAPABILITY_TAIL = re.compile(
+        r"(?:access|capability|tooling|integration|adapter|tool)\b\s*$",
+        re.IGNORECASE,
+    )
     for m in _SELF_DENIAL_RE.finditer(text):
+        matched = m.group(0)
+        # If the match itself ends with an explicit capability modifier,
+        # it's a clear denial regardless of what follows — keep it.
+        if not _CAPABILITY_TAIL.search(matched):
+            # Look ahead ~80 chars past the match end for a result word.
+            # 80 is chosen to span typical intermediate-clause widths
+            # like ", EU consolidated, or OpenSanctions match" (41
+            # chars) without bleeding into the next sentence.
+            tail = text[m.end():m.end() + 80]
+            # Stop at the first sentence terminator so a result-word
+            # from a DIFFERENT sentence doesn't suppress a denial in
+            # this one.
+            sentence_end = re.search(r"[.!?](?:\s|$)", tail)
+            if sentence_end:
+                tail = tail[:sentence_end.start()]
+            if _RESULT_WORDS.search(tail):
+                continue  # skip — this is a no-match finding, not a denial
         violations.append(Violation(
             pattern_id="rf604_capability_denial",
-            phrase=m.group(0),
+            phrase=matched,
             severity="BLOCK",
             advice=(
                 "Self-capability DENIAL contradicting the R-F603 TOOL "
