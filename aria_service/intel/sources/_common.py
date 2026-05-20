@@ -183,6 +183,29 @@ def fuzzy_filter(
 _DEFAULT_TIMEOUT_S = 12.0
 _DEFAULT_UA = "ARIA-DD-Orchestrator/1.0 (contact via /api/aria/health)"
 
+# R-F751 (2026-05-20) — bound the SSL handshake + DNS connect phase so
+# a stalled upstream can't park the event loop for many seconds.
+# `ssl.wrap_bio` / DNS lookups run synchronously inside the async httpx
+# pipeline; without an explicit connect_timeout, slow handshakes leak
+# into main-loop stall time (wedge_675_1779301744.log captured 6.23s
+# inside ssl.wrap_bio called from self_diagnostic._check_smoke → un_sc
+# _sanctions.is_available). 3s caps the worst-case stall per probe;
+# real outages still surface as a timeout exception within budget.
+_DEFAULT_CONNECT_TIMEOUT_S = 3.0
+
+
+def _make_httpx_timeout(total: float):
+    """R-F751: build a per-phase httpx Timeout that caps the connect/SSL
+    handshake at _DEFAULT_CONNECT_TIMEOUT_S. Without this, a slow SSL
+    handshake parks the main loop inside ssl.wrap_bio for the full
+    `total` window (wedge_675 captured 6.23s here).
+    """
+    import httpx
+    return httpx.Timeout(
+        total,
+        connect=_DEFAULT_CONNECT_TIMEOUT_S,
+    )
+
 
 async def http_get_json(
     url: str,
@@ -200,7 +223,11 @@ async def http_get_json(
     if headers:
         h.update(headers)
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        # R-F751: per-phase timeout bounds SSL handshake stall.
+        async with httpx.AsyncClient(
+            timeout=_make_httpx_timeout(timeout),
+            follow_redirects=True,
+        ) as client:
             r = await client.get(url, params=params, headers=h)
             r.raise_for_status()
             return r.json()
@@ -223,7 +250,11 @@ async def http_get_text(
     if headers:
         h.update(headers)
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        # R-F751: per-phase timeout bounds SSL handshake stall.
+        async with httpx.AsyncClient(
+            timeout=_make_httpx_timeout(timeout),
+            follow_redirects=True,
+        ) as client:
             r = await client.get(url, params=params, headers=h)
             r.raise_for_status()
             return r.text
