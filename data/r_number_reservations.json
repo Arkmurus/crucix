@@ -2121,9 +2121,10 @@
       "title": "thread tool_context into aria_chat_stream apply_stream_honesty (was hardcoded empty)",
       "claimed_at": "2026-05-20T20:05:10Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d3cf7ad",
+      "notes": null,
+      "shipped_at": "2026-05-20T20:07:08Z"
     }
   ]
 }
