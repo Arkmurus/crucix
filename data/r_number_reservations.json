@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 744,
+  "next_available": 748,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1922,9 +1922,10 @@
       "title": "wire fcdo_sanctions.lookup() into dd_orchestrator identity layer (close OFSI gap)",
       "claimed_at": "2026-05-20T18:06:07Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "19f24e4",
+      "notes": null,
+      "shipped_at": "2026-05-20T18:22:36Z"
     },
     {
       "r_number": "R-F741",
@@ -1955,6 +1956,42 @@
       "commit_sha": "807e8f5",
       "notes": null,
       "shipped_at": "2026-05-20T18:16:08Z"
+    },
+    {
+      "r_number": "R-F744",
+      "title": "fix test-email button frontend-backend contract mismatch (returns sent:true not messageId)",
+      "claimed_at": "2026-05-20T18:25:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F745",
+      "title": "flip ARIA_STATE_BACKEND default from upstash to sqlite (close gate #5 false-closure)",
+      "claimed_at": "2026-05-20T18:25:38Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F746",
+      "title": "remove Brave dead endpoint + web_search stubs (declined 2026-05-18)",
+      "claimed_at": "2026-05-20T18:25:39Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F747",
+      "title": "refresh CLAUDE.md §16 test baseline (3333→actual count)",
+      "claimed_at": "2026-05-20T18:25:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

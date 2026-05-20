@@ -146,15 +146,25 @@ document.getElementById('btn-test-email').addEventListener('click', async functi
     });
     var d = await r.json().catch(function(){ return {}; });
     if (r.ok) {
-      var adminOk = d.adminEmail && d.adminEmail.messageId;
-      var userOk  = d.testEmail  && d.testEmail.messageId;
+      // R-F744: accept either sent:true OR messageId. Pre-R-F744 the
+      // backend returned { sent: true } with no messageId, so this
+      // branch always fell through to the "nothing sent" error even
+      // when the email actually delivered. sendMail() now also
+      // returns messageId via the nodemailer info object.
+      var adminOk = d.adminEmail && (d.adminEmail.sent === true || !!d.adminEmail.messageId);
+      var userOk  = d.testEmail  && (d.testEmail.sent  === true || !!d.testEmail.messageId);
       if (adminOk || userOk) {
-        showMsg('ok', '✓ Email alerter reachable. Admin: ' + (adminOk ? 'sent' : 'failed') + ', Test: ' + (userOk ? 'sent' : 'failed'));
+        var ids = [];
+        if (adminOk && d.adminEmail.messageId) ids.push('admin=' + d.adminEmail.messageId);
+        if (userOk  && d.testEmail.messageId)  ids.push('test=' + d.testEmail.messageId);
+        showMsg('ok', '✓ Email alerter OK — Admin: ' + (adminOk ? 'sent' : 'failed') + ', Test: ' + (userOk ? 'sent' : 'failed') + (ids.length ? ' [' + ids.join(', ') + ']' : ''));
       } else {
-        showMsg('err', '✗ Email alerter returned OK but nothing sent. Check SMTP config: ' + JSON.stringify(d.smtpConfig || {}));
+        var adminReason = (d.adminEmail && d.adminEmail.reason) || '';
+        var userReason  = (d.testEmail  && d.testEmail.reason)  || '';
+        showMsg('err', '✗ Email send failed. Admin: ' + (adminReason || 'unknown') + ' · Test: ' + (userReason || 'unknown') + '. SMTP config: ' + JSON.stringify(d.smtpConfig || {}));
       }
     } else {
-      showMsg('err', '✗ Email test failed: ' + r.status);
+      showMsg('err', '✗ Email test failed: HTTP ' + r.status);
     }
   } catch (err) {
     showMsg('err', '✗ Network error: ' + err.message);
