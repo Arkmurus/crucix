@@ -3008,6 +3008,23 @@ async def _aria_chat_impl(
     except Exception as _ca_err:
         logger.debug("cultural_atlas chat inject failed (non-fatal): %s", _ca_err)
 
+    # R-F730 (2026-05-20) — entity resolution pre-flight. Resolves the
+    # user's free-text entity reference into canonical-name + aliases
+    # + prior facts/signals BEFORE the LLM call, so tool dispatch
+    # downstream sees a disambiguated entity and the LLM has multi-turn
+    # context even when chat session state cold-starts. Per Agent 1's
+    # DD audit, this closes the "Artur Group Angola" → "Arturo's
+    # Restaurant" class of error. Fail-soft + wedge-protected (sync
+    # scans inside dispatch through asyncio.to_thread per R-F727).
+    try:
+        from .intel import entity_resolver as _er
+        _resolved = await _er.resolve(message, persona=persona)
+        _entity_block = _er.render_context_block(_resolved)
+        if _entity_block:
+            context = _entity_block + "\n\n" + (context or "")
+    except Exception as _er_err:
+        logger.debug("R-F730 entity_resolver failed (non-fatal): %s", _er_err)
+
     # R-F636: user_model.touch_active — record the user is engaging
     # right now. Fire-and-forget, fail-open. Used by R-F619 anti-
     # repeat + R-F624 autonomous-push routing.
@@ -3687,6 +3704,18 @@ async def _aria_chat_stream_impl(
                 context = _cult_chat_block_s + "\n\n" + (context or "")
     except Exception as _ca_err_s:
         logger.debug("cultural_atlas stream inject failed (non-fatal): %s", _ca_err_s)
+
+    # R-F730 (2026-05-20) — stream mirror of the entity resolution
+    # pre-flight per CLAUDE.md §13 stream-bypass rule.
+    try:
+        from .intel import entity_resolver as _er_s
+        _resolved_s = await _er_s.resolve(message, persona=persona)
+        _entity_block_s = _er_s.render_context_block(_resolved_s)
+        if _entity_block_s:
+            context = _entity_block_s + "\n\n" + (context or "")
+    except Exception as _er_err_s:
+        logger.debug("R-F730 stream entity_resolver failed (non-fatal): %s", _er_err_s)
+
     try:
         from .intel import user_model as _um
         _uid_for_touch_s = (user_id or "").strip()
