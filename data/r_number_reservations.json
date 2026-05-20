@@ -2031,9 +2031,10 @@
       "title": "A3: wrap self_diagnostic _check_smoke SSL handshake in to_thread",
       "claimed_at": "2026-05-20T19:13:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "8dddd8b",
+      "notes": null,
+      "shipped_at": "2026-05-20T19:31:31Z"
     },
     {
       "r_number": "R-F752",
