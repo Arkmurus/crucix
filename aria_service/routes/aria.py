@@ -8016,7 +8016,21 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                     _r446_result = await _sh.apply_stream_honesty(
                         response_text=_full_text,
                         user_message=req.message or "",
-                        tool_context="",  # not threaded into stream today
+                        # R-F760 (2026-05-20): was tool_context="" with the
+                        # comment "not threaded into stream today" since
+                        # R-F448 (2026-05-13). The audit on 2026-05-20
+                        # flagged this as P1: streamed CRITICAL responses
+                        # got weaker verification than non-stream because
+                        # the ground_truth_guard inside apply_stream_honesty
+                        # couldn't compare a CONFIRMED-tagged claim against
+                        # the extract that backed it (2026-04-18 CSG-Group
+                        # incident class). The tool_context variable was
+                        # already in scope from line ~7920 in this
+                        # generator — pre-R-F760 it was used in
+                        # message_for_llm (line ~7950) but not passed into
+                        # the honesty pass. Now threaded; verification on
+                        # stream now matches /chat parity.
+                        tool_context=tool_context or "",
                         tool_used=tool_used,
                         session_id=session_id or "",
                         user_id=user_id or "",
