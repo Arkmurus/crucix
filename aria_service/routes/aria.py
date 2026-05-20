@@ -7010,11 +7010,44 @@ async def chat_ep(req: ChatRequest, request: Request):
             if _severity == "CRITICAL" and llm is not None and response_text:
                 _sec_provider = _vg.pick_secondary_provider(llm)
                 if _sec_provider is None:
-                    # CRITICAL output but no independent secondary available
-                    # (fallback chain has only one healthy provider). Count
-                    # it so /verification/stats reveals the real gap —
-                    # otherwise the dashboard reads 0/0/0 and looks healthy.
+                    # R-F756 (2026-05-20): CRITICAL output but no independent
+                    # secondary available — fallback chain has only one
+                    # healthy provider (typical when Anthropic billing is
+                    # in cooldown and only DeepSeek is live, see CLAUDE.md
+                    # §14). Pre-R-F756 this silently recorded to
+                    # /verification/stats but the CRITICAL response went
+                    # to the user with no warning. Audit on 2026-05-20
+                    # (P2) called this out: the operator only sees the
+                    # gap by manually inspecting the stats endpoint.
+                    # R-F756 now:
+                    #   1. Logs at ERROR so the gap is visible in fly logs
+                    #      (and aria-tickets can pick it up).
+                    #   2. Sets result.critical_unverified so the UI /
+                    #      WhatsApp listener can branch on it.
+                    #   3. Sets result.verification_skipped with the
+                    #      reason so chat-audit + downstream consumers
+                    #      know the verification path was not run.
+                    #   4. Appends a user-visible banner so the human
+                    #      operator sees the missing secondary before
+                    #      acting on a CRITICAL recommendation.
                     await _vg.record_skipped("no_secondary_provider")
+                    _log.error(
+                        "[verification_gate] CRITICAL response shipped UNVERIFIED "
+                        "— no secondary provider available (trace=%s, "
+                        "severity=CRITICAL). Anthropic cooldown? Check "
+                        "/verification/stats + /cost/monthly.",
+                        trace_id,
+                    )
+                    result["critical_unverified"] = True
+                    result["verification_skipped"] = "no_secondary_provider"
+                    if "[CRITICAL — UNVERIFIED" not in response_text:
+                        response_text = (
+                            response_text
+                            + "\n\n⚠ [CRITICAL — UNVERIFIED — no independent "
+                              "second-opinion provider available right now] "
+                              "Human adjudication required before acting on this answer."
+                        )
+                        result["response"] = response_text
                 if _sec_provider is not None:
                     try:
                         # Tag the secondary-opinion call as `verification`
