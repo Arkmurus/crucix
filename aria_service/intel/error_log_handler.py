@@ -48,17 +48,47 @@ logger = logging.getLogger("aria.error_log_handler")
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
+# R-F750 (2026-05-20) — cache of resolved project-relative paths.
+# Pre-R-F750 every WARNING+ aria.* log emit called Path().resolve()
+# which invokes os.path.realpath — a syscall chain walking the
+# filesystem. wedge_675_1779301744.log captured a 6.96s main-loop
+# stall with the main thread parked inside
+# `pathlib.realpath` → `_project_relative_path` → `error_log_handler.emit`
+# triggered by an autonomy_surface timeout warning. Caching is safe:
+# the file paths in record.pathname are stable for the process lifetime
+# (the Python module set doesn't change post-import), so we compute
+# once per unique pathname and reuse. Bounded to MAX_CACHE entries to
+# prevent unbounded growth from synthetic / dynamically-generated
+# paths (e.g. <string> sources from exec()).
+_PATH_CACHE: dict[str, str] = {}
+_PATH_CACHE_MAX = 2000
+
+
 def _project_relative_path(pathname: str) -> str:
     """Return a POSIX-style path relative to the project root, falling back
     to the basename when the source file is outside the project tree
     (third-party libraries, stdlib). Third-party records are already filtered
-    by the aria.* logger-name gate above, so this fallback is rarely hit."""
+    by the aria.* logger-name gate above, so this fallback is rarely hit.
+
+    R-F750: cached. Path.resolve() does an os.path.realpath syscall
+    chain — called once per emit, this was the dominant cost during
+    log bursts. Cache lookup is O(1)."""
     if not pathname:
         return ""
+    cached = _PATH_CACHE.get(pathname)
+    if cached is not None:
+        return cached
     try:
-        return Path(pathname).resolve().relative_to(_PROJECT_ROOT).as_posix()
+        result = Path(pathname).resolve().relative_to(_PROJECT_ROOT).as_posix()
     except (ValueError, OSError):
-        return Path(pathname).name
+        result = Path(pathname).name
+    # Bounded cache — drop everything if it exceeds the cap rather than
+    # implement LRU. Realistic upper bound is ~500 distinct emit paths
+    # across all aria.* modules; 2000 is comfortable headroom.
+    if len(_PATH_CACHE) >= _PATH_CACHE_MAX:
+        _PATH_CACHE.clear()
+    _PATH_CACHE[pathname] = result
+    return result
 
 # Substrings that mark a log line as transient/operational rather than
 # actionable. These get filtered out so the ledger doesn't fill with

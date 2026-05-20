@@ -2011,9 +2011,10 @@
       "title": "A1: wrap security_protocol.run_security_audit in to_thread (Wedge Round 10 main-thread sync)",
       "claimed_at": "2026-05-20T19:13:42Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "416a09a",
+      "notes": null,
+      "shipped_at": "2026-05-20T19:29:25Z"
     },
     {
       "r_number": "R-F750",
