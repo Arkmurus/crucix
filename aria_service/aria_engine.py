@@ -3460,11 +3460,26 @@ async def _aria_chat_impl(
     except Exception:
         pass
 
+    # R-F732 (2026-05-20) — structured sources[] in the response JSON.
+    # Pre-R-F732 callers had to regex inline `[from tool:run_id]` markers
+    # and bare URLs out of `response_text` themselves. The chat_sources
+    # extractor centralises that, returning a deduped typed list the
+    # frontend can render as chips / footnote popovers / source rail.
+    # Fail-soft per Agent 1 audit recommendation — never let citation
+    # collection break the chat response.
+    _sources: list[dict] = []
+    try:
+        from .intel import chat_sources as _cs
+        _sources = _cs.extract(response_text, tool_context=context or "")
+    except Exception as _cs_err:
+        logger.debug("R-F732 chat_sources extract failed (non-fatal): %s", _cs_err)
+
     return {
         "response": response_text,
         "session_id": session_id,
         "turn": len(history) // 2,
         "source": "cloud_llm",
+        "sources": _sources,
         "independent": False,
     }
 
@@ -4104,6 +4119,17 @@ async def _aria_chat_stream_impl(
             "R-F455 stream: output_harvester.harvest dispatch failed: %s",
             _oh_e,
         )
+
+    # R-F732 (2026-05-20) — mirror of the non-stream sources[] field per
+    # CLAUDE.md §13. Emitted as its own SSE event BEFORE `done` so the
+    # frontend can render chips while the user is reading. Fail-soft.
+    try:
+        from .intel import chat_sources as _cs
+        _sources = _cs.extract(response_text, tool_context="")
+        if _sources:
+            yield _emit("sources", sources=_sources, session_id=session_id)
+    except Exception as _cs_err:
+        logger.debug("R-F732 stream chat_sources extract failed (non-fatal): %s", _cs_err)
 
     # ── Done event with metadata ──────────────────────────────────────
     model = stream_result.model if stream_result else ""

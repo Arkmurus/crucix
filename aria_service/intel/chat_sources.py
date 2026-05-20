@@ -1,0 +1,183 @@
+"""R-F732 (2026-05-20) — structured chat response source extraction.
+
+Pre-R-F732 chat citations were inline-only: `[from dd_orchestrate:run_id]`
+markers and bare URLs embedded in the prose. A consumer wanting to
+build a "Sources" rail / chip strip / footnote popover had to regex
+the text — there was no structured `sources[]` field in the chat
+response JSON.
+
+This module extracts citations from the LLM response text and
+optional tool_context block, returning a deduplicated list of
+typed source dicts suitable for the frontend to render as
+clickable chips.
+
+Detection patterns (best-effort, non-blocking):
+  * `[from <tool>:<run_id>]`             → type=tool
+  * `[from <tool>]`                      → type=tool (no run_id)
+  * `http(s)://...`                       → type=url
+  * `[SANCTIONS LIVE CHECK ...]` blocks  → type=primary_source
+  * RAG-emitted `[source: <path-or-url>]` → type=rag
+
+The output is capped at 50 sources per response to keep the
+frontend rail manageable.
+"""
+from __future__ import annotations
+
+import re
+from typing import Any
+
+# Inline tool-result citation. dd_orchestrator + several other tools
+# emit prose like "...findings [from dd_orchestrate:abc123]". The run
+# ID is the trace id callers can use to drill into the run record.
+_TOOL_CITE_RE = re.compile(
+    r"\[from\s+([a-z_][a-z0-9_]*)(?:\s*:\s*([A-Za-z0-9_\-]+))?\s*\]",
+    re.IGNORECASE,
+)
+
+# Bare URL pattern. Strict enough to avoid trailing punctuation
+# (matches the same shape used by routes/aria.py:_URL_RE for the
+# investigate tool).
+_URL_RE = re.compile(
+    r"https?://[^\s<>\"\'\)\]\}]+",
+    re.IGNORECASE,
+)
+
+# Primary-source sanctions block emitted by sanctions_claim_guard.
+# Shape: "[SANCTIONS LIVE CHECK ...]" or "[SANCTIONS LIVE CHECK — DEGRADED]"
+_PRIMARY_SANCTIONS_RE = re.compile(
+    r"\[SANCTIONS LIVE CHECK(?:\s*—\s*[A-Z ]+)?\]",
+)
+
+# RAG inline citation pattern. The retrieval layer formats source
+# paths as "[source: <path>]" / "[ref: <id>]" when injecting into
+# the context block.
+_RAG_CITE_RE = re.compile(
+    r"\[(?:source|ref|cite)\s*:\s*([^\]]+)\]",
+    re.IGNORECASE,
+)
+
+# Hard cap so a pathological response can't generate thousands of
+# source entries.
+MAX_SOURCES = 50
+
+# URLs that aren't really useful citations — strip these.
+_URL_BLOCKLIST = (
+    "example.com",
+    "localhost",
+    "127.0.0.1",
+)
+
+
+def _looks_like_real_url(url: str) -> bool:
+    low = url.lower()
+    return not any(blocked in low for blocked in _URL_BLOCKLIST)
+
+
+def extract(response_text: str, tool_context: str = "") -> list[dict[str, Any]]:
+    """Extract typed source citations from response text + optional
+    tool_context. Returns a deduplicated list ordered by first
+    appearance. Each entry has shape:
+
+        {
+          "type":  "tool" | "url" | "primary_source" | "rag",
+          "label": str,            # human-readable
+          "url":   str | None,     # if applicable
+          "tool":  str | None,     # for type=tool
+          "run_id": str | None,    # for type=tool with trace
+        }
+
+    The function is fail-soft: any regex failure returns whatever
+    has been collected so far (never raises).
+    """
+    if not response_text and not tool_context:
+        return []
+
+    seen_keys: set[str] = set()
+    sources: list[dict[str, Any]] = []
+    combined = (response_text or "") + "\n" + (tool_context or "")
+
+    try:
+        # 1. Inline tool citations — `[from tool:run_id]`
+        for m in _TOOL_CITE_RE.finditer(combined):
+            tool, run_id = m.group(1).lower(), m.group(2)
+            key = f"tool:{tool}:{run_id or ''}"
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            sources.append({
+                "type":   "tool",
+                "label":  f"{tool}" + (f" run {run_id[:8]}" if run_id else ""),
+                "url":    None,
+                "tool":   tool,
+                "run_id": run_id,
+            })
+            if len(sources) >= MAX_SOURCES:
+                return sources
+
+        # 2. Bare URLs
+        for m in _URL_RE.finditer(combined):
+            url = m.group(0).rstrip(".,;:!?\")]}>'»”")
+            if not _looks_like_real_url(url):
+                continue
+            key = f"url:{url}"
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            # Use the host as the label if available
+            label = url
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                if parsed.hostname:
+                    host = parsed.hostname.lstrip("www.")
+                    label = host
+            except Exception:
+                pass
+            sources.append({
+                "type":   "url",
+                "label":  label,
+                "url":    url,
+                "tool":   None,
+                "run_id": None,
+            })
+            if len(sources) >= MAX_SOURCES:
+                return sources
+
+        # 3. Primary-source sanctions blocks
+        for m in _PRIMARY_SANCTIONS_RE.finditer(combined):
+            key = f"primary:sanctions_live_check"
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            sources.append({
+                "type":   "primary_source",
+                "label":  "Sanctions live check (OFAC / EU / OFSI)",
+                "url":    None,
+                "tool":   "sanctions_claim_guard",
+                "run_id": None,
+            })
+
+        # 4. RAG inline citations
+        for m in _RAG_CITE_RE.finditer(combined):
+            ref = m.group(1).strip()[:200]
+            key = f"rag:{ref}"
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            # If the ref looks like a URL, surface it as one
+            looks_url = ref.lower().startswith(("http://", "https://"))
+            sources.append({
+                "type":   "rag",
+                "label":  ref if not looks_url else (ref.split("/")[2] if "/" in ref else ref),
+                "url":    ref if looks_url else None,
+                "tool":   None,
+                "run_id": None,
+            })
+            if len(sources) >= MAX_SOURCES:
+                return sources
+
+    except Exception:
+        # Fail-soft: extraction must never break the chat response.
+        return sources
+
+    return sources
