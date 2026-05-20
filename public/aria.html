@@ -971,6 +971,26 @@ async function send(text, opts) {
           } else if (evt.type === 'status' && evt.message) {
             streamBadge.textContent = evt.message;
             streamBadge.style.opacity = '1';
+          } else if (evt.type === 'progress' && evt.message) {
+            // R-F737 (2026-05-20) — granular tool-progress feedback.
+            // Pre-R-F737 the user saw nothing during the 30-60s tool
+            // wait (deep_research / dd_orchestrate / screen). Now each
+            // substep of the SSE generator emits a progress event:
+            // detecting / tool_running / tool_done / no_tool. Render
+            // into the badge with a subtle pulse so the user sees
+            // continuous feedback.
+            streamBadge.textContent = evt.message;
+            streamBadge.style.opacity = '1';
+            streamBadge.dataset.progressStage = evt.stage || 'unknown';
+          } else if (evt.type === 'sources' && Array.isArray(evt.sources) && evt.sources.length) {
+            // R-F732 (2026-05-20) — structured sources emitted before
+            // the `done` event. Stash on the streamBody so the entity
+            // card rail / source chip strip can pick them up after the
+            // stream completes.
+            try {
+              streamBody.dataset.sources = JSON.stringify(evt.sources);
+              window._ariaLatestSources = evt.sources;
+            } catch (_) { /* dataset write best-effort */ }
           } else if (evt.type === 'done') {
             SID = evt.session_id || SID;
           } else if (evt.type === 'meta') {
