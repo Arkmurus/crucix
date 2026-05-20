@@ -3536,6 +3536,28 @@ async def _aria_chat_impl(
     except Exception as _cs_err:
         logger.debug("R-F732 chat_sources extract failed (non-fatal): %s", _cs_err)
 
+    # R-F761 (2026-05-20) — cache_hit visibility. The audit on
+    # 2026-05-20 flagged the pay-once-remember-forever guarantee
+    # (R-F655: every paid LLM response feeds brain_hook + rag_store +
+    # ledger; next equivalent query hits memory for $0) as REAL but
+    # UNMEASURABLE — the chat response carried no signal to the
+    # caller / UI / cost dashboard about whether the answer came
+    # from memory or required a fresh LLM call.
+    #
+    # cache_hit is a CONSERVATIVE proxy:
+    #   - >=2 RAG sources retrieved (one citation could be coincidence;
+    #     two is brain memory speaking)
+    #   - >=500 chars of RAG context fed to the LLM
+    # When both hold, the answer is substantially grounded in prior
+    # absorbed material — i.e. the pay-once promise is paying off.
+    # When false, the LLM still ran (cost > $0) but the brain didn't
+    # have enough context to help.
+    _r761_rag_sources = _rag_sources_var.get([])
+    _r761_rag_ctx = _rag_ctx_var.get("")
+    _r761_cache_hit = bool(
+        len(_r761_rag_sources) >= 2 and len(_r761_rag_ctx) >= 500
+    )
+
     return {
         "response": response_text,
         "session_id": session_id,
@@ -3543,6 +3565,11 @@ async def _aria_chat_impl(
         "source": "cloud_llm",
         "sources": _sources,
         "independent": False,
+        "cache_hit": _r761_cache_hit,
+        "cache_signal": {
+            "rag_sources": len(_r761_rag_sources),
+            "rag_context_chars": len(_r761_rag_ctx),
+        },
     }
 
 
