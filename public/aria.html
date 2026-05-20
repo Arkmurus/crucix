@@ -1452,16 +1452,36 @@ var Convos = (function() {
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
   }
 
-  async function authedJson(method, url, body) {
+  async function authedJson(method, url, body, opts2) {
     var token = localStorage.getItem('crucix_token') || '';
     var opts = { method: method, headers: { 'Authorization': 'Bearer ' + token } };
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
-    var resp = await fetch(url, opts);
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    return resp.json();
+    // R-F743 (2026-05-20) — per-call timeout. Pre-R-F743 a backend
+    // wedge (event-loop stall on the Python side) made the convos
+    // fetch hang forever — frontend showed "Loading…" indefinitely
+    // with no actionable error. Default 20s; callers can override
+    // via opts2.timeoutMs. AbortController throws AbortError which
+    // the caller can render as a clear "Backend slow — try again"
+    // message.
+    var timeoutMs = (opts2 && opts2.timeoutMs) || 20000;
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    if (ctrl) opts.signal = ctrl.signal;
+    var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, timeoutMs) : null;
+    try {
+      var resp = await fetch(url, opts);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return await resp.json();
+    } catch (err) {
+      if (err && (err.name === 'AbortError' || /aborted/i.test(err.message || ''))) {
+        throw new Error('timeout after ' + timeoutMs + 'ms (backend may be wedged)');
+      }
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   function renderRow(c) {

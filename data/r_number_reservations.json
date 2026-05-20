@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 743,
+  "next_available": 744,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1939,6 +1939,16 @@
       "r_number": "R-F742",
       "title": "stable user_id derivation: prefer email > username > id (fix conversation orphaning on seenode deploys)",
       "claimed_at": "2026-05-20T18:10:19Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "fa1c495",
+      "notes": null,
+      "shipped_at": "2026-05-20T18:12:45Z"
+    },
+    {
+      "r_number": "R-F743",
+      "title": "convos panel timeout + clearer error so backend wedge doesn't hang Loading… forever",
+      "claimed_at": "2026-05-20T18:14:25Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
