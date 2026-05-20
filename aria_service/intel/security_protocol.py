@@ -21,6 +21,7 @@ This module operates at the intelligence/protocol layer.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timezone
@@ -817,15 +818,28 @@ async def run_security_audit() -> dict:
           - warning (list[str]): Warnings requiring review.
           - clean_areas (list[str]): Areas that passed all checks.
           - timestamp (str): ISO-8601 UTC timestamp of the audit.
+
+    R-F749 (2026-05-20): the body of the audit is heavy synchronous
+    regex work over the entire knowledge base (~56k facts, ~50MB+
+    concatenated text). wedge_675_1779301744.log captured a 7.20s
+    main-loop stall at line 871 (the CHECK 2 path-pattern regex
+    loop) when this fired from `self_improve._self_improve_loop`.
+    The fix dispatches the post-await sync body to a worker via
+    asyncio.to_thread so the event loop stays responsive.
     """
     from . import knowledge
 
+    timestamp = datetime.now(timezone.utc).isoformat()
+    logger.info("Security audit started at %s", timestamp)
+    all_facts = await knowledge.get_all_facts()
+    return await asyncio.to_thread(_run_security_audit_sync, all_facts, timestamp)
+
+
+def _run_security_audit_sync(all_facts, timestamp: str) -> dict:
+    """R-F749: sync body of the security audit — runs in a worker thread."""
     critical: list[str] = []
     warning: list[str] = []
     clean_areas: list[str] = []
-
-    timestamp = datetime.now(timezone.utc).isoformat()
-    logger.info("Security audit started at %s", timestamp)
 
     # --- CHECK 1: API key leakage in knowledge base ---
     api_key_patterns = [
@@ -837,7 +851,6 @@ async def run_security_audit() -> dict:
     ]
 
     try:
-        all_facts = await knowledge.get_all_facts()
         facts_text = " ".join(
             str(f.get("content", "")) for f in all_facts
         ) if isinstance(all_facts, list) else str(all_facts)
