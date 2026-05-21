@@ -31,6 +31,17 @@ from typing import Any
 
 from . import redis_store as rs
 
+# R-F772: eager-import counterparty_claim_ledger at module top so the
+# transitive `anthropic` SDK load (heavy Pydantic models, ~5-15s on
+# cold machines) is paid once at boot rather than on the first
+# /api/aria/autonomy/surface call. The lazy `from . import
+# counterparty_claim_ledger` inside _resilience_floor was the
+# wedge cause observed in /data/wedge_stacks/wedge_674_1779350869.log
+# (main thread blocked inside anthropic/types/beta_error.py for 81s
+# while the dashboard polled, cascading R-F703 stalls and a fly
+# health-check failure at 08:15:51 UTC on 2026-05-21).
+from . import counterparty_claim_ledger as _claim_ledger_module  # noqa: F401
+
 logger = logging.getLogger("aria.intel.autonomy_surface")
 
 
@@ -457,12 +468,10 @@ async def _resilience_floor() -> dict[str, Any]:
     except Exception:
         pass
 
-    try:
-        from . import counterparty_claim_ledger  # noqa: F401
-        # Exact count requires iteration; skip for speed — presence is enough.
-        out["memory"]["claim_ledger_entries"] = -1  # "available, count not probed"
-    except Exception:
-        pass
+    # R-F772: counterparty_claim_ledger is eager-imported at module top
+    # (see header), so presence is guaranteed by import time. Exact count
+    # requires iteration; skip for speed — presence is enough.
+    out["memory"]["claim_ledger_entries"] = -1  # "available, count not probed"
 
     # ── Resilience count ──
     # How many independent fallback paths are available RIGHT NOW?
