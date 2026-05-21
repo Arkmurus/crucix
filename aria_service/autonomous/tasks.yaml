@@ -1900,3 +1900,256 @@ tasks:
     whatsapp_group_id: ""
     escalate_if: []
     mem0_tags: [learning, cost-free, autonomous, dry-run]
+
+  # ══════════════════════════════════════════════════════════════════════
+  # R-F778 (2026-05-21) — PER-SOURCE DEDICATED MONITORS (Phase 1)
+  # ══════════════════════════════════════════════════════════════════════
+  # Operator mandate: "she needs to be able to create her own bots ... own
+  # bots that will seat and monitor a specific website, specific source
+  # of intel etc." This is the Phase-1 monitor fleet — eight focused tasks
+  # each watching a single high-value source from the R-F777 expansion.
+  # Cadences are conservative (no monitor fires more often than every 6h)
+  # so the daily cost cap (ARIA_AUTONOMOUS_DAILY_COST_CAP_USD, default
+  # $1/day) absorbs them without throttling. Each task uses deep_research
+  # with a focused entity prompt so the constitutional pipeline (clause
+  # 17 verified intel, clause 18 content quality, clause 19 search
+  # doctrine) applies on every fire.
+  #
+  # All eight enabled by default — the engine itself is still gated by
+  # ARIA_AUTONOMOUS_ENABLED, and dry-run (default) routes outputs to
+  # the R-F774 visibility ledger. Operator flips ARIA_AUTONOMOUS_DRY_RUN=0
+  # only after watching dryrun_history.recent() for a day.
+
+  # ── 1. CISA KEV — actively-exploited CVEs in defence sector ────────────
+  - id: MONITOR-CISA-KEV
+    name: CISA KEV catalog — defence-sector exploitations
+    description: |
+      Twice-daily scan of the CISA Known Exploited Vulnerabilities catalog
+      for new entries that name defence-sector vendors (Lockheed, BAE,
+      Raytheon, Boeing, Northrop, RTX, L3Harris, Thales, MBDA, Leonardo,
+      Saab, KNDS, Rheinmetall, Elbit, IAI, Aselsan, ASELSAN, Baykar,
+      MoD, DoD) OR products commonly fielded in defence networks
+      (Cisco, Fortinet, Juniper, Palo Alto, F5, Citrix, VMware,
+      Microsoft Exchange, SharePoint, Confluence). Escalates on any
+      KEV addition with CVSS >= 9.0.
+    cron: "0 6,18 * * *"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 240
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "CISA Known Exploited Vulnerabilities catalog new entries 2026 defence sector vendor exploitation CVSS 9 critical"
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if:
+      - "CVSS 9"
+      - "CVSS 10"
+      - "actively exploited"
+      - "defence vendor"
+      - "Lockheed"
+      - "BAE"
+      - "Raytheon"
+      - "ransomware"
+    mem0_tags: [cyber, cve, cisa, defence_sector, monitor, autonomous]
+
+  # ── 2. LME copper — base metals pricing for procurement valuation ──────
+  - id: MONITOR-LME-COPPER
+    name: LME copper price + defence procurement implications
+    description: |
+      Daily 09:00 UTC check on LME copper closing price plus a 30-day
+      trailing trend. Copper is the leading indicator for electronics-
+      heavy defence procurement (radar, wiring, motors). Escalates on
+      >5% daily move or a 30-day shift that crosses a procurement
+      contract repricing threshold.
+    cron: "0 9 * * mon-fri"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.15
+    tool_chain:
+      - tool: deep_research
+        entity: "London Metal Exchange LME copper closing price today percent change 30-day trend defence procurement contract repricing"
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if:
+      - "5%"
+      - "10%"
+      - "repricing"
+      - "supply shock"
+      - "embargo"
+      - "Chile"
+      - "Peru"
+      - "Chinese stockpile"
+    mem0_tags: [commodities, copper, lme, pricing, monitor, autonomous]
+
+  # ── 3. Equasis — dark-fleet vessel sanctions-evasion ───────────────────
+  - id: MONITOR-EQUASIS-DARK-FLEET
+    name: Equasis dark-fleet vessel disclosures
+    description: |
+      Weekly Monday 07:00 UTC scan for newly-disclosed dark-fleet
+      vessels (Russia / Iran / Venezuela / DPRK linked) appearing in
+      Equasis port-state-control records. Cross-references with
+      OFAC/UK/EU sanctions lists. Escalates on AIS-spoofing,
+      ship-to-ship transfer evidence, or registry-flag-hopping.
+    cron: "0 7 * * mon"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 300
+    cost_cap_usd: 0.30
+    tool_chain:
+      - tool: deep_research
+        entity: "Equasis dark fleet vessels 2026 Russia Iran Venezuela DPRK sanctions evasion ship-to-ship AIS spoofing flag of convenience port state control inspection"
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if:
+      - "AIS spoofing"
+      - "ship-to-ship"
+      - "STS transfer"
+      - "flag hop"
+      - "OFAC designated"
+      - "shadow fleet"
+      - "dark fleet"
+    mem0_tags: [maritime, sanctions, dark_fleet, equasis, monitor, autonomous]
+
+  # ── 4. Polymarket — geopolitical probability shifts ────────────────────
+  - id: MONITOR-POLYMARKET-GEO
+    name: Polymarket geopolitical market shifts
+    description: |
+      Every 6h scan of the top 20 highest-volume Polymarket geopolitical
+      markets. Tracks probability deltas >10% in 24h on conflict, sanctions,
+      election, and regime-change markets. Calibrated against the existing
+      Polymarket sweep adapter (R-F324 / 2026-04-12).
+    cron: "30 */6 * * *"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.15
+    tool_chain:
+      - tool: deep_research
+        entity: "Polymarket top volume geopolitical markets probability delta 24h conflict sanctions election regime change Russia Iran China Taiwan Israel 2026"
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if:
+      - "10% shift"
+      - "20% shift"
+      - "regime change"
+      - "ceasefire"
+      - "sanctions"
+      - "Taiwan"
+      - "Iran"
+    mem0_tags: [foresight, polymarket, geopolitics, monitor, autonomous]
+
+  # ── 5. Ransomware live — defence-sector victim tracker ─────────────────
+  - id: MONITOR-RANSOMWARE-DEFENCE
+    name: Ransomware victim tracker — defence sector exposure
+    description: |
+      Daily 10:00 UTC scan of ransomware.live + ransomwatch for victims
+      in the defence / aerospace / maritime supply chain. Escalates on
+      any Tier-1 OEM, MoD-adjacent contractor, or supplier of critical
+      subsystems (radar, propulsion, optics).
+    cron: "0 10 * * *"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 240
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "ransomware.live ransomware victim 2026 defence aerospace maritime supply chain OEM MoD contractor radar propulsion optics"
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if:
+      - "defence contractor"
+      - "aerospace"
+      - "MoD"
+      - "DoD"
+      - "supply chain"
+      - "Lockbit"
+      - "BlackCat"
+      - "Cl0p"
+    mem0_tags: [cyber, ransomware, defence_sector, monitor, autonomous]
+
+  # ── 6. MITRE ATT&CK — new threat groups + TTPs ─────────────────────────
+  - id: MONITOR-MITRE-ATTACK
+    name: MITRE ATT&CK — new threat groups + techniques
+    description: |
+      Weekly Tuesday 08:00 UTC scan for newly-published threat actors
+      and techniques in MITRE ATT&CK. Cross-references with defence-sector
+      attribution (state-sponsored groups, defence-industrial-base
+      campaigns). Lower-cadence because ATT&CK publishes quarterly.
+    cron: "0 8 * * tue"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.10
+    tool_chain:
+      - tool: deep_research
+        entity: "MITRE ATT&CK new threat actor technique 2026 state sponsored defence industrial base APT attribution campaign"
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if:
+      - "APT"
+      - "state-sponsored"
+      - "defence industrial base"
+      - "DIB"
+      - "new group"
+      - "new technique"
+    mem0_tags: [cyber, mitre, ttp, threat_intel, monitor, autonomous]
+
+  # ── 7. Bellingcat — Wagner / sanctions-evasion investigations ──────────
+  - id: MONITOR-BELLINGCAT-WAGNER
+    name: Bellingcat investigations — Wagner, sanctions evasion, war crimes
+    description: |
+      Daily 14:00 UTC scan of Bellingcat for new investigations naming
+      Wagner / Africa Corps personnel, sanctions evasion networks, or
+      defence-industry war-crime attribution. Specialist OSINT tier —
+      these stories rarely appear in mainstream defence press for weeks.
+    cron: "0 14 * * *"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 180
+    cost_cap_usd: 0.15
+    tool_chain:
+      - tool: deep_research
+        entity: "Bellingcat investigation 2026 Wagner Africa Corps sanctions evasion network defence industry war crime attribution OSINT"
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if:
+      - "Wagner"
+      - "Africa Corps"
+      - "sanctions evasion"
+      - "war crime"
+      - "designated"
+      - "front company"
+    mem0_tags: [osint, bellingcat, wagner, sanctions, investigation, monitor, autonomous]
+
+  # ── 8. OPEC — oil market shifts affecting producer-state defence ───────
+  - id: MONITOR-OPEC-MMR
+    name: OPEC Monthly Oil Market Report — producer-state defence implications
+    description: |
+      Monthly 16th 11:00 UTC (OPEC MMR publishes mid-month). Tracks
+      production-quota shifts and price-impact analysis. Producer-state
+      oil revenue is the leading indicator for Gulf / North Africa /
+      LatAm defence procurement budgets — Saudi Arabia, UAE, Iraq,
+      Algeria, Venezuela, Brazil all denominate the bulk of MoD
+      spending against oil revenue.
+    cron: "0 11 16 * *"
+    enabled: true
+    priority: LOW
+    timeout_seconds: 240
+    cost_cap_usd: 0.20
+    tool_chain:
+      - tool: deep_research
+        entity: "OPEC Monthly Oil Market Report 2026 production quota change oil price defence budget Saudi UAE Iraq Algeria Venezuela Brazil"
+    delivery_channels: [mem0, intel_ledger]
+    whatsapp_group_id: ""
+    escalate_if:
+      - "production cut"
+      - "production increase"
+      - "quota"
+      - "Saudi"
+      - "UAE"
+      - "Algeria"
+      - "Venezuela"
+      - "defence budget"
+    mem0_tags: [commodities, oil, opec, producer_states, monitor, autonomous]
