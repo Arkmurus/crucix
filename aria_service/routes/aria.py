@@ -2414,22 +2414,59 @@ async def learning_freshness_all_ep():
 # R-F89 (2026-05-09): knowledge coverage heatmap.
 # Domain × jurisdiction matrix surfacing structural gaps. Slow query
 # (~1-3s at current corpus scale) so cache the build for 1h.
+#
+# R-F785 (2026-05-21) — both endpoints hit `rs.get_json(...:coverage_
+# heatmap:v2)` BEFORE calling build_heatmap. The cached value is a
+# ~10s-of-KB dict and live evidence 2026-05-21 13:00 UTC showed this
+# read blocking >30s under load (autonomous continuous_update is
+# concurrently writing the same key; sqlite single-writer contention).
+# With R-F781's in-memory cache already in front of build_heatmap,
+# the Redis layer adds latency without value when it's slow. Now
+# the rs.get_json call is bounded by asyncio.wait_for(2.0): if the
+# state-backend read doesn't complete in 2s, fall through to
+# build_heatmap (which hits R-F781's in-memory cache for <1ms warm,
+# ~1-3s cold). The Redis cache still SERVES when fast and still
+# gets WRITTEN on miss so it warms naturally for cross-replica
+# reads.
+_HEATMAP_REDIS_READ_TIMEOUT_S = 2.0
+
+
+async def _read_heatmap_redis_cache():
+    """Read the heatmap Redis cache with a hard 2s timeout. Returns
+    None on timeout / exception so the caller falls through to
+    build_heatmap (which has its own R-F781 in-memory cache)."""
+    from ..intel import redis_store as rs
+    try:
+        return await asyncio.wait_for(
+            rs.get_json("crucix:aria:coverage_heatmap:v2"),
+            timeout=_HEATMAP_REDIS_READ_TIMEOUT_S,
+        )
+    except (asyncio.TimeoutError, Exception):
+        return None
+
+
+async def _write_heatmap_redis_cache(out) -> None:
+    from ..intel import redis_store as rs
+    try:
+        await asyncio.wait_for(
+            rs.set_json("crucix:aria:coverage_heatmap:v2", out, ex=3600),
+            timeout=_HEATMAP_REDIS_READ_TIMEOUT_S,
+        )
+    except (asyncio.TimeoutError, Exception):
+        pass
+
+
 @router.get("/learning/coverage")
 async def learning_coverage_ep():
     try:
         from ..intel import coverage_heatmap as _ch
-        # Cheap caching layer — Redis key with 1h TTL
-        from ..intel import redis_store as rs
-        cached = await rs.get_json("crucix:aria:coverage_heatmap:v2")
+        cached = await _read_heatmap_redis_cache()
         if isinstance(cached, dict) and cached.get("matrix"):
             cached["from_cache"] = True
             return cached
         out = await _ch.build_heatmap()
         out["from_cache"] = False
-        try:
-            await rs.set_json("crucix:aria:coverage_heatmap:v2", out, ex=3600)
-        except Exception:
-            pass
+        await _write_heatmap_redis_cache(out)
         return out
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -2439,15 +2476,11 @@ async def learning_coverage_ep():
 async def learning_coverage_gaps_ep(max_targets: int = 20):
     try:
         from ..intel import coverage_heatmap as _ch
-        from ..intel import redis_store as rs
-        cached = await rs.get_json("crucix:aria:coverage_heatmap:v2")
+        cached = await _read_heatmap_redis_cache()
         if isinstance(cached, dict) and cached.get("matrix"):
             return {"gaps": _ch.gap_targets(cached, max_targets=max_targets)}
         out = await _ch.build_heatmap()
-        try:
-            await rs.set_json("crucix:aria:coverage_heatmap:v2", out, ex=3600)
-        except Exception:
-            pass
+        await _write_heatmap_redis_cache(out)
         return {"gaps": _ch.gap_targets(out, max_targets=max_targets)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
