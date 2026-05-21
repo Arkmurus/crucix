@@ -2262,9 +2262,10 @@
       "title": "enable dry-run autonomy with brain-controlled safety harness",
       "claimed_at": "2026-05-21T09:05:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1e87d39",
+      "notes": null,
+      "shipped_at": "2026-05-21T09:13:32Z"
     },
     {
       "r_number": "R-F775",
