@@ -248,7 +248,14 @@ async def _save_sharded_snapshot(cache: dict) -> dict:
             encoded.append((sh["shard_index"], enc))
         return s, encoded, total
 
-    shards, encoded_shards, total_bytes = await asyncio.to_thread(_encode_all)
+    # R-F787 (2026-05-21) — gate via the global snapshot semaphore so
+    # this encoder thread doesn't run concurrently with intel_ledger
+    # and neural_memory encoders. The R-F714 to_thread wrap stopped
+    # the LOOP doing this work, but with all three modules flushing
+    # in the same brain_hook absorb, three GIL-holding threads could
+    # starve the loop for 30s+. Throttle to 1 at a time.
+    from ._snapshot_throttle import run_in_thread_throttled
+    shards, encoded_shards, total_bytes = await run_in_thread_throttled(_encode_all)
     write_tasks = [
         rs.set(SHARD_KEY_FMT.format(i=idx), enc) for idx, enc in encoded_shards
     ]
@@ -441,7 +448,12 @@ async def _flush_to_disk() -> None:
         return
     snapshot = _cache  # write-by-reference is safe — we don't mutate
     try:
-        await asyncio.to_thread(_write_to_disk_atomic, snapshot)
+        # R-F787 — throttle the json.dump thread against intel_ledger
+        # and neural_memory encoders. The recurring debounced flush
+        # is the hot path; one-shot boot migrations below don't need
+        # throttling (they run before traffic).
+        from ._snapshot_throttle import run_in_thread_throttled
+        await run_in_thread_throttled(_write_to_disk_atomic, snapshot)
         _dirty = False
         _dirty_since_snapshot = True
     except Exception as e:

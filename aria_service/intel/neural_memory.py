@@ -264,7 +264,12 @@ async def _save_neurons_sharded(neurons: dict) -> dict:
             encoded.append((sh["shard_index"], enc))
         return s, encoded, total
 
-    shards, encoded_shards, total_bytes = await asyncio.to_thread(_encode_shards)
+    # R-F787 — throttle the encoder thread against knowledge +
+    # intel_ledger so concurrent flushes from one absorb don't pile
+    # up GIL-holding json+gzip threads (the 5-holder / 213s stall
+    # case captured in wedge_674).
+    from ._snapshot_throttle import run_in_thread_throttled
+    shards, encoded_shards, total_bytes = await run_in_thread_throttled(_encode_shards)
     write_tasks = []
     for idx, encoded in encoded_shards:
         key = NEURONS_SHARD_KEY_FMT.format(i=idx)
@@ -469,7 +474,13 @@ async def _persist() -> None:
         # thread. Move to a worker so concurrent chat-stream + brain
         # absorb don't block each other.
         if write_edges:
-            encoded_edges = await asyncio.to_thread(_encode_edges, dict(_edges))
+            # R-F787 — throttle the edges-encoder thread the same way
+            # the neuron-shard encoder above is throttled. The edges
+            # blob is the heaviest single payload (~4MB pre-gzip) and
+            # piles onto the GIL when knowledge/intel_ledger are also
+            # encoding their own snapshots.
+            from ._snapshot_throttle import run_in_thread_throttled
+            encoded_edges = await run_in_thread_throttled(_encode_edges, dict(_edges))
         else:
             encoded_edges = None
 

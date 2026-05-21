@@ -202,7 +202,11 @@ async def _flush_to_disk() -> None:
         return
     snapshot = _cache  # write-by-reference is safe — we don't mutate
     try:
-        await asyncio.to_thread(_write_to_disk_atomic, snapshot)
+        # R-F787 — throttle against knowledge + neural_memory encoders
+        # so concurrent flushes don't pile up GIL holders and stall
+        # the loop. One-shot boot migrations below stay un-throttled.
+        from ._snapshot_throttle import run_in_thread_throttled
+        await run_in_thread_throttled(_write_to_disk_atomic, snapshot)
         _dirty = False
         _dirty_since_snapshot = True
         # F87 observability (preserved from pre-F110 _save): log signal
