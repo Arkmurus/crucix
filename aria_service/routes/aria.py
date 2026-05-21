@@ -11286,6 +11286,61 @@ async def pending_actions_cancel_ep(action_id: str, request: Request):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+@router.post("/predict/deal")
+async def predict_deal_ep(request: Request):
+    """R-F780: structured deal-outcome forecast with traceable evidence.
+
+    Request body: a `deal` dict with at minimum {type, name, counterparty,
+    country} — value_usd / region are optional but improve evidence
+    retrieval. The endpoint pulls the nearest historical case from
+    reasoning_library plus recent intel_ledger signals + sanctions hits,
+    then asks the configured LLM for a calibrated forecast.
+
+    Response shape:
+      {
+        "deal_id": "...",
+        "evidence": {nearest_case, intel_signals, sanctions_hits},
+        "prediction": {win_prob, top_risks, time_to_close_p50_days,
+                       what_would_change_my_mind, needs_llm_scoring},
+        "topic_tags": [...]
+      }
+    """
+    body = await request.json()
+    deal = body.get("deal") or body  # accept both {deal: {...}} and bare {...}
+    if not isinstance(deal, dict) or not deal:
+        raise HTTPException(status_code=400, detail="deal payload required")
+    from ..intel import deal_predictor
+    try:
+        llm = get_llm(request)
+    except Exception:
+        llm = None
+    return await deal_predictor.predict_deal_outcome(deal, llm=llm)
+
+
+@router.post("/predict/deal/{deal_id}/outcome")
+async def predict_deal_outcome_record_ep(deal_id: str, request: Request):
+    """R-F780: post-mortem ingest. Closes the calibration loop by feeding
+    the actual outcome back into the mastery heatmap + brain_hook.
+
+    Request body must include:
+      - outcome: "won" | "lost" | "push"
+      - predicted_win_prob: the win_prob from the original predict call
+      - inferred_topic_tags: list of mastery cells to credit/penalise
+        (optional — copy the topic_tags from the predict response)
+    """
+    body = await request.json()
+    from ..intel import deal_predictor
+    return await deal_predictor.record_outcome(
+        deal_id=deal_id,
+        actual={
+            "outcome": body.get("outcome"),
+            "predicted_win_prob": body.get("predicted_win_prob"),
+            "notes": body.get("notes"),
+        },
+        inferred_topic_tags=body.get("inferred_topic_tags") or [],
+    )
+
+
 @router.get("/learning/brier-drift")
 async def learning_brier_drift_ep(window_hours: int = 24):
     """R-F779: per-topic mastery drift over a rolling window.
