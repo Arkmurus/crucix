@@ -9521,6 +9521,46 @@ async def wa_auth_delete_ep():
 # ERROR-level fly logs in last 7 days". Uses self_improve.
 # get_recent_errors() so the source-of-truth is the same record set
 # autonomous self-improvement uses for bug-detection.
+# R-F783 (2026-05-21) — wedge-stack introspection endpoints.
+# R-F704 has been writing wedge stacks to /data/wedge_stacks/ for two
+# days but ARIA had no surface that READ them back, so the 360
+# diagnosis flagged this as a blind spot ("brain hook tier wedge data
+# lives only in /data, not in ARIA's knowledge"). Three endpoints:
+#
+#   recent     — list the latest wedge files (cheap, metadata only)
+#   {name}     — full content of one file + parsed top culprit
+#   summary    — aggregate top culprits over a recent window so
+#                "what wedged ARIA in last 24h?" is a single GET
+#
+# Auth: inherits the router-wide require_aria_token dependency
+# (routes/aria.py:130).
+@router.get("/admin/wedge-stacks/recent")
+async def admin_wedge_stacks_recent_ep(limit: int = 50):
+    from ..intel import wedge_introspect as _wi
+    return _wi.list_recent_wedges(limit=limit)
+
+
+@router.get("/admin/wedge-stacks/summary")
+async def admin_wedge_stacks_summary_ep(hours: int = 24, max_files: int = 100):
+    """Aggregate top culprits across the recent wedge stacks. Reads
+    each file's parsed top frame and groups by (func, file). Useful
+    for the 'why is ARIA wedging' dashboard tile."""
+    from ..intel import wedge_introspect as _wi
+    return _wi.summarise_wedges(hours=hours, max_files=max_files)
+
+
+@router.get("/admin/wedge-stacks/{name}")
+async def admin_wedge_stacks_read_ep(name: str, max_bytes: int = 200_000):
+    """Return the raw content + parsed top culprit for one wedge file.
+    `name` is path-traversal guarded — only `wedge_<pid>_<epoch>.log`
+    basenames are accepted."""
+    from ..intel import wedge_introspect as _wi
+    out = _wi.read_wedge(name, max_bytes=max_bytes)
+    if not out:
+        return {"ok": False, "error": "invalid name or file not found"}
+    return out
+
+
 @router.get("/admin/logs/error-summary")
 async def admin_logs_error_summary_ep(hours: int = 168):
     """Aggregate the error-ledger into a gate-checkable summary.
