@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 773,
+  "next_available": 774,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2246,6 +2246,15 @@
       "commit_sha": "3c5327c",
       "notes": null,
       "shipped_at": "2026-05-21T08:28:51Z"
+    },
+    {
+      "r_number": "R-F773",
+      "title": "proactive.mjs research/hypotheses 404 path mismatch + sweep audit",
+      "claimed_at": "2026-05-21T08:41:32Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
