@@ -2222,9 +2222,10 @@
       "title": "test_zero_result_gap_detail mocks miss new backends",
       "claimed_at": "2026-05-21T07:33:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "12e5253",
+      "notes": null,
+      "shipped_at": "2026-05-21T07:35:05Z"
     }
   ]
 }
