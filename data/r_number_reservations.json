@@ -2418,9 +2418,10 @@
       "title": "brain_hook ticket dedup + remove premature auto-resolve",
       "claimed_at": "2026-05-21T16:28:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2d54141",
+      "notes": null,
+      "shipped_at": "2026-05-21T16:43:06Z"
     }
   ]
 }
