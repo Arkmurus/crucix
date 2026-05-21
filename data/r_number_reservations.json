@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 791,
+  "next_available": 792,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2426,6 +2426,15 @@
       "commit_sha": "2d54141",
       "notes": null,
       "shipped_at": "2026-05-21T16:43:06Z"
+    },
+    {
+      "r_number": "R-F791",
+      "title": "UI 404 fallback — clear stale lastSid + show welcome instead of error",
+      "claimed_at": "2026-05-21T20:28:06Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

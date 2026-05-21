@@ -1791,12 +1791,42 @@ var Convos = (function() {
       setTitlebar(data.title || 'Conversation');
       if (window.innerWidth <= 900) panel.classList.add('collapsed');
     } catch (err) {
+      var errMsg = (err && err.message) ? err.message : 'unknown error';
+      // R-F791 (2026-05-21) — 404 on /detail means the sid points at a
+      // conversation the backend has no record of for this user. Most
+      // common cause: an old localStorage lastSid baked-in with a
+      // pre-migration USER_ID_SLUG form (e.g. `acorreaarkmuruscom_…`)
+      // while the backend now keys conversations under the hashed user
+      // id from the seenode proxy. The conversation isn't recoverable;
+      // showing "Failed to load conversation: HTTP 404" on every page
+      // load (auto-resume) is wrong UX. Silently clear the stale lastSid
+      // and fall back to the new-chat / welcome state. R-F722's
+      // auto-resume .catch() already does clearLastSid() at the call
+      // site but it never fires because load(sid) swallowed the error
+      // here pre-R-F791. Live evidence (seenode log, 2026-05-21):
+      // /api/aria/conversations/acorreaarkmuruscom_1779361143677_rndej
+      // /detail → fly.io HTTP 404 recurred at 04:28, 08:15, 08:23, 09:23.
+      if (errMsg.indexOf('HTTP 404') !== -1) {
+        console.warn('[Convos] load: stale sid', sid, '→ clearing lastSid + falling back to welcome');
+        clearLastSid();
+        SID = null;
+        activeSid = null;
+        Array.prototype.forEach.call(listEl.querySelectorAll('.convo-item'), function(n) {
+          n.classList.remove('active');
+          n.setAttribute('aria-selected', 'false');
+        });
+        feed.querySelectorAll('.msg, .thinking').forEach(function(n) { n.remove(); });
+        document.getElementById('welcome').style.display = '';
+        setTitlebar('New conversation');
+        resetMsgIndex(0);
+        return;
+      }
       // R-F739 — surface the real error. Pre-R-F739 the operator saw
       // a generic "Failed to load conversation." with no clue whether
       // it was auth (HTTP 401), ownership mismatch (HTTP 400/404),
       // or backend down.
       console.error('[Convos] load', err);
-      addAria(md('Failed to load conversation: ' + (err && err.message ? err.message : 'unknown error')));
+      addAria(md('Failed to load conversation: ' + errMsg));
     }
   }
 
