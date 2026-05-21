@@ -2372,9 +2372,10 @@
       "title": "C:/Program Files/Git/learning/coverage rs.get_json timeout (heatmap unhang)",
       "claimed_at": "2026-05-21T16:10:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "51c1365",
+      "notes": null,
+      "shipped_at": "2026-05-21T16:16:04Z"
     }
   ]
 }
