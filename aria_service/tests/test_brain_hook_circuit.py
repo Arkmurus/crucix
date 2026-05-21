@@ -24,6 +24,8 @@ def _reset_breaker():
     brain_hook._breaker_state["open"] = False
     brain_hook._breaker_state["tripped_at"] = 0.0
     brain_hook._breaker_state["consecutive_high"] = 0
+    # R-F790: per-episode ticket flag, reset between cases.
+    brain_hook._breaker_state["ticket_filed_this_episode"] = False
     brain_hook._recent_latencies_ms.clear()
 
 
@@ -102,3 +104,57 @@ def test_breaker_can_re_trip_after_close_if_still_slow():
 
     # Cleanup so other tests start fresh
     _reset_breaker()
+
+
+# ─── R-F790 — one HIGH ticket per wedge episode, no auto-resolve ───────────
+
+def test_rf790_should_file_ticket_true_when_flag_clear():
+    """Fresh episode (flag False) → file a ticket."""
+    _reset_breaker()
+    assert brain_hook._should_file_ticket() is True
+
+
+def test_rf790_should_file_ticket_false_when_flag_set():
+    """Re-trip mid-episode (flag True) → DO NOT file a duplicate ticket.
+
+    Live evidence 2026-05-21 16:13–16:25: 4 trips filed 4 HIGH tickets;
+    operator saw alert churn instead of one persistent wedge signal.
+    """
+    _reset_breaker()
+    brain_hook._breaker_state["ticket_filed_this_episode"] = True
+    assert brain_hook._should_file_ticket() is False
+
+
+def test_rf790_close_resets_ticket_flag_for_next_episode():
+    """After cooldown closes the breaker, the per-episode flag resets so
+    the NEXT genuine trip (a fresh wedge) does file a ticket."""
+    _reset_breaker()
+    brain_hook._recent_latencies_ms.extend([5000.0, 6000.0, 7000.0, 8000.0])
+    brain_hook._breaker_state["open"] = True
+    brain_hook._breaker_state["tripped_at"] = time.time() - (brain_hook._COOLDOWN_S + 5)
+    brain_hook._breaker_state["ticket_filed_this_episode"] = True
+
+    brain_hook._maybe_close_breaker()
+
+    assert brain_hook._breaker_state["ticket_filed_this_episode"] is False
+    # And as a consequence, _should_file_ticket reports True again.
+    assert brain_hook._should_file_ticket() is True
+
+
+def test_rf790_close_does_not_reference_pending_actions():
+    """Source-level regression guard. R-F790 removed the premature
+    auto-resolve from _maybe_close_breaker because cooldown elapsing is
+    not proof the root cause cleared — the OLD code filed 8 churning
+    HIGH tickets in 21 minutes on 2026-05-21, each auto-resolved
+    seconds before the next re-trip. The closed-breaker code path must
+    have zero references to pending_actions / mark_satisfied / the old
+    _auto_resolve helper.
+    """
+    import inspect
+    src = inspect.getsource(brain_hook._maybe_close_breaker)
+    assert "pending_actions" not in src, (
+        "R-F790 regression: _maybe_close_breaker references pending_actions. "
+        "The premature auto-resolve was removed because cooldown ≠ cleared."
+    )
+    assert "mark_satisfied" not in src
+    assert "_auto_resolve" not in src

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 786,
+  "next_available": 791,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2376,6 +2376,51 @@
       "commit_sha": "51c1365",
       "notes": null,
       "shipped_at": "2026-05-21T16:16:04Z"
+    },
+    {
+      "r_number": "R-F786",
+      "title": "pre-import document_reader at startup (mirror R-F772)",
+      "claimed_at": "2026-05-21T16:24:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F787",
+      "title": "knowledge sharded snapshot json+gzip off the event loop",
+      "claimed_at": "2026-05-21T16:24:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F788",
+      "title": "raise UI authedJson timeout to 30s + 1 silent retry on GET",
+      "claimed_at": "2026-05-21T16:24:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F789",
+      "title": "rag_store.__call__ + neural_memory._encode_edges sync sites off loop",
+      "claimed_at": "2026-05-21T16:24:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F790",
+      "title": "brain_hook ticket dedup + remove premature auto-resolve",
+      "claimed_at": "2026-05-21T16:28:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -877,7 +877,21 @@ _breaker_state = {
     "trips_total": 0,
     "drops_total": 0,
     "last_trip_reason": "",
+    # R-F790 (2026-05-21): one HIGH ticket per open episode. Live evidence
+    # 2026-05-21 16:13–16:25: brain_hook tripped 4× in 11 minutes on encode
+    # latency, each trip filed a fresh HIGH pending_action, each cooldown
+    # auto-resolved the prior one. Operator saw 6 churning tickets instead
+    # of one persistent "wedge is recurring" signal. Now: file at most one
+    # ticket per trip→close cycle; reset on close so the NEXT genuine
+    # episode files a fresh one.
+    "ticket_filed_this_episode": False,
 }
+
+
+def _should_file_ticket() -> bool:
+    """R-F790: True iff the current open episode hasn't already filed a
+    HIGH pending_action. Factored out for unit testability."""
+    return not _breaker_state.get("ticket_filed_this_episode", False)
 
 
 def _record_latency(ms: float) -> None:
@@ -929,33 +943,42 @@ def _maybe_trip_breaker(reason: str) -> None:
             # Fire a pending_action so the team sees this in the daily
             # briefing — fire-and-forget, don't let pending_actions
             # itself add latency back to brain_hook.
-            try:
-                async def _alert():
-                    from . import pending_actions as _pa
-                    await _pa.record(
-                        promise="brain_hook circuit breaker tripped",
-                        reason=_breaker_state["last_trip_reason"],
-                        resolver_kind="operator_action",
-                        resolver_ref="check Redis/Chroma latency on dashboard",
-                        severity="HIGH",
-                        source="brain_hook.circuit_breaker",
-                        operator_prompt=(
-                            "Brain hook circuit breaker tripped — check "
-                            "Redis + ChromaDB latency. Signals are being "
-                            "logged to Redis only until p95 recovers."
-                        ),
-                    )
-                # asyncio.get_event_loop() is deprecated in 3.10+ when
-                # no loop is running. _record_latency is called from
-                # within absorb() (async), so a running loop is always
-                # available -- use it directly.
+            #
+            # R-F790: dedup at most one ticket per open episode. The flag
+            # is set unconditionally (before the task is created) so a
+            # transient pending_actions/Redis failure inside _alert() does
+            # not cause a second ticket to be filed on the next trip in
+            # the same episode. Quiet skipping is the right behaviour here
+            # — operator already sees the WARNING log line above.
+            if _should_file_ticket():
+                _breaker_state["ticket_filed_this_episode"] = True
                 try:
-                    _loop = asyncio.get_running_loop()
-                    _loop.create_task(_alert())
-                except RuntimeError:
+                    async def _alert():
+                        from . import pending_actions as _pa
+                        await _pa.record(
+                            promise="brain_hook circuit breaker tripped",
+                            reason=_breaker_state["last_trip_reason"],
+                            resolver_kind="operator_action",
+                            resolver_ref="check Redis/Chroma latency on dashboard",
+                            severity="HIGH",
+                            source="brain_hook.circuit_breaker",
+                            operator_prompt=(
+                                "Brain hook circuit breaker tripped — check "
+                                "Redis + ChromaDB latency. Signals are being "
+                                "logged to Redis only until p95 recovers."
+                            ),
+                        )
+                    # asyncio.get_event_loop() is deprecated in 3.10+ when
+                    # no loop is running. _record_latency is called from
+                    # within absorb() (async), so a running loop is always
+                    # available -- use it directly.
+                    try:
+                        _loop = asyncio.get_running_loop()
+                        _loop.create_task(_alert())
+                    except RuntimeError:
+                        pass
+                except Exception:
                     pass
-            except Exception:
-                pass
     else:
         _breaker_state["consecutive_high"] = 0
 
@@ -996,6 +1019,10 @@ def _maybe_close_breaker() -> None:
     # process lifetime.
     global _warmup_complete
     _warmup_complete = True
+    # R-F790 (2026-05-21): reset the per-episode ticket flag so the NEXT
+    # trip (a fresh wedge episode) files a new HIGH ticket. Within this
+    # closing episode the flag stayed True so we filed at most once.
+    _breaker_state["ticket_filed_this_episode"] = False
     logger.info(
         "[brain_hook] CIRCUIT CLOSED — cooldown elapsed, "
         "stale p95 was %.0fms (trip threshold %dms). "
@@ -1003,31 +1030,16 @@ def _maybe_close_breaker() -> None:
         "_maybe_trip_breaker will re-trip naturally if downstream is still slow.",
         stale_p95, _LATENCY_TRIP_MS,
     )
-    # Auto-resolve the pending_actions entry that was raised when the
-    # breaker tripped. Otherwise stale HIGH alerts accumulate (saw 2
-    # in production 2026-04-19 referencing 12s p95 long after p95 had
-    # recovered to 26ms).
-    try:
-        async def _auto_resolve():
-            from . import pending_actions as _pa
-            opens = await _pa.list_open(limit=20)
-            for entry in opens:
-                if entry.get("source") == "brain_hook.circuit_breaker":
-                    await _pa.mark_satisfied(
-                        entry.get("action_id", ""),
-                        note=(
-                            f"Auto-resolved: brain breaker cooldown elapsed "
-                            f"(stale p95 {stale_p95:.0f}ms). Full path resuming."
-                        ),
-                    )
-        # See note above: prefer get_running_loop().
-        try:
-            _loop = asyncio.get_running_loop()
-            _loop.create_task(_auto_resolve())
-        except RuntimeError:
-            pass
-    except Exception:
-        pass
+    # R-F790: do NOT auto-resolve the pending_action on cooldown elapse.
+    # Live evidence 2026-05-21 16:13–16:25: 4 trips in 11 minutes, each
+    # cooldown closed the prior ticket as "satisfied" 6s before the next
+    # re-trip filed a fresh one. Cooldown elapsing ≠ root cause cleared
+    # — it's just the breaker's automatic half-open probe. Severity HIGH
+    # / resolver_kind=operator_action explicitly means operator closes
+    # the ticket when they're satisfied the wedge is fixed. Ticket
+    # dedup (above, in _maybe_trip_breaker) prevents the stale-alert
+    # accumulation that motivated the original auto-resolve — at most
+    # one open brain_hook ticket exists per wedge episode.
 
 
 def get_breaker_state() -> dict:
