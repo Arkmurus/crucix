@@ -211,6 +211,64 @@ Current thread 0x00007fe4e4a696c0 (most recent call first):
     assert "_compute_matrix_sync" in funcs
 
 
+def test_rf784_skips_module_and_main_py_entry_frames():
+    """R-F784: when the deepest block's shallowest user frame is
+    `<module>` at main.py (the uvicorn entry point), walk deeper to
+    find the actionable handler/work frame. Live evidence from
+    /admin/wedge-stacks/summary 2026-05-21 16:11 UTC: 8 of 20
+    wedges reported `<module>` as top culprit because the request
+    chain's user-code edges were entry-point at the bottom +
+    handler in the middle. Pre-R-F784 the parser returned the
+    bottom (`<module>`); post-R-F784 it returns the middle
+    (`some_handler`)."""
+    stack_with_module = """\
+=== [R-F704] event-loop heartbeat stale ===
+Thread 0x00007fe5044c9380 (most recent call first):
+  File "/app/aria_service/intel/rag_store.py", line 158 in __call__
+  File "/app/aria_service/routes/aria.py", line 18069 in autonomy_surface_ep
+  File "/usr/local/lib/python3.13/site-packages/starlette/routing.py", line 276 in handle
+  File "/usr/local/lib/python3.13/site-packages/uvicorn/server.py", line 75 in run
+  File "/app/aria_service/main.py", line 1907 in <module>
+
+Current thread 0x00007fe4e4a696c0 (most recent call first):
+  File "/app/aria_service/main.py", line 423 in _wedge_watchdog
+=== end stack dump ===
+"""
+    culprit = wi._parse_top_culprit(stack_with_module)
+    assert culprit
+    # Pre-R-F784 this would have been "<module>" (the shallowest
+    # user frame). Post-R-F784 we walk past `<module>` (noise) and
+    # past `main.py:autonomy_surface` (none in this fixture) and
+    # stop at `autonomy_surface_ep` — the actual handler.
+    assert culprit["func"] == "autonomy_surface_ep"
+    assert culprit["file"].endswith("aria.py")
+    # Leaf is unaffected — still the deepest on-CPU frame.
+    assert culprit["leaf_func"] == "__call__"
+    assert culprit["leaf_file"].endswith("rag_store.py")
+
+
+def test_rf784_falls_back_to_module_for_pure_boot_wedges():
+    """R-F784: when EVERY user frame is noise (a pure boot-time
+    wedge where the only user code on the stack is main.py:<module>),
+    the picker falls back to the shallowest frame — preserves the
+    diagnostic signal that "the boot path is wedging" rather than
+    silently returning nothing."""
+    boot_only = """\
+=== [R-F704] event-loop heartbeat stale ===
+Thread 0x00007fe5044c9380 (most recent call first):
+  File "/usr/local/lib/python3.13/runpy.py", line 88 in _run_code
+  File "/app/aria_service/main.py", line 1907 in <module>
+
+Current thread 0x00007fe4e4a696c0 (most recent call first):
+  File "/app/aria_service/main.py", line 423 in _wedge_watchdog
+=== end stack dump ===
+"""
+    culprit = wi._parse_top_culprit(boot_only)
+    assert culprit
+    assert culprit["func"] == "<module>"
+    assert culprit["file"].endswith("main.py")
+
+
 def test_resolver_falls_back_when_data_missing(tmp_path, monkeypatch):
     """When /data is not present (dev/CI), resolver returns the
     repo-local fallback path. Verify the function returns a valid

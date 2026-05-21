@@ -149,10 +149,27 @@ def _parse_top_culprit(content: str) -> dict[str, Any]:
     # by root → "the heatmap is wedging" / "the absorb chain is
     # wedging". The leaf is still surfaced for fine-grained drill-
     # down via `leaf_func`.
+    #
+    # R-F784 (2026-05-21) — the shallowest user frame for any
+    # request-time wedge is `<module>` at main.py:1907 (the uvicorn
+    # entry-point), because uvicorn → starlette → handler all sit
+    # in site-packages so the call chain's user-code edges are:
+    #   ... main.py:<module>  ← shallowest user (uninformative)
+    #   (site-packages: uvicorn / starlette / fastapi)
+    #   ... routes/aria.py:some_handler
+    #   ... intel/something.py:actual_work  ← leaf user
+    # The live wedge summary at /admin/wedge-stacks/summary
+    # surfaced `<module>` as the top culprit (8 of 20 files) which
+    # is correct-but-useless. Now: walk from shallowest toward
+    # leaf, skip uninformative entry frames (`<module>`,
+    # `<lambda>`, anything in `main.py`), and return the first
+    # actionable user frame found. If all frames are noise we
+    # fall back to the shallowest (preserves prior behaviour for
+    # pure boot wedges).
     candidates.sort(key=lambda c: c["depth"], reverse=True)
     top = candidates[0]
     user_frames = top["user_frames"]
-    root = user_frames[-1]   # shallowest user-code frame
+    root = _pick_actionable_frame(user_frames)
     leaf = user_frames[0]    # deepest user-code frame (most on-CPU)
     return {
         "file": root["path"],
@@ -164,6 +181,37 @@ def _parse_top_culprit(content: str) -> dict[str, Any]:
         "thread": top["thread"],
         "user_stack": user_frames,
     }
+
+
+# R-F784 — frame names / path suffixes that we treat as "boot / entry"
+# noise rather than actionable culprits. `<module>` is the module-level
+# code (the uvicorn entry point at main.py:1907), `<lambda>` and
+# `<genexpr>` are anonymous wrappers, and `main.py` is the boot path.
+# Anything matching these gets skipped in favour of a deeper user frame.
+_NOISE_FRAME_FUNCS = frozenset({"<module>", "<lambda>", "<genexpr>"})
+
+
+def _is_noise_frame(frame: dict[str, Any]) -> bool:
+    if frame.get("func") in _NOISE_FRAME_FUNCS:
+        return True
+    path = (frame.get("path") or "").replace("\\", "/")
+    if path.endswith("/aria_service/main.py") or path == "aria_service/main.py":
+        return True
+    return False
+
+
+def _pick_actionable_frame(user_frames: list[dict[str, Any]]) -> dict[str, Any]:
+    """Walk user_frames from shallowest (-1) toward leaf (0), return
+    the first non-noise frame. Used by `_parse_top_culprit` to pick
+    the high-level operation frame while skipping the uninformative
+    `<module>` / `main.py` entry-point frames that sit at the bottom
+    of every request stack."""
+    # Walk from shallowest (-1) toward leaf (0).
+    for f in reversed(user_frames):
+        if not _is_noise_frame(f):
+            return f
+    # All frames noise — return shallowest (prior behaviour).
+    return user_frames[-1]
 
 
 def list_recent_wedges(limit: int = 50) -> dict[str, Any]:
