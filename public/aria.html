@@ -1488,34 +1488,55 @@ var Convos = (function() {
   }
 
   async function authedJson(method, url, body, opts2) {
-    var token = localStorage.getItem('crucix_token') || '';
-    var opts = { method: method, headers: { 'Authorization': 'Bearer ' + token } };
-    if (body !== undefined) {
-      opts.headers['Content-Type'] = 'application/json';
-      opts.body = JSON.stringify(body);
+    // R-F743 (2026-05-20) — per-call timeout so backend wedges
+    // surface as a clear UI error rather than an indefinite
+    // "Loading…". R-F788 (2026-05-21) — default raised 20s→30s
+    // because measured backend p99 during normal load is ~13s
+    // (live probe 2026-05-21 16:17 UTC: /conversations 9.8s,
+    // /proactive/alerts 13.2s), and idempotent GETs now retry
+    // once silently on timeout so a single stall window doesn't
+    // surface as a visible error. Override via opts2.timeoutMs.
+    var timeoutMs = (opts2 && opts2.timeoutMs) || 30000;
+    var allowRetry = (opts2 && opts2.retry !== false) && method === 'GET';
+
+    async function _attempt() {
+      var token = localStorage.getItem('crucix_token') || '';
+      var opts = { method: method, headers: { 'Authorization': 'Bearer ' + token } };
+      if (body !== undefined) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+      var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      if (ctrl) opts.signal = ctrl.signal;
+      var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, timeoutMs) : null;
+      try {
+        var resp = await fetch(url, opts);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return await resp.json();
+      } catch (err) {
+        if (err && (err.name === 'AbortError' || /aborted/i.test(err.message || ''))) {
+          var e = new Error('timeout after ' + timeoutMs + 'ms (backend may be wedged)');
+          e._isTimeout = true;
+          throw e;
+        }
+        throw err;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
     }
-    // R-F743 (2026-05-20) — per-call timeout. Pre-R-F743 a backend
-    // wedge (event-loop stall on the Python side) made the convos
-    // fetch hang forever — frontend showed "Loading…" indefinitely
-    // with no actionable error. Default 20s; callers can override
-    // via opts2.timeoutMs. AbortController throws AbortError which
-    // the caller can render as a clear "Backend slow — try again"
-    // message.
-    var timeoutMs = (opts2 && opts2.timeoutMs) || 20000;
-    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    if (ctrl) opts.signal = ctrl.signal;
-    var timer = ctrl ? setTimeout(function() { ctrl.abort(); }, timeoutMs) : null;
+
     try {
-      var resp = await fetch(url, opts);
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      return await resp.json();
+      return await _attempt();
     } catch (err) {
-      if (err && (err.name === 'AbortError' || /aborted/i.test(err.message || ''))) {
-        throw new Error('timeout after ' + timeoutMs + 'ms (backend may be wedged)');
+      // R-F788 — one silent retry on timeout for idempotent GETs.
+      // Mutating verbs (POST/PUT/DELETE) NEVER retry: at-most-once
+      // semantics matter (don't double-submit a /title rename or a
+      // /chat turn). Retry is also opt-out via opts2.retry = false
+      // for the caller that wants no auto-retry.
+      if (allowRetry && err && err._isTimeout) {
+        return await _attempt();
       }
       throw err;
-    } finally {
-      if (timer) clearTimeout(timer);
     }
   }
 
