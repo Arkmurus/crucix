@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 776,
+  "next_available": 777,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2271,6 +2271,15 @@
       "r_number": "R-F775",
       "title": "move brain_hook.absorb off event loop",
       "claimed_at": "2026-05-21T09:10:34Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F776",
+      "title": "wrap self_diagnostic.yaml + neural_memory.encode in to_thread (close wedge cause)",
+      "claimed_at": "2026-05-21T10:08:19Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

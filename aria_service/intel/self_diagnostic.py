@@ -486,15 +486,61 @@ def _check_brain_registered(name: str, module_path: str = "") -> tuple[str, str]
         return ("FAIL", f"brain_hook check failed: {e}")
 
 
-def _check_autonomous_task(task_id: str) -> tuple[str, str]:
-    """Verify a task id is in tasks.yaml and enabled."""
+# R-F776 (2026-05-21): tasks.yaml cache + off-loop load.
+# Live wedge stack /data/wedge_stacks/wedge_673_1779352642.log showed
+# the main asyncio thread blocked inside yaml.safe_load called from
+# _check_autonomous_task on every diagnostic sweep × every module
+# registered (~30+ calls per sweep), producing 5-16s loop stalls. The
+# fix: parse tasks.yaml off the event loop via asyncio.to_thread AND
+# cache the parsed dict for 60s so the file is opened once per sweep,
+# not once per module. Cache invalidates naturally on the next sweep
+# boundary; operator-triggered tasks.yaml reload happens via the
+# /autonomous/reload-tasks endpoint which writes a separate in-process
+# state, so this cache being slightly stale isn't operationally
+# problematic.
+_TASKS_YAML_CACHE: tuple[float, dict] | None = None
+_TASKS_YAML_TTL_S = 60.0
+_TASKS_YAML_LOCK: asyncio.Lock | None = None
+
+
+def _sync_load_tasks_yaml() -> dict:
+    """Synchronous yaml.safe_load — only called inside asyncio.to_thread."""
+    import yaml
+    yaml_path = (
+        Path(__file__).parent.parent / "autonomous" / "tasks.yaml"
+    )
+    with open(yaml_path, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+async def _load_tasks_yaml_cached() -> dict:
+    """Cached + off-loop tasks.yaml read (R-F776)."""
+    global _TASKS_YAML_CACHE, _TASKS_YAML_LOCK
+    now = time.monotonic()
+    if _TASKS_YAML_CACHE is not None:
+        ts, data = _TASKS_YAML_CACHE
+        if now - ts < _TASKS_YAML_TTL_S:
+            return data
+    if _TASKS_YAML_LOCK is None:
+        _TASKS_YAML_LOCK = asyncio.Lock()
+    async with _TASKS_YAML_LOCK:
+        # Double-check after acquiring the lock — another coroutine
+        # may have refreshed while we waited.
+        if _TASKS_YAML_CACHE is not None:
+            ts, data = _TASKS_YAML_CACHE
+            if now - ts < _TASKS_YAML_TTL_S:
+                return data
+        data = await asyncio.to_thread(_sync_load_tasks_yaml)
+        _TASKS_YAML_CACHE = (now, data)
+        return data
+
+
+async def _check_autonomous_task(task_id: str) -> tuple[str, str]:
+    """Verify a task id is in tasks.yaml and enabled. R-F776: async +
+    cached. Previously did sync yaml.safe_load on the main asyncio
+    thread, wedging the loop 5-16s per diagnostic sweep."""
     try:
-        import yaml
-        yaml_path = (
-            Path(__file__).parent.parent / "autonomous" / "tasks.yaml"
-        )
-        with open(yaml_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        data = await _load_tasks_yaml_cached()
         for t in (data.get("tasks") or []):
             if t.get("id") == task_id:
                 enabled = bool(t.get("enabled"))
@@ -661,7 +707,9 @@ async def _check_module(spec: dict) -> dict:
 
     # 4. Autonomous task
     if spec.get("autonomous_task_id"):
-        at_status, at_note = _check_autonomous_task(spec["autonomous_task_id"])
+        # R-F776: _check_autonomous_task is now async (yaml.safe_load
+        # runs off the event loop, cached per sweep).
+        at_status, at_note = await _check_autonomous_task(spec["autonomous_task_id"])
         entry_row["checks"].append({"check": "autonomous_task", "status": at_status, "note": at_note})
 
     # 5. Endpoint / route (network)
