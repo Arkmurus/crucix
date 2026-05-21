@@ -323,29 +323,40 @@ def test_zero_result_gap_detail_includes_language():
     """The gap_detail string passed to brain_hook.absorb must include
     the language code so each lang variant gets a distinct fingerprint
     under F66 dedupe. Without this, a Portuguese zero-result blocks the
-    English variant from filing its own gap for the same query string."""
+    English variant from filing its own gap for the same query string.
+
+    R-F770 (2026-05-21): mock-set expanded. ws.search() fires 7 web
+    backends plus _query_memory; the original test only mocked 4. The
+    unmocked backends (duckduckgo, bing_news, defence_event, memory)
+    hit real HTTP/disk during the test, so `final` was rarely empty,
+    so gap_type=None went to absorb and the assertion failed. Mock
+    every backend explicitly so the zero-result path is deterministic.
+    """
     import aria_service.intel.web_search as ws
 
     captured: dict = {}
 
     async def fake_absorb(**kwargs):
-        captured.update(kwargs)
+        # Only snapshot the brain_hook call that actually carries the
+        # gap fields — the same absorb fires from circuit-breaker /
+        # other hooks during the test and would otherwise overwrite
+        # the dict with unrelated kwargs.
+        if kwargs.get("module") == "web_search" and "gap_type" in kwargs:
+            captured.update(kwargs)
 
-    async def fake_brave(*a, **kw):
-        return []
-    async def fake_searxng(*a, **kw):
-        return []
-    async def fake_google(*a, **kw):
-        return []
-    async def fake_academic(*a, **kw):
+    async def fake_empty(*a, **kw):
         return []
 
     async def run():
         with patch("aria_service.intel.brain_hook.absorb", side_effect=fake_absorb), \
-             patch("aria_service.intel.web_search._search_brave", side_effect=fake_brave), \
-             patch("aria_service.intel.web_search._search_searxng", side_effect=fake_searxng), \
-             patch("aria_service.intel.web_search._search_google_news", side_effect=fake_google), \
-             patch("aria_service.intel.web_search._search_academic", side_effect=fake_academic):
+             patch("aria_service.intel.web_search._search_brave", side_effect=fake_empty), \
+             patch("aria_service.intel.web_search._search_searxng", side_effect=fake_empty), \
+             patch("aria_service.intel.web_search._search_duckduckgo", side_effect=fake_empty), \
+             patch("aria_service.intel.web_search._search_google_news", side_effect=fake_empty), \
+             patch("aria_service.intel.web_search._search_bing_news", side_effect=fake_empty), \
+             patch("aria_service.intel.web_search._search_academic", side_effect=fake_empty), \
+             patch("aria_service.intel.web_search._search_defence_event", side_effect=fake_empty), \
+             patch("aria_service.intel.web_search._query_memory", side_effect=fake_empty):
             await ws.search(
                 "Angola Mozambique defesa aquisição 2026",
                 language="pt-PT",
