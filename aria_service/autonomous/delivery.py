@@ -40,7 +40,19 @@ logger = logging.getLogger("aria.autonomous.delivery")
 # Env vars
 SEENODE_BASE_URL = os.getenv("SEENODE_BASE_URL", "").strip().rstrip("/")
 ARIA_INTERNAL_TOKEN = os.getenv("ARIA_INTERNAL_TOKEN", "").strip()
-DRY_RUN_DEFAULT = (os.getenv("ARIA_AUTONOMOUS_DRY_RUN", "1") or "1").strip().lower() not in ("0", "false", "no")
+
+
+def _is_dry_run() -> bool:
+    """R-F774: read ARIA_AUTONOMOUS_DRY_RUN fresh on every call so a
+    runtime flip via fly secrets / `flyctl secrets set` is honored
+    without needing a redeploy. Default ON — set to 0/false/no to
+    enable real delivery."""
+    return (os.getenv("ARIA_AUTONOMOUS_DRY_RUN", "1") or "1").strip().lower() not in ("0", "false", "no")
+
+
+# Kept for one release as a fallback for any code that still reads the
+# module-level constant. Deprecated in favour of _is_dry_run().
+DRY_RUN_DEFAULT = _is_dry_run()
 
 
 def _format_brief_header(task, triggered_flags: list[str]) -> str:
@@ -113,7 +125,7 @@ async def _deliver_whatsapp(task, response_text: str, triggered_flags: list[str]
       - ARIA_INTERNAL_TOKEN not configured (would 401 anyway)
       - task has no whatsapp_group_id
     """
-    if DRY_RUN_DEFAULT:
+    if _is_dry_run():
         return "skipped:dry_run"
     if not SEENODE_BASE_URL:
         return "skipped:no_seenode_base_url"
@@ -167,6 +179,14 @@ async def deliver(
     others. The full result is returned to execute_task() which
     persists it in the run history.
     """
+    # R-F774: when dry-run is active, route every delivery channel (and
+    # the pipeline auto-lead writer below) through the visibility ledger
+    # instead of touching real storage. Closes the bug where
+    # _deliver_intel_ledger unconditionally wrote signals regardless of
+    # DRY_RUN, contradicting the engine spec docs (engine.py:39-41).
+    # Operator audits via GET /api/aria/autonomous/dryrun/recent.
+    dry_run = _is_dry_run()
+
     # Check operating mode — suppress external delivery if degraded
     from ..intel import operating_modes as _om
     mode = await _om.get_mode()
@@ -174,6 +194,36 @@ async def deliver(
 
     out: dict[str, str] = {}
     channels = task.delivery_channels or []
+
+    if dry_run:
+        # Record every would-be delivery and short-circuit. Pipeline
+        # auto-create is also captured (it's a real write on the live path).
+        from . import dryrun_history
+        for channel in channels:
+            ch = (channel or "").strip().lower()
+            if not ch:
+                continue
+            await dryrun_history.record(
+                task_id=task.id,
+                task_name=task.name,
+                channel=ch,
+                would_deliver=True,
+                response_snippet=response_text or "",
+                triggered_flags=triggered_flags or [],
+                reason="dry_run_active",
+            )
+            out[ch] = "skipped:dry_run"
+        await dryrun_history.record(
+            task_id=task.id,
+            task_name=task.name,
+            channel="pipeline",
+            would_deliver=True,
+            response_snippet=response_text or "",
+            triggered_flags=triggered_flags or [],
+            reason="dry_run_active",
+        )
+        out["pipeline"] = "skipped:dry_run"
+        return out
 
     for channel in channels:
         ch = (channel or "").strip().lower()

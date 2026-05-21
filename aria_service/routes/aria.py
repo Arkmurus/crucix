@@ -11286,6 +11286,27 @@ async def pending_actions_cancel_ep(action_id: str, request: Request):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+@router.get("/autonomous/dryrun/recent")
+async def autonomous_dryrun_recent_ep(limit: int = 20):
+    """R-F774: most-recent dry-run decisions made by the autonomous engine.
+
+    When ARIA_AUTONOMOUS_DRY_RUN=1 (default), task results are computed
+    and the brain still learns from them, but real delivery channels
+    (intel_ledger, WhatsApp, deal_pipeline) are short-circuited. This
+    endpoint surfaces what WOULD have been delivered — the operator's
+    audit window on the brain's autonomous decisions before flipping
+    to live delivery.
+
+    Each entry: ts, task_id, task_name, channel, would_deliver, reason,
+    triggered_flags, snippet (first 600 chars of the response).
+
+    See aria_service/autonomous/dryrun_history.py.
+    """
+    from ..autonomous import dryrun_history
+    entries = await dryrun_history.recent(limit=limit)
+    return {"count": len(entries), "entries": entries, "limit": int(limit)}
+
+
 @router.get("/autonomous/cost-summary")
 async def autonomous_cost_summary_ep():
     """Aggregate cost and run-count data for autonomous tasks.
