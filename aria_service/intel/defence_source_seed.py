@@ -498,6 +498,81 @@ _DEFENCE_SOURCES: list[tuple[str, str, str, list[str]]] = [
      "tier_1a", ["market_intel", "us", "oem"]),
     ("https://www.ga-asi.com/news-events/news",
      "ga_asi_press", "tier_1a", ["market_intel", "us", "oem"]),
+
+    # ══════════════════════════════════════════════════════════════════════
+    # R-F777 (2026-05-21) — SOURCE EXPANSION BATCH 1
+    # Twelve high-value free feeds covering cyber/vulnerabilities, maritime
+    # sanctions-evasion, commodities pricing (the user-explicit "security,
+    # defence AND commodities" mandate), defence policy research, and
+    # specialist OSINT. Each verified reachable on 2026-05-21 and chosen
+    # because it lives in a gap Claude/DeepSeek training cutoff cannot
+    # cover (real-time CVE exploitation, current commodity prices,
+    # active investigations).
+    # ══════════════════════════════════════════════════════════════════════
+
+    # Cyber — US gov primary actively-exploited CVE list (defence-sector
+    # contractors are obligated to remediate from this list within 30 days).
+    ("https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+     "cisa_kev", "tier_1a", ["cyber", "vulnerability", "us", "defence_sector"]),
+
+    # Maritime — UN-affiliated ship inspection database. Sanctions-evasion
+    # detection (dark-fleet vessels, ownership chain).
+    ("https://www.equasis.org/",
+     "equasis", "tier_1a", ["maritime", "sanctions_evasion", "registry", "vessel"]),
+
+    # Commodities — London Metal Exchange (steel, aluminium, copper
+    # primary pricing — defence procurement valuation anchor).
+    ("https://www.lme.com/",
+     "lme_metal_exchange", "tier_1a",
+     ["commodities", "metals", "pricing", "procurement"]),
+
+    # Commodities — IMF Pink Sheet (cross-commodity monthly index).
+    ("https://www.imf.org/en/Research/commodity-prices",
+     "imf_commodity_prices", "tier_1a",
+     ["commodities", "pricing", "imf", "geopolitics"]),
+
+    # Commodities — OPEC Monthly Oil Market Report (oil supply/demand,
+    # defence-economy linkage in producer states).
+    ("https://www.opec.org/opec_web/en/publications/202.htm",
+     "opec_mmr", "tier_1a", ["commodities", "oil", "geopolitics", "producer_states"]),
+
+    # Cyber — MITRE ATT&CK framework. The defence-industry-standard TTP
+    # taxonomy; every threat-intel platform maps to it.
+    ("https://attack.mitre.org/",
+     "mitre_attack", "tier_1b", ["cyber", "ttp", "defence_industry"]),
+
+    # Defence policy — RAND Corporation publications.
+    ("https://www.rand.org/",
+     "rand_corp", "tier_1b", ["policy", "defence", "research", "us"]),
+
+    # Defence enforcement — Conflict Armament Research (weapons-tracing
+    # field investigations; sanctions-busting evidence).
+    ("https://www.conflictarm.com/",
+     "conflict_arm_research", "tier_1b",
+     ["weapons", "sanctions", "investigation", "field_intel"]),
+
+    # Foresight — Atrocity Forecasting Project (academic, calibrated
+    # probabilities for mass-atrocity onset; defence-procurement leading
+    # indicator in fragile states).
+    ("https://atrocityforecastingproject.com/",
+     "atrocity_forecasting", "tier_1b",
+     ["foresight", "atrocity", "academic", "fragile_states"]),
+
+    # Cyber — current cybersecurity advisories from CISA.
+    ("https://www.cisa.gov/news-events/cybersecurity-advisories",
+     "cisa_advisories", "tier_2", ["cyber", "advisory", "us", "current_threat"]),
+
+    # OSINT — Bellingcat investigations (Wagner, dark fleets, sanctions
+    # evasion, war-crime documentation; specialist primary OSINT).
+    ("https://www.bellingcat.com/",
+     "bellingcat", "tier_2",
+     ["osint", "investigation", "sanctions_evasion", "specialist"]),
+
+    # Cyber — ransomware.live live ransomware victim tracker (defence-
+    # sector ransomware exposure indicator).
+    ("https://www.ransomware.live/",
+     "ransomware_live", "tier_2",
+     ["cyber", "ransomware", "defence_sector", "current_threat"]),
 ]
 
 
