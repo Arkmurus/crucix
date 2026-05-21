@@ -2432,9 +2432,10 @@
       "title": "UI 404 fallback — clear stale lastSid + show welcome instead of error",
       "claimed_at": "2026-05-21T20:28:06Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "de949cc",
+      "notes": null,
+      "shipped_at": "2026-05-21T20:30:41Z"
     }
   ]
 }
