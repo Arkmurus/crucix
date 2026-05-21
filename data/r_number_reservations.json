@@ -2281,9 +2281,10 @@
       "title": "wrap self_diagnostic.yaml + neural_memory.encode in to_thread (close wedge cause)",
       "claimed_at": "2026-05-21T10:08:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dfe70e1",
+      "notes": null,
+      "shipped_at": "2026-05-21T10:13:42Z"
     }
   ]
 }
