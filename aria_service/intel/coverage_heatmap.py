@@ -48,9 +48,51 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
 from typing import Any
 
 logger = logging.getLogger("aria.coverage_heatmap")
+
+# R-F781 (2026-05-21) — build_heatmap cache + single-flight.
+# 28 domains × 31 jurisdictions × ~96k (facts + signals) = ~83M
+# iterations per matrix compute, run via asyncio.to_thread. Pre-R-F781
+# two concurrent /api/aria/learning/coverage requests started two
+# simultaneous to_thread computes — each pinning one executor slot —
+# and the default ThreadPoolExecutor (typically 32 workers but shared
+# with every other to_thread caller in the process) ran out. Live
+# evidence 2026-05-21 10:50 UTC: /api/aria/learning/coverage still
+# hung after R-F728's per-cell hoist + R-F775's absorb-off-loop fix.
+# Now: 120s TTL cache + per-key inflight future, so two concurrent
+# requests share one compute and steady-state requests hit memory.
+_HEATMAP_TTL_S = float(os.getenv("ARIA_HEATMAP_CACHE_TTL_S", "120"))
+_HEATMAP_CACHE: dict[tuple, tuple[float, dict[str, Any]]] = {}
+_HEATMAP_INFLIGHT: dict[tuple, asyncio.Future] = {}
+
+
+def _heatmap_cache_key(
+    domains: list[str] | None,
+    jurisdictions: list[str] | None,
+) -> tuple:
+    return (
+        tuple(domains) if domains is not None else None,
+        tuple(jurisdictions) if jurisdictions is not None else None,
+    )
+
+
+def invalidate_heatmap_cache() -> None:
+    """Clear the build_heatmap cache. Call from autonomous tasks that
+    expect the next /learning/coverage read to reflect fresh knowledge
+    (continuous_update, /admin/heatmap-refresh). TTL alone is fine for
+    dashboards; explicit invalidation is for write-then-read flows.
+
+    Clears both the result cache AND the inflight-future map: a follower
+    mid-`await` on an inflight future would otherwise still receive the
+    pre-invalidation result. Inflight futures dropped here are completed
+    by their leader's `set_result` regardless — awaiters still resolve,
+    they just don't block a fresh recompute on the next call."""
+    _HEATMAP_CACHE.clear()
+    _HEATMAP_INFLIGHT.clear()
 
 # ── Domain rows ───────────────────────────────────────────────────
 
@@ -274,6 +316,11 @@ async def build_heatmap(
 ) -> dict[str, Any]:
     """Build the full coverage matrix.
 
+    R-F781 (2026-05-21) wraps the compute with a 120s TTL cache +
+    single-flight future so concurrent /learning/coverage requests
+    share one matrix compute instead of pinning the executor pool.
+    Set ARIA_HEATMAP_CACHE_TTL_S=0 to disable (tests use this).
+
     Returns:
         {
           "domains":       [...],
@@ -282,6 +329,58 @@ async def build_heatmap(
           "summary":       { coverage_score, gap_count, deep_cells, ... }
         }
     """
+    if _HEATMAP_TTL_S > 0:
+        cache_key = _heatmap_cache_key(domains, jurisdictions)
+        cached = _HEATMAP_CACHE.get(cache_key)
+        if cached is not None and (time.time() - cached[0]) < _HEATMAP_TTL_S:
+            # Shallow copy so the route's `out["from_cache"] = False`
+            # mutation at routes/aria.py:2428 (and any future top-level
+            # field set by a caller) can't poison the cached reference.
+            # Nested dicts (matrix, summary) are still shared; that's
+            # acceptable since no caller mutates them and copying a 868-
+            # cell matrix per request would defeat the cache speedup.
+            return dict(cached[1])
+
+        existing = _HEATMAP_INFLIGHT.get(cache_key)
+        if existing is not None and not existing.done():
+            try:
+                shared = await existing
+                return dict(shared)
+            except Exception:
+                # Leader's compute failed; fall through to our own attempt.
+                pass
+
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        _HEATMAP_INFLIGHT[cache_key] = fut
+        try:
+            result = await _build_heatmap_uncached(
+                domains=domains, jurisdictions=jurisdictions,
+            )
+            _HEATMAP_CACHE[cache_key] = (time.time(), result)
+            if not fut.done():
+                fut.set_result(result)
+            return dict(result)
+        except Exception as e:
+            if not fut.done():
+                fut.set_exception(e)
+            raise
+        finally:
+            _HEATMAP_INFLIGHT.pop(cache_key, None)
+
+    return await _build_heatmap_uncached(
+        domains=domains, jurisdictions=jurisdictions,
+    )
+
+
+async def _build_heatmap_uncached(
+    *,
+    domains: list[str] | None = None,
+    jurisdictions: list[str] | None = None,
+) -> dict[str, Any]:
+    """Underlying compute — pre-R-F781 behaviour, no cache.
+
+    Kept separate so tests can bypass the cache (and so the cached
+    wrapper stays a thin readable shim above the compute path)."""
     domain_list = domains or DOMAINS
     juris_list = jurisdictions or JURISDICTIONS
 

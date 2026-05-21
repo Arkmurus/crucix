@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 781,
+  "next_available": 783,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2326,6 +2326,24 @@
       "commit_sha": "1329471",
       "notes": null,
       "shipped_at": "2026-05-21T10:39:38Z"
+    },
+    {
+      "r_number": "R-F781",
+      "title": "single-flight cache for build_heatmap",
+      "claimed_at": "2026-05-21T10:55:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F782",
+      "title": "R-F781 autonomy_surface 4-subtask off-loop + 60s cache (close recurring 8s timeouts)",
+      "claimed_at": "2026-05-21T11:00:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

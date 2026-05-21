@@ -82,6 +82,13 @@ def test_build_heatmap_returns_expected_shape():
     the route handler expects."""
     from aria_service.intel import coverage_heatmap as ch
 
+    # R-F781 (2026-05-21) — build_heatmap is now wrapped in a 120s TTL
+    # cache + single-flight future. Clear it so each test sees a fresh
+    # compute (otherwise a prior test in the same session populates the
+    # cache and this one returns the stale result without invoking the
+    # patched data fetchers).
+    ch.invalidate_heatmap_cache()
+
     fake_k = type("K", (), {"all_facts": staticmethod(lambda: _SAMPLE_FACTS)})()
     fake_il = type("IL", (), {"get_recent": staticmethod(lambda: _SAMPLE_SIGNALS)})()
 
@@ -127,6 +134,10 @@ def test_build_heatmap_runs_matrix_compute_in_to_thread():
     `to_thread` wrapping would put 868 cells × 55k facts back on the
     loop — caught by this test."""
     from aria_service.intel import coverage_heatmap as ch
+
+    # R-F781 — clear the TTL cache so this test exercises the compute
+    # path (not the cached return) and the to_thread spy below fires.
+    ch.invalidate_heatmap_cache()
 
     fake_k = type("K", (), {"all_facts": staticmethod(lambda: _SAMPLE_FACTS)})()
     fake_il = type("IL", (), {"get_recent": staticmethod(lambda: _SAMPLE_SIGNALS)})()
