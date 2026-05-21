@@ -23,10 +23,15 @@ import re
 from pathlib import Path
 
 ARIA_HTML = Path(__file__).resolve().parents[2] / "public" / "aria.html"
+REPORTS_ROUTES = Path(__file__).resolve().parents[2] / "lib" / "reports" / "routes.mjs"
 
 
 def _read_html() -> str:
     return ARIA_HTML.read_text(encoding="utf-8")
+
+
+def _read_reports_routes() -> str:
+    return REPORTS_ROUTES.read_text(encoding="utf-8")
 
 
 def test_load_detail_passes_user_id():
@@ -85,6 +90,33 @@ def test_rf739_markers_present():
     assert count >= 3, (
         f"R-F739: expected ≥3 markers across the addition zones, "
         f"found {count}."
+    )
+
+
+def test_rf769_reports_route_passes_user_id():
+    """R-F769 (2026-05-21) — companion to R-F739. The PDF report route
+    in lib/reports/routes.mjs fetches the same /detail endpoint to
+    render audit-grade PDFs. Pre-R-F769 it omitted user_id, so the
+    brain returned HTTP 400 (R-F606 ownership check) which the route
+    mapped to a 502 — every PDF export failed with 'failed to fetch
+    conversation'. Symptom in fly logs: bare
+    'GET /api/aria/conversations/<sid>/detail HTTP/1.1 400 Bad Request'
+    with no user_id query string. This test ensures the URL retains
+    the user_id query param."""
+    src = _read_reports_routes()
+    # The fetch URL must include ?user_id= before being sent to the brain
+    assert "/detail?user_id=" in src, (
+        "R-F769 regression: lib/reports/routes.mjs /detail fetch is "
+        "missing ?user_id= — every PDF export will 502."
+    )
+    # Slug must come from the same R-F742 derivation as aria.html:652
+    assert re.search(
+        r"user\.email\s*\|\|\s*user\.username\s*\|\|\s*user\.id",
+        src,
+    ), (
+        "R-F769: user slug derivation must match aria.html (EMAIL > "
+        "USERNAME > id) so the brain ownership check finds the "
+        "conversation under the same key."
     )
 
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 769,
+  "next_available": 770,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2201,6 +2201,16 @@
       "r_number": "R-F768",
       "title": "deep_research 0-result cross-tool escalation: native-language search + registry adapter via R-F767 jurisdictions",
       "claimed_at": "2026-05-20T21:10:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "451c2b0",
+      "notes": null,
+      "shipped_at": "2026-05-20T21:13:36Z"
+    },
+    {
+      "r_number": "R-F769",
+      "title": "conversation-detail user_id query param",
+      "claimed_at": "2026-05-21T07:15:29Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
