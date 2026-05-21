@@ -784,31 +784,19 @@ async def store_fact(topic: str, content: str, source: str = "user",
         # No URL/fact_type supplied — this is a bare /teach or legacy ingest.
         verified_meta = {"verification_status": "LEGACY_UNVERIFIED"}
 
-    # ── Detect contradictions BEFORE storing ──────────────────────────────
-    contradictions = _detect_contradictions(topic, content, db["facts"])
-
-    # ── R-F174 (2026-05-11) content-hash dedup ────────────────────────────
-    # Pre-R-F174: dedup was ONLY by topic. reading_session uses title[:80]
-    # as the topic, so every fresh RSS title produced a brand-new fact even
-    # when the body was a near-duplicate of an existing fact. Knowledge
-    # grew linearly with reading volume, not with new information. Now
-    # also check: same content prefix (300 chars) + same source-domain
-    # → treat as a duplicate hit on the existing fact.
+    # ── R-F174 / R-F217 content-hash setup (cheap; stays on loop) ─────────
+    # R-F174 (2026-05-11) added content-hash dedup so RSS titles with
+    # near-duplicate bodies don't grow knowledge linearly with reading
+    # volume. R-F217 (2026-05-11) restricted source_domain stamping to
+    # URL or `:`-prefixed sources so bare-source `/teach` writes don't
+    # collide on (hash, "user") and silently skip contradiction detection.
+    # These two snippets are cheap (single hashlib + single urlparse) —
+    # left on the loop. The expensive part is the THREE O(len(facts))
+    # scans (contradictions + content_hash + topic) that follow.
     import hashlib as _hashlib
     _content_hash = _hashlib.sha1(
         (content[:300] or "").strip().lower().encode("utf-8")
     ).hexdigest()[:16]
-    # R-F217 (2026-05-11) — only stamp source_domain when the source
-    # has a URL or `:`-delimited prefix (a domain-shaped identifier).
-    # Pre-R-F217, bare sources like "user" / "teach" / "aria_auto_
-    # verified" collapsed source_domain to the whole source string.
-    # Combined with content_hash, two distinct user-taught facts with
-    # similar 300-char prefixes would collide on the (hash, "user")
-    # tuple and the second would be silently "duplicate_skipped" —
-    # bypassing contradiction detection entirely. Now domain stamping
-    # is reserved for sources that ARE domain-shaped; bare sources
-    # leave domain="" and the dedup short-circuit cannot fire (the
-    # tuple match requires non-empty domain by symmetry).
     _source_domain = ""
     try:
         _src_lower = (source or "").lower()
@@ -816,79 +804,104 @@ async def store_fact(topic: str, content: str, source: str = "user",
             from urllib.parse import urlparse as _up
             _source_domain = (_up(_src_lower).hostname or "").strip(".")
         elif ":" in _src_lower:
-            # Source format like "reading:Asia Times" — use the suffix
             _source_domain = _src_lower.split(":", 1)[1].strip()[:60]
-        # else: bare source (user/teach/aria_auto_verified) → leave
-        # _source_domain empty so the dedup check below cannot match.
     except Exception:
         _source_domain = ""
-    # R-F217 (2026-05-11) — require BOTH content_hash AND source_domain
-    # to be non-empty for the short-circuit to fire. Pre-R-F217 the
-    # `f.get("source_domain", "")` default would match against an empty
-    # `_source_domain` (bare-source case) — so two user-taught facts
-    # with the same 300-char prefix collided. Now both fields must
-    # carry real values; bare sources skip the short-circuit entirely.
-    if _content_hash and _source_domain:
-        for f in db["facts"]:
-            if (
-                f.get("content_hash") == _content_hash
-                and f.get("source_domain") == _source_domain
-            ):
+
+    # ── R-F775 (2026-05-21) — single-pass scan off the event loop ────────
+    # Pre-R-F775 the contradictions scan + content-hash dedup + topic
+    # dedup ran inline on the response loop, each O(len(facts)). With
+    # ~57k facts in production each store_fact call did ~170k string
+    # ops on the main thread. wedge_675_1779352332.log captured 5-17s
+    # main-thread stalls here and the brain_hook circuit tripped at
+    # 09:04:00 UTC 2026-05-21 with p95 = 22min on absorb(web_atlas)
+    # — paid intel was being skipped (R-cluster: pay-once-remember-
+    # forever degradation). Now all three scans run in a single worker
+    # thread; the response loop is free during the scan. Mutations +
+    # _save() stay on the loop (cheap; per-call work).
+    def _scan_for_dedup_sync() -> tuple[list[dict], dict | None, dict | None]:
+        # Return dict REFERENCES, not indices: between to_thread returning
+        # and the mutation site below, a concurrent store_fact could
+        # `db["facts"].insert(0, ...)` (line 913) which shifts every
+        # index by one. Dict identity is stable across list reorders, so
+        # references survive concurrent inserts. (Knowledge never deletes
+        # — R-F239 warn-only — so references remain valid for the
+        # mutation that follows.)
+        contras = _detect_contradictions(topic, content, db["facts"])
+        content_hit = None
+        if _content_hash and _source_domain:
+            for f in db["facts"]:
+                if (
+                    f.get("content_hash") == _content_hash
+                    and f.get("source_domain") == _source_domain
+                ):
+                    content_hit = f
+                    break
+        topic_hit = None
+        if content_hit is None:
+            _topic_lower = topic.lower()
+            for f in db["facts"]:
+                if f["topic"].lower() == _topic_lower:
+                    topic_hit = f
+                    break
+        return contras, content_hit, topic_hit
+
+    import asyncio as _aio_r775
+    contradictions, _content_hit, _topic_hit = (
+        await _aio_r775.to_thread(_scan_for_dedup_sync)
+    )
+
+    if _content_hit is not None:
+        f = _content_hit
+        f["accessCount"] = f.get("accessCount", 0) + 1
+        f["last_seen_at"] = now
+        await _save()
+        return {
+            "action": "duplicate_skipped",
+            "fact_id": f["id"],
+            "reason": "content_hash_match_R-F174",
+        }
+
+    if _topic_hit is not None:
+        f = _topic_hit
+        old_rank = _CONFIDENCE_RANK.get(f.get("confidence", "ASSESSED"), 2)
+        new_rank = _CONFIDENCE_RANK.get(confidence, 2)
+
+        if contradictions:
+            if new_rank >= old_rank:
+                f["superseded_by"] = None
+                f["superseded_at"] = now
+                f["history"] = (f.get("history") or [])[-9:] + [{
+                    "content": f["content"],
+                    "confidence": f["confidence"],
+                    "source": f["source"],
+                    "replaced_at": now,
+                }]
+                f["content"] = content
+                f["source"] = source
+                f["confidence"] = confidence
+                f["updatedAt"] = now
                 f["accessCount"] = f.get("accessCount", 0) + 1
-                f["last_seen_at"] = now
+                f["contradictions_detected"] = (f.get("contradictions_detected", 0) or 0) + len(contradictions)
                 await _save()
-                return {
-                    "action": "duplicate_skipped",
-                    "fact_id": f["id"],
-                    "reason": "content_hash_match_R-F174",
-                }
+                return {"action": "superseded", "fact_id": f["id"], "contradictions": contradictions}
+            else:
+                f["pending_conflicts"] = (f.get("pending_conflicts") or [])[-4:] + [{
+                    "content": content[:200], "confidence": confidence,
+                    "source": source, "noted_at": now,
+                }]
+                await _save()
+                return {"action": "conflict_logged", "fact_id": f["id"], "contradictions": contradictions}
 
-    # ── Dedup by topic ────────────────────────────────────────────────────
-    for f in db["facts"]:
-        if f["topic"].lower() == topic.lower():
-            # Don't blindly overwrite — check confidence ranks
-            old_rank = _CONFIDENCE_RANK.get(f.get("confidence", "ASSESSED"), 2)
-            new_rank = _CONFIDENCE_RANK.get(confidence, 2)
-
-            if contradictions:
-                # New info contradicts old — keep both, mark the older one as superseded
-                # but only if the new fact is at least as confident as the old.
-                if new_rank >= old_rank:
-                    f["superseded_by"] = None  # placeholder; set after we know the new id
-                    f["superseded_at"] = now
-                    f["history"] = (f.get("history") or [])[-9:] + [{
-                        "content": f["content"],
-                        "confidence": f["confidence"],
-                        "source": f["source"],
-                        "replaced_at": now,
-                    }]
-                    f["content"] = content
-                    f["source"] = source
-                    f["confidence"] = confidence
-                    f["updatedAt"] = now
-                    f["accessCount"] = f.get("accessCount", 0) + 1
-                    f["contradictions_detected"] = (f.get("contradictions_detected", 0) or 0) + len(contradictions)
-                    await _save()
-                    return {"action": "superseded", "fact_id": f["id"], "contradictions": contradictions}
-                else:
-                    # New fact is weaker — keep old, log the conflict but don't overwrite
-                    f["pending_conflicts"] = (f.get("pending_conflicts") or [])[-4:] + [{
-                        "content": content[:200], "confidence": confidence,
-                        "source": source, "noted_at": now,
-                    }]
-                    await _save()
-                    return {"action": "conflict_logged", "fact_id": f["id"], "contradictions": contradictions}
-
-            # No conflict — refresh in place
-            f["content"] = content
-            f["source"] = source
-            f["confidence"] = confidence
-            f["updatedAt"] = now
-            f["accessCount"] = f.get("accessCount", 0) + 1
-            if verified_meta:
-                f.update(verified_meta)
-            await _save()
-            return {"action": "updated", "fact_id": f["id"], "contradictions": []}
+        f["content"] = content
+        f["source"] = source
+        f["confidence"] = confidence
+        f["updatedAt"] = now
+        f["accessCount"] = f.get("accessCount", 0) + 1
+        if verified_meta:
+            f.update(verified_meta)
+        await _save()
+        return {"action": "updated", "fact_id": f["id"], "contradictions": []}
 
     # ── Brand-new fact ────────────────────────────────────────────────────
     new_id = str(uuid.uuid4())[:8]
