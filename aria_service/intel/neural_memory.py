@@ -866,11 +866,13 @@ async def learn_from_text(text: str, source: str = "conversation",
     if not concepts:
         return {"neurons_activated": 0, "connections_formed": 0}
 
-    # Conflict detection — check if new text contradicts existing knowledge
+    # Conflict detection — check if new text contradicts existing knowledge.
+    # R-F771: pass *source* through so detect_conflict can skip autonomous-
+    # loop re-absorbs that flooded the queue with false-positive entries.
     conflicts_found = []
     for concept, category in concepts:
         if category in ("person", "organisation", "oem"):
-            conflict = detect_conflict(concept, text)
+            conflict = detect_conflict(concept, text, source=source)
             if conflict:
                 conflicts_found.append(conflict)
                 await log_conflict(conflict)
@@ -1266,22 +1268,56 @@ _LOW_RISK_SIGNALS = {"compliant", "low risk", "cleared", "verified", "reputable"
 # against this set; skip detect_conflict entirely on a hit.
 _OPERATOR_SELF_ENTITIES = {"arkmurus", "crucix"}
 
+# R-F771 (2026-05-21): scaffolding markers that prove the text being
+# absorbed is ARIA's own response-contract / comprehension instructions,
+# not actual intel about a counterparty. Live evidence: a forensic dump
+# of the conflict queue (50-item slice, 5 days) was dominated by
+# `chat:autonomous:WEEKLY-HW-PLATFORMS` re-runs that absorbed the same
+# `[COMPREHENSION PASS — Clause 21...]` prefix dozens of times — Baykar
+# logged 7x, DoD 15x, all HIGH→LOW. The keyword scan was matching
+# scaffolding language ("clear", "verified", etc.) against neurons
+# seeded from news (HIGH-signal). Substring match → false positive.
+# Skip detect_conflict when the text starts/contains these markers.
+_SCAFFOLDING_MARKERS = (
+    "[COMPREHENSION PASS",
+    "RESPONSE CONTRACT for this turn",
+    "[INSTRUCTION CONTRACT",
+)
 
-def detect_conflict(entity: str, new_text: str) -> dict | None:
+# R-F771 — same forensic dump showed `chat:autonomous:*` sources (the
+# WEEKLY-HW-PLATFORMS / DAILY-PROC-ANGOLA / MONTHLY-CRISISWATCH
+# automation loops) produced ~60% of conflict entries. These loops
+# re-absorb the same canonical news pages and ARIA-prompt scaffolding
+# on every cycle, so they cannot introduce genuinely new counterparty
+# intel — only re-run noise. Skip detect_conflict on any source prefix
+# in this set.
+_NOISY_SOURCE_PREFIXES = (
+    "chat:autonomous:",
+)
+
+
+def detect_conflict(entity: str, new_text: str, source: str = "") -> dict | None:
     """Check if new intelligence about an entity contradicts stored knowledge.
 
     Scans new text for risk signals and compares against existing neuron
     metadata and connected neurons. Returns a conflict dict if opposing
     signals are found, or None if no conflict.
 
-    R-F647: skips operator-self entities (Arkmurus, Crucix) — those are
-    not counterparties and the conflict log was filling with eval-traffic
-    noise about the operator's own org.
+    R-F647: skips operator-self entities (Arkmurus, Crucix).
+    R-F771: skips when *source* is an autonomous-loop re-run or when
+    *new_text* contains ARIA's own scaffolding markers (these produced
+    ~90% of false-positive conflicts in the 2026-05-21 forensic dump).
     """
     if not _loaded:
         return None  # Neural memory not initialized yet
     if entity.strip().lower() in _OPERATOR_SELF_ENTITIES:
         return None  # operator-self: not a counterparty
+    # R-F771 source filter — autonomous loops cannot introduce new intel
+    if source and any(source.startswith(p) for p in _NOISY_SOURCE_PREFIXES):
+        return None
+    # R-F771 scaffolding filter — ARIA's own prompt prefix isn't intel
+    if new_text and any(m in new_text for m in _SCAFFOLDING_MARKERS):
+        return None
     neuron = _find_neuron(entity)
     if not neuron:
         return None
@@ -1380,3 +1416,21 @@ async def resolve_conflict(entity: str) -> bool:
         return False
     except Exception:
         return False
+
+
+async def clear_all_conflicts() -> int:
+    """R-F771 (2026-05-21) — drop the entire conflict list and return the
+    count removed. Surfaced because the 2026-05-21 forensic dump showed
+    the queue had become unusable for review: the same entities (Baykar,
+    DoD, FAA) were logged dozens of times by autonomous loops absorbing
+    canonical news scaffolding. Operator needs a one-shot way to reset
+    so the post-R-F771-filter signal is observable from a clean baseline.
+    """
+    try:
+        conflicts = await rs.get_json(CONFLICT_KEY) or []
+        count = len(conflicts)
+        if count:
+            await rs.set_json(CONFLICT_KEY, [])
+        return count
+    except Exception:
+        return 0

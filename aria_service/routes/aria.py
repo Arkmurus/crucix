@@ -10104,6 +10104,19 @@ async def neural_conflicts_list_ep(limit: int = 50):
     return {"limit": capped, "count": len(conflicts), "conflicts": conflicts}
 
 
+# 33-d. POST /api/aria/neural/conflicts/clear — R-F771 (2026-05-21)
+# Drops the entire conflict list and returns the count removed. Sibling
+# to /corpus/conflicts/resolve which only clears one entity at a time.
+# Needed because the 2026-05-21 forensic dump showed the queue had
+# accumulated hundreds of false positives from autonomous-loop re-runs
+# absorbing ARIA's own scaffolding; the filters added in R-F771 stop
+# new noise but do not retroactively clean the existing pile.
+@router.post("/neural/conflicts/clear")
+async def neural_conflicts_clear_ep():
+    cleared = await neural_memory.clear_all_conflicts()
+    return {"cleared": cleared}
+
+
 # 33a. GET /api/aria/neural/graph — Knowledge graph visualization
 @router.get("/neural/graph")
 async def neural_graph_ep(limit: int = 200):
