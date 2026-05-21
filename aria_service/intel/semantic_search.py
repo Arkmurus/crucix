@@ -124,12 +124,42 @@ _embedder_lock = _threading.Lock()  # R-F459 — serialise singleton init
 # an asyncio.Semaphore only works for async callers.
 _encode_lock = _threading.Lock()
 
+# R-F789 (2026-05-21) — bound the lock-acquire wait. Pre-R-F789 a slow
+# encode (large batch or cold-CPU model load) holding the lock would
+# block ALL subsequent encode callers indefinitely, including the
+# chromadb embedding function path (`rag_store.__call__`) that R-F783
+# wedge stacks captured. Now: callers wait up to ENCODE_LOCK_WAIT_S,
+# and on timeout raise a clear error so the caller can fall back to
+# TF-IDF / cached embeddings / skip-and-degrade. Default 10s —
+# generous for a busy-but-progressing embedder, tight enough that a
+# stuck encoder doesn't cascade into a 60s+ HTTP wedge.
+import os as _os_r789
+_ENCODE_LOCK_WAIT_S = float(_os_r789.getenv("ARIA_ENCODE_LOCK_WAIT_S", "10"))
+
+
+class EncodeLockTimeout(RuntimeError):
+    """Raised when _safe_encode can't acquire the encode lock within
+    _ENCODE_LOCK_WAIT_S. Callers should catch this and fall back to
+    TF-IDF / cached embeddings rather than crashing."""
+
 
 def _safe_encode(model, text_or_texts, **kwargs):
     """R-F530 — call model.encode() under the global encode lock.
-    Returns whatever encode() returns; passes through kwargs."""
-    with _encode_lock:
+    R-F789 — lock acquire is bounded by _ENCODE_LOCK_WAIT_S; raises
+    EncodeLockTimeout on timeout so callers can degrade rather than
+    block forever. Returns whatever encode() returns on success;
+    passes through kwargs."""
+    acquired = _encode_lock.acquire(timeout=_ENCODE_LOCK_WAIT_S)
+    if not acquired:
+        raise EncodeLockTimeout(
+            f"R-F789: could not acquire encode lock within "
+            f"{_ENCODE_LOCK_WAIT_S}s — embedder is busy. Caller "
+            f"should fall back to TF-IDF / cached embeddings."
+        )
+    try:
         return model.encode(text_or_texts, **kwargs)
+    finally:
+        _encode_lock.release()
 
 
 def is_embedder_ready() -> bool:
