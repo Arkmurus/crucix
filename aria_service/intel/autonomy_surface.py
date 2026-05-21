@@ -562,24 +562,64 @@ _DEFAULT_RESILIENCE: dict[str, Any] = {
     "_degraded_marker": "R-F347_subtask_timeout",
 }
 
-SUBTASK_TIMEOUT_SECONDS = float(os.getenv("ARIA_AUTONOMY_SURFACE_TIMEOUT", "8"))
+# R-F347 default was 8s; R-F782 raises to 30s so a slow sub-task under
+# SQLite write contention still completes instead of degrading to defaults.
+# The 60s cache below means a 30s sub-task is paid at most once per minute.
+SUBTASK_TIMEOUT_SECONDS = float(os.getenv("ARIA_AUTONOMY_SURFACE_TIMEOUT", "30"))
+
+# R-F782 (2026-05-21): in-process cache for the 4 sub-task results.
+# Live evidence on 2026-05-21 (logs 10:57:06 + 10:59:03) showed every
+# autonomy_surface fire timing out all 4 sub-tasks at the 8s ceiling —
+# the dashboard panel rendered all-zero defaults even when the brain
+# was healthy. Root cause: under crawler + autonomous-engine write
+# pressure, the 4 sub-tasks contend on the SQLite WAL and each takes
+# 5-10s. Cache successful results for 60s so each sub-task computes at
+# most once per minute regardless of how often the dashboard polls.
+_SUBTASK_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_SUBTASK_CACHE_TTL_S = float(os.getenv("ARIA_AUTONOMY_SURFACE_CACHE_TTL", "60"))
+
+
+def _cache_get(label: str) -> dict[str, Any] | None:
+    """Return cached sub-task result if still fresh, else None."""
+    import time as _time
+    hit = _SUBTASK_CACHE.get(label)
+    if hit is None:
+        return None
+    ts, value = hit
+    if (_time.monotonic() - ts) >= _SUBTASK_CACHE_TTL_S:
+        return None
+    return value
+
+
+def _cache_set(label: str, value: dict[str, Any]) -> None:
+    import time as _time
+    _SUBTASK_CACHE[label] = (_time.monotonic(), value)
 
 
 async def get_surface() -> dict[str, Any]:
     """Return the full autonomy-surface payload for dashboard + briefing.
 
-    R-F347 (2026-05-12): the 4 sub-tasks now run in parallel with a
-    per-task timeout so one slow probe can no longer take down the
-    whole endpoint. Each sub-task that times out / raises returns its
-    default empty shape and is logged at WARNING so operators can see
-    which probe is degraded. Endpoint-level worst case is now
-    SUBTASK_TIMEOUT_SECONDS (default 8s), not 4×N seconds.
+    R-F347 (2026-05-12): the 4 sub-tasks run in parallel with a per-task
+    timeout so one slow probe can no longer take down the whole endpoint.
+
+    R-F782 (2026-05-21): each sub-task is cached for
+    ARIA_AUTONOMY_SURFACE_CACHE_TTL seconds (default 60s) so an expensive
+    SQLite-read path is paid at most once per minute regardless of poll
+    frequency. Cache stores only SUCCESSFUL results — a sub-task that
+    timed out / raised returns the empty-default shape AND skips the
+    cache write, so the next poll re-attempts the live computation.
     """
     import asyncio
 
-    async def _safe(coro, default, label):
+    async def _safe(coro_factory, default, label):
+        # R-F782: cache hit short-circuits the await entirely.
+        cached = _cache_get(label)
+        if cached is not None:
+            return cached
         try:
-            return await asyncio.wait_for(coro, timeout=SUBTASK_TIMEOUT_SECONDS)
+            result = await asyncio.wait_for(coro_factory(), timeout=SUBTASK_TIMEOUT_SECONDS)
+            _cache_set(label, result)
+            return result
         except asyncio.TimeoutError:
             logger.warning(
                 "autonomy_surface: %s timed out at %.1fs, returning defaults",
@@ -591,10 +631,10 @@ async def get_surface() -> dict[str, Any]:
             return default
 
     auto, drafts, queue, resilience = await asyncio.gather(
-        _safe(_auto_allowed_summary(), dict(_DEFAULT_AUTO_ALLOWED), "auto_allowed"),
-        _safe(_drafts_awaiting(),       dict(_DEFAULT_DRAFTS),       "drafts"),
-        _safe(_operator_queue(),         dict(_DEFAULT_QUEUE),         "queue"),
-        _safe(_resilience_floor(),       dict(_DEFAULT_RESILIENCE),    "resilience"),
+        _safe(lambda: _auto_allowed_summary(), dict(_DEFAULT_AUTO_ALLOWED), "auto_allowed"),
+        _safe(lambda: _drafts_awaiting(),       dict(_DEFAULT_DRAFTS),       "drafts"),
+        _safe(lambda: _operator_queue(),         dict(_DEFAULT_QUEUE),         "queue"),
+        _safe(lambda: _resilience_floor(),       dict(_DEFAULT_RESILIENCE),    "resilience"),
     )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),

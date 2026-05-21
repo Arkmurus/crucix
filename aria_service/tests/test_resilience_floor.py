@@ -13,6 +13,16 @@ import asyncio
 import pytest
 
 
+# R-F782: autonomy_surface caches sub-task results for 60s. Reset before
+# each test so monkeypatched/env-driven branches see fresh computation.
+@pytest.fixture(autouse=True)
+def _r_f782_reset_autonomy_surface_cache():
+    from aria_service.intel import autonomy_surface
+    autonomy_surface._SUBTASK_CACHE.clear()
+    yield
+    autonomy_surface._SUBTASK_CACHE.clear()
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # 1. Groq provider
 # ═══════════════════════════════════════════════════════════════════════

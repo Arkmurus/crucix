@@ -17,6 +17,19 @@ import os
 import pytest
 
 
+# R-F782 (2026-05-21): autonomy_surface now caches each sub-task result
+# for 60s to absorb SQLite write contention. These tests rely on fresh
+# computation per call (monkeypatched sub-tasks, env-var driven branches),
+# so reset the cache before AND after each test in this file. Autouse
+# fixture covers every test below without each one needing a manual call.
+@pytest.fixture(autouse=True)
+def _r_f782_reset_autonomy_surface_cache():
+    from aria_service.intel import autonomy_surface
+    autonomy_surface._SUBTASK_CACHE.clear()
+    yield
+    autonomy_surface._SUBTASK_CACHE.clear()
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # 1. get_surface() shape + graceful degradation
 # ═══════════════════════════════════════════════════════════════════════
