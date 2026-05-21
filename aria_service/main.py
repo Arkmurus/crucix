@@ -33,6 +33,16 @@ from .intel import reasoning_library
 from .intel import proactive
 from .intel import rag_store
 from .intel import ocr as ocr_module
+# R-F786 (2026-05-21) — eager-import document_reader so the first
+# /api/aria/document/extract call doesn't pay the import cost on the
+# response loop. Wedge stack /data/wedge_stacks/wedge_677_1779379566.log
+# captured `extract_document_ep` blocked on `<module>` of
+# document_reader.py during a 17.91s stall — same pattern as R-F772
+# closed for counterparty_claim_ledger. document_reader pulls
+# PyMuPDF/fitz + OCR backends, which open shared libs and take
+# multi-second on cold import. Eager-loading at boot moves that cost
+# into the startup window where the event loop isn't serving traffic.
+from .intel import document_reader as _document_reader_module  # noqa: F401
 from .intel import cost_tracker
 from .intel.researcher import research_and_learn, get_hypotheses, validate_hypothesis
 from .routes.aria import router as aria_router, require_aria_token
