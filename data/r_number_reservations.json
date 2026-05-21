@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 779,
+  "next_available": 781,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2306,6 +2306,24 @@
       "commit_sha": "f3fc4cc",
       "notes": null,
       "shipped_at": "2026-05-21T10:27:56Z"
+    },
+    {
+      "r_number": "R-F779",
+      "title": "R-F779 brier-drop monitor + RunPod fine-tune trigger scaffold",
+      "claimed_at": "2026-05-21T10:30:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F780",
+      "title": "R-F780 predict_deal_outcome + calibration post-mortem ingest",
+      "claimed_at": "2026-05-21T10:30:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

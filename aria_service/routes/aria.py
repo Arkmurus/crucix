@@ -11286,6 +11286,34 @@ async def pending_actions_cancel_ep(action_id: str, request: Request):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+@router.get("/learning/brier-drift")
+async def learning_brier_drift_ep(window_hours: int = 24):
+    """R-F779: per-topic mastery drift over a rolling window.
+
+    Returns the diff between the latest mastery snapshot and the snapshot
+    closest to `window_hours` ago. Negative deltas mean mastery dropped —
+    that's the calibration signal that should trigger a RunPod fine-tune
+    on the affected topic(s).
+
+    The check_thresholds_and_alert() helper runs daily (wired via the
+    proactive watch loop) and records a CRITICAL pending_action when any
+    topic drops ≥ 10 percentage points. See
+    aria_service/intel/brier_drift_monitor.py.
+    """
+    from ..intel import brier_drift_monitor
+    return await brier_drift_monitor.compute_drift(window_hours=window_hours)
+
+
+@router.post("/learning/brier-drift/snapshot")
+async def learning_brier_drift_snapshot_ep():
+    """R-F779: capture a mastery snapshot to the drift ledger. Operator-
+    runnable for ad-hoc snapshots; the scheduled daily snapshot fires
+    from the proactive_watch loop."""
+    from ..intel import brier_drift_monitor
+    snap = await brier_drift_monitor.snapshot_mastery()
+    return {"ok": "error" not in snap, "snapshot": snap}
+
+
 @router.get("/autonomous/dryrun/recent")
 async def autonomous_dryrun_recent_ep(limit: int = 20):
     """R-F774: most-recent dry-run decisions made by the autonomous engine.
