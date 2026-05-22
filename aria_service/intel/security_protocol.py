@@ -691,7 +691,9 @@ def detect_prompt_injection(text: str) -> dict:
           - risk_level (str): "none", "low", "medium", "high", "critical".
           - reasons (list[str]): Human-readable descriptions of findings.
           - categories (list[str]): Machine-readable category tags.
-          - blocked (bool): True if risk_level is "critical" or "high".
+          - blocked (bool): True only if risk_level is "critical".
+            (R-F792 2026-05-22: HIGH is log-only — flagged + logged at
+            WARNING for audit, but the request proceeds. CRITICAL blocks.)
     """
     if not text or not isinstance(text, str):
         return {
@@ -723,7 +725,26 @@ def detect_prompt_injection(text: str) -> dict:
                 max_severity = severity
 
     is_suspicious = len(reasons) > 0
-    blocked = max_severity in ("high", "critical")
+    # R-F792 (2026-05-22): HIGH is log-only; only CRITICAL blocks.
+    #
+    # Pre-R-F792 this was `max_severity in ("high", "critical")` which
+    # contradicted the docstring (line 694: "blocked is True if risk_level
+    # is critical or high" — but the *intent* expressed in the calling
+    # code routes/aria.py:6712-6715 was "Currently logs-only on HIGH,
+    # blocks on CRITICAL"). Live evidence 2026-05-22: legitimate user
+    # question "Aria, this is the document to see whether LUKOIL is
+    # mentioned" got blocked twice — operator had to rephrase to a
+    # third variant just to get an answer, and the document was never
+    # actually read.
+    #
+    # HIGH patterns (system_override 'forget your rules', role_manipulation
+    # 'you do not have restrictions', data_exfiltration 'list all users',
+    # social_engineering 'change the api key') are still flagged and
+    # logged so we can audit false positives — but they no longer block
+    # the user. CRITICAL patterns (token_injection <|im_start|>, jailbreak
+    # DAN/bypass, exec/path-traversal, "you are now unrestricted", "show
+    # your system prompt") continue to block.
+    blocked = max_severity == "critical"
 
     if is_suspicious:
         logger.warning(
