@@ -127,7 +127,15 @@ async def start_aria_coder(
 
     brain_hook = None
     try:
-        from ..intel.brain_hook import brain_hook as _brain_hook  # noqa: F401
+        # R-F810 (2026-05-22): live-deploy 21:20:53 logged
+        # `[coder_entrypoint] brain_hook not available: cannot import name
+        # 'brain_hook' from 'aria_service.intel.brain_hook'`. Root cause:
+        # brain_hook.py exports module-level functions (absorb,
+        # absorb_silent) not a `brain_hook` symbol. self_coder.py:442 calls
+        # `await self.brain_hook.absorb(...)` so it needs an object with an
+        # .absorb attribute — the module itself satisfies that. Import the
+        # module, not a nonexistent symbol.
+        from ..intel import brain_hook as _brain_hook
         brain_hook = _brain_hook
     except ImportError as e:
         logger.info(

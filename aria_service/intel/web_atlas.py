@@ -48,6 +48,7 @@ Public API
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -311,17 +312,36 @@ async def add_source(
             )
     except Exception as e:
         logger.debug("audit emit for atlas %s failed: %s", action, e)
-    # Brain signal — so the atlas growth feeds mastery + daily briefing
-    try:
-        from . import brain_hook as _bh
-        await _bh.absorb(
-            module="web_atlas",
-            summary=f"Atlas {action}: {family} (Tier {tier})",
-            detail=f"Region {region}, topics {topic_tags[:5]}, by {added_by}",
-            success=True,
-        )
-    except Exception:
-        pass
+    # Brain signal — so the atlas growth feeds mastery + daily briefing.
+    # R-F811 (2026-05-22): fly 21:24:23 logged brain_hook circuit trip with
+    # p95=38825ms; R-F703 fired event-loop stall 8.74s at 21:28:53. Audit:
+    # crawler/runner.py and source_uptime_monitor call add_source per-page
+    # on every sweep (~184 sources/6h) and each `await _bh.absorb(...)`
+    # blocks the caller on the 3-tier brain_hook chain (mastery + knowledge
+    # + neural concept-extract + neural-graph persist). Two scope cuts here:
+    #   1. Skip absorb on action=="updated" — these are heartbeats (EMA
+    #      refresh, uptime ping). The atlas family is already in the brain;
+    #      the same `Atlas updated: family (Tier X)` summary string carries
+    #      zero net new information. The sweep was firing ~180 absorbs per
+    #      6h cycle of identical no-op heartbeat strings.
+    #   2. On action=="added" (genuinely new source), dispatch as
+    #      fire-and-forget via asyncio.create_task so add_source returns
+    #      immediately instead of blocking on the absorb chain. Matches the
+    #      crawler/runner.py:174 R-F667 pattern.
+    if action == "added":
+        try:
+            from . import brain_hook as _bh
+            _t = asyncio.create_task(_bh.absorb_silent(
+                module="web_atlas",
+                summary=f"Atlas {action}: {family} (Tier {tier})",
+                detail=f"Region {region}, topics {topic_tags[:5]}, by {added_by}",
+                success=True,
+            ))
+            _t.add_done_callback(
+                lambda t: t.result() if not t.cancelled() and t.exception() is None else None
+            )
+        except Exception:
+            pass
     return {"action": action, "family": family, "record": record}
 
 
