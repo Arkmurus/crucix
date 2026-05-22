@@ -7557,17 +7557,53 @@ async def rescreen_watchlist(llm=None) -> dict:
             {"entity": "*", "error": f"sanctions module import failed: {e}"}],
             "duration_ms": int((time.monotonic() - t0) * 1000)}
 
+    # R-F798 (2026-05-22) — per-entity wall-time ceiling. Live evidence
+    # 2026-05-22 16:03:49 UTC: [Watchlist] Re-screen: 1 entities, 1
+    # changes, 0 errors, 1,197,936ms (19m 58s). A single wedged
+    # sanctions screen burned ~20 min while other entities sat behind
+    # it. Cap each entity at _RESCREEN_PER_ENTITY_TIMEOUT_S (default
+    # 60s, env-tunable). On timeout the entity is recorded as an
+    # error and the loop moves on, preserving the other entities'
+    # chance to run within the cycle.
+    import asyncio as _aio_rf798
+    _per_entity_timeout = float(
+        os.environ.get("ARIA_RESCREEN_PER_ENTITY_TIMEOUT_S", "60.0")
+    )
+
     for entry in entities:
         name = (entry.get("name") or entry.get("entity") or "").strip()
         if not name:
             continue
         try:
             # --- Run quick sanctions screen (no LLM, no deep research) ---
-            if hasattr(sanctions, "screen_with_aliases"):
-                screen = await sanctions.screen_with_aliases(name)
-            elif hasattr(sanctions, "fuzzy_screen"):
-                screen = await sanctions.fuzzy_screen(name)
+            # R-F798: wrap the screen + downstream Redis reads in a
+            # single per-entity timeout. If anything wedges, the
+            # entity is recorded as an error and the loop continues.
+            async def _screen_one_entity():
+                if hasattr(sanctions, "screen_with_aliases"):
+                    return await sanctions.screen_with_aliases(name)
+                if hasattr(sanctions, "fuzzy_screen"):
+                    return await sanctions.fuzzy_screen(name)
+                return None
+
+            if _per_entity_timeout > 0:
+                try:
+                    screen = await _aio_rf798.wait_for(
+                        _screen_one_entity(), timeout=_per_entity_timeout,
+                    )
+                except _aio_rf798.TimeoutError:
+                    errors.append({
+                        "entity": name,
+                        "error": (
+                            f"sanctions screen timeout (>"
+                            f"{_per_entity_timeout:.1f}s) — R-F798 cap"
+                        ),
+                    })
+                    continue
             else:
+                screen = await _screen_one_entity()
+
+            if screen is None:
                 errors.append({"entity": name, "error": "no sanctions entrypoint"})
                 continue
 
