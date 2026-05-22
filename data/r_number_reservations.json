@@ -2452,9 +2452,10 @@
       "title": "tool intent: tighten _SCREEN_KW + skip routing when attached doc referenced",
       "claimed_at": "2026-05-22T15:33:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d42eef0",
+      "notes": null,
+      "shipped_at": "2026-05-22T15:49:41Z"
     }
   ]
 }
