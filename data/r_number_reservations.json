@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 819,
+  "next_available": 820,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2703,6 +2703,16 @@
       "commit_sha": "144d2f3",
       "notes": null,
       "shipped_at": "2026-05-22T23:17:55Z"
+    },
+    {
+      "r_number": "R-F819",
+      "title": "Pivot training pipeline to RunPod (Fly GPU deprecated Aug 1)",
+      "claimed_at": "2026-05-22T23:45:20Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c5ebd2a",
+      "notes": null,
+      "shipped_at": "2026-05-22T23:47:52Z"
     }
   ]
 }
