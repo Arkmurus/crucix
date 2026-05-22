@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 818,
+  "next_available": 819,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2693,6 +2693,16 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F818",
+      "title": "trainer image >8GB — switch to pytorch official base",
+      "claimed_at": "2026-05-22T23:17:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "144d2f3",
+      "notes": null,
+      "shipped_at": "2026-05-22T23:17:55Z"
     }
   ]
 }
