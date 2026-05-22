@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 815,
+  "next_available": 818,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2665,6 +2665,34 @@
       "commit_sha": "e3db959",
       "notes": null,
       "shipped_at": "2026-05-22T22:47:52Z"
+    },
+    {
+      "r_number": "R-F815",
+      "title": "health endpoint adversarial freshness",
+      "claimed_at": "2026-05-22T22:55:42Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a7343ac",
+      "notes": null,
+      "shipped_at": "2026-05-22T23:01:06Z"
+    },
+    {
+      "r_number": "R-F816",
+      "title": "trigger fresh adversarial run",
+      "claimed_at": "2026-05-22T22:55:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F817",
+      "title": "expand R-F687 garbage domain filter",
+      "claimed_at": "2026-05-22T22:55:42Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
