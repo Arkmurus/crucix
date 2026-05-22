@@ -17252,11 +17252,33 @@ async def health_check_ep():
         pass
 
     adversarial = None
+    adversarial_run_at = None
+    adversarial_age_hours = None
     try:
         from ..intel import adversarial_challenge as ac
         adv = await ac.stats()
         last = adv.get("last_run") or {}
         adversarial = last.get("overall_score")
+        # R-F815 (2026-05-22) — surface adversarial freshness alongside the
+        # score. The adversarial sweep is WEEKLY (Wed+Sun 06:00 UTC per
+        # ADVERSARIAL-AUDIT task). Without an age signal the operator
+        # reading /health.quality.adversarial_score=0.065 cannot tell
+        # whether it's a fresh production regression or a 5-day-old
+        # number frozen since the last sweep. Live evidence 2026-05-22
+        # 22:43 UTC: stats.last_run.run_at=2026-05-17T10:02 (5 days
+        # stale), score=0.065, but operator dashboards displayed only
+        # the value — looked like an active incident.
+        adversarial_run_at = last.get("run_at")
+        if adversarial_run_at:
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                _ran = _dt.fromisoformat(
+                    adversarial_run_at.replace("Z", "+00:00")
+                )
+                _age_s = (_dt.now(_tz.utc) - _ran).total_seconds()
+                adversarial_age_hours = round(_age_s / 3600.0, 1)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -17332,6 +17354,8 @@ async def health_check_ep():
             "weak_topics": mastery.get("weak_topics", []),
             "grounded_rate": grounded,
             "adversarial_score": adversarial,
+            "adversarial_run_at": adversarial_run_at,
+            "adversarial_age_hours": adversarial_age_hours,
             "predictor_blocks_24h": blocks_24h,
         },
         "circuit_breakers": {
