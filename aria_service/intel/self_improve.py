@@ -1384,6 +1384,29 @@ RULES:
                     r'"fixed_code"\s*:\s*"((?:[^"\\]|\\.)*)"',
                     text, re.DOTALL,
                 )
+                # R-F797 (2026-05-22): if the strict regex fails (most
+                # common cause: LLM response truncated mid-string, so
+                # the closing quote is missing → "Unterminated string"
+                # from json.loads AND no closing quote for the strict
+                # regex), fall back to a lenient capture from the
+                # opening quote to either the next "<word>": key or
+                # the end of the response. Live evidence 2026-05-22
+                # 16:00:56 UTC: self_improve repeatedly failed on
+                # researcher.py with "Unterminated string starting at
+                # line 4 column 17 (char 1451)" — the entire diagnosis
+                # was dropped instead of recovered. The fallback keeps
+                # the auto-fix loop moving on partial responses.
+                if not m_code:
+                    m_code = re.search(
+                        r'"fixed_code"\s*:\s*"(.*?)(?="\s*[,}]|"\s*\n\s*"[a-zA-Z_]+"\s*:|$)',
+                        text, re.DOTALL,
+                    )
+                    if m_code:
+                        logger.info(
+                            "[Self-Improve] R-F797 lenient regex recovered "
+                            "fixed_code from unterminated-string response (%s)",
+                            file_path,
+                        )
                 m_diag = re.search(
                     r'"diagnosis"\s*:\s*"((?:[^"\\]|\\.)*)"',
                     text, re.DOTALL,
