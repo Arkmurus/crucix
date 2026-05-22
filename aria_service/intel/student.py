@@ -1762,7 +1762,19 @@ async def lift_all_topics(bump: float) -> dict[str, float]:
     new_scores: dict[str, float] = {}
     now = time.time()
     direction = "lift" if bump > 0 else "drop"
-    floor = 0.10
+    # R-F806 (2026-05-22): respect per-topic HARD_FLOORS on drops.
+    # Pre-R-F806 used a hardcoded 0.10 floor here — completely
+    # independent of HARD_FLOORS. Calibration_review applies -3pp
+    # via lift_all_topics(-drop), and the old code happily dropped
+    # legal (HARD_FLOORS=0.70) to 0.10 if calibration kept firing.
+    # This was the bypass around R-F796's per-tier clamping.
+    # Live evidence 2026-05-22 15:59 UTC: `Calibration-driven mastery
+    # drop: -0.030 on 11 topics` then `MASTERY HARD FLOOR BREACH:
+    # legal (66% < 70%)` recurring. R-F806 closes the bypass: drops
+    # clamp at the topic's HARD_FLOORS entry (default 0.50). Topics
+    # already below their hard floor hold steady (no auto-heal up,
+    # no further drop) — same semantics as R-F796.
+    fallback_floor = 0.10  # only for positive-bump branch consistency
     for topic in TOPICS:
         if topic not in mastery:
             mastery[topic] = {"score": INITIAL_MASTERY, "samples": 0,
@@ -1772,7 +1784,15 @@ async def lift_all_topics(bump: float) -> dict[str, float]:
         if bump > 0:
             new_score = min(MASTERY_CEILING, old_score + bump)
         else:
-            new_score = max(floor, old_score + bump)
+            # R-F806: per-topic hard floor, mirroring R-F796's
+            # clamp-or-hold logic for negative updates.
+            topic_floor = HARD_FLOORS.get(topic, 0.50)
+            proposed = old_score + bump  # bump is negative here
+            if old_score >= topic_floor:
+                new_score = max(topic_floor, proposed)
+            else:
+                # Already below floor (legacy data) — hold steady.
+                new_score = old_score
         m["score"] = new_score
         m["last_practiced"] = now
         # Record that this change was calibration-driven, NOT organic
