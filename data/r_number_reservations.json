@@ -2578,18 +2578,20 @@
       "title": "calibration_review skip topics already at hard floor",
       "claimed_at": "2026-05-22T17:11:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d283e21",
+      "notes": null,
+      "shipped_at": "2026-05-22T18:00:35Z"
     },
     {
       "r_number": "R-F807",
       "title": "background semantic-index queue — move encode off absorb critical path",
       "claimed_at": "2026-05-22T17:11:35Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2dd2395",
+      "notes": null,
+      "shipped_at": "2026-05-22T18:00:36Z"
     }
   ]
 }
