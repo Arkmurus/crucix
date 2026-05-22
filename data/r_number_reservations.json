@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 799,
+  "next_available": 802,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2505,6 +2505,36 @@
       "commit_sha": "366214d",
       "notes": null,
       "shipped_at": "2026-05-22T16:35:47Z"
+    },
+    {
+      "r_number": "R-F799",
+      "title": "absorb concurrency semaphore — bound encode-queue depth",
+      "claimed_at": "2026-05-22T16:42:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1caf4af",
+      "notes": null,
+      "shipped_at": "2026-05-22T16:48:54Z"
+    },
+    {
+      "r_number": "R-F800",
+      "title": "add sanctions to HARD_FLOORS explicitly",
+      "claimed_at": "2026-05-22T16:42:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2a21152",
+      "notes": null,
+      "shipped_at": "2026-05-22T16:48:55Z"
+    },
+    {
+      "r_number": "R-F801",
+      "title": "block response surfaces risk_level + categories for operator diagnostics",
+      "claimed_at": "2026-05-22T16:42:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2a40784",
+      "notes": null,
+      "shipped_at": "2026-05-22T16:48:55Z"
     }
   ]
 }
