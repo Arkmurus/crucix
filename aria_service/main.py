@@ -408,11 +408,39 @@ async def lifespan(app: FastAPI):
     _STALL_WARN_THRESHOLD_S = 5.0
     _WEDGE_DUMP_DEBOUNCE_S = 30.0  # don't dump more than once per 30s
 
+    # R-F814 (2026-05-22) — local sys import for is_finalizing() guard
+    # below. Module-level `import sys` isn't otherwise needed in main.py;
+    # keeping the import local to the watchdog avoids polluting the rest
+    # of the file.
+    import sys as _sys
+
     def _wedge_watchdog():
         # Daemon thread. Runs forever; cleanly exits when fh closed.
         while True:
             try:
                 _time.sleep(1.0)
+                # R-F814 (2026-05-22) — skip during interpreter shutdown.
+                # Pre-R-F814 every graceful machine restart (deploy or
+                # health-check restart) produced a false-positive "event-
+                # loop stalled" wedge dump:
+                #   1. uvicorn catches SIGTERM, lifespan unwinds, the
+                #      _event_loop_stall_detector task is cancelled.
+                #   2. The asyncio loop closes; nothing updates
+                #      _wedge_state["heartbeat"] anymore.
+                #   3. This daemon watchdog keeps running (daemon=True),
+                #      sees the stale heartbeat, dumps stacks.
+                #   4. Captured stack shows the main thread at
+                #      threading.py:1543 _shutdown — the actual interpreter
+                #      shutdown sequence, NOT a runtime wedge.
+                # Live evidence (2026-05-22 21:06:41 + 21:18:27 UTC):
+                # both captured wedges showed the _shutdown frame —
+                # confirmed false positives produced once per release
+                # cycle (the app saw 5+ deploys in 4h on 2026-05-22).
+                # `sys.is_finalizing()` is True from the moment the
+                # interpreter starts shutting down. Bail cleanly rather
+                # than emit operator-confusing noise.
+                if _sys.is_finalizing():
+                    return
                 if not _wedge_state.get("armed"):
                     continue
                 now = _time.monotonic()
