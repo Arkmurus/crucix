@@ -6772,14 +6772,30 @@ async def chat_ep(req: ChatRequest, request: Request):
         _injection = security_protocol.detect_prompt_injection(req.message)
         if _injection.get("blocked"):
             _log.warning(
-                "[SECURITY] BLOCKED prompt injection (risk=%s): %s",
-                _injection.get("risk_level"), "; ".join(_injection.get("reasons", [])[:3]),
+                "[SECURITY] BLOCKED prompt injection (risk=%s categories=%s): %s",
+                _injection.get("risk_level"),
+                ",".join(_injection.get("categories", [])),
+                "; ".join(_injection.get("reasons", [])[:3]),
             )
+            # R-F801 (2026-05-22) — surface risk_level + categories +
+            # truncated reasons in the response so operators can
+            # diagnose false-positive blocks without grepping fly
+            # logs. The user-facing `response` text stays generic so
+            # an actual attacker doesn't learn which pattern they
+            # tripped; the diagnostic fields sit alongside.
+            # Pre-R-F801 only `risk_level` was returned, leaving the
+            # operator to grep `[SECURITY] BLOCKED` lines for the
+            # `reasons=` payload. With R-F792 making HIGH log-only
+            # (CRITICAL still blocks), the operator's mental model
+            # is "if I see a block, which CRITICAL pattern fired?"
+            # — this response shape answers that directly.
             return {
                 "response": "Your message was flagged by ARIA's security protocol. Please rephrase your question.",
                 "session_id": session_id,
                 "blocked": True,
                 "risk_level": _injection.get("risk_level"),
+                "categories": _injection.get("categories", []),
+                "reasons_preview": _injection.get("reasons", [])[:3],
             }
         elif _injection.get("risk_level") in ("high", "medium"):
             _log.info(
