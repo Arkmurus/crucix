@@ -248,15 +248,41 @@ class TestCoderEntrypointGates:
         result = _run(start_aria_coder(app_state))
         assert result is None
 
-    def test_refuses_when_no_redis(self, monkeypatch) -> None:
+    def test_falls_back_to_redis_store_adapter_when_no_app_state_redis(
+        self, monkeypatch, tmp_path,
+    ) -> None:
+        """R-F808: prod app_state has no .redis (the project uses the
+        redis_store module wrapper). The entrypoint must build a
+        _RedisStoreAdapter rather than refuse — otherwise the engine
+        never boots on real fly deploys.
+
+        This is the regression guard for the live-deploy failure
+        observed at 2026-05-22T21:13:45Z immediately after the first
+        ARIA_CODER_ENABLED=1 flip."""
         monkeypatch.setenv("ARIA_AUTONOMOUS_ENABLED", "1")
         monkeypatch.setenv("ARIA_CODER_ENABLED", "1")
         monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "test-token")
+        monkeypatch.setenv("ARIA_CODER_WORKSPACE", str(tmp_path))
 
         from aria_service.autonomous.coder_entrypoint import start_aria_coder
-        app_state = SimpleNamespace()  # no .redis
-        result = _run(start_aria_coder(app_state))
-        assert result is None
+        # app_state intentionally missing .redis — same shape as prod
+        app_state = SimpleNamespace()
+
+        async def body():
+            tasks = await start_aria_coder(app_state)
+            assert tasks is not None, (
+                "engine refused to start — adapter fallback failed"
+            )
+            assert len(tasks) == 2
+            for t in tasks:
+                t.cancel()
+            for t in tasks:
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+
+        _run(body())
 
     def test_starts_when_all_gates_hold(self, monkeypatch, tmp_path) -> None:
         """Capability test: when ALL gates pass, the engine starts and

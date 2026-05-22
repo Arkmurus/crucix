@@ -25,6 +25,48 @@ ENABLE_VAR_MASTER = "ARIA_AUTONOMOUS_ENABLED"
 ENABLE_VAR_CODER = "ARIA_CODER_ENABLED"
 
 
+class _RedisStoreAdapter:
+    """Adapt aria_service.intel.redis_store (module-level async functions)
+    to the redis.asyncio client interface that gap_detector / r_counter /
+    self_coder / fly_deployer call against.
+
+    Only exposes the methods actually used by those modules. New methods
+    are added on demand — keep this small.
+    """
+
+    def __init__(self, rs_module: Any) -> None:
+        self._rs = rs_module
+
+    async def get(self, key: str) -> Any:
+        return await self._rs.get(key)
+
+    async def set(self, key: str, value: str) -> None:
+        await self._rs.set(key, value)
+
+    async def setex(self, key: str, ttl_seconds: int, value: str) -> None:
+        # redis.asyncio: setex(name, time, value)
+        # redis_store:   set(key, value, ex=time)
+        await self._rs.set(key, value, ex=ttl_seconds)
+
+    async def incr(self, key: str) -> int:
+        return await self._rs.incr(key)
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        return await self._rs.expire(key, seconds)
+
+    async def lrange(self, key: str, start: int, end: int) -> list:
+        return await self._rs.lrange(key, start, end)
+
+    async def lpush(self, key: str, value: str) -> None:
+        await self._rs.lpush(key, value)
+
+    async def ltrim(self, key: str, start: int, end: int) -> None:
+        await self._rs.ltrim(key, start, end)
+
+    async def delete(self, key: str) -> bool:
+        return await self._rs.delete(key)
+
+
 async def start_aria_coder(
     app_state: Any,
     aria_service_url: Optional[str] = None,
@@ -54,12 +96,26 @@ async def start_aria_coder(
         )
         return None
 
+    # R-F808 (2026-05-22): live-deploy refused on first activation —
+    # `app.state has no .redis — refusing to start`. Root cause: the
+    # project's state layer is `aria_service.intel.redis_store` (a
+    # module-level async wrapper), not a raw redis client on app.state.
+    # Build a thin adapter that exposes the surface our coder modules
+    # expect (.get / .setex / .lrange / .incr / etc.) and delegate to
+    # rs.* module-level functions. Adapter is small + only adds the
+    # methods actually used by gap_detector / r_counter / self_coder /
+    # fly_deployer.
     redis_client = getattr(app_state, "redis", None)
     if redis_client is None:
-        logger.warning(
-            "[coder_entrypoint] app_state has no .redis — refusing to start",
-        )
-        return None
+        try:
+            from ..intel import redis_store as rs
+            redis_client = _RedisStoreAdapter(rs)
+        except Exception as e:
+            logger.warning(
+                "[coder_entrypoint] redis_store import failed: %s — "
+                "refusing to start", e,
+            )
+            return None
 
     # Lazy imports — keep `import aria_service.autonomous` cheap
     from .gap_detector import GapDetector
