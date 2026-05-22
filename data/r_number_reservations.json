@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 809,
+  "next_available": 812,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2605,6 +2605,34 @@
       "commit_sha": "f36e4c3",
       "notes": null,
       "shipped_at": "2026-05-22T21:16:29Z"
+    },
+    {
+      "r_number": "R-F809",
+      "title": "Fly.io aria-trainer config — Dockerfile + fly.trainer.toml + pipeline script",
+      "claimed_at": "2026-05-22T21:23:32Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "9921495",
+      "notes": null,
+      "shipped_at": "2026-05-22T21:32:31Z"
+    },
+    {
+      "r_number": "R-F810",
+      "title": "coder_entrypoint brain_hook import fix",
+      "claimed_at": "2026-05-22T21:29:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F811",
+      "title": "web_atlas add_source absorb storm reduction",
+      "claimed_at": "2026-05-22T21:29:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
