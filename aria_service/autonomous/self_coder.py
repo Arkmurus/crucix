@@ -374,12 +374,32 @@ class ARIACoder:
                     ),
                 )
 
+            # STEP 6.5 — Claude review (R-F805). Dormant unless both
+            # ARIA_CODER_CLAUDE_REVIEW_ENABLED=1 and ANTHROPIC_API_KEY
+            # are set. When disabled returns APPROVED (no-op).
+            # When enabled, FLAGGED downgrades to staged-only (no
+            # auto-deploy regardless of R-F462); BLOCKED rejects the fix.
+            review_verdict = await self._claude_review(plan)
+            if review_verdict.is_blocked:
+                return FixResult(
+                    success=False, fix_id=fix_id, gap_id=gap.gap_id,
+                    r_number=r_number,
+                    failure_reason=(
+                        "Claude review BLOCKED: "
+                        + "; ".join(review_verdict.reasons)
+                    ),
+                )
+
             # STEP 7 — stage via self_improve (R-F804). Auto-deploy gated
             # by ARIA_SELF_IMPROVE_AUTO_DEPLOY + change_type. Otherwise
             # stays at /api/aria/self/staged for operator approval.
             change_type = gap_type_to_change_type(plan.gap_type)
+            # R-F805: FLAGGED verdict forces staging — operator must
+            # review at /api/aria/self/staged regardless of R-F462 gate.
+            force_stage = review_verdict.is_flagged
             stage_ok, stage_status, staged_ids = await self._stage_or_deploy(
                 plan=plan, change_type=change_type,
+                force_stage=force_stage,
             )
             if not stage_ok:
                 return FixResult(
@@ -470,10 +490,47 @@ class ARIACoder:
 
     # ── HELPERS ──────────────────────────────────────────────────────────────
 
+    async def _claude_review(self, plan: FixPlan) -> "ReviewVerdict":
+        """R-F805: ask Claude to second-opinion the diff before staging.
+
+        Dormant unless ARIA_CODER_CLAUDE_REVIEW_ENABLED=1 AND
+        ANTHROPIC_API_KEY is set. When dormant returns APPROVED so
+        the pipeline proceeds unchanged. When enabled-but-erroring
+        returns FLAGGED (fail-safe — operator handles staging review).
+        """
+        from .claude_reviewer import (
+            ClaudeReviewer, ReviewVerdict, Verdict,
+            build_unified_diff, is_enabled,
+        )
+        if not is_enabled():
+            return ReviewVerdict(verdict=Verdict.APPROVED, review_disabled=True)
+
+        change_type = gap_type_to_change_type(plan.gap_type)
+        diff = build_unified_diff(plan.code_changes, self.codebase.read)
+
+        reviewer = ClaudeReviewer()
+        try:
+            verdict = await reviewer.review(
+                diff=diff,
+                change_type=change_type,
+                gap_title=plan.title,
+                gap_description=plan.description,
+                files=list(plan.code_changes.keys()),
+            )
+        finally:
+            await reviewer.aclose()
+
+        logger.info(
+            "[aria_coder] Claude review R-F%d: %s (reasons=%s)",
+            plan.r_number, verdict.verdict.value, verdict.reasons[:3],
+        )
+        return verdict
+
     async def _stage_or_deploy(
         self,
         plan: FixPlan,
         change_type: str,
+        force_stage: bool = False,
     ) -> tuple[bool, str, list[str]]:
         """Route code changes through `self_improve.stage_improvement`.
 
@@ -516,13 +573,18 @@ class ARIACoder:
         # CHANGE_TYPES dict was set at import time (R-F518: env var read
         # once); honour that — flipping ARIA_SELF_IMPROVE_AUTO_DEPLOY=1
         # requires a worker restart, which is the documented path.
+        #
+        # R-F805: force_stage overrides the R-F462 gate when Claude
+        # review returned FLAGGED. Even a bug_fix with R-F462 open will
+        # stay staged so the operator gets eyes on Claude's concerns.
         ct_cfg = _si.CHANGE_TYPES.get(change_type, {})
-        auto_eligible = bool(ct_cfg.get("auto_deploy"))
+        auto_eligible = bool(ct_cfg.get("auto_deploy")) and not force_stage
         if not auto_eligible:
+            reason = "claude_flagged" if force_stage else "r_f462_gate_closed"
             logger.info(
                 "[aria_coder] %d items staged for operator review "
-                "(change_type=%s not auto-deployable)",
-                len(staged_ids), change_type,
+                "(change_type=%s, reason=%s)",
+                len(staged_ids), change_type, reason,
             )
             return True, "staged_for_operator", staged_ids
 
