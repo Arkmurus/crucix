@@ -1,0 +1,53 @@
+# R-F809 — aria-trainer Fly app config
+#
+# A dedicated Fly app for the ARIA-LLM fine-tune pipeline. Lives next
+# to aria-intel on Fly.io so everything's in one control plane (no
+# RunPod cross-cloud transfer per the operator's 2026-05-22 directive).
+#
+# Cost meter
+# ──────────
+# The MACHINE is what burns money, not the app or image.
+#   Build (CPU machine) — pennies, runs for ~5 min during `flyctl deploy`
+#   Idle (no machine running) — £0
+#   A100 80GB machine running — ~$3.50/hr ($21-35 for a 6-10h fine-tune)
+#
+# Activation steps (see scripts/train/README.md for the full runbook):
+#   1. flyctl apps create aria-trainer --org personal
+#   2. flyctl volumes create aria_trainer_data --region lhr --size 100 -a aria-trainer
+#   3. flyctl deploy --config fly.trainer.toml --build-only
+#      (builds the image, doesn't start any machine — no GPU cost)
+#   4. flyctl machine run registry.fly.io/aria-trainer:latest \
+#         -a aria-trainer \
+#         --vm-gpu-kind a100-80gb \
+#         --vm-memory 65536 \
+#         --vm-cpus 8 \
+#         --mount aria_trainer_data=/data \
+#         --command "bash /workspace/scripts/train/fly_train_pipeline.sh"
+#   5. When training finishes: `flyctl machine stop <id>` (stops the meter)
+#
+# Why no [[vm]] / no [http_service] in this toml
+# ───────────────────────────────────────────────
+# We don't want `flyctl deploy` to auto-launch a GPU machine — that
+# would start the meter at deploy time. Instead the config is "build
+# image, no runtime machine," and the operator triggers training via
+# `flyctl machine run` with the explicit gpu_kind flag. Cost-meter
+# stays under conscious operator control.
+
+app            = "aria-trainer"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile.trainer"
+
+[mounts]
+  source       = "aria_trainer_data"
+  destination  = "/data"
+  initial_size = "100gb"
+
+# No [http_service] — trainer is interactive only via `flyctl ssh
+# console`. When the serving R-number ships (post-fine-tune), a
+# fly.aria-llm.toml will be added with vLLM on port 8000.
+
+# No [[vm]] block — `flyctl deploy --build-only` builds without
+# allocating a machine. Operator-launched machines via `flyctl machine
+# run --vm-gpu-kind a100-80gb` create the GPU instance on demand.

@@ -1,0 +1,76 @@
+# R-F809 — Dockerfile for aria-trainer Fly app
+#
+# Image used to fine-tune ARIA-LLM on A100 80GB GPU machines on Fly.io.
+# Replaces the RunPod path documented in [[runpod_signed_up]] —
+# consolidates all compute on Fly per the operator's 2026-05-22
+# "everything on Fly.io" architectural directive.
+#
+# Compute: 1× A100 80GB (configured in fly.trainer.toml)
+# Stage:   training only; inference via vLLM is a follow-up R-number
+# Volume:  /data mounted from aria_trainer_data (100GB by default)
+#
+# Build: flyctl deploy --config fly.trainer.toml
+#   (does not start the GPU machine — that's a manual `flyctl machine
+#   run` step, see scripts/train/README.md)
+
+# CUDA 12.1 runtime — matches what the training scripts were tested on
+# in the [[runpod_signed_up]] runbook. Pin the digest in a future R-F
+# if reproducibility becomes a requirement.
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/data/hf_cache \
+    TRANSFORMERS_CACHE=/data/hf_cache \
+    HUGGINGFACE_HUB_CACHE=/data/hf_cache
+
+# System deps. python3.11 has prebuilt wheels for bitsandbytes 0.44.
+# git + curl + ssh for harvest-corpus transfer + checkpoint sync.
+# build-essential is needed for the few packages that compile (e.g.
+# sentence-transformers' bm25 backend) — keep minimal.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-venv python3-pip \
+        git curl ca-certificates openssh-client \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -sf /usr/bin/python3.11 /usr/local/bin/python && \
+    ln -sf /usr/bin/python3.11 /usr/local/bin/python3
+
+# PyTorch with CUDA 12.1 wheels — must match the base image's CUDA.
+RUN python -m pip install --upgrade pip && \
+    python -m pip install \
+        torch==2.4.1 \
+        --index-url https://download.pytorch.org/whl/cu121
+
+# Training stack — exact versions from [[runpod_signed_up]] step 3.
+# Pinned because trl + transformers + peft + bitsandbytes have moved
+# breaking-changes 3 times in the past year; reproducibility matters.
+RUN python -m pip install \
+        transformers==4.45.0 \
+        trl==0.11.0 \
+        peft==0.13.0 \
+        accelerate==1.0.0 \
+        bitsandbytes==0.44.1 \
+        datasets==3.0.0 \
+        sentencepiece \
+        protobuf \
+        huggingface_hub
+
+# Optional: vLLM for serving (commented out — adds ~3GB to image; only
+# install when the serving R-number ships and the trainer machine
+# starts double-dutying as inference. Until then keep image lean.)
+#RUN python -m pip install vllm==0.6.3
+
+WORKDIR /workspace
+
+# Copy the training scripts. Same scripts work on Fly + RunPod —
+# they're cloud-agnostic by design.
+COPY scripts/train/ /workspace/scripts/train/
+COPY scripts/train/README.md /workspace/README.md
+
+# Default to an interactive shell so `flyctl ssh console` works for
+# the operator. The actual training is invoked via:
+#   bash /workspace/scripts/train/fly_train_pipeline.sh
+CMD ["/bin/bash"]
