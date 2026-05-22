@@ -2621,18 +2621,20 @@
       "title": "coder_entrypoint brain_hook import fix",
       "claimed_at": "2026-05-22T21:29:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b2b02f4",
+      "notes": null,
+      "shipped_at": "2026-05-22T21:39:53Z"
     },
     {
       "r_number": "R-F811",
       "title": "web_atlas add_source absorb storm reduction",
       "claimed_at": "2026-05-22T21:29:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b2b02f4",
+      "notes": null,
+      "shipped_at": "2026-05-22T21:39:53Z"
     }
   ]
 }
