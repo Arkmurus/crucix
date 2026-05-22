@@ -2551,9 +2551,10 @@
       "title": "ARIACoder wiring — gap_detector data sources + coder/llm endpoint + Clause 27",
       "claimed_at": "2026-05-22T17:01:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2dd2395",
+      "notes": null,
+      "shipped_at": "2026-05-22T18:00:41Z"
     },
     {
       "r_number": "R-F804",
