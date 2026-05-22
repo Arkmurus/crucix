@@ -112,6 +112,19 @@ HARD_FLOORS: dict[str, float] = {
     "relationships":   0.55,
     "legal":           0.70,
     "general":         0.50,
+    # R-F800 (2026-05-22) — Phase-A core-mastery tags explicitly added.
+    # Pre-R-F800 these relied on the `HARD_FLOORS.get(topic, 0.50)`
+    # default in the post-update check, but R-F796's clamping logic
+    # used `HARD_FLOORS.get(topic, 0.50)` independently — making the
+    # floor implicit for these load-bearing topics. Live evidence
+    # 2026-05-22: sanctions hit 41%; logs showed `BREACH: sanctions
+    # (41% < 50%)` from the default. Making them explicit aligns the
+    # clamp + check on a single source of truth and signals intent
+    # for anyone reading HARD_FLOORS that these topics are tracked.
+    "sanctions":           0.50,
+    "nato_standards":      0.50,
+    "strategic_geography": 0.50,
+    "export_control":      0.50,
 }
 
 TOPICS = [
