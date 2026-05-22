@@ -2561,9 +2561,10 @@
       "title": "ARIACoder integration — replace self_improve.py, preserve R-F462 protections + safety.py guardrails",
       "claimed_at": "2026-05-22T17:01:48Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "2303fea",
+      "notes": null,
+      "shipped_at": "2026-05-22T21:03:33Z"
     },
     {
       "r_number": "R-F805",
