@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 812,
+  "next_available": 813,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2635,6 +2635,16 @@
       "commit_sha": "b2b02f4",
       "notes": null,
       "shipped_at": "2026-05-22T21:39:53Z"
+    },
+    {
+      "r_number": "R-F812",
+      "title": "chat_audit → harvest format adapter for fine-tune pipeline",
+      "claimed_at": "2026-05-22T21:41:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b785ee9",
+      "notes": null,
+      "shipped_at": "2026-05-22T21:44:58Z"
     }
   ]
 }
