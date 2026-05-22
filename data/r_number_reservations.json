@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 802,
+  "next_available": 808,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2535,6 +2535,61 @@
       "commit_sha": "2a40784",
       "notes": null,
       "shipped_at": "2026-05-22T16:48:55Z"
+    },
+    {
+      "r_number": "R-F802",
+      "title": "ARIACoder foundation — file restructure + fix showstoppers",
+      "claimed_at": "2026-05-22T17:01:48Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e308627",
+      "notes": null,
+      "shipped_at": "2026-05-22T17:35:21Z"
+    },
+    {
+      "r_number": "R-F803",
+      "title": "ARIACoder wiring — gap_detector data sources + coder/llm endpoint + Clause 27",
+      "claimed_at": "2026-05-22T17:01:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F804",
+      "title": "ARIACoder integration — replace self_improve.py, preserve R-F462 protections + safety.py guardrails",
+      "claimed_at": "2026-05-22T17:01:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F805",
+      "title": "ARIACoder PR-flow — gh pr create + Claude review API + aria-runner separate app",
+      "claimed_at": "2026-05-22T17:01:49Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F806",
+      "title": "calibration_review skip topics already at hard floor",
+      "claimed_at": "2026-05-22T17:11:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F807",
+      "title": "background semantic-index queue — move encode off absorb critical path",
+      "claimed_at": "2026-05-22T17:11:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
