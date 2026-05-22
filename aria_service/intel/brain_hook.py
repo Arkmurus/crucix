@@ -706,44 +706,70 @@ async def absorb(
     if source_id:
         source += f":{source_id}"
 
+    # R-F795 (2026-05-22) — helper to call each tier under a wall-time
+    # ceiling. asyncio.TimeoutError is a subclass of Exception so the
+    # outer `except Exception` would catch it, but we want a distinct
+    # log line + error string so ops can grep timeouts vs real
+    # failures. `_TIER_TIMEOUT_S <= 0` disables the timeout (legacy
+    # unbounded behaviour).
+    async def _run_tier(coro, label: str) -> tuple[bool, Optional[str]]:
+        try:
+            if _TIER_TIMEOUT_S > 0:
+                await asyncio.wait_for(coro, timeout=_TIER_TIMEOUT_S)
+            else:
+                await coro
+            return (True, None)
+        except asyncio.TimeoutError:
+            logger.debug(
+                "brain_hook %s tier timed out (>%.1fs) — module=%s",
+                label, _TIER_TIMEOUT_S, module,
+            )
+            return (False, f"{label}: timeout (>{_TIER_TIMEOUT_S:.1f}s)")
+        except Exception as e:
+            logger.debug("brain_hook %s failed: %s", label, e)
+            return (False, f"{label}: {e}")
+
     # ── 1. Student mastery ──────────────────────────────────────────────
-    try:
-        from . import student
-        await student.update_mastery(topics, correct=success, weight=weight)
-        result["mastery_ok"] = True
-    except Exception as e:
-        result["errors"].append(f"mastery: {e}")
-        logger.debug("brain_hook mastery failed: %s", e)
+    from . import student
+    ok, err = await _run_tier(
+        student.update_mastery(topics, correct=success, weight=weight),
+        "mastery",
+    )
+    result["mastery_ok"] = ok
+    if err:
+        result["errors"].append(err)
 
     # ── 2. Knowledge store ──────────────────────────────────────────────
     if summary:
-        try:
-            from . import knowledge
-            topic_key = f"{module}:{entity_name}" if entity_name else module
-            await knowledge.store_fact(
+        from . import knowledge
+        topic_key = f"{module}:{entity_name}" if entity_name else module
+        ok, err = await _run_tier(
+            knowledge.store_fact(
                 topic=topic_key,
                 content=summary[:2000],
                 source=source,
                 confidence=confidence,
-            )
-            result["knowledge_ok"] = True
-        except Exception as e:
-            result["errors"].append(f"knowledge: {e}")
-            logger.debug("brain_hook knowledge failed: %s", e)
+            ),
+            "knowledge",
+        )
+        result["knowledge_ok"] = ok
+        if err:
+            result["errors"].append(err)
 
     # ── 3. Neural memory ────────────────────────────────────────────────
     if text_for_neural and len(text_for_neural) > 50:
-        try:
-            from . import neural_memory
-            await neural_memory.learn_from_text(
+        from . import neural_memory
+        ok, err = await _run_tier(
+            neural_memory.learn_from_text(
                 text=text_for_neural[:5000],
                 source=source,
                 confidence=confidence,
-            )
-            result["neural_ok"] = True
-        except Exception as e:
-            result["errors"].append(f"neural: {e}")
-            logger.debug("brain_hook neural failed: %s", e)
+            ),
+            "neural",
+        )
+        result["neural_ok"] = ok
+        if err:
+            result["errors"].append(err)
 
     # ── 4. Capability gap (only on failure or explicit gap) ─────────────
     if gap_type:
@@ -847,6 +873,25 @@ _ALERT_STALE_HOURS = 24  # alert if module hasn't sent a signal in 24h
 # seconds, well clear of the new threshold. Operator can still override
 # via ARIA_BRAIN_LATENCY_TRIP_MS env var.
 _LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "3500"))
+
+# R-F795 (2026-05-22) — per-tier wall-time ceiling. Defensive bound on
+# absorb() wall-time when a downstream tier wedges. Live evidence
+# 2026-05-22 15:59-16:04 UTC: brain_hook absorb p95 hit 1,250,404ms
+# (20m 51s) on absorb(web_atlas); breaker tripped 3 times in 5 min;
+# Watchlist re-screen wall-time hit 19m 58s. Root cause: sentence-
+# transformers model.encode() is GIL-serialised, so concurrent
+# absorbs from sweep/web_atlas/sanctions queue serially through one
+# encoder. Per-tier timeout caps each tier at this value so a single
+# absorb's worst-case wall-time is ~3 × _TIER_TIMEOUT_S (mastery +
+# knowledge + neural). On timeout the tier is marked failed (signal
+# counter still increments) and absorb returns. Operator-tunable via
+# env var; default 5000 (5s per tier → ~15s worst-case absorb wall
+# vs the live 20-min wedges). Set ARIA_BRAIN_ABSORB_TIER_TIMEOUT_MS=0
+# to disable the timeout (legacy unbounded behaviour) if a slow but
+# necessary batch needs to complete.
+_TIER_TIMEOUT_S = (
+    float(os.environ.get("ARIA_BRAIN_ABSORB_TIER_TIMEOUT_MS", "5000")) / 1000.0
+)
 _LATENCY_WINDOW = 50
 _TRIP_CONSECUTIVE = 3
 _COOLDOWN_S = 60

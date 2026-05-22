@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 794,
+  "next_available": 796,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2456,6 +2456,24 @@
       "commit_sha": "d42eef0",
       "notes": null,
       "shipped_at": "2026-05-22T15:49:41Z"
+    },
+    {
+      "r_number": "R-F794",
+      "title": "Phase A gate #5 + autonomy ramp L1 shadow",
+      "claimed_at": "2026-05-22T16:03:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F795",
+      "title": "brain_hook absorb per-tier timeout — cap wall-time on encode wedge",
+      "claimed_at": "2026-05-22T16:09:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
