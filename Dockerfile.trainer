@@ -70,7 +70,11 @@ WORKDIR /workspace
 COPY scripts/train/ /workspace/scripts/train/
 COPY scripts/train/README.md /workspace/README.md
 
-# Default to an interactive shell so `flyctl ssh console` works for
-# the operator. The actual training is invoked via:
-#   bash /workspace/scripts/train/fly_train_pipeline.sh
-CMD ["/bin/bash"]
+# R-F813 fix: `/bin/bash` exits immediately without a TTY, which made
+# `flyctl deploy` crash-loop the machine and never bind. Use sleep
+# infinity so the machine stays running. Operator triggers training
+# via either:
+#   flyctl ssh console -a aria-trainer -C "bash /workspace/scripts/train/fly_train_pipeline.sh"
+#   OR by launching a fresh machine with `--command` override that runs
+#   the pipeline script directly.
+CMD ["sleep", "infinity"]
