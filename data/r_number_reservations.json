@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 796,
+  "next_available": 799,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2475,6 +2475,36 @@
       "commit_sha": "c269180",
       "notes": null,
       "shipped_at": "2026-05-22T16:13:44Z"
+    },
+    {
+      "r_number": "R-F796",
+      "title": "student.update_mastery refuse to drop below hard_floor",
+      "claimed_at": "2026-05-22T16:21:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2ecf4a0",
+      "notes": null,
+      "shipped_at": "2026-05-22T16:35:44Z"
+    },
+    {
+      "r_number": "R-F797",
+      "title": "self_improve JSON recovery — handle unterminated string",
+      "claimed_at": "2026-05-22T16:21:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "0acbafc",
+      "notes": null,
+      "shipped_at": "2026-05-22T16:35:45Z"
+    },
+    {
+      "r_number": "R-F798",
+      "title": "watchlist re-screen wedge investigation + fix",
+      "claimed_at": "2026-05-22T16:21:36Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "366214d",
+      "notes": null,
+      "shipped_at": "2026-05-22T16:35:47Z"
     }
   ]
 }
