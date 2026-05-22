@@ -1,4 +1,15 @@
-# R-F809 — aria-trainer Fly app config
+# ⚠️ DEPRECATED (R-F819, 2026-05-22)
+# Fly announced GPU deprecation effective Aug 1 2026 — see
+# https://fly.io/docs/gpus/python-gpu-example/. Attempts to run GPU
+# machines on personal orgs return "Your organization is not allowed
+# to use GPU machines. Please contact billing@fly.io" — Fly is not
+# granting new GPU access.
+#
+# Training has pivoted to RunPod (R-F819). See scripts/train/RUNPOD.md.
+# This file is kept as a hedge: if Fly reverses, the config still works
+# (the R-F818 image-size fix proved the deploy path is sound).
+#
+# R-F809 — aria-trainer Fly app config (deprecated; do not use)
 #
 # A dedicated Fly app for the ARIA-LLM fine-tune pipeline. Lives next
 # to aria-intel on Fly.io so everything's in one control plane (no

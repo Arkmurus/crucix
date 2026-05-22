@@ -1,3 +1,12 @@
+# ⚠️ DEPRECATED (R-F819, 2026-05-22) — Fly GPU deprecation
+#
+# Fly announced GPU sunset effective Aug 1 2026. Training pivoted to
+# RunPod. See scripts/train/RUNPOD.md.
+#
+# This Dockerfile is verified working (R-F818 shrunk it to 2.5GB and
+# the resulting machine ran end-to-end as a CPU probe at 23:28Z on
+# 2026-05-22). Kept as a hedge if Fly reverses the deprecation.
+#
 # R-F809 + R-F813 + R-F818 — Dockerfile for aria-trainer Fly app
 #
 # Image used to fine-tune ARIA-LLM on A100 80GB GPU machines on Fly.io.

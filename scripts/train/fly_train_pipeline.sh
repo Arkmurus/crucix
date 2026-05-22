@@ -1,4 +1,8 @@
 #!/bin/bash
+# ⚠️ DEPRECATED (R-F819, 2026-05-22) — Fly GPU sunset Aug 1 2026.
+# Use scripts/train/runpod_train_pipeline.sh instead.
+# This script is unchanged-but-orphaned; works if Fly reverses.
+#
 # R-F809 — end-to-end ARIA-LLM fine-tune pipeline for Fly.io aria-trainer.
 #
 # Runs inside the aria-trainer Fly machine (Dockerfile.trainer).
