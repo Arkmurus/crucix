@@ -410,7 +410,31 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
             delta = lr * m["score"]
             # Cap: single update cannot move score by more than 15pp
             delta = min(delta, 0.15)
-            m["score"] = max(MASTERY_FLOOR, m["score"] - delta)
+            # R-F796 (2026-05-22) — clamp negative updates at the topic's
+            # hard floor, not the global 5% MASTERY_FLOOR. Live evidence
+            # 2026-05-22 15:59-16:04 UTC: adversarial-overconfidence
+            # signal drove calibration_review to apply -3pp on 11 topics
+            # every cycle. With strict MASTERY_FLOOR clamping, topics
+            # plummeted below their hard floors (legal 63%, technical
+            # 60%, sanctions 41%). Gate #2 reopened. The hard floor
+            # represents the minimum acceptable competence; calibration
+            # should never drive a topic below it. Already-below-floor
+            # scores (from pre-R-F796 data) hold steady — no auto-heal
+            # and no further drop. The post-update floor check still
+            # fires because `proposed_breached_floor` is OR'd in.
+            # Default 0.50 matches the post-update hard-floor check below,
+            # which treats any topic without an explicit HARD_FLOORS entry
+            # as having a 50% floor (e.g., 'sanctions' is not in
+            # HARD_FLOORS but the log shows "BREACH: sanctions (41% < 50%)").
+            topic_hard_floor = HARD_FLOORS.get(topic, 0.50)
+            proposed = m["score"] - delta
+            if m["score"] >= topic_hard_floor:
+                # Was at-or-above floor — clamp the drop at floor.
+                m["score"] = max(topic_hard_floor, proposed)
+            # else: already below floor (legacy) — hold steady.
+            # Track whether the unclamped drop would have breached so
+            # the post-update floor check still surfaces remediation.
+            m["_rf796_proposed_breach"] = (proposed < topic_hard_floor)
 
         # R-F664 (2026-05-17): FSRS spaced-repetition update. Additive to
         # the EWMA score above — FSRS schedules the NEXT review, EWMA
@@ -428,11 +452,17 @@ async def update_mastery(topics: list[str], correct: bool, weight: float = 1.0) 
                 topic, _fsrs_e,
             )
         # Hard floor check — flag for remediation if breached
+        # R-F796: ALSO flag when the unclamped negative-update would
+        # have crossed the floor (`_rf796_proposed_breach=True`). The
+        # clamping prevents the score from actually going below floor,
+        # but the operator still needs to see the remediation signal.
         floor = HARD_FLOORS.get(topic, 0.50)
-        if m["score"] < floor:
+        rf796_breach = m.pop("_rf796_proposed_breach", False)
+        if m["score"] < floor or rf796_breach:
             m["below_floor"] = True
             m["floor"] = floor
-            remediation_needed.append(topic)
+            if topic not in remediation_needed:
+                remediation_needed.append(topic)
         else:
             m.pop("below_floor", None)
             m.pop("floor", None)
