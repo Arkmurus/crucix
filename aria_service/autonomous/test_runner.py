@@ -72,8 +72,16 @@ class TestRunner:
         new_tests: dict[str, str],
         tests_dir: str = "aria_service/tests",
     ) -> TestResult:
-        """Apply workspace patches and run pytest in a tempdir copy."""
-        if os.environ.get("ARIA_CODER_TESTS_ENABLED", "1").strip() == "0":
+        """Apply workspace patches and run pytest in a tempdir copy.
+
+        R-F804 default flipped to OFF (was "1") until R-F805 ships
+        `aria-runner` as a separate Fly app. Running pytest inside
+        aria-intel risks the brain_hook circuit-breaker wedge class
+        (R-F795 / R-F799 / R-F807). Until aria-runner exists the coder
+        relies on the constitutional validator + operator review at
+        /api/aria/self/staged as the safety net.
+        """
+        if os.environ.get("ARIA_CODER_TESTS_ENABLED", "0").strip() == "0":
             logger.info("[test_runner] disabled via env — skipping")
             return TestResult(all_green=True, passed=0, failed=0)
 

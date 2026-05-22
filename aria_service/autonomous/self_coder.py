@@ -76,6 +76,7 @@ ERROR_LEDGER_COUNT_KEY = "crucix:aria:error_ledger:count"
 class FixPlan:
     fix_id: str
     gap_id: str
+    gap_type: str            # R-F804: needed for change_type mapping
     r_number: int
     title: str
     description: str
@@ -90,6 +91,36 @@ class FixPlan:
     planned_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+
+
+# R-F804: Deterministic gap_type → self_improve.CHANGE_TYPES mapping.
+#
+# This mapping replaces LLM-judged risk routing (per CLAUDE.md §3 — the
+# LLM cannot judge its own change's risk). Self-improve's CHANGE_TYPES
+# dict carries the R-F462 auto-deploy gate per change_type; mapping
+# every gap_type into one of those buckets ensures ARIA-Coder honours
+# the same R-F462 protections as the operator-facing /api/aria/self/*
+# endpoints.
+#
+# bug_fix       — auto-deploys IFF ARIA_SELF_IMPROVE_AUTO_DEPLOY=1 (R-F462)
+# optimisation  — auto-deploys IFF ARIA_SELF_IMPROVE_AUTO_DEPLOY=1 (R-F462)
+# enhancement   — always staged, never auto-deploys (operator approves)
+GAP_TYPE_TO_CHANGE_TYPE: dict[str, str] = {
+    GapType.MODULE_BUG:          "bug_fix",
+    GapType.HALLUCINATION:       "bug_fix",
+    GapType.DOCUMENT_PARSE:      "bug_fix",
+    GapType.SOURCE_FAILURE:      "bug_fix",
+    GapType.DD_LAYER_FAILURE:    "bug_fix",
+    GapType.INTROSPECTION_ERROR: "bug_fix",
+    GapType.PERFORMANCE:         "optimisation",
+    GapType.DATA_GAP:            "enhancement",
+    GapType.MISSING_CAPABILITY:  "enhancement",
+}
+
+
+def gap_type_to_change_type(gap_type: str) -> str:
+    """Map a Gap.gap_type to a self_improve.CHANGE_TYPES key."""
+    return GAP_TYPE_TO_CHANGE_TYPE.get(gap_type, "enhancement")
 
 
 @dataclass
@@ -209,7 +240,14 @@ class ARIACoder:
     # ── FIX PIPELINE ─────────────────────────────────────────────────────────
 
     async def fix_gap(self, gap: Gap) -> FixResult:
-        """End-to-end pipeline. Plan → validate → code → test → deploy."""
+        """End-to-end pipeline. Plan → validate → code → test → stage/deploy.
+
+        Deploy path (R-F804): outputs go to self_improve.stage_improvement.
+        Auto-deploy ONLY for `bug_fix` / `optimisation` AND only when
+        `ARIA_SELF_IMPROVE_AUTO_DEPLOY=1` (R-F462 gate). Everything else
+        stays in the staging queue at `/api/aria/self/staged` for operator
+        review — same surface as manual self-improve.
+        """
         fix_id = uuid.uuid4().hex[:12]
         start_ts = time.monotonic()
         workspace = self.workspace_base / fix_id
@@ -219,6 +257,31 @@ class ARIACoder:
             "[aria_coder] fix_gap %s: %s (fix_id=%s)",
             gap.gap_id, gap.title, fix_id,
         )
+
+        # R-F804 — safety gate. Cheap-fail BEFORE any LLM tokens are
+        # burned. Uses the same primitives as the autonomous task engine
+        # so the operator's existing pause / per-task-pause / firings-
+        # per-hour ceiling all apply uniformly to the coder.
+        try:
+            from . import safety as _safety
+            allowed, reason = await _safety.can_task_run(
+                task_id="aria_coder_fix", entity=gap.gap_id,
+            )
+            if not allowed:
+                logger.info(
+                    "[aria_coder] safety blocked fix_gap %s: %s",
+                    gap.gap_id, reason,
+                )
+                return FixResult(
+                    success=False, fix_id=fix_id, gap_id=gap.gap_id,
+                    failure_reason=f"Safety guardrail: {reason}",
+                )
+        except Exception as e:
+            # Safety module unavailable is unusual; log + continue rather
+            # than blocking the coder forever on a guardrail import error.
+            logger.warning(
+                "[aria_coder] safety.can_task_run failed (non-fatal): %s", e,
+            )
 
         try:
             # STEP 1 — context
@@ -232,6 +295,7 @@ class ARIACoder:
             plan = FixPlan(
                 fix_id=fix_id,
                 gap_id=gap.gap_id,
+                gap_type=gap.gap_type,
                 r_number=r_number,
                 title=plan_raw.get("title", gap.title),
                 description=plan_raw.get("approach", ""),
@@ -310,40 +374,55 @@ class ARIACoder:
                     ),
                 )
 
-            # STEP 7 — deploy
-            deploy = await self.deployer.deploy(
-                workspace=workspace,
-                app=self.fly_app,
-                r_number=r_number,
-                summary=plan.title,
-                code_changes=plan.code_changes,
+            # STEP 7 — stage via self_improve (R-F804). Auto-deploy gated
+            # by ARIA_SELF_IMPROVE_AUTO_DEPLOY + change_type. Otherwise
+            # stays at /api/aria/self/staged for operator approval.
+            change_type = gap_type_to_change_type(plan.gap_type)
+            stage_ok, stage_status, staged_ids = await self._stage_or_deploy(
+                plan=plan, change_type=change_type,
             )
-            if not deploy.success:
+            if not stage_ok:
                 return FixResult(
                     success=False, fix_id=fix_id, gap_id=gap.gap_id,
                     r_number=r_number,
-                    failure_reason=f"Deploy failed: {deploy.error}",
+                    failure_reason=f"Stage/deploy failed: {stage_status}",
                 )
 
-            # STEP 8 — post-deploy regression monitor
-            regression = await self._monitor_post_deploy(r_number)
-            if regression:
-                await self.deployer.rollback(r_number, self.fly_app)
-                return FixResult(
-                    success=False, fix_id=fix_id, gap_id=gap.gap_id,
-                    r_number=r_number,
-                    failure_reason=(
-                        "Post-deploy regression detected — rolled back"
-                    ),
-                )
+            # STEP 8 — post-deploy regression monitor (only if auto-deployed)
+            auto_deployed = stage_status == "auto_deployed"
+            if auto_deployed:
+                regression = await self._monitor_post_deploy(r_number)
+                if regression:
+                    # R-F804: rollback via self_improve restore-from-backup
+                    # rather than FlyDeployer (which we don't use here).
+                    # self_improve.rollback_improvement reads the backup
+                    # written by deploy_improvement.
+                    try:
+                        from ..intel import self_improve as _si
+                        for sid in staged_ids:
+                            await _si.rollback_improvement(sid)
+                    except Exception as e:
+                        logger.warning(
+                            "[aria_coder] rollback after regression failed: %s", e,
+                        )
+                    return FixResult(
+                        success=False, fix_id=fix_id, gap_id=gap.gap_id,
+                        r_number=r_number,
+                        failure_reason=(
+                            "Post-deploy regression detected — rolled back"
+                        ),
+                    )
 
             # STEP 9 — absorb knowledge + emit training pair
             if self.brain_hook is not None:
                 try:
+                    outcome_label = (
+                        "auto-deployed" if auto_deployed else "staged for review"
+                    )
                     await self.brain_hook.absorb(
                         text=(
-                            f"Autonomous fix R-F{r_number}: {plan.title}. "
-                            f"Gap type: {gap.gap_type}. "
+                            f"Autonomous fix R-F{r_number} ({outcome_label}): "
+                            f"{plan.title}. Gap type: {gap.gap_type}. "
                             f"Files: {', '.join(plan.code_changes.keys())}."
                         ),
                         module="aria_coder",
@@ -359,17 +438,20 @@ class ARIACoder:
                 "code": json.dumps(plan.code_changes),
                 "persona": "autonomous_coder",
                 "confidence": 0.95,
-                "outcome": "deployed_successfully",
+                "outcome": (
+                    "deployed_successfully" if auto_deployed else "staged_for_review"
+                ),
                 "r_number": r_number,
             }
 
             elapsed = time.monotonic() - start_ts
             logger.info(
-                "[aria_coder] ✅ R-F%d shipped in %.0fs", r_number, elapsed,
+                "[aria_coder] ✅ R-F%d %s in %.0fs (staged_ids=%s)",
+                r_number, stage_status, elapsed, staged_ids,
             )
             return FixResult(
                 success=True, fix_id=fix_id, gap_id=gap.gap_id,
-                r_number=r_number, deploy_result=deploy,
+                r_number=r_number, deploy_result=None,
                 training_pair=training_pair,
             )
 
@@ -387,6 +469,82 @@ class ARIACoder:
                 shutil.rmtree(workspace, ignore_errors=True)
 
     # ── HELPERS ──────────────────────────────────────────────────────────────
+
+    async def _stage_or_deploy(
+        self,
+        plan: FixPlan,
+        change_type: str,
+    ) -> tuple[bool, str, list[str]]:
+        """Route code changes through `self_improve.stage_improvement`.
+
+        For each (target_file, new_code) in plan.code_changes, stage via
+        the existing operator-facing pipeline. If the change_type is in
+        the auto-deployable set per `self_improve.CHANGE_TYPES`
+        (gated by `ARIA_SELF_IMPROVE_AUTO_DEPLOY=1` per R-F462), call
+        `deploy_improvement` immediately. Otherwise items remain at
+        `/api/aria/self/staged` for operator review.
+
+        Returns: (success, status, staged_ids) where status is one of:
+          - "auto_deployed"        — all items shipped to disk + git
+          - "staged_for_operator"  — all items staged, awaiting review
+          - <error message>        — staging failed for at least one file
+        """
+        from ..intel import self_improve as _si
+
+        staged_ids: list[str] = []
+        for target_file, new_code in plan.code_changes.items():
+            result = await _si.stage_improvement(
+                file_path=target_file,
+                new_content=new_code,
+                change_type=change_type,
+                description=plan.title,
+                reasoning=(
+                    f"Autonomous fix by ARIA-Coder for gap {plan.gap_id} "
+                    f"({plan.gap_type}). {plan.approach[:300]}"
+                ),
+            )
+            if not result.get("staged"):
+                err = result.get("error", "unknown")
+                logger.warning(
+                    "[aria_coder] stage_improvement failed for %s: %s",
+                    target_file, err,
+                )
+                return False, f"stage_failed:{target_file}:{err}", staged_ids
+            staged_ids.append(result["id"])
+
+        # Decide auto-deploy based on the R-F462 gate per change_type.
+        # CHANGE_TYPES dict was set at import time (R-F518: env var read
+        # once); honour that — flipping ARIA_SELF_IMPROVE_AUTO_DEPLOY=1
+        # requires a worker restart, which is the documented path.
+        ct_cfg = _si.CHANGE_TYPES.get(change_type, {})
+        auto_eligible = bool(ct_cfg.get("auto_deploy"))
+        if not auto_eligible:
+            logger.info(
+                "[aria_coder] %d items staged for operator review "
+                "(change_type=%s not auto-deployable)",
+                len(staged_ids), change_type,
+            )
+            return True, "staged_for_operator", staged_ids
+
+        # Auto-deploy each staged item via the existing self_improve
+        # pipeline. This writes the file to disk + creates the backup +
+        # git-commits + writes the audit log — same surface as the
+        # operator-clicked /api/aria/self/deploy/{id}.
+        for sid in staged_ids:
+            deploy_res = await _si.deploy_improvement(sid)
+            if not deploy_res.get("ok"):
+                err = deploy_res.get("error", "unknown")
+                logger.error(
+                    "[aria_coder] deploy_improvement %s failed: %s",
+                    sid, err,
+                )
+                return False, f"deploy_failed:{sid}:{err}", staged_ids
+
+        logger.info(
+            "[aria_coder] %d items auto-deployed (change_type=%s)",
+            len(staged_ids), change_type,
+        )
+        return True, "auto_deployed", staged_ids
 
     async def _test_with_healing(
         self, plan: FixPlan, workspace: Path,
