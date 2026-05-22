@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 808,
+  "next_available": 809,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2595,6 +2595,16 @@
       "commit_sha": "2dd2395",
       "notes": null,
       "shipped_at": "2026-05-22T18:00:36Z"
+    },
+    {
+      "r_number": "R-F808",
+      "title": "ARIA-Coder boot fix — redis_store adapter for app.state shape mismatch",
+      "claimed_at": "2026-05-22T21:15:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f36e4c3",
+      "notes": null,
+      "shipped_at": "2026-05-22T21:16:29Z"
     }
   ]
 }
