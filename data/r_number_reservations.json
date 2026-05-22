@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 813,
+  "next_available": 814,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2645,6 +2645,16 @@
       "commit_sha": "b785ee9",
       "notes": null,
       "shipped_at": "2026-05-22T21:44:58Z"
+    },
+    {
+      "r_number": "R-F813",
+      "title": "trainer Dockerfile CMD fix — sleep infinity to keep machine alive",
+      "claimed_at": "2026-05-22T22:18:25Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "25e6cd5",
+      "notes": null,
+      "shipped_at": "2026-05-22T22:18:54Z"
     }
   ]
 }
