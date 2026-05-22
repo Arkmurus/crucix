@@ -729,47 +729,77 @@ async def absorb(
             logger.debug("brain_hook %s failed: %s", label, e)
             return (False, f"{label}: {e}")
 
-    # ── 1. Student mastery ──────────────────────────────────────────────
-    from . import student
-    ok, err = await _run_tier(
-        student.update_mastery(topics, correct=success, weight=weight),
-        "mastery",
-    )
-    result["mastery_ok"] = ok
-    if err:
-        result["errors"].append(err)
+    # R-F799 (2026-05-22) — acquire concurrency semaphore around the
+    # 3 expensive tiers with a short timeout. On contention (too many
+    # absorbs racing) we fail-fast and skip the tiers rather than
+    # queue indefinitely. This reins in the encode-pile-up symptom
+    # at the source: only N concurrent absorbs reach the encode lock.
+    sem = _get_absorb_concurrency_sem()
+    acquired = False
+    if sem is not None:
+        try:
+            await asyncio.wait_for(
+                sem.acquire(), timeout=_ABSORB_SEM_ACQUIRE_TIMEOUT_S,
+            )
+            acquired = True
+        except asyncio.TimeoutError:
+            logger.debug(
+                "brain_hook: concurrency cap hit (%d in flight) — "
+                "skipping expensive tiers for module=%s",
+                _ABSORB_CONCURRENCY, module,
+            )
+            result["errors"].append(
+                f"absorb: concurrency cap (>{_ABSORB_SEM_ACQUIRE_TIMEOUT_S:.1f}s wait)"
+            )
+            # Skip the 3 tiers but still record the signal below so
+            # the operator can see the load-shed rate.
+    try:
+        # Only run tiers if we acquired (or no semaphore is active).
+        if sem is None or acquired:
+            # ── 1. Student mastery ──────────────────────────────────
+            from . import student
+            ok, err = await _run_tier(
+                student.update_mastery(topics, correct=success, weight=weight),
+                "mastery",
+            )
+            result["mastery_ok"] = ok
+            if err:
+                result["errors"].append(err)
 
-    # ── 2. Knowledge store ──────────────────────────────────────────────
-    if summary:
-        from . import knowledge
-        topic_key = f"{module}:{entity_name}" if entity_name else module
-        ok, err = await _run_tier(
-            knowledge.store_fact(
-                topic=topic_key,
-                content=summary[:2000],
-                source=source,
-                confidence=confidence,
-            ),
-            "knowledge",
-        )
-        result["knowledge_ok"] = ok
-        if err:
-            result["errors"].append(err)
+            # ── 2. Knowledge store ─────────────────────────────────
+            if summary:
+                from . import knowledge
+                topic_key = f"{module}:{entity_name}" if entity_name else module
+                ok, err = await _run_tier(
+                    knowledge.store_fact(
+                        topic=topic_key,
+                        content=summary[:2000],
+                        source=source,
+                        confidence=confidence,
+                    ),
+                    "knowledge",
+                )
+                result["knowledge_ok"] = ok
+                if err:
+                    result["errors"].append(err)
 
-    # ── 3. Neural memory ────────────────────────────────────────────────
-    if text_for_neural and len(text_for_neural) > 50:
-        from . import neural_memory
-        ok, err = await _run_tier(
-            neural_memory.learn_from_text(
-                text=text_for_neural[:5000],
-                source=source,
-                confidence=confidence,
-            ),
-            "neural",
-        )
-        result["neural_ok"] = ok
-        if err:
-            result["errors"].append(err)
+            # ── 3. Neural memory ───────────────────────────────────
+            if text_for_neural and len(text_for_neural) > 50:
+                from . import neural_memory
+                ok, err = await _run_tier(
+                    neural_memory.learn_from_text(
+                        text=text_for_neural[:5000],
+                        source=source,
+                        confidence=confidence,
+                    ),
+                    "neural",
+                )
+                result["neural_ok"] = ok
+                if err:
+                    result["errors"].append(err)
+    finally:
+        if acquired and sem is not None:
+            sem.release()
 
     # ── 4. Capability gap (only on failure or explicit gap) ─────────────
     if gap_type:
@@ -892,6 +922,35 @@ _LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "3500"))
 _TIER_TIMEOUT_S = (
     float(os.environ.get("ARIA_BRAIN_ABSORB_TIER_TIMEOUT_MS", "5000")) / 1000.0
 )
+
+# R-F799 (2026-05-22) — concurrency cap on absorb's expensive tiers.
+# R-F795 bounded each absorb's per-tier wall-time. This R-number adds
+# a per-process concurrency limiter so a flood of concurrent absorbs
+# (sweep/web_atlas/sanctions/tender_monitor all firing inside the
+# same 30s window) can't all race for the (already-serialised) encode
+# lock at semantic_search.py:_safe_encode. Default 2 concurrent
+# expensive-tier sections; semaphore acquire is bounded by a short
+# timeout (default 0.5s) so contention triggers fail-fast load
+# shedding rather than queue-buildup. On acquire timeout the tier
+# section is skipped (signal counter + _record_signal still fire so
+# observability is preserved). Set ARIA_BRAIN_ABSORB_CONCURRENCY=0
+# to disable the cap entirely (legacy unbounded behaviour).
+_ABSORB_CONCURRENCY = int(os.environ.get("ARIA_BRAIN_ABSORB_CONCURRENCY", "2"))
+_ABSORB_SEM_ACQUIRE_TIMEOUT_S = (
+    float(os.environ.get("ARIA_BRAIN_ABSORB_SEM_ACQUIRE_MS", "500")) / 1000.0
+)
+_absorb_concurrency_sem: Optional[asyncio.Semaphore] = None
+
+
+def _get_absorb_concurrency_sem() -> Optional[asyncio.Semaphore]:
+    """Lazy-init the per-process concurrency semaphore. Returns None
+    when the cap is disabled (ARIA_BRAIN_ABSORB_CONCURRENCY=0)."""
+    global _absorb_concurrency_sem
+    if _ABSORB_CONCURRENCY <= 0:
+        return None
+    if _absorb_concurrency_sem is None:
+        _absorb_concurrency_sem = asyncio.Semaphore(_ABSORB_CONCURRENCY)
+    return _absorb_concurrency_sem
 _LATENCY_WINDOW = 50
 _TRIP_CONSECUTIVE = 3
 _COOLDOWN_S = 60
