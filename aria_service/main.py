@@ -1527,6 +1527,31 @@ async def lifespan(app: FastAPI):
 
     knowledge_seed_task = asyncio.create_task(_seed_knowledge_bg())
 
+    # ── R-F803 (2026-05-22): autonomous self-coder boot ───────────────────
+    # ARIACoder + GapDetector. Dormant unless ALL of these hold:
+    #   ARIA_AUTONOMOUS_ENABLED=1  (existing master switch)
+    #   ARIA_CODER_ENABLED=1       (this engine specifically)
+    #   ARIA_INTERNAL_TOKEN set    (auth for /api/aria/coder/llm)
+    #   app.state.redis available
+    # See aria_service/autonomous/coder_entrypoint.py for the gates.
+    # Returns a list[Task] (or None if any gate refused).
+    aria_coder_tasks: list[asyncio.Task] = []
+    try:
+        from .autonomous.coder_entrypoint import start_aria_coder
+        _coder_tasks = await start_aria_coder(app.state)
+        if _coder_tasks:
+            aria_coder_tasks = _coder_tasks
+            logger.info(
+                "[R-F803] ARIA-Coder started with %d background tasks",
+                len(aria_coder_tasks),
+            )
+    except Exception as _coder_e:
+        # Never let a coder-init exception block the lifespan — the engine
+        # is non-essential for chat / DD traffic.
+        logger.warning(
+            "[R-F803] ARIA-Coder init failed (non-fatal): %s", _coder_e,
+        )
+
     logger.info(f"ARIA Service ready on {settings.host}:{settings.effective_port}")
     yield
 
@@ -1536,6 +1561,15 @@ async def lifespan(app: FastAPI):
         await _autonomous_engine.stop_engine()
     except Exception as e:
         logger.warning("Autonomous engine shutdown failed (non-fatal): %s", e)
+    # R-F803: cancel ARIA-Coder background tasks. The tasks own httpx
+    # clients (SovereignLLM + FlyDeployer); cancel propagates aclose.
+    for _t in aria_coder_tasks:
+        _t.cancel()
+    if aria_coder_tasks:
+        logger.info(
+            "[R-F803] cancelled %d ARIA-Coder tasks on shutdown",
+            len(aria_coder_tasks),
+        )
     if knowledge_seed_task:
         knowledge_seed_task.cancel()
     if research_task:

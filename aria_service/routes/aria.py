@@ -10554,6 +10554,137 @@ async def self_recent_errors_ep(hours: int = 24):
     }
 
 
+# ── ARIA-Coder LLM Proxy (R-F803) ───────────────────────────────────────────
+#
+# Endpoint the autonomous self-coder (aria_service/autonomous/sovereign_llm.py)
+# posts to when it needs an LLM completion. Routes through the existing
+# app.state.llm_provider chain (DeepSeek → Groq → Anthropic cooling) so the
+# coder uses the same cost-metered chain as chat.
+#
+# Auth: inherits the router-wide require_aria_token dependency. Caller MUST
+# present ARIA_INTERNAL_TOKEN (set as fly secret).
+#
+# Body: {
+#   "prompt":          str — full prompt (system + user pre-combined by
+#                            SovereignLLM)
+#   "task":            "plan" | "code" | "test" | "heal" (informational only,
+#                      logged for cost attribution)
+#   "prefer_model":    "aria-llm" | "aria-8b" | "deepseek" — best-effort
+#                      hint, ignored if that model unavailable in chain
+#   "max_tokens":      int (default 4096)
+#   "response_format": "json" | "text" (default text; "json" parses + returns
+#                      a dict on success, falls back to text on parse error)
+# }
+#
+# Returns: the parsed JSON dict (if response_format=json AND parse succeeds),
+# else {"text": str, "model": str, "task": str, "_parse_error": str|None}.
+@router.post("/coder/llm")
+async def coder_llm_ep(request: Request):
+    body = await request.json()
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt or len(prompt) < 10:
+        raise HTTPException(
+            status_code=400,
+            detail="prompt required (min 10 chars)",
+        )
+    task = (body.get("task") or "general").strip()
+    if task not in ("plan", "code", "test", "heal", "general"):
+        raise HTTPException(
+            status_code=400, detail="task must be plan|code|test|heal|general",
+        )
+    max_tokens = int(body.get("max_tokens") or 4096)
+    if not 1 <= max_tokens <= 8192:
+        raise HTTPException(
+            status_code=400, detail="max_tokens must be 1..8192",
+        )
+    response_format = (body.get("response_format") or "text").strip()
+    # prefer_model is informational/logging only; the active chain decides.
+    prefer_model = (body.get("prefer_model") or "").strip()
+
+    llm = get_llm(request)
+    if llm is None or not getattr(llm, "is_configured", False):
+        raise HTTPException(
+            status_code=503,
+            detail="LLM provider not configured (set LLM_PROVIDER + LLM_API_KEY)",
+        )
+
+    # Minimal system framing — the bulk of instructions lives in the prompt
+    # itself (built by sovereign_llm._build_*_prompt methods).
+    system_prompt = (
+        "You are ARIA's autonomous self-coding engine. "
+        "Follow the user message exactly. "
+        "When asked to reply with JSON, return ONLY valid JSON — no markdown, "
+        "no prose, no code fences."
+    )
+
+    _log.info(
+        "[coder/llm] task=%s prefer_model=%s max_tokens=%d prompt_len=%d",
+        task, prefer_model or "auto", max_tokens, len(prompt),
+    )
+
+    try:
+        result = await llm.complete(
+            system_prompt=system_prompt,
+            user_message=prompt,
+            max_tokens=max_tokens,
+            timeout=120.0,
+        )
+    except Exception as e:
+        _log.error("[coder/llm] llm.complete failed: %s", e)
+        raise HTTPException(
+            status_code=502, detail=f"LLM completion failed: {e}",
+        )
+
+    text = (result.text or "").strip()
+
+    if response_format == "json":
+        # Try to parse the text as JSON. If the LLM ignored the instruction
+        # and wrapped in markdown, strip fences and retry once.
+        import json as _json
+        candidate = text
+        if candidate.startswith("```"):
+            # Strip leading fence + optional language hint (e.g. "```json")
+            candidate = candidate[3:].lstrip()
+            if candidate.lower().startswith("json"):
+                candidate = candidate[4:].lstrip()
+            # Strip trailing fence
+            if candidate.endswith("```"):
+                candidate = candidate[:-3].rstrip()
+            candidate = candidate.strip()
+        try:
+            parsed = _json.loads(candidate)
+            if isinstance(parsed, dict):
+                # Attach provenance metadata under a reserved key
+                parsed["_aria_meta"] = {
+                    "model": result.model,
+                    "task": task,
+                    "input_tokens": result.input_tokens,
+                    "output_tokens": result.output_tokens,
+                }
+                return parsed
+            return {
+                "text": text,
+                "model": result.model,
+                "task": task,
+                "_parse_error": "JSON output was not an object",
+            }
+        except _json.JSONDecodeError as je:
+            return {
+                "text": text,
+                "model": result.model,
+                "task": task,
+                "_parse_error": f"JSON parse failed: {je}",
+            }
+
+    return {
+        "text": text,
+        "model": result.model,
+        "task": task,
+        "input_tokens": result.input_tokens,
+        "output_tokens": result.output_tokens,
+    }
+
+
 # ── Brain Hook API ──────────────────────────────────────────────────────────
 
 # 43b. POST /api/aria/brain/absorb — Feed learning from any module (incl. Node.js seenode)

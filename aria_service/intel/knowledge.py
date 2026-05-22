@@ -962,14 +962,28 @@ async def store_fact(topic: str, content: str, source: str = "user",
     # double-encoding (F83 fix 2026-04-29).
     if not skip_semantic_index:
         try:
-            from .semantic_search import index_fact
-            import asyncio as _aio
-            await _aio.to_thread(
-                index_fact,
-                db["facts"][0]["id"],
-                f"{topic} {content}",
-                {"confidence": confidence},
-            )
+            # R-F807 (2026-05-22) — queue for background indexing
+            # instead of awaiting the encode synchronously here.
+            # store_fact returns in microseconds + queue-put time;
+            # the actual model.encode runs in a single background
+            # worker that batches up to 32 items per call. Live
+            # 2026-05-22 evidence: awaiting encode per-call drove
+            # absorb wall-time to 20 min under concurrent load.
+            # Fallback path: if the queue is disabled
+            # (ARIA_INDEX_QUEUE_DISABLED=1) or full / no event
+            # loop, fall back to the synchronous to_thread path
+            # so we never silently lose the index update.
+            from . import _semantic_index_queue as _siq
+            _fact_id = db["facts"][0]["id"]
+            _text = f"{topic} {content}"
+            _meta = {"confidence": confidence}
+            queued = await _siq.enqueue(_fact_id, _text, _meta)
+            if not queued:
+                # Fallback to the legacy sync path so the index
+                # update isn't lost when the queue is unavailable.
+                from .semantic_search import index_fact
+                import asyncio as _aio
+                await _aio.to_thread(index_fact, _fact_id, _text, _meta)
         except Exception:
             pass
     # Index into the persistent RAG store as well so retrieval can find
