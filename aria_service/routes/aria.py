@@ -3092,7 +3092,28 @@ _INVESTIGATE_KW = re.compile(
 _CRAWL_KW       = re.compile(r"\b(crawl|spider|scrape|harvest)\b", re.IGNORECASE)
 _READ_KW        = re.compile(r"\b(read|fetch|grab|pull\s+in|ingest|summari[sz]e\s+(?:this|the)\s+(?:url|page|article|link))\b", re.IGNORECASE)
 _PROFILE_KW     = re.compile(r"\b(profile|build\s+a\s+profile\s+on|background\s+check|due\s+diligence\s+on)\b", re.IGNORECASE)
-_SCREEN_KW      = re.compile(r"\b(screen|sanction|sanctions\s+check|compliance\s+check|run\s+(?:a\s+)?compliance|fuzzy\s+screen|fuzzy\s+match)\b", re.IGNORECASE)
+# R-F793 (2026-05-22) — doc-reference detector. When the user attached
+# a document (the chat UI embeds it as [ATTACHED DOCUMENT … /ATTACHED
+# DOCUMENT] in the message text) AND their question explicitly refers
+# to the attached artifact, the tool dispatcher should hand off to the
+# LLM-pure path so the LLM can read the doc directly — not run an
+# external tool whose output replaces the doc context.
+_DOC_REFERENCE_RE = re.compile(
+    r"\b(?:this|the|that|attached|uploaded)\s+"
+    r"(?:document|file|pdf|attachment|report|spreadsheet|"
+    r"screenshot|image|paper|letter|email|memo|brief|deck|note)\b",
+    re.IGNORECASE,
+)
+
+# R-F793 (2026-05-22) — removed bare `sanction|` from the alternation.
+# Pre-R-F793 the bare noun matched in any context: "the EU sanction packet
+# where this rule is implemented" matched at "sanction", entity-extracted
+# the entire trailing string (" packet where this rule is implemented…")
+# as the "entity", screen tool returned no useful hits, LLM then fell back
+# to general-knowledge inference. Legitimate intent stays covered by the
+# multi-word forms: `/screen X`, `screen X`, `sanctions check on X`,
+# `compliance check`, `fuzzy match`, `fuzzy screen`, `run compliance`.
+_SCREEN_KW      = re.compile(r"\b(screen|sanctions\s+check|compliance\s+check|run\s+(?:a\s+)?compliance|fuzzy\s+screen|fuzzy\s+match)\b", re.IGNORECASE)
 _PERSON_KW      = re.compile(r"\b(person|individual|director|minister|general|colonel|owner|ceo|cfo)\b", re.IGNORECASE)
 _COMPANY_KW     = re.compile(r"\b(company|corporation|firm|business|ltd|limited|inc|gmbh|sa|sarl|ltd\.|plc)\b", re.IGNORECASE)
 # New tool keywords introduced with the brain/neuron upgrade
@@ -3998,8 +4019,19 @@ def _strip_listener_context(message: str) -> str:
     return stripped.strip()
 
 
+# R-F793 (2026-05-22) — accept both closing-tag formats. The web UI
+# (public/aria.html:1409) emits `[/ATTACHED DOCUMENT]`; the WhatsApp
+# listener (lib/whatsapp/waListener.mjs) emits `[END ATTACHED DOCUMENT]`.
+# Pre-R-F793 this regex only matched the WA form, so web-UI uploads
+# silently failed to be stripped: _detect_tool_intent then ran keyword
+# detection across the entire embedded document text, and any sanctions-
+# /procurement-/conflict-related word inside the doc triggered the
+# wrong tool. Live evidence 2026-05-22: operator's "is LUKOIL in this
+# document" routed to screen tool because the doc text contained the
+# noun "sanction" (which _SCREEN_KW used to match — also tightened in
+# this same R-number).
 _ATTACHED_DOC_RE = __import__("re").compile(
-    r"\[ATTACHED DOCUMENT[^\]]*\](.*?)\[END ATTACHED DOCUMENT\]",
+    r"\[ATTACHED DOCUMENT[^\]]*\](.*?)\[(?:/|END\s+)ATTACHED DOCUMENT\]",
     __import__("re").DOTALL,
 )
 
@@ -4139,6 +4171,28 @@ def _detect_tool_intent(message: str) -> dict | None:
             "context": msg,
             "_reason": "pre_meeting_briefing",
         }
+
+    # ── R-F793 (2026-05-22) — doc-aware routing skip ──
+    # When the user attached a document AND their question explicitly
+    # references it ("this document", "the attached file", etc), do not
+    # route to external tools. The LLM-pure path already has the document
+    # embedded in [ATTACHED DOCUMENT … /ATTACHED DOCUMENT] context (R-F718),
+    # so the right action is to let the LLM read it directly. Routing to
+    # screen / deep_research / read URL etc would replace that context
+    # with external tool output that doesn't address the user's question.
+    #
+    # Live evidence 2026-05-22: operator asked "Aria, please review and
+    # see whether LUKOIL is mentioned in this document" with a doc
+    # attached. After R-F792 unblocked the security guard, the next
+    # blocker was the question still being open to false-positive
+    # routing on entity-name patterns. This skip closes that hole.
+    #
+    # Slash commands (/screen, /dd, /pipeline) and capability questions
+    # already returned above, so they still fire — explicit intent wins.
+    # Natural-language doc-review questions fall through to LLM-pure
+    # below.
+    if "[ATTACHED DOCUMENT" in message and _DOC_REFERENCE_RE.search(msg):
+        return None
 
     # ── Pipeline command intent ──
     if msg.strip().lower().startswith("/pipeline") or msg.strip().lower() == "show pipeline":
