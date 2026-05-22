@@ -2571,9 +2571,10 @@
       "title": "ARIACoder PR-flow — gh pr create + Claude review API + aria-runner separate app",
       "claimed_at": "2026-05-22T17:01:49Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "cb953f2",
+      "notes": null,
+      "shipped_at": "2026-05-22T21:08:57Z"
     },
     {
       "r_number": "R-F806",
