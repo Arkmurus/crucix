@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 814,
+  "next_available": 815,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2655,6 +2655,16 @@
       "commit_sha": "25e6cd5",
       "notes": null,
       "shipped_at": "2026-05-22T22:18:54Z"
+    },
+    {
+      "r_number": "R-F814",
+      "title": "R-F704 watchdog skip dump when interpreter finalizing",
+      "claimed_at": "2026-05-22T22:45:54Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e3db959",
+      "notes": null,
+      "shipped_at": "2026-05-22T22:47:52Z"
     }
   ]
 }
