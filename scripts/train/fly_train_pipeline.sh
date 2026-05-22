@@ -89,6 +89,17 @@ if [ "${TOTAL_PAIRS}" -lt "${MIN_SFT_PAIRS_V01}" ]; then
   echo "          wait for ≥${MIN_SFT_PAIRS_V01} pairs."
 fi
 
+# Stage 2.5: adapt chat_audit JSONL → harvest format (R-F812).
+# The training-data dailies emitted by training_export under
+# `YYYY-MM-DD.jsonl` use the OpenAI Messages nested format
+# (messages: [...], metadata: {...}) which prepare_sft.py doesn't
+# unwrap. This adapter writes harvest-adapted-YYYY-MM-DD.jsonl files
+# that the prep script's existing `harvest-*.jsonl` glob picks up.
+echo "[stage 2.5] adapt_chat_audit (R-F812)"
+python /workspace/scripts/train/adapt_chat_audit.py \
+    --harvest-dir "${CORPUS_DIR}" \
+    --out-prefix "harvest-adapted-"
+
 # Stage 3: prepare SFT data
 echo "[stage 3] prepare_sft"
 python /workspace/scripts/train/prepare_sft.py \
