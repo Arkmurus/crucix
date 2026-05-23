@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 820,
+  "next_available": 821,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2713,6 +2713,16 @@
       "commit_sha": "c5ebd2a",
       "notes": null,
       "shipped_at": "2026-05-22T23:47:52Z"
+    },
+    {
+      "r_number": "R-F820",
+      "title": "Add rich + tensorboard to runpod_train_pipeline pip install (trl transitive)",
+      "claimed_at": "2026-05-23T09:43:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8bee2d8",
+      "notes": null,
+      "shipped_at": "2026-05-23T09:43:47Z"
     }
   ]
 }
