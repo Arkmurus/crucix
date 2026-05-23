@@ -1,0 +1,53 @@
+# R-F833 (2026-05-23) — Fly app config for `aria-wa`.
+#
+# Isolated Baileys WhatsApp listener. Posts inbound WA messages to
+# `aria-intel.internal:8000/api/aria/...` over Fly's private network
+# (no public hop). Receives outbound messages via /api/wa-listener/send
+# from both aria-intel + aria-web.
+#
+# Activation steps (see docs/migration_runbook_2026_05_23.md):
+#   1. flyctl apps create aria-wa --org personal
+#   2. flyctl volumes create aria_wa_data --region lhr --size 1 -a aria-wa
+#   3. flyctl secrets set ARIA_SERVICE_URL=http://aria-intel.internal:8000 \
+#                          ARIA_INTERNAL_TOKEN=<copy> -a aria-wa
+#   4. flyctl deploy --config fly.wa.toml --strategy immediate --ha=false
+#   5. flyctl logs -a aria-wa  → wait for QR code, scan with WhatsApp →
+#      Linked Devices → "Link a Device"
+#   6. Once linked, kill seenode's WA listener (WHATSAPP_DISABLED=1)
+#
+# Cost meter
+# ──────────
+# shared-cpu-1x@256MB: ~£3-4/mo
+# 1GB volume: ~£0.15/mo
+# Total: ~£3-5/mo
+
+app            = "aria-wa"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile.wa"
+
+[mounts]
+  source       = "aria_wa_data"
+  destination  = "/data"
+  initial_size = "1gb"
+
+[http_service]
+  internal_port      = 5070
+  force_https        = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  grace_period = "30s"
+  interval     = "30s"
+  method       = "GET"
+  timeout      = "10s"
+  # WA listener exposes /health (Express route) for liveness — see
+  # services/wa-listener/aria_wa_listener.mjs
+  path         = "/health"
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "256mb"

@@ -1,0 +1,39 @@
+# R-F833 (2026-05-23) — Dockerfile for the `aria-wa` Fly app.
+#
+# Isolates the Baileys WhatsApp listener as its own Fly machine so a
+# WA crash never takes down web/auth/billing. Per audit W15: the
+# standalone `services/wa-listener/aria_wa_listener.mjs` is the
+# canonical implementation — the embedded `lib/whatsapp/waListener.mjs`
+# in server.mjs gets deleted in R-F832.
+#
+# Persistent Fly volume holds Baileys session auth (the QR-scan blob)
+# so a deploy doesn't force a QR re-scan. Operator scans QR ONCE
+# during R-F833 first boot; subsequent deploys reuse the auth.
+
+FROM node:22-slim
+
+# Build deps for native modules (baileys uses libsignal + bufferutil)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 make g++ ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy WA-listener's OWN package.json (separate dep tree from main app)
+COPY services/wa-listener/package.json ./
+
+RUN npm install --omit=dev
+
+# WA listener source
+COPY services/wa-listener/aria_wa_listener.mjs ./
+
+# Volume mount point — Baileys auth + session blobs
+RUN mkdir -p /data/wa-auth
+
+ENV WHATSAPP_AUTH_DIR=/data/wa-auth \
+    NODE_ENV=production \
+    PORT=5070
+
+EXPOSE 5070
+
+CMD ["node", "aria_wa_listener.mjs"]

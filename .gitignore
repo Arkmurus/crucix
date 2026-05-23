@@ -71,3 +71,19 @@ build_rev.txt
 #   .adv_post.json  — adversarial-post CLI scratch artefact
 .aria-token
 .adv_post.json
+
+# R-F832 (2026-05-23) — audit W25: scratch corpus tarballs generated
+# during the RunPod ARIA-LLM fine-tune workflow. ~6MB combined. Local
+# only — should never be committed (would bloat the repo + contain
+# operator chat content). Per scripts/train/RUNPOD.md the operator
+# regenerates these on demand by tar-ing /data/aria_training from
+# aria-intel.
+corpus.tar.gz
+corpus_v2.tar.gz
+corpus.b64
+corpus_clean.tar.gz
+
+# Operator's local SSH key for RunPod pod access — generated on
+# demand by the autonomous pod-launch flow, never source-controlled.
+runpod_aria
+runpod_aria.pub

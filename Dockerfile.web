@@ -1,0 +1,79 @@
+# R-F832 (2026-05-23) — Dockerfile for the `aria-web` Fly app.
+#
+# Replaces seenode by running the Node monolith (server.mjs + lib/ +
+# apis/ + middleware/ + dashboard/ + public/) on Fly.io with persistent
+# volumes for users.json / sessions.json / runs/ (no more ephemeral-disk
+# auth races per audit W18).
+#
+# Deliberately excludes:
+#   - services/wa-listener/  → that's the `aria-wa` Fly app (R-F833)
+#   - aria_service/          → Python brain, runs on `aria-intel`
+#   - scripts/train/         → RunPod-only training scripts
+#   - frontend/dist/         → dead Angular SPA (audit W10 — deleted in R-F832)
+#   - data/wedge_stacks/, runs/  → ephemeral / build artefacts
+#
+# Build: `flyctl deploy --config fly.web.toml`
+# Run:   `flyctl machine run` with the build output
+#
+# Per audit W10 + W11 + W22-23 + W27: this Dockerfile is the natural
+# place to NOT-COPY dead code paths so they decay out of the deployed
+# artefact even before we delete them from the repo.
+
+FROM node:22-slim
+
+# Build deps for native modules (bcrypt is gone but baileys uses native
+# code, kept defensively in case a transitive needs it).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 make g++ git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the package manifest first so npm install is cached across
+# code-only commits. server.mjs lists `pdf-parse`, `mammoth`, `imap`,
+# `xlsx` etc. as optionalDependencies — install them all on web (the
+# WA-listener container doesn't need them).
+COPY package.json package-lock.json* ./
+
+# Production install — drop devDependencies, install optionals so
+# pdf/excel/imap/whatsapp paths work. `npm ci` would be stricter but
+# the repo doesn't always carry a package-lock.json.
+RUN npm install --include=optional --omit=dev
+
+# Application code. EXPLICIT copies (not COPY . .) so the Dockerfile
+# documents the deployed surface — anything not listed below is NOT
+# in the image. Audit-friendly + faster builds.
+COPY server.mjs ./
+COPY crucix.config.mjs ./
+COPY lib/ ./lib/
+COPY apis/ ./apis/
+COPY middleware/ ./middleware/
+COPY dashboard/inject.mjs ./dashboard/
+COPY dashboard/public/ ./dashboard/public/
+COPY public/ ./public/
+
+# R-F589 — same SHA-resolution pattern aria-intel's Dockerfile uses.
+# Lets server.mjs report which commit it's running even when
+# --build-arg ARIA_BUILD_GIT_SHA was omitted by a manual deploy.
+COPY .git/HEAD .git/HEAD
+COPY .git/refs .git/refs
+COPY .git/packed-refs* .git/
+
+# Persistent data volume mount-point. Fly volume `aria_web_data` will be
+# mounted at /data per fly.web.toml — users.json + sessions.json + audit
+# logs land here. Pre-create the dir so lib/persist/store.mjs writes
+# work cleanly on first boot before the volume is initialised by Fly.
+RUN mkdir -p /data
+
+# Operator-overridable runtime port (crucix.config.mjs defaults to 3117
+# when PORT is unset).
+ENV PORT=3117 \
+    NODE_ENV=production \
+    PERSIST_DIR=/data
+
+EXPOSE 3117
+
+# Note: server.mjs runs cron jobs + opens socket.io + the Express
+# server in one process. There's no separate worker — a single node
+# process is the right shape.
+CMD ["node", "server.mjs"]

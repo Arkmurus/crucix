@@ -1,0 +1,62 @@
+# R-F832 (2026-05-23) — Fly app config for `aria-web`.
+#
+# Replaces Seenode (intel.arkmurus.com) by running the Node monolith
+# (server.mjs) on Fly with a persistent 1GB volume for users.json /
+# sessions.json / audit logs / runs.
+#
+# Activation steps (see docs/migration_runbook_2026_05_23.md):
+#   1. flyctl apps create aria-web --org personal
+#   2. flyctl volumes create aria_web_data --region lhr --size 1 -a aria-web
+#   3. bash scripts/admin/import_seenode_secrets.sh <seenode-env-file>
+#   4. flyctl deploy --config fly.web.toml --strategy rolling
+#   5. Verify https://aria-web.fly.dev/healthz returns 200
+#   6. DNS cutover (R-F834) — intel.arkmurus.com → aria-web.fly.dev
+#
+# Cost meter
+# ──────────
+# shared-cpu-1x@512MB: ~£4-5/mo
+# 1GB volume: ~£0.15/mo (snapshots auto)
+# Total: ~£4-6/mo
+#
+# Why single machine
+# ──────────────────
+# Same trade-off as aria-intel: the /data volume holds users.json
+# + sessions.json + audit logs. Fly volumes are not shared across
+# machines, so two machines on the same volume would diverge. For
+# session-store durability we accept single-machine HA loss; Fly's
+# automatic volume snapshots are the recovery story.
+
+app            = "aria-web"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile.web"
+
+[mounts]
+  source       = "aria_web_data"
+  destination  = "/data"
+  initial_size = "1gb"
+
+# crucix.config.mjs reads PORT from env; Fly maps inbound 80/443 → 3117.
+[http_service]
+  internal_port      = 3117
+  force_https        = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+# Server.mjs exposes /healthz at line 1206 — fast, no Redis, no LLM
+# call — same pattern as /api/aria/health/live on aria-intel.
+# Generous grace_period because cron jobs + module-level network calls
+# (Telegram bot polling, WA listener, briefing scheduler) take ~20-30s
+# to settle on first boot.
+[[http_service.checks]]
+  grace_period = "60s"
+  interval     = "30s"
+  method       = "GET"
+  timeout      = "10s"
+  path         = "/healthz"
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "512mb"
