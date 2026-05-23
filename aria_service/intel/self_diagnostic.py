@@ -139,7 +139,10 @@ _MODULES: list[dict] = [
         "entry": "classify",
         "brain_registered": True,
         "endpoint": "/api/aria/query/decompose",
-        "endpoint_unauth_ok_codes": (401, 405),  # POST-only, GET may 405
+        # R-F695 (2026-05-23): POST-only endpoints can also return 422
+        # (missing/invalid body) — that still proves the endpoint is mounted.
+        # Reject only when the response is a true 404/5xx.
+        "endpoint_unauth_ok_codes": (401, 405, 422),
         "critical": True,
     },
     {
@@ -148,7 +151,8 @@ _MODULES: list[dict] = [
         "entry": "detect_publisher",
         "brain_registered": True,
         "endpoint": "/api/aria/publisher/fetch",
-        "endpoint_unauth_ok_codes": (401, 405),
+        # R-F695: include 422 — POST endpoint, GET may return either 405 or 422.
+        "endpoint_unauth_ok_codes": (401, 405, 422),
         "critical": True,
     },
     {
