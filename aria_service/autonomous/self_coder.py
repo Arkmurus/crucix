@@ -218,14 +218,9 @@ class ARIACoder:
 
             if result.success and result.r_number is not None:
                 await self.gap_detector.mark_fixed(gap.gap_id, result.r_number)
-                if self.wa is not None:
-                    try:
-                        await self.wa.notify(
-                            f"✅ R-F{result.r_number} shipped autonomously\n"
-                            f"Gap: {gap.title}",
-                        )
-                    except Exception as e:
-                        logger.warning("[aria_coder] WA notify failed: %s", e)
+                # R-F825: WhatsApp success notification moved INTO fix_gap
+                # (uses rich msg_shipped template). _one_cycle just records
+                # the fixed gap + captures training pair.
                 if self.harvester is not None and result.training_pair:
                     try:
                         await self.harvester.capture(result.training_pair)
@@ -273,6 +268,18 @@ class ARIACoder:
             gap_id=gap.gap_id,
             operator_initiated=operator_initiated,
         )
+        # R-F825: WhatsApp ping when an operator-initiated fix starts.
+        # Cron-triggered fixes don't ping here (would be too chatty);
+        # operator gets a notification only on `done`/`failed` for those.
+        if operator_initiated and self.wa is not None:
+            try:
+                from .wa_notifier import WANotifier
+                msg = WANotifier.msg_request_queued(
+                    fix_id=fix_id, description=gap.description,
+                )
+                await self.wa.notify(msg)
+            except Exception as e:
+                logger.debug("[aria_coder] wa.notify(start) failed: %s", e)
 
         # R-F804 — safety gate. Cheap-fail BEFORE any LLM tokens are
         # burned. Uses the same primitives as the autonomous task engine
@@ -561,6 +568,29 @@ class ARIACoder:
                 elapsed_s=round(elapsed),
                 staged_ids=staged_ids,
             )
+            # R-F825: rich success message to WhatsApp. Fires for BOTH
+            # cron-triggered and operator-initiated fixes — this is the
+            # operator's main confirmation channel.
+            if self.wa is not None:
+                try:
+                    from .wa_notifier import WANotifier
+                    op_summary = (
+                        plan.approach[:300]
+                        if plan.approach
+                        else "ARIA-Coder shipped a fix; see audit for diff."
+                    )
+                    msg = WANotifier.msg_shipped(
+                        r_number=r_number,
+                        title=plan.title,
+                        operator_summary=op_summary,
+                        files_modified=list(plan.code_changes.keys()),
+                        auto_deployed=auto_deployed,
+                        issue_url=None,  # populated by ticket flow if R-F821 active
+                        elapsed_s=int(elapsed),
+                    )
+                    await self.wa.notify(msg)
+                except Exception as e:
+                    logger.debug("[aria_coder] wa.notify(shipped) failed: %s", e)
             logger.info(
                 "[aria_coder] ✅ R-F%d %s in %.0fs (staged_ids=%s)",
                 r_number, stage_status, elapsed, staged_ids,
@@ -581,6 +611,19 @@ class ARIACoder:
                 f"Pipeline crashed: {str(e)[:200]}",
                 error=str(e)[:500],
             )
+            # R-F825: WhatsApp ping on crash so the operator isn't left
+            # waiting silently — surfaces in chat, lists the fix_id so
+            # they can grab logs from /coder/status/{fix_id}.
+            if self.wa is not None:
+                try:
+                    from .wa_notifier import WANotifier
+                    await self.wa.notify(
+                        WANotifier.msg_failed(
+                            fix_id=fix_id, reason=str(e),
+                        ),
+                    )
+                except Exception as ne:
+                    logger.debug("[aria_coder] wa.notify(failed) failed: %s", ne)
             return FixResult(
                 success=False, fix_id=fix_id, gap_id=gap.gap_id,
                 failure_reason=str(e),
