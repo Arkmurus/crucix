@@ -173,11 +173,11 @@ async def start_aria_coder(
             "[coder_entrypoint] output_harvester not available: %s", e,
         )
 
-    # R-F825: wire the WhatsApp notifier so the coder can post rich
-    # operator-facing progress messages (queued → stages → done/failed).
-    # Dormant unless SEENODE_BASE_URL + ARIA_INTERNAL_TOKEN +
-    # ARIA_CODER_WA_GROUP_ID are all set. `notify()` returns
-    # "skipped:no_group_id" gracefully in dev, never raises.
+    # R-F825 + R-F847: wire the WhatsApp notifier so the coder can post
+    # rich operator-facing progress messages (queued → stages → done/failed).
+    # Dormant unless ARIA_WA_INTERNAL_URL (or legacy SEENODE_BASE_URL)
+    # + ARIA_INTERNAL_TOKEN + ARIA_CODER_WA_GROUP_ID are all set.
+    # `notify()` returns "skipped:no_group_id" gracefully in dev, never raises.
     wa_notifier = None
     try:
         from .wa_notifier import WANotifier
@@ -185,8 +185,8 @@ async def start_aria_coder(
         if not wa_notifier.is_configured:
             logger.info(
                 "[coder_entrypoint] WANotifier dormant — "
-                "SEENODE_BASE_URL / ARIA_INTERNAL_TOKEN / "
-                "ARIA_CODER_WA_GROUP_ID not all set",
+                "ARIA_WA_INTERNAL_URL (or SEENODE_BASE_URL) / "
+                "ARIA_INTERNAL_TOKEN / ARIA_CODER_WA_GROUP_ID not all set",
             )
     except Exception as e:
         logger.warning(
