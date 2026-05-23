@@ -134,6 +134,20 @@ GAP REPORT
 CODEBASE CONTEXT
 {context}
 
+REASONING DISCIPLINE
+Before answering, think through these questions privately (do NOT include
+the thinking in your JSON output — only the conclusions):
+  1. WHY does this gap occur? Distinguish root cause from symptom.
+     A null-check that hides a deeper bug is NOT a fix.
+  2. What's the SMALLEST diff that addresses the root cause? Surgical
+     beats refactor — CLAUDE.md §8 (map-then-change).
+  3. Is this a 1-line fix, a single-file fix, or does it span modules?
+     If it spans 3+ modules, flag risk_level="high".
+  4. What downstream code might break? Existing tests, live readers of
+     the same Redis keys, env-var consumers — CLAUDE.md §4.
+  5. Could the fix introduce a regression to a clean code path? If so,
+     flag risk_level="high" so operator reviews even with R-F462 active.
+
 CONSTITUTIONAL CONSTRAINTS
 1. You cannot modify any file in PROTECTED_FILES (see constitutional_validator.py).
 2. You cannot weaken any hallucination or verification guard.
@@ -145,10 +159,12 @@ OUTPUT
 Reply with ONLY valid JSON (no markdown, no prose):
 {{
   "title": "brief description",
-  "approach": "detailed technical approach",
+  "root_cause": "the underlying defect, distinct from the symptom",
+  "approach": "detailed technical approach addressing the root cause",
   "target_files": ["files to modify"],
   "new_files": ["files to create"],
   "changes_summary": "what specifically changes",
+  "downstream_risk": "modules/tests/keys that COULD break, or 'none'",
   "risk_level": "low|medium|high",
   "estimated_effort_minutes": 30
 }}"""
@@ -197,18 +213,32 @@ NEW CODE (first 3k chars)
 {new_code[:3000]}
 ```
 
-TESTS
-1. Happy path — fix produces the intended behaviour.
-2. Regression test for the specific gap this fixes (must fail before the fix).
-3. Edge cases + error handling.
-4. Use pytest-asyncio for async functions.
-5. Mock external dependencies (Redis, httpx) — no live network in tests.
+TEST DISCIPLINE (per CLAUDE.md §5 — unit + capability tests per R-number)
+Required test classes:
+
+  1. UNIT test — proves the function's contract holds.
+  2. CAPABILITY test — proves the user-visible symptom from the gap
+     report is fixed. Must FAIL against the pre-fix code path and
+     PASS against the post-fix code path. This is the regression
+     guard the R-number is FOR.
+  3. NEGATIVE / edge cases — null inputs, empty lists, out-of-window
+     timestamps, non-string types where strings expected.
+  4. NO live network — mock httpx, Redis, file I/O at the boundary.
+     Project convention: tests use `asyncio.run(...)` directly, NOT
+     pytest-asyncio (see test_chain_correlator.py:7 pattern).
+  5. Test names start with `test_rf{r_number}_` so the next pytest
+     run identifies them at a glance.
+
+If the gap was a hallucination or guard bypass: add an adversarial
+test that probes the SAME bypass vector with a sibling phrasing —
+attackers don't repeat the exact prompt.
 
 OUTPUT
 Reply with ONLY valid JSON:
 {{
   "test_filepath": "aria_service/tests/test_rf{r_number}_auto.py",
-  "test_code": "complete test file"
+  "test_code": "complete test file",
+  "capability_test_name": "name of the test that proves the user-visible symptom is fixed"
 }}"""
 
     def _build_healing_prompt(
@@ -224,13 +254,26 @@ CODE THAT FAILED (first 3k chars)
 {code[:3000]}
 ```
 
-Diagnose the specific failure. Do not change working parts. Return the
-corrected complete file content.
+DIAGNOSIS DISCIPLINE
+Think through these privately before answering:
+  1. What is the EXACT failure mode? Read the error message and the
+     test assertion side-by-side. Off-by-one? Wrong type? Missing await?
+     Wrong fixture? Don't guess — point to the exact line.
+  2. Is this a ROOT CAUSE in your fix, or a brittle TEST? If the test
+     codifies behaviour that contradicts the gap report, flag it. Do
+     not silently weaken the test to make it pass.
+  3. What changed between attempt {attempt - 1} and {attempt}? If a
+     previous patch overcorrected, revert that micro-change rather
+     than layer more code on top.
+  4. Will your new patch pass the SAME failing test AND not regress
+     any other test in the same file? Re-read the rest of the test
+     file before answering.
 
 OUTPUT
 Reply with ONLY valid JSON:
 {{
-  "diagnosis": "what caused the failure",
+  "failure_mode": "exact line/assertion that broke",
+  "diagnosis": "root cause of the failure (not the symptom)",
   "fix": "what changes to address it",
   "code": "corrected complete file content"
 }}"""
