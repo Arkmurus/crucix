@@ -5801,29 +5801,37 @@ async def _execute_tool(intent: dict, llm) -> str:
                 parts.append(f"BRAIN STATS: failed to query — {e}")
                 parts.append("")
 
-            # ── 2. Email reader — pull from seenode if reachable, fall
-            # back to brain stats only when not. The seenode side stores
+            # ── 2. Email reader — pull from the Node app if reachable,
+            # fall back to brain stats only when not. The Node app stores
             # Redis-tracked counters + last_uid; the Python side stores
             # per-email signals via brain_hook.absorb(module='email_reader').
             if wants_email:
-                # 2a. Try seenode status endpoint (the canonical source
-                # for email_reader operational state — last_uid, total
+                # 2a. Try the email-reader status endpoint (canonical
+                # source for operational state — last_uid, total
                 # processed, attachments, etc.).
-                seenode_url = _os.getenv("SEENODE_BASE_URL", "").rstrip("/")
-                seenode_token = _os.getenv("ARIA_INTERNAL_TOKEN", "")
+                # R-F839 (2026-05-23): read ARIA_WEB_INTERNAL_URL first
+                # (→ http://aria-web.internal:3117 on Fly's 6PN private
+                # network). Fall back to SEENODE_BASE_URL during rollback
+                # window; that var was overloaded with the WA-send target
+                # so prefer the explicit web URL.
+                node_url = (
+                    _os.getenv("ARIA_WEB_INTERNAL_URL", "")
+                    or _os.getenv("SEENODE_BASE_URL", "")
+                ).rstrip("/")
+                node_token = _os.getenv("ARIA_INTERNAL_TOKEN", "")
                 seenode_status = None
-                if seenode_url and seenode_token:
+                if node_url and node_token:
                     try:
                         import httpx as _httpx
                         async with _httpx.AsyncClient(timeout=8.0) as client:
                             r = await client.get(
-                                f"{seenode_url}/api/email-reader/status",
-                                headers={"Authorization": f"Bearer {seenode_token}"},
+                                f"{node_url}/api/email-reader/status",
+                                headers={"Authorization": f"Bearer {node_token}"},
                             )
                             if r.status_code == 200:
                                 seenode_status = r.json()
                     except Exception as e:
-                        parts.append(f"  [seenode email-reader unreachable: {e}]")
+                        parts.append(f"  [email-reader unreachable: {e}]")
 
                 if seenode_status:
                     parts.append("EMAIL READER (seenode live status):")
@@ -17773,12 +17781,18 @@ async def health_cross_ep():
             py_status["vendor_availability_error"] = str(e)[:200]
 
     # Probe Node side
+    # R-F840 (2026-05-23): replaced the hardcoded Seenode-public fallback
+    # with the Fly internal URL post-migration. After R-F835 cancels the
+    # Seenode subscription, the old hardcoded host becomes a 6s timeout
+    # on every /health parity probe. Internal URL is reachable from
+    # aria-intel via 6PN; resolves only inside Fly's private network.
     node_url = (
         os.getenv("ARIA_NODE_URL")
+        or os.getenv("ARIA_WEB_INTERNAL_URL")
         or os.getenv("SEENODE_URL")
-        or "https://web-qzregt3hvgvb.up-de-fra1-k8s-1.apps.run-on-seenode.com"
+        or "http://aria-web.internal:3117"
     ).rstrip("/")
-    node_status: dict = {"server": "seenode-node", "url": node_url, "ok": False}
+    node_status: dict = {"server": "aria-web", "url": node_url, "ok": False}
     try:
         import httpx
         t0 = time.time()

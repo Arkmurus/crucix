@@ -38,7 +38,20 @@ logger = logging.getLogger("aria.autonomous.delivery")
 
 
 # Env vars
-SEENODE_BASE_URL = os.getenv("SEENODE_BASE_URL", "").strip().rstrip("/")
+# R-F839 (2026-05-23): SEENODE_BASE_URL was overloaded — used as both
+# the WA-send target AND (via routes/aria.py:5812) the email-state
+# target. After Seenode→Fly migration they're two different Fly apps.
+# Read ARIA_WA_INTERNAL_URL first (→ http://aria-wa.internal:5070);
+# fall back to SEENODE_BASE_URL only during the rollback window.
+def _wa_target_url() -> str:
+    return (
+        os.getenv("ARIA_WA_INTERNAL_URL", "")
+        or os.getenv("SEENODE_BASE_URL", "")
+    ).strip().rstrip("/")
+
+# Read at module import for legacy callers; helpers below read fresh so
+# a runtime secret-rotate via flyctl is honoured without redeploy.
+SEENODE_BASE_URL = _wa_target_url()
 ARIA_INTERNAL_TOKEN = os.getenv("ARIA_INTERNAL_TOKEN", "").strip()
 
 
@@ -127,8 +140,10 @@ async def _deliver_whatsapp(task, response_text: str, triggered_flags: list[str]
     """
     if _is_dry_run():
         return "skipped:dry_run"
-    if not SEENODE_BASE_URL:
-        return "skipped:no_seenode_base_url"
+    # R-F839: read fresh so a flyctl secrets rotate is honoured without redeploy
+    target = _wa_target_url()
+    if not target:
+        return "skipped:no_wa_target_url"
     if not ARIA_INTERNAL_TOKEN:
         return "skipped:no_internal_token"
     if not task.whatsapp_group_id:
@@ -145,7 +160,7 @@ async def _deliver_whatsapp(task, response_text: str, triggered_flags: list[str]
         "message": full_message[:4000],  # WhatsApp has a ~4096 char limit per message
     }
 
-    url = f"{SEENODE_BASE_URL}/api/wa-listener/send"
+    url = f"{target}/api/wa-listener/send"
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(

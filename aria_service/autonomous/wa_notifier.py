@@ -125,8 +125,13 @@ class WANotifier:
         dry_run: Optional[bool] = None,
         http_client: Optional[httpx.AsyncClient] = None,
     ) -> None:
+        # R-F839 (2026-05-23): prefer ARIA_WA_INTERNAL_URL (the new,
+        # explicit WA-send target — http://aria-wa.internal:5070). Fall
+        # back to SEENODE_BASE_URL during rollback. The `seenode_base_url`
+        # constructor arg kept for backward-compat with existing callers.
         self.base_url = (
             seenode_base_url
+            or os.environ.get("ARIA_WA_INTERNAL_URL", "")
             or os.environ.get("SEENODE_BASE_URL", "")
         ).rstrip("/")
         self.token = internal_token or os.environ.get("ARIA_INTERNAL_TOKEN", "")
