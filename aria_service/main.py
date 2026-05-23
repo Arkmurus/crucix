@@ -1976,9 +1976,40 @@ async def ingest_sweep(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "aria_service.main:app",
-        host=settings.host,
-        port=settings.effective_port,
-        reload=False,
-    )
+
+    _host = settings.host
+    _port = settings.effective_port
+
+    if _host == "::":
+        # R-F842 (2026-05-23): manual dual-stack socket.
+        #
+        # R-F838 set ARIA_HOST=:: so .internal (IPv6/6PN) calls reach
+        # aria-intel — but uvicorn's host="::" is IPv6-only on Linux
+        # (IPV6_V6ONLY defaults ON for Python sockets). That broke
+        # Fly's healthcheck + public proxy (both IPv4-only): aria-intel
+        # showed "1 critical · connect: no route to host" until this
+        # patch.
+        #
+        # Fix: create the listening socket ourselves, set
+        # IPV6_V6ONLY=0, and pass the fd to uvicorn. The socket then
+        # accepts BOTH IPv4 (mapped as ::ffff:x.x.x.x) and IPv6
+        # connections. One process, one port, both stacks.
+        import socket as _socket
+        sock = _socket.socket(_socket.AF_INET6, _socket.SOCK_STREAM)
+        sock.setsockopt(_socket.IPPROTO_IPV6, _socket.IPV6_V6ONLY, 0)
+        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+        sock.bind(("::", _port))
+        sock.listen(2048)
+        sock.set_inheritable(True)
+        uvicorn.run(
+            "aria_service.main:app",
+            fd=sock.fileno(),
+            reload=False,
+        )
+    else:
+        uvicorn.run(
+            "aria_service.main:app",
+            host=_host,
+            port=_port,
+            reload=False,
+        )
