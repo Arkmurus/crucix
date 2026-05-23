@@ -21,6 +21,17 @@
 
 FROM node:22-slim
 
+# R-F846 (2026-05-23) — build-time identity. Passed in via
+# `--build-arg` from .github/workflows/deploy-fly.yml (CI) or by a
+# manual `flyctl deploy --build-arg ...` invocation. Mirrors the
+# aria-intel pattern (R-F513). server.mjs reads ARIA_BUILD_GIT_SHA
+# at boot so /api/health.build_rev reports the actual SHA running,
+# not UNKNOWN-BUILD. Falls back to .git/HEAD at runtime (R-F589).
+ARG ARIA_BUILD_GIT_SHA=unknown
+ARG ARIA_BUILD_R_TAG=
+ENV ARIA_BUILD_GIT_SHA=$ARIA_BUILD_GIT_SHA
+ENV ARIA_BUILD_R_TAG=$ARIA_BUILD_R_TAG
+
 # Build deps for native modules (bcrypt is gone but baileys uses native
 # code, kept defensively in case a transitive needs it).
 RUN apt-get update && apt-get install -y --no-install-recommends \

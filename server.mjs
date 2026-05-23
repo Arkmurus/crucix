@@ -96,6 +96,17 @@ const MEMORY_DIR = join(RUNS_DIR, 'memory');
 //     runtime the authoritative computation; sync.mjs becomes
 //     advisory cache.
 function _resolveBuildRev() {
+  // 0. R-F846 (2026-05-23) — env var from Dockerfile.web ARG. Mirrors
+  // aria-intel's pattern. ARIA_BUILD_GIT_SHA is baked into the image by
+  // .github/workflows/deploy-fly.yml passing --build-arg. Manual deploys
+  // skip the arg → value stays "unknown" → fall through to file/git.
+  const envSha = (process.env.ARIA_BUILD_GIT_SHA || '').trim();
+  if (envSha && envSha !== 'unknown') {
+    const envTag = (process.env.ARIA_BUILD_R_TAG || '').trim();
+    const tag = envTag && envTag !== 'no-r-tag' ? ` · ${envTag}` : '';
+    return `${envSha.slice(0, 12)}${tag} (R-F846 build-arg)`;
+  }
+
   // 1. Build-time write (cheap path).
   try {
     const fromFile = readFileSync(join(ROOT, 'build_rev.txt'), 'utf8').trim();
