@@ -138,3 +138,58 @@ jobs:
       - if: github.event_name == 'workflow_dispatch'
         run: |
           echo "::warning::Manual deploy bypass — reason: ${{ github.event.inputs.reason }}"
+
+      # R-F841 (2026-05-23) — post-Seenode→Fly migration, the Node app
+      # (aria-web) and the standalone Baileys listener (aria-wa) are
+      # both first-class Fly apps. Seenode used to auto-deploy server.mjs
+      # on push; that capability is now gone. Without these steps, Node
+      # changes silently lag — Python changes deploy but UI/auth/Stripe
+      # stay on whatever image was last manually `flyctl deploy`-ed.
+      #
+      # Sequential rather than matrixed: keeps the existing aria-intel
+      # verify gate as the primary "deploy succeeded" signal. If
+      # aria-intel deploy fails the whole job fails; aria-web / aria-wa
+      # are skipped (`if: success()`).
+      - name: Deploy aria-web
+        if: success()
+        run: |
+          flyctl deploy --remote-only --config fly.web.toml --app aria-web \
+            --wait-timeout 600 -t "${{ secrets.FLY_API_TOKEN }}"
+
+      - name: Verify aria-web is live
+        if: success()
+        run: |
+          for i in $(seq 1 18); do
+            http=$(curl -sS -m 5 -o /tmp/web_health.json -w '%{http_code}' \
+              https://aria-web.fly.dev/healthz || echo "000")
+            if [ "${http}" = "200" ]; then
+              echo "::notice::aria-web /healthz=200 — live"
+              exit 0
+            fi
+            echo "poll ${i}/18: aria-web /healthz=${http}"
+            sleep 5
+          done
+          echo "::error::aria-web did not return /healthz=200 within 90s"
+          exit 1
+
+      - name: Deploy aria-wa
+        if: success()
+        run: |
+          flyctl deploy --remote-only --config fly.wa.toml --app aria-wa \
+            --wait-timeout 600 -t "${{ secrets.FLY_API_TOKEN }}"
+
+      - name: Verify aria-wa is live
+        if: success()
+        run: |
+          for i in $(seq 1 18); do
+            http=$(curl -sS -m 5 -o /tmp/wa_health.json -w '%{http_code}' \
+              https://aria-wa.fly.dev/health || echo "000")
+            if [ "${http}" = "200" ]; then
+              echo "::notice::aria-wa /health=200 — live"
+              exit 0
+            fi
+            echo "poll ${i}/18: aria-wa /health=${http}"
+            sleep 5
+          done
+          echo "::error::aria-wa did not return /health=200 within 90s"
+          exit 1
