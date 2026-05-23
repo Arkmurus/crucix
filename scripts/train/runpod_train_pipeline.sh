@@ -77,6 +77,10 @@ if [ ! -d "${CORPUS_DIR}" ] || [ -z "$(ls -A "${CORPUS_DIR}" 2>/dev/null)" ]; th
 fi
 
 # Stage 2a: install training deps if not already present
+# R-F820 (2026-05-23): rich + tensorboard added — trl 0.11.0 imports
+# them inside SFTTrainer but they aren't auto-pulled by pip in the
+# RunPod PyTorch 2.4 base. Live run 2026-05-23 08:11Z crashed at SFT
+# stage with `ModuleNotFoundError: No module named 'rich'`.
 echo "[stage 2a] install training stack (idempotent)"
 pip install --quiet \
     transformers==4.45.0 \
@@ -87,7 +91,9 @@ pip install --quiet \
     datasets==3.0.0 \
     sentencepiece \
     protobuf \
-    huggingface_hub
+    huggingface_hub \
+    rich \
+    tensorboard
 
 # Stage 2b: corpus size check
 TOTAL_PAIRS=$(find "${CORPUS_DIR}" -name '*.jsonl' -exec wc -l {} + 2>/dev/null \
