@@ -3349,14 +3349,16 @@ app.get('/api/self/update-log', requireAdmin, (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
-  // SECURITY 2026-04-09: Telegram lets you configure a `secret_token` when
-  // calling setWebhook; Telegram then sends it back as the
-  // X-Telegram-Bot-Api-Secret-Token header on every webhook delivery.
-  // Without this check, anyone who knows the URL can POST a fake update
-  // and have it processed by telegramAlerter._handleMessage. Soft rollout:
-  // when TELEGRAM_WEBHOOK_SECRET is unset we accept everything (with a
-  // one-time warning) so we don't break the existing bot wiring; once the
-  // secret is set on both sides we enforce strict equality.
+  // SECURITY 2026-04-09 + R-F831 2026-05-23: Telegram lets you configure a
+  // `secret_token` when calling setWebhook; Telegram sends it back as
+  // X-Telegram-Bot-Api-Secret-Token on every delivery. Without this
+  // check, anyone who knows the URL can POST a fake update and have it
+  // processed by telegramAlerter._handleMessage.
+  //
+  // R-F831 (2026-05-23): tightened. In production (NODE_ENV=production
+  // OR FLY_APP_NAME set) we now REFUSE unsigned deliveries — no more
+  // soft "accept-with-warning". Dev keeps the soft path so local
+  // testing works.
   const expected = (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
   if (expected) {
     const presented = (req.headers['x-telegram-bot-api-secret-token'] || '').toString().trim();
@@ -3364,9 +3366,22 @@ app.post('/webhook', async (req, res) => {
       console.warn('[Webhook] rejecting — invalid or missing X-Telegram-Bot-Api-Secret-Token');
       return res.sendStatus(401);
     }
-  } else if (!global.__telegramWebhookSecretWarned) {
-    console.warn('[Webhook] TELEGRAM_WEBHOOK_SECRET not set — Telegram webhook is OPEN. Configure it via setWebhook + env var to enforce.');
-    global.__telegramWebhookSecretWarned = true;
+  } else {
+    const isProd = (process.env.NODE_ENV === 'production') || !!process.env.FLY_APP_NAME;
+    if (isProd) {
+      // R-F831 strict mode: prod cannot accept an unsigned webhook.
+      // Operator must set TELEGRAM_WEBHOOK_SECRET (and matching setWebhook
+      // call) for the bot to function.
+      if (!global.__telegramWebhookSecretWarned) {
+        console.error('[Webhook] TELEGRAM_WEBHOOK_SECRET not set in production — REFUSING all deliveries. Set the env var + call setWebhook with the same secret.');
+        global.__telegramWebhookSecretWarned = true;
+      }
+      return res.sendStatus(503);
+    }
+    if (!global.__telegramWebhookSecretWarned) {
+      console.warn('[Webhook] TELEGRAM_WEBHOOK_SECRET not set — DEV mode soft-accept. Set the env var to enforce.');
+      global.__telegramWebhookSecretWarned = true;
+    }
   }
   try {
     const update = req.body;
@@ -3386,9 +3401,21 @@ app.get('/webhook', (req, res) => res.send('Webhook is working!'));
 // ── Auth Middleware ───────────────────────────────────────────────────────────
 
 function requireAuth(req, res, next) {
-  // Allow internal localhost calls (e.g. Telegram bot fetching /api/data on same process)
+  // R-F831 (2026-05-23): same-process localhost bypass — kept because
+  // the embedded Telegram bot calls /api/data on this same process.
+  // BUT now requires either:
+  //   - the request to LITERALLY come from the same machine
+  //     (ip in {127.0.0.1, ::1, ::ffff:127.0.0.1}) AND
+  //   - ARIA_DISABLE_LOCALHOST_BYPASS != 1 (operator can lock it down)
+  //
+  // Fly.io traffic always arrives from the fly-proxy IP — never
+  // 127.0.0.1 — so the bypass is unreachable from external traffic.
+  // The post-migration risk vector is a co-tenant container, but Fly
+  // gives each app its own network namespace; the only thing that can
+  // hit 127.0.0.1 is this process itself.
   const ip = req.ip || req.socket?.remoteAddress || '';
-  if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return next();
+  const bypassDisabled = (process.env.ARIA_DISABLE_LOCALHOST_BYPASS || '').toLowerCase() === '1';
+  if (!bypassDisabled && (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) return next();
 
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Authentication required' });
@@ -5066,8 +5093,36 @@ async function start() {
   const server = createServer(app);
 
   // ── Socket.io — Real-time Chat ─────────────────────────────────────────────
+  // R-F829 (2026-05-23): replace `origin:'*'` with an explicit allowlist.
+  // '*' is incompatible with credentials and let any origin's JS connect
+  // to the chat socket. Allow the deployment origin (APP_URL) + the Fly
+  // app URL + localhost for dev. Browsers actually serving pages from
+  // those origins are the only legitimate socket-io clients.
+  const _io_allowed_origins = (() => {
+    const set = new Set();
+    const add = (u) => { if (u) set.add(u.replace(/\/$/, '')); };
+    add(process.env.APP_URL);
+    add('https://intel.arkmurus.com');
+    add('https://aria-web.fly.dev');
+    add('http://localhost:3117');
+    add(`http://localhost:${port}`);
+    return Array.from(set);
+  })();
   const io = new SocketIOServer(server, {
-    cors: { origin: '*', methods: ['GET', 'POST'] }
+    cors: {
+      origin: (origin, cb) => {
+        // Same-origin requests (server-to-server, curl) send no Origin
+        // header — allow them. Browser requests with an unknown Origin
+        // are rejected.
+        if (!origin) return cb(null, true);
+        if (_io_allowed_origins.includes(origin.replace(/\/$/, ''))) {
+          return cb(null, true);
+        }
+        return cb(new Error(`Socket.io: origin ${origin} not allowed`));
+      },
+      methods: ['GET', 'POST'],
+      credentials: true,
+    },
   });
 
   // Map userId → Set of socket ids (one user may have multiple tabs)
