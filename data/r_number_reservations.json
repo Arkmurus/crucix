@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 828,
+  "next_available": 836,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2788,6 +2788,78 @@
       "r_number": "R-F827",
       "title": "Wire cost_monitor per-task budget gate into autonomous engine (P0 #1)",
       "claimed_at": "2026-05-23T10:53:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F828",
+      "title": "Audit W1 — /api/admin/env-check requireAdmin gate",
+      "claimed_at": "2026-05-23T11:09:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F829",
+      "title": "Audit W4 — Socket.io CORS origin allowlist",
+      "claimed_at": "2026-05-23T11:09:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F830",
+      "title": "Audit W18 — lib/persist corruption-check + halt-don't-zero",
+      "claimed_at": "2026-05-23T11:09:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F831",
+      "title": "Audit W3+W2 — localhost bypass + Telegram webhook secret enforcement",
+      "claimed_at": "2026-05-23T11:09:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F832",
+      "title": "Fly migration step 1: aria-web Fly app (Dockerize server.mjs minus WA)",
+      "claimed_at": "2026-05-23T11:09:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F833",
+      "title": "Fly migration step 2: aria-wa Fly app (Baileys isolated)",
+      "claimed_at": "2026-05-23T11:09:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F834",
+      "title": "Fly migration step 3: DNS cutover intel.arkmurus.com → aria-web.fly.dev",
+      "claimed_at": "2026-05-23T11:09:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F835",
+      "title": "Seenode decommission after 48h observation",
+      "claimed_at": "2026-05-23T11:09:44Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
