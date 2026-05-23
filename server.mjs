@@ -5156,7 +5156,12 @@ async function start() {
     }
   })();
 
-  server.listen(port, '0.0.0.0');
+  // R-F838 (2026-05-23): bind dual-stack IPv6 ('::') so the app accepts
+  // connections on BOTH IPv4 and IPv6. Required for Fly's *.internal
+  // private network (IPv6-only / 6PN). The old '0.0.0.0' bind broke
+  // aria-intel → aria-web internal calls (e.g. email-state proxy at
+  // routes/aria.py:5812) post-Seenode→Fly cutover.
+  server.listen(port, '::');
 
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {

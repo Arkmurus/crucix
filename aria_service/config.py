@@ -25,7 +25,14 @@ class Settings(BaseSettings):
     # ── Server ───────────────────────────────────────────────────────────────
     # Reads ARIA_PORT first, then falls back to PORT (Render sets PORT dynamically)
     port: int = Field(default=8000, alias="ARIA_PORT")
-    host: str = Field(default="0.0.0.0", alias="ARIA_HOST")
+    # R-F838 (2026-05-23): default to dual-stack IPv6 ("::") so the app
+    # binds BOTH IPv4 and IPv6. Required for Fly's *.internal private
+    # network (IPv6-only / 6PN). The old "0.0.0.0" default broke every
+    # cross-app call from aria-web/aria-wa → aria-intel after the
+    # Seenode→Fly cutover (R-F832/F833). Set ARIA_HOST=0.0.0.0
+    # explicitly to opt back to IPv4-only, e.g. for local dev on hosts
+    # without IPv6.
+    host: str = Field(default="::", alias="ARIA_HOST")
 
     @property
     def effective_port(self) -> int:
