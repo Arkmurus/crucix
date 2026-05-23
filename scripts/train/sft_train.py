@@ -120,6 +120,20 @@ def main() -> None:
     model.config.use_cache = False
     model.config.pad_token_id = tokenizer.pad_token_id
 
+    # R-F822 (2026-05-23): live training failure on Mistral-7B fine-tune
+    # with `gradient_checkpointing=True` AND LoRA:
+    #   RuntimeError: element 0 of tensors does not require grad and
+    #   does not have a grad_fn
+    # Root cause: gradient checkpointing wraps the forward pass in a
+    # way that the input embeddings lose their requires_grad flag, so
+    # gradients can't flow back through the LoRA adapter. The canonical
+    # fix is enable_input_require_grads() on the base model BEFORE
+    # wrapping it with peft. (Equivalent to model.embed_tokens
+    # registering a forward hook that sets requires_grad on the output.)
+    # See: https://huggingface.co/docs/peft/main/en/developer_guides/troubleshooting
+    if getattr(model, "enable_input_require_grads", None):
+        model.enable_input_require_grads()
+
     lora = LoraConfig(
         r=args.lora_rank,
         lora_alpha=args.lora_alpha,
