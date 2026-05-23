@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 825,
+  "next_available": 826,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2763,6 +2763,16 @@
       "commit_sha": "678c09c",
       "notes": null,
       "shipped_at": "2026-05-23T10:31:06Z"
+    },
+    {
+      "r_number": "R-F825",
+      "title": "ARIA-Coder WhatsApp notifier + rich operator progress messages",
+      "claimed_at": "2026-05-23T10:33:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "4068554",
+      "notes": null,
+      "shipped_at": "2026-05-23T10:36:57Z"
     }
   ]
 }
