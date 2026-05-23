@@ -27,6 +27,12 @@ RUN npm install --omit=dev
 # WA listener source
 COPY services/wa-listener/aria_wa_listener.mjs ./
 
+# Cross-module dependency: the standalone listener imports
+# `../../lib/aria/complianceAudit.mjs`. That file only uses Node stdlib
+# (fs/path/url), so we can copy just it. R-F833 follow-up could
+# eliminate this cross-module link entirely by inlining the audit call.
+COPY lib/aria/complianceAudit.mjs ./lib/aria/complianceAudit.mjs
+
 # Volume mount point — Baileys auth + session blobs
 RUN mkdir -p /data/wa-auth
 
