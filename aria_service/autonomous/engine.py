@@ -56,7 +56,16 @@ logger = logging.getLogger("aria.autonomous.engine")
 # ── Configuration ──────────────────────────────────────────────────────────
 
 POLL_INTERVAL_SECONDS = 60  # one tick per minute
-STARTUP_DELAY_SECONDS = 90  # don't poll until the server is fully warm
+# R-F845 (2026-05-23): raised from 90s → 180s. The 90s default still
+# triggered a cold-start wedge after every deploy — the L3 autonomy
+# absorb storm hit the event loop before lifespan (RAG warm-up +
+# sentence-transformers load + ARIA-Coder boot + knowledge_seed_task)
+# had settled. Health flapped critical for 2-5 min. R-F841 made this
+# more frequent because CI now redeploys aria-intel on every push.
+# 180s gives the slow boot path room without delaying the eventual
+# steady state (POLL_INTERVAL=60s, so we miss at most 1-2 ticks vs the
+# old default).
+STARTUP_DELAY_SECONDS = 180  # don't poll until the server is fully warm
 
 _ENABLED_VAR = "ARIA_AUTONOMOUS_ENABLED"
 _DRY_RUN_VAR = "ARIA_AUTONOMOUS_DRY_RUN"
