@@ -19,18 +19,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy WA-listener's OWN package.json (separate dep tree from main app)
-COPY services/wa-listener/package.json ./
+# IMPORTANT — directory layout MUST mirror the repo so the listener's
+# relative import `../../lib/aria/complianceAudit.mjs` resolves correctly.
+# Final container layout:
+#   /app/services/wa-listener/aria_wa_listener.mjs    (CWD entrypoint)
+#   /app/services/wa-listener/package.json + node_modules/
+#   /app/lib/aria/complianceAudit.mjs                  (cross-module dep)
 
-RUN npm install --omit=dev
+# Listener's OWN package.json + node_modules (separate dep tree)
+COPY services/wa-listener/package.json ./services/wa-listener/package.json
+RUN cd services/wa-listener && npm install --omit=dev
 
 # WA listener source
-COPY services/wa-listener/aria_wa_listener.mjs ./
+COPY services/wa-listener/aria_wa_listener.mjs ./services/wa-listener/aria_wa_listener.mjs
 
-# Cross-module dependency: the standalone listener imports
-# `../../lib/aria/complianceAudit.mjs`. That file only uses Node stdlib
-# (fs/path/url), so we can copy just it. R-F833 follow-up could
-# eliminate this cross-module link entirely by inlining the audit call.
+# Cross-module dependency: the listener imports `../../lib/aria/complianceAudit.mjs`.
+# That file only uses Node stdlib (fs/path/url), so copying just it is safe.
 COPY lib/aria/complianceAudit.mjs ./lib/aria/complianceAudit.mjs
 
 # Volume mount point — Baileys auth + session blobs
@@ -42,4 +46,5 @@ ENV WHATSAPP_AUTH_DIR=/data/wa-auth \
 
 EXPOSE 5070
 
+WORKDIR /app/services/wa-listener
 CMD ["node", "aria_wa_listener.mjs"]
