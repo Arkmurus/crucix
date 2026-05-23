@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 823,
+  "next_available": 824,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -2743,6 +2743,16 @@
       "commit_sha": "0279f76",
       "notes": null,
       "shipped_at": "2026-05-23T10:12:48Z"
+    },
+    {
+      "r_number": "R-F823",
+      "title": "review_ticket: GitHub REST API (drop gh CLI dependency)",
+      "claimed_at": "2026-05-23T10:18:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6d1bcd2",
+      "notes": null,
+      "shipped_at": "2026-05-23T10:20:05Z"
     }
   ]
 }
