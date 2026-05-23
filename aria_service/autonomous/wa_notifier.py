@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Optional
 
 import httpx
@@ -33,6 +34,78 @@ logger = logging.getLogger("aria.autonomous.wa_notifier")
 
 DEFAULT_TIMEOUT_S = 15.0
 WA_MESSAGE_CHAR_LIMIT = 4000  # WhatsApp ~4096 per message; leave headroom
+
+
+# ── R-F826 (2026-05-23) — PII scrub before WhatsApp send ────────────────────
+#
+# Audit finding #26 (P2): WANotifier sent raw gap.description and
+# plan.approach[:300] to WhatsApp without redaction. A gap of the form
+# "Smith@example.com requested DD on XXX LLC (passport AB1234567)" would
+# land in the group verbatim — operator-tier PII exposure.
+#
+# Conservative pattern set: catch the obvious leak shapes (emails,
+# phones, passport/ID numbers, long digit runs) WITHOUT shredding
+# legitimate operator content (company names, country names, R-numbers,
+# git SHAs). Per [[output_harvester]] / earlier work, an aggressive
+# `\b[A-Z][a-z]+ [A-Z][a-z]+\b` proper-name regex destroys defence-DD
+# content and is rejected here.
+
+# Order matters — labeled-ID patterns run FIRST so e.g. "SSN: 123456789"
+# matches the ID_NUMBER pattern before the (greedier) PHONE pattern can
+# munch the digits. IBAN before NUM for the same reason.
+_PII_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
+    # Passport / national ID labels — operator usage pattern (MUST be first
+    # so the label disambiguates from a phone match)
+    (
+        re.compile(
+            r"\b(?:passport|national\s+id|nin|nric|ssn|tax\s+id)\s*"
+            r"[#:.]?\s*[A-Z0-9-]{6,}\b",
+            re.IGNORECASE,
+        ),
+        "[ID_NUMBER]",
+    ),
+    # Emails — common shape, low false-positive
+    (re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}\b"), "[EMAIL]"),
+    # IBAN-like long alphanumeric runs (banking detail) — before NUM
+    (re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{12,30}\b"), "[IBAN]"),
+    # International phone numbers (>= 10 digits, optional + / spaces / dashes).
+    # Requires AT LEAST ONE separator char so pure all-digit runs don't
+    # match (they go to [NUM] instead). This protects long account
+    # numbers + ISO dates with no spaces.
+    (
+        re.compile(
+            r"(?<![A-Za-z0-9])"                # no alphanumeric prefix
+            r"\+?\d{1,3}[-.\s]"                 # country code + REQUIRED sep
+            r"\(?\d{2,4}\)?[-.\s]?"             # area code
+            r"\d{3,4}[-.\s]?\d{3,4}"            # subscriber
+            r"(?![A-Za-z0-9])"
+        ),
+        "[PHONE]",
+    ),
+    # US-style (NNN) NNN-NNNN catch
+    (
+        re.compile(
+            r"(?<![A-Za-z0-9])"
+            r"\(\d{3}\)\s?\d{3}[-.\s]\d{4}"
+            r"(?![A-Za-z0-9])"
+        ),
+        "[PHONE]",
+    ),
+    # Standalone 12+ digit runs (account numbers, long IDs) — safe because
+    # R-numbers are R-Fxxx, commit SHAs are hex letters+digits, composite
+    # scores are 0.xxx, dates are YYYY-MM-DD with dashes.
+    (re.compile(r"(?<!\d)\d{12,}(?!\d)"), "[NUM]"),
+)
+
+
+def scrub_pii(text: str) -> str:
+    """Apply the conservative R-F826 PII pattern set. Returns the same
+    string if no patterns matched (idempotent + cheap)."""
+    if not text:
+        return text
+    for pattern, replacement in _PII_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 class WANotifier:
@@ -80,13 +153,21 @@ class WANotifier:
 
     async def notify(
         self, text: str, group_id: Optional[str] = None,
+        scrub: bool = True,
     ) -> str:
         """Send `text` to the WhatsApp group. Returns outcome string:
           "ok" | "skipped:<reason>" | "error:<reason>"
         Never raises.
+
+        R-F826 (2026-05-23): PII scrub applied by default. Set
+        `scrub=False` for callers that explicitly format their own
+        sanitized message (e.g. structured stage banners that contain
+        no PII by construction).
         """
         if not text or not text.strip():
             return "skipped:empty"
+        if scrub:
+            text = scrub_pii(text)
         if self.dry_run:
             logger.info("[wa_notifier DRY-RUN] %s", text[:200])
             return "skipped:dry_run"
