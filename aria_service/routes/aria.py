@@ -10685,6 +10685,180 @@ async def coder_llm_ep(request: Request):
     }
 
 
+# ── ARIA-Coder Operator Requests (R-F824) ───────────────────────────────────
+#
+# Natural-language code-change request endpoint. WhatsApp / Telegram / web
+# chat all funnel into this entry point. Operator types something like:
+#
+#   "ARIA, the ACLED source is returning 0 events — can you fix it?"
+#
+# and the routing layer (Seenode WA listener / Telegram bot / chat UI)
+# POSTs the message to /api/aria/coder/request. ARIACoder synthesises a
+# Gap, kicks off the full plan→code→test→stage/deploy pipeline as a
+# background task, and returns immediately with a `fix_id`. The operator
+# can poll /api/aria/coder/status/{fix_id} (or wait for the WhatsApp
+# notification on success).
+#
+# Engine must be started (ARIA_AUTONOMOUS_ENABLED=1 + ARIA_CODER_ENABLED=1)
+# otherwise these endpoints return 503.
+
+@router.post("/coder/request")
+async def coder_request_ep(request: Request):
+    """Queue a natural-language code-change request from the operator.
+
+    Body:
+      description (str)   — what the operator wants ARIA to do
+      module_hint (str?)  — optional file path to focus the fix on
+      source      (str?)  — origin: 'whatsapp' | 'web' | 'telegram' (logged)
+
+    Returns: {queued: true, fix_id: "..."} immediately. The fix runs
+    asynchronously; poll /coder/status/{fix_id} or wait for WhatsApp
+    notification on completion.
+    """
+    body = await request.json()
+    description = (body.get("description") or "").strip()
+    if not description or len(description) < 10:
+        raise HTTPException(
+            status_code=400,
+            detail="description required (min 10 chars describing the change)",
+        )
+    if len(description) > 2000:
+        raise HTTPException(
+            status_code=400,
+            detail="description too long (max 2000 chars)",
+        )
+    module_hint = (body.get("module_hint") or "").strip() or None
+    source = (body.get("source") or "operator").strip()
+
+    coder = getattr(request.app.state, "aria_coder", None)
+    if coder is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "ARIA-Coder engine not started. "
+                "Set ARIA_AUTONOMOUS_ENABLED=1 + ARIA_CODER_ENABLED=1."
+            ),
+        )
+
+    # Generate the fix_id the same way operator_fix_request would, so
+    # we can return it BEFORE the background task starts.
+    import hashlib
+    pre_gap_id = hashlib.sha256(description.encode("utf-8")).hexdigest()[:16]
+    # The real fix_id is allocated inside fix_gap (uuid4()) — but we
+    # publish a "queued" progress event keyed on this pre_gap_id so
+    # the status endpoint can find the run by either id.
+    import uuid
+    pre_fix_id = uuid.uuid4().hex[:12]
+
+    _log.info(
+        "[coder/request] source=%s len=%d module_hint=%s",
+        source, len(description), module_hint,
+    )
+
+    # Publish an initial "queued" event under both ids — operator can
+    # poll with either while the background task spins up.
+    try:
+        import json as _json
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).isoformat()
+        queued_event = _json.dumps({
+            "ts": ts, "stage": "queued",
+            "message": f"Request from {source} accepted",
+            "description": description[:200],
+            "module_hint": module_hint,
+        })
+        if hasattr(coder, "redis") and coder.redis is not None:
+            for kid in (pre_fix_id, pre_gap_id):
+                await coder.redis.setex(
+                    f"crucix:aria:coder:progress:{kid}:latest",
+                    7 * 86400, queued_event,
+                )
+                await coder.redis.lpush(
+                    f"crucix:aria:coder:progress:{kid}:history", queued_event,
+                )
+                await coder.redis.expire(
+                    f"crucix:aria:coder:progress:{kid}:history", 7 * 86400,
+                )
+    except Exception as e:
+        _log.warning("[coder/request] queued-event write failed: %s", e)
+
+    # Fire the fix in the background — the request returns NOW.
+    async def _run_fix():
+        try:
+            await coder.operator_fix_request(
+                description, module_hint=module_hint,
+            )
+        except Exception as e:
+            _log.error("[coder/request] background fix raised: %s", e)
+
+    import asyncio as _asyncio
+    _asyncio.create_task(
+        _run_fix(),
+        name=f"aria_coder.operator_request.{pre_fix_id}",
+    )
+
+    return {
+        "queued": True,
+        "fix_id": pre_fix_id,
+        "gap_id": pre_gap_id,
+        "poll_url": f"/api/aria/coder/status/{pre_fix_id}",
+        "alternate_poll_url": f"/api/aria/coder/status/{pre_gap_id}",
+        "message": (
+            "ARIA has queued your request. Poll either URL for live "
+            "progress; she'll WhatsApp you when she's done."
+        ),
+    }
+
+
+@router.get("/coder/status/{fix_id}")
+async def coder_status_ep(fix_id: str, request: Request):
+    """Live progress for a fix run.
+
+    fix_id can be either:
+      - the uuid generated by /coder/request (returned in `fix_id`)
+      - the gap_id (sha256-hash of the description, returned in `gap_id`)
+      - the uuid generated INSIDE fix_gap (visible in /coder/status only
+        after the run starts — derived from progress events)
+
+    Returns: {fix_id, found, latest: {...}, history: [...]}
+    """
+    # Light path-validation — fix_ids are 12-char hex or 16-char hex.
+    if not fix_id or len(fix_id) > 64 or not all(
+        c in "0123456789abcdefABCDEF-" for c in fix_id
+    ):
+        raise HTTPException(status_code=400, detail="invalid fix_id")
+
+    coder = getattr(request.app.state, "aria_coder", None)
+    if coder is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ARIA-Coder engine not started",
+        )
+    return await coder.get_progress(fix_id)
+
+
+@router.get("/coder/gaps")
+async def coder_gaps_ep(request: Request):
+    """Surface the latest scan from the gap detector for operator visibility."""
+    coder = getattr(request.app.state, "aria_coder", None)
+    if coder is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ARIA-Coder engine not started",
+        )
+    try:
+        raw = await coder.redis.get("crucix:aria:gaps:latest")
+        if not raw:
+            return {"gaps": [], "scanned_at": None}
+        import json as _json
+        gaps = _json.loads(
+            raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        )
+        return {"gaps": gaps, "count": len(gaps)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"gap fetch failed: {e}")
+
+
 # ── Brain Hook API ──────────────────────────────────────────────────────────
 
 # 43b. POST /api/aria/brain/absorb — Feed learning from any module (incl. Node.js seenode)

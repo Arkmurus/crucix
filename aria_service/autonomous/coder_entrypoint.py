@@ -181,6 +181,15 @@ async def start_aria_coder(
         output_harvester=output_harvester,
     )
 
+    # R-F824 (2026-05-23): expose the live ARIACoder instance on
+    # app.state so the /api/aria/coder/request + /coder/status/{id}
+    # endpoints can call `coder.operator_fix_request(...)` directly.
+    # When the engine isn't started, the endpoints return 503.
+    try:
+        app_state.aria_coder = coder
+    except Exception as e:
+        logger.debug("[coder_entrypoint] could not stash coder on app_state: %s", e)
+
     tasks = [
         asyncio.create_task(
             coder.gap_detector.run_forever(),

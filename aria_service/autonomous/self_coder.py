@@ -239,7 +239,9 @@ class ARIACoder:
 
     # ── FIX PIPELINE ─────────────────────────────────────────────────────────
 
-    async def fix_gap(self, gap: Gap) -> FixResult:
+    async def fix_gap(
+        self, gap: Gap, operator_initiated: bool = False,
+    ) -> FixResult:
         """End-to-end pipeline. Plan → validate → code → test → stage/deploy.
 
         Deploy path (R-F804): outputs go to self_improve.stage_improvement.
@@ -247,6 +249,13 @@ class ARIACoder:
         `ARIA_SELF_IMPROVE_AUTO_DEPLOY=1` (R-F462 gate). Everything else
         stays in the staging queue at `/api/aria/self/staged` for operator
         review — same surface as manual self-improve.
+
+        R-F824 (2026-05-23): `operator_initiated=True` indicates the
+        fix was requested by an operator via WhatsApp / web chat — the
+        request itself is approval, so we skip `_wait_for_approval`
+        polling (which would deadlock since no one is around to click
+        approve in Redis). Pipeline emits live progress to
+        `crucix:aria:coder:progress:{fix_id}` for /api/aria/coder/status.
         """
         fix_id = uuid.uuid4().hex[:12]
         start_ts = time.monotonic()
@@ -254,8 +263,15 @@ class ARIACoder:
         workspace.mkdir(parents=True, exist_ok=True)
 
         logger.info(
-            "[aria_coder] fix_gap %s: %s (fix_id=%s)",
+            "[aria_coder] fix_gap %s: %s (fix_id=%s%s)",
             gap.gap_id, gap.title, fix_id,
+            " operator-initiated" if operator_initiated else "",
+        )
+        await self._publish_progress(
+            fix_id, "starting",
+            f"Picking up gap: {gap.title}",
+            gap_id=gap.gap_id,
+            operator_initiated=operator_initiated,
         )
 
         # R-F804 — safety gate. Cheap-fail BEFORE any LLM tokens are
@@ -285,11 +301,19 @@ class ARIACoder:
 
         try:
             # STEP 1 — context
+            await self._publish_progress(
+                fix_id, "context",
+                f"Reading codebase context around `{gap.module}`",
+            )
             context = await self.codebase.get_context(
                 gap.module, gap.related_files,
             )
 
             # STEP 2 — plan
+            await self._publish_progress(
+                fix_id, "planning",
+                "Asking the LLM to plan a fix",
+            )
             plan_raw = await self.llm.generate_fix_plan(gap, context)
             r_number = await self.r_counter.next()
             plan = FixPlan(
@@ -309,8 +333,17 @@ class ARIACoder:
                 requires_wa_approval=gap.requires_wa_approval,
             )
 
-            # STEP 3 — WA approval if required
-            if plan.requires_wa_approval and self.wa is not None:
+            # STEP 3 — WA approval if required (skipped for operator-initiated
+            # fixes — R-F824 — the request IS the approval).
+            if (
+                plan.requires_wa_approval
+                and self.wa is not None
+                and not operator_initiated
+            ):
+                await self._publish_progress(
+                    fix_id, "awaiting_approval",
+                    f"Plan needs operator approval (gap_type={gap.gap_type})",
+                )
                 approved = await self._wait_for_approval(plan, gap)
                 if not approved:
                     return FixResult(
@@ -320,6 +353,11 @@ class ARIACoder:
                     )
 
             # STEP 4 — generate code per target file + validate each
+            await self._publish_progress(
+                fix_id, "writing_code",
+                f"Writing code for {len(plan.target_files)} file(s)",
+                target_files=plan.target_files,
+            )
             for target in plan.target_files:
                 existing = self.codebase.read(target)
                 code_raw = await self.llm.write_code(plan_raw, existing, target)
@@ -347,6 +385,10 @@ class ARIACoder:
                 )
 
             # STEP 5 — tests for each modified file
+            await self._publish_progress(
+                fix_id, "writing_tests",
+                f"Writing regression tests for {len(plan.code_changes)} file(s)",
+            )
             for target, new_code in plan.code_changes.items():
                 test_raw = await self.llm.write_tests(
                     plan_raw, new_code, r_number,
@@ -363,6 +405,10 @@ class ARIACoder:
                     )
 
             # STEP 6 — self-healing test loop
+            await self._publish_progress(
+                fix_id, "testing",
+                "Running isolated tests (self-healing up to 3 attempts)",
+            )
             test_result = await self._test_with_healing(plan, workspace)
             if not test_result.all_green:
                 return FixResult(
@@ -379,6 +425,10 @@ class ARIACoder:
             # are set. When disabled returns APPROVED (no-op).
             # When enabled, FLAGGED downgrades to staged-only (no
             # auto-deploy regardless of R-F462); BLOCKED rejects the fix.
+            await self._publish_progress(
+                fix_id, "claude_review",
+                "Sending diff to Claude for verdict (dormant unless ANTHROPIC_API_KEY set)",
+            )
             review_verdict = await self._claude_review(plan)
             if review_verdict.is_blocked:
                 return FixResult(
@@ -500,6 +550,17 @@ class ARIACoder:
             }
 
             elapsed = time.monotonic() - start_ts
+            await self._publish_progress(
+                fix_id, "done",
+                f"R-F{r_number} {stage_status} in {elapsed:.0f}s",
+                r_number=r_number,
+                outcome=(
+                    "deployed_successfully" if auto_deployed
+                    else "staged_for_review"
+                ),
+                elapsed_s=round(elapsed),
+                staged_ids=staged_ids,
+            )
             logger.info(
                 "[aria_coder] ✅ R-F%d %s in %.0fs (staged_ids=%s)",
                 r_number, stage_status, elapsed, staged_ids,
@@ -515,6 +576,11 @@ class ARIACoder:
                 "[aria_coder] fix_gap %s failed: %s",
                 gap.gap_id, e, exc_info=True,
             )
+            await self._publish_progress(
+                fix_id, "failed",
+                f"Pipeline crashed: {str(e)[:200]}",
+                error=str(e)[:500],
+            )
             return FixResult(
                 success=False, fix_id=fix_id, gap_id=gap.gap_id,
                 failure_reason=str(e),
@@ -524,6 +590,71 @@ class ARIACoder:
                 shutil.rmtree(workspace, ignore_errors=True)
 
     # ── HELPERS ──────────────────────────────────────────────────────────────
+
+    async def _publish_progress(
+        self,
+        fix_id: str,
+        stage: str,
+        message: str,
+        **extra: Any,
+    ) -> None:
+        """R-F824: publish a progress event to Redis so operator can
+        poll /api/aria/coder/status/{fix_id} for live updates.
+
+        Keeps last 50 events + a `latest` snapshot. Fail-safe: any
+        Redis hiccup is logged but never blocks the pipeline.
+        """
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).isoformat()
+        event = {
+            "ts": ts, "stage": stage, "message": message, **extra,
+        }
+        logger.info(
+            "[aria_coder] progress fix=%s stage=%s — %s",
+            fix_id, stage, message,
+        )
+        try:
+            key_latest = f"crucix:aria:coder:progress:{fix_id}:latest"
+            key_history = f"crucix:aria:coder:progress:{fix_id}:history"
+            await self.redis.setex(key_latest, 7 * 86400, json.dumps(event))
+            await self.redis.lpush(key_history, json.dumps(event))
+            await self.redis.ltrim(key_history, 0, 49)
+            await self.redis.expire(key_history, 7 * 86400)
+        except Exception as e:
+            logger.debug("[aria_coder] _publish_progress redis error: %s", e)
+
+    async def get_progress(self, fix_id: str) -> dict:
+        """R-F824: return latest event + full history for fix_id."""
+        try:
+            latest_raw = await self.redis.get(
+                f"crucix:aria:coder:progress:{fix_id}:latest",
+            )
+            history_raw = await self.redis.lrange(
+                f"crucix:aria:coder:progress:{fix_id}:history", 0, 49,
+            )
+        except Exception:
+            return {"fix_id": fix_id, "found": False, "error": "redis unreachable"}
+
+        if not latest_raw:
+            return {"fix_id": fix_id, "found": False}
+
+        def _decode(v):
+            if isinstance(v, bytes):
+                v = v.decode("utf-8")
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return None
+
+        latest = _decode(latest_raw)
+        history = [e for e in (_decode(x) for x in history_raw) if e]
+        history.reverse()  # chronological order
+        return {
+            "fix_id": fix_id, "found": True,
+            "latest": latest, "history": history,
+        }
+
+
 
     async def _open_review_ticket(
         self,
@@ -830,8 +961,21 @@ class ARIACoder:
 
     # ── OPERATOR-REQUESTED FIXES (entry points from WhatsApp/Telegram) ───────
 
-    async def operator_fix_request(self, description: str) -> FixResult:
-        """Synthesise a gap from a free-text operator request and run it."""
+    async def operator_fix_request(
+        self,
+        description: str,
+        module_hint: Optional[str] = None,
+    ) -> FixResult:
+        """Synthesise a gap from a free-text operator request and run it.
+
+        Called from `/api/aria/coder/request` (R-F824) — the HTTP layer
+        kicks this off via `asyncio.create_task` so the request returns
+        immediately with the fix_id, then the operator polls
+        `/api/aria/coder/status/{fix_id}` for live updates.
+
+        The request itself IS the approval (operator just asked) so we
+        pass `operator_initiated=True` to bypass `_wait_for_approval`.
+        """
         gap = Gap(
             gap_id=hashlib.sha256(
                 description.encode("utf-8"),
@@ -840,9 +984,9 @@ class ARIACoder:
             severity=GapSeverity.HIGH,
             title=description[:80],
             description=description,
-            module="operator_request",
+            module=module_hint or "operator_request",
         )
-        return await self.fix_gap(gap)
+        return await self.fix_gap(gap, operator_initiated=True)
 
     async def operator_add_source(self, source_spec: str) -> FixResult:
         """Operator: 'Add <source> to the intel sweep' → new source module."""
@@ -859,4 +1003,4 @@ class ARIACoder:
             module="lib/intel/source_registry.mjs",
             related_files=["apis/briefing.mjs", "server.mjs"],
         )
-        return await self.fix_gap(gap)
+        return await self.fix_gap(gap, operator_initiated=True)
