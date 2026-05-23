@@ -396,10 +396,28 @@ class ARIACoder:
             change_type = gap_type_to_change_type(plan.gap_type)
             # R-F805: FLAGGED verdict forces staging — operator must
             # review at /api/aria/self/staged regardless of R-F462 gate.
-            force_stage = review_verdict.is_flagged
+            # R-F821: ARIA_CODER_AUTO_DEPLOY_AND_TICKET=1 forces
+            # auto-deploy (overriding R-F462 gate) AND opens a GitHub
+            # Issue ticket after deploy. Only fires when verdict is
+            # NOT flagged/blocked — Claude's flag still wins.
+            from . import review_ticket as _ticket_mod
+            ticket_mode_enabled = _ticket_mod.is_enabled()
+            force_stage = (
+                review_verdict.is_flagged
+                # ticket-mode override: if enabled AND verdict isn't
+                # flagged, push through auto-deploy regardless of the
+                # R-F462 default gate.
+                and not (ticket_mode_enabled and not review_verdict.is_blocked)
+            )
+            force_deploy = (
+                ticket_mode_enabled
+                and not review_verdict.is_flagged
+                and not review_verdict.is_blocked
+            )
             stage_ok, stage_status, staged_ids = await self._stage_or_deploy(
                 plan=plan, change_type=change_type,
                 force_stage=force_stage,
+                force_deploy=force_deploy,
             )
             if not stage_ok:
                 return FixResult(
@@ -432,6 +450,23 @@ class ARIACoder:
                             "Post-deploy regression detected — rolled back"
                         ),
                     )
+
+            # STEP 8.5 — R-F821: open review ticket for the operator + Claude.
+            # Only opens when ARIA_CODER_AUTO_DEPLOY_AND_TICKET=1 + GH_TOKEN
+            # set. Otherwise no-op (dormant by default). Tests + deploy
+            # have already passed at this point — the ticket is the
+            # async-review surface, not a gate.
+            try:
+                await self._open_review_ticket(
+                    plan=plan, gap=gap, change_type=change_type,
+                    staged_ids=staged_ids, auto_deployed=auto_deployed,
+                    review_verdict=review_verdict,
+                    test_result=test_result,
+                )
+            except Exception as e:
+                # Ticket failure is NEVER fatal — the deploy already
+                # happened. Log and continue.
+                logger.warning("[aria_coder] _open_review_ticket failed: %s", e)
 
             # STEP 9 — absorb knowledge + emit training pair
             if self.brain_hook is not None:
@@ -490,6 +525,81 @@ class ARIACoder:
 
     # ── HELPERS ──────────────────────────────────────────────────────────────
 
+    async def _open_review_ticket(
+        self,
+        *,
+        plan: FixPlan,
+        gap: Gap,
+        change_type: str,
+        staged_ids: list[str],
+        auto_deployed: bool,
+        review_verdict,                # claude_reviewer.ReviewVerdict
+        test_result,                   # test_runner.TestResult
+    ) -> None:
+        """R-F821: open a GitHub Issue for post-deploy review.
+
+        No-op when ARIA_CODER_AUTO_DEPLOY_AND_TICKET is not set OR
+        GH_TOKEN missing. Failure is non-fatal — the deploy already
+        happened, the ticket is just the operator's audit handle.
+        """
+        from .review_ticket import (
+            ReviewTicket, is_enabled as ticket_is_enabled,
+            open_review_ticket,
+        )
+        from .claude_reviewer import build_unified_diff
+
+        if not ticket_is_enabled():
+            logger.debug("[aria_coder] review ticket dormant (env not set)")
+            return
+
+        diff = build_unified_diff(plan.code_changes, self.codebase.read)
+
+        # Map gap.severity (IntEnum) to a label string
+        sev_name = (
+            gap.severity.name if hasattr(gap.severity, "name")
+            else str(gap.severity)
+        )
+
+        ticket = ReviewTicket(
+            r_number=plan.r_number,
+            gap_title=gap.title,
+            gap_type=gap.gap_type,
+            gap_severity=sev_name,
+            gap_module=gap.module,
+            gap_description=gap.description,
+            change_type=change_type,
+            files_modified=list(plan.code_changes.keys()),
+            staged_ids=staged_ids,
+            diff=diff,
+            tests_passed=getattr(test_result, "passed", 0) if test_result else 0,
+            tests_failed=getattr(test_result, "failed", 0) if test_result else 0,
+            tests_summary=(
+                getattr(test_result, "failure_summary", "")
+                or "all tests passed"
+                if test_result else "tests skipped"
+            ),
+            claude_verdict=(
+                review_verdict.verdict.value
+                if review_verdict and not review_verdict.review_disabled
+                else None
+            ),
+            claude_reasons=list(getattr(review_verdict, "reasons", []) or []),
+            auto_deployed=auto_deployed,
+            aria_service_url=self.aria_url,
+        )
+
+        result = await open_review_ticket(ticket)
+        if result.get("ok") and result.get("issue_url"):
+            logger.info(
+                "[aria_coder] review ticket opened for R-F%d: %s",
+                plan.r_number, result["issue_url"],
+            )
+        elif not result.get("ok"):
+            logger.warning(
+                "[aria_coder] review ticket open failed (non-fatal): %s",
+                result.get("reason"),
+            )
+
     async def _claude_review(self, plan: FixPlan) -> "ReviewVerdict":
         """R-F805: ask Claude to second-opinion the diff before staging.
 
@@ -531,6 +641,7 @@ class ARIACoder:
         plan: FixPlan,
         change_type: str,
         force_stage: bool = False,
+        force_deploy: bool = False,
     ) -> tuple[bool, str, list[str]]:
         """Route code changes through `self_improve.stage_improvement`.
 
@@ -577,8 +688,14 @@ class ARIACoder:
         # R-F805: force_stage overrides the R-F462 gate when Claude
         # review returned FLAGGED. Even a bug_fix with R-F462 open will
         # stay staged so the operator gets eyes on Claude's concerns.
+        #
+        # R-F821: force_deploy overrides the R-F462 gate when ticket-mode
+        # is enabled (ARIA_CODER_AUTO_DEPLOY_AND_TICKET=1). In that mode
+        # we auto-deploy ALL approved-or-unreviewed changes (the gate
+        # is GitHub Issue audit, not pre-deploy approval).
         ct_cfg = _si.CHANGE_TYPES.get(change_type, {})
-        auto_eligible = bool(ct_cfg.get("auto_deploy")) and not force_stage
+        gate_open = bool(ct_cfg.get("auto_deploy")) or force_deploy
+        auto_eligible = gate_open and not force_stage
         if not auto_eligible:
             reason = "claude_flagged" if force_stage else "r_f462_gate_closed"
             logger.info(
