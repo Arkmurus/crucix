@@ -2729,9 +2729,10 @@
       "title": "ARIA-Coder auto-commit + GitHub Issue ticket flow",
       "claimed_at": "2026-05-23T10:08:18Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "156dc8e",
+      "notes": null,
+      "shipped_at": "2026-05-23T10:14:40Z"
     },
     {
       "r_number": "R-F822",
