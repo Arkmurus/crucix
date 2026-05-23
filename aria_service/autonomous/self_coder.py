@@ -115,6 +115,7 @@ GAP_TYPE_TO_CHANGE_TYPE: dict[str, str] = {
     GapType.PERFORMANCE:         "optimisation",
     GapType.DATA_GAP:            "enhancement",
     GapType.MISSING_CAPABILITY:  "enhancement",
+    GapType.OPPORTUNITY:         "enhancement",  # R-F826: always operator-approved
 }
 
 

@@ -62,6 +62,8 @@ class GapType(str):
     SOURCE_FAILURE = "source_failure"          # RSS/API source returning errors
     DD_LAYER_FAILURE = "dd_layer_failure"      # specific DD layer wrong output
     INTROSPECTION_ERROR = "introspection_error"  # ARIA wrong about herself
+    OPPORTUNITY = "opportunity"                # R-F826: proactive enhancement —
+                                               # ARIA could be better here, not broken
 
 
 # (gap_type → (auto_fixable, requires_wa_approval, requires_hard_gate))
@@ -78,6 +80,8 @@ AUTONOMY_LEVEL: dict[str, tuple[bool, bool, bool]] = {
     GapType.DD_LAYER_FAILURE:    (True,  True,  False),
     GapType.MISSING_CAPABILITY:  (False, True,  False),  # operator decides
     GapType.INTROSPECTION_ERROR: (True,  True,  False),
+    GapType.OPPORTUNITY:         (False, True,  False),  # operator decides
+                                                          # (proactive, never urgent)
 }
 
 
@@ -398,6 +402,113 @@ class SourceHealthExtractor:
         return gaps
 
 
+class OpportunityExtractor:
+    """R-F826: Detect proactive improvement opportunities from chat audits.
+
+    Scans `crucix:chat_audit:log` for topics where ARIA was consistently
+    weak (low grounded_rate). A topic that appears in
+    `MIN_OCCURRENCES` chats within the lookback window with
+    `grounded_rate < GROUNDED_THRESHOLD` becomes an OPPORTUNITY gap —
+    not a bug, but a place where acquiring/indexing more authoritative
+    material would measurably improve ARIA's answers.
+
+    Routes through `enhancement` change-type per `self_coder.py`, so it
+    NEVER auto-deploys regardless of `ARIA_SELF_IMPROVE_AUTO_DEPLOY`.
+    Always staged at `/api/aria/self/staged` for operator approval.
+    """
+
+    KEY = "crucix:chat_audit:log"
+    GROUNDED_THRESHOLD = 0.60   # below this counts as "weak"
+    MIN_OCCURRENCES = 3         # a topic must recur this often to matter
+    READ_BATCH = 2000           # cover ~24h of audit traffic
+
+    def __init__(self, redis_client: Any) -> None:
+        self.redis = redis_client
+
+    async def extract(self, since: datetime) -> list[Gap]:
+        gaps: list[Gap] = []
+        try:
+            raw = await self.redis.lrange(self.KEY, 0, self.READ_BATCH)
+        except Exception as e:
+            logger.error(
+                "[gap_detector] chat_audit read failed (opportunity): %s", e,
+            )
+            return gaps
+
+        topic_counts: dict[str, int] = {}
+        topic_samples: dict[str, list[dict]] = {}
+
+        for entry_bytes in raw:
+            try:
+                entry = json.loads(
+                    entry_bytes.decode("utf-8")
+                    if isinstance(entry_bytes, bytes) else entry_bytes
+                )
+            except (json.JSONDecodeError, AttributeError):
+                continue
+            ts_raw = entry.get("timestamp", "")
+            if not isinstance(ts_raw, str):
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if ts < since:
+                continue
+            grounded = entry.get("grounded_rate")
+            if grounded is None:
+                continue
+            try:
+                grounded_f = float(grounded)
+            except (TypeError, ValueError):
+                continue
+            if grounded_f >= self.GROUNDED_THRESHOLD:
+                continue
+            weak_topics = entry.get("mastery_weak_topics") or []
+            if not isinstance(weak_topics, list):
+                continue
+            for topic in weak_topics:
+                if not isinstance(topic, str) or not topic.strip():
+                    continue
+                topic_norm = topic.strip().lower()
+                topic_counts[topic_norm] = topic_counts.get(topic_norm, 0) + 1
+                if len(topic_samples.setdefault(topic_norm, [])) < 5:
+                    topic_samples[topic_norm].append({
+                        "ts": ts_raw,
+                        "grounded_rate": grounded_f,
+                    })
+
+        for topic, count in topic_counts.items():
+            if count < self.MIN_OCCURRENCES:
+                continue
+            gaps.append(Gap(
+                gap_id=_gap_id_for(
+                    GapType.OPPORTUNITY, "aria_engine",
+                    f"low_grounded_topic_{topic}",
+                ),
+                gap_type=GapType.OPPORTUNITY,
+                severity=GapSeverity.MEDIUM,
+                title=(
+                    f"Capability opportunity: low grounded coverage on '{topic}'"
+                ),
+                description=(
+                    f"Topic '{topic}' appeared in {count} chats over the "
+                    f"lookback window with grounded_rate < "
+                    f"{self.GROUNDED_THRESHOLD}. Recurring weakness suggests "
+                    f"ARIA should acquire or index more authoritative "
+                    f"material on this topic."
+                ),
+                module="aria_service/aria_engine.py",
+                evidence={
+                    "topic": topic,
+                    "occurrences": count,
+                    "grounded_threshold": self.GROUNDED_THRESHOLD,
+                    "samples": topic_samples.get(topic, []),
+                },
+            ))
+        return gaps
+
+
 # ── MAIN DETECTOR ────────────────────────────────────────────────────────────
 
 class GapDetector:
@@ -424,6 +535,7 @@ class GapDetector:
             ChatAuditExtractor(redis_client),
             HealthPerfExtractor(redis_client),
             SourceHealthExtractor(redis_client),
+            OpportunityExtractor(redis_client),  # R-F826
         ]
         self._active_gaps: dict[str, Gap] = {}
 
