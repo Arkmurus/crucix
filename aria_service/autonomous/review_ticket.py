@@ -1,52 +1,61 @@
-"""R-F821 — GitHub Issue ticket for post-deploy review of ARIA-Coder fixes.
+"""R-F821 + R-F823 — GitHub Issue ticket for post-deploy review.
 
 Operator's vision (2026-05-23): "ARIA codes autonomously and commits;
 this leaves a ticket for the operator + Claude to review."
 
-This is the trunk-based-development pattern for autonomous agents:
-ARIA auto-deploys bug_fix / optimisation changes, then opens a
-GitHub Issue with the diff + gap context + safety verdicts so the
-operator (or Claude via R-F805 hook) can audit on their schedule.
+The trunk-based-development pattern for autonomous agents: ARIA
+auto-deploys bug_fix / optimisation changes, then opens a GitHub
+Issue with the diff + gap context + safety verdicts so the operator
+(or Claude via R-F805 hook) can audit on their schedule.
 
 If the audit catches a regression: one-click rollback via
 `POST /api/aria/self/rollback/{staged_id}` (existing surface).
 
+R-F823 (2026-05-23) — switched from gh CLI subprocess to direct
+GitHub REST API via httpx. The CLI required adding `gh` binary to
+aria-intel's Docker image; the REST path needs only the GH_TOKEN
+env var. Same operator UX, less Docker footprint.
+
 Module structure
 ────────────────
 - `ReviewTicket` — dataclass of the artefacts the issue body needs
-- `format_issue_body()` — produces the Markdown body
-- `open_review_ticket()` — async — calls `gh issue create` subprocess
+- `format_issue_title()` / `format_issue_body()` — Markdown
+- `open_review_ticket()` — async — POSTs to api.github.com/issues
 
 Dormant unless ALL of:
   - ARIA_CODER_AUTO_DEPLOY_AND_TICKET=1  (master gate for this model)
-  - GH_TOKEN set on the host  (gh CLI auth)
-  - gh CLI installed in the runtime container
+  - GH_TOKEN set on the host  (GitHub PAT with `repo` scope)
 
 When dormant: `open_review_ticket` is a no-op (returns success).
-When enabled but gh is missing: logs WARNING, returns success
-(non-fatal — the deploy still happened; we just couldn't open
-the ticket).
+When enabled but the API call fails: logs WARNING, returns failure.
+Failure is non-fatal — the deploy still happened, only the ticket
+failed to open.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import subprocess
-import tempfile
 from dataclasses import dataclass, field
 from typing import Optional
+
+import httpx
 
 logger = logging.getLogger("aria.autonomous.review_ticket")
 
 ENABLE_VAR = "ARIA_CODER_AUTO_DEPLOY_AND_TICKET"
 GH_TOKEN_VAR = "GH_TOKEN"
+GH_REPO_VAR = "ARIA_CODER_GH_REPO"  # e.g. "Arkmurus/crucix"
+DEFAULT_REPO = "Arkmurus/crucix"
 
 # GitHub Issues body cap is 65536 chars but practical readability cap
 # is much lower. Diff gets the bulk.
 MAX_DIFF_CHARS = 30000
 MAX_BODY_CHARS = 60000
 DEFAULT_LABELS = ("aria-self-coded", "pending-review")
+
+GITHUB_API_BASE = "https://api.github.com"
+GITHUB_API_VERSION = "2022-11-28"
+DEFAULT_TIMEOUT_S = 30.0
 
 
 @dataclass
@@ -188,10 +197,9 @@ async def open_review_ticket(
     ticket: ReviewTicket,
     repo: Optional[str] = None,
     labels: tuple[str, ...] = DEFAULT_LABELS,
-    body_writer=None,    # injection for tests
-    runner=None,         # injection for tests
+    http_client: Optional[httpx.AsyncClient] = None,
 ) -> dict:
-    """Open a GitHub Issue via `gh issue create`. Fail-safe.
+    """Open a GitHub Issue via the REST API. Fail-safe.
 
     Returns dict with keys:
       ok (bool), issue_url (str|None), reason (str|None)
@@ -199,69 +207,68 @@ async def open_review_ticket(
     When disabled (env vars unset): returns ok=True, issue_url=None,
     reason="disabled" — caller proceeds; the deploy still happened.
 
-    When enabled but gh CLI is missing: returns ok=False with reason —
-    caller logs but does NOT roll back; the deploy is fine, only the
-    ticket failed.
+    When enabled but the API call fails: returns ok=False with reason.
+    Failure is non-fatal — the deploy succeeded, only the audit ticket
+    didn't open.
+
+    `http_client` is injected for tests; in prod we build one with the
+    GH_TOKEN bearer header.
     """
     if not is_enabled():
         return {"ok": True, "issue_url": None, "reason": "disabled"}
 
+    repo = repo or os.environ.get(GH_REPO_VAR, DEFAULT_REPO)
     title = format_issue_title(ticket)
     body = format_issue_body(ticket)
 
-    # Write body to a temp file rather than passing on the command line
-    # (gh accepts --body-file; safer for large diffs + no shell quoting).
-    if body_writer is None:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md", delete=False, encoding="utf-8"
-        ) as f:
-            f.write(body)
-            body_path = f.name
-    else:
-        body_path = body_writer(body)
+    payload = {
+        "title": title,
+        "body": body,
+        "labels": list(labels),
+    }
 
-    cmd = ["gh", "issue", "create",
-           "--title", title,
-           "--body-file", body_path]
-    for label in labels:
-        cmd += ["--label", label]
-    if repo:
-        cmd += ["--repo", repo]
-
-    if runner is None:
-        runner = _run_subprocess
+    owns_client = http_client is None
+    if owns_client:
+        token = os.environ.get(GH_TOKEN_VAR, "")
+        http_client = httpx.AsyncClient(
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+                "Content-Type": "application/json",
+            },
+            timeout=DEFAULT_TIMEOUT_S,
+        )
 
     try:
-        result = await runner(cmd)
-        if result["returncode"] != 0:
-            logger.warning(
-                "[review_ticket] gh issue create failed (rc=%s): %s",
-                result["returncode"], result.get("stderr", "")[:300],
+        resp = await http_client.post(
+            f"{GITHUB_API_BASE}/repos/{repo}/issues",
+            json=payload,
+        )
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            issue_url = data.get("html_url")
+            logger.info(
+                "[review_ticket] opened issue #%s: %s",
+                data.get("number", "?"), issue_url,
             )
-            return {
-                "ok": False, "issue_url": None,
-                "reason": (result.get("stderr") or "gh failed")[:300],
-            }
-        url = (result.get("stdout") or "").strip().splitlines()
-        issue_url = url[-1] if url else None
-        logger.info("[review_ticket] opened issue: %s", issue_url)
-        return {"ok": True, "issue_url": issue_url, "reason": None}
-    except FileNotFoundError:
-        return {"ok": False, "issue_url": None, "reason": "gh CLI not installed"}
+            return {"ok": True, "issue_url": issue_url, "reason": None}
+
+        body_snippet = (resp.text or "")[:300]
+        logger.warning(
+            "[review_ticket] GitHub API rejected (status=%d): %s",
+            resp.status_code, body_snippet,
+        )
+        return {
+            "ok": False, "issue_url": None,
+            "reason": f"GitHub API {resp.status_code}: {body_snippet}",
+        }
+    except httpx.HTTPError as e:
+        logger.warning("[review_ticket] HTTP error: %s", e)
+        return {"ok": False, "issue_url": None, "reason": f"HTTP error: {e}"}
     except Exception as e:
         logger.warning("[review_ticket] unexpected error: %s", e)
         return {"ok": False, "issue_url": None, "reason": str(e)[:300]}
-
-
-async def _run_subprocess(cmd: list[str]) -> dict:
-    """Default subprocess runner — awaitable via asyncio.to_thread."""
-    def _exec() -> dict:
-        proc = subprocess.run(  # noqa: S603 — gh CLI, controlled args
-            cmd, capture_output=True, text=True, timeout=60, check=False,
-        )
-        return {
-            "returncode": proc.returncode,
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
-        }
-    return await asyncio.to_thread(_exec)
+    finally:
+        if owns_client and http_client is not None:
+            await http_client.aclose()

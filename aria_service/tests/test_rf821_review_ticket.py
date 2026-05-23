@@ -162,98 +162,128 @@ class TestFormatIssue:
 # ════════════════════════════════════════════════════════════════════════════
 
 class TestOpenReviewTicket:
+    """R-F823: tests for the GitHub REST API path (replacing gh CLI)."""
+
     def test_disabled_returns_noop(self, monkeypatch) -> None:
         from aria_service.autonomous.review_ticket import open_review_ticket
         monkeypatch.delenv("ARIA_CODER_AUTO_DEPLOY_AND_TICKET", raising=False)
 
-        async def runner(cmd):
-            raise AssertionError("runner should NOT be called when dormant")
+        http = MagicMock()
+        http.post = AsyncMock(side_effect=AssertionError(
+            "http.post should NOT be called when dormant"))
+        http.aclose = AsyncMock()
 
-        result = _run(open_review_ticket(_make_ticket(), runner=runner))
+        result = _run(open_review_ticket(_make_ticket(), http_client=http))
         assert result["ok"]
         assert result["issue_url"] is None
         assert result["reason"] == "disabled"
 
-    def test_calls_gh_with_correct_args(self, monkeypatch, tmp_path) -> None:
+    def test_posts_to_github_api_with_correct_payload(self, monkeypatch) -> None:
+        """CAPABILITY: when enabled, POST hits the right URL with title
+        + body + labels in the JSON payload."""
         from aria_service.autonomous.review_ticket import open_review_ticket
         monkeypatch.setenv("ARIA_CODER_AUTO_DEPLOY_AND_TICKET", "1")
         monkeypatch.setenv("GH_TOKEN", "ghp_test")
 
         captured = {}
 
-        async def runner(cmd):
-            captured["cmd"] = cmd
-            return {
-                "returncode": 0,
-                "stdout": "https://github.com/Arkmurus/crucix/issues/42\n",
-                "stderr": "",
-            }
+        async def fake_post(url, json):
+            captured["url"] = url
+            captured["json"] = json
+            resp = MagicMock()
+            resp.status_code = 201
+            resp.json = MagicMock(return_value={
+                "number": 42,
+                "html_url": "https://github.com/Arkmurus/crucix/issues/42",
+            })
+            return resp
 
-        def body_writer(body):
-            p = tmp_path / "body.md"
-            p.write_text(body, encoding="utf-8")
-            return str(p)
+        http = MagicMock()
+        http.post = fake_post
+        http.aclose = AsyncMock()
 
         result = _run(open_review_ticket(
             _make_ticket(),
-            runner=runner,
-            body_writer=body_writer,
+            http_client=http,
         ))
         assert result["ok"]
-        assert "github.com" in result["issue_url"]
-        cmd = captured["cmd"]
-        assert cmd[0] == "gh"
-        assert "issue" in cmd
-        assert "create" in cmd
-        assert "--title" in cmd
-        assert "--body-file" in cmd
-        assert "--label" in cmd
+        assert "issues/42" in result["issue_url"]
+        # POST hit the right endpoint
+        assert captured["url"].endswith("/repos/Arkmurus/crucix/issues")
+        # payload has title + body + labels
+        p = captured["json"]
+        assert "R-F821" in p["title"]
+        assert "aria-self-coded" in p["labels"]
+        assert "pending-review" in p["labels"]
+        # body includes the rollback URL
+        assert "/api/aria/self/rollback/" in p["body"]
 
-    def test_gh_failure_returns_failure(self, monkeypatch, tmp_path) -> None:
+    def test_repo_override_via_arg_wins(self, monkeypatch) -> None:
         from aria_service.autonomous.review_ticket import open_review_ticket
         monkeypatch.setenv("ARIA_CODER_AUTO_DEPLOY_AND_TICKET", "1")
         monkeypatch.setenv("GH_TOKEN", "ghp_test")
 
-        async def runner(cmd):
-            return {
-                "returncode": 1,
-                "stdout": "",
-                "stderr": "gh: authentication required",
-            }
+        captured = {}
 
-        def body_writer(body):
-            p = tmp_path / "body.md"
-            p.write_text(body, encoding="utf-8")
-            return str(p)
+        async def fake_post(url, json):
+            captured["url"] = url
+            resp = MagicMock()
+            resp.status_code = 201
+            resp.json = MagicMock(return_value={
+                "number": 1, "html_url": "https://github.com/other/repo/issues/1",
+            })
+            return resp
+
+        http = MagicMock()
+        http.post = fake_post
+        http.aclose = AsyncMock()
+
+        _run(open_review_ticket(
+            _make_ticket(), repo="other/repo", http_client=http,
+        ))
+        assert captured["url"].endswith("/repos/other/repo/issues")
+
+    def test_api_error_returns_failure(self, monkeypatch) -> None:
+        from aria_service.autonomous.review_ticket import open_review_ticket
+        monkeypatch.setenv("ARIA_CODER_AUTO_DEPLOY_AND_TICKET", "1")
+        monkeypatch.setenv("GH_TOKEN", "ghp_invalid_token")
+
+        async def fake_post(url, json):
+            resp = MagicMock()
+            resp.status_code = 401
+            resp.text = '{"message": "Bad credentials"}'
+            return resp
+
+        http = MagicMock()
+        http.post = fake_post
+        http.aclose = AsyncMock()
 
         result = _run(open_review_ticket(
             _make_ticket(),
-            runner=runner,
-            body_writer=body_writer,
+            http_client=http,
         ))
         assert not result["ok"]
-        assert "authentication" in result["reason"]
+        assert "401" in result["reason"] or "Bad credentials" in result["reason"]
 
-    def test_gh_not_installed_returns_failure(self, monkeypatch, tmp_path) -> None:
+    def test_network_failure_returns_failure(self, monkeypatch) -> None:
         from aria_service.autonomous.review_ticket import open_review_ticket
+        import httpx
         monkeypatch.setenv("ARIA_CODER_AUTO_DEPLOY_AND_TICKET", "1")
         monkeypatch.setenv("GH_TOKEN", "ghp_test")
 
-        async def runner(cmd):
-            raise FileNotFoundError("gh: command not found")
+        async def fake_post(url, json):
+            raise httpx.ConnectError("network unreachable")
 
-        def body_writer(body):
-            p = tmp_path / "body.md"
-            p.write_text(body, encoding="utf-8")
-            return str(p)
+        http = MagicMock()
+        http.post = fake_post
+        http.aclose = AsyncMock()
 
         result = _run(open_review_ticket(
             _make_ticket(),
-            runner=runner,
-            body_writer=body_writer,
+            http_client=http,
         ))
         assert not result["ok"]
-        assert "gh CLI not installed" in result["reason"]
+        assert "network" in result["reason"].lower() or "http" in result["reason"].lower()
 
 
 # ════════════════════════════════════════════════════════════════════════════
