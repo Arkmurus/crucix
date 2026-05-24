@@ -835,6 +835,7 @@ class ARIACoder:
         from ..intel import self_improve as _si
 
         staged_ids: list[str] = []
+        staged_pairs: list[tuple[str, str]] = []  # (id, target_file) for per-file gating
         for target_file, new_code in plan.code_changes.items():
             result = await _si.stage_improvement(
                 file_path=target_file,
@@ -854,6 +855,7 @@ class ARIACoder:
                 )
                 return False, f"stage_failed:{target_file}:{err}", staged_ids
             staged_ids.append(result["id"])
+            staged_pairs.append((result["id"], target_file))
 
         # Decide auto-deploy based on the R-F462 gate per change_type.
         # CHANGE_TYPES dict was set at import time (R-F518: env var read
@@ -870,9 +872,39 @@ class ARIACoder:
         # is GitHub Issue audit, not pre-deploy approval).
         ct_cfg = _si.CHANGE_TYPES.get(change_type, {})
         gate_open = bool(ct_cfg.get("auto_deploy")) or force_deploy
-        auto_eligible = gate_open and not force_stage
-        if not auto_eligible:
-            reason = "claude_flagged" if force_stage else "r_f462_gate_closed"
+        batch_eligible = gate_open and not force_stage
+
+        # R-F851 (2026-05-24) — per-FILE constitution guard. Honesty-critical
+        # files (self_improve.NO_AUTODEPLOY_FILES: aria_engine.py, v3_prompts.py,
+        # routes/aria.py, autonomous/tasks.yaml) NEVER auto-deploy — not via the
+        # change_type gate, not via force_deploy (R-F821 ticket-mode), not via
+        # this coder path. They always stay staged for a human. Pre-R-F851 this
+        # function read CHANGE_TYPES[...]["auto_deploy"] once per change_type and
+        # then deployed EVERY staged item regardless of which file it touched —
+        # a bypass of the self_improve auto-deploy gate that could ship a
+        # self- (or user-) generated constitution edit straight to live.
+        deployable: list[str] = []
+        blocked_critical: list[str] = []
+        for sid, target_file in staged_pairs:
+            if target_file in _si.NO_AUTODEPLOY_FILES:
+                blocked_critical.append(target_file)
+            elif batch_eligible:
+                deployable.append(sid)
+
+        if blocked_critical:
+            logger.warning(
+                "[aria_coder] R-F851 BLOCKED auto-deploy of %d honesty-critical "
+                "file(s) — staged for human approval only: %s",
+                len(blocked_critical), ", ".join(sorted(set(blocked_critical))),
+            )
+
+        if not deployable:
+            if force_stage:
+                reason = "claude_flagged"
+            elif blocked_critical and batch_eligible:
+                reason = "constitution_guard_r_f851"
+            else:
+                reason = "r_f462_gate_closed"
             logger.info(
                 "[aria_coder] %d items staged for operator review "
                 "(change_type=%s, reason=%s)",
@@ -880,11 +912,12 @@ class ARIACoder:
             )
             return True, "staged_for_operator", staged_ids
 
-        # Auto-deploy each staged item via the existing self_improve
+        # Auto-deploy each ELIGIBLE staged item via the existing self_improve
         # pipeline. This writes the file to disk + creates the backup +
         # git-commits + writes the audit log — same surface as the
-        # operator-clicked /api/aria/self/deploy/{id}.
-        for sid in staged_ids:
+        # operator-clicked /api/aria/self/deploy/{id}. Constitution-critical
+        # items are excluded above and remain staged for the operator.
+        for sid in deployable:
             deploy_res = await _si.deploy_improvement(sid)
             if not deploy_res.get("ok"):
                 err = deploy_res.get("error", "unknown")
@@ -895,8 +928,10 @@ class ARIACoder:
                 return False, f"deploy_failed:{sid}:{err}", staged_ids
 
         logger.info(
-            "[aria_coder] %d items auto-deployed (change_type=%s)",
-            len(staged_ids), change_type,
+            "[aria_coder] %d items auto-deployed (change_type=%s)%s",
+            len(deployable), change_type,
+            (f"; {len(blocked_critical)} constitution file(s) held for review"
+             if blocked_critical else ""),
         )
         return True, "auto_deployed", staged_ids
 

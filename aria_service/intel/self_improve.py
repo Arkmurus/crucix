@@ -129,6 +129,38 @@ CHANGE_TYPES = {
     "optimisation":      {"auto_deploy": _R462_AUTO_DEPLOY_DEFAULT, "description": "Performance or quality optimisation"},
 }
 
+# R-F851 (2026-05-24) — honesty-foundation files that may be STAGED for a
+# human to review+deploy, but must NEVER auto-deploy regardless of change_type
+# or ARIA_SELF_IMPROVE_AUTO_DEPLOY. These files ARE the constitution / the
+# verification + safety machinery; a self-generated "bug_fix" that silently
+# rewrote a verification clause, the prompt-injection guard, the footer/
+# confidence-tag logic, or a scheduled safety task is precisely the
+# constitution-poisoning vector the autonomy gate exists to stop. R-F462 made
+# bug_fix/optimisation human-gated by DEFAULT, but §17 flipped
+# ARIA_SELF_IMPROVE_AUTO_DEPLOY=1 live — re-opening auto-deploy for EVERY
+# modifiable file, including these. R-F851 re-closes it for the critical set
+# only, leaving autonomous self-improvement intact for ordinary files.
+NO_AUTODEPLOY_FILES = {
+    "aria_service/aria_engine.py",         # ARIA_SYSTEM_PROMPT + constitution clauses
+    "aria_service/intel/v3_prompts.py",    # prompt refinements
+    "aria_service/routes/aria.py",         # verification gate, prompt-injection detection, footer/confidence tags
+    "aria_service/autonomous/tasks.yaml",  # scheduled safety / adversarial tasks
+}
+
+
+def _auto_deploy_allowed(file_path: str, change_type: str) -> bool:
+    """Whether a staged change may AUTO-deploy (no human in the loop).
+
+    Honesty-critical files (NO_AUTODEPLOY_FILES) always require explicit
+    human approval — they can be staged and human-deployed, never auto-
+    deployed — independent of change_type or the env flag. For all other
+    files the per-change-type auto_deploy policy applies. R-F851.
+    """
+    if file_path in NO_AUTODEPLOY_FILES:
+        return False
+    return bool(CHANGE_TYPES.get(change_type, {}).get("auto_deploy", False))
+
+
 # Root directory
 _root = Path(__file__).parent.parent.parent
 
@@ -222,7 +254,7 @@ async def stage_improvement(
         "reasoning": reasoning,
         "new_content": new_content,
         "staged_at": time.time(),
-        "auto_deployable": CHANGE_TYPES[change_type]["auto_deploy"],
+        "auto_deployable": _auto_deploy_allowed(file_path, change_type),
         "status": "staged",
     }
 
@@ -1132,8 +1164,13 @@ async def autonomous_improvement_cycle(llm) -> dict:
                     )
                     if stage_result.get("staged"):
                         results["improvements_staged"] += 1
-                        # Auto-deploy bug fixes
-                        if stage_result.get("auto_deployable"):
+                        # Auto-deploy bug fixes — R-F851 defense-in-depth: never
+                        # auto-deploy an honesty-critical file even if the staged
+                        # flag somehow said otherwise. auto_deployable is already
+                        # False for these (stage_improvement → _auto_deploy_allowed);
+                        # this second check guards against a future path that sets
+                        # the flag directly.
+                        if stage_result.get("auto_deployable") and file_path not in NO_AUTODEPLOY_FILES:
                             deploy_result = await deploy_improvement(stage_result["id"])
                             if deploy_result.get("deployed"):
                                 results["auto_deployed"] += 1
@@ -1141,6 +1178,12 @@ async def autonomous_improvement_cycle(llm) -> dict:
                                     "[Self-Improve] Auto-deployed bug fix: %s in %s",
                                     bug_fix["description"], file_path,
                                 )
+                        elif stage_result.get("auto_deployable") and file_path in NO_AUTODEPLOY_FILES:
+                            logger.warning(
+                                "[Self-Improve] R-F851 BLOCKED auto-deploy of "
+                                "honesty-critical file %s — staged for human approval only",
+                                file_path,
+                            )
     except Exception as e:
         logger.warning("[Self-Improve] Error analysis failed: %s", e)
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 851,
+  "next_available": 852,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3008,9 +3008,10 @@
       "title": "extract-document 10KB truncation: raise cap + stamp PARTIAL EXTRACTION banner",
       "claimed_at": "2026-05-24T15:14:36Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "221d603",
+      "notes": null,
+      "shipped_at": "2026-05-24T15:49:06Z"
     },
     {
       "r_number": "R-F850",
@@ -3021,6 +3022,15 @@
       "commit_sha": "e821e60",
       "notes": null,
       "shipped_at": "2026-05-24T15:43:46Z"
+    },
+    {
+      "r_number": "R-F851",
+      "title": "L1: constitution-critical files never auto-deploy (self-improve auto-deploy gate by file sensitivity)",
+      "claimed_at": "2026-05-24T16:01:09Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
