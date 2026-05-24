@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 852,
+  "next_available": 853,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3027,6 +3027,16 @@
       "r_number": "R-F851",
       "title": "L1: constitution-critical files never auto-deploy (self-improve auto-deploy gate by file sensitivity)",
       "claimed_at": "2026-05-24T16:01:09Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "5bebc4d",
+      "notes": null,
+      "shipped_at": "2026-05-24T16:09:22Z"
+    },
+    {
+      "r_number": "R-F852",
+      "title": "wire operator chat /code command -> ARIA-Coder (operator-gated, force-stage)",
+      "claimed_at": "2026-05-24T16:14:40Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

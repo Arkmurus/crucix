@@ -313,9 +313,10 @@ class TestOperatorInitiatedSkipsApproval:
         )
         captured = {}
 
-        async def fake_fix_gap(gap, operator_initiated=False):
+        async def fake_fix_gap(gap, operator_initiated=False, force_stage_only=False):
             captured["gap"] = gap
             captured["operator_initiated"] = operator_initiated
+            captured["force_stage_only"] = force_stage_only
             from aria_service.autonomous.self_coder import FixResult
             return FixResult(success=True, fix_id="x", gap_id=gap.gap_id)
 

@@ -6783,6 +6783,90 @@ async def _execute_tool(intent: dict, llm) -> str:
 
 
 # 18. POST /api/aria/chat
+# ── R-F852 (2026-05-24) — operator chat → ARIA-Coder bridge ──────────────
+# Closes the "a user can ask ARIA to build/fix X" gap: /api/aria/coder/request
+# existed + was tested, but no chat surface called it. A "/code <desc>" (or
+# "/coder ...") message routes to the autonomous coder instead of the normal
+# chat/LLM path. Mirrored into BOTH /chat and /chat/stream per CLAUDE.md §13.
+#
+# SECURITY (operator direction 2026-05-24):
+#  - Operator-gated, FAIL-CLOSED: only a request whose proxy-injected user_id
+#    matches ARIA_CODER_OPERATOR_USER_ID may trigger. If the env var is unset
+#    the bridge is OFF — no chat user can drive code changes. (Under the live
+#    SELF_IMPROVE_AUTO_DEPLOY=1 an ordinary-file fix would otherwise auto-ship.)
+#  - ALWAYS staged: force_stage=True, so every chat-triggered diff is
+#    human-reviewed via /api/aria/self/deploy, never auto-deployed. Constitution
+#    files are additionally hard-blocked from auto-deploy by R-F851.
+_CODER_CMD_RE = __import__("re").compile(
+    r"^\s*/(?:code|coder)\b[\s:]*(.*)$",
+    __import__("re").IGNORECASE | __import__("re").DOTALL,
+)
+
+
+def _coder_operator_user_id() -> str:
+    import os as _os
+    return (_os.getenv("ARIA_CODER_OPERATOR_USER_ID") or "").strip()
+
+
+def _is_coder_operator(req: ChatRequest) -> bool:
+    """Operator-gate for the chat→coder bridge. Fail-closed: empty
+    ARIA_CODER_OPERATOR_USER_ID ⇒ bridge disabled for everyone. R-F852."""
+    op = _coder_operator_user_id()
+    if not op:
+        return False
+    return (getattr(req, "user_id", "") or "").strip() == op
+
+
+async def _maybe_handle_coder_command(req: ChatRequest, request: Request) -> dict | None:
+    """Operator `/code <desc>` → queue an ARIA-Coder fix (force-staged for
+    human review). Returns a response dict, or None when the message isn't a
+    coder command (so normal chat proceeds). R-F852."""
+    m = _CODER_CMD_RE.match(req.message or "")
+    if not m:
+        return None
+    if not _is_coder_operator(req):
+        return {
+            "response": (
+                "⚠️ `/code` requests are operator-only — your account isn't "
+                "authorised (or the operator id isn't configured on this "
+                "instance). No code change was made."
+            ),
+            "coder_denied": True,
+        }
+    description = (m.group(1) or "").strip()
+    if len(description) < 10:
+        return {
+            "response": (
+                "Tell me what to build or fix — e.g.\n"
+                "`/code add a 3-try backoff to the Brave fetch in researcher.py`\n"
+                "(min 10 characters)."
+            ),
+            "coder_help": True,
+        }
+    coder = getattr(request.app.state, "aria_coder", None)
+    if coder is None:
+        return {
+            "response": (
+                "ARIA-Coder isn't running on this instance "
+                "(needs ARIA_AUTONOMOUS_ENABLED=1 + ARIA_CODER_ENABLED=1)."
+            ),
+            "coder_unavailable": True,
+        }
+    queued = await _queue_coder_request(
+        coder, description[:2000], source="chat", force_stage=True,
+    )
+    return {
+        "response": (
+            "On it. I've queued that as a code change — it'll be **staged for "
+            "your review** (not auto-deployed). Track it at "
+            f"`{queued.get('poll_url')}`; I'll flag you when it's ready."
+        ),
+        "coder_queued": True,
+        "fix_id": queued.get("fix_id"),
+        "gap_id": queued.get("gap_id"),
+    }
+
+
 @router.post("/chat")
 async def chat_ep(req: ChatRequest, request: Request):
     if not req.message:
@@ -6854,6 +6938,11 @@ async def chat_ep(req: ChatRequest, request: Request):
             )
     except Exception as _sec_err:
         _log.debug("security_protocol.detect_prompt_injection failed (non-fatal): %s", _sec_err)
+
+    # ── R-F852 — operator `/code` command → ARIA-Coder (before LLM/tools/cost). ──
+    _coder_reply = await _maybe_handle_coder_command(req, request)
+    if _coder_reply is not None:
+        return {**_coder_reply, "session_id": session_id}
 
     # ── Trivial-question short-circuit (highest priority, runs before
     # tool detection / tracing / verification / cost-tracking).
@@ -8029,6 +8118,16 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
             yield f'data: {json.dumps({"type":"chunk","text":_trivial})}\n\n'
             yield f'data: {json.dumps({"type":"done","session_id":session_id,"trivial":True})}\n\n'
         return StreamingResponse(_trivial_stream(), media_type="text/event-stream")
+
+    # ── R-F852 — operator `/code` command → ARIA-Coder (mirrors /chat per §13). ──
+    _coder_reply = await _maybe_handle_coder_command(req, request)
+    if _coder_reply is not None:
+        _cr_text = _coder_reply.get("response", "")
+        _cr_meta = {k: v for k, v in _coder_reply.items() if k != "response"}
+        async def _coder_stream():
+            yield f'data: {json.dumps({"type":"chunk","text":_cr_text})}\n\n'
+            yield f'data: {json.dumps({"type":"done","session_id":session_id, **_cr_meta})}\n\n'
+        return StreamingResponse(_coder_stream(), media_type="text/event-stream")
 
     llm = get_llm(request)
     intel = get_intel_data(request)
@@ -10752,6 +10851,82 @@ async def coder_llm_ep(request: Request):
 # Engine must be started (ARIA_AUTONOMOUS_ENABLED=1 + ARIA_CODER_ENABLED=1)
 # otherwise these endpoints return 503.
 
+async def _queue_coder_request(
+    coder, description: str, *,
+    module_hint: str | None = None,
+    source: str = "operator",
+    force_stage: bool = False,
+) -> dict:
+    """Shared core for queueing an ARIA-Coder fix: allocate ids, publish a
+    'queued' progress event under both ids, fire the fix in the background,
+    return the queued-response dict. Used by POST /coder/request (R-F824) and
+    the operator chat `/code` bridge (R-F852). Caller handles the coder-None
+    503 + length validation. force_stage=True forces human-review staging
+    (never auto-deploy); the chat bridge always passes True."""
+    import hashlib
+    import json as _json
+    import uuid
+    import asyncio as _asyncio
+    from datetime import datetime, timezone
+
+    pre_gap_id = hashlib.sha256(description.encode("utf-8")).hexdigest()[:16]
+    pre_fix_id = uuid.uuid4().hex[:12]
+
+    _log.info(
+        "[coder/request] source=%s len=%d module_hint=%s force_stage=%s",
+        source, len(description), module_hint, force_stage,
+    )
+
+    # Publish an initial "queued" event under both ids — caller can poll
+    # with either while the background task spins up.
+    try:
+        ts = datetime.now(timezone.utc).isoformat()
+        queued_event = _json.dumps({
+            "ts": ts, "stage": "queued",
+            "message": f"Request from {source} accepted",
+            "description": description[:200],
+            "module_hint": module_hint,
+        })
+        if hasattr(coder, "redis") and coder.redis is not None:
+            for kid in (pre_fix_id, pre_gap_id):
+                await coder.redis.setex(
+                    f"crucix:aria:coder:progress:{kid}:latest",
+                    7 * 86400, queued_event,
+                )
+                await coder.redis.lpush(
+                    f"crucix:aria:coder:progress:{kid}:history", queued_event,
+                )
+                await coder.redis.expire(
+                    f"crucix:aria:coder:progress:{kid}:history", 7 * 86400,
+                )
+    except Exception as e:
+        _log.warning("[coder/request] queued-event write failed: %s", e)
+
+    async def _run_fix():
+        try:
+            await coder.operator_fix_request(
+                description, module_hint=module_hint, force_stage=force_stage,
+            )
+        except Exception as e:
+            _log.error("[coder/request] background fix raised: %s", e)
+
+    _asyncio.create_task(
+        _run_fix(), name=f"aria_coder.request.{pre_fix_id}",
+    )
+
+    return {
+        "queued": True,
+        "fix_id": pre_fix_id,
+        "gap_id": pre_gap_id,
+        "poll_url": f"/api/aria/coder/status/{pre_fix_id}",
+        "alternate_poll_url": f"/api/aria/coder/status/{pre_gap_id}",
+        "message": (
+            "ARIA has queued your request. Poll either URL for live "
+            "progress; she'll WhatsApp you when she's done."
+        ),
+    }
+
+
 @router.post("/coder/request")
 async def coder_request_ep(request: Request):
     """Queue a natural-language code-change request from the operator.
@@ -10790,74 +10965,9 @@ async def coder_request_ep(request: Request):
             ),
         )
 
-    # Generate the fix_id the same way operator_fix_request would, so
-    # we can return it BEFORE the background task starts.
-    import hashlib
-    pre_gap_id = hashlib.sha256(description.encode("utf-8")).hexdigest()[:16]
-    # The real fix_id is allocated inside fix_gap (uuid4()) — but we
-    # publish a "queued" progress event keyed on this pre_gap_id so
-    # the status endpoint can find the run by either id.
-    import uuid
-    pre_fix_id = uuid.uuid4().hex[:12]
-
-    _log.info(
-        "[coder/request] source=%s len=%d module_hint=%s",
-        source, len(description), module_hint,
+    return await _queue_coder_request(
+        coder, description, module_hint=module_hint, source=source,
     )
-
-    # Publish an initial "queued" event under both ids — operator can
-    # poll with either while the background task spins up.
-    try:
-        import json as _json
-        from datetime import datetime, timezone
-        ts = datetime.now(timezone.utc).isoformat()
-        queued_event = _json.dumps({
-            "ts": ts, "stage": "queued",
-            "message": f"Request from {source} accepted",
-            "description": description[:200],
-            "module_hint": module_hint,
-        })
-        if hasattr(coder, "redis") and coder.redis is not None:
-            for kid in (pre_fix_id, pre_gap_id):
-                await coder.redis.setex(
-                    f"crucix:aria:coder:progress:{kid}:latest",
-                    7 * 86400, queued_event,
-                )
-                await coder.redis.lpush(
-                    f"crucix:aria:coder:progress:{kid}:history", queued_event,
-                )
-                await coder.redis.expire(
-                    f"crucix:aria:coder:progress:{kid}:history", 7 * 86400,
-                )
-    except Exception as e:
-        _log.warning("[coder/request] queued-event write failed: %s", e)
-
-    # Fire the fix in the background — the request returns NOW.
-    async def _run_fix():
-        try:
-            await coder.operator_fix_request(
-                description, module_hint=module_hint,
-            )
-        except Exception as e:
-            _log.error("[coder/request] background fix raised: %s", e)
-
-    import asyncio as _asyncio
-    _asyncio.create_task(
-        _run_fix(),
-        name=f"aria_coder.operator_request.{pre_fix_id}",
-    )
-
-    return {
-        "queued": True,
-        "fix_id": pre_fix_id,
-        "gap_id": pre_gap_id,
-        "poll_url": f"/api/aria/coder/status/{pre_fix_id}",
-        "alternate_poll_url": f"/api/aria/coder/status/{pre_gap_id}",
-        "message": (
-            "ARIA has queued your request. Poll either URL for live "
-            "progress; she'll WhatsApp you when she's done."
-        ),
-    }
 
 
 @router.get("/coder/status/{fix_id}")

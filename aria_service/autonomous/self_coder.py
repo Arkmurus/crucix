@@ -237,6 +237,7 @@ class ARIACoder:
 
     async def fix_gap(
         self, gap: Gap, operator_initiated: bool = False,
+        force_stage_only: bool = False,
     ) -> FixResult:
         """End-to-end pipeline. Plan → validate → code → test → stage/deploy.
 
@@ -472,6 +473,14 @@ class ARIACoder:
                 and not review_verdict.is_flagged
                 and not review_verdict.is_blocked
             )
+            # R-F852 — operator chat-trigger (/code) requests force staging:
+            # the change is ALWAYS human-reviewed, never auto-deployed, even
+            # when SELF_IMPROVE_AUTO_DEPLOY / ticket-mode would otherwise ship
+            # it. Chat input becoming live code with no human is exactly the
+            # surface we keep gated; the operator approves via /api/aria/self/deploy.
+            if force_stage_only:
+                force_stage = True
+                force_deploy = False
             stage_ok, stage_status, staged_ids = await self._stage_or_deploy(
                 plan=plan, change_type=change_type,
                 force_stage=force_stage,
@@ -1044,6 +1053,7 @@ class ARIACoder:
         self,
         description: str,
         module_hint: Optional[str] = None,
+        force_stage: bool = False,
     ) -> FixResult:
         """Synthesise a gap from a free-text operator request and run it.
 
@@ -1065,7 +1075,9 @@ class ARIACoder:
             description=description,
             module=module_hint or "operator_request",
         )
-        return await self.fix_gap(gap, operator_initiated=True)
+        return await self.fix_gap(
+            gap, operator_initiated=True, force_stage_only=force_stage,
+        )
 
     async def operator_add_source(self, source_spec: str) -> FixResult:
         """Operator: 'Add <source> to the intel sweep' → new source module."""
