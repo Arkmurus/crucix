@@ -203,9 +203,22 @@ def _get_embedder():
             return None
         _embedder_checked = True
         try:
+            # R-F857 (2026-05-24) — cap torch intra-op threads to 1 before the
+            # model loads. The encoder is GIL-bound; extra OpenMP/torch worker
+            # threads both oversubscribe the shared-cpu box AND hold the GIL
+            # longer, starving the asyncio event loop during the autonomous
+            # absorb storm (the 2026-05-24 wedge). all-MiniLM-L6-v2 is tiny — 1
+            # thread suffices and releases the GIL cleaner. Pairs with the
+            # ARIA_BRAIN_ABSORB_PAUSE_MS pacer + OMP_NUM_THREADS=1 (fly secret,
+            # the pre-import OpenMP lever).
+            try:
+                import torch as _torch
+                _torch.set_num_threads(1)
+            except Exception as _torch_err:
+                logger.debug("R-F857 torch.set_num_threads(1) skipped: %s", _torch_err)
             from sentence_transformers import SentenceTransformer
             _embedder = SentenceTransformer("all-MiniLM-L6-v2")
-            logger.info("Loaded sentence-transformers embedding model (all-MiniLM-L6-v2)")
+            logger.info("Loaded sentence-transformers embedding model (all-MiniLM-L6-v2, torch threads=1)")
         except ImportError:
             logger.warning("sentence-transformers not installed — using TF-IDF only")
         except Exception as exc:
