@@ -3077,9 +3077,10 @@
       "title": "WA doc path: surface read-document failure instead of silent swallow (the contract black-hole)",
       "claimed_at": "2026-05-24T16:51:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5bb16e6",
+      "notes": null,
+      "shipped_at": "2026-05-24T16:52:42Z"
     }
   ]
 }

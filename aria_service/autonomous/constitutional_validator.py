@@ -107,6 +107,15 @@ WEAKENING_PATTERNS: list[tuple[str, str]] = [
     (r"os\.environ\[.ARIA_INTERNAL_TOKEN.?\]\s*=", "Overwriting internal token"),
     (r"PROTECTED_FILES\s*=\s*(frozenset\(\)|set\(\)|\{\s*\}|\[\s*\])",
      "Clearing protected-files set"),
+    # R-F855 (2026-05-24) — tag-faking / verification-subversion. The
+    # 2026-05-24 staged "failed attack" amendment faked verification tags;
+    # block self-written code/prompts that hardcode a passing verification
+    # verdict or emit a verification token unconditionally. This is the
+    # Phase A honesty foundation the deploy gate exists to protect.
+    (r'\bverification\s*=\s*["\']GROUNDED["\']',  "Hardcoding GROUNDED verification verdict"),
+    (r'\bverdict\s*=\s*["\'](GROUNDED|CONFIRMED|VERIFIED)["\']', "Hardcoding a passing verification verdict"),
+    (r'\bis_grounded\s*=\s*True\b',               "Forcing is_grounded=True"),
+    (r'["\']\[CONFIRMED\]["\']',                  "Hardcoded [CONFIRMED] verification-tag literal"),
 ]
 
 
@@ -157,27 +166,33 @@ class ConstitutionalValidator:
             )
             return result
 
-        # 2. AST-level analysis (requires valid Python)
-        try:
-            tree = ast.parse(code)
-        except SyntaxError as e:
-            result.add_violation(
-                f"Syntax error in generated code: {e}",
-                score_delta=0.5,
-            )
-            return result
+        # 2. AST-level analysis (requires valid Python). R-F855: only Python
+        # files get AST checks — running ast.parse on a .yaml/.mjs/.js patch
+        # would raise SyntaxError and wrongly BLOCK a legitimate non-Python
+        # deploy. Regex pattern checks (step 3) still run on every file type.
+        is_python = target_file.endswith(".py")
+        tree = None
+        if is_python:
+            try:
+                tree = ast.parse(code)
+            except SyntaxError as e:
+                result.add_violation(
+                    f"Syntax error in generated code: {e}",
+                    score_delta=0.5,
+                )
+                return result
+            self._check_ast(result, tree)
 
-        self._check_ast(result, tree)
-
-        # 3. Regex pattern checks (catches non-AST safety patterns)
+        # 3. Regex pattern checks (catches non-AST safety patterns) — ALL types.
         self._check_patterns(result, code)
 
-        # 4. Protected-function integrity if patching a guard file
-        if "guard" in target_file.lower() or "verifier" in target_file.lower():
+        # 4. Protected-function integrity if patching a guard file (Python only)
+        if tree is not None and ("guard" in target_file.lower() or "verifier" in target_file.lower()):
             self._check_protected_functions(result, tree)
 
-        # 5. Import safety
-        self._check_imports(result, tree)
+        # 5. Import safety (Python only)
+        if tree is not None:
+            self._check_imports(result, tree)
 
         logger.info(
             "[constitutional_validator] %s passed=%s risk=%.2f "

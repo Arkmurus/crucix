@@ -324,6 +324,74 @@ async def deploy_improvement(improvement_id: str) -> dict:
     file_path = target["file"]
     full_path = _root / file_path
 
+    # R-F855 (2026-05-24) — deploy-time constitutional integrity gate (L2+L4).
+    # The stage→deploy path had NO content check (R-F851 only gated AUTO-deploy
+    # by file). Run ConstitutionalValidator on the staged content BEFORE writing
+    # it live: AST + weakening-pattern + tag-faking + protected-file checks. On
+    # violation we do NOT write — move the item to DISCARDED_KEY as evidence and
+    # raise a HIGH operator pending_action. FAIL-CLOSED: a validator that can't
+    # run blocks the deploy (a guard that fails open is no guard). Blocks BOTH
+    # auto-deploy and human POST /self/deploy of poisoned content — the
+    # tag-faking-amendment vector that surfaced 2026-05-24.
+    try:
+        from ..autonomous.constitutional_validator import ConstitutionalValidator
+        _cv = ConstitutionalValidator().validate(
+            target.get("new_content", ""), file_path,
+            patch_context=target.get("description", ""),
+        )
+        _cv_ok, _cv_violations, _cv_risk = _cv.passed, _cv.violations, _cv.risk_score
+    except Exception as _cv_err:
+        logger.error(
+            "[self_improve] R-F855 constitutional_validator unavailable — "
+            "FAILING CLOSED on deploy of %s: %s", file_path, _cv_err,
+        )
+        _cv_ok, _cv_violations, _cv_risk = False, [f"validator unavailable (fail-closed): {_cv_err}"], 1.0
+    if not _cv_ok:
+        target["status"] = "blocked_constitutional"
+        target["blocked_at"] = time.time()
+        target["block_violations"] = _cv_violations
+        try:
+            discarded = await rs.get_json(DISCARDED_KEY) or []
+            discarded.insert(0, target)
+            await rs.set_json(DISCARDED_KEY, discarded[:200], ex=365 * 86400)
+            staged = [s for s in staged if s.get("id") != improvement_id]
+            await rs.set_json(STAGED_KEY, staged, ex=7 * 86400)
+        except Exception as _dq_err:
+            logger.error("[self_improve] R-F855 quarantine-move failed: %s", _dq_err)
+        await _log_improvement("blocked_constitutional", target)
+        try:
+            from . import pending_actions as _pa
+            await _pa.record(
+                promise=f"Self-improve deploy of {file_path} ({improvement_id})",
+                reason="BLOCKED by constitutional_validator: " + "; ".join(_cv_violations)[:300],
+                resolver_kind="operator_action",
+                resolver_ref="self_improve.deploy.constitutional_block",
+                severity="HIGH",
+                source="self_improve",
+                operator_prompt=(
+                    f"self-improve tried to deploy {file_path} but the constitutional "
+                    f"validator BLOCKED it (risk={_cv_risk:.2f}). It is quarantined at "
+                    f"/api/aria/self/improvements/discarded — likely an adversarial / "
+                    f"tag-faking amendment. Inspect before any redeploy."
+                ),
+                metadata={"improvement_id": improvement_id, "file": file_path,
+                          "violations": _cv_violations[:10]},
+            )
+        except Exception as _pa_err:
+            logger.error("[self_improve] R-F855 pending_action record failed: %s", _pa_err)
+        logger.warning(
+            "[self_improve] R-F855 BLOCKED deploy of %s (id=%s, risk=%.2f): %s",
+            file_path, improvement_id, _cv_risk, "; ".join(_cv_violations)[:200],
+        )
+        return {
+            "error": "BLOCKED by constitutional_validator",
+            "blocked": True,
+            "violations": _cv_violations,
+            "risk_score": _cv_risk,
+            "id": improvement_id,
+            "file": file_path,
+        }
+
     # Backup current file — structured backup with metadata for the
     # metacognitive coding_lessons module to track rollback history.
     backup_path = None
