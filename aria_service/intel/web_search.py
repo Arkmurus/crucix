@@ -1068,33 +1068,34 @@ async def search(
     # so we don't poison the embedding space.
     try:
         from . import rag_store as _rs_rag
+        # R-F859 (2026-05-24) — collect all results and ingest in ONE batched
+        # encode pass. Pre-R-F859 this looped ingest_document per result, firing
+        # ~25 separate GIL-holding sentence-transformer encodes per burst that
+        # starved the asyncio event loop (finding #1 wedge). add_search_results_batch
+        # upserts the whole batch in a single model pass.
+        _rag_batch = []
         for r in final[:max_results]:
-            try:
-                if r.credibility_tier >= 4:
-                    continue
-                body_for_rag = (
-                    (r.title or "")
-                    + "\n\n"
-                    + (r.snippet or "")
-                ).strip()
-                if len(body_for_rag) < 40:
-                    continue
-                await _rs_rag.ingest_document(
-                    body_for_rag,
-                    source=f"web_search:{r.source}",
-                    source_type="search_result",
-                    title=r.title[:200],
-                    url=r.url[:500],
-                    extra_metadata={
-                        "search_query": query[:200],
-                        "credibility_tier": r.credibility_tier,
-                        "language": language,
-                    },
-                )
-            except Exception as _ie:
-                logger.debug("R-F184 RAG ingest skipped for %s: %s", r.url[:60], _ie)
+            if r.credibility_tier >= 4:
+                continue
+            body_for_rag = ((r.title or "") + "\n\n" + (r.snippet or "")).strip()
+            if len(body_for_rag) < 40:
+                continue
+            _rag_batch.append({
+                "text": body_for_rag,
+                "source": f"web_search:{r.source}",
+                "source_type": "search_result",
+                "title": (r.title or "")[:200],
+                "url": (r.url or "")[:500],
+                "metadata": {
+                    "search_query": query[:200],
+                    "credibility_tier": r.credibility_tier,
+                    "language": language,
+                },
+            })
+        if _rag_batch:
+            await _rs_rag.add_search_results_batch(_rag_batch)
     except Exception as _re:
-        logger.debug("R-F184 RAG ingest pass failed: %s", _re)
+        logger.debug("R-F184/R-F859 RAG batch ingest pass failed: %s", _re)
 
     # ── R-F189 (2026-05-11) — all-general-web-dead capability gap ──
     # When Brave is sticky-disabled (R-F171 24h sentinel) AND DuckDuckGo

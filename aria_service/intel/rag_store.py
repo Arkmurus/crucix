@@ -875,6 +875,71 @@ async def add_facts_batch(facts: list[dict]) -> int:
         return 0
 
 
+async def add_search_results_batch(items: list[dict]) -> int:
+    """R-F859 (2026-05-24) — batched ingest for short search-result docs.
+
+    Collapses N per-result encodes into ONE batched upsert (chromadb encodes
+    the whole batch in a single sentence-transformers pass). Mirrors
+    add_facts_batch but targets the documents collection. Fixes the FIX-1b
+    half of finding #1: R-F184 looped ingest_document once per web_search
+    result (~25 'Batches:1/1' encodes per burst), each a separate GIL-holding
+    encode that starved the event loop.
+
+    Each item: {text, source, source_type?, title?, url?, metadata?}. Search
+    results are short (title+snippet) so each is one chunk — no splitting
+    needed. Items < 40 chars are skipped. The id is content-hashed so re-runs
+    upsert idempotently (same dedup guarantee as ingest_document). Returns the
+    number upserted.
+    """
+    if not items:
+        return 0
+    if not await _ensure_async() or _documents_collection is None:
+        return 0
+    ids: list[str] = []
+    docs: list[str] = []
+    metas: list[dict] = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+    ts_epoch = time.time()
+    seen: set[str] = set()
+    for it in items:
+        text = (it.get("text") or "").strip()
+        text, _ = _sanitize_ingest_text(text)
+        if not text or len(text) < 40:
+            continue
+        src = (it.get("source") or "")
+        cid = _hash_id(text, src)
+        if cid in seen:   # de-dupe within the batch (chromadb rejects dup ids)
+            continue
+        seen.add(cid)
+        ids.append(cid)
+        docs.append(text)
+        meta = {
+            "source": src[:300],
+            "source_type": (it.get("source_type") or "")[:50],
+            "title": (it.get("title") or "")[:200],
+            "url": (it.get("url") or "")[:500],
+            "ingested_at": now_iso,
+            "ts_epoch": ts_epoch,
+        }
+        for k, v in (it.get("metadata") or {}).items():
+            if v is not None:   # chromadb metadata values cannot be None
+                meta[k] = v
+        metas.append(meta)
+    if not ids:
+        return 0
+    try:
+        import asyncio as _aio
+        await _aio.to_thread(
+            _documents_collection.upsert,
+            ids=ids, documents=docs, metadatas=metas,
+        )
+        logger.info("RAG batch ingest: %d search results (1 encode pass)", len(ids))
+        return len(ids)
+    except Exception as e:
+        logger.debug("RAG batch search-result ingest failed: %s", e)
+        return 0
+
+
 # ── Public API: retrieve ───────────────────────────────────────────────────
 
 def _recency_boost(ts_epoch: float | None) -> float:
