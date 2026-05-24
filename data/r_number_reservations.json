@@ -3108,9 +3108,10 @@
       "title": "FIX 1b: batch web_search RAG ingest (one encode pass instead of ~25 per burst) — wedge",
       "claimed_at": "2026-05-24T17:12:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "24a6e0b",
+      "notes": null,
+      "shipped_at": "2026-05-24T20:50:01Z"
     }
   ]
 }
