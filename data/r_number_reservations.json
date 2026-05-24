@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 836,
+  "next_available": 851,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -1473,9 +1473,10 @@
       "title": "minor: self-diag accept 422 + autonomous status data shape + cost projection",
       "claimed_at": "2026-05-18T18:02:31Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "37e90bc",
+      "notes": null,
+      "shipped_at": "2026-05-23T14:04:18Z"
     },
     {
       "r_number": "R-F696",
@@ -2462,9 +2463,10 @@
       "title": "Phase A gate #5 + autonomy ramp L1 shadow",
       "claimed_at": "2026-05-22T16:03:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "(env-only, 2026-05-22)",
+      "notes": null,
+      "shipped_at": "2026-05-23T14:00:40Z"
     },
     {
       "r_number": "R-F795",
@@ -2780,9 +2782,9 @@
       "claimed_at": "2026-05-23T10:53:54Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "50f71b0",
+      "commit_sha": "4810db2",
       "notes": null,
-      "shipped_at": "2026-05-23T10:58:03Z"
+      "shipped_at": "2026-05-23T12:27:59Z"
     },
     {
       "r_number": "R-F827",
@@ -2798,54 +2800,60 @@
       "title": "Audit W1 — /api/admin/env-check requireAdmin gate",
       "claimed_at": "2026-05-23T11:09:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "de4496f",
+      "notes": null,
+      "shipped_at": "2026-05-23T12:30:23Z"
     },
     {
       "r_number": "R-F829",
       "title": "Audit W4 — Socket.io CORS origin allowlist",
       "claimed_at": "2026-05-23T11:09:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "00d7ae3",
+      "notes": null,
+      "shipped_at": "2026-05-23T14:02:53Z"
     },
     {
       "r_number": "R-F830",
       "title": "Audit W18 — lib/persist corruption-check + halt-don't-zero",
       "claimed_at": "2026-05-23T11:09:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "00d7ae3",
+      "notes": null,
+      "shipped_at": "2026-05-23T14:02:54Z"
     },
     {
       "r_number": "R-F831",
       "title": "Audit W3+W2 — localhost bypass + Telegram webhook secret enforcement",
       "claimed_at": "2026-05-23T11:09:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "00d7ae3",
+      "notes": null,
+      "shipped_at": "2026-05-23T14:02:54Z"
     },
     {
       "r_number": "R-F832",
       "title": "Fly migration step 1: aria-web Fly app (Dockerize server.mjs minus WA)",
       "claimed_at": "2026-05-23T11:09:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5ac1585",
+      "notes": null,
+      "shipped_at": "2026-05-23T12:09:02Z"
     },
     {
       "r_number": "R-F833",
       "title": "Fly migration step 2: aria-wa Fly app (Baileys isolated)",
       "claimed_at": "2026-05-23T11:09:43Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5ac1585",
+      "notes": null,
+      "shipped_at": "2026-05-23T12:09:03Z"
     },
     {
       "r_number": "R-F834",
@@ -2864,6 +2872,155 @@
       "status": "in_progress",
       "commit_sha": null,
       "notes": null
+    },
+    {
+      "r_number": "R-F836",
+      "title": "Fly consolidation memory + CLAUDE.md update",
+      "claimed_at": "2026-05-23T12:11:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1e24e19",
+      "notes": null,
+      "shipped_at": "2026-05-23T12:16:37Z"
+    },
+    {
+      "r_number": "R-F837",
+      "title": "ARIA-LLM v0.1 activation runbook",
+      "claimed_at": "2026-05-23T12:11:50Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1e24e19",
+      "notes": null,
+      "shipped_at": "2026-05-23T12:16:37Z"
+    },
+    {
+      "r_number": "R-F838",
+      "title": "P0 IPv6 .internal bind on aria-intel + aria-web",
+      "claimed_at": "2026-05-23T12:37:59Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "8cbeccb",
+      "notes": null,
+      "shipped_at": "2026-05-23T12:44:06Z"
+    },
+    {
+      "r_number": "R-F839",
+      "title": "Split SEENODE_BASE_URL → internal URLs",
+      "claimed_at": "2026-05-23T12:38:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "64a6d0a",
+      "notes": null,
+      "shipped_at": "2026-05-23T12:44:06Z"
+    },
+    {
+      "r_number": "R-F840",
+      "title": "Fix hardcoded Seenode fallback at aria.py",
+      "claimed_at": "2026-05-23T12:38:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "64a6d0a",
+      "notes": null,
+      "shipped_at": "2026-05-23T12:44:06Z"
+    },
+    {
+      "r_number": "R-F841",
+      "title": "CI workflow: deploy aria-web + aria-wa",
+      "claimed_at": "2026-05-23T12:38:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "121b9ce",
+      "notes": null,
+      "shipped_at": "2026-05-23T12:44:07Z"
+    },
+    {
+      "r_number": "R-F842",
+      "title": "Dual-stack socket fix for aria-intel IPv6+IPv4",
+      "claimed_at": "2026-05-23T12:54:15Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c4cb62d",
+      "notes": null,
+      "shipped_at": "2026-05-23T12:57:32Z"
+    },
+    {
+      "r_number": "R-F843",
+      "title": "WANotifier reads ARIA_WA_INTERNAL_URL not SEENODE_BASE_URL",
+      "claimed_at": "2026-05-23T13:13:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "55ff1aa",
+      "notes": null,
+      "shipped_at": "2026-05-23T13:44:11Z"
+    },
+    {
+      "r_number": "R-F844",
+      "title": "C:/Program Files/Git/api/status factors bridge.healthy into overall status",
+      "claimed_at": "2026-05-23T13:13:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a4d76a1",
+      "notes": null,
+      "shipped_at": "2026-05-23T13:44:11Z"
+    },
+    {
+      "r_number": "R-F845",
+      "title": "C:/Program Files/Git/api/v1/health 503 root-cause + fix",
+      "claimed_at": "2026-05-23T13:13:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "7468e4d",
+      "notes": null,
+      "shipped_at": "2026-05-23T13:44:11Z"
+    },
+    {
+      "r_number": "R-F846",
+      "title": "aria-intel cold-start autonomy throttle (anti-wedge)",
+      "claimed_at": "2026-05-23T13:13:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e45234b",
+      "notes": null,
+      "shipped_at": "2026-05-23T13:44:11Z"
+    },
+    {
+      "r_number": "R-F847",
+      "title": "aria-web build_rev via Dockerfile.web build-arg",
+      "claimed_at": "2026-05-23T13:13:08Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "d4def23",
+      "notes": null,
+      "shipped_at": "2026-05-23T13:44:11Z"
+    },
+    {
+      "r_number": "R-F848",
+      "title": "Deferred backlog plan doc — 9 entries scoped for future work",
+      "claimed_at": "2026-05-23T14:06:51Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "546519d",
+      "notes": null,
+      "shipped_at": "2026-05-23T14:09:15Z"
+    },
+    {
+      "r_number": "R-F849",
+      "title": "extract-document 10KB truncation: raise cap + stamp PARTIAL EXTRACTION banner",
+      "claimed_at": "2026-05-24T15:14:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F850",
+      "title": "bridge health verdict periodic refresh (stop stale false-degraded on /api/status)",
+      "claimed_at": "2026-05-24T15:37:41Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e821e60",
+      "notes": null,
+      "shipped_at": "2026-05-24T15:43:46Z"
     }
   ]
 }

@@ -1402,6 +1402,12 @@ fileInput.addEventListener('change', async function() {
                 ' · ' + Math.round((data.confidence || 0) * 100) + '%' +
                 (data.pages_extracted && data.total_pages
                   ? ' · ' + data.pages_extracted + '/' + data.total_pages + ' pages'
+                  : '') +
+                // R-F849 — surface server-side truncation so the user knows the
+                // tail (annexes / signature / schedules) is not in the analysis.
+                (data.truncated
+                  ? ' · ⚠ truncated ' + (data.returned_chars || 0).toLocaleString() +
+                    '/' + (data.total_chars || 0).toLocaleString() + ' chars'
                   : '');
     var promptText =
       '[ATTACHED DOCUMENT: ' + label + ']\n' +

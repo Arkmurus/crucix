@@ -51,6 +51,48 @@ def _stamp_partial_extraction(extracted: str, dropped_summary: str) -> str:
     ) + extracted
 
 
+# R-F849 (2026-05-24) — extract-document char cap. Pre-R-F849 both
+# /extract-document and /extract-document-json sliced the extract to the
+# first 10K chars with no banner: a real multi-page contract exceeded that,
+# so the tail
+# (annexes / signature page / payment schedules) was silently dropped, and
+# ARIA either reviewed a truncated contract or — when the whole upload failed
+# upstream — reported "no document". 10K chars ≈ 2.5K tokens; a typical
+# 10-20pp contract is 30-60K chars. Raised to 60K (~15K tokens), which fits a
+# full contract alongside the 20K-char recall budget (MAX_CONTEXT_CHARS in
+# aria_engine) inside DeepSeek's ~64K-token window. The user message itself is
+# NOT capped downstream (aria_engine builds `user_prompt = message+context`
+# verbatim), so this endpoint is the sole binding truncation point. When the
+# extract still exceeds the cap we stamp _stamp_partial_extraction so the chat
+# LLM, the contract self-review pass, and the user all know the tail is gone.
+_EXTRACT_DOC_MAX_CHARS = 60000
+
+
+def _capped_doc_text(result) -> dict:
+    """Build the `text` field + truncation metadata for an extract-document
+    response. Caps at _EXTRACT_DOC_MAX_CHARS and, when it truncates, prepends
+    the [!PARTIAL EXTRACTION] banner so no downstream consumer mistakes a
+    truncated extract for the whole document. Shared by both extract-document
+    endpoints to keep them in sync. R-F849."""
+    full = result.text or ""
+    total = len(full)
+    if total > _EXTRACT_DOC_MAX_CHARS:
+        kept = full[:_EXTRACT_DOC_MAX_CHARS]
+        pages = (
+            f", {result.pages_extracted}/{result.total_pages} pages"
+            if getattr(result, "total_pages", 0) else ""
+        )
+        dropped = (
+            f"{result.method}: returned first {_EXTRACT_DOC_MAX_CHARS:,} of "
+            f"{total:,} extracted chars{pages}"
+        )
+        text = _stamp_partial_extraction(kept, dropped)
+        return {"text": text, "total_chars": total,
+                "returned_chars": len(text), "truncated": True}
+    return {"text": full, "total_chars": total,
+            "returned_chars": total, "truncated": False}
+
+
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -14091,7 +14133,7 @@ async def extract_document_json_ep(
             language_hint=req.language_hint,
         )
         return {
-            "text": result.text[:10000],
+            **_capped_doc_text(result),
             "method": result.method,
             "confidence": result.confidence,
             "is_usable": result.is_usable,
@@ -14149,7 +14191,7 @@ async def extract_document_ep(
             language_hint=language_hint,
         )
         return {
-            "text": result.text[:10000],
+            **_capped_doc_text(result),
             "method": result.method,
             "confidence": result.confidence,
             "is_usable": result.is_usable,
