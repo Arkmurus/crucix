@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 854,
+  "next_available": 855,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3047,6 +3047,16 @@
       "r_number": "R-F853",
       "title": "WA listener: inject recently-shared document when a text follow-up references the contract (mirror image-OCR buffer)",
       "claimed_at": "2026-05-24T16:27:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "966f68e",
+      "notes": null,
+      "shipped_at": "2026-05-24T16:30:57Z"
+    },
+    {
+      "r_number": "R-F854",
+      "title": "redo R-F853 in CANONICAL aria_wa_listener.mjs: cache extracted doc text per-sender, re-attach on doc-referencing follow-up mention",
+      "claimed_at": "2026-05-24T16:37:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

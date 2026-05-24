@@ -147,6 +147,35 @@ function store(groupId, groupName, sender, senderName, text, ts) {
   }
 }
 
+// ── R-F854 (2026-05-24) — per-sender recent-document cache ──────────────────
+// The document path POSTs to /api/aria/read-document (the brain absorbs facts)
+// but does NOT keep the extracted text locally. So a follow-up MENTION
+// ("Aria, analyse this contract") reached /api/aria/chat with no
+// [ATTACHED DOCUMENT] block, and ARIA honestly reported "no document in my
+// context" — the recurring 2026-05-24 contract-review failure. Cache the
+// extracted text on read, re-attach it on a doc-referencing follow-up.
+// (R-F853 fixed the LEGACY lib/whatsapp/waListener.mjs by mistake; this file —
+// services/wa-listener/aria_wa_listener.mjs — is the canonical aria-wa entry.)
+const _recentDocs = new Map();                 // `${chatId}|${senderName}` → {filename,text,ts}
+const _RECENT_DOC_TTL_MS = 60 * 60 * 1000;     // 1h — a follow-up is usually prompt
+export const _DOC_REF_PATTERN = /\b(contract|agreement|nda|mou|rfq|tender|document|annex|appendix|clause|terms|paperwork|the\s+file|the\s+pdf|attachment|payment)\b/i;
+
+function _cacheRecentDoc(chatId, senderName, filename, text) {
+  if (!text || text.length < 200) return;      // ignore placeholders / failed parses
+  _recentDocs.set(`${chatId}|${senderName}`, { filename: filename || 'document', text, ts: Date.now() });
+}
+
+// Returns the cached doc {filename,text,ts} when `question` references a
+// document AND a recent (non-expired) doc exists for this sender, else null.
+function _recentDocForFollowup(chatId, senderName, question) {
+  if (!question || !_DOC_REF_PATTERN.test(question)) return null;
+  const key = `${chatId}|${senderName}`;
+  const entry = _recentDocs.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > _RECENT_DOC_TTL_MS) { _recentDocs.delete(key); return null; }
+  return entry;
+}
+
 // ── Feed message to ARIA brain ─────────────────────────────────────────────────
 async function feedToARIA(groupName, senderName, text) {
   try {
@@ -898,6 +927,11 @@ async function startListener() {
                 mimetype,
               }).catch(() => null);
               if (result) {
+                // R-F854 — cache the extracted text so a later "analyse this
+                // contract" follow-up mention can re-attach it (read-document
+                // returns extracted_text per R-F849; fall back to utf-8 content).
+                _cacheRecentDoc(chatId, senderName, filename,
+                  (result.extracted_text || (isBinary ? '' : content) || '').trim());
                 const summary = result.summary || `${docType} file, ${content.length} characters`;
                 console.log(`[ARIA Listener] Doc processed: ${filename} → ${result.facts_learned || 0} facts (form: ${result.doc_intel?.form_code || '?'})`);
                 const overview = result.overview_markdown;
@@ -954,7 +988,20 @@ async function startListener() {
 
       // ── Mention handling — respond when ARIA is mentioned ──────────────────
       if (MENTIONS_RE.some(p => p.test(text))) {
-        const q = text.replace(/^@?aria[,:?\s]*/i, '').trim() || text;
+        let q = text.replace(/^@?aria[,:?\s]*/i, '').trim() || text;
+        // R-F854 — if this is a doc-referencing follow-up and we recently read
+        // a document from this sender, re-attach its text as an
+        // [ATTACHED DOCUMENT] block so the chat path is document-grounded.
+        const _doc = _recentDocForFollowup(chatId, senderName, q);
+        if (_doc) {
+          let body = _doc.text;
+          if (body.length > MAX_DOC_CHARS) {
+            body = `[!PARTIAL EXTRACTION — "${_doc.filename}" was ${_doc.text.length} chars, truncated to the first ${MAX_DOC_CHARS}; content past that point is NOT below, so do not assert any clause/annex/term is absent based on this slice]\n\n`
+              + body.slice(0, MAX_DOC_CHARS);
+          }
+          q = `[ATTACHED DOCUMENT — "${_doc.filename}" recently shared by ${senderName}; per CONSTITUTION clause 12 you MUST quote verbatim from this text and MUST NOT review based on prior conversation context]\n${body}\n[END ATTACHED DOCUMENT]\n\n${q}`;
+          console.log(`[ARIA Listener] R-F854 re-attached recent document "${_doc.filename}" (${_doc.text.length} chars) to follow-up mention`);
+        }
         try {
           const response = await askARIA(q, senderJid);
           if (response) await sendReply(chatId, response);
