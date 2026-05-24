@@ -26,6 +26,9 @@ def _reset_breaker():
     brain_hook._breaker_state["consecutive_high"] = 0
     # R-F790: per-episode ticket flag, reset between cases.
     brain_hook._breaker_state["ticket_filed_this_episode"] = False
+    # R-F858: cross-episode ticket cooldown timestamp, reset between cases
+    # (module-level state leaks across tests otherwise).
+    brain_hook._breaker_state["last_ticket_at"] = 0.0
     brain_hook._recent_latencies_ms.clear()
 
 
@@ -137,8 +140,42 @@ def test_rf790_close_resets_ticket_flag_for_next_episode():
     brain_hook._maybe_close_breaker()
 
     assert brain_hook._breaker_state["ticket_filed_this_episode"] is False
-    # And as a consequence, _should_file_ticket reports True again.
+    # And as a consequence, _should_file_ticket reports True again (no recent
+    # cross-episode ticket — last_ticket_at reset to 0).
     assert brain_hook._should_file_ticket() is True
+
+
+# ─── R-F858 — cross-episode ticket cooldown (stop flapping-wedge alert spam) ─
+
+def test_rf858_suppresses_ticket_within_cooldown():
+    """A flapping wedge re-trips every 60-120s; each re-trip is a fresh episode
+    (flag clear) but should NOT file a new HIGH ticket within the cross-episode
+    cooldown — the flaps coalesce into one 'wedge recurring' signal."""
+    _reset_breaker()
+    brain_hook._breaker_state["last_ticket_at"] = time.time()  # ticket filed just now
+    assert brain_hook._should_file_ticket() is False
+
+
+def test_rf858_allows_ticket_after_cooldown_elapses():
+    """Once the cooldown has elapsed, a genuinely new wedge files again."""
+    _reset_breaker()
+    brain_hook._breaker_state["last_ticket_at"] = (
+        time.time() - (brain_hook._TICKET_COOLDOWN_S + 5)
+    )
+    assert brain_hook._should_file_ticket() is True
+
+
+def test_rf858_trip_stamps_last_ticket_at():
+    """A trip that files a ticket stamps last_ticket_at so subsequent flaps
+    within the cooldown are suppressed."""
+    _reset_breaker()
+    brain_hook._warmup_complete = True
+    brain_hook._recent_latencies_ms.extend([9000.0] * 12)
+    for _ in range(brain_hook._TRIP_CONSECUTIVE):
+        brain_hook._maybe_trip_breaker("test-flap")
+    assert brain_hook._breaker_state["open"] is True
+    assert brain_hook._breaker_state["last_ticket_at"] > 0.0
+    _reset_breaker()
 
 
 def test_rf790_close_does_not_reference_pending_actions():

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 858,
+  "next_available": 859,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3087,6 +3087,16 @@
       "r_number": "R-F857",
       "title": "FIX 1a: cap torch threads at embedder init to reduce GIL contention (wedge)",
       "claimed_at": "2026-05-24T17:06:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "bad9bcc",
+      "notes": null,
+      "shipped_at": "2026-05-24T17:08:12Z"
+    },
+    {
+      "r_number": "R-F858",
+      "title": "FIX 2a: cross-episode ticket cooldown for brain_hook breaker flap (stop HIGH alert spam)",
+      "claimed_at": "2026-05-24T17:08:12Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

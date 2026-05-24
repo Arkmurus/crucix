@@ -989,13 +989,29 @@ _breaker_state = {
     # ticket per trip→close cycle; reset on close so the NEXT genuine
     # episode files a fresh one.
     "ticket_filed_this_episode": False,
+    # R-F858 (2026-05-24): cross-episode ticket cooldown. A flapping wedge
+    # trips→closes→re-trips every 60-120s; each re-trip is a fresh EPISODE, so
+    # the per-episode flag alone files a new HIGH ticket on every flap (operator
+    # saw 3+ HIGH tickets in minutes). last_ticket_at coalesces a flapping
+    # breaker into ONE "wedge recurring" ticket per _TICKET_COOLDOWN_S window.
+    "last_ticket_at": 0.0,
 }
+
+# R-F858 — suppress repeat breaker tickets within this window (default 30 min).
+_TICKET_COOLDOWN_S = float(os.environ.get("ARIA_BRAIN_TICKET_COOLDOWN_S", "1800"))
 
 
 def _should_file_ticket() -> bool:
-    """R-F790: True iff the current open episode hasn't already filed a
-    HIGH pending_action. Factored out for unit testability."""
-    return not _breaker_state.get("ticket_filed_this_episode", False)
+    """R-F790: at most one HIGH ticket per OPEN episode. R-F858: AND a
+    cross-episode cooldown so a flapping breaker (trip→close→re-trip every
+    60-120s) doesn't file a fresh ticket on every flap — they coalesce into one
+    'wedge recurring' signal per _TICKET_COOLDOWN_S. Factored out for tests."""
+    if _breaker_state.get("ticket_filed_this_episode", False):
+        return False
+    _last = _breaker_state.get("last_ticket_at", 0.0)
+    if _last and (time.time() - _last) < _TICKET_COOLDOWN_S:
+        return False
+    return True
 
 
 def _record_latency(ms: float) -> None:
@@ -1056,6 +1072,7 @@ def _maybe_trip_breaker(reason: str) -> None:
             # — operator already sees the WARNING log line above.
             if _should_file_ticket():
                 _breaker_state["ticket_filed_this_episode"] = True
+                _breaker_state["last_ticket_at"] = time.time()  # R-F858 cross-episode cooldown
                 try:
                     async def _alert():
                         from . import pending_actions as _pa
