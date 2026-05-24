@@ -281,6 +281,38 @@ setImmediate(() => {
   });
 });
 
+// === Brain bridge periodic re-check (R-F850) ===============================
+// The boot probe above is a ONE-SHOT. If the brain is mid-cold-start when it
+// fires (the L3 autonomy absorb storm can wedge the event loop for 2-5min
+// after a deploy), the 8s probe times out and the cached verdict is stuck at
+// `healthy:false` FOREVER — nothing else refreshes it except a manual admin
+// ?rerun=1. /api/status (R-F844) then reports "degraded" indefinitely even
+// after the brain recovers and live proxy traffic is succeeding. Re-run the
+// probe every 60s so /api/status reflects current reality and self-heals once
+// the cold-start window ends (CLAUDE.md §14: report "degraded" only when
+// actually degraded). Quiet + no telegramAlerter so a healthy brain doesn't
+// log every minute and a persistent misconfig doesn't spam alerts (the boot
+// one-shot already alerted). Non-overlapping guard + unref() so it never
+// stacks probes or keeps the process alive.
+const _BRIDGE_RECHECK_MS = 60_000;
+let _bridgeRecheckInFlight = false;
+const _bridgeRecheckTimer = setInterval(() => {
+  if (_bridgeRecheckInFlight) return;
+  _bridgeRecheckInFlight = true;
+  const _prev = getBrainBridgeVerdict();
+  runAndCacheBridgeVerdict({ quiet: true })
+    .then(v => {
+      if (v && _prev && v.healthy !== _prev.healthy) {
+        console.log(
+          `[brainBridge] state change: healthy ${_prev.healthy} → ${v.healthy} (${v.reason})`
+        );
+      }
+    })
+    .catch(err => console.error('[brainBridge] periodic re-check crashed:', err.message))
+    .finally(() => { _bridgeRecheckInFlight = false; });
+}, _BRIDGE_RECHECK_MS);
+if (typeof _bridgeRecheckTimer.unref === 'function') _bridgeRecheckTimer.unref();
+
 // === SMTP Diagnostics ===
 const smtpConfigured = !!(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
 if (smtpConfigured) {
