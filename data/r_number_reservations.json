@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 855,
+  "next_available": 857,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3057,6 +3057,25 @@
       "r_number": "R-F854",
       "title": "redo R-F853 in CANONICAL aria_wa_listener.mjs: cache extracted doc text per-sender, re-attach on doc-referencing follow-up mention",
       "claimed_at": "2026-05-24T16:37:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "48ef459",
+      "notes": null,
+      "shipped_at": "2026-05-24T16:40:02Z"
+    },
+    {
+      "r_number": "R-F855",
+      "title": "L2+L4: wire ConstitutionalValidator into deploy_improvement (deploy-time integrity gate) + tag-faking patterns + quarantine-on-block",
+      "claimed_at": "2026-05-24T16:47:20Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F856",
+      "title": "WA doc path: surface read-document failure instead of silent swallow (the contract black-hole)",
+      "claimed_at": "2026-05-24T16:51:43Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

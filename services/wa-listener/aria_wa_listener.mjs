@@ -918,6 +918,8 @@ async function startListener() {
               ? buf.toString('base64')                  // FULL base64 of byte-sliced buffer
               : buf.toString('utf-8').slice(0, MAX_DOC_CHARS);
             if (content.length > 50) {
+              // R-F856 — capture the failure reason instead of swallowing it.
+              let _docErr = null;
               const result = await brainPost('/api/aria/read-document', {
                 content,
                 filename,
@@ -925,7 +927,7 @@ async function startListener() {
                 context: text || `Document from ${senderName} in ${groupName}`,
                 encoding: isBinary ? 'base64' : 'utf-8',
                 mimetype,
-              }).catch(() => null);
+              }).catch(e => { _docErr = e?.message || 'no response'; return null; });
               if (result) {
                 // R-F854 — cache the extracted text so a later "analyse this
                 // contract" follow-up mention can re-attach it (read-document
@@ -940,10 +942,26 @@ async function startListener() {
                 } else {
                   await sendReply(chatId, `📄 I've read *${filename}*. ${summary}\n\nAsk me anything about it.`);
                 }
+              } else {
+                // R-F856 — read-document returned null (timeout / aria-intel
+                // wedged / extraction error). Pre-R-F856 this was SILENT: the
+                // user got no acknowledgment that the file was received, and the
+                // R-F854 cache was never populated, so every follow-up
+                // ("analyse this contract") honestly said "no document in my
+                // context." Surface it so the user can retry or paste the text.
+                console.warn(`[ARIA Listener] R-F856 read-document returned null for ${filename}: ${_docErr || 'unknown'}`);
+                await sendReply(chatId,
+                  `⚠️ I received *${filename}* but couldn't read it just now — my document service didn't respond `
+                  + `(it may be busy or restarting). Please resend in a minute, or paste the key clauses as text and `
+                  + `I'll analyse those right away.`
+                ).catch(() => {});
               }
             }
           } catch (e) {
             console.warn('[ARIA Listener] Document processing failed:', e.message);
+            await sendReply(chatId,
+              `⚠️ I couldn't process *${filename}* (${e.message}). Try resending, or paste the text.`
+            ).catch(() => {});
           }
         }
       }
