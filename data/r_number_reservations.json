@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 867,
+  "next_available": 868,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3177,6 +3177,16 @@
       "r_number": "R-F866",
       "title": "FIX WhatsApp auth persistence: Dockerfile.wa set wrong env var (WHATSAPP_AUTH_DIR vs listener's WA_LISTENER_AUTH_DIR) so auth never hit the /data volume — wiped every restart, perpetual QR rescan",
       "claimed_at": "2026-05-25T09:21:10Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6a543d7",
+      "notes": null,
+      "shipped_at": "2026-05-25T09:25:07Z"
+    },
+    {
+      "r_number": "R-F867",
+      "title": "WA media download: sock.downloadMediaMessage is not a function — use standalone downloadMediaMessage import (every doc/image download threw)",
+      "claimed_at": "2026-05-25T09:52:03Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

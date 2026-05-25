@@ -83,6 +83,11 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   Browsers,
+  // R-F867 — downloadMediaMessage is a STANDALONE export, NOT a socket method.
+  // Pre-R-F867 it was invoked as a method on the socket, which threw
+  // "not a function" on EVERY document/image → no upload ever downloaded
+  // (the 7 failed contract attempts).
+  downloadMediaMessage,
 } from '@whiskeysockets/baileys';
 
 import qrcode   from 'qrcode-terminal';
@@ -729,7 +734,7 @@ async function startListener() {
         await sendReply(chatId, `📥 Got your image. Reading now…`).catch(() => {});
 
         try {
-          const stream = await sock.downloadMediaMessage(msg);
+          const stream = await downloadMediaMessage(msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });  // R-F867 — standalone fn, not a socket method
           const buffer = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
             const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
           })());
@@ -905,7 +910,7 @@ async function startListener() {
         if (isProcessable) {
           console.log(`[ARIA Listener] Processing document: ${filename} (${mimetype})`);
           try {
-            const stream = await sock.downloadMediaMessage(msg);
+            const stream = await downloadMediaMessage(msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });  // R-F867 — standalone fn, not a socket method
             const buffer = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
               const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
             })());
