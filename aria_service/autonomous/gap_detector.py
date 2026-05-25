@@ -126,16 +126,40 @@ def _gap_id_for(gap_type: str, module: str, msg_prefix: str) -> str:
     ).hexdigest()[:16]
 
 
+def _entry_ts_epoch(ts: Any) -> float:
+    """R-F884 — normalise a store entry's timestamp to epoch seconds.
+    Producers write either an ISO string (chat_audit, capability_gaps,
+    mistake_ledger) or an epoch float (error_log). Returns 0.0 if unparseable
+    (→ the entry is treated as old / outside the lookback window)."""
+    if ts is None:
+        return 0.0
+    if isinstance(ts, (int, float)):
+        return float(ts)
+    if isinstance(ts, str):
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            try:
+                return float(ts)
+            except ValueError:
+                return 0.0
+    return 0.0
+
+
 # ── EXTRACTORS ───────────────────────────────────────────────────────────────
 
 class ErrorLedgerExtractor:
-    """Read structured ERROR/CRITICAL entries from `crucix:aria:error_ledger`.
+    """R-F884 — read errors from `crucix:aria:error_log` (the REAL producer key).
 
-    Format expected (per self_improve.py error reader): list of JSON
-    entries with keys: timestamp, level, message, module, traceback.
+    Pre-R-F884 this read `crucix:aria:error_ledger` via lrange — a key NO
+    producer writes, so the coder saw zero errors. self_improve.record_error
+    (`self_improve.py:1105`) writes `crucix:aria:error_log` via `set_json` as a
+    JSON BLOB (a list), not a Redis list — so we GET + json.loads, not lrange.
+    Entry schema: {type, message, file, function, traceback, timestamp(epoch)}.
+    There is no severity LEVEL field — every recorded entry IS an error.
     """
 
-    KEY = "crucix:aria:error_ledger"
+    KEY = "crucix:aria:error_log"
 
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
@@ -144,40 +168,46 @@ class ErrorLedgerExtractor:
         gaps: list[Gap] = []
         since_ts = since.timestamp()
         try:
-            raw = await self.redis.lrange(self.KEY, 0, 500)
+            raw = await self.redis.get(self.KEY)
         except Exception as e:
-            logger.error("[gap_detector] error_ledger read failed: %s", e)
+            logger.error("[gap_detector] error_log read failed: %s", e)
+            return gaps
+        if not raw:
+            return gaps
+        try:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            entries = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, ValueError):
+            return gaps
+        if not isinstance(entries, list):
             return gaps
 
-        for entry_bytes in raw:
+        for entry in entries:
             try:
-                entry = json.loads(
-                    entry_bytes.decode("utf-8")
-                    if isinstance(entry_bytes, bytes) else entry_bytes
-                )
-                if float(entry.get("timestamp", 0)) < since_ts:
+                if not isinstance(entry, dict):
+                    continue
+                if float(entry.get("timestamp", 0) or 0) < since_ts:
                     continue
                 gap = self._entry_to_gap(entry)
                 if gap is not None:
                     gaps.append(gap)
-            except (json.JSONDecodeError, ValueError, KeyError):
+            except (ValueError, TypeError, AttributeError):
                 continue
         return gaps
 
     def _entry_to_gap(self, entry: dict) -> Optional[Gap]:
         msg = entry.get("message", "")
-        level = entry.get("level", "")
-        module = entry.get("module", "unknown")
+        etype = entry.get("type", "")
+        # error_log has no `module`; use file/function as the locus.
+        module = entry.get("file") or entry.get("function") or "unknown"
         trace = entry.get("traceback", "")
-
-        if level not in ("ERROR", "CRITICAL"):
-            return None
 
         gap_type = GapType.MODULE_BUG
         severity = GapSeverity.HIGH
         title = f"Error in {module}"
 
-        lowered = msg.lower()
+        lowered = f"{msg} {etype}".lower()
         if "dd_orchestrator" in module or "layer" in lowered:
             gap_type = GapType.DD_LAYER_FAILURE
             severity = GapSeverity.CRITICAL
@@ -238,7 +268,10 @@ class ChatAuditExtractor:
                     entry_bytes.decode("utf-8")
                     if isinstance(entry_bytes, bytes) else entry_bytes
                 )
-                if float(entry.get("ts", 0)) < since_ts:
+                # R-F884 — producer writes "timestamp" (ISO string), not "ts"
+                # (chat_audit_log.py:121). Pre-R-F884 every entry was skipped
+                # because entry.get("ts") was always 0.
+                if _entry_ts_epoch(entry.get("timestamp")) < since_ts:
                     continue
                 response = entry.get("response", "")
                 gap = self._check_response(response, entry)
@@ -509,6 +542,127 @@ class OpportunityExtractor:
         return gaps
 
 
+class CapabilityGapExtractor:
+    """R-F884 — read recorded capability gaps from `crucix:aria:capability_gaps`.
+
+    This is where brain_hook.absorb(gap_type=…) + capability_gaps.record_gap
+    route (lpush list). Pre-R-F884 NO extractor read it — one of the two richest
+    gap stores was invisible to the coder. Entry: {id, type, detail, source,
+    message_context, timestamp(ISO), resolved, …}.
+    """
+
+    KEY = "crucix:aria:capability_gaps"
+
+    # capability_gap "type" → (GapType, GapSeverity). Unknown types map to
+    # MISSING_CAPABILITY (auto_fixable=False → operator decides), so a novel
+    # gap class never silently drives an auto-fix.
+    _TYPE_MAP = {
+        "file_parse": (GapType.DOCUMENT_PARSE, GapSeverity.HIGH),
+        "document":   (GapType.DOCUMENT_PARSE, GapSeverity.HIGH),
+        "source":     (GapType.SOURCE_FAILURE, GapSeverity.MEDIUM),
+        "data":       (GapType.DATA_GAP, GapSeverity.MEDIUM),
+        "knowledge":  (GapType.DATA_GAP, GapSeverity.MEDIUM),
+    }
+
+    def __init__(self, redis_client: Any) -> None:
+        self.redis = redis_client
+
+    async def extract(self, since: datetime) -> list[Gap]:
+        gaps: list[Gap] = []
+        since_ts = since.timestamp()
+        try:
+            raw = await self.redis.lrange(self.KEY, 0, 500)
+        except Exception as e:
+            logger.error("[gap_detector] capability_gaps read failed: %s", e)
+            return gaps
+        for entry_bytes in raw or []:
+            try:
+                entry = json.loads(
+                    entry_bytes.decode("utf-8") if isinstance(entry_bytes, bytes) else entry_bytes
+                )
+                if not isinstance(entry, dict) or entry.get("resolved"):
+                    continue
+                if _entry_ts_epoch(entry.get("timestamp")) < since_ts:
+                    continue
+                ctype = (entry.get("type") or "").lower()
+                gap_type, severity = GapType.MISSING_CAPABILITY, GapSeverity.MEDIUM
+                for key, (gt, sev) in self._TYPE_MAP.items():
+                    if key in ctype:
+                        gap_type, severity = gt, sev
+                        break
+                detail = entry.get("detail") or ctype or "capability gap"
+                gaps.append(Gap(
+                    gap_id=_gap_id_for(gap_type, entry.get("source", "capability_gaps"), detail),
+                    gap_type=gap_type,
+                    severity=severity,
+                    title=f"Capability gap: {ctype or 'unspecified'}",
+                    description=str(detail)[:1000],
+                    module=entry.get("source", "capability_gaps"),
+                    evidence={"capability_gap_id": entry.get("id"), "type": ctype,
+                              "message_context": entry.get("message_context", "")},
+                ))
+            except (json.JSONDecodeError, ValueError, KeyError):
+                continue
+        return gaps
+
+
+class MistakeLedgerExtractor:
+    """R-F884 — read recorded mistakes from `crucix:mistake_ledger:log`.
+
+    The mistake ledger (hash-chained, signed) is read by calibration_review +
+    memory_replication but NEVER by the coder. Each entry already carries a
+    `fix` — a past mistake with a known remedy. We surface them as
+    MISSING_CAPABILITY (auto_fixable=False) so they are OBSERVED for operator
+    review, not auto-fixed (a recorded mistake is not necessarily a live code
+    bug). Entry: {mistake_id, ts(ISO), category, what, why, fix, severity, …}.
+    """
+
+    KEY = "crucix:mistake_ledger:log"
+
+    _SEV_MAP = {
+        "LOW": GapSeverity.LOW, "MEDIUM": GapSeverity.MEDIUM,
+        "HIGH": GapSeverity.HIGH, "CRITICAL": GapSeverity.CRITICAL,
+    }
+
+    def __init__(self, redis_client: Any) -> None:
+        self.redis = redis_client
+
+    async def extract(self, since: datetime) -> list[Gap]:
+        gaps: list[Gap] = []
+        since_ts = since.timestamp()
+        try:
+            raw = await self.redis.lrange(self.KEY, 0, 300)
+        except Exception as e:
+            logger.error("[gap_detector] mistake_ledger read failed: %s", e)
+            return gaps
+        for entry_bytes in raw or []:
+            try:
+                entry = json.loads(
+                    entry_bytes.decode("utf-8") if isinstance(entry_bytes, bytes) else entry_bytes
+                )
+                if not isinstance(entry, dict):
+                    continue
+                if _entry_ts_epoch(entry.get("ts")) < since_ts:
+                    continue
+                what = entry.get("what") or entry.get("what_class") or "recorded mistake"
+                severity = self._SEV_MAP.get((entry.get("severity") or "").upper(), GapSeverity.MEDIUM)
+                gaps.append(Gap(
+                    gap_id=_gap_id_for(GapType.MISSING_CAPABILITY, "mistake_ledger",
+                                       entry.get("mistake_id") or what),
+                    gap_type=GapType.MISSING_CAPABILITY,
+                    severity=severity,
+                    title=f"Recorded mistake: {entry.get('category', 'general')}",
+                    description=(f"{str(what)[:600]} | WHY: {str(entry.get('why', ''))[:300]} "
+                                 f"| KNOWN FIX: {str(entry.get('fix', ''))[:300]}"),
+                    module=entry.get("task_type") or "mistake_ledger",
+                    evidence={"mistake_id": entry.get("mistake_id"),
+                              "domain": entry.get("domain"), "category": entry.get("category")},
+                ))
+            except (json.JSONDecodeError, ValueError, KeyError):
+                continue
+        return gaps
+
+
 # ── MAIN DETECTOR ────────────────────────────────────────────────────────────
 
 class GapDetector:
@@ -530,12 +684,18 @@ class GapDetector:
 
     def __init__(self, redis_client: Any) -> None:
         self.redis = redis_client
+        # R-F884 — reconnected to the REAL producer stores. Dropped
+        # HealthPerfExtractor (`crucix:health:perf:latest`) and
+        # SourceHealthExtractor (`crucix:sweep:last_result`): NO producer
+        # writes either key, so they were dead reads. Added CapabilityGap +
+        # MistakeLedger — the two richest, actually-populated gap stores the
+        # coder previously read from neither.
         self.extractors = [
-            ErrorLedgerExtractor(redis_client),
-            ChatAuditExtractor(redis_client),
-            HealthPerfExtractor(redis_client),
-            SourceHealthExtractor(redis_client),
-            OpportunityExtractor(redis_client),  # R-F826
+            ErrorLedgerExtractor(redis_client),     # crucix:aria:error_log (fixed key)
+            ChatAuditExtractor(redis_client),       # crucix:chat_audit:log (fixed ts field)
+            CapabilityGapExtractor(redis_client),   # crucix:aria:capability_gaps (NEW)
+            MistakeLedgerExtractor(redis_client),   # crucix:mistake_ledger:log (NEW)
+            OpportunityExtractor(redis_client),     # R-F826: crucix:chat_audit:log
         ]
         self._active_gaps: dict[str, Gap] = {}
 
