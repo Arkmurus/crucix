@@ -3319,9 +3319,10 @@
       "title": "read-document async path defers heavy document_intelligence+absorb (embedder-from-HF) so job returns full extracted_text fast — fixes 4-min poll timeout on large/scanned docs",
       "claimed_at": "2026-05-25T11:18:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "HEAD",
+      "notes": null,
+      "shipped_at": "2026-05-25T11:20:42Z"
     }
   ]
 }
