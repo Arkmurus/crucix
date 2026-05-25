@@ -564,6 +564,34 @@ def _looks_like_investigation_request(q_lower: str) -> bool:
     return bool(_INVESTIGATION_REQUEST_RE.search(q_lower))
 
 
+# R-F864 (2026-05-25) — periodic / dated briefs are inherently time-sensitive:
+# a brief for one week is stale (and wrong) the next. Live incident: a
+# 2026-05-18 "Arkmurus Weekly Intelligence Brief" was cached and replayed
+# verbatim for the 2026-05-25 request (date header, content, all stale). The
+# investigation regex didn't catch "generate the weekly intelligence brief", so
+# it slipped past the time-sensitivity guard. Never cache; never serve.
+_PERIODIC_BRIEF_RE = re.compile(
+    r"\b(?:"
+    r"(?:weekly|daily|monthly|morning|evening|monday|today'?s?|this\s+week'?s?)\s+"
+    r"(?:brief|briefing|report|update|round-?up|digest|intel(?:ligence)?)"
+    r"|intelligence\s+brief(?:ing)?"
+    r"|strategic\s+(?:intelligence\s+)?(?:brief|briefing|report|update)"
+    r"|sit-?rep|situation\s+report|market\s+update"
+    r"|generate\s+(?:the\s+)?(?:[\w-]+\s+){0,5}brief"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_periodic_brief(q_lower: str) -> bool:
+    """True if the request is for a PERIODIC / DATED brief or report (weekly
+    intelligence brief, daily briefing, situation report, market update...).
+    These are time-sensitive — never cache, never serve from cache. R-F864."""
+    if not q_lower:
+        return False
+    return bool(_PERIODIC_BRIEF_RE.search(q_lower))
+
+
 async def record_response(
     question: str,
     response: str,
@@ -606,6 +634,11 @@ async def record_response(
     # creates the same staleness problem we're trying to fix. Skip.
     if _looks_like_investigation_request(q_lower):
         return {"recorded": False, "reason": "investigation request — always run fresh"}
+    # R-F864 — periodic/dated briefs (weekly intelligence brief, daily briefing,
+    # situation report...) are time-sensitive: caching one means it gets
+    # replayed stale for a later period (the 2026-05-25 incident).
+    if _looks_like_periodic_brief(q_lower):
+        return {"recorded": False, "reason": "periodic/dated brief — time-sensitive, never cache (R-F864)"}
     # Fresh-input questions ("analyse this list", "review the attachment",
     # "above") depend on current-turn content — caching is always wrong.
     if _looks_like_fresh_input_request(question):
@@ -716,6 +749,11 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
         return {"match": False, "score": 0, "case": None, "method": "skipped_user_correction", "threshold": threshold}
     if _looks_like_investigation_request(q_lower):
         return {"match": False, "score": 0, "case": None, "method": "skipped_investigation", "threshold": threshold}
+    # R-F864 — never serve a periodic/dated brief from cache (defence-in-depth
+    # against entries cached before this fix shipped — incl. the stale 2026-05-18
+    # weekly brief). Forces fresh generation each period.
+    if _looks_like_periodic_brief(q_lower):
+        return {"match": False, "score": 0, "case": None, "method": "skipped_periodic_brief", "threshold": threshold}
     if _looks_like_fresh_input_request(question):
         return {"match": False, "score": 0, "case": None, "method": "skipped_fresh_input", "threshold": threshold}
 
