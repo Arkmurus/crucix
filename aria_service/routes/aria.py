@@ -8598,21 +8598,31 @@ async def read_document_ep(request: Request):
     except Exception:
         pass
     import asyncio as _r725_asyncio
+    import os as _r869_os
+    # R-F869 (2026-05-25) — env-configurable cap, default raised 45→80s. The 45s
+    # cap 504'd on a legitimate large/scanned trade-finance contract (Forcados
+    # SPA, MT199/DLC MT700) whose multi-page OCR exceeds 45s. 80s sits under the
+    # WA listener's 90s brainPost timeout so the caller still receives the
+    # result (not its own timeout). Tunable without a redeploy via
+    # ARIA_READ_DOC_TIMEOUT_S. Safe to lengthen: document_reader runs extraction
+    # / OCR in asyncio.to_thread, so a longer cap doesn't hold the event loop —
+    # only this one request waits.
+    _r869_timeout = float(_r869_os.getenv("ARIA_READ_DOC_TIMEOUT_S", "80"))
     try:
         return await _r725_asyncio.wait_for(
-            _read_document_ep_impl(request), timeout=45.0,
+            _read_document_ep_impl(request), timeout=_r869_timeout,
         )
     except _r725_asyncio.TimeoutError:
         _log.warning(
-            "R-F725 read-document HARD TIMEOUT at 45s — aborting to "
-            "protect event loop. Caller should retry with smaller "
-            "payload or skip the source."
+            "R-F725/F869 read-document HARD TIMEOUT at %.0fs — aborting to "
+            "protect event loop. Caller should retry, paste the text, or "
+            "split the document.", _r869_timeout,
         )
         return Response(
             status_code=504,
-            content='{"ok":false,"error":"read-document exceeded 45s '
-                    'hard cap (R-F725) — payload too heavy or LLM '
-                    'chain runaway. Skip or split."}',
+            content='{"ok":false,"error":"read-document exceeded its time '
+                    'cap (R-F725/F869) — large/scanned document OCR ran long. '
+                    'Retry, paste the text, or split the document."}',
             media_type="application/json",
         )
 

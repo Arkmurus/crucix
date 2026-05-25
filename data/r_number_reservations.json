@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 868,
+  "next_available": 870,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3187,6 +3187,25 @@
       "r_number": "R-F867",
       "title": "WA media download: sock.downloadMediaMessage is not a function — use standalone downloadMediaMessage import (every doc/image download threw)",
       "claimed_at": "2026-05-25T09:52:03Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e99eca3",
+      "notes": null,
+      "shipped_at": "2026-05-25T09:53:41Z"
+    },
+    {
+      "r_number": "R-F868",
+      "title": "live ops: wedge mitigation (absorb pause 250 + crawler disabled) + enable coder chat bridge & WA notifier (4 fly secrets, one restart)",
+      "claimed_at": "2026-05-25T10:08:18Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F869",
+      "title": "read-document 45s cap too tight for large/scanned contracts (504 on Forcados SPA) — raise R-F725 cap + WA brainPost timeout",
+      "claimed_at": "2026-05-25T10:14:14Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
