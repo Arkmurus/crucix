@@ -6872,6 +6872,11 @@ async def chat_ep(req: ChatRequest, request: Request):
     if not req.message:
         raise HTTPException(status_code=400, detail="message required")
     session_id = req.session_id or str(uuid.uuid4())[:12]
+    try:  # R-F860 — interactive traffic yields the encoder from autonomous absorbs
+        from ..intel import brain_hook as _bh860
+        _bh860.mark_interactive()
+    except Exception:
+        pass
 
     # Past incident 2026-04-09 19:18 — DUMA Engineering investigation:
     # the WhatsApp listener prepends `[WhatsApp group context]\n[Sender]: ...
@@ -8090,6 +8095,11 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         raise HTTPException(status_code=400, detail="message required")
     session_id = req.session_id or str(uuid.uuid4())[:12]
     user_id = req.user_id if hasattr(req, "user_id") else ""
+    try:  # R-F860 — interactive traffic yields the encoder from autonomous absorbs
+        from ..intel import brain_hook as _bh860
+        _bh860.mark_interactive()
+    except Exception:
+        pass
 
     # H3: same per-user quota check as chat_ep. Enforced BEFORE the
     # StreamingResponse is returned so the client gets a clean 429
@@ -8578,6 +8588,15 @@ async def read_document_ep(request: Request):
     This is the LOOP-PROTECTION fix; the proper structural fix
     (background-job queue with status polling, so seenode can
     fire-and-forget) is bigger work."""
+    # R-F860 — mark interactive so autonomous absorbs yield the GIL-bound
+    # encoder to this document read (the WhatsApp contract-review path).
+    # Without this, read-document competes with the absorb storm and times out
+    # → the 6× contract upload failure.
+    try:
+        from ..intel import brain_hook as _bh860
+        _bh860.mark_interactive()
+    except Exception:
+        pass
     import asyncio as _r725_asyncio
     try:
         return await _r725_asyncio.wait_for(

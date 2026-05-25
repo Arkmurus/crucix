@@ -405,6 +405,30 @@ _MODULE_WEIGHT: dict[str, float] = {
 }
 
 
+# R-F860 (2026-05-24) — interactive yield. When a USER is actively chatting or
+# uploading a document, autonomous absorbs back off so the interactive request
+# (especially /read-document, which contract review depends on) wins the
+# GIL-bound encoder instead of timing out behind the autonomous absorb storm
+# (the 2026-05-24 wedge that failed the contract upload 6×). mark_interactive()
+# is called by the chat + document endpoints; _absorb_pause_ms() then returns
+# the larger interactive pause while activity is recent.
+_last_interactive_at: float = 0.0
+_INTERACTIVE_YIELD_WINDOW_S = float(os.environ.get("ARIA_BRAIN_INTERACTIVE_YIELD_S", "8"))
+
+
+def mark_interactive() -> None:
+    """Record that a user-facing request (chat / document read) just arrived,
+    so autonomous absorbs yield the encoder to it for the next
+    _INTERACTIVE_YIELD_WINDOW_S. Cheap + safe to call on every request. R-F860."""
+    global _last_interactive_at
+    _last_interactive_at = time.monotonic()
+
+
+def _interactive_active() -> bool:
+    """True iff a user-facing request arrived within the yield window."""
+    return (time.monotonic() - _last_interactive_at) < _INTERACTIVE_YIELD_WINDOW_S
+
+
 def _absorb_pause_ms() -> int:
     """R-F460 (2026-05-14) — operator-tunable pause between absorb calls.
 
@@ -433,9 +457,20 @@ def _absorb_pause_ms() -> int:
     # Clamp to a sane range — operator shouldn't be able to wedge the
     # service by setting a pathological value.
     if v < 0:
-        return 0
-    if v > 5000:
-        return 5000  # 5s ceiling — anything higher is almost certainly a typo
+        v = 0
+    elif v > 5000:
+        v = 5000  # 5s ceiling — anything higher is almost certainly a typo
+    # R-F860 — yield to interactive activity. While a user request (chat /
+    # read-document) is recent, autonomous absorbs use the larger interactive
+    # pause so the user wins the GIL-bound encoder instead of timing out behind
+    # the absorb storm. Operator-tunable (default 400ms); returns max(base,
+    # interactive) so an operator's base pause is never reduced.
+    if _interactive_active():
+        try:
+            iv = int((os.getenv("ARIA_BRAIN_INTERACTIVE_PAUSE_MS") or "400").strip())
+        except (ValueError, TypeError):
+            iv = 400
+        return max(v, max(0, min(iv, 5000)))
     return v
 
 
