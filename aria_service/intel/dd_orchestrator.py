@@ -2021,7 +2021,7 @@ async def _run_identity(
                                         if psc_worst == "hard_stop":
                                             hard_stop = True
                             except Exception as _psc_e:
-                                logger.debug("PSC screen failed for %s: %s", psc_name, _psc_e)
+                                logger.warning("R-F886 PSC (ownership) screen failed for %s: %s", psc_name, _psc_e)
         except Exception as e:
             logger.warning("Identity: companies_house lookup failed: %s", e)
             report.identity.data_gaps.append(f"companies_house lookup failed: {str(e)[:120]}")
@@ -2653,6 +2653,7 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
         _weapon_statuses: list[str] = []
         _has_inf = False
         _has_cwc_bwc = False
+        _ewl_err_logged = False   # R-F886: record a banned-weapon engine failure once/run
 
         for _item in _goods_items[:30]:  # cap line-items processed
             # Weapon catalogue (R-F638)
@@ -2670,7 +2671,7 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                     _weapon_statuses.append(_w_finding.get("sanctions_status", ""))
                     report.compliance.meta.subcalls += 1
             except Exception as _e1:
-                logger.debug("R-F644 weapon-catalogue line failed: %s", _e1)
+                logger.warning("R-F886 weapon-catalogue line failed: %s", _e1)
 
             # Eliminated/banned watchlist (R-F639)
             try:
@@ -2690,7 +2691,28 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                         _has_cwc_bwc = True
                     report.compliance.meta.subcalls += 1
             except Exception as _e2:
-                logger.debug("R-F644 eliminated-watchlist line failed: %s", _e2)
+                # R-F886 — a banned-weapon (INF/CWC/BWC/Ottawa/CCM) screen
+                # failing SILENTLY is a compliance miss nobody sees. Raise to
+                # WARNING (operator/fly logs) + record to error_log ONCE per run
+                # so the reconnected coder (R-F884) sees it too. (dd_orchestrator
+                # logs under "ARIA.*", outside error_log_handler's "aria.*" gate,
+                # so WARNING alone wouldn't reach the coder — record_error does.)
+                logger.warning(
+                    "R-F886 eliminated-weapons watchlist FAILED on a goods line "
+                    "(banned-weapon screen miss): %s", _e2,
+                )
+                if not _ewl_err_logged:
+                    _ewl_err_logged = True
+                    try:
+                        from . import self_improve as _si886
+                        await _si886.record_error(
+                            "compliance_engine_failure",
+                            f"eliminated_weapons_watchlist.render_finding_for_text raised: {_e2}",
+                            file="aria_service/intel/dd_orchestrator.py",
+                            function="orchestrate_dd:eliminated_weapons",
+                        )
+                    except Exception:
+                        pass
 
         # Aggregator pattern (R-F643)
         if _goods_items:
@@ -2710,7 +2732,7 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                     ))
                     report.compliance.meta.subcalls += 1
             except Exception as _e3:
-                logger.debug("R-F644 aggregator failed: %s", _e3)
+                logger.warning("R-F886 aggregator failed: %s", _e3)
 
         # Evasion typology (R-F640)
         try:
@@ -2747,7 +2769,7 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                 ))
                 report.compliance.meta.subcalls += 1
         except Exception as _e4:
-            logger.debug("R-F644 typology detector failed: %s", _e4)
+            logger.warning("R-F886 typology detector failed: %s", _e4)
 
         # End-user granularity (R-F641)
         try:
@@ -2765,7 +2787,7 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                 ))
                 report.compliance.meta.subcalls += 1
         except Exception as _e5:
-            logger.debug("R-F644 end-user granularity failed: %s", _e5)
+            logger.warning("R-F886 end-user granularity failed: %s", _e5)
 
         # MOU clause-gate analysis (R-F642)
         try:
@@ -2781,9 +2803,9 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                     ))
                     report.compliance.meta.subcalls += 1
         except Exception as _e6:
-            logger.debug("R-F644 mou-gate analyser failed: %s", _e6)
+            logger.warning("R-F886 mou-gate analyser failed: %s", _e6)
     except Exception as _expert_err:
-        logger.debug("R-F644 expert-knowledge block failed (non-fatal): %s", _expert_err)
+        logger.warning("R-F886 expert-knowledge compliance block failed (non-fatal): %s", _expert_err)
 
     # ── 4b. Export control classification ──
     product_text = target.get("product_description") or target.get("goods") or ""

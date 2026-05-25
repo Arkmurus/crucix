@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 886,
+  "next_available": 887,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3368,6 +3368,16 @@
       "r_number": "R-F885",
       "title": "footer provenance — document-grounded reviews no longer mislabeled 'from memory/training'; show 'attached document' as source",
       "claimed_at": "2026-05-25T12:33:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1abba5b5b40ba4e89cd0c4be541836a91a890ed7",
+      "notes": null,
+      "shipped_at": "2026-05-25T12:36:20Z"
+    },
+    {
+      "r_number": "R-F886",
+      "title": "P1 surface silent compliance-layer swallows in dd_orchestrator (eliminated-weapons/PSC/export-control) debug->warning + capability_gap on banned-weapon engine failure",
+      "claimed_at": "2026-05-25T12:38:01Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
