@@ -3814,7 +3814,23 @@ async def validate_hypothesis(llm: LLMProvider, hypothesis_text: str) -> dict:
     evidence_texts = []
     for a in plausible[:3]:
         body = await _fetch_article_text(a.get("link", "")) if a.get("link") else ""
+        # R-F861 — content relevance gate. _is_plausible_defence_domain (above)
+        # filters by DOMAIN, but crossref/openalex resolve keyword-collision hits
+        # to generic academic domains that pass it while the CONTENT is off-topic
+        # (live: an arts journal matched "offset", an IPO-underpricing paper
+        # matched "forward" for a Finland F-35 offset hypothesis). Require a
+        # defence anchor in title+body before using it as evidence so junk
+        # neither dilutes the LLM hypothesis evaluation nor wastes deep-read
+        # budget + encode load.
+        if not _has_defence_anchor(f"{a.get('title', '')} {body[:1500]}"):
+            logger.info(
+                "R-F861 relevance gate dropped off-topic evidence: %s",
+                (a.get("title") or a.get("link") or "?")[:80],
+            )
+            continue
         evidence_texts.append(f"Title: {a['title']}\n{body[:1500]}")
+    if not evidence_texts:
+        return await _exit({"hypothesis": target["hypothesis"], "status": "NO_RELEVANT_EVIDENCE"})
 
     prompt = f"""Evaluate this hypothesis against new evidence.
 

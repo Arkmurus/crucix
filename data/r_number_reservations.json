@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 861,
+  "next_available": 862,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3117,6 +3117,16 @@
       "r_number": "R-F860",
       "title": "FIX 1c: autonomous absorbs yield to interactive activity (document reads win the encoder) — wedge",
       "claimed_at": "2026-05-24T21:35:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "e7d8a36",
+      "notes": null,
+      "shipped_at": "2026-05-25T08:31:22Z"
+    },
+    {
+      "r_number": "R-F861",
+      "title": "FIX 6: relevance gate before deep-read to drop keyword-collision junk articles",
+      "claimed_at": "2026-05-25T08:35:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
