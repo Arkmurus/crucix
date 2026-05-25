@@ -184,7 +184,7 @@ function _recentDocForFollowup(chatId, senderName, question) {
 // ── Feed message to ARIA brain ─────────────────────────────────────────────────
 async function feedToARIA(groupName, senderName, text) {
   try {
-    await fetch(`${BRAIN_URL}/api/brain/signal`, {
+    await fetch(`${BRAIN_URL}/api/aria/brain/signal`, {   // R-F887 — was /api/brain/signal (404, no such router)
       method:  'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -518,7 +518,7 @@ async function handleCommand(cmd, args, senderJid) {
       const notes = a.replace(/^[+-]\s*/, '').replace(/^(positive|negative)\s*/i, '').trim();
       const sentiment = positive ? 'positive' : negative ? 'negative' : 'neutral';
       try {
-        await brainPost('/api/brain/signal', {
+        await brainPost('/api/aria/brain/signal', {   // R-F887 — was /api/brain/signal (404)
           content: `Feedback (${sentiment}): ${notes || 'No notes'}`,
           source: `feedback:${senderJid.replace('@s.whatsapp.net', '')}`,
           signal_type: 'user_feedback',
@@ -1012,6 +1012,15 @@ async function startListener() {
                 // ("analyse this contract") honestly said "no document in my
                 // context." Surface it so the user can retry or paste the text.
                 console.warn(`[ARIA Listener] R-F856 read-document returned null for ${filename}: ${_docErr || 'unknown'}`);
+                // R-F887 — report this tier failure to the brain so it becomes
+                // coder-visible (capability_gap → R-F884). The contract-504 class
+                // of failure was previously invisible to the brain/coder.
+                brainPost('/api/aria/brain/signal', {
+                  content: `WhatsApp read-document failed for "${filename}": ${_docErr || 'no response'}`,
+                  source: `whatsapp_group:${groupName}`,
+                  signal_type: 'wa_read_document_failed',
+                  metadata: { filename, error: String(_docErr || 'unknown'), channel: 'whatsapp_listener' },
+                }).catch(() => {});
                 await sendReply(chatId,
                   `⚠️ I received *${filename}* but couldn't read it just now — my document service didn't respond `
                   + `(it may be busy or restarting). Please resend in a minute, or paste the key clauses as text and `

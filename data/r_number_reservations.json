@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 887,
+  "next_available": 888,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3378,6 +3378,16 @@
       "r_number": "R-F886",
       "title": "P1 surface silent compliance-layer swallows in dd_orchestrator (eliminated-weapons/PSC/export-control) debug->warning + capability_gap on banned-weapon engine failure",
       "claimed_at": "2026-05-25T12:38:01Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "c5b2584b8f758ee1f97fc9d05e275462c313252a",
+      "notes": null,
+      "shipped_at": "2026-05-25T12:41:01Z"
+    },
+    {
+      "r_number": "R-F887",
+      "title": "add POST /api/aria/brain/signal cross-tier sink (was 404 — WA messages/feedback never reached brain; failures invisible) + fix WA listener path; failures->capability_gaps (coder-visible R-F884)",
+      "claimed_at": "2026-05-25T12:43:21Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -11247,6 +11247,67 @@ async def coder_gaps_ep(request: Request):
 from fastapi import BackgroundTasks as _BackgroundTasks  # local alias for clarity
 
 
+@router.post("/brain/signal")
+async def brain_signal_ep(request: Request, background_tasks: _BackgroundTasks):
+    """R-F887 — cross-tier signal sink. The Node (aria-web) + WhatsApp (aria-wa)
+    tiers POST here: WA group messages (signal_type=whatsapp_group_message),
+    user feedback (user_feedback), and tier FAILURES (e.g. wa_chat_failed,
+    wa_read_document_failed, sweep_ingest_failed).
+
+    Pre-R-F887 this route DID NOT EXIST — the only router is /api/aria and the
+    WA listener called /api/brain/signal → 404 (seen live 2026-05-25 10:10:18).
+    So cross-tier messages/feedback never reached the brain and tier failures
+    were invisible to the coder. Body: {content, source, signal_type, metadata}.
+
+    Failure-type signals route to capability_gaps (coder-visible via R-F884's
+    CapabilityGapExtractor); content/feedback route to brain_hook.absorb
+    (learning). Fire-and-forget background task → returns 202 immediately.
+    """
+    from starlette.requests import ClientDisconnect as _disc887
+    try:
+        body = await request.json()
+    except _disc887:
+        _log.info("R-F887 brain/signal: client disconnected before body read")
+        return Response(status_code=499)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    content = (body.get("content") or "").strip()
+    source = (body.get("source") or "unknown").strip()
+    sig_type = (body.get("signal_type") or "signal").strip()
+    metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+    if not content:
+        raise HTTPException(status_code=400, detail="content required")
+
+    _is_failure = any(t in sig_type.lower()
+                      for t in ("fail", "error", "timeout", "404", "unavailable", "reject"))
+
+    async def _route_signal():
+        try:
+            if _is_failure:
+                from ..intel import capability_gaps as _cg887
+                await _cg887.record_gap(
+                    gap_type="operational:output_rejection",
+                    detail=f"[cross-tier {sig_type}] {content[:400]}",
+                    source=source[:80],
+                    message_context=str(metadata)[:300],
+                )
+            else:
+                from ..intel import brain_hook as _bh887
+                await _bh887.absorb(
+                    module=f"cross_tier:{sig_type}",
+                    summary=content[:300],
+                    detail=content[:2000],
+                    success=True,
+                    confidence="ASSESSED",
+                )
+        except Exception as _e:
+            _log.warning("R-F887 brain/signal routing failed: %s", _e)
+
+    background_tasks.add_task(_route_signal)
+    return {"ok": True, "accepted": True, "signal_type": sig_type,
+            "routed": "capability_gap" if _is_failure else "brain_absorb"}
+
+
 @router.post("/brain/absorb")
 async def brain_absorb_ep(request: Request, background_tasks: _BackgroundTasks):
     """Central learning endpoint. Accepts output from any intel module and
