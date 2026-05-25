@@ -37,10 +37,19 @@ COPY services/wa-listener/aria_wa_listener.mjs ./services/wa-listener/aria_wa_li
 # That file only uses Node stdlib (fs/path/url), so copying just it is safe.
 COPY lib/aria/complianceAudit.mjs ./lib/aria/complianceAudit.mjs
 
-# Volume mount point — Baileys auth + session blobs
+# Volume mount point — Baileys auth + session blobs (persists on the
+# aria_wa_data volume mounted at /data by fly.wa.toml).
 RUN mkdir -p /data/wa-auth
 
-ENV WHATSAPP_AUTH_DIR=/data/wa-auth \
+# R-F866 (2026-05-25) — the env var name MUST be WA_LISTENER_AUTH_DIR: that is
+# the variable aria_wa_listener.mjs:97 actually reads (it defaults to the
+# EPHEMERAL ./wa-listener-auth when unset). Pre-R-F866 this was WHATSAPP_AUTH_DIR
+# — a name the listener never reads — so Baileys auth was written to the
+# ephemeral container path and WIPED on every restart, forcing a fresh QR scan
+# after every deploy and dropping WhatsApp into a perpetual 408 QR-rescan loop.
+# Pointing the CORRECT var at the /data volume makes the session survive
+# restarts (scan the QR once, stays linked).
+ENV WA_LISTENER_AUTH_DIR=/data/wa-auth \
     NODE_ENV=production \
     PORT=5070
 
