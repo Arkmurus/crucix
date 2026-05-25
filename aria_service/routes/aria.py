@@ -7401,19 +7401,40 @@ async def chat_ep(req: ChatRequest, request: Request):
                     _log.info("[chat] contract self-review triggered (doc=%d chars)", len(doc_text))
                     sr = await _ci.self_review_contract(doc_text, response_text, llm)
                     if sr.get("self_reviewed") and sr.get("has_corrections"):
-                        findings = sr.get("findings", "")[:4000]
-                        response_text = (
-                            response_text
-                            + "\n\n──────────\n⚠ **Contract self-review audit**\n"
-                            + findings
+                        findings = sr.get("findings", "")
+                        # R-F883 — synthesise a CLEAN corrected review instead
+                        # of dumping the raw window-by-window self-critique to
+                        # the user. Pre-R-F883 the chat reply carried "── Self-
+                        # review window 1/4 ──" walls + the auditor's own
+                        # deliberation ("So no error found here"); the operator
+                        # saw scaffolding, not an answer (live 2026-05-25). Now
+                        # the draft + findings + document are folded into one
+                        # decision-grade review; raw findings stay in result
+                        # metadata for the operator dashboard / audit, not chat.
+                        _corrected = await _ci.finalize_reviewed_contract(
+                            user_question=_strip_attached_document(req.message),
+                            draft_review=response_text,
+                            findings=findings,
+                            document_excerpt=doc_text,
+                            llm=llm,
                         )
+                        if _corrected:
+                            response_text = _corrected
+                        # else: synthesis unavailable → keep the draft as-is
+                        # (NEVER fall back to dumping raw findings).
                         result["response"] = response_text
                         result["contract_self_review"] = {
                             "has_corrections": True,
                             "windows": sr.get("windows"),
                             "truncated": sr.get("truncated", False),
+                            "synthesised": bool(_corrected),
+                            "findings": findings[:4000],  # audit metadata, not shown in chat text
                         }
-                        _log.info("[chat] contract self-review appended corrections")
+                        _log.info(
+                            "[chat] contract self-review %s",
+                            "synthesised corrected review" if _corrected
+                            else "found corrections (synthesis unavailable — draft kept)",
+                        )
                     elif sr.get("self_reviewed"):
                         result["contract_self_review"] = {"has_corrections": False}
         except Exception as _csr_err:

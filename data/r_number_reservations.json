@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 883,
+  "next_available": 884,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3343,6 +3343,15 @@
       "commit_sha": "72d0055af549189db1a17a10b4ff338414a1832e",
       "notes": null,
       "shipped_at": "2026-05-25T11:41:40Z"
+    },
+    {
+      "r_number": "R-F883",
+      "title": "contract review synthesis pass — self-review produces CLEAN corrected answer instead of leaking raw window-by-window critique to user; strips memory contamination, folds in missed clauses",
+      "claimed_at": "2026-05-25T11:55:02Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import time
+from typing import Optional
 
 from . import redis_store as rs
 
@@ -179,6 +180,59 @@ async def self_review_contract(
         "windows": len(chunks),
         "truncated": truncated,
     }
+
+
+# ── 1b. CORRECTION SYNTHESIS (R-F883) ───────────────────────────────────────
+# self_review_contract returns the raw window-by-window AUDIT FINDINGS — a
+# critique of the draft ("REMOVE: ...", "FLAG (MISSED BLANKS): ...", "So no
+# error found here"). Pre-R-F883 the chat path appended that critique verbatim
+# to the user reply (live 2026-05-25: the operator saw "── Self-review window
+# 1/4 ──" walls + the auditor's own deliberation). That's internal scaffolding.
+# This pass takes the draft + findings + document and produces the SINGLE
+# clean, decision-grade review the user should actually see.
+
+CORRECTION_SYNTHESIS_PROMPT = """You are ARIA delivering a FINAL contract review to the user for a real commercial decision. You are given your own DRAFT review and the AUDIT FINDINGS from a self-review pass. Produce the single clean, corrected, decision-grade review the user should see.
+
+Rules:
+- DELETE any recommendation the audit flagged as a false positive or "already present".
+- DELETE any statement the audit flagged as MEMORY CONTAMINATION (facts not in the attached document) — do NOT restate them.
+- INCORPORATE every missed item the audit found: blank/placeholder fields ("TBA", "[___]"), and missing clauses (force majeure, governing law, dispute resolution, termination/default, liability caps, payment-security mechanics) and cross-reference errors.
+- Answer the user's QUESTION directly and completely, leading with the bottom line.
+- For each finding, quote verbatim from the document. If the document was truncated, say "not present in the extracted portion" — NEVER assert a clause is absent from the whole document.
+- Output ONLY the final review for the user. No "draft", no "self-review", no window numbers, no meta-commentary about your own process or audit."""
+
+
+async def finalize_reviewed_contract(
+    *,
+    user_question: str,
+    draft_review: str,
+    findings: str,
+    document_excerpt: str,
+    llm,
+) -> Optional[str]:
+    """R-F883 — synthesise the clean, corrected final review from the draft +
+    self-review findings. Returns the user-facing review text, or None if the
+    LLM is unavailable / the call fails (caller falls back to the draft alone —
+    NEVER the raw findings dump)."""
+    if not llm or not getattr(llm, "is_configured", False):
+        return None
+    try:
+        from . import cost_tracker
+        prompt = (
+            f"USER QUESTION:\n{(user_question or '').strip()[:1500]}\n\n"
+            f"YOUR DRAFT REVIEW:\n{(draft_review or '').strip()[:6000]}\n\n"
+            f"AUDIT FINDINGS (apply every correction):\n{(findings or '').strip()[:6000]}\n\n"
+            f"DOCUMENT EXCERPT (quote verbatim from this):\n{(document_excerpt or '').strip()[:16000]}"
+        )
+        with cost_tracker.feature("contract_intelligence"):
+            res = await llm.complete(
+                CORRECTION_SYNTHESIS_PROMPT, prompt, max_tokens=2200, timeout=60.0,
+            )
+        out = (res.text or "").strip()
+        return out or None
+    except Exception as e:
+        logger.warning("R-F883 contract correction synthesis failed: %s", e)
+        return None
 
 
 # ── 2. CLAUSE LIBRARY ──────────────────────────────────────────────────────
