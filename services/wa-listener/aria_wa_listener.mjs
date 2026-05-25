@@ -320,7 +320,11 @@ async function readDocumentAsync(payload, chatId, filename) {
   await sendReply(chatId,
     `📥 Reading *${filename}* — a large or scanned document takes a minute. `
     + `I'll send the overview as soon as it's ready.`).catch(() => {});
-  const POLL_MS = 5000, MAX_POLLS = 48;   // 5s × 48 = up to 4 minutes
+  const POLL_MS = 5000, MAX_POLLS = 96;   // 5s × 96 = up to 8 minutes
+  // R-F880 — 8-min window (was 4): with document_intelligence deferred server-
+  // side, a text-layer doc resolves in seconds, but a LENGTHY SCANNED PDF still
+  // needs full multi-page OCR (no shortcuts) which can run several minutes. The
+  // job has no server cap; this just bounds how long the listener waits.
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise(r => setTimeout(r, POLL_MS));
     let st;

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 880,
+  "next_available": 881,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3313,6 +3313,15 @@
       "commit_sha": "40d835a",
       "notes": null,
       "shipped_at": "2026-05-25T11:03:34Z"
+    },
+    {
+      "r_number": "R-F880",
+      "title": "read-document async path defers heavy document_intelligence+absorb (embedder-from-HF) so job returns full extracted_text fast — fixes 4-min poll timeout on large/scanned docs",
+      "claimed_at": "2026-05-25T11:18:12Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

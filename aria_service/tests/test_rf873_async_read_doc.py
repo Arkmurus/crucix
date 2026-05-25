@@ -50,3 +50,15 @@ def test_wa_listener_uses_async_and_polls():
     wa = (Path(__file__).resolve().parents[2] / "services" / "wa-listener" / "aria_wa_listener.mjs").read_text(encoding="utf-8")
     assert "async: true" in wa  # WA posts async mode for documents
     assert "read-document/result/" in wa  # …and polls the result endpoint
+
+
+def test_rf880_async_defers_intelligence():
+    """R-F880 — the async job path defers the heavy document_intelligence +
+    brain-absorb (the embedder-from-HF step) so the job resolves on the full
+    extracted text fast. Sync callers keep the inline overview."""
+    assert '_r873_body["defer_intel"] = True' in SRC          # async branch flags defer
+    assert '_defer_intel = bool(body.get("defer_intel"))' in SRC
+    assert "async def _di_bg():" in SRC                        # backgrounded
+    assert "create_task(_di_bg()" in SRC
+    # sync path still awaits inline
+    assert "di = await _di.process_document(" in SRC

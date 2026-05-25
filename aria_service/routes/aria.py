@@ -8672,6 +8672,14 @@ async def read_document_ep(request: Request):
     # only SLOW the job, never 504 it. Caller polls /read-document/result/{id}.
     if _r873_body.get("async"):
         import uuid as _uuid873
+        # R-F880 — async jobs (large/scanned docs over WhatsApp) DEFER the
+        # heavy document_intelligence + brain-absorb (multiple LLM calls + a
+        # RAG embed that can cold-reload the sentence-transformer from
+        # HuggingFace). The job resolves on the full extracted text alone, so
+        # the operator gets the document fast; intel + absorb land off the
+        # critical path. (Shim wraps _r873_body by reference, so the impl sees
+        # this flag.)
+        _r873_body["defer_intel"] = True
         _job_id = _uuid873.uuid4().hex[:12]
         _fname = _r873_body.get("filename", "")
         await _readdoc_job_set(_job_id, {"status": "processing", "filename": _fname})
@@ -9270,16 +9278,44 @@ async def _read_document_ep_impl(request: Request):
     # of canonical fields, run red-flag rules, render a markdown overview,
     # persist the discovered entities/officers/holders to the knowledge base.
     # Best-effort — any failure leaves the original `result` intact.
-    try:
-        from ..intel import document_intelligence as _di
-        di = await _di.process_document(
-            text=content, filename=filename, source=source, llm=llm,
-        )
-        if di and isinstance(result, dict):
-            result["doc_intel"] = di
-            result["overview_markdown"] = di.get("overview_markdown")
-    except Exception as _di_err:
-        _log.debug("doc_intelligence pass failed (non-fatal): %s", _di_err)
+    # R-F880 (2026-05-25) — when the caller deferred intelligence (the async
+    # job path: large/scanned docs over WhatsApp), run document_intelligence
+    # as a BACKGROUND task instead of inline. process_document makes multiple
+    # LLM calls + a RAG embed that can cold-reload the sentence-transformer
+    # from HuggingFace (seen live consuming the 4-min poll window). Deferring
+    # it lets the job resolve on extracted_text alone — the operator gets the
+    # FULL document immediately (the R-F854 WA cache + "analyse this contract"
+    # follow-up work on the complete text); the overview + knowledge-absorb
+    # land shortly after, off the critical path. Sync callers (email reader,
+    # small uploads) keep the inline overview unchanged.
+    _defer_intel = bool(body.get("defer_intel"))
+    if _defer_intel:
+        import asyncio as _aio880
+
+        async def _di_bg():
+            try:
+                from ..intel import document_intelligence as _di
+                await _di.process_document(
+                    text=content, filename=filename, source=source,
+                    llm=get_llm(request),
+                )
+            except Exception as _e:
+                _log.debug("R-F880 deferred doc_intelligence failed (non-fatal): %s", _e)
+
+        _aio880.create_task(_di_bg(), name="readdoc.di")
+        if isinstance(result, dict):
+            result["doc_intel_deferred"] = True
+    else:
+        try:
+            from ..intel import document_intelligence as _di
+            di = await _di.process_document(
+                text=content, filename=filename, source=source, llm=llm,
+            )
+            if di and isinstance(result, dict):
+                result["doc_intel"] = di
+                result["overview_markdown"] = di.get("overview_markdown")
+        except Exception as _di_err:
+            _log.debug("doc_intelligence pass failed (non-fatal): %s", _di_err)
 
     # R-F65 (2026-05-09): cache the result for 24h so subsequent identical
     # posts hit the dedupe branch above. Best-effort — Redis blip is non-fatal.
