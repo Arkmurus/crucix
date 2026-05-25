@@ -104,8 +104,11 @@ async def _similarity(a: str, b: str) -> float:
         return 1.0
 
     try:
-        from .rag_store import _get_embedder  # reuse the warm instance
-        embedder = await _get_embedder()
+        # R-F870 — embedder lives in semantic_search, not rag_store (the old
+        # import raised ImportError every call → _similarity silently fell back
+        # to Jaccard). Use the async accessor so the cold-load runs off-loop.
+        from .semantic_search import aget_embedder  # reuse the warm instance
+        embedder = await aget_embedder()
         if embedder is not None:
             import numpy as np
             # R-F703 (2026-05-18) — wrap sync encode in to_thread. The
@@ -273,9 +276,17 @@ async def _ask_aria(llm, question: str, timeout: float = 45.0) -> tuple[str, int
     from ..aria_engine import aria_chat
     t0 = time.time()
     try:
+        # R-F870 — correct signature is aria_chat(message, session_id, llm, ...).
+        # The previous call passed (llm, question, group_context=, auto_tools=)
+        # which (a) put the provider object in `message` and the question in
+        # `session_id`, and (b) used two kwargs that don't exist → TypeError on
+        # EVERY call. The except below then returned "<error: ...>" as the
+        # response for every variant, which is why the suite scored ~0.01
+        # across all domains (identical error strings → consistency≈1.0,
+        # accuracy≈0.0). aria_chat has no auto-tools toggle; a pure-knowledge
+        # mode would be a separate feature, not a kwarg here.
         result = await aria_chat(
-            llm, question, group_context="", session_id="consistency",
-            auto_tools=False,  # Pure knowledge test — no tool dispatch
+            message=question, session_id="consistency", llm=llm,
         )
         elapsed = int((time.time() - t0) * 1000)
         if isinstance(result, dict):

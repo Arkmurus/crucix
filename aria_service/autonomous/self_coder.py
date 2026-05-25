@@ -541,15 +541,19 @@ class ARIACoder:
                     outcome_label = (
                         "auto-deployed" if auto_deployed else "staged for review"
                     )
+                    # R-F871 — absorb() takes summary=/source_id=, NOT
+                    # text=/source=. The old call raised TypeError every time
+                    # (swallowed below), so the coder's own fixes never landed a
+                    # learning signal. confidence must be a valid level.
                     await self.brain_hook.absorb(
-                        text=(
+                        module="aria_coder",
+                        summary=(
                             f"Autonomous fix R-F{r_number} ({outcome_label}): "
                             f"{plan.title}. Gap type: {gap.gap_type}. "
                             f"Files: {', '.join(plan.code_changes.keys())}."
                         ),
-                        module="aria_coder",
-                        confidence="high",
-                        source="aria_autonomous_coder",
+                        confidence="CONFIRMED",
+                        source_id="aria_autonomous_coder",
                     )
                 except Exception as e:
                     logger.warning("[aria_coder] brain_hook.absorb failed: %s", e)
