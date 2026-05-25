@@ -3329,9 +3329,10 @@
       "title": "document_reader surfaces total extraction failure (ALL_STRATEGIES_FAILED) at WARNING + capability_gap — was a silent debug miss (Hole 2 honesty)",
       "claimed_at": "2026-05-25T11:36:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "944d6a3caeae9db189e0e5c94c193a75e16f4eb5",
+      "notes": null,
+      "shipped_at": "2026-05-25T11:43:19Z"
     },
     {
       "r_number": "R-F882",
