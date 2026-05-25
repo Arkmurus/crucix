@@ -3349,9 +3349,10 @@
       "title": "contract review synthesis pass — self-review produces CLEAN corrected answer instead of leaking raw window-by-window critique to user; strips memory contamination, folds in missed clauses",
       "claimed_at": "2026-05-25T11:55:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "90609377d5508c45cf664fbf68f579d5a94181a4",
+      "notes": null,
+      "shipped_at": "2026-05-25T11:57:06Z"
     }
   ]
 }
