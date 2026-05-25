@@ -6908,7 +6908,33 @@ async def chat_ep(req: ChatRequest, request: Request):
     # on HIGH, blocks on CRITICAL (system override / role manipulation).
     try:
         from ..intel import security_protocol
-        _injection = security_protocol.detect_prompt_injection(req.message)
+        # R-F882 (2026-05-25) — injection-screen the USER'S QUESTION, not the
+        # attached-document body. The R-F854 doc re-attach injects the full
+        # document (live: a 664k-char trade-finance contract, SWIFT MT199/MT700)
+        # into req.message; a document that size inevitably contains tokens that
+        # match injection patterns — bracketed refs, ';'-sequences, legalese
+        # clauses — so scanning it CRITICAL-blocked the operator's own
+        # legitimate "analyse this contract" request (twice, 2026-05-25 12:34/12:36).
+        # The document is delimited DATA the LLM analyses under constitution
+        # clause 12, NOT user commands — so screen only the question.
+        _scan_text = _strip_attached_document(req.message)
+        _injection = security_protocol.detect_prompt_injection(_scan_text)
+        # R-F882 — indirect-injection visibility: if the ATTACHED DOCUMENT body
+        # itself trips a CRITICAL pattern, LOG it (never block — it's data, not
+        # commands) so a genuinely hostile document is still surfaced.
+        try:
+            _doc_body = _extract_attached_document(req.message)
+            if _doc_body:
+                _doc_scan = security_protocol.detect_prompt_injection(_doc_body)
+                if _doc_scan.get("risk_level") == "critical":
+                    _log.warning(
+                        "[SECURITY] R-F882 attached document tripped %s — NOT "
+                        "blocked (treated as data, not commands): %s",
+                        ",".join(_doc_scan.get("categories", [])),
+                        "; ".join(_doc_scan.get("reasons", [])[:2]),
+                    )
+        except Exception:
+            pass
         if _injection.get("blocked"):
             _log.warning(
                 "[SECURITY] BLOCKED prompt injection (risk=%s categories=%s): %s",

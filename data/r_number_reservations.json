@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 881,
+  "next_available": 883,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3323,6 +3323,24 @@
       "commit_sha": "HEAD",
       "notes": null,
       "shipped_at": "2026-05-25T11:20:42Z"
+    },
+    {
+      "r_number": "R-F881",
+      "title": "document_reader surfaces total extraction failure (ALL_STRATEGIES_FAILED) at WARNING + capability_gap — was a silent debug miss (Hole 2 honesty)",
+      "claimed_at": "2026-05-25T11:36:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F882",
+      "title": "security guard scans user question not attached-document body (R-F854 doc re-attach false-CRITICAL-blocked legit contract analysis live)",
+      "claimed_at": "2026-05-25T11:39:58Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
