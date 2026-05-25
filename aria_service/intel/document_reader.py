@@ -243,7 +243,35 @@ async def read_document(
         result.strategies_attempted = strategies_attempted
         return result
 
-    # All strategies failed
+    # All strategies failed.
+    # R-F881 (2026-05-25) — surface a TOTAL extraction failure at WARNING +
+    # emit a capability_gap. Per-strategy failures above stay at debug (the
+    # 4-strategy fallback is by-design — pdfplumber miss → OCR → vision →
+    # online is normal), but exhausting ALL of them means the document is
+    # genuinely unreadable, and pre-R-F881 that surfaced only at debug — below
+    # the brain's WARNING+ error_log_handler line and invisible to the operator
+    # (the silent-failure class behind the contract-upload work). Now it reaches
+    # error_log_handler, the operator dashboard, and (once gap_detector is
+    # reconnected) the coder.
+    _r881_basename = (filepath or "?").replace("\\", "/").rsplit("/", 1)[-1]
+    logger.warning(
+        "[document_reader] R-F881 ALL %d strategies FAILED for %s — document "
+        "UNREADABLE (tried: %s)",
+        len(strategies_attempted), _r881_basename, ", ".join(strategies_attempted),
+    )
+    try:
+        from . import capability_gaps as _cg881
+        await _cg881.record_gap(
+            gap_type="file_parse",
+            detail=(
+                f"document_reader exhausted all {len(strategies_attempted)} "
+                f"strategies ({', '.join(strategies_attempted)}) on "
+                f"'{_r881_basename}' — unreadable"
+            ),
+            source="document_reader.read_document",
+        )
+    except Exception as _cg_err:
+        logger.debug("[document_reader] R-F881 capability_gap emit failed: %s", _cg_err)
     return ExtractionResult(
         method="ALL_STRATEGIES_FAILED",
         confidence=0.0,
