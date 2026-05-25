@@ -3248,9 +3248,10 @@
       "title": "async document-extraction pipeline: enqueue + background extract (no sync cap) + result-poll endpoint so full/scanned docs read reliably (robust to wedge)",
       "claimed_at": "2026-05-25T10:22:30Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0d581dc",
+      "notes": null,
+      "shipped_at": "2026-05-25T10:37:27Z"
     },
     {
       "r_number": "R-F874",
