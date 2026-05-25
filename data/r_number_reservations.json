@@ -3359,9 +3359,10 @@
       "title": "gap_detector P0 reconnect — ErrorLedger reads error_log blob, ChatAudit ts->timestamp ISO, add CapabilityGap+MistakeLedger extractors, drop dead HealthPerf/SourceHealth (coder stage-only via AUTO_DEPLOY=0)",
       "claimed_at": "2026-05-25T12:23:14Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0d818076f8dde244cdb7f6d247774f1e257b5a9a",
+      "notes": null,
+      "shipped_at": "2026-05-25T12:30:06Z"
     }
   ]
 }
