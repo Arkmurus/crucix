@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 863,
+  "next_available": 864,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3137,6 +3137,16 @@
       "r_number": "R-F862",
       "title": "WA 8MB byte-truncation banner: warn user + banner cached text when a large contract PDF is clipped before extraction",
       "claimed_at": "2026-05-25T08:42:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "f8b74d7",
+      "notes": null,
+      "shipped_at": "2026-05-25T08:44:54Z"
+    },
+    {
+      "r_number": "R-F863",
+      "title": "scratchpad strip tolerates malformed close tags (</scratchmark> etc.) so internal reasoning never leaks into client output",
+      "claimed_at": "2026-05-25T08:49:42Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

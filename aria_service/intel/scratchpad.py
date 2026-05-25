@@ -77,8 +77,15 @@ logger = logging.getLogger("aria.scratchpad")
 _OPEN = "<scratchpad>"
 _CLOSE = "</scratchpad>"
 
+# R-F863 (2026-05-25) — tolerate MALFORMED close tags. Live incident: the LLM
+# emitted `<scratchpad>…</scratchmark>` (wrong close tag) in a weekly brief; the
+# strict `</scratchpad>` regex matched nothing, so the ENTIRE chain-of-thought
+# (constitutional deliberation, counterarguments, clause analysis) leaked into
+# the client-facing email — and the leaked copy was cached + re-served. Match
+# any `</scratch…>`-shaped close so a one-character tag typo can never expose
+# internal reasoning again.
 _SCRATCHPAD_RE = re.compile(
-    r"<scratchpad>(.*?)</scratchpad>",
+    r"<scratchpad>(.*?)</scratch\w*>",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -193,13 +200,19 @@ def strip(raw_response: str) -> tuple[str, str]:
 
     # Strip ALL scratchpad blocks from user-facing text
     user_facing = _SCRATCHPAD_RE.sub("", raw_response)
-    # Clean up any lingering opening-tag or orphan-closing-tag
-    # (happens if the LLM cut off mid-scratchpad)
+    # R-F863 — clean up an orphan OPEN tag with no recognizable close (LLM cut
+    # off mid-scratchpad): strip from `<scratchpad>` to end, but only when no
+    # `</scratch…>` close remains (the lookahead), so we never eat real content
+    # that simply follows a properly-closed block.
     user_facing = re.sub(
-        r"<scratchpad>[^<]*$", "", user_facing, flags=re.DOTALL | re.IGNORECASE,
+        r"<scratchpad>(?:(?!</scratch)[\s\S])*$", "", user_facing,
+        flags=re.IGNORECASE,
     )
+    # R-F863 — orphan CLOSE at the very start (open tag missing/eaten): strip
+    # everything up to and including the first `</scratch…>`. Tolerant of the
+    # `</scratchmark>` class of malformed tags.
     user_facing = re.sub(
-        r"^[^>]*</scratchpad>", "", user_facing, flags=re.DOTALL | re.IGNORECASE,
+        r"^[\s\S]*?</scratch\w*>", "", user_facing, flags=re.IGNORECASE,
     )
     user_facing = user_facing.lstrip()
 
