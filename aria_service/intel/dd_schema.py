@@ -462,6 +462,22 @@ class ARKDDReport:
     # the /dd/report/{run_id} body both reflect the operator's intent.
     share_to_company: bool = True
 
+    # ── R-F875 (2026-05-25) — counter-intel / deception / divergence ─────
+    # Layers 5b (deception), 8 (counter_intelligence), 9 (sanctions_divergence)
+    # attached their results as INSTANCE attributes (report.deception = {...})
+    # — never declared fields. as_dict() == asdict(self) only serialises
+    # declared dataclass fields, so a `deception={tier: HIGH}` signal rendered
+    # into the markdown prose (render_markdown reads them via getattr) but was
+    # SILENTLY DROPPED from every JSON consumer: the dashboard, the re-screen
+    # diff, the case-file endpoint, brain absorb. A HIGH deception / counter-
+    # intel verdict invisible to the structured surface is an honesty defect
+    # (a hidden risk signal). Same root cause + fix as R-F591 (canonical_entity_id
+    # et al). Declaring them here makes asdict() export them on every path;
+    # the existing `report.deception = {...}` assignments now set the field.
+    deception: Optional[dict] = None
+    counter_intelligence: Optional[dict] = None
+    sanctions_divergence: Optional[dict] = None
+
     # ── Serialisation helpers ────────────────────────────────────────────
 
     def as_dict(self) -> dict:

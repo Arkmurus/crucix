@@ -510,7 +510,18 @@ ORCHESTRATOR_ENABLED = (os.getenv("ARIA_DD_ORCHESTRATOR_ENABLED", "1") or "1").s
 
 REPORT_REDIS_KEY = "crucix:dd:report:{run_id}"
 REPORT_INDEX_KEY = "crucix:dd:report_index"
-REPORT_TTL_SECONDS = 7 * 24 * 3600
+# R-F877 (2026-05-25) — DD report bodies + index NO LONGER EXPIRE.
+# Was `7 * 24 * 3600` (7-day TTL). A DD verdict is a compliance artifact
+# (HARD_STOP / SAR-trigger) and knowledge — CLAUDE.md §7 is binding: "No TTL
+# on knowledge. No eviction. Overflow → cold storage, never delete." The
+# 7-day TTL also broke the R-F573 version-diff: a re-DD 8+ days after the
+# previous run found the prior body aged out (the R-F575 cold tier only
+# archived the INDEX entry, not the body) so it silently produced diff=None.
+# The store is file/SQLite-backed (Upstash cancelled 2026-05-12), so there is
+# no RAM-pressure reason to expire — same infinite-memory model as the
+# knowledge store. `ex=None` → set_json writes with no expiry. Name kept
+# (12 call sites) but semantically "persist forever".
+REPORT_TTL_SECONDS = None
 
 
 # =============================================================================
@@ -5017,8 +5028,9 @@ async def _persist_report(report: ARKDDReport) -> None:
 
         # R-F573: when this is a re-run (version_number > 1), load the
         # previous report and compute a finding-level diff. Best-effort
-        # — if the previous report has aged out of the 7-day TTL or
-        # otherwise can't be fetched, we still persist with diff=None.
+        # — if the previous report can't be fetched we still persist with
+        # diff=None. (R-F877 removed the 7-day body TTL, so the previous
+        # body no longer ages out — diffs work at any re-DD interval.)
         if version_number > 1 and previous_run_id:
             try:
                 previous_body = await rs.get_json(
@@ -5081,14 +5093,47 @@ async def _persist_report(report: ARKDDReport) -> None:
             index.insert(0, new_entry)
             index = index[:500]
             await rs.set_json(REPORT_INDEX_KEY, index, ex=REPORT_TTL_SECONDS)
-            # R-F575: mirror into the SQLite cold tier so the case-file
-            # chain survives the 7-day Redis TTL. Best-effort — failure
-            # is non-fatal (Redis is authoritative for the next 7 days).
+            # R-F575: mirror the index entry into the SQLite cold tier as a
+            # redundant case-file chain store. Best-effort — failure is
+            # non-fatal (the primary store now persists forever per R-F877).
             try:
                 from . import dd_case_archive
                 dd_case_archive.archive_entry(new_entry)
             except Exception as _arc_err:
                 logger.debug("dd_orchestrator: cold-tier archive failed: %s", _arc_err)
+
+            # R-F878 (2026-05-25) — auto-enroll the DD'd entity into the
+            # watchlist. Pre-R-F878 orchestrate_dd NEVER called
+            # add_to_watchlist, so the entities the team explicitly
+            # scrutinises (a manual DD) were the ONLY ones that fell out of
+            # re-screening — only autonomous-scan-discovered entities got
+            # monitored. Closes that coherence hole: every completed DD
+            # enrolls its canonical_entity_id so the daily re-screen tracks
+            # it. Best-effort + guarded against thin/garbage names (same
+            # entity guard rescreen uses to self-purge pollution).
+            # Idempotent — add_to_watchlist dedups by name and only enriches.
+            try:
+                _wl_name = (report.identity.entity_name or "").strip()
+                _enroll_ok = bool(_wl_name)
+                try:
+                    from . import sanctions as _sanc_enr
+                    if hasattr(_sanc_enr, "_looks_like_entity_name"):
+                        _enroll_ok = _enroll_ok and _sanc_enr._looks_like_entity_name(_wl_name)
+                except Exception:
+                    pass
+                if _enroll_ok:
+                    await add_to_watchlist({
+                        "name": _wl_name,
+                        "entity_type": report.identity.entity_type or None,
+                        "jurisdiction": report.identity.jurisdiction or None,
+                        "canonical_entity_id": canonical_id,
+                        "source": "dd_auto_enroll",
+                        "last_dd_run_id": report.run_id,
+                        "last_risk": report.risk_classification,
+                        "added_at": report.generated_at,
+                    })
+            except Exception as _enr_err:
+                logger.debug("dd_orchestrator: watchlist auto-enroll failed: %s", _enr_err)
         except Exception as e:
             logger.debug("dd_orchestrator: report index write failed: %s", e)
     except Exception as e:
@@ -6833,8 +6878,26 @@ async def add_to_watchlist(target: dict) -> dict:
     name = (target.get("name") or target.get("entity") or "").strip()
     if not name:
         raise ValueError("target must include a name")
-    if any((w.get("name") or "").strip().lower() == name.lower() for w in current):
-        return {"ok": True, "note": "already on watchlist", "count": len(current)}
+    for w in current:
+        if (w.get("name") or "").strip().lower() == name.lower():
+            # R-F878 — already present: backfill canonical_entity_id /
+            # entity_type / jurisdiction when this DD supplies them and the
+            # existing entry lacks them, so the R-F876 re-screen can match by
+            # canonical id (not re-baseline from CLEAN). Also refresh the
+            # last-DD pointer. Keeps enrollment idempotent BUT enriching.
+            _changed = False
+            for _k in ("canonical_entity_id", "entity_type", "jurisdiction"):
+                if target.get(_k) and not w.get(_k):
+                    w[_k] = target[_k]
+                    _changed = True
+            for _k in ("last_dd_run_id", "last_risk"):
+                if target.get(_k) and w.get(_k) != target[_k]:
+                    w[_k] = target[_k]
+                    _changed = True
+            if _changed:
+                await rs.set_json(WATCHLIST_KEY, current)
+            return {"ok": True, "note": "already on watchlist",
+                    "count": len(current), "enriched": _changed}
     current.insert(0, target)
     current = current[:200]
     await rs.set_json(WATCHLIST_KEY, current)
@@ -7617,11 +7680,38 @@ async def rescreen_watchlist(llm=None) -> dict:
             old_score = 0.0
             old_run_id = None
 
+            # R-F876 (2026-05-25) — match the prior report by CANONICAL ENTITY
+            # ID, not raw entity_name. The old `entity_name.lower() ==` match
+            # missed cosmetic variants ("Embraer SA" vs "Embraer S.A.") → no
+            # prior report found → baseline fell back to CLEAN/0.0 → a spurious
+            # score_change alert fired (the live "CLEAN→CLEAN 0.00→0.833" the
+            # operator saw in the logs). Prefer canonical-id equality; fall
+            # back to a normalised-name match (suffix/punctuation-insensitive)
+            # so legacy index entries without a canonical_entity_id still
+            # resolve to the right prior report.
+            from . import dd_versioning as _ver
             index = await rs.get_json(REPORT_INDEX_KEY) or []
+            _wl_cid = (entry.get("canonical_entity_id") or "").strip() or _ver.canonical_entity_id(
+                entity_type=entry.get("entity_type"),
+                name=name,
+                jurisdiction_iso2=entry.get("jurisdiction") or entry.get("jurisdiction_iso2"),
+                registration_number=entry.get("registration_number"),
+            )
+            _wl_norm = _ver.normalize_name(name)
+            _name_match_run_id = None
             for idx_entry in index:
-                if (idx_entry.get("entity_name") or "").strip().lower() == name.lower():
-                    old_run_id = idx_entry.get("run_id")
+                _idx_cid = (idx_entry.get("canonical_entity_id") or "").strip()
+                if _wl_cid and _idx_cid and _idx_cid == _wl_cid:
+                    old_run_id = idx_entry.get("run_id")   # canonical-id hit (best)
                     break
+                if _name_match_run_id is None and _ver.normalize_name(
+                    idx_entry.get("entity_name") or ""
+                ) == _wl_norm:
+                    _name_match_run_id = idx_entry.get("run_id")
+            else:
+                # No canonical-id hit → use the normalised-name fallback (which
+                # collapses "Embraer SA"/"Embraer S.A." to one key).
+                old_run_id = _name_match_run_id
 
             if old_run_id:
                 prev_report = await rs.get_json(REPORT_REDIS_KEY.format(run_id=old_run_id))

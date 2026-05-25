@@ -1,15 +1,17 @@
 """R-F575 — DD case-file SQLite cold tier.
 
-Redis stores DD reports + index for 7 days (REPORT_TTL_SECONDS). For
-case-file continuity that's not enough — operators want a complete
-chain of every DD they've run on the same canonical_entity_id, even
-when one of the earlier versions was last touched ≥7 days ago.
+Historically the primary store expired DD reports + index after 7 days
+(REPORT_TTL_SECONDS). R-F877 (2026-05-25) removed that TTL per CLAUDE.md §7
+(infinite memory — never delete a compliance artifact), so the primary
+store now persists forever. This SQLite cold tier remains as a redundant,
+durable case-file chain (a second copy on the /data volume) and as the
+historical recovery path for any entry that predates R-F877 and already
+aged out of the primary store.
 
 This module mirrors index entries into SQLite at /data/dd_case_archive.db
 (or wherever DATA volume is mounted). Every `_persist_report` writes the
-new index entry to BOTH Redis and SQLite. `get_case_file` reads from
-BOTH and merges (dedup by run_id), so the version chain survives Redis
-eviction.
+new index entry to BOTH the primary store and SQLite. `get_case_file` reads
+from BOTH and merges (dedup by run_id), so the version chain is doubly safe.
 
 90-day retention on the SQLite side — long enough that quarterly DD
 re-runs still surface the v(N-1) entry. Older entries are purged in

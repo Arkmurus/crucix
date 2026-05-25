@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 875,
+  "next_available": 880,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3263,6 +3263,51 @@
       "notes": null,
       "abandoned_at": "2026-05-25T10:29:55Z",
       "abandon_reason": "duplicate of R-F873 (same async doc pipeline); R-F873 is the canonical reservation"
+    },
+    {
+      "r_number": "R-F875",
+      "title": "DD as_dict serialises deception/counter_intelligence/sanctions_divergence (honesty: HIGH signals were prose-only, dropped from JSON)",
+      "claimed_at": "2026-05-25T10:50:14Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F876",
+      "title": "rescreen_watchlist matches prior report by canonical_entity_id (was raw entity_name -> spurious CLEAN->CLEAN 0.833 alerts)",
+      "claimed_at": "2026-05-25T10:52:51Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F877",
+      "title": "DD report bodies no longer expire (REPORT_TTL_SECONDS 7d -> None) — CLAUDE.md §7 infinite-memory; keeps re-DD version-diffs working past 7d",
+      "claimed_at": "2026-05-25T10:54:26Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F878",
+      "title": "orchestrate_dd auto-enrolls DD'd entity into watchlist (closes scrutinised-but-unmonitored hole) + add_to_watchlist backfills canonical_entity_id",
+      "claimed_at": "2026-05-25T10:55:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F879",
+      "title": "WEEKLY-DD-WATCHLIST description honesty: claimed 7-layer full re-DD but runs sanctions/PEP-only rescreen — rewrite to match actual behaviour",
+      "claimed_at": "2026-05-25T10:56:21Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

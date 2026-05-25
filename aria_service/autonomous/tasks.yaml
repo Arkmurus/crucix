@@ -737,15 +737,23 @@ tasks:
   # least one entity has been added via the watchlist endpoint before
   # the first scheduled run.
   - id: WEEKLY-DD-WATCHLIST
-    name: ARK-DD watchlist sweep
+    name: Watchlist sanctions/PEP re-screen
     description: |
-      Weekly Monday 07:00 UTC — runs the 7-layer due-diligence
-      orchestrator on every entity registered in crucix:dd:watchlist.
-      Each entity is walked through identity → network → compliance →
-      digital → verification → synthesis, producing a structured
-      ARK-DD report stored in Redis (7-day TTL). Any run that comes
-      back RED or HARD_STOP fires an escalation signal to the
-      autonomous/delivery.py pipeline.
+      Weekly Monday 07:00 UTC — re-screens every entity registered in
+      crucix:dd:watchlist against the sanctions + PEP lists (no LLM, no
+      deep research). This is a SANCTIONS RE-SCREEN, not a full DD: it
+      does NOT re-run the 7-layer orchestrator (identity → network →
+      compliance → digital → verification → synthesis) — that would
+      exceed this task's 2.00 USD cap. It compares each entity's current
+      sanctions status against the most recent DD report (matched by
+      canonical_entity_id per R-F876) and records score/status changes.
+      A new HIT (CLEAN→sanctioned) fires an escalation signal to the
+      autonomous/delivery.py pipeline. For a full periodic re-DD, run the
+      orchestrator on-demand via /api/aria/dd/orchestrate.
+      [R-F879 (2026-05-25) — description corrected: the prior text claimed
+      a 7-layer full re-DD producing a structured ARK-DD report; the task
+      handler (dd_watchlist_sweep → rescreen_watchlist) only ever ran a
+      sanctions/PEP re-screen.]
     cron: "0 7 * * mon"
     enabled: true
     priority: MEDIUM
