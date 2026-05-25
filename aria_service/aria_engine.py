@@ -1955,6 +1955,23 @@ def _strip_response_for_history(response_text: str) -> str:
     return response_text
 
 
+def _completion_max_tokens(message: str) -> int:
+    """R-F865 (2026-05-25) — periodic/dated intelligence briefs need a larger
+    completion budget than a normal chat turn: a weekly brief is 8 structured
+    sections (markets, tenders, pipeline, competitors, contacts, actions…), and
+    the 2026-05-25 brief truncated mid-section 2/8 under the 4000-token default.
+    Briefs get 8000; everything else keeps 4000 (latency/cost unchanged for the
+    common case). Reuses the R-F864 periodic-brief detector so 'cache it?',
+    'serve it?' and 'how long?' all agree on what a brief is."""
+    try:
+        from .intel.reasoning_library import _looks_like_periodic_brief
+        if message and _looks_like_periodic_brief(message.lower()):
+            return 8000
+    except Exception:
+        pass
+    return 4000
+
+
 def _detect_metacog_domain(message: str) -> str:
     """Best-effort domain classification for the metacognitive self-assessment.
 
@@ -3171,7 +3188,7 @@ async def _aria_chat_impl(
         intel_context=context, history=history, raw_message=message,
     )
     try:
-        result = await llm.complete(system_prompt, user_prompt, max_tokens=4000, timeout=_llm_timeout)
+        result = await llm.complete(system_prompt, user_prompt, max_tokens=_completion_max_tokens(message), timeout=_llm_timeout)
         response_text = result.text
     except Exception as e:
         # Record error for autonomous self-improvement
@@ -3916,7 +3933,7 @@ async def _aria_chat_stream_impl(
     try:
         async for chunk in llm.stream(
             system_prompt, user_prompt,
-            max_tokens=4000, timeout=120.0,
+            max_tokens=_completion_max_tokens(message), timeout=120.0,
             on_done=_on_stream_done,
         ):
             full_text += chunk
