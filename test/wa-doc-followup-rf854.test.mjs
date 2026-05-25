@@ -43,8 +43,13 @@ console.log('wiring (services/wa-listener/aria_wa_listener.mjs):');
 check('defines the per-sender recent-doc cache (_recentDocs Map)', /const _recentDocs = new Map\(\)/.test(SRC));
 check('defines _cacheRecentDoc', /function _cacheRecentDoc\(chatId, senderName, filename, text\)/.test(SRC));
 check('defines _recentDocForFollowup', /function _recentDocForFollowup\(chatId, senderName, question\)/.test(SRC));
-check('document path caches the extracted text (uses result.extracted_text)',
-  /_cacheRecentDoc\(chatId, senderName, filename,[\s\S]{0,120}result\.extracted_text/.test(SRC));
+// R-F862 refactored the inline cache call into a _cacheText intermediate (so a
+// >8MB byte-truncated doc gets a PARTIAL EXTRACTION banner before caching), so
+// the old adjacency regex no longer matched. Assert the real flow:
+// result.extracted_text → _cacheText → _cacheRecentDoc.
+check('document path caches the extracted text (result.extracted_text → _cacheText → _cacheRecentDoc)',
+  /_cacheText = \(result\.extracted_text/.test(SRC)
+  && /_cacheRecentDoc\(chatId, senderName, filename, _cacheText\)/.test(SRC));
 check('mention handler re-attaches via _recentDocForFollowup',
   /_recentDocForFollowup\(chatId, senderName, q\)/.test(SRC));
 check('re-attached doc uses the [ATTACHED DOCUMENT] envelope',

@@ -8560,6 +8560,57 @@ def _r473_record_read_doc(elapsed_s: float, filename: str, byte_len: int, detect
         )
 
 
+# ── R-F873 (2026-05-25) — async document-extraction pipeline ─────────────────
+# Full-document reading must not be bounded by a synchronous HTTP timeout. A
+# large/scanned trade-finance contract (e.g. the Forcados SPA) needs multi-page
+# OCR that exceeds the R-F869 80s cap → 504. Async mode enqueues a background
+# extraction with NO sync cap, so it runs to completion (minutes if needed) and
+# the wedge can only SLOW it, never 504 it. The caller polls
+# /read-document/result/{job_id}. document_reader runs extraction/OCR in
+# asyncio.to_thread, so the long-running job doesn't hold the event loop.
+class _ReadDocBodyRequest:
+    """Minimal Request shim so _read_document_ep_impl can run from a background
+    task: it uses `request` ONLY for request.json() (the pre-read body) and
+    get_llm(request) (= request.app.state.llm_provider). Verified 2026-05-25."""
+    def __init__(self, app: Any, body: dict) -> None:
+        self.app = app
+        self._body = body
+
+    async def json(self) -> dict:
+        return self._body
+
+
+_READDOC_JOB_PREFIX = "crucix:aria:readdoc_job:"
+_READDOC_JOB_TTL_S = 3600  # 1h — long enough for a WA poll window + retries
+
+
+async def _readdoc_job_set(job_id: str, data: dict) -> None:
+    try:
+        from ..intel import redis_store as _rs_rd
+        import time as _t_rd
+        await _rs_rd.set_json(_READDOC_JOB_PREFIX + job_id, {**data, "ts": _t_rd.time()},
+                              ex=_READDOC_JOB_TTL_S)
+    except Exception as e:
+        _log.warning("R-F873 readdoc job-store set failed for %s: %s", job_id, e)
+
+
+async def _readdoc_job_get(job_id: str) -> Optional[dict]:
+    try:
+        from ..intel import redis_store as _rs_rd
+        return await _rs_rd.get_json(_READDOC_JOB_PREFIX + job_id)
+    except Exception:
+        return None
+
+
+@router.get("/read-document/result/{job_id}")
+async def read_document_result_ep(job_id: str):
+    """R-F873 — poll an async read-document job. status: processing|done|failed|not_found."""
+    job = await _readdoc_job_get(job_id)
+    if not job:
+        return {"status": "not_found", "job_id": job_id}
+    return {"job_id": job_id, **job}
+
+
 @router.post("/read-document")
 async def read_document_ep(request: Request):
     """R-F725 (2026-05-19) — hard 45s wall-clock cap.
@@ -8599,30 +8650,72 @@ async def read_document_ep(request: Request):
         pass
     import asyncio as _r725_asyncio
     import os as _r869_os
-    # R-F869 (2026-05-25) — env-configurable cap, default raised 45→80s. The 45s
-    # cap 504'd on a legitimate large/scanned trade-finance contract (Forcados
-    # SPA, MT199/DLC MT700) whose multi-page OCR exceeds 45s. 80s sits under the
-    # WA listener's 90s brainPost timeout so the caller still receives the
-    # result (not its own timeout). Tunable without a redeploy via
-    # ARIA_READ_DOC_TIMEOUT_S. Safe to lengthen: document_reader runs extraction
-    # / OCR in asyncio.to_thread, so a longer cap doesn't hold the event loop —
-    # only this one request waits.
+    from starlette.requests import ClientDisconnect as _r873_disc
+
+    # R-F873 — read the body ONCE here so we can (a) detect async mode and
+    # (b) pass it to _read_document_ep_impl via a shim without it re-reading.
+    try:
+        _r873_body = await request.json()
+    except _r873_disc:
+        _log.info("R-F528 read-document: client disconnected before body read")
+        return Response(status_code=499)
+    except Exception:
+        return Response(
+            status_code=400,
+            content='{"ok":false,"error":"invalid JSON body"}',
+            media_type="application/json",
+        )
+    _r873_shim = _ReadDocBodyRequest(request.app, _r873_body)
+
+    # R-F873 — ASYNC mode: enqueue a background extraction with NO sync cap so
+    # large/scanned documents (multi-page OCR) read to completion. The wedge can
+    # only SLOW the job, never 504 it. Caller polls /read-document/result/{id}.
+    if _r873_body.get("async"):
+        import uuid as _uuid873
+        _job_id = _uuid873.uuid4().hex[:12]
+        _fname = _r873_body.get("filename", "")
+        await _readdoc_job_set(_job_id, {"status": "processing", "filename": _fname})
+
+        async def _r873_run():
+            try:
+                _res = await _read_document_ep_impl(_r873_shim)
+                if isinstance(_res, dict):
+                    await _readdoc_job_set(_job_id, {"status": "done", "result": _res, "filename": _fname})
+                else:
+                    _sc = getattr(_res, "status_code", "?")
+                    await _readdoc_job_set(_job_id, {"status": "failed",
+                                                     "error": f"extraction returned HTTP {_sc}", "filename": _fname})
+            except Exception as _e:
+                _log.warning("R-F873 async read-document job %s failed: %s", _job_id, _e)
+                await _readdoc_job_set(_job_id, {"status": "failed", "error": str(_e)[:300], "filename": _fname})
+
+        _r725_asyncio.create_task(_r873_run(), name=f"readdoc.{_job_id}")
+        return {
+            "async": True, "job_id": _job_id, "status": "processing",
+            "poll_url": f"/api/aria/read-document/result/{_job_id}",
+            "message": "Extraction started — poll the result URL.",
+        }
+
+    # ── Sync mode (default) — R-F869 80s loop-protection cap. ──
+    # Env-configurable via ARIA_READ_DOC_TIMEOUT_S (default 80s). document_reader
+    # runs OCR in asyncio.to_thread, so the cap doesn't hold the loop — only this
+    # request waits. Large/scanned docs should use async mode (above).
     _r869_timeout = float(_r869_os.getenv("ARIA_READ_DOC_TIMEOUT_S", "80"))
     try:
         return await _r725_asyncio.wait_for(
-            _read_document_ep_impl(request), timeout=_r869_timeout,
+            _read_document_ep_impl(_r873_shim), timeout=_r869_timeout,
         )
     except _r725_asyncio.TimeoutError:
         _log.warning(
             "R-F725/F869 read-document HARD TIMEOUT at %.0fs — aborting to "
-            "protect event loop. Caller should retry, paste the text, or "
-            "split the document.", _r869_timeout,
+            "protect event loop. Caller should use async mode, paste the text, "
+            "or split the document.", _r869_timeout,
         )
         return Response(
             status_code=504,
             content='{"ok":false,"error":"read-document exceeded its time '
-                    'cap (R-F725/F869) — large/scanned document OCR ran long. '
-                    'Retry, paste the text, or split the document."}',
+                    'cap (R-F725/F869) — use async mode for large/scanned docs, '
+                    'or paste the text."}',
             media_type="application/json",
         )
 

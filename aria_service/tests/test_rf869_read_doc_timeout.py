@@ -33,4 +33,6 @@ def test_default_under_wa_brainpost_timeout():
 
 
 def test_timeout_used_in_wait_for():
-    assert "_read_document_ep_impl(request), timeout=_r869_timeout" in SRC
+    # R-F873 — the sync path now passes the body shim (_r873_shim), not the raw
+    # request, so the body is read once at the top and reused.
+    assert "_read_document_ep_impl(_r873_shim), timeout=_r869_timeout" in SRC

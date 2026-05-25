@@ -302,6 +302,39 @@ async function brainGet(path) {
   return r.json();
 }
 
+// R-F873 — full-document reads run as a BACKGROUND JOB on the brain so a large /
+// scanned contract (multi-page OCR — e.g. the Forcados SPA / MT199 / DLC MT700)
+// reads to completion even when the autonomous absorb storm slows the event
+// loop. The 80s sync cap (R-F869) 504'd on exactly that document. We POST
+// async:true, get a job_id immediately, then poll the result endpoint — this
+// path has NO server-side cap, so the wedge can only slow it, never time it out.
+// Returns the read-document result dict on success; throws on failure/timeout;
+// falls back to a legacy sync result if the brain is an older build.
+async function readDocumentAsync(payload, chatId, filename) {
+  const job = await brainPost('/api/aria/read-document', { ...payload, async: true });
+  const jobId = job && job.job_id;
+  if (!jobId) {
+    // Older brain build without async support — it returned the sync result.
+    return job && job.result ? job.result : (job || null);
+  }
+  await sendReply(chatId,
+    `📥 Reading *${filename}* — a large or scanned document takes a minute. `
+    + `I'll send the overview as soon as it's ready.`).catch(() => {});
+  const POLL_MS = 5000, MAX_POLLS = 48;   // 5s × 48 = up to 4 minutes
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise(r => setTimeout(r, POLL_MS));
+    let st;
+    try { st = await brainGet(`/api/aria/read-document/result/${jobId}`); }
+    catch { continue; }                    // transient poll error — keep waiting
+    if (!st) continue;
+    if (st.status === 'done')      return st.result || null;
+    if (st.status === 'failed')    throw new Error(st.error || 'extraction failed');
+    if (st.status === 'not_found') throw new Error('extraction job expired');
+    // status === 'processing' → keep polling
+  }
+  throw new Error('extraction timed out after 4 minutes');
+}
+
 // ── Ask ARIA with persistent per-sender sessions ────────────────────────────
 async function askARIA(message, senderJid) {
   const sid = `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}`;
@@ -931,14 +964,17 @@ async function startListener() {
             if (content.length > 50) {
               // R-F856 — capture the failure reason instead of swallowing it.
               let _docErr = null;
-              const result = await brainPost('/api/aria/read-document', {
+              // R-F873 — async background read (no 80s sync cap). readDocumentAsync
+              // sends the "📥 Reading…" ack, polls the result, and resolves to the
+              // same result dict the sync path returned (or throws → null below).
+              const result = await readDocumentAsync({
                 content,
                 filename,
                 source: `whatsapp_group:${groupName}:${senderName}`,
                 context: text || `Document from ${senderName} in ${groupName}`,
                 encoding: isBinary ? 'base64' : 'utf-8',
                 mimetype,
-              }).catch(e => { _docErr = e?.message || 'no response'; return null; });
+              }, chatId, filename).catch(e => { _docErr = e?.message || 'no response'; return null; });
               if (result) {
                 // R-F854 — cache the extracted text so a later "analyse this
                 // contract" follow-up mention can re-attach it (read-document
