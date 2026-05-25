@@ -3338,9 +3338,10 @@
       "title": "security guard scans user question not attached-document body (R-F854 doc re-attach false-CRITICAL-blocked legit contract analysis live)",
       "claimed_at": "2026-05-25T11:39:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "72d0055af549189db1a17a10b4ff338414a1832e",
+      "notes": null,
+      "shipped_at": "2026-05-25T11:41:40Z"
     }
   ]
 }
