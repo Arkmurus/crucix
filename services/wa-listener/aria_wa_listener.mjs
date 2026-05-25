@@ -910,8 +910,14 @@ async function startListener() {
               const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
             })());
             // Slice BYTES (not base64 string!) to avoid mid-character truncation
+            // R-F862 — track byte-level truncation. A large/scanned contract PDF
+            // >8MB is clipped to the first 8MB BEFORE extraction; without a
+            // banner ARIA can't tell the tail (later pages — annexes, schedules,
+            // signature) is missing and may assert "X is not in the document"
+            // about a clipped doc (the R-F849/GESPI failure class, WA byte path).
             const MAX_BYTES = 8 * 1024 * 1024;
-            const buf = buffer.length > MAX_BYTES ? buffer.subarray(0, MAX_BYTES) : buffer;
+            const bytesTruncated = buffer.length > MAX_BYTES;
+            const buf = bytesTruncated ? buffer.subarray(0, MAX_BYTES) : buffer;
             const docType = mimetype.split('/')[1] || 'document';
             const isBinary = /pdf|word|spreadsheet|octet-stream|msword|officedocument/.test(mimetype);
             const content = isBinary
@@ -932,15 +938,26 @@ async function startListener() {
                 // R-F854 — cache the extracted text so a later "analyse this
                 // contract" follow-up mention can re-attach it (read-document
                 // returns extracted_text per R-F849; fall back to utf-8 content).
-                _cacheRecentDoc(chatId, senderName, filename,
-                  (result.extracted_text || (isBinary ? '' : content) || '').trim());
+                // R-F862 — if the upload was byte-truncated at the 8MB cap,
+                // prepend a partial-extraction banner so the cached text (and
+                // every later re-attach / review) knows the tail is missing.
+                let _cacheText = (result.extracted_text || (isBinary ? '' : content) || '').trim();
+                if (bytesTruncated && _cacheText) {
+                  _cacheText = `[!PARTIAL EXTRACTION — "${filename}" exceeded the 8MB upload cap; only the first 8MB was read. Content past that point (later pages — annexes, schedules, signature) is NOT below. Do NOT assert any clause, party or term is absent based on this text; ask the sender to split the file or send the missing sections.]\n\n` + _cacheText;
+                }
+                _cacheRecentDoc(chatId, senderName, filename, _cacheText);
                 const summary = result.summary || `${docType} file, ${content.length} characters`;
-                console.log(`[ARIA Listener] Doc processed: ${filename} → ${result.facts_learned || 0} facts (form: ${result.doc_intel?.form_code || '?'})`);
+                console.log(`[ARIA Listener] Doc processed: ${filename} → ${result.facts_learned || 0} facts (form: ${result.doc_intel?.form_code || '?'})${bytesTruncated ? ' [BYTE-TRUNCATED >8MB]' : ''}`);
                 const overview = result.overview_markdown;
                 if (overview && overview.length > 40) {
                   await sendReply(chatId, `🧠 *ARIA — document overview*\n\n${overview}`.slice(0, 3800));
                 } else {
                   await sendReply(chatId, `📄 I've read *${filename}*. ${summary}\n\nAsk me anything about it.`);
+                }
+                // R-F862 — tell the user the read was partial so they don't trust
+                // a 360 review built on a clipped document.
+                if (bytesTruncated) {
+                  await sendReply(chatId, `⚠️ *${filename}* is large (>8MB) — I read the first 8MB only. Later pages (annexes, payment schedules, signature) may be missing, so treat any "not in the contract" finding with caution. For a full 360 review, split the file or send the key sections.`).catch(() => {});
                 }
               } else {
                 // R-F856 — read-document returned null (timeout / aria-intel

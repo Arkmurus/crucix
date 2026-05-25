@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 862,
+  "next_available": 863,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3127,6 +3127,16 @@
       "r_number": "R-F861",
       "title": "FIX 6: relevance gate before deep-read to drop keyword-collision junk articles",
       "claimed_at": "2026-05-25T08:35:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a825930",
+      "notes": null,
+      "shipped_at": "2026-05-25T08:38:16Z"
+    },
+    {
+      "r_number": "R-F862",
+      "title": "WA 8MB byte-truncation banner: warn user + banner cached text when a large contract PDF is clipped before extraction",
+      "claimed_at": "2026-05-25T08:42:04Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
