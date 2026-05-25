@@ -178,6 +178,7 @@ def build_footer(
     tools_used: list[str] | str | None = None,
     build_rev: str | None = None,
     trace_id: str | None = None,
+    document_grounded: bool = False,
 ) -> str:
     """Compose the structured footer block.
 
@@ -360,10 +361,19 @@ def build_footer(
             unique_tools.append(t)
         if unique_tools:
             proof_bits.append(f"*Tools:* {' · '.join(unique_tools[:5])}")
+        elif document_grounded:
+            # R-F885 — the answer was grounded in an attached document, not a
+            # tool. Saying "from memory / training" here is a flat-out
+            # mis-label (live 2026-05-25: a full document-grounded contract
+            # review footer read "from memory / training · 0 grounded").
+            proof_bits.append("*Source:* attached document (grounded)")
         else:
             # Explicitly say no tool when none ran — operator's "did she
             # actually check" question gets an honest "no" instead of silence.
             proof_bits.append("*Tools:* (none — from memory / training)")
+    elif document_grounded:
+        # R-F885 — no tool fired, but the reply quotes an attached document.
+        proof_bits.append("*Source:* attached document (grounded)")
     else:
         proof_bits.append("*Tools:* (none — from memory / training)")
     if build_rev:

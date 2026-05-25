@@ -7960,6 +7960,9 @@ async def chat_ep(req: ChatRequest, request: Request):
                 tools_used=_tools_for_footer or None,
                 build_rev=_build_rev_for_footer or None,
                 trace_id=trace_id,
+                # R-F885 — when the turn carried an attached document, label the
+                # footer source as the document, not "from memory / training".
+                document_grounded=("[ATTACHED DOCUMENT" in (req.message or "")),
             )
             if footer:
                 result["response"] = (response_text or "") + footer
@@ -8392,6 +8395,9 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
                         tools_used=_tools_for_footer or None,
                         build_rev=_build_rev_for_footer or None,
                         trace_id=session_id,
+                        # R-F885 — document-grounded turns labelled as such, not
+                        # "from memory / training".
+                        document_grounded=("[ATTACHED DOCUMENT" in (req.message or "")),
                     )
                     if _footer:
                         yield f'data: {json.dumps({"type":"chunk","text":_footer})}\n\n'

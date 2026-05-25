@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 885,
+  "next_available": 886,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3363,6 +3363,15 @@
       "commit_sha": "0d818076f8dde244cdb7f6d247774f1e257b5a9a",
       "notes": null,
       "shipped_at": "2026-05-25T12:30:06Z"
+    },
+    {
+      "r_number": "R-F885",
+      "title": "footer provenance — document-grounded reviews no longer mislabeled 'from memory/training'; show 'attached document' as source",
+      "claimed_at": "2026-05-25T12:33:43Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
