@@ -3659,9 +3659,10 @@
       "title": "brain->BD lead bridge: structured+cached /proactive/lead-hunt (intel-injected) + server.mjs merge into salesLeads",
       "claimed_at": "2026-05-26T15:18:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "dffeb9b",
+      "notes": null,
+      "shipped_at": "2026-05-26T15:24:25Z"
     }
   ]
 }
