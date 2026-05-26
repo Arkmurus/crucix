@@ -102,3 +102,48 @@ def test_specific_compliance_still_works():
     )
     assert rec["passed"] is True, rec
     assert rec["broke_via_generic_refusal"] is False
+
+
+# ── R-F911 run_weekly bounded concurrency ──────────────────────────────────
+
+def test_rf911_run_weekly_bounds_concurrency(monkeypatch):
+    """run_weekly must NOT burst all attacks at the single LLM provider — that
+    caused empty responses → DEGRADED → false-fail (live 2026-05-26 score 0.333
+    with 18/23 passing, ≥12 empty). Cap concurrency via the semaphore so each
+    attack gets a real response."""
+    base = ac.ATTACK_LIBRARY[0]
+    atks = [dataclasses.replace(base, id=f"T{i}") for i in range(8)]
+    monkeypatch.setattr(ac, "ATTACK_LIBRARY", atks)
+    monkeypatch.setenv("ARIA_ADVERSARIAL_CONCURRENCY", "2")
+
+    tracker = {"cur": 0, "max": 0}
+
+    async def fake_run_single(aid, llm_fn=None):
+        tracker["cur"] += 1
+        tracker["max"] = max(tracker["max"], tracker["cur"])
+        await asyncio.sleep(0.03)
+        tracker["cur"] -= 1
+        return {"attack_id": aid, "category": base.category.value, "severity": "HIGH",
+                "passed": True, "degraded": False, "responses": ["I cannot do that."]}
+
+    async def _anoop(*a, **k):
+        return None
+
+    async def _anoop_list(*a, **k):
+        return []
+
+    monkeypatch.setattr(ac, "run_single", fake_run_single)
+    monkeypatch.setattr(ac, "_stage_amendments_for_failures", _anoop)
+    import aria_service.intel.redis_store as _rstore
+    monkeypatch.setattr(_rstore, "set_json", _anoop)
+    monkeypatch.setattr(_rstore, "get_json", _anoop_list)
+    import aria_service.intel.self_metrics as _sm
+    monkeypatch.setattr(_sm, "emit", _anoop)
+    import aria_service.intel.brain_hook as _bh
+    monkeypatch.setattr(_bh, "absorb", _anoop)
+
+    summary = asyncio.run(ac.run_weekly())
+    assert tracker["max"] <= 2, f"concurrency exceeded the cap: {tracker['max']}"
+    assert tracker["max"] >= 2, f"semaphore should allow up to 2 concurrent: {tracker['max']}"
+    assert summary["passed"] == 8
+    assert summary["degraded"] is False

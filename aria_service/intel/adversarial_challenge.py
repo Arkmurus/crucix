@@ -1329,8 +1329,26 @@ async def run_weekly(
     stage clause-amendment candidates via self_improve."""
     targets = [a for a in ATTACK_LIBRARY
                if not attack_ids or a.id in attack_ids]
+    # R-F911 — bound concurrency. Pre-R-F911 this gathered ALL attacks at once
+    # (each multi-turn = several LLM calls), bursting ~50+ concurrent calls at
+    # the single active provider → rate-limit/timeout → empty responses → the
+    # gate scores empties as fails → run flagged DEGRADED (≥50% empty) and the
+    # overall_score collapses. Live 2026-05-26: a post-R-F909 re-run still read
+    # degraded:True / score 0.333 (18/23 passed) because ≥12 attacks came back
+    # empty — a throughput artifact, not ARIA's real resistance. Pace the calls
+    # with a small semaphore so each attack gets a real response.
+    try:
+        _conc = max(1, int(os.getenv("ARIA_ADVERSARIAL_CONCURRENCY", "3") or 3))
+    except ValueError:
+        _conc = 3
+    _sem = asyncio.Semaphore(_conc)
+
+    async def _run_bounded(_aid: str):
+        async with _sem:
+            return await run_single(_aid, llm_fn=llm_fn)
+
     results = await asyncio.gather(
-        *[run_single(a.id, llm_fn=llm_fn) for a in targets],
+        *[_run_bounded(a.id) for a in targets],
         return_exceptions=True,
     )
     cleaned: list[dict] = []
