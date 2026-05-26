@@ -1117,6 +1117,19 @@ async def ingest_all_sections() -> dict:
         except Exception as e:
             results[section_name] = {"status": "ERROR", "error": str(e)}
             logger.error("Regional compliance section ingestion failed [%s]: %s", section_name, e)
+            # R-F898 — a failed section = ARIA missing regional-compliance
+            # knowledge. The logger.error reaches the ledger via R-F891's
+            # ARIA.* catch, but a structured knowledge_gap is what the
+            # self-improve loop actually acts on. Best-effort; never blocks.
+            try:
+                from . import capability_gaps as _cg
+                await _cg.record_gap(
+                    gap_type="knowledge_gap",
+                    detail=f"regional_compliance section '{section_name}' failed to ingest: {str(e)[:160]}",
+                    source="regional_compliance.ingest_all_sections",
+                )
+            except Exception:
+                pass
 
     success = sum(1 for v in results.values() if v.get("status") == "OK")
     logger.info(

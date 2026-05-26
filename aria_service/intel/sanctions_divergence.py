@@ -56,6 +56,7 @@ jurisdiction).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -305,6 +306,39 @@ async def analyze_divergence(name: str, *, threshold: float = 0.78) -> dict[str,
 
     listed_sorted   = sorted(listed)
     not_listed      = [j for j in _TRACKED_JURISDICTIONS if j not in listed]
+    narrative       = _build_narrative(name, listed_sorted, not_listed)
+
+    # R-F898 — a real cross-list divergence (listed on some tracked
+    # jurisdictions, silent on others) is high-value intel ARIA should
+    # remember (pay-once-remember §15); the success/learning side of this
+    # engine was dark. Fire-and-forget so the divergence query isn't blocked
+    # on the brain fan-out. Only fires on a genuine divergence (not "listed
+    # everywhere" / "listed nowhere").
+    if listed_sorted and not_listed:
+        try:
+            from . import brain_hook as _bh
+            coro = _bh.absorb_silent(
+                module="sanctions",
+                summary=f"Sanctions cross-list divergence: {narrative}"[:200],
+                detail=narrative[:600],
+                entity_name=str(name)[:120],
+                success=True,
+                confidence="PROBABLE",
+                source_id="sanctions_divergence:R-F898",
+            )
+        except Exception:
+            coro = None
+        if coro is not None:
+            try:
+                _t = asyncio.create_task(coro)  # analyze_divergence is async → loop present
+                _t.add_done_callback(
+                    lambda t: t.result() if not t.cancelled() and not t.exception() else None
+                )
+            except Exception:
+                try:
+                    coro.close()
+                except Exception:
+                    pass
 
     return {
         "name": name,
@@ -314,7 +348,7 @@ async def analyze_divergence(name: str, *, threshold: float = 0.78) -> dict[str,
         "jurisdictions_not_listed": not_listed,
         "divergence_count":         len(not_listed) if listed else 0,
         "per_match":                per_match,
-        "narrative":                _build_narrative(name, listed_sorted, not_listed),
+        "narrative":                narrative,
         "tracked_jurisdictions":    list(_TRACKED_JURISDICTIONS),
         "threshold":                threshold,
     }
