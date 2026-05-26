@@ -1785,17 +1785,32 @@ app.post('/api/brain/signal', requireAuth, async (req, res) => {
   try {
     const { content, source, signal_type, trigger, market, metadata } = req.body || {};
     if (!content) return res.status(400).json({ error: 'content required' });
-    // Forward to Python brain if available
-    if (BRAIN_URL) {
+    // R-F900 — forward to the brain's REAL signal endpoint. Pre-R-F900 this hit
+    // `/api/brain/signal` (404 — no such router; it's `/api/aria/brain/signal`
+    // per R-F887) with NO auth header (brain → 401), keyed off BRAIN_URL
+    // (=BRAIN_SERVICE_URL, often unset on aria-web). All three failures fell
+    // through to a FALSE `{status:"queued"}` the caller trusted. Use the same
+    // base URL + token the working /api/aria proxy uses, the correct path, and
+    // return an HONEST error instead of a fake ack.
+    const brainBase = process.env.ARIA_SERVICE_URL || BRAIN_URL || '';
+    const brainTok = process.env.ARIA_API_TOKEN || process.env.ARIA_INTERNAL_TOKEN || '';
+    if (brainBase) {
       try {
-        const r = await fetch(`${BRAIN_URL}/api/brain/signal`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const r = await fetch(`${brainBase}/api/aria/brain/signal`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(brainTok ? { 'Authorization': `Bearer ${brainTok}` } : {}),
+          },
           body: JSON.stringify(req.body), signal: AbortSignal.timeout(5000),
         });
         if (r.ok) return res.json(await r.json());
-      } catch {}
+        return res.status(502).json({ error: `brain signal forward failed: HTTP ${r.status}`, source });
+      } catch (e) {
+        return res.status(502).json({ error: `brain signal unreachable: ${e.message}`, source });
+      }
     }
-    res.json({ status: 'queued', source });
+    return res.status(503).json({ error: 'no brain base URL configured (set ARIA_SERVICE_URL)', source });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
