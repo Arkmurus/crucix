@@ -432,6 +432,68 @@ _MODULES: list[dict] = [
         "brain_registered": True,
         "critical": True,
     },
+    # R-F899 — dark runtime safety/compliance/honesty engines. These were
+    # uncatalogued (self_diagnostic covered ~16% of modules), so an import
+    # break or a lost entry-point in any of them went unnoticed. They feed
+    # the brain via other paths (dd_orchestrator absorb / capability_gaps /
+    # their own stores), so brain_registered=False is correct — the value
+    # here is the import + entry liveness check → RED → gap pipeline.
+    {
+        "name": "eliminated_weapons_watchlist",
+        "module": "aria_service.intel.eliminated_weapons_watchlist",
+        "entry": "render_finding_for_text",
+        "brain_registered": False,
+        "critical": True,  # a broken banned-weapon screener is compliance-critical
+    },
+    {
+        "name": "weapon_origin_catalogue",
+        "module": "aria_service.intel.weapon_origin_catalogue",
+        "entry": "render_finding_for_text",
+        "brain_registered": False,
+        "critical": False,
+    },
+    {
+        "name": "evasion_typology_detector",
+        "module": "aria_service.intel.evasion_typology_detector",
+        "entry": "render_findings_for_ctx",
+        "brain_registered": False,
+        "critical": False,
+    },
+    {
+        "name": "regional_compliance",
+        "module": "aria_service.intel.regional_compliance",
+        "entry": "ingest_all_sections",
+        "brain_registered": False,
+        "critical": False,
+    },
+    {
+        "name": "security_protocol",
+        "module": "aria_service.intel.security_protocol",
+        "entry": "detect_prompt_injection",
+        "brain_registered": False,
+        "critical": True,  # per-request injection guard
+    },
+    {
+        "name": "premise_verifier",
+        "module": "aria_service.intel.premise_verifier",
+        "entry": "verify_premises",
+        "brain_registered": False,
+        "critical": True,  # Phase A honesty foundation
+    },
+    {
+        "name": "honesty_judge",
+        "module": "aria_service.intel.honesty_judge",
+        "entry": "get_honesty_stats",
+        "brain_registered": False,  # has its own judgment store → autonomy_scorer
+        "critical": True,
+    },
+    {
+        "name": "semantic_search",
+        "module": "aria_service.intel.semantic_search",
+        "entry": "get_semantic_context",
+        "brain_registered": False,
+        "critical": True,  # wedge-epicentre encoder; RAG depends on it
+    },
 ]
 
 
