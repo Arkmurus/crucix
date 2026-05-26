@@ -3588,9 +3588,10 @@
       "title": "stage-side truncation guard logs its rejection (observability for the silent guard)",
       "claimed_at": "2026-05-26T12:44:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "7e0c58c",
+      "notes": null,
+      "shipped_at": "2026-05-26T12:45:49Z"
     }
   ]
 }
