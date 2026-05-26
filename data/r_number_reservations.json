@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 905,
+  "next_available": 906,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3563,6 +3563,16 @@
       "commit_sha": "6efefb4",
       "notes": null,
       "shipped_at": "2026-05-26T12:14:23Z"
+    },
+    {
+      "r_number": "R-F905",
+      "title": "grounding keystone: stream-path sources + verifier tool_context type fix",
+      "claimed_at": "2026-05-26T12:23:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "a6ad4fa",
+      "notes": null,
+      "shipped_at": "2026-05-26T12:34:58Z"
     }
   ]
 }
