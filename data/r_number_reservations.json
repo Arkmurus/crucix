@@ -3449,9 +3449,10 @@
       "title": "L3+L5 — constitutional_validator learns BLOCKED adversarial proposals as regression signatures (file store, never-deployable) + self_improve records provenance/evidence on quarantine (tag-faking item traceable)",
       "claimed_at": "2026-05-26T09:12:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d6ede807f24bf54f623e3759b58b97bcee422c64",
+      "notes": null,
+      "shipped_at": "2026-05-26T09:18:40Z"
     }
   ]
 }
