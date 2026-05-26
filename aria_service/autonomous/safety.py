@@ -159,10 +159,24 @@ async def check_and_increment_rate() -> tuple[bool, int]:
             await rs.expire(key, 3600)
         allowed = new_count <= MAX_FIRINGS_PER_HOUR
         if not allowed:
+            # R-F897 (P0-1) — a BLOCKED attempt must NOT inflate the bucket.
+            # Pre-R-F897 the speculative INCR stuck even when over-cap, so a
+            # backlog of N>cap gaps (live: 43 gaps, cap 12) drove the counter
+            # to N on a single scan and it never drained back under cap within
+            # the hour — the coder saw 43 gaps and fixed 0 (rate_limit_exceeded
+            # forever). Roll the speculative increment back so the bucket only
+            # ever reflects EXECUTED firings; the backlog now drains at the cap
+            # (12/hr) instead of 0/hr. Best-effort rollback (coder loop is
+            # single-threaded, so the incr/decr race window is negligible).
+            try:
+                await rs.incr(key, -1)
+            except Exception:
+                pass
+            new_count -= 1
             logger.warning(
-                "[autonomous safety] rate limit hit: %d firings in current hour bucket "
-                "(cap %d). Task will be skipped.",
-                new_count, MAX_FIRINGS_PER_HOUR,
+                "[autonomous safety] rate limit hit: bucket already at cap %d "
+                "this hour. Task skipped (speculative incr rolled back).",
+                MAX_FIRINGS_PER_HOUR,
             )
         return allowed, new_count
     except Exception as e:
@@ -174,6 +188,11 @@ async def check_and_increment_rate() -> tuple[bool, int]:
         # globally even when Redis is down. Once Redis recovers the
         # real counter takes over again. Documented fail-open intent
         # ("better to over-fire than halt") is preserved BUT bounded.
+        # NOTE (R-F897): the in-memory fallback path is left as-is — it
+        # deliberately bounds over-fire during a Redis outage per R-F457
+        # (counter shows MAX+1 then denies; resets hourly). The P0-1 draining
+        # fix targets the NORMAL Redis path above; the rare-outage fallback's
+        # transient over-count is acceptable and its R-F457 invariant is pinned.
         mem_count = _memory_rate_incr()
         allowed = mem_count <= MAX_FIRINGS_PER_HOUR
         if allowed:
