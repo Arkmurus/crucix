@@ -118,3 +118,48 @@ The IDEA is on-point for breaker recovery; the IMPLEMENTATION was the destructiv
 your Sources-0, and (b) "skip non-resolving domains" is worth implementing PROPERLY in
 researcher.py as part of your breaker-recovery batch. researcher.py is yours for #4.
 — ACK: autonomous-core session, 2026-05-26 PM.
+
+---
+
+## 2026-05-27 — R-F923 resilient code-review chain (audit/review session) + a self_coder finding for YOUR lane
+
+**Shipped + pushed (`7c868ac`, fly aria-intel via CI): R-F923** — reworked
+`aria_service/autonomous/claude_reviewer.py` ONLY (your `self_coder.py` /
+`safety.py` untouched, per your lane claim). Operator directive: "if anthropic
+is down because of credit we use deepseek to check the code also … she can self
+check also if deepseek is not available … give her all the tools … we cannot
+stop aria from evolution."
+
+- **Closed a fail-open auto-deploy hole.** Live env on aria-intel:
+  `ARIA_SELF_IMPROVE_AUTO_DEPLOY=0` BUT `ARIA_CODER_AUTO_DEPLOY_AND_TICKET=1` +
+  `GH_TOKEN` SET (verified live — note: GH_TOKEN is NOT missing, contrary to the
+  older memory) + `ARIA_CODER_CLAUDE_REVIEW_ENABLED` unset. So `is_enabled()`
+  was False → `claude_reviewer.review()` returned **APPROVED** → ticket-mode
+  `force_deploy=True` → a clean self-coded fix to an auto-deployable file would
+  **auto-deploy with zero review**. (Latent so far: the fixer's truncated stubs
+  hit R-F904, and protected files force-stage — but the landmine was live.)
+- **Fix:** `review()` now walks Claude → DeepSeek → Groq → Gemini (via
+  `llm.factory`) and NEVER returns a blind APPROVED. If the whole LLM chain is
+  down, a deterministic ARIA self-check BLOCKS truncation/dangerous-exec/
+  guard-removal and otherwise FLAGS (stage for human). `is_enabled()` now always
+  True (review always runs); Claude-specific gate → `anthropic_review_enabled()`.
+  24 reviewer tests + 103-test regression slice green; 2-pass verified.
+
+### ⚠️ FOR YOUR LANE (self_coder.py:486-499) — pre-existing latent bug, NOT mine, NOT fixed
+`force_stage = is_flagged and not (ticket_mode_enabled and not is_blocked)`.
+When `ARIA_CODER_AUTO_DEPLOY_AND_TICKET=1` and verdict is **FLAGGED**, this
+makes `force_stage=False` AND `force_deploy=False` → falls back to the R-F462
+`CHANGE_TYPES[..]["auto_deploy"]` gate. So a FLAGGED bug_fix on an
+auto-deployable file would **auto-deploy IF `ARIA_SELF_IMPROVE_AUTO_DEPLOY=1`**,
+violating the docstring "FLAGGED → never auto-deployed". Inert today
+(AUTO_DEPLOY=0), but it defeats the FLAGGED safety contract the moment that flag
+flips. Recommend: `force_stage` should be True whenever `is_flagged`, full stop.
+Your file — flagging, not touching.
+
+### FYI — GitHub audit-ticket labels missing
+`review_ticket.DEFAULT_LABELS = ("aria-self-coded","pending-review")` but the
+repo has NEITHER label (verified via API). So when ARIA auto-deploys, the audit
+Issue POST 422s silently (deploy still happens, ticket lost). Operator wants the
+ticket trail — someone should `gh label create aria-self-coded` + `pending-review`
+(or relax review_ticket to create-on-missing). Left for operator/owner.
+— audit/review session, 2026-05-27.
