@@ -3509,18 +3509,20 @@
       "title": "self_diagnostic catalogue broadening — add the dark runtime safety/compliance/honesty engines (eliminated_weapons, semantic_search, sanctions_divergence, regional_compliance, security_protocol, premise_verifier, honesty_judge, etc.) to the self-diagnostic module catalogue so a break/unwire goes RED -> gap pipeline (was ~16% coverage)",
       "claimed_at": "2026-05-26T10:37:32Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "05ff5cf",
+      "notes": null,
+      "shipped_at": "2026-05-26T10:44:27Z"
     },
     {
       "r_number": "R-F900",
       "title": "P0-4 Node->brain: server.mjs /api/brain/signal relay repointed to /api/aria/brain/signal + auth + honest errors (was false 'queued'); errorTracker reports significant Node failures to brain (coder-visible)",
       "claimed_at": "2026-05-26T10:40:16Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "16dd0f534c09a74a80fcee881c4e208a8bf707fe",
+      "notes": null,
+      "shipped_at": "2026-05-26T10:42:22Z"
     }
   ]
 }
