@@ -136,7 +136,14 @@ _CAPABILITY_NOUNS = (
     r"capacity|capabilities|capability|architecture|context(?:\s+window)?|"
     r"learning(?:\s+(?:rate|capacity|cycle))?|study\s+cycle|"
     r"signals?|chunks?|tokens?|"
-    r"performance|performing|status|state|inventory|state"
+    r"performance|performing|status|state|inventory|"
+    # R-F913 (2026-05-26) — diagnostics / autonomous-coding shape. Live miss:
+    # "what are your current system diagnostics and your autonomous coding?"
+    # routed to brave_answer → 12 irrelevant healthcare results + a self-claim
+    # guard BLOCK (ARIA denied having self_introspect). These are ARIA's own
+    # operational state → must hit /health/perf, not web search.
+    r"diagnostics?|system|engine|autonomous|automation|self[\s-]?coding|"
+    r"coding|scheduler|scheduled\s+tasks?|tasks?|health|introspection"
 )
 
 # Verbs/operators denoting introspective questioning of ARIA's state.
@@ -147,8 +154,10 @@ SELF_CAPABILITY_INTROSPECTION_RE: re.Pattern[str] = re.compile(
         r"(?:[a-z]+\s+){0,3}"
         r"(?:" + _CAPABILITY_NOUNS + r")"
         r"|"
-        # Possessive direct: "your brain / your memory / your capacity"
-        r"(?:your|aria'?s?)\s+(?:" + _CAPABILITY_NOUNS + r")"
+        # Possessive direct: "your brain / your memory / your capacity".
+        # R-F913 — allow up to 3 filler words so "your current system
+        # diagnostics" / "your autonomous coding" match (not just "your X").
+        r"(?:your|aria'?s?)\s+(?:[a-z]+\s+){0,3}(?:" + _CAPABILITY_NOUNS + r")"
         r"|"
         # Capability verbs about ARIA: "do you remember/forget/learn/study/digest/ingest"
         r"(?:do|can|are)\s+you\s+(?:able\s+to\s+)?"

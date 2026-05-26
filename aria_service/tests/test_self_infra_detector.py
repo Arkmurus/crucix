@@ -71,6 +71,34 @@ def test_empty_and_none_inputs():
     assert contains_known_fabrication(None) is False
 
 
+# R-F913 — capability-introspection must catch diagnostics / autonomous-coding
+# phrasing (live miss 2026-05-26: routed to brave_answer → 12 healthcare hits).
+def test_rf913_diagnostics_and_autonomous_route_to_introspect():
+    from aria_service.intel.self_infra_detector import is_capability_introspection_query
+    positives = [
+        "what are your current system diagnostics and your autonomous coding?",
+        "what is your autonomous coding status",
+        "show me your system diagnostics",
+        "how is your autonomous engine doing",
+        "what are your scheduled tasks",
+        "tell me about your self-coding",
+    ]
+    for q in positives:
+        assert is_capability_introspection_query(q), f"R-F913 should self-introspect: {q!r}"
+
+
+def test_rf913_does_not_overfire_on_external_questions():
+    from aria_service.intel.self_infra_detector import is_capability_introspection_query
+    negatives = [
+        "what is the capital of France",
+        "screen Rostec for sanctions",
+        "what's your view on the Angola deal",   # 'view' is not a capability noun
+        "who is the current US president",
+    ]
+    for q in negatives:
+        assert not is_capability_introspection_query(q), f"R-F913 should NOT fire: {q!r}"
+
+
 def test_known_fabrication_detected():
     # Each known-fabricated token must be detected case-insensitively.
     for tok in KNOWN_FABRICATED_TOKENS:
