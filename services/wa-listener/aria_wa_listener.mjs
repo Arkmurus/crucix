@@ -161,24 +161,52 @@ function store(groupId, groupName, sender, senderName, text, ts) {
 // extracted text on read, re-attach it on a doc-referencing follow-up.
 // (R-F853 fixed the LEGACY lib/whatsapp/waListener.mjs by mistake; this file —
 // services/wa-listener/aria_wa_listener.mjs — is the canonical aria-wa entry.)
-const _recentDocs = new Map();                 // `${chatId}|${senderName}` → {filename,text,ts}
+const _recentDocs = new Map();                 // chatId → [{filename,text,ts,sender}] (most-recent last)
 const _RECENT_DOC_TTL_MS = 60 * 60 * 1000;     // 1h — a follow-up is usually prompt
+const _MAX_DOCS_PER_CHAT = 6;                  // R-F912 — keep several recent docs, not just one
 export const _DOC_REF_PATTERN = /\b(contract|agreement|nda|mou|rfq|tender|document|annex|appendix|clause|terms|paperwork|the\s+file|the\s+pdf|attachment|payment)\b/i;
+// R-F912 — collective/plural reference → the follow-up wants ALL recent docs
+// ("analyse all contracts", "both agreements", "review the documents").
+export const _MULTI_DOC_PATTERN = /\b(all|both|each|every|these|those|three|several|multiple|contracts|agreements|documents|files|paperwork)\b/i;
 
-function _cacheRecentDoc(chatId, senderName, filename, text) {
-  if (!text || text.length < 200) return;      // ignore placeholders / failed parses
-  _recentDocs.set(`${chatId}|${senderName}`, { filename: filename || 'document', text, ts: Date.now() });
+function _pruneChatDocs(list) {
+  const cutoff = Date.now() - _RECENT_DOC_TTL_MS;
+  return list.filter(d => d.ts >= cutoff).slice(-_MAX_DOCS_PER_CHAT);
 }
 
-// Returns the cached doc {filename,text,ts} when `question` references a
-// document AND a recent (non-expired) doc exists for this sender, else null.
-function _recentDocForFollowup(chatId, senderName, question) {
-  if (!question || !_DOC_REF_PATTERN.test(question)) return null;
-  const key = `${chatId}|${senderName}`;
-  const entry = _recentDocs.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.ts > _RECENT_DOC_TTL_MS) { _recentDocs.delete(key); return null; }
-  return entry;
+// R-F912 — cache recent docs per CHAT as a LIST, not one slot per
+// (chat,sender). Two live failures 2026-05-26: (1) three uploads overwrote to
+// a single entry so "analyse all contracts" saw only the last; (2) in a GROUP
+// the uploader (Antonio) and the questioner (Ari) differ, so the old
+// sender-keyed lookup missed the doc entirely. Chat-scoped + multi-doc fixes
+// both. (R-F854 introduced the per-sender cache; this generalises it.)
+function _cacheRecentDoc(chatId, senderName, filename, text) {
+  if (!text || text.length < 200) return;      // ignore placeholders / failed parses
+  const fname = filename || 'document';
+  const list = _recentDocs.get(chatId) || [];
+  const idx = list.findIndex(d => d.filename === fname);   // re-read replaces same file
+  const entry = { filename: fname, text, ts: Date.now(), sender: senderName || 'someone' };
+  if (idx >= 0) list[idx] = entry; else list.push(entry);
+  _recentDocs.set(chatId, _pruneChatDocs(list));
+}
+
+// Returns an ARRAY of cached docs relevant to `question` (most-recent last), or
+// [] when none. Group-chat aware: ANY member's recent doc in this chat is
+// eligible (uploader and questioner are often different people). A plural/
+// collective reference returns ALL recent docs; a filename mention returns that
+// doc; otherwise the single most-recent.
+function _recentDocsForFollowup(chatId, question) {
+  if (!question || !_DOC_REF_PATTERN.test(question)) return [];
+  const list = _pruneChatDocs(_recentDocs.get(chatId) || []);
+  if (list.length === 0) { _recentDocs.delete(chatId); return []; }
+  _recentDocs.set(chatId, list);                           // persist the prune
+  if (list.length === 1) return list;
+  if (_MULTI_DOC_PATTERN.test(question)) return list;      // wants all
+  const ql = question.toLowerCase();
+  const matched = list.filter(d =>
+    d.filename.replace(/\.[a-z0-9]+$/i, '').split(/[\s_\-]+/)
+      .some(w => w.length >= 4 && ql.includes(w.toLowerCase())));
+  return matched.length ? matched : [list[list.length - 1]];
 }
 
 // ── Feed message to ARIA brain ─────────────────────────────────────────────────
@@ -1081,15 +1109,22 @@ async function startListener() {
         // R-F854 — if this is a doc-referencing follow-up and we recently read
         // a document from this sender, re-attach its text as an
         // [ATTACHED DOCUMENT] block so the chat path is document-grounded.
-        const _doc = _recentDocForFollowup(chatId, senderName, q);
-        if (_doc) {
-          let body = _doc.text;
-          if (body.length > MAX_DOC_CHARS) {
-            body = `[!PARTIAL EXTRACTION — "${_doc.filename}" was ${_doc.text.length} chars, truncated to the first ${MAX_DOC_CHARS}; content past that point is NOT below, so do not assert any clause/annex/term is absent based on this slice]\n\n`
-              + body.slice(0, MAX_DOC_CHARS);
+        const _docs = _recentDocsForFollowup(chatId, q);
+        if (_docs.length) {
+          const blocks = [];
+          let budget = MAX_DOC_CHARS;                 // total across ALL attached docs
+          for (const _doc of _docs) {
+            if (budget <= 0) break;
+            let body = _doc.text;
+            if (body.length > budget) {
+              body = `[!PARTIAL EXTRACTION — "${_doc.filename}" was ${_doc.text.length} chars; only the first ${budget} are below. Do NOT assert any clause/annex/term is absent based on this slice.]\n\n`
+                + body.slice(0, budget);
+            }
+            budget -= Math.min(_doc.text.length, budget);
+            blocks.push(`[ATTACHED DOCUMENT — "${_doc.filename}" recently shared by ${_doc.sender}; per CONSTITUTION clause 12 you MUST quote verbatim from this text and MUST NOT review based on prior conversation context]\n${body}\n[END ATTACHED DOCUMENT]`);
           }
-          q = `[ATTACHED DOCUMENT — "${_doc.filename}" recently shared by ${senderName}; per CONSTITUTION clause 12 you MUST quote verbatim from this text and MUST NOT review based on prior conversation context]\n${body}\n[END ATTACHED DOCUMENT]\n\n${q}`;
-          console.log(`[ARIA Listener] R-F854 re-attached recent document "${_doc.filename}" (${_doc.text.length} chars) to follow-up mention`);
+          q = `${blocks.join('\n\n')}\n\n${q}`;
+          console.log(`[ARIA Listener] R-F912 re-attached ${blocks.length}/${_docs.length} recent document(s) to follow-up mention`);
         }
         try {
           const response = await askARIA(q, senderJid);

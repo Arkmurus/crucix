@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 912,
+  "next_available": 913,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3633,6 +3633,15 @@
       "commit_sha": "bac37dd",
       "notes": null,
       "shipped_at": "2026-05-26T14:53:22Z"
+    },
+    {
+      "r_number": "R-F912",
+      "title": "WA doc cache: per-chat multi-doc + group-aware lookup (uploader != questioner; analyse all contracts)",
+      "claimed_at": "2026-05-26T14:55:44Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

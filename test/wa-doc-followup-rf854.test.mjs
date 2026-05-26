@@ -39,27 +39,35 @@ function check(label, cond) {
 console.log('R-F854 — canonical WA listener recent-document re-attach\n');
 
 // ── Static-source: the cache + helpers + wiring are present in the real code ─
+// R-F912 generalised the R-F854 per-(chat,sender) single-doc cache into a
+// per-CHAT multi-doc list + group-aware lookup. Two live failures 2026-05-26:
+// three uploads overwrote to one, and a group questioner (Ari) differed from
+// the uploader (Antonio) so the sender-keyed lookup missed entirely.
 console.log('wiring (services/wa-listener/aria_wa_listener.mjs):');
-check('defines the per-sender recent-doc cache (_recentDocs Map)', /const _recentDocs = new Map\(\)/.test(SRC));
+check('defines the recent-doc cache (_recentDocs Map)', /const _recentDocs = new Map\(\)/.test(SRC));
 check('defines _cacheRecentDoc', /function _cacheRecentDoc\(chatId, senderName, filename, text\)/.test(SRC));
-check('defines _recentDocForFollowup', /function _recentDocForFollowup\(chatId, senderName, question\)/.test(SRC));
+check('R-F912: defines _recentDocsForFollowup keyed by CHAT (not sender)',
+  /function _recentDocsForFollowup\(chatId, question\)/.test(SRC));
+check('R-F912: per-chat multi-doc list (cap _MAX_DOCS_PER_CHAT)',
+  /_MAX_DOCS_PER_CHAT/.test(SRC) && /_recentDocs\.set\(chatId,/.test(SRC));
+check('R-F912: collective reference pattern (_MULTI_DOC_PATTERN)',
+  /_MULTI_DOC_PATTERN/.test(SRC));
 // R-F862 refactored the inline cache call into a _cacheText intermediate (so a
-// >8MB byte-truncated doc gets a PARTIAL EXTRACTION banner before caching), so
-// the old adjacency regex no longer matched. Assert the real flow:
-// result.extracted_text → _cacheText → _cacheRecentDoc.
+// >8MB byte-truncated doc gets a PARTIAL EXTRACTION banner before caching).
+// Assert the real flow: result.extracted_text → _cacheText → _cacheRecentDoc.
 check('document path caches the extracted text (result.extracted_text → _cacheText → _cacheRecentDoc)',
   /_cacheText = \(result\.extracted_text/.test(SRC)
   && /_cacheRecentDoc\(chatId, senderName, filename, _cacheText\)/.test(SRC));
-check('mention handler re-attaches via _recentDocForFollowup',
-  /_recentDocForFollowup\(chatId, senderName, q\)/.test(SRC));
-check('re-attached doc uses the [ATTACHED DOCUMENT] envelope',
-  /\[ATTACHED DOCUMENT — "\$\{_doc\.filename\}" recently shared by \$\{senderName\}/.test(SRC));
-check('truncation past MAX_DOC_CHARS prepends a PARTIAL EXTRACTION banner',
-  /body\.length > MAX_DOC_CHARS[\s\S]{0,160}\[!PARTIAL EXTRACTION/.test(SRC));
+check('mention handler re-attaches via _recentDocsForFollowup',
+  /_recentDocsForFollowup\(chatId, q\)/.test(SRC));
+check('R-F912: re-attaches EACH doc in an [ATTACHED DOCUMENT] envelope with its uploader',
+  /\[ATTACHED DOCUMENT — "\$\{_doc\.filename\}" recently shared by \$\{_doc\.sender\}/.test(SRC));
+check('truncation past the budget prepends a PARTIAL EXTRACTION banner',
+  /body\.length > budget[\s\S]{0,160}\[!PARTIAL EXTRACTION/.test(SRC));
 check('cache ignores short/placeholder text (<200 chars guard)',
   /if \(!text \|\| text\.length < 200\) return;/.test(SRC));
-check('has a TTL so a stale doc is not re-attached forever',
-  /_RECENT_DOC_TTL_MS/.test(SRC) && /Date\.now\(\) - entry\.ts > _RECENT_DOC_TTL_MS/.test(SRC));
+check('has a TTL so a stale doc is not re-attached forever (pruned by _pruneChatDocs)',
+  /_RECENT_DOC_TTL_MS/.test(SRC) && /d\.ts >= cutoff/.test(SRC));
 
 // ── Runtime: exercise the REAL _DOC_REF_PATTERN extracted from source ────────
 console.log('\n_DOC_REF_PATTERN (extracted from source):');
@@ -73,6 +81,19 @@ if (m) {
   check('matches "is the payment safe"', DOC_REF.test('is the payment structure safe for both parties'));
   check('does NOT match a plain greeting', !DOC_REF.test('are you online?'));
   check('does NOT match an unrelated question', !DOC_REF.test('what is the capital of France'));
+}
+
+// ── Runtime: _MULTI_DOC_PATTERN — the live "analyse all contracts" case ──────
+console.log('\n_MULTI_DOC_PATTERN (extracted from source):');
+const mm = SRC.match(/_MULTI_DOC_PATTERN = (\/[\s\S]*?\/[gimsuy]*)\s*;/);
+check('pattern literal found in source', !!mm);
+if (mm) {
+  // eslint-disable-next-line no-eval
+  const MULTI = eval(mm[1]);
+  check('matches "analysis of all contracts" → attach ALL', MULTI.test('give me your analysis of all contracts'));
+  check('matches "both agreements"', MULTI.test('compare both agreements'));
+  check('matches "review the documents"', MULTI.test('review the documents for red flags'));
+  check('does NOT match a singular "this agreement"', !MULTI.test('what is the term of this agreement'));
 }
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} — ${failures} failure(s)`);
