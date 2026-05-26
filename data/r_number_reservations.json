@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 896,
+  "next_available": 897,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3473,6 +3473,16 @@
       "commit_sha": "0cbcca6",
       "notes": null,
       "shipped_at": "2026-05-26T09:37:11Z"
+    },
+    {
+      "r_number": "R-F896",
+      "title": "DD goods-screening catches -> brain: weapon_origin/aggregator/typology/end-user/mou-gate flag-level findings fire brain_hook.absorb_silent (severity-gated) so ARIA learns from her compliance flags; success side was dark (R-F892 sibling)",
+      "claimed_at": "2026-05-26T09:42:57Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "1a7a06b",
+      "notes": null,
+      "shipped_at": "2026-05-26T09:50:19Z"
     }
   ]
 }
