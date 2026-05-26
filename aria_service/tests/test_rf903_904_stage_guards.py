@@ -62,17 +62,22 @@ def _write_target(tmp_path, n_lines):
 
 # ── R-F904 truncation guard ───────────────────────────────────────────────
 
-def test_truncation_stub_rejected(tmp_path, monkeypatch):
-    """The live failure: a 3-line stub replacing a 100-line file is rejected."""
+def test_truncation_stub_rejected(tmp_path, monkeypatch, caplog):
+    """The live failure: a 3-line stub replacing a 100-line file is rejected,
+    and R-F907 logs the rejection so the guard is monitorable."""
+    import logging
     si = _fresh_si()
     fake = _wire(monkeypatch, si, tmp_path)
     _write_target(tmp_path, 100)
-    res = asyncio.run(si.stage_improvement(
-        MOD_FILE, "x = 1\ny = 2\nz = 3\n", "bug_fix", "stub", "r"))
+    with caplog.at_level(logging.WARNING, logger="aria.self_improve"):
+        res = asyncio.run(si.stage_improvement(
+            MOD_FILE, "x = 1\ny = 2\nz = 3\n", "bug_fix", "stub", "r"))
     assert res.get("staged") is False, res
     assert res.get("truncation_guard") is True
     # nothing entered the queue
     assert not fake.store.get(si.STAGED_KEY)
+    # R-F907: the rejection is visible in the logs
+    assert any("R-F904 REJECTED stage" in r.message for r in caplog.records), caplog.text
 
 
 def test_legit_full_replacement_accepted(tmp_path, monkeypatch):

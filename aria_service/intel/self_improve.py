@@ -260,6 +260,14 @@ async def stage_improvement(
             current_lines = 0
         proposed_lines = new_content.count("\n") + 1
         if current_lines >= 40 and proposed_lines < 0.5 * current_lines:
+            # R-F907 — make the stage-side rejection observable (the guard was
+            # silent; only the deploy-side logged). Every blocked stub now shows
+            # in the logs so the coder loop's health is monitorable.
+            logger.warning(
+                "[self_improve] R-F904 REJECTED stage of %s: proposed %d lines < half "
+                "of current %d — destructive truncation, not staged.",
+                file_path, proposed_lines, current_lines,
+            )
             return {
                 "error": (
                     f"Rejected: proposed content ({proposed_lines} lines) is under half "
