@@ -16,6 +16,7 @@ Runs alongside keyword search (knowledge.py) — results are merged for best rec
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import re
@@ -162,6 +163,65 @@ def _safe_encode(model, text_or_texts, **kwargs):
         _encode_lock.release()
 
 
+# R-F895 — the embedder encode runs inside asyncio.to_thread workers (see the
+# _safe_encode lock note above), so an encode failure — an EncodeLockTimeout
+# under load (the wedge precursor) or a model error — is invisible to the
+# brain: error_log_handler drops log records emitted off the loop thread, and
+# the old except blocks here logged at debug anyway. Capture the main loop from
+# the async entry points so a worker-thread failure can still schedule a
+# *deduped* capability_gaps signal the coder/operator can act on.
+_MAIN_LOOP: "asyncio.AbstractEventLoop | None" = None
+
+
+def _capture_main_loop() -> None:
+    """R-F895 — record the running loop. Called from the async embedder entry
+    points (which run on the main loop) so worker-thread encode failures can
+    reach the loop via run_coroutine_threadsafe."""
+    global _MAIN_LOOP
+    try:
+        _MAIN_LOOP = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+
+
+def _report_encode_failure(where: str, exc: Exception) -> None:
+    """R-F895 — surface an embedder encode failure to the brain/coder.
+
+    Safe from a sync to_thread worker (no loop) OR the loop thread. Best-effort
+    and never raises. `where` is kept COARSE ('add'/'add_batch'/'query') so the
+    capability_gaps dedupe window collapses a wedge burst into one gap rather
+    than flooding."""
+    logger.warning("embedder encode failed [%s]: %s: %s", where, type(exc).__name__, exc)
+    try:
+        from . import capability_gaps as _cg
+        coro = _cg.record_gap(
+            gap_type="embedder_failure",
+            detail=f"semantic_search encode failed at {where} ({type(exc).__name__})",
+            source=f"semantic_search.{where}",
+        )
+    except Exception:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    try:
+        if loop is not None:
+            _t = loop.create_task(coro)                         # on the loop thread
+            _t.add_done_callback(
+                lambda t: t.result() if not t.cancelled() and not t.exception() else None
+            )
+        elif _MAIN_LOOP is not None and _MAIN_LOOP.is_running():
+            asyncio.run_coroutine_threadsafe(coro, _MAIN_LOOP)  # from a worker thread
+        else:
+            coro.close()                                        # no loop (e.g. test) — avoid "never awaited"
+    except Exception:
+        try:
+            coro.close()
+        except Exception:
+            pass
+
+
 def is_embedder_ready() -> bool:
     """R-F459 — non-blocking check. True iff the model is fully loaded.
     Use this from hot paths where you'd rather fall back to TF-IDF
@@ -239,6 +299,7 @@ async def aget_embedder():
     Idempotent: when the model is already loaded, returns immediately
     without involving the thread pool.
     """
+    _capture_main_loop()  # R-F895 — let worker-thread encode failures reach the loop
     if _embedder is not None:
         return _embedder
     # Same race-window note as _get_embedder — do not short-circuit on
@@ -271,6 +332,7 @@ async def prewarm_embedder() -> None:
     Idempotent. Never raises — failures degrade gracefully to TF-IDF
     fallback via the existing `_get_embedder()` error handling.
     """
+    _capture_main_loop()  # R-F895 — capture loop at boot prewarm too
     if _embedder is not None:
         return
     try:
@@ -372,7 +434,7 @@ class SemanticIndex:
                 self._embeddings[doc_id] = emb
                 self._matrix_dirty = True
             except Exception as exc:
-                logger.debug("Embedding failed for %s: %s", doc_id, exc)
+                _report_encode_failure("add", exc)  # R-F895
 
     def add_batch(self, items: list[tuple[str, str, dict | None]]) -> None:
         """Add many docs in a single model.encode() pass.
@@ -420,7 +482,7 @@ class SemanticIndex:
                 self._embeddings[doc_id] = emb
             self._matrix_dirty = True
         except Exception as exc:
-            logger.debug("Batch embedding failed (%d items): %s", len(keep), exc)
+            _report_encode_failure("add_batch", exc)  # R-F895
 
     def remove(self, doc_id: str) -> None:
         if doc_id in self._docs:
@@ -471,7 +533,7 @@ class SemanticIndex:
         try:
             q_emb = _safe_encode(model, expanded_query, normalize_embeddings=True)
         except Exception as exc:
-            logger.debug("Query embedding failed: %s", exc)
+            _report_encode_failure("query", exc)  # R-F895
             return None
 
         # Cosine similarity (embeddings are already L2-normalised)

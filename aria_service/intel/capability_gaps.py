@@ -48,6 +48,9 @@ VALID_GAP_TYPES = frozenset({
     "knowledge_gap",
     "timeout",
     "format_unsupported",
+    "embedder_failure",                # R-F895: semantic_search encode failed
+                                       # (EncodeLockTimeout under load = wedge
+                                       # precursor, or model error)
     # Core Self-Development Loop (Clauses 17/18/19) — shipped 2026-04-15
     "verified_contradiction",          # verified_intel: sources disagree
     "source_seeding_suspected",        # search_doctrine: uniformity cluster
