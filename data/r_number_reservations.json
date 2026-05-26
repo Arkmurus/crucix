@@ -3459,18 +3459,20 @@
       "title": "source_verifier counts bare-domain [from whitehouse.gov] citations (was http-only) — fixes false NO_CITATIONS/UNCERTAIN demotion on well-sourced answers (live: 12-source US-president answer showed 0 grounded)",
       "claimed_at": "2026-05-26T09:23:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "46501b4c40573d5b3a8df65a9843dc3f16a0a098",
+      "notes": null,
+      "shipped_at": "2026-05-26T09:27:05Z"
     },
     {
       "r_number": "R-F895",
       "title": "semantic_search encode-failure observability — emit deduped capability_gaps on embedder encode failure (cross-thread via captured loop ref); the wedge-epicentre encoder was dark to the brain/coder",
       "claimed_at": "2026-05-26T09:25:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "0cbcca6",
+      "notes": null,
+      "shipped_at": "2026-05-26T09:37:11Z"
     }
   ]
 }
