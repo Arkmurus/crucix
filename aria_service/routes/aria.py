@@ -13997,12 +13997,32 @@ async def knowledge_contradictions_ep(limit: int = 50):
     return {"count": len(contradictions), "contradictions": contradictions}
 
 
+_BD_BRAIN_LEADS_KEY = "crucix:aria:bd_brain_leads"   # R-F914
+
+
 @router.post("/proactive/lead-hunt")
-async def proactive_lead_hunt_ep(request: Request):
-    """Run a lead-hunting cycle — identify fresh procurement opportunities."""
+async def proactive_lead_hunt_ep(request: Request, structured: bool = False, refresh: bool = False):
+    """Run a lead-hunting cycle — identify fresh procurement opportunities.
+
+    R-F914 — `?structured=1` returns a JSON array of lead cards (for the BD
+    Intelligence page) instead of prose, injects ARIA's scored market
+    opportunities so the leads reflect ledger intel (not just recent tenders),
+    and CACHES the structured result for 6h so the BD page can pull it cheaply
+    without an LLM call per page load. `?refresh=1` forces regeneration.
+    Operator-evidenced 2026-05-26: BD page showed 0 sales leads because it only
+    surfaced the (degraded) Node tender sweep, never the brain's intel.
+    """
+    from ..intel import redis_store as _rs
+
+    if structured and not refresh:
+        cached = await _rs.get_json(_BD_BRAIN_LEADS_KEY)
+        if cached and cached.get("leads"):
+            return {"structured": cached["leads"],
+                    "generated_at": cached.get("generated_at"), "cached": True}
+
     llm = get_llm(request)
     if not llm or not llm.is_configured:
-        return {"leads": "⚠️ ARIA LLM not configured.", "error": True}
+        return {"leads": "⚠️ ARIA LLM not configured.", "structured": [], "error": True}
 
     intel = get_intel_data(request)
     tenders = ((intel or {}).get("procurementTenders") or {}).get("items") or []
@@ -14012,8 +14032,73 @@ async def proactive_lead_hunt_ep(request: Request):
             f"- {t.get('title') or t.get('text', '')[:100]} [{t.get('source', '')}]"
             for t in tenders[:8]
         )
+    # R-F914 — inject ARIA's scored market opportunities so leads reflect the
+    # ledger intel, not just whatever the tender sweep happened to catch.
+    opps = ((intel or {}).get("opportunities") or [])[:8]
+    opp_block = ""
+    if opps:
+        opp_block = "ARIA's current scored market opportunities (from the intel ledger):\n" + "\n".join(
+            f"- {o.get('market')}: score {o.get('score')}/100, tier {o.get('tier')}"
+            for o in opps
+        )
 
+    if structured:
+        prompt = f"""You are ARIA on a lead-hunting cycle. From the intel below plus your defence-procurement knowledge, identify the 5 strongest leads Arkmurus should pursue NOW.
+
+{opp_block}
+
+{tender_block}
+
+Return ONLY a JSON array (no prose, no markdown fences) of up to 5 objects, each with EXACTLY these keys:
+  "market"           (country),
+  "buyer"            (specific ministry/directorate),
+  "requirement"      (what they need),
+  "window"           (procurement stage / decision timeline),
+  "angle"            (Arkmurus relationship tier + which OEM partner),
+  "win_probability"  (integer 0-100),
+  "compliance_flags" (short string: sanctions / end-use / export control),
+  "first_action"     (specific action within 48h).
+Prioritise Lusophone Africa (incumbent advantage), then markets where Arkmurus has contacts, then high-value cold-entry with a clear angle."""
+        try:
+            result = await llm.complete(
+                "ARIA — defence procurement lead generation specialist. Output strict JSON only.",
+                prompt, max_tokens=2500, timeout=120.0,
+            )
+            from ..intel.llm_json import parse_llm_json
+            parsed = parse_llm_json(result.text, default=[], source="bd_lead_hunt")
+            leads_in = parsed if isinstance(parsed, list) else []
+            norm = []
+            for l in leads_in[:5]:
+                if not isinstance(l, dict):
+                    continue
+                try:
+                    wp = int(l.get("win_probability") or 0)
+                except (ValueError, TypeError):
+                    wp = 0
+                norm.append({
+                    "market": str(l.get("market", ""))[:80],
+                    "buyer": str(l.get("buyer", ""))[:160],
+                    "requirement": str(l.get("requirement", ""))[:300],
+                    "window": str(l.get("window", ""))[:160],
+                    "angle": str(l.get("angle", ""))[:300],
+                    "win_probability": max(0, min(100, wp)),
+                    "compliance_flags": str(l.get("compliance_flags", ""))[:200],
+                    "first_action": str(l.get("first_action", ""))[:300],
+                    "urgency": "HOT" if wp >= 60 else "WARM",
+                    "source": "brain_lead_hunt",
+                })
+            generated_at = datetime.now(timezone.utc).isoformat()
+            if norm:
+                await _rs.set_json(_BD_BRAIN_LEADS_KEY,
+                                   {"leads": norm, "generated_at": generated_at}, ex=6 * 3600)
+            return {"structured": norm, "generated_at": generated_at, "cached": False}
+        except Exception as e:
+            return {"structured": [], "error": f"lead-hunt structured failed: {e}"}
+
+    # ── Legacy prose path (unchanged contract) ──
     prompt = f"""You are ARIA on a lead-hunting cycle. Identify the 5 strongest defence procurement leads Arkmurus should pursue right now.
+
+{opp_block}
 
 {tender_block}
 

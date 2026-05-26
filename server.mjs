@@ -1478,11 +1478,61 @@ app.get('/api/opportunities', requireAuth, async (req, res) => {
   res.json({ ...stored, source: 'cached' });
 });
 
-app.get('/api/bd-intelligence', requireAuth, (req, res) => {
-  if (currentData?.bdIntelligence) return res.json(currentData.bdIntelligence);
-  const stored = getBDIntelligence();
-  if (stored) return res.json(stored);
-  res.json({ tenders: [], ideas: [], strategy: null, pipeline: [], counts: { activeTenders: 0, contractAwards: 0, strategicIdeas: 0, pipelineDeals: 0 } });
+// R-F914 — merge the brain's intel-derived leads into the BD page. The Node
+// OSINT sweep only yields HOT/WARM *tenders*; operator-evidenced 2026-05-26 the
+// page showed 0 sales leads while the brain held real market intelligence
+// (Angola/Kenya/Rwanda windows, 48k ledger signals) that was never surfaced —
+// the two stores diverged. aria-intel's /proactive/lead-hunt?structured=1
+// returns scored lead cards (cached 6h on the brain so this is cheap), mapped
+// here into the page's brain.salesLeads shape. Best-effort: the BD page still
+// renders the sweep leads if the brain is unreachable.
+async function _mergeBrainLeads(bd) {
+  const ARIA_URL = process.env.ARIA_SERVICE_URL || '';
+  const token = process.env.ARIA_API_TOKEN || process.env.ARIA_INTERNAL_TOKEN || '';
+  if (!ARIA_URL || !token) return bd;
+  const r = await fetch(`${ARIA_URL}/api/aria/proactive/lead-hunt?structured=1`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: '{}',
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!r.ok) return bd;
+  const data = await r.json();
+  const structured = Array.isArray(data.structured) ? data.structured : [];
+  if (!structured.length) return bd;
+  const mapped = structured.map(l => ({
+    lead:              (l.market ? l.market + ' — ' : '') + (l.requirement || 'opportunity'),
+    market:            l.market || '',
+    urgency:           l.urgency || 'WARM',
+    type:              'STRATEGIC',
+    oemRecommendation: l.angle || '',
+    estimatedValue:    (l.win_probability != null ? l.win_probability + '% win' : '')
+                       + (l.window ? ' · ' + l.window : ''),
+    nextStep:          l.first_action || '',
+    portalUrl:         '',
+    complianceFlags:   l.compliance_flags || '',
+    buyer:             l.buyer || '',
+    source:            'brain_lead_hunt',
+  }));
+  const out = { ...bd };
+  out.brain = { ...(out.brain || {}) };
+  const existing = Array.isArray(out.brain.salesLeads) ? out.brain.salesLeads : [];
+  const seen = new Set(existing.map(l => (l.market || '') + '|' + (l.lead || '')));
+  const merged = existing.slice();
+  for (const l of mapped) {
+    const k = (l.market || '') + '|' + (l.lead || '');
+    if (!seen.has(k)) { merged.push(l); seen.add(k); }
+  }
+  out.brain.salesLeads = merged;
+  return out;
+}
+
+app.get('/api/bd-intelligence', requireAuth, async (req, res) => {
+  let bd = (currentData?.bdIntelligence) || getBDIntelligence()
+    || { tenders: [], ideas: [], strategy: null, pipeline: [], counts: { activeTenders: 0, contractAwards: 0, strategicIdeas: 0, pipelineDeals: 0 } };
+  try { bd = await _mergeBrainLeads(bd); }
+  catch (e) { console.warn('[BD] R-F914 brain-lead merge skipped:', e.message); }
+  res.json(bd);
 });
 
 app.get('/api/bd-intelligence/pipeline', requireAuth, (req, res) => {
