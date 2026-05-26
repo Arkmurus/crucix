@@ -3609,18 +3609,20 @@
       "title": "adversarial grader: generic refusal fallback so correct refusals pass (fixes 7pct grader artifact + SUPERVISED pin)",
       "claimed_at": "2026-05-26T13:13:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9a26fd5",
+      "notes": null,
+      "shipped_at": "2026-05-26T13:23:33Z"
     },
     {
       "r_number": "R-F910",
       "title": "rf592 test: order-independent run_weekly mock (setattr on real module, not sys.modules swap)",
       "claimed_at": "2026-05-26T13:21:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9a26fd5",
+      "notes": null,
+      "shipped_at": "2026-05-26T13:23:33Z"
     }
   ]
 }
