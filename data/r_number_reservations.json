@@ -3669,9 +3669,10 @@
       "title": "lead-hunt structured: accept {leads:[...]} object wrapper + log raw on 0-parse (live returned 0 leads)",
       "claimed_at": "2026-05-26T15:30:28Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "579a214",
+      "notes": null,
+      "shipped_at": "2026-05-26T15:31:27Z"
     }
   ]
 }
