@@ -85,6 +85,27 @@ def test_rf914_second_call_is_cached(monkeypatch):
     assert len(second["structured"]) == len(first["structured"]) == 2
 
 
+def test_rf915_accepts_object_wrapper(monkeypatch):
+    """R-F915 — DeepSeek often returns {"leads":[...]} despite asking for a bare
+    array. Live 2026-05-26 that yielded 0 leads (no error). Must extract it."""
+    _patch_store(monkeypatch)
+
+    class _WrapLLM:
+        is_configured = True
+        async def complete(self, system, prompt, max_tokens=0, timeout=0):
+            return types.SimpleNamespace(text=(
+                '{"leads":[{"market":"Angola","buyer":"MoD","requirement":"APCs",'
+                '"win_probability":80,"angle":"tier-1","window":"Q3",'
+                '"compliance_flags":"none","first_action":"call"}]}'
+            ))
+
+    req = _mk_request(_WrapLLM(), {"opportunities": [{"market": "Angola", "score": 80, "tier": 1}]})
+    out = asyncio.run(aria.proactive_lead_hunt_ep(req, structured=True, refresh=True))
+    assert len(out["structured"]) == 1, out
+    assert out["structured"][0]["market"] == "Angola"
+    assert out["structured"][0]["urgency"] == "HOT"
+
+
 def test_rf914_prose_path_unchanged(monkeypatch):
     """Default (non-structured) path keeps the legacy {"leads": <prose>} contract."""
     _patch_store(monkeypatch)

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 915,
+  "next_available": 916,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3663,6 +3663,15 @@
       "commit_sha": "dffeb9b",
       "notes": null,
       "shipped_at": "2026-05-26T15:24:25Z"
+    },
+    {
+      "r_number": "R-F915",
+      "title": "lead-hunt structured: accept {leads:[...]} object wrapper + log raw on 0-parse (live returned 0 leads)",
+      "claimed_at": "2026-05-26T15:30:28Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

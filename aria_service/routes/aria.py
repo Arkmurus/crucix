@@ -14066,7 +14066,25 @@ Prioritise Lusophone Africa (incumbent advantage), then markets where Arkmurus h
             )
             from ..intel.llm_json import parse_llm_json
             parsed = parse_llm_json(result.text, default=[], source="bd_lead_hunt")
-            leads_in = parsed if isinstance(parsed, list) else []
+            # R-F915 — DeepSeek often wraps the array in an object
+            # ({"leads":[...]}) despite "return ONLY a JSON array". Accept a bare
+            # list OR a common wrapper key. Live 2026-05-26: the bare-list-only
+            # check returned 0 leads (no error) because the model returned a dict.
+            if isinstance(parsed, list):
+                leads_in = parsed
+            elif isinstance(parsed, dict):
+                leads_in = next(
+                    (v for k in ("leads", "results", "opportunities", "items", "data")
+                     if isinstance(v := parsed.get(k), list)),
+                    [],
+                )
+            else:
+                leads_in = []
+            if not leads_in:
+                logger.warning(
+                    "[lead-hunt] R-F915 structured parse yielded 0 leads; raw head: %s",
+                    (result.text or "")[:300],
+                )
             norm = []
             for l in leads_in[:5]:
                 if not isinstance(l, dict):
