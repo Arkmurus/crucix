@@ -3758,9 +3758,10 @@
       "title": "self_coder: FLAGGED verdict always force-stages (ticket-mode no longer auto-deploys a flagged fix)",
       "claimed_at": "2026-05-26T23:54:01Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "HEAD",
+      "notes": null,
+      "shipped_at": "2026-05-26T23:57:04Z"
     }
   ]
 }
