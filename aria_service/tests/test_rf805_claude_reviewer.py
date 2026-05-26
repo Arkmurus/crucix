@@ -36,41 +36,51 @@ def _run(coro):
 # ClaudeReviewer — standalone behaviour
 # ════════════════════════════════════════════════════════════════════════════
 
-class TestClaudeReviewerEnableGate:
-    def test_disabled_when_no_env_vars(self, monkeypatch) -> None:
+class _FakeProvider:
+    """Minimal LLMProvider stand-in for the review chain (R-F923).
+    Either returns a fixed text verdict or raises to force fallthrough."""
+
+    def __init__(self, name: str, text: str | None = None, exc: Exception | None = None) -> None:
+        self.name = name
+        self.is_configured = True
+        self._text = text
+        self._exc = exc
+
+    async def complete(self, system, user, *, max_tokens: int = 1024, timeout: float = 60.0):
+        if self._exc is not None:
+            raise self._exc
+        return SimpleNamespace(text=self._text or "", model=self.name)
+
+
+class TestReviewAlwaysAvailable:
+    """R-F923: review is ALWAYS available — the fail-open `disabled→APPROVED`
+    hole is closed. is_enabled() is always True so self_coder never skips
+    review; the Claude-specific gate moved to anthropic_review_enabled()."""
+
+    def test_is_enabled_always_true(self) -> None:
         from aria_service.autonomous.claude_reviewer import is_enabled
+        assert is_enabled() is True
+
+    def test_anthropic_gate_needs_both(self, monkeypatch) -> None:
+        from aria_service.autonomous.claude_reviewer import anthropic_review_enabled
         monkeypatch.delenv("ARIA_CODER_CLAUDE_REVIEW_ENABLED", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        assert not is_enabled()
-
-    def test_disabled_when_only_flag_set(self, monkeypatch) -> None:
-        from aria_service.autonomous.claude_reviewer import is_enabled
+        assert not anthropic_review_enabled()
         monkeypatch.setenv("ARIA_CODER_CLAUDE_REVIEW_ENABLED", "1")
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        assert not is_enabled()
-
-    def test_disabled_when_only_api_key_set(self, monkeypatch) -> None:
-        from aria_service.autonomous.claude_reviewer import is_enabled
-        monkeypatch.delenv("ARIA_CODER_CLAUDE_REVIEW_ENABLED", raising=False)
+        assert not anthropic_review_enabled()  # key still missing
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-        assert not is_enabled()
+        assert anthropic_review_enabled()
 
-    def test_enabled_when_both_set(self, monkeypatch) -> None:
-        from aria_service.autonomous.claude_reviewer import is_enabled
-        monkeypatch.setenv("ARIA_CODER_CLAUDE_REVIEW_ENABLED", "1")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-        assert is_enabled()
-
-    def test_review_disabled_returns_approved_no_op(self, monkeypatch) -> None:
-        """CAPABILITY: when the hook is dormant, review() returns
-        APPROVED so the existing pipeline proceeds unchanged."""
+    def test_no_llm_never_approves_falls_to_self_check(self) -> None:
+        """CAPABILITY (the headline fix): with NO LLM provider reachable,
+        review() must NOT return APPROVED. A structurally-clean change is
+        FLAGGED (staged for a human), never auto-deployed unreviewed."""
         from aria_service.autonomous.claude_reviewer import ClaudeReviewer
-        monkeypatch.delenv("ARIA_CODER_CLAUDE_REVIEW_ENABLED", raising=False)
 
         async def body():
-            reviewer = ClaudeReviewer()
+            reviewer = ClaudeReviewer(providers=[])  # empty chain → self-check
             verdict = await reviewer.review(
-                diff="--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-old\n+new",
+                diff="--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-old=1\n+old=2",
                 change_type="bug_fix", gap_title="t",
                 gap_description="d", files=["x.py"],
             )
@@ -78,8 +88,116 @@ class TestClaudeReviewerEnableGate:
             return verdict
 
         verdict = _run(body())
+        assert not verdict.is_approved
+        assert verdict.is_flagged
+        assert verdict.reviewer == "aria_self_check"
+
+
+class TestReviewChainFallback:
+    """R-F923: Claude → DeepSeek → … fallthrough."""
+
+    def test_deepseek_used_when_first_tier_errors(self) -> None:
+        """CAPABILITY: 'if anthropic is down because of credit we use
+        deepseek'. First provider raises (billing); DeepSeek returns the
+        verdict and wins."""
+        from aria_service.autonomous.claude_reviewer import ClaudeReviewer
+
+        anthropic = _FakeProvider("anthropic", exc=RuntimeError("billing exhausted"))
+        deepseek = _FakeProvider("deepseek", text='{"verdict": "approved", "reasons": []}')
+
+        async def body():
+            reviewer = ClaudeReviewer(providers=[anthropic, deepseek])
+            return await reviewer.review(
+                diff="x", change_type="bug_fix",
+                gap_title="t", gap_description="d", files=["x.py"],
+            )
+
+        verdict = _run(body())
         assert verdict.is_approved
-        assert verdict.review_disabled
+        assert verdict.reviewer == "deepseek"
+
+    def test_first_usable_verdict_wins(self) -> None:
+        from aria_service.autonomous.claude_reviewer import ClaudeReviewer
+
+        deepseek = _FakeProvider("deepseek", text='{"verdict": "blocked", "reasons": ["bug"]}')
+        groq = _FakeProvider("groq", text='{"verdict": "approved", "reasons": []}')
+
+        async def body():
+            reviewer = ClaudeReviewer(providers=[deepseek, groq])
+            return await reviewer.review(
+                diff="x", change_type="bug_fix",
+                gap_title="t", gap_description="d", files=["x.py"],
+            )
+
+        verdict = _run(body())
+        assert verdict.is_blocked
+        assert verdict.reviewer == "deepseek"
+
+    def test_empty_text_falls_through_to_next(self) -> None:
+        from aria_service.autonomous.claude_reviewer import ClaudeReviewer
+
+        empty = _FakeProvider("deepseek", text="   ")
+        groq = _FakeProvider("groq", text='{"verdict": "flagged", "reasons": ["x"]}')
+
+        async def body():
+            reviewer = ClaudeReviewer(providers=[empty, groq])
+            return await reviewer.review(
+                diff="x", change_type="bug_fix",
+                gap_title="t", gap_description="d", files=["x.py"],
+            )
+
+        verdict = _run(body())
+        assert verdict.is_flagged
+        assert verdict.reviewer == "groq"
+
+
+class TestAriaSelfCheck:
+    """R-F923: deterministic self-check floor — BLOCKs clearly dangerous
+    changes, FLAGs otherwise. Never auto-approves."""
+
+    def _self_check(self, diff: str):
+        from aria_service.autonomous.claude_reviewer import ClaudeReviewer
+
+        async def body():
+            reviewer = ClaudeReviewer(providers=[])
+            return await reviewer.review(
+                diff=diff, change_type="bug_fix",
+                gap_title="t", gap_description="d", files=["x.py"],
+            )
+
+        return _run(body())
+
+    def test_blocks_truncation(self) -> None:
+        """Mass-deletion full-file shrink (R-F904 class) is BLOCKED."""
+        removed = "\n".join(f"-line_{i} = {i}" for i in range(60))
+        diff = f"--- a/x.py\n+++ b/x.py\n@@ @@\n{removed}\n+line_0 = 0"
+        verdict = self._self_check(diff)
+        assert verdict.is_blocked
+        assert any("truncation" in r.lower() for r in verdict.reasons)
+
+    def test_blocks_dangerous_exec(self) -> None:
+        diff = "--- a/x.py\n+++ b/x.py\n@@ @@\n+result = eval(user_input)"
+        verdict = self._self_check(diff)
+        assert verdict.is_blocked
+        assert any("eval(" in r for r in verdict.reasons)
+
+    def test_blocks_guard_removal(self) -> None:
+        diff = (
+            "--- a/x.py\n+++ b/x.py\n@@ @@\n"
+            "-    if not authorized:\n"
+            "-        raise PermissionError('denied')\n"
+            "+    pass"
+        )
+        verdict = self._self_check(diff)
+        assert verdict.is_blocked
+        assert any("guard" in r.lower() for r in verdict.reasons)
+
+    def test_flags_clean_change(self) -> None:
+        diff = "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-x = 1\n+x = 2  # tweak"
+        verdict = self._self_check(diff)
+        assert verdict.is_flagged
+        assert not verdict.is_approved
+        assert verdict.reviewer == "aria_self_check"
 
 
 class TestClaudeReviewerParsing:
