@@ -3679,54 +3679,60 @@
       "title": "WA async URL-chat job+poll (no 90s timeout)",
       "claimed_at": "2026-05-26T22:49:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "78c9ed3",
+      "notes": null,
+      "shipped_at": "2026-05-26T23:52:28Z"
     },
     {
       "r_number": "R-F917",
       "title": "reasoning_library: URL forces fresh crawl + never cache 0-source/fallback",
       "claimed_at": "2026-05-26T22:49:25Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "78c9ed3",
+      "notes": null,
+      "shipped_at": "2026-05-26T23:52:28Z"
     },
     {
       "r_number": "R-F918",
       "title": "self-state routing: why-unavailable/online to self_introspect",
       "claimed_at": "2026-05-26T22:49:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "78c9ed3",
+      "notes": null,
+      "shipped_at": "2026-05-26T23:52:28Z"
     },
     {
       "r_number": "R-F919",
       "title": "self-claim guard suppress+regenerate, never leak guard text to users",
       "claimed_at": "2026-05-26T22:49:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "78c9ed3",
+      "notes": null,
+      "shipped_at": "2026-05-26T23:52:28Z"
     },
     {
       "r_number": "R-F920",
       "title": "build_rev footer honesty: clean SHA, drop build-arg-missing noise",
       "claimed_at": "2026-05-26T22:49:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "78c9ed3",
+      "notes": null,
+      "shipped_at": "2026-05-26T23:52:29Z"
     },
     {
       "r_number": "R-F921",
       "title": "brain-wire incident signals: timeout/fallback-suppress/guard-trip to brain_hook",
       "claimed_at": "2026-05-26T22:49:26Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "78c9ed3",
+      "notes": null,
+      "shipped_at": "2026-05-26T23:52:29Z"
     },
     {
       "r_number": "R-F922",
