@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 890,
+  "next_available": 893,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3408,6 +3408,34 @@
       "r_number": "R-F889",
       "title": "ErrorLedgerExtractor skips operational wedge-shed warnings (neural timeout / concurrency cap / absorb pause) — not code bugs; stops coder churning LLM budget on designed shed after R-F884 reconnect",
       "claimed_at": "2026-05-26T08:37:27Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "ae9e95aea6fe2264ec6ec8498f66a452f49da0f9",
+      "notes": null,
+      "shipped_at": "2026-05-26T08:40:53Z"
+    },
+    {
+      "r_number": "R-F890",
+      "title": "self_claim_guard detects fabricated external-verification claims ('verified via the official X website, which I queried using corrected search parameters') when no web tool ran — the live NO_TOOL White House fabrication",
+      "claimed_at": "2026-05-26T08:49:59Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F891",
+      "title": "dd_orchestrator logger namespace ARIA.* -> aria.* so DD-layer compliance WARNINGs reach the brain error ledger (R-F886 follow-up: those promotions never reached the brain)",
+      "claimed_at": "2026-05-26T08:52:23Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F892",
+      "title": "eliminated_weapons_watchlist: emit capability_gaps on internal screen failure + remove once-per-run swallow so a banned-weapon (INF/CWC/BWC/Ottawa/CCM) miss is never silent to the brain",
+      "claimed_at": "2026-05-26T08:55:33Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

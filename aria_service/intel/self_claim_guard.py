@@ -233,12 +233,36 @@ _SELF_DENIAL_RE = re.compile(
 )
 
 
+# R-F890 — fabricated external-verification claim. Live 2026-05-25: ARIA
+# answered "who is the current US president?" with "…verified via the official
+# White House website, which I queried using corrected search parameters" while
+# the footer showed Tools:(none — from memory/training) / Verification:NO_TOOL.
+# That's a Clause 20(f) fabricated-tool claim (the root search bug is fixed in
+# R-F888; this guard is the defence-in-depth so the fabrication is caught even
+# if a future failure recurs). BLOCK when no web/search tool ran; WARN if one
+# did (she may legitimately summarise what it returned).
+_FABRICATED_VERIFICATION_RE = re.compile(
+    r"(?:"
+        r"\b(?:verified|confirmed|cross-?checked|checked)\s+(?:this\s+|it\s+|that\s+)?"
+        r"(?:via|against|on|through|using)\s+the\s+official\s+[\w .\-]{2,40}?\s+(?:website|site|page|portal)"
+    r"|"
+        r"\bwhich\s+i\s+(?:just\s+)?queried\b"
+    r"|"
+        r"\bi\s+(?:just\s+)?queried\s+(?:the\s+)?[\w .\-]{2,40}?\s+(?:website|site|portal|using)"
+    r"|"
+        r"\busing\s+corrected\s+search\s+parameters\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
 # ── Public API ──────────────────────────────────────────────────────
 
 def scan_response(
     text: str | None,
     *,
     self_introspect_ran: bool = False,
+    web_tool_ran: bool = False,
 ) -> list[Violation]:
     """Scan a response for R-F401 forbidden patterns.
 
@@ -290,6 +314,22 @@ def scan_response(
             advice=(
                 "Eviction / overwrite / compression claim about own memory. "
                 "R-F173 prune was reversed by R-F238. No eviction exists."
+            ),
+        ))
+
+    # R-F890 — fabricated external-verification claim. BLOCK when no web/search
+    # tool fired this turn (the live "verified via the White House website,
+    # which I queried" on a NO_TOOL turn); WARN if a web tool did run.
+    for m in _FABRICATED_VERIFICATION_RE.finditer(text):
+        violations.append(Violation(
+            pattern_id="rf890_fabricated_verification",
+            phrase=m.group(0),
+            severity="WARN" if web_tool_ran else "BLOCK",
+            advice=(
+                "Claim of having queried/verified via a named external website, "
+                "but no web/search tool fired this turn (Clause 20(f) fabricated "
+                "tool-use). State the real provenance — e.g. 'from training, not "
+                "verified live this turn' — or actually run the search."
             ),
         ))
 

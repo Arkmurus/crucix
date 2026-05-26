@@ -301,16 +301,24 @@ def build_footer(
     # footer`.
     _violations = []
     _had_introspect = False
+    _web_tool_ran = False
     if tools_used:
-        if isinstance(tools_used, str):
-            _had_introspect = "self_introspect" in tools_used.lower()
-        else:
-            _had_introspect = any(
-                "self_introspect" in str(t).lower() for t in tools_used
-            )
+        # Normalise to a single lowercase string for keyword checks.
+        _tools_str = (tools_used.lower() if isinstance(tools_used, str)
+                      else " ".join(str(t).lower() for t in tools_used))
+        _had_introspect = "self_introspect" in _tools_str
+        # R-F890 — did a web/search tool actually fire this turn? Gates the
+        # fabricated-external-verification check (BLOCK if no web tool ran).
+        _web_tool_ran = any(t in _tools_str for t in (
+            "deep_research", "web_search", "search", "investigate", "crawl",
+            "brave", "web_explorer", "researcher",
+        ))
     try:
         from .self_claim_guard import scan_response as _pre_scan
-        _violations = _pre_scan(response_text, self_introspect_ran=_had_introspect) or []
+        _violations = _pre_scan(
+            response_text, self_introspect_ran=_had_introspect,
+            web_tool_ran=_web_tool_ran,
+        ) or []
     except Exception:
         _violations = []
 
