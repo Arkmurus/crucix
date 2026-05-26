@@ -3629,9 +3629,10 @@
       "title": "adversarial run_weekly: bound concurrency so the single LLM provider isnt burst into empty responses (degraded false-fails)",
       "claimed_at": "2026-05-26T14:50:50Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "bac37dd",
+      "notes": null,
+      "shipped_at": "2026-05-26T14:53:22Z"
     }
   ]
 }
