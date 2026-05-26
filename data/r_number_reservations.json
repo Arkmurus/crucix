@@ -3599,9 +3599,10 @@
       "title": "gap_detector: extend operational-shed filter (circuit-breaker/mastery-floor/boot-state/by-design events are not code bugs)",
       "claimed_at": "2026-05-26T13:08:53Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9be8fc2",
+      "notes": null,
+      "shipped_at": "2026-05-26T13:11:13Z"
     }
   ]
 }
