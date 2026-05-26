@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 924,
+  "next_available": 925,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3752,6 +3752,15 @@
       "commit_sha": "7c868ac",
       "notes": null,
       "shipped_at": "2026-05-26T23:43:15Z"
+    },
+    {
+      "r_number": "R-F924",
+      "title": "self_coder: FLAGGED verdict always force-stages (ticket-mode no longer auto-deploys a flagged fix)",
+      "claimed_at": "2026-05-26T23:54:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

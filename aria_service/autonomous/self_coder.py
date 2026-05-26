@@ -124,6 +124,31 @@ def gap_type_to_change_type(gap_type: str) -> str:
     return GAP_TYPE_TO_CHANGE_TYPE.get(gap_type, "enhancement")
 
 
+def resolve_staging_decision(
+    *,
+    is_flagged: bool,
+    is_blocked: bool,
+    ticket_mode_enabled: bool,
+    force_stage_only: bool,
+) -> tuple[bool, bool]:
+    """R-F924 (2026-05-27) — decide (force_stage, force_deploy) from the review
+    verdict + deploy mode. Extracted as a pure function so this safety-critical
+    decision is unit-testable across the full truth table.
+
+    Binding invariant: a FLAGGED verdict ALWAYS force-stages and NEVER
+    auto-deploys, regardless of ticket-mode or the R-F462 gate ("Claude's flag
+    still wins"). An operator /code request (force_stage_only) also force-stages.
+    Only a clean (not-flagged, not-blocked) verdict under ticket-mode
+    auto-deploys. A blocked verdict is handled by an earlier early-return, but
+    we defensively force-stage it here too.
+    """
+    if is_blocked or force_stage_only:
+        return (True, False)
+    force_stage = is_flagged
+    force_deploy = ticket_mode_enabled and not is_flagged
+    return (force_stage, force_deploy)
+
+
 @dataclass
 class FixResult:
     success: bool
@@ -485,26 +510,23 @@ class ARIACoder:
             # NOT flagged/blocked — Claude's flag still wins.
             from . import review_ticket as _ticket_mod
             ticket_mode_enabled = _ticket_mod.is_enabled()
-            force_stage = (
-                review_verdict.is_flagged
-                # ticket-mode override: if enabled AND verdict isn't
-                # flagged, push through auto-deploy regardless of the
-                # R-F462 default gate.
-                and not (ticket_mode_enabled and not review_verdict.is_blocked)
+            # R-F924 (2026-05-27) — a FLAGGED verdict ALWAYS force-stages and
+            # never auto-deploys. The previous inline formula ANDed in `not
+            # (ticket_mode_enabled and not is_blocked)`; since a BLOCKED verdict
+            # already returned at STEP 6.5 above, `is_blocked` was always False
+            # here, so the clause reduced to `not ticket_mode_enabled` — i.e.
+            # with ticket-mode ON, a FLAGGED fix got force_stage=False AND
+            # force_deploy=False, fell through to the R-F462 default gate and
+            # AUTO-DEPLOYED when AUTO_DEPLOY=1. That contradicted "Claude's flag
+            # still wins" and was a live auto-deploy landmine. The decision is
+            # now a pure, unit-tested function (resolve_staging_decision).
+            # R-F852 — operator /code (force_stage_only) is also always staged.
+            force_stage, force_deploy = resolve_staging_decision(
+                is_flagged=review_verdict.is_flagged,
+                is_blocked=review_verdict.is_blocked,
+                ticket_mode_enabled=ticket_mode_enabled,
+                force_stage_only=force_stage_only,
             )
-            force_deploy = (
-                ticket_mode_enabled
-                and not review_verdict.is_flagged
-                and not review_verdict.is_blocked
-            )
-            # R-F852 — operator chat-trigger (/code) requests force staging:
-            # the change is ALWAYS human-reviewed, never auto-deployed, even
-            # when SELF_IMPROVE_AUTO_DEPLOY / ticket-mode would otherwise ship
-            # it. Chat input becoming live code with no human is exactly the
-            # surface we keep gated; the operator approves via /api/aria/self/deploy.
-            if force_stage_only:
-                force_stage = True
-                force_deploy = False
             stage_ok, stage_status, staged_ids = await self._stage_or_deploy(
                 plan=plan, change_type=change_type,
                 force_stage=force_stage,
