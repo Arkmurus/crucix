@@ -2541,7 +2541,7 @@ async def _verify_and_record_chat(
     session_id: str,
     user_message: str,
     response_text: str,
-    tool_context: str | None,
+    tool_context: str | dict | None,
     mastery_overall: float,
     mastery_weak_topics: list[str],
     operating_mode: str,
@@ -2573,10 +2573,34 @@ async def _verify_and_record_chat(
     # nobody could verify". Training filter still excludes both, but the
     # diagnostic is honest now.
     verification_status = "verifier_not_run"
+    # R-F905: verify_and_tag_response expects a STRING — it regex-extracts
+    # URLs from tool_context (response_verifier._count_sources_for_claim /
+    # _build_url_snippet_index). The chat callers pass a dict
+    # {"retrieved_sources": [{title, url, ...}]} so record_chat can count
+    # provenance. Passing that dict straight to the verifier made
+    # re.findall(regex, dict) raise TypeError, which was swallowed at the
+    # broad except below → grounded_rate stayed None on EVERY turn and the
+    # verifier-side grounding metric was silently dead. Derive a
+    # verifier-friendly string from the structured sources here; the
+    # original dict is still handed to record_chat untouched.
+    if isinstance(tool_context, dict):
+        _srcs = tool_context.get("retrieved_sources") or []
+        _parts: list[str] = []
+        if isinstance(_srcs, list):
+            for _s in _srcs:
+                if isinstance(_s, dict):
+                    _u = _s.get("url") or _s.get("source") or ""
+                    if _u:
+                        _parts.append(f"{_u}\n{_s.get('title') or ''}")
+                elif isinstance(_s, str) and _s:
+                    _parts.append(_s)
+        _verifier_ctx = "\n\n".join(_parts)
+    else:
+        _verifier_ctx = tool_context or ""
     try:
         rv = await _rv.verify_and_tag_response(
             response_text=response_text,
-            tool_context=tool_context or "",
+            tool_context=_verifier_ctx,
             session_id=session_id,
         )
         checked = int(rv.get("claims_checked") or 0)
@@ -4162,12 +4186,18 @@ async def _aria_chat_stream_impl(
     try:
         from .intel import operating_modes as _om
         _mastery_report = await student.get_mastery_report()
+        # R-F905 (§13 stream-bypass): the streaming path (WhatsApp default)
+        # populated _rag_sources_var at prefetch but then passed
+        # tool_context=None, so every stream turn recorded sources_count=0
+        # and the verifier saw no retrieval provenance. Mirror the
+        # non-stream path so the default path records real sources.
+        _retrieved_s = list(_rag_sources_var.get([]))
         _audit_task = asyncio.create_task(
             _verify_and_record_chat(
                 session_id=session_id or "",
                 user_message=message,
                 response_text=response_text,
-                tool_context=None,
+                tool_context={"retrieved_sources": _retrieved_s} if _retrieved_s else None,
                 mastery_overall=(
                     _mastery_report.get("headline_mastery")
                     or _mastery_report.get("overall_mastery", 0.0)
