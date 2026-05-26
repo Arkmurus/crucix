@@ -3419,27 +3419,30 @@
       "title": "self_claim_guard detects fabricated external-verification claims ('verified via the official X website, which I queried using corrected search parameters') when no web tool ran — the live NO_TOOL White House fabrication",
       "claimed_at": "2026-05-26T08:49:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "c2f287e0b0c7dcf2a70ff74ee0bcc835d57b70e7",
+      "notes": null,
+      "shipped_at": "2026-05-26T08:56:39Z"
     },
     {
       "r_number": "R-F891",
       "title": "dd_orchestrator logger namespace ARIA.* -> aria.* so DD-layer compliance WARNINGs reach the brain error ledger (R-F886 follow-up: those promotions never reached the brain)",
       "claimed_at": "2026-05-26T08:52:23Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "806f46a",
+      "notes": null,
+      "shipped_at": "2026-05-26T09:10:20Z"
     },
     {
       "r_number": "R-F892",
       "title": "eliminated_weapons_watchlist: emit capability_gaps on internal screen failure + remove once-per-run swallow so a banned-weapon (INF/CWC/BWC/Ottawa/CCM) miss is never silent to the brain",
       "claimed_at": "2026-05-26T08:55:33Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "806f46a",
+      "notes": null,
+      "shipped_at": "2026-05-26T09:10:20Z"
     }
   ]
 }
