@@ -86,13 +86,14 @@ def test_rf592_background_runner_updates_state_on_success(monkeypatch):
         assert aria._ADV_RUN_REGISTRY["test_run"]["status"] == "running"
         return fake_result
 
-    # Patch the import inside the function — the function does
-    # `from ..intel import adversarial_challenge as _ac` at call time,
-    # so monkeypatch the module attribute via sys.modules.
-    import sys
-    fake_ac = type(sys)("aria_service.intel.adversarial_challenge")
-    fake_ac.run_weekly = fake_run_weekly
-    monkeypatch.setitem(sys.modules, "aria_service.intel.adversarial_challenge", fake_ac)
+    # R-F910 — patch run_weekly on the REAL module. _adv_run_background does
+    # `from ..intel import adversarial_challenge as _ac`, which resolves to the
+    # package attribute once the submodule has been imported anywhere; swapping
+    # sys.modules is then bypassed (order-dependent flake — any earlier test
+    # that imports adversarial_challenge made this fail). setattr on the
+    # resolved module is order-independent.
+    import aria_service.intel.adversarial_challenge as _real_ac
+    monkeypatch.setattr(_real_ac, "run_weekly", fake_run_weekly)
 
     aria._ADV_RUN_REGISTRY["test_run"] = {
         "run_id": "test_run", "status": "queued",
@@ -120,10 +121,9 @@ def test_rf592_background_runner_captures_failure(monkeypatch):
     async def fake_run_weekly_explode(attack_ids=None):
         raise RuntimeError("simulated upstream failure")
 
-    import sys
-    fake_ac = type(sys)("aria_service.intel.adversarial_challenge")
-    fake_ac.run_weekly = fake_run_weekly_explode
-    monkeypatch.setitem(sys.modules, "aria_service.intel.adversarial_challenge", fake_ac)
+    # R-F910 — order-independent mock (see note in the success test above).
+    import aria_service.intel.adversarial_challenge as _real_ac
+    monkeypatch.setattr(_real_ac, "run_weekly", fake_run_weekly_explode)
 
     aria._ADV_RUN_REGISTRY["fail_run"] = {
         "run_id": "fail_run", "status": "queued",

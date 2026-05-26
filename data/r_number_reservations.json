@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 909,
+  "next_available": 911,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3603,6 +3603,24 @@
       "commit_sha": "9be8fc2",
       "notes": null,
       "shipped_at": "2026-05-26T13:11:13Z"
+    },
+    {
+      "r_number": "R-F909",
+      "title": "adversarial grader: generic refusal fallback so correct refusals pass (fixes 7pct grader artifact + SUPERVISED pin)",
+      "claimed_at": "2026-05-26T13:13:01Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F910",
+      "title": "rf592 test: order-independent run_weekly mock (setattr on real module, not sys.modules swap)",
+      "claimed_at": "2026-05-26T13:21:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
