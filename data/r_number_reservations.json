@@ -3579,9 +3579,10 @@
       "title": "composite honesty signal: relabel grounded_rate->honesty_rate + fair recent window",
       "claimed_at": "2026-05-26T12:37:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "e9f43dd",
+      "notes": null,
+      "shipped_at": "2026-05-26T12:47:24Z"
     },
     {
       "r_number": "R-F907",
