@@ -112,6 +112,12 @@ _SKIP_SUBSTRINGS = (
     "got future",
     "different loop",
     "event loop is closed",
+    # R-F891: now that the "ARIA.*" tree feeds the ledger, two per-request
+    # operational SECURITY detections in security_protocol.py would otherwise
+    # flood the 200-entry error/bug ledger and mislead the coder (they are
+    # detections, not code defects — they belong in a security channel).
+    "prompt injection detected",
+    "output sanitisation total",
 )
 
 
@@ -124,7 +130,10 @@ class ErrorLedgerHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             # Only aria.* loggers — third-party noise isn't actionable.
-            if not record.name.startswith("aria"):
+            # Case-insensitive: ~30 modules use the legacy uppercase "ARIA.*"
+            # logger name (R-F891) and their WARNING+ logs must reach the
+            # ledger too, not just lowercase "aria.*".
+            if not record.name.lower().startswith("aria"):
                 return
             # Self-recursion guard
             if record.name == "aria.error_log_handler":
@@ -168,6 +177,15 @@ def install(level: int = logging.WARNING) -> ErrorLedgerHandler:
     # Attach to the root 'aria' logger so all sub-loggers (aria.researcher,
     # aria.brain_hook, aria.llm.fallback, etc.) propagate through.
     logging.getLogger("aria").addHandler(handler)
+    # R-F891: ~30 modules (dd_orchestrator, security_protocol,
+    # global_export_control, regional_compliance, deception_detection,
+    # commercial_coherence, verified_intel, ground_truth_loop, …) use the
+    # legacy uppercase "ARIA.*" logger name. "ARIA.*" is NOT a child of
+    # "aria", so those records never reached this handler — every WARNING+
+    # they emit (incl. the R-F886 DD-compliance-layer promotions) was
+    # invisible to the brain/coder. Attach to "ARIA" too so the whole tree
+    # feeds the ledger. (Filter in emit() is case-insensitive to match.)
+    logging.getLogger("ARIA").addHandler(handler)
     _installed_handler = handler
     logger.info("Error-ledger handler installed (level=%s) — WARNING+ aria logs will mirror to self_improve ledger", logging.getLevelName(level))
     return handler
@@ -179,4 +197,5 @@ def uninstall() -> None:
     if _installed_handler is None:
         return
     logging.getLogger("aria").removeHandler(_installed_handler)
+    logging.getLogger("ARIA").removeHandler(_installed_handler)  # R-F891
     _installed_handler = None

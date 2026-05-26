@@ -2690,16 +2690,44 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                        or "biological" in (_e_finding.get("treaty") or "").lower():
                         _has_cwc_bwc = True
                     report.compliance.meta.subcalls += 1
+                    # R-F892 — record the CATCH to the brain. A treaty-banned/
+                    # eliminated weapon on a procurement list is ARIA's highest-
+                    # value compliance action, but the success side was invisible
+                    # to the brain (only the report carried it) — she never
+                    # "remembered" what she screened out. Fire-and-forget so DD
+                    # never blocks on the brain fan-out.
+                    try:
+                        from . import brain_hook as _bh892
+                        _t892 = asyncio.create_task(_bh892.absorb_silent(
+                            module="dd_orchestrator",
+                            summary=(
+                                "Banned/eliminated-weapon screen HIT: "
+                                f"{_e_finding.get('title', '')}"
+                            ),
+                            detail=(_e_finding.get("detail", "") or "")[:600],
+                            entity_name=str((target or {}).get("name", ""))[:120],
+                            success=True,
+                            confidence="CONFIRMED",
+                            source_id="eliminated_weapons_watchlist:R-F639",
+                        ))
+                        _t892.add_done_callback(
+                            lambda t: t.result()
+                            if not t.cancelled() and not t.exception() else None
+                        )
+                    except Exception:
+                        pass
             except Exception as _e2:
                 # R-F886 — a banned-weapon (INF/CWC/BWC/Ottawa/CCM) screen
                 # failing SILENTLY is a compliance miss nobody sees. Raise to
-                # WARNING (operator/fly logs) + record to error_log ONCE per run
-                # so the reconnected coder (R-F884) sees it too. (dd_orchestrator
-                # logs under "ARIA.*", outside error_log_handler's "aria.*" gate,
-                # so WARNING alone wouldn't reach the coder — record_error does.)
+                # WARNING + record to error_log so the reconnected coder
+                # (R-F884) sees it. NOTE (R-F891): the error_log_handler now
+                # also catches the "ARIA.*" logger tree, so this WARNING reaches
+                # the ledger per-line on its own; record_error is the higher-
+                # signal structured alert (kept once/run for flood protection).
                 logger.warning(
-                    "R-F886 eliminated-weapons watchlist FAILED on a goods line "
-                    "(banned-weapon screen miss): %s", _e2,
+                    "eliminated-weapons watchlist FAILED on a goods line "
+                    "(banned-weapon screen miss) [%s]: %s",
+                    str(_item)[:80], _e2,
                 )
                 if not _ewl_err_logged:
                     _ewl_err_logged = True
@@ -2711,8 +2739,9 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                             file="aria_service/intel/dd_orchestrator.py",
                             function="orchestrate_dd:eliminated_weapons",
                         )
-                    except Exception:
-                        pass
+                    except Exception as _e892:
+                        # Below WARNING so it can't recurse through the ledger.
+                        logger.debug("R-F892: failed to record EWL engine error: %s", _e892)
 
         # Aggregator pattern (R-F643)
         if _goods_items:

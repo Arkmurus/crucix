@@ -178,6 +178,103 @@ def test_recorded_file_is_project_relative_path_F96():
     assert sample_resolved in self_improve.MODIFIABLE_FILES
 
 
+def test_uppercase_ARIA_logger_forwarded_R_F891():
+    """R-F891 capability test: ~30 modules (dd_orchestrator, security_protocol,
+    global_export_control, regional_compliance, …) use the legacy uppercase
+    'ARIA.*' logger name. Pre-fix those records never reached this handler
+    (it was attached only to lowercase 'aria' and filtered on a case-sensitive
+    'aria' prefix), so the R-F886 DD-compliance-layer WARNING promotions were
+    invisible to the brain/coder. Post-fix an 'ARIA.*' WARNING must hit the
+    ledger exactly like an 'aria.*' one."""
+    from aria_service.intel import error_log_handler
+
+    recorded: list = []
+
+    async def fake_record_error(**kwargs):
+        recorded.append(kwargs)
+
+    async def run():
+        error_log_handler.uninstall()
+        with patch("aria_service.intel.self_improve.record_error",
+                   side_effect=fake_record_error):
+            error_log_handler.install()
+            try:
+                # The exact logger name dd_orchestrator uses (dd_orchestrator.py:71)
+                logging.getLogger("ARIA.DDOrchestrator").warning(
+                    "PSC layer degraded: upstream lookup failed"
+                )
+                await asyncio.sleep(0.01)
+            finally:
+                error_log_handler.uninstall()
+
+    asyncio.run(run())
+    assert len(recorded) == 1, (
+        f"uppercase ARIA.* WARNING did not reach the ledger: {recorded}"
+    )
+    assert "log:warning" in recorded[0]["error_type"]
+    assert "PSC layer degraded" in recorded[0]["message"]
+
+
+def test_install_attaches_to_both_aria_and_ARIA_R_F891():
+    """R-F891: install must attach the handler to BOTH the lowercase 'aria'
+    and uppercase 'ARIA' root loggers, idempotently (exactly one each)."""
+    from aria_service.intel import error_log_handler
+    error_log_handler.uninstall()
+    error_log_handler.install()
+    error_log_handler.install()  # idempotent
+    try:
+        for root_name in ("aria", "ARIA"):
+            root = logging.getLogger(root_name)
+            matching = [h for h in root.handlers
+                        if isinstance(h, error_log_handler.ErrorLedgerHandler)]
+            assert len(matching) == 1, (
+                f"expected exactly 1 handler on '{root_name}', got {len(matching)}"
+            )
+    finally:
+        error_log_handler.uninstall()
+    # uninstall must detach from both
+    for root_name in ("aria", "ARIA"):
+        root = logging.getLogger(root_name)
+        assert not [h for h in root.handlers
+                    if isinstance(h, error_log_handler.ErrorLedgerHandler)], (
+            f"uninstall left a handler attached to '{root_name}'"
+        )
+
+
+def test_security_operational_noise_filtered_R_F891():
+    """R-F891: now the ARIA.* tree feeds the ledger, security_protocol's
+    per-request operational detections ('Prompt injection detected',
+    'Output sanitisation total') must be filtered — they are detections, not
+    code bugs, and would flood/mislead the error ledger."""
+    from aria_service.intel import error_log_handler
+
+    recorded: list = []
+
+    async def fake_record_error(**kwargs):
+        recorded.append(kwargs)
+
+    async def run():
+        error_log_handler.uninstall()
+        with patch("aria_service.intel.self_improve.record_error",
+                   side_effect=fake_record_error):
+            error_log_handler.install()
+            try:
+                lg = logging.getLogger("ARIA.SecurityProtocol")
+                lg.warning("Prompt injection detected: risk=HIGH blocked=False categories=['x']")
+                lg.warning("Output sanitisation total: 3 redactions applied")
+                # A genuine security ENGINE failure must still be recorded.
+                lg.warning("Security audit crashed: unexpected state")
+                await asyncio.sleep(0.01)
+            finally:
+                error_log_handler.uninstall()
+
+    asyncio.run(run())
+    assert len(recorded) == 1, (
+        f"only the genuine failure should record, got: {[r['message'] for r in recorded]}"
+    )
+    assert "Security audit crashed" in recorded[0]["message"]
+
+
 def test_self_recursion_guard():
     """The handler logs an INFO message on install. That message comes
     from aria.error_log_handler itself — must NOT recurse into the ledger."""
