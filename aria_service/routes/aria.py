@@ -316,6 +316,14 @@ class ChatRequest(BaseModel):
     # that caused the DUMA / Iraq incident on 2026-04-09. Empty string when
     # the caller is a single-user channel (curl, frontend, /ask command).
     group_context: str = ""
+    # R-F916 (2026-05-26) — async job mode. When true, /chat enqueues a
+    # background task that runs the FULL chat handler (sync path) and returns
+    # a job_id immediately; the caller polls /chat/result/{job_id}. This is for
+    # URL-bearing questions whose fresh crawl + multi-page synthesis routinely
+    # ran past the WhatsApp listener's 90s brainPost timeout → the
+    # "⚠️ ARIA is temporarily unavailable." incident (2026-05-26 16:53/16:56Z).
+    # Mirrors the R-F873 read-document async job pattern exactly.
+    async_mode: bool = False
 
 class ThinkRequest(BaseModel):
     question: str
@@ -6878,6 +6886,54 @@ async def chat_ep(req: ChatRequest, request: Request):
     except Exception:
         pass
 
+    # ── R-F916 — ASYNC job mode ──────────────────────────────────────────────
+    # A URL-bearing question triggers a fresh crawl (multi-page) + narrative
+    # synthesis that routinely out-runs the WhatsApp listener's 90s brainPost
+    # timeout. Rather than diverge the logic, enqueue a background task that
+    # re-runs THIS handler in SYNC mode (async_mode=False) — zero behaviour
+    # drift between the fast and async paths — and return a job_id immediately.
+    # The caller polls /chat/result/{job_id}. Mirrors R-F873 read-document.
+    if getattr(req, "async_mode", False):
+        _cjob_id = str(uuid.uuid4())[:12]
+        await _chat_job_set(_cjob_id, {"status": "processing", "session_id": session_id})
+        _req_sync = req.model_copy(update={"async_mode": False})
+        # chat_ep only reads request.app.state (via get_llm/get_intel_data), so a
+        # minimal shim survives past the original request's lifecycle. The shim's
+        # .json() is never called on the chat path (req is already parsed).
+        _shim916 = _ReadDocBodyRequest(request.app, {})
+
+        async def _r916_run():
+            try:
+                _res = await chat_ep(_req_sync, _shim916)
+                if isinstance(_res, dict):
+                    await _chat_job_set(_cjob_id, {"status": "done", "result": _res,
+                                                   "session_id": session_id})
+                else:
+                    _sc = getattr(_res, "status_code", "?")
+                    await _chat_job_set(_cjob_id, {"status": "failed",
+                                                   "error": f"chat returned HTTP {_sc}",
+                                                   "session_id": session_id})
+            except Exception as _e:
+                _log.warning("R-F916 async chat job %s failed: %s", _cjob_id, _e)
+                await _chat_job_set(_cjob_id, {"status": "failed", "error": str(_e)[:300],
+                                               "session_id": session_id})
+                try:  # R-F921 — wire the failure to ARIA's brain so she SEES it.
+                    from ..intel import brain_hook as _bh916
+                    await _bh916.observe_self_event(
+                        "chat_async_job_failed",
+                        {"job_id": _cjob_id, "error": str(_e)[:200], "session_id": session_id},
+                        gap_type="self_runtime",
+                    )
+                except Exception:
+                    pass
+
+        asyncio.create_task(_r916_run(), name=f"chatjob.{_cjob_id}")
+        return {
+            "async": True, "job_id": _cjob_id, "status": "processing",
+            "poll_url": f"/api/aria/chat/result/{_cjob_id}",
+            "message": "Working on it — poll the result URL.",
+        }
+
     # Past incident 2026-04-09 19:18 — DUMA Engineering investigation:
     # the WhatsApp listener prepends `[WhatsApp group context]\n[Sender]: ...
     # \n[Question from <sender>]\n` blocks containing recent message history.
@@ -8659,6 +8715,45 @@ async def _readdoc_job_get(job_id: str) -> Optional[dict]:
 async def read_document_result_ep(job_id: str):
     """R-F873 — poll an async read-document job. status: processing|done|failed|not_found."""
     job = await _readdoc_job_get(job_id)
+    if not job:
+        return {"status": "not_found", "job_id": job_id}
+    return {"job_id": job_id, **job}
+
+
+# R-F916 (2026-05-26) — async CHAT job store, mirroring the R-F873 read-document
+# pattern. A URL-bearing question's fresh crawl + multi-page synthesis routinely
+# ran past the WhatsApp listener's 90s brainPost timeout (live: 2026-05-26
+# 16:53:48Z + 16:56:43Z "Chat failed: The operation was aborted due to timeout"
+# → "⚠️ ARIA is temporarily unavailable."). With async mode the listener gets a
+# job_id in <1s and polls the result, so a slow crawl never reads as an outage.
+_CHAT_JOB_PREFIX = "crucix:aria:chat_job:"
+_CHAT_JOB_TTL_S = 1800  # 30m — covers an 8-min WA poll window + retries
+
+
+async def _chat_job_set(job_id: str, data: dict) -> None:
+    try:
+        from ..intel import redis_store as _rs_cj
+        import time as _t_cj
+        await _rs_cj.set_json(_CHAT_JOB_PREFIX + job_id, {**data, "ts": _t_cj.time()},
+                              ex=_CHAT_JOB_TTL_S)
+    except Exception as e:
+        _log.warning("R-F916 chat job-store set failed for %s: %s", job_id, e)
+
+
+async def _chat_job_get(job_id: str) -> Optional[dict]:
+    try:
+        from ..intel import redis_store as _rs_cj
+        return await _rs_cj.get_json(_CHAT_JOB_PREFIX + job_id)
+    except Exception:
+        return None
+
+
+@router.get("/chat/result/{job_id}")
+async def chat_result_ep(job_id: str):
+    """R-F916 — poll an async /chat job. status: processing|done|failed|not_found.
+    On 'done', `result` carries the full chat response dict (response, session_id,
+    sources, confidence, …) exactly as the sync /chat path returns it."""
+    job = await _chat_job_get(job_id)
     if not job:
         return {"status": "not_found", "job_id": job_id}
     return {"job_id": job_id, **job}
@@ -18048,9 +18143,16 @@ async def health_check_ep():
         from ..main import ARIA_BUILD_REV as _build_rev
     except Exception:
         _build_rev = "unknown"
+    # R-F920 — operator-facing build provenance (build-arg | git-head-runtime |
+    # unknown). Kept here, NOT in the user-facing build_rev footer (§14).
+    try:
+        from ..main import ARIA_BUILD_SOURCE as _build_source
+    except Exception:
+        _build_source = "unknown"
     return {
         "status": "healthy" if healthy else "degraded",
         "build_rev": _build_rev,
+        "build_source": _build_source,
         "degraded_reasons": degraded_reasons,
         "operating_mode": mode,
         "infra": {"redis": redis_ok, "rag": rag_ok},

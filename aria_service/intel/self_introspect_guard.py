@@ -71,10 +71,21 @@ def detect_self_capability_question(message: str) -> bool:
 
     Conservative: misses are OK (Clause 25 + R-F401 guard still apply);
     extra hits are cheap (in-process call to health_perf_ep).
+
+    R-F918 — also fires on self-STATE / availability questions ("why are you
+    unavailable", "are you down") so the live /health/perf block is injected
+    and the LLM answers from real operational state instead of fabricating a
+    diagnostic (the 2026-05-26 incident).
     """
     if not message or not isinstance(message, str):
         return False
-    return bool(_CAPABILITY_KEYWORDS.search(message))
+    if _CAPABILITY_KEYWORDS.search(message):
+        return True
+    try:
+        from .self_infra_detector import is_self_state_query
+        return is_self_state_query(message)
+    except Exception:
+        return False
 
 
 async def self_introspect_context_block(message: str) -> str:

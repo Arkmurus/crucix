@@ -368,7 +368,23 @@ async function readDocumentAsync(payload, chatId, filename) {
 }
 
 // ── Ask ARIA with persistent per-sender sessions ────────────────────────────
-async function askARIA(message, senderJid) {
+// R-F916 — a question that carries a URL triggers a fresh crawl (multi-page) +
+// narrative synthesis on the brain that routinely out-runs the 90s sync
+// brainPost cap. Live 2026-05-26 16:53:48Z + 16:56:43Z: two CSG-website asks
+// each hit "Chat failed: The operation was aborted due to timeout" → the user
+// saw "⚠️ ARIA is temporarily unavailable." mid-demo. Route URL questions
+// through the async job+poll path so a slow crawl never reads as an outage.
+const URL_RE = /https?:\/\/[^\s]+/i;
+
+async function askARIA(message, senderJid, chatId = null) {
+  if (URL_RE.test(message)) {
+    try {
+      return await askARIAAsync(message, senderJid, chatId);
+    } catch (e) {
+      console.error('[ARIA Listener] Async chat failed:', e.message);
+      return '⚠️ That research took longer than expected — please ask me again in a moment.';
+    }
+  }
   const sid = `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}`;
   try {
     const r = await brainPost('/api/aria/chat', { message, session_id: sid });
@@ -377,6 +393,50 @@ async function askARIA(message, senderJid) {
     console.error('[ARIA Listener] Chat failed:', e.message);
     return '⚠️ ARIA is temporarily unavailable.';
   }
+}
+
+// R-F916 — async chat: POST with async_mode:true, get a job_id in <1s, then poll
+// /chat/result/{job_id}. Mirrors readDocumentAsync (R-F873). chatId (optional)
+// only drives the interim "researching…" acknowledgement; the final answer is
+// returned to the caller, which sends it exactly as for a sync reply.
+async function askARIAAsync(message, senderJid, chatId = null) {
+  const sid = `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}`;
+  let job;
+  try {
+    job = await brainPost('/api/aria/chat', { message, session_id: sid, async_mode: true });
+  } catch (e) {
+    // Dispatch itself failed (brain down / network) — fall back to a best-effort
+    // sync attempt so a transient blip doesn't silently drop the question.
+    console.error('[ARIA Listener] Async dispatch failed, trying sync:', e.message);
+    const r = await brainPost('/api/aria/chat', { message, session_id: sid });
+    return r.response || r.answer || 'No response.';
+  }
+  const jobId = job && job.job_id;
+  if (!jobId) {
+    // Older brain build without async chat support — it returned the sync result.
+    return (job && (job.response || job.answer)) || 'No response.';
+  }
+  if (chatId) {
+    await sendReply(chatId,
+      '🔎 Looking into that now — I\'m pulling fresh sources, which takes a moment. '
+      + 'I\'ll reply here as soon as it\'s ready.').catch(() => {});
+  }
+  const POLL_MS = 4000, MAX_POLLS = 60;   // 4s × 60 = up to 4 minutes
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise(r => setTimeout(r, POLL_MS));
+    let st;
+    try { st = await brainGet(`/api/aria/chat/result/${jobId}`); }
+    catch { continue; }                    // transient poll error — keep waiting
+    if (!st) continue;
+    if (st.status === 'done') {
+      const res = st.result || {};
+      return res.response || res.answer || 'No response.';
+    }
+    if (st.status === 'failed')    throw new Error(st.error || 'chat job failed');
+    if (st.status === 'not_found') throw new Error('chat job expired');
+    // status === 'processing' → keep polling
+  }
+  throw new Error('chat job timed out after 4 minutes');
 }
 
 // ── Split long messages into chunks for WhatsApp ────────────────────────────
@@ -1093,7 +1153,7 @@ async function startListener() {
           let response = await handleCommand(cmd, args, senderJid);
           if (response === null) {
             // Unknown command — ask ARIA
-            response = await askARIA(text, senderJid);
+            response = await askARIA(text, senderJid, chatId);
           }
           if (response) await sendReply(chatId, response);
         } catch (e) {
@@ -1127,7 +1187,7 @@ async function startListener() {
           console.log(`[ARIA Listener] R-F912 re-attached ${blocks.length}/${_docs.length} recent document(s) to follow-up mention`);
         }
         try {
-          const response = await askARIA(q, senderJid);
+          const response = await askARIA(q, senderJid, chatId);
           if (response) await sendReply(chatId, response);
         } catch (e) {
           console.error('[ARIA Listener] Mention reply error:', e.message);
@@ -1148,7 +1208,7 @@ async function startListener() {
           const prompt = `A team member said: "${text.slice(0, 800)}"\n\nProvide a brief (under 300 words) intelligence note relevant to this. Focus on ${categoryLabel} implications. Be specific and actionable. Keywords detected: ${trigger.keywords.join(', ')}`;
 
           try {
-            let response = await askARIA(prompt, `auto_${chatId}`);
+            let response = await askARIA(prompt, `auto_${chatId}`, chatId);
             if (response) {
               // Enforce 500 char limit and add prefix
               response = response.slice(0, 480);

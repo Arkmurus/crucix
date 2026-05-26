@@ -3310,6 +3310,16 @@ async def _aria_chat_impl(
             _tcg_err, exc_info=True,
         )
 
+    # R-F919 — final scrub: strip any leaked R-F401 guard scaffolding from the
+    # user-facing text (defence-in-depth for blocks cached/echoed before the
+    # R-F919 footer fix). Runs BEFORE session persistence so a once-leaked block
+    # can't re-bleed into later turns. Fail-open. Mirrored in aria_chat_stream.
+    try:
+        from .intel.self_claim_guard import strip_internal_scaffolding as _sis
+        response_text = _sis(response_text)
+    except Exception as _sis_err:
+        logger.debug("R-F919 scaffolding scrub failed (non-fatal): %s", _sis_err)
+
     # Update session — but strip tool_context blocks from the user message
     # and cap the response, otherwise the per-session conversation history
     # bleeds prior fabricated content into every subsequent reply.
@@ -4031,6 +4041,14 @@ async def _aria_chat_stream_impl(
             "R-F733 stream tool_claim_guard failed (persisted history will replay UNGUARDED, fix asap): %s",
             _tcg_err, exc_info=True,
         )
+
+    # R-F919 — final scrub (mirror of aria_chat): strip any leaked R-F401 guard
+    # scaffolding so a once-leaked block can't re-bleed into persisted history.
+    try:
+        from .intel.self_claim_guard import strip_internal_scaffolding as _sis
+        response_text = _sis(response_text)
+    except Exception as _sis_err:
+        logger.debug("R-F919 stream scaffolding scrub failed (non-fatal): %s", _sis_err)
 
     # ── Persist session (same as aria_chat) ───────────────────────────
     _user_persist = _strip_tool_context_for_history(message)

@@ -160,21 +160,30 @@ def test_rf403_tools_deduped():
 
 # ── 3. Post-response R-F401 guard scan integration ────────────────
 
-def test_rf403_guard_scan_runs_on_response():
-    """When the response contains a forbidden phrase (e.g. invented
-    TTL), the footer must include the R-F401 violation block."""
+def test_rf403_guard_scan_runs_on_response(caplog):
+    """When the response contains a forbidden phrase (e.g. invented TTL), the
+    guard must FIRE — but R-F919 (2026-05-26): its internal block is NEVER
+    leaked to the user-facing footer (that block leaked into a WhatsApp demo).
+    The team is warned via the WARNING log + Redis metrics + brain signal; the
+    user sees only a short honesty caveat for BLOCK-severity violations."""
+    import logging
     from aria_service.intel.confidence_footer import build_footer
     body = (
         "I retain knowledge but the knowledge base has an 18-month TTL "
         "and entries are evicted after expiry. I will forget facts not "
         "reverified by then. " + "X" * 50  # padding to clear 80-char floor
     )
-    footer = build_footer(response_text=body, verification=None)
-    assert "R-F401" in footer, (
-        "R-F403 CRITICAL: response contained 18-month TTL hallucination "
-        "but the R-F401 guard block didn't appear in the footer. The "
-        "team would see the hallucination without warning."
+    with caplog.at_level(logging.WARNING, logger="aria.confidence_footer"):
+        footer = build_footer(response_text=body, verification=None)
+    # R-F919 — the internal guard scaffolding must NOT reach the user.
+    assert "R-F401" not in footer, "R-F919 regression: guard block leaked to user footer"
+    assert "SELF-CLAIM GUARD" not in footer
+    # The guard still fired (team-visible via the log).
+    assert any("R-F401 guard fired" in r.message for r in caplog.records), (
+        "R-F403 CRITICAL: forbidden phrase present but guard did not fire/log."
     )
+    # The user gets an honest BLOCK-severity caveat instead of the raw block.
+    assert "couldn't be self-verified" in footer
 
 
 def test_rf403_guard_scan_silent_on_clean_response():

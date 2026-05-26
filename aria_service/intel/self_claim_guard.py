@@ -520,6 +520,32 @@ def render_violation_block(violations: list[Violation]) -> str:
     return "\n".join(lines)
 
 
+# R-F919 (2026-05-26) — final-output scrubber. The guard block above is
+# OPERATOR/team-only scaffolding; it must never reach an end user. Source of
+# the leak (confidence_footer append) was removed in R-F919, but a block can
+# still echo into a user-facing answer from BEFORE the fix shipped — e.g. a
+# reasoning_library case or a session-history turn cached while soft-mode was
+# appending it. This deterministically strips any such embedded block from the
+# FINAL response text. Matches from "[R-F401 SELF-CLAIM GUARD" to its known
+# terminator ("Anchor: Constitution Clause 25") or end-of-text.
+_LEAKED_GUARD_BLOCK_RE = re.compile(
+    r"\n*\[R-F401 SELF-CLAIM GUARD.*?"
+    r"(?:Anchor:\s*Constitution\s+Clause\s+25\.?|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def strip_internal_scaffolding(text: str | None) -> str:
+    """Remove any leaked R-F401 guard block from user-facing response text.
+    Deterministic, idempotent, fail-safe (returns input on any error)."""
+    if not text:
+        return text or ""
+    try:
+        return _LEAKED_GUARD_BLOCK_RE.sub("", text).rstrip()
+    except Exception:
+        return text
+
+
 # ── R-F407 (2026-05-13) — Redis-backed violation counters ──────────
 #
 # When R-F401 fires, we want the operator to SEE the violation on the

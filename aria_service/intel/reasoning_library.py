@@ -501,6 +501,23 @@ def _looks_like_fresh_input_request(q: str) -> bool:
     return bool(_FRESH_INPUT_REF_RE.search(q))
 
 
+# R-F917 (2026-05-26) — a question carrying a URL is a request to look at THAT
+# page right now. Its answer is page-specific and time-sensitive (a company's
+# website today ≠ its cached snapshot), so it must ALWAYS get a fresh crawl:
+# never served from the reasoning library, never cached into it. Live incident
+# 2026-05-26: "what can you tell us about https://defence.csg.com/en" matched a
+# prior cached *fallback* answer (0 sources, NO_CITATIONS, truncated) and
+# replayed it as "confidence CONFIRMED" instead of crawling the site.
+_URL_IN_QUESTION_RE = re.compile(r"https?://", re.IGNORECASE)
+
+
+def _question_has_url(q: str) -> bool:
+    """True if the question contains an http(s) URL — force fresh crawl."""
+    if not q:
+        return False
+    return bool(_URL_IN_QUESTION_RE.search(q))
+
+
 # Response patterns that indicate the LLM could not process this turn's
 # input (parse failed, no attachment visible, asked user to re-share).
 # These are turn-specific failure states, not reusable reasoning patterns —
@@ -647,6 +664,26 @@ async def record_response(
     # "parse failed", "please re-share") must never enter the library.
     if _looks_like_turn_failure_response(response):
         return {"recorded": False, "reason": "turn-specific failure response — not reusable"}
+    # R-F917 — never cache an answer to a URL-bearing question. The answer is
+    # tied to that page at this moment; caching it produces the stale replay the
+    # 2026-05-26 CSG-website incident exhibited. (NOTE: the incident footer's
+    # "prior fallback" is NOT a degraded-path signal — it is just the
+    # FallbackProvider wrapper's .name, which is "fallback" for EVERY answer per
+    # R-F131. So source_brain must NOT be used to gate distillation; doing so
+    # would block 100% of caching. The URL gate is the correct, sufficient fix.)
+    if _question_has_url(question):
+        return {"recorded": False, "reason": "URL question — page-specific, always crawl fresh (R-F917)"}
+    # R-F917 — never cache an ungrounded or replayed answer. If the response text
+    # already carries 0-source / NO_CITATIONS / library-replay / build-fallback
+    # markers, it is not safe to re-serve as confident reasoning.
+    _rl = response.lower()
+    if (
+        "no_citations" in _rl
+        or "sources: 0 grounded" in _rl
+        or "↻ retrieved from aria" in _rl
+        or "runtime fallback (build-arg missing)" in _rl
+    ):
+        return {"recorded": False, "reason": "ungrounded/replayed response — not distilled (R-F917)"}
 
     confidence_tag, confidence_score = _detect_confidence_tag(response)
 
@@ -660,11 +697,20 @@ async def record_response(
         return {"recorded": False, "reason": f"too few salient tokens (<{MIN_SALIENT_TOKENS})"}
 
     embedding = await _embed_async(question)
+    # R-F917 — cap stored response at 6000 chars, but cut on a whitespace
+    # boundary so a replayed answer never ends mid-word (the incident's "(2"
+    # truncation). Append an explicit marker so a clipped cache hit is honest.
+    _resp_store = response
+    if len(_resp_store) > 6000:
+        _cut = response.rfind(" ", 0, 6000)
+        if _cut < 5000:  # no sensible boundary — hard cut rather than lose half
+            _cut = 6000
+        _resp_store = response[:_cut].rstrip() + " …[answer truncated in cache]"
     case = {
         "id": case_id,
         "question": question[:1000],
         "normalised": normalised,
-        "response": response[:6000],
+        "response": _resp_store,
         "confidence_tag": confidence_tag,
         "confidence_score": confidence_score,
         "intent": intent,
@@ -756,6 +802,11 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
         return {"match": False, "score": 0, "case": None, "method": "skipped_periodic_brief", "threshold": threshold}
     if _looks_like_fresh_input_request(question):
         return {"match": False, "score": 0, "case": None, "method": "skipped_fresh_input", "threshold": threshold}
+    # R-F917 — a URL in the question forces a fresh crawl: never replay a cached
+    # answer for "tell me about https://…". Defence-in-depth with the
+    # record_response gate below (which stops new URL answers being cached).
+    if _question_has_url(question):
+        return {"match": False, "score": 0, "case": None, "method": "skipped_url_fresh_crawl", "threshold": threshold}
 
     meta = await _load_meta()
     meta["total_lookups"] = meta.get("total_lookups", 0) + 1

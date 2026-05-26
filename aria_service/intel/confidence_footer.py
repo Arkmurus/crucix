@@ -408,16 +408,20 @@ def build_footer(
         for a in assumptions:
             lines.append(f"  • {a}")
 
-    # ── R-F403-tactical: post-response hallucination scan ──
-    # Run the R-F401 self_claim_guard on the FINAL response and append a
-    # warning block when forbidden patterns appear (e.g. invented TTLs,
-    # "I will forget", "overwrites older"). Soft-mode today — appended
-    # so the team sees it; rewrite mode is R-F403-full territory.
-    # R-F407 (2026-05-13): also fire-and-forget records the violation to
-    # Redis counters so the operator dashboard panel can show 24h totals.
+    # ── R-F403-tactical / R-F919: post-response hallucination scan ──
+    # Run the R-F401 self_claim_guard on the FINAL response. The guard's
+    # internal block (pattern ids, "[R-F401 SELF-CLAIM GUARD …]", "call
+    # self_introspect and cite real numbers") is OPERATOR/team scaffolding —
+    # it must NEVER reach an end user. Live incident 2026-05-26: that block
+    # leaked into a WhatsApp answer mid-demo. R-F919 stops appending it to the
+    # user-facing footer; the team still sees every trip via the WARNING log,
+    # the R-F407 Redis metrics, and (R-F921) a brain self_monitor signal.
+    # When a BLOCK-severity violation fires we add a SHORT, user-appropriate
+    # honesty caveat instead of the raw guard dump.
+    # R-F407 (2026-05-13): fire-and-forget records the violation to Redis
+    # counters so the operator dashboard panel can show 24h totals.
     try:
         from .self_claim_guard import (
-            render_violation_block,
             record_violations, record_turn_observed,
         )
         # R-F544 (2026-05-15, renumbered from R-F536 — R-F534 collision) — reuse the violations already computed by
@@ -427,13 +431,35 @@ def build_footer(
         # responses were silently dropped.
         violations = _violations
         if violations:
-            vblock = render_violation_block(violations)
-            if vblock:
-                lines.append(vblock)
+            _block_hits = [v for v in violations if getattr(v, "severity", "") == "BLOCK"]
             logger.warning(
-                "R-F401 guard fired: %d violation(s) on response (trace=%s)",
-                len(violations), trace_id or "n/a",
+                "R-F401 guard fired: %d violation(s) (%d BLOCK) on response (trace=%s) — "
+                "NOT leaked to user (R-F919): %s",
+                len(violations), len(_block_hits), trace_id or "n/a",
+                "; ".join(f"{v.pattern_id}:{v.phrase!r}" for v in violations[:4]),
             )
+            # R-F919 — user-facing honesty caveat for BLOCK severity only.
+            # Never the internal guard text; just a confidence signal.
+            if _block_hits:
+                lines.append(
+                    "\n_⚠ One or more statements about my own system in this "
+                    "answer couldn't be self-verified — treat them as unconfirmed._"
+                )
+            # R-F921 — wire the guard trip to ARIA's brain so she SEES her own
+            # hallucination-guard events and can reason about / fix the cause.
+            try:
+                import asyncio as _aio921
+                from . import brain_hook as _bh921
+                _loop921 = _aio921.get_event_loop()
+                if _loop921.is_running():
+                    _loop921.create_task(_bh921.observe_self_event(
+                        "self_claim_guard_trip",
+                        {"violations": [v.pattern_id for v in violations],
+                         "block": len(_block_hits), "trace": trace_id or ""},
+                        gap_type="hallucination_guard",
+                    ))
+            except Exception:
+                pass
         # R-F407: fire-and-forget metrics. Run inside asyncio.create_task
         # to avoid making build_footer async — keeps the call site simple.
         import asyncio as _aio

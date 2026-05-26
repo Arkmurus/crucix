@@ -248,6 +248,12 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     "mistake_ledger":       ["general", "compliance"],
     "predictor":            ["general"],
     "self_assess":          ["general"],
+    # R-F921 (2026-05-26) — Rule Zero self-observation channel. ARIA's own
+    # runtime failures (chat timeouts, suppressed stale fallbacks, hallucination-
+    # guard trips, self-state queries, self-monitor heartbeats) feed her brain
+    # through here so she SEES what happens to her OS and can later reason about
+    # / propose fixes for it. Routed via observe_self_event() below.
+    "self_monitor":         ["general", "compliance"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)
@@ -888,6 +894,58 @@ async def absorb_silent(**kwargs) -> None:
         await absorb(**kwargs)
     except Exception as e:
         logger.debug("brain_hook.absorb_silent failed entirely: %s", e)
+
+
+async def observe_self_event(
+    event: str,
+    detail: Any = "",
+    *,
+    success: bool = False,
+    gap_type: Optional[str] = "self_runtime",
+) -> dict:
+    """R-F921 (2026-05-26) — Rule Zero self-observation channel.
+
+    The mechanism by which ARIA SEES her own runtime failures and notable
+    self-events: chat timeouts, suppressed stale fallbacks, hallucination-guard
+    trips, self-state questions, self-monitor heartbeats. Each routes through
+    absorb(module="self_monitor", ...). When success=False it records a
+    capability gap (gap_type), so the event lands in the SAME ledger that
+    gap_detector → self_coder reads — i.e. it becomes a thing she can reason
+    over and propose a fix for, instead of an invisible failure.
+
+    Why this exists: the 2026-05-26 WhatsApp incident — ARIA timed out on a
+    URL query and then FABRICATED a diagnostic about her own state, precisely
+    because that failure never reached her brain as an observable signal.
+    Rule Zero (§20): ARIA sees, hears and knows everything — including what
+    happens to her own operating system. Best-effort; never raises.
+
+    Args:
+        event:    short stable slug, e.g. "chat_async_job_failed".
+        detail:   str or JSON-serialisable dict with the specifics.
+        success:  False (default) files a capability gap; True is a healthy
+                  heartbeat / positive observation (no gap).
+        gap_type: capability-gap bucket when success=False (e.g. "timeout",
+                  "self_runtime", "hallucination_guard").
+    """
+    try:
+        import json as _json
+        _d = detail if isinstance(detail, str) else _json.dumps(detail, default=str)[:1500]
+        return await absorb(
+            module="self_monitor",
+            summary=f"self-observed: {event}",
+            detail=_d or event,
+            success=success,
+            gap_type=(gap_type if not success else None),
+            gap_detail=(f"{event}: {_d}"[:500] if not success else None),
+            source_id=f"self_monitor:{event}",
+            confidence="CONFIRMED",
+        )
+    except Exception as e:
+        try:
+            logger.debug("observe_self_event(%s) failed (non-fatal): %s", event, e)
+        except Exception:
+            pass
+        return {"skipped": True, "reason": "observe_self_event_error"}
 
 
 # =============================================================================

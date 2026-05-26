@@ -138,13 +138,20 @@ else:
     _sha_short = ""
     _source = "unknown"
 
+# R-F920 (2026-05-26) — build-source is tracked SEPARATELY from the
+# user-facing build_rev string. Per CLAUDE.md §14 (fallback transparency): a
+# runtime-resolved SHA is the CORRECT commit and IS working, so the user-facing
+# footer must read cleanly ("sha 3a9139f") — not "· R-F589 runtime fallback
+# (build-arg missing)", which leaked an internal deploy detail into every
+# WhatsApp answer (live 2026-05-26) and read as if ARIA were broken. The
+# build-arg-skipped signal still reaches operators via the startup log and the
+# ARIA_BUILD_SOURCE field on /api/aria/health — just not the customer footer.
+ARIA_BUILD_SOURCE = _source
 if _sha_short:
     if _BUILD_R_TAG:
         ARIA_BUILD_REV = f"{_BUILD_R_TAG} · sha {_sha_short}"
     else:
         ARIA_BUILD_REV = f"sha {_sha_short}"
-    if _source == "git-head-runtime":
-        ARIA_BUILD_REV += " · R-F589 runtime fallback (build-arg missing)"
 else:
     # Build-arg AND .git/HEAD both missing — final fallback string.
     # Operator should run `scripts/fly_deploy.sh` or pass --build-arg
@@ -157,6 +164,15 @@ async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
     logger.info("ARIA Service starting...")
     logger.info("ARIA Build: %s", ARIA_BUILD_REV)
+    # R-F920 — operator-facing signal that the deploy skipped --build-arg and we
+    # resolved the SHA from the in-image .git/HEAD. The user-facing footer stays
+    # clean (§14); this WARNING tells operators to use scripts/fly_deploy.sh / CI.
+    if ARIA_BUILD_SOURCE == "git-head-runtime":
+        logger.warning(
+            "ARIA Build SHA resolved at runtime from .git/HEAD (deploy skipped "
+            "--build-arg ARIA_BUILD_GIT_SHA). SHA is correct; use scripts/fly_deploy.sh "
+            "or CI so build metadata is passed at build time."
+        )
 
     # Connect Redis / SQLite / memory backend per ARIA_STATE_BACKEND.
     # R-F762 (2026-05-20): capture the result so /health can flag the

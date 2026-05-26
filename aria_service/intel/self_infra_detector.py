@@ -186,16 +186,73 @@ SELF_CAPABILITY_INTROSPECTION_RE: re.Pattern[str] = re.compile(
 )
 
 
+# ── R-F918 (2026-05-26) — self-STATE / availability detector ────────
+#
+# Live incident 2026-05-26 16:57Z: operator asked "Aria, why are you
+# unavailable?" after two requests timed out. The question matched NEITHER
+# SELF_INFRA_INTROSPECTION_RE ("why isn't my listener working" shape) NOR
+# SELF_CAPABILITY_INTROSPECTION_RE ("how many neurons" shape), so it fell
+# through to the web-search/brave path → ARIA fabricated a whole diagnostic
+# (claimed brave_answer fired — a DORMANT tool — invented backend counts and a
+# filename `aria_research_router.py`). A question about ARIA's OWN live
+# operational state must be answered from /health/perf (circuit breakers,
+# advisories, recent self-monitor events), never from a web search.
+#
+# Narrow by construction: the down-state word must attach to "you"/"aria",
+# so "are you able to share that file" (permission, not state) and "what
+# happened in Sudan" (external event) do NOT fire.
+SELF_STATE_AVAILABILITY_RE: re.Pattern[str] = re.compile(
+    r"(?:"
+        # "why are/were/is you/aria <down-state>"
+        r"why\s+(?:are|were|is|was|did|didn'?t|do|don'?t|doesn'?t|can'?t|cannot|"
+        r"won'?t|wouldn'?t|aren'?t|weren'?t)\s+"
+        r"(?:you|aria)\s+(?:[a-z'/]+\s+){0,3}"
+        r"(?:unavailable|available|offline|online|down|slow|unresponsive|"
+        r"responding|respond|reply|replying|answer(?:ing)?|working|work|"
+        r"silent|broken|failing|failed|crash(?:ed|ing)?|frozen|stuck|"
+        r"timed?\s*out|timing\s+out|out|up)\b"
+    r"|"
+        # "are/r you (still) <state>" — liveness/availability probe. Bare "up"
+        # is excluded and a negative lookahead drops social phrasing ("are you
+        # down FOR a meeting", "are you up TO it") so only genuine state asks fire.
+        r"\b(?:are|r)\s+(?:you|u|aria)\s+(?:still\s+)?"
+        r"(?:ok|okay|online|offline|alive|awake|there|here|"
+        r"working|available|unavailable|down|broken|operational|live|dead)"
+        r"\b(?!\s+(?:for|to|with|about|on)\b)"
+    r"|"
+        # "what happened to you" / "what's wrong with you/aria"
+        r"\bwhat(?:'?s|\s+is|\s+was)?\s+(?:wrong|the\s+(?:matter|problem|issue))\s+with\s+(?:you|aria)\b"
+    r"|"
+        r"\bwhat\s+happened\s+(?:to|with)\s+(?:you|aria)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def is_self_state_query(message: str | None) -> bool:
+    """R-F918: True when the message asks about ARIA's own live operational
+    state / availability (down, offline, slow, 'why are you unavailable',
+    'are you ok'). Routes to /health/perf, never web search."""
+    if not message:
+        return False
+    return bool(SELF_STATE_AVAILABILITY_RE.search(message))
+
+
 def is_capability_introspection_query(message: str | None) -> bool:
     """R-F399: True when the message asks about ARIA's own state /
     inventory / retention / learning capacity. Routes to /health/perf
-    instead of web search.
+    instead of web search. R-F918 — also fires on self-STATE / availability
+    questions ("why are you unavailable", "are you down") so they land on
+    /health/perf rather than fabricating a web-searched diagnostic.
 
     Cheap, deterministic, no LLM call. Safe in the hot path.
     """
     if not message:
         return False
-    return bool(SELF_CAPABILITY_INTROSPECTION_RE.search(message))
+    return bool(
+        SELF_CAPABILITY_INTROSPECTION_RE.search(message)
+        or SELF_STATE_AVAILABILITY_RE.search(message)
+    )
 
 
 def contains_known_fabrication(text: str | None) -> bool:
