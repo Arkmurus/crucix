@@ -194,7 +194,28 @@ def _score_relevance(result: SearchResult, query: str) -> float:
 
     # Credibility boost: tier 1 = 1.5x, tier 2 = 1.3x, tier 3 = 1.15x
     cred_mult = {1: 1.5, 2: 1.3, 3: 1.15, 4: 1.05, 5: 1.0, 6: 0.3}
-    return term_score * cred_mult.get(result.credibility_tier, 1.0)
+
+    # R-F888 (2026-05-25) — SOURCE-TYPE weighting. The academic registries
+    # (Crossref / Semantic Scholar / OpenAlex) are the FALLBACK tier (per this
+    # module's header: "academic-API integrations capture the fallback value").
+    # But their high credibility multiplier (×1.3-1.5) + keyword-dense titles
+    # let them OUT-RANK live-web/news results for general + current-affairs
+    # queries. Live 2026-05-25 (operator "zero confidence"): "who is the
+    # current US president" returned Crossref's "Who Was Who 2007" (stops at
+    # G.W. Bush) over DuckDuckGo's live "President Donald Trump 2025-2029".
+    # Backends individually return the CORRECT answer — the ranking buried it.
+    # Demote academic to a true fallback (only wins when nothing else returns);
+    # boost live-web/news so current-affairs + entity lookups surface.
+    src = (result.source or "").lower()
+    if any(a in src for a in ("crossref", "semantic_scholar", "semanticscholar",
+                              "openalex", "academic", "doi.org", "ssrn")):
+        source_mult = 0.45
+    elif any(w in src for w in ("google_news", "bing_news", "duckduckgo", "ddg",
+                                "searxng", "brave", "defence_event")):
+        source_mult = 1.25
+    else:
+        source_mult = 1.0
+    return term_score * cred_mult.get(result.credibility_tier, 1.0) * source_mult
 
 
 # ── Backend: Brave Search API ───────────────────────────────────────────────

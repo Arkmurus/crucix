@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 888,
+  "next_available": 889,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3388,6 +3388,16 @@
       "r_number": "R-F887",
       "title": "add POST /api/aria/brain/signal cross-tier sink (was 404 — WA messages/feedback never reached brain; failures invisible) + fix WA listener path; failures->capability_gaps (coder-visible R-F884)",
       "claimed_at": "2026-05-25T12:43:21Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6c44e4748c7525044cf00b6f5a011161c84f39e3",
+      "notes": null,
+      "shipped_at": "2026-05-25T19:10:49Z"
+    },
+    {
+      "r_number": "R-F888",
+      "title": "web_search relevance: academic registries demoted to fallback + live-web/news boosted — fixes academic results (Who Was Who, Crossref) burying current-affairs/entity answers (operator zero-confidence: 'who is US president' returned 2007 dictionary)",
+      "claimed_at": "2026-05-26T08:26:45Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
