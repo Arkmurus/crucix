@@ -290,7 +290,7 @@ class ARIACoder:
         try:
             from . import safety as _safety
             allowed, reason = await _safety.can_task_run(
-                task_id="aria_coder_fix", entity=gap.gap_id,
+                task_id="aria_coder_fix", entity=gap.gap_id, coder=True,  # R-F901: own budget
             )
             if not allowed:
                 logger.info(

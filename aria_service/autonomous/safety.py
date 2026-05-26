@@ -75,6 +75,15 @@ DEDUPE_WINDOW_SECONDS = _env_int("ARIA_AUTONOMOUS_DEDUPE_WINDOW_S", 23 * 3600)
 # ── Redis keys ─────────────────────────────────────────────────────────────
 
 _RATE_KEY_FMT = "crucix:autonomous:rate:{hour}"  # hour bucket
+# R-F901 — the ARIA-Coder gets its OWN hourly fix budget, separate from the
+# shared task bucket above, so the ~87 periodic tasks can't starve it (live
+# 2026-05-26: 50 gaps detected but 0 staged because the tasks consumed all 12
+# slots). Stage-only (AUTO_DEPLOY=0) so each fire = one fix-gen LLM call that
+# STAGES for operator review; the $300/mo cap remains the spend brake.
+# Conservative default; raise via ARIA_CODER_MAX_FIXES_PER_HOUR if reviewing
+# faster.
+_CODER_RATE_KEY_FMT = "crucix:autonomous:coder_rate:{hour}"
+CODER_MAX_FIXES_PER_HOUR = _env_int("ARIA_CODER_MAX_FIXES_PER_HOUR", 6)
 _COST_KEY_FMT = "crucix:autonomous:cost:{date}"  # daily total
 _DEDUPE_KEY_FMT = "crucix:autonomous:dedupe:{task_id}:{entity_hash}"
 _PAUSE_KEY = "crucix:autonomous:paused"  # "1" if engine is paused
@@ -143,21 +152,31 @@ def _memory_rate_incr() -> int:
 
 # ── Public: rate limit ─────────────────────────────────────────────────────
 
-async def check_and_increment_rate() -> tuple[bool, int]:
+async def check_and_increment_rate(*, key_fmt: str | None = None,
+                                   cap: int | None = None) -> tuple[bool, int]:
     """Token-bucket rate limit with hourly buckets.
 
     Returns (allowed, current_count_after_increment).
     The bucket key has a 3600s TTL so it self-cleans.
+
+    R-F901 — key_fmt/cap let a dedicated caller (the ARIA-Coder) use a SEPARATE
+    hourly bucket from the shared 87-task budget. Without this the coder shared
+    one MAX_FIRINGS_PER_HOUR=12 bucket with every periodic task, which drained
+    it to 0 coder slots/hr (live 2026-05-26: 50 gaps detected, STAGED=0). Both
+    args default to the shared task bucket. (Resolved at call-time, not as
+    default args, so tests that monkeypatch MAX_FIRINGS_PER_HOUR still bind.)
     """
+    key_fmt = key_fmt or _RATE_KEY_FMT
+    cap = cap if cap is not None else MAX_FIRINGS_PER_HOUR
     hour_bucket = int(time.time() // 3600)
-    key = _RATE_KEY_FMT.format(hour=hour_bucket)
+    key = key_fmt.format(hour=hour_bucket)
     try:
         # Increment first, then check — this is atomic via INCR
         new_count = await rs.incr(key)
         if new_count == 1:
             # First firing in this bucket — set TTL
             await rs.expire(key, 3600)
-        allowed = new_count <= MAX_FIRINGS_PER_HOUR
+        allowed = new_count <= cap
         if not allowed:
             # R-F897 (P0-1) — a BLOCKED attempt must NOT inflate the bucket.
             # Pre-R-F897 the speculative INCR stuck even when over-cap, so a
@@ -174,9 +193,9 @@ async def check_and_increment_rate() -> tuple[bool, int]:
                 pass
             new_count -= 1
             logger.warning(
-                "[autonomous safety] rate limit hit: bucket already at cap %d "
-                "this hour. Task skipped (speculative incr rolled back).",
-                MAX_FIRINGS_PER_HOUR,
+                "[autonomous safety] rate limit hit: bucket %s already at cap %d "
+                "this hour. Skipped (speculative incr rolled back).",
+                key, cap,
             )
         return allowed, new_count
     except Exception as e:
@@ -194,7 +213,7 @@ async def check_and_increment_rate() -> tuple[bool, int]:
         # fix targets the NORMAL Redis path above; the rare-outage fallback's
         # transient over-count is acceptable and its R-F457 invariant is pinned.
         mem_count = _memory_rate_incr()
-        allowed = mem_count <= MAX_FIRINGS_PER_HOUR
+        allowed = mem_count <= cap
         if allowed:
             logger.warning(
                 "[autonomous safety] rate limit check failed (Redis): %s — "
@@ -409,7 +428,7 @@ async def resume_task(task_id: str) -> None:
 
 # ── Public: composite check (one call) ─────────────────────────────────────
 
-async def can_task_run(task_id: str, entity: str) -> tuple[bool, str]:
+async def can_task_run(task_id: str, entity: str, *, coder: bool = False) -> tuple[bool, str]:
     """Run all five guardrails. Returns (allowed, reason_if_blocked).
 
     Use this at the top of every task execution path. The five checks
@@ -434,7 +453,14 @@ async def can_task_run(task_id: str, entity: str) -> tuple[bool, str]:
     within_budget, spent = await check_cost_cap()
     if not within_budget:
         return False, f"daily_cost_cap_exceeded:{spent:.4f}"
-    allowed_rate, count = await check_and_increment_rate()
+    # R-F901 — the coder uses its OWN hourly bucket so the shared 87-task budget
+    # can't starve it. Engine-pause + cost-cap above still apply uniformly.
+    if coder:
+        allowed_rate, count = await check_and_increment_rate(
+            key_fmt=_CODER_RATE_KEY_FMT, cap=CODER_MAX_FIXES_PER_HOUR,
+        )
+    else:
+        allowed_rate, count = await check_and_increment_rate()
     if not allowed_rate:
         return False, f"rate_limit_exceeded:{count}"
     if not await check_and_mark_dedupe(task_id, entity):

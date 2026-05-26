@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 901,
+  "next_available": 902,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3523,6 +3523,15 @@
       "commit_sha": "16dd0f534c09a74a80fcee881c4e208a8bf707fe",
       "notes": null,
       "shipped_at": "2026-05-26T10:42:22Z"
+    },
+    {
+      "r_number": "R-F901",
+      "title": "coder gets its own hourly fix budget (separate from the shared 87-task 12/hr rate bucket that was starving it -> STAGED=0); stage-only, ARIA_CODER_MAX_FIXES_PER_HOUR default 6, so the R-F884 backlog actually drains into staging for review",
+      "claimed_at": "2026-05-26T10:59:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

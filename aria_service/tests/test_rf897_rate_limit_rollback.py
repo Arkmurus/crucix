@@ -44,6 +44,55 @@ def test_blocked_attempts_do_not_inflate_bucket(monkeypatch):
     assert mr.store[key] == 12, f"bucket inflated to {mr.store[key]} (should be 12)"
 
 
+def test_rf901_coder_has_separate_budget(monkeypatch):
+    """R-F901 — the coder's own bucket is independent of the shared task budget,
+    so the 87 periodic tasks can't starve it (the live STAGED=0 cause)."""
+    mr = _MockRedis()
+    monkeypatch.setattr(safety, "rs", mr)
+    monkeypatch.setattr(safety, "MAX_FIRINGS_PER_HOUR", 12)
+    monkeypatch.setattr(safety, "CODER_MAX_FIXES_PER_HOUR", 6)
+
+    async def run():
+        # Exhaust the SHARED task bucket (12)
+        for _ in range(12):
+            await safety.check_and_increment_rate()
+        task_blocked, _ = await safety.check_and_increment_rate()
+        # The coder bucket must be UNTOUCHED — coder still gets its own 6
+        coder_allowed = 0
+        for _ in range(8):
+            ok, _ = await safety.check_and_increment_rate(
+                key_fmt=safety._CODER_RATE_KEY_FMT, cap=safety.CODER_MAX_FIXES_PER_HOUR,
+            )
+            if ok:
+                coder_allowed += 1
+        return task_blocked, coder_allowed
+
+    task_blocked, coder_allowed = asyncio.run(run())
+    assert task_blocked is False                 # shared bucket exhausted
+    assert coder_allowed == 6, coder_allowed     # coder still got its own 6
+
+
+def test_rf901_can_task_run_coder_uses_coder_bucket(monkeypatch):
+    """can_task_run(coder=True) increments the coder bucket, not the task one."""
+    mr = _MockRedis()
+    monkeypatch.setattr(safety, "rs", mr)
+    # neutralise the other guardrails so we isolate the rate check
+    async def _no(*a, **k): return False
+    async def _ok_cost(*a, **k): return (True, 0.0)
+    async def _ok_dedupe(*a, **k): return True
+    monkeypatch.setattr(safety, "is_engine_paused", _no)
+    monkeypatch.setattr(safety, "is_task_paused", _no)
+    monkeypatch.setattr(safety, "check_cost_cap", _ok_cost)
+    monkeypatch.setattr(safety, "check_and_mark_dedupe", _ok_dedupe)
+
+    async def run():
+        allowed, _ = await safety.can_task_run("aria_coder_fix", "g1", coder=True)
+        return allowed, dict(mr.store)
+    allowed, store = asyncio.run(run())
+    assert allowed is True
+    assert any("coder_rate" in k for k in store), store   # the coder bucket got the incr
+
+
 def test_under_cap_still_allowed(monkeypatch):
     mr = _MockRedis()
     monkeypatch.setattr(safety, "rs", mr)
