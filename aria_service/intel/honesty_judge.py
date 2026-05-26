@@ -431,6 +431,7 @@ async def get_honesty_stats() -> dict:
                     "avg_honesty_score": None,
                     "lifetime_honesty_score": None}
         by_status: dict[str, int] = {}
+        by_status_24h: dict[str, int] = {}  # R-F906: recent-window breakdown
         score_sum_24h = 0.0
         score_n_24h = 0
         score_sum_all = 0.0
@@ -439,10 +440,12 @@ async def get_honesty_stats() -> dict:
         cutoff = time.time() - 86400
         recent_24h = 0
         for e in index:
-            by_status[e.get("status") or "unknown"] = by_status.get(e.get("status") or "unknown", 0) + 1
+            _st = e.get("status") or "unknown"
+            by_status[_st] = by_status.get(_st, 0) + 1
             in_window = e.get("ts", 0) >= cutoff
             if in_window:
                 recent_24h += 1
+                by_status_24h[_st] = by_status_24h.get(_st, 0) + 1
             s = e.get("honesty_score")
             if s is not None and e.get("status") == "ok":
                 score_sum_all += s
@@ -461,6 +464,7 @@ async def get_honesty_stats() -> dict:
         return {
             "total": n,
             "by_status": by_status,
+            "by_status_24h": by_status_24h,
             "recent_24h": recent_24h,
             "rolling_honesty_score": rolling_24h,
             "avg_honesty_score": rolling_24h,        # consumer-expected alias

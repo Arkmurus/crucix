@@ -11,9 +11,11 @@ then maps to five autonomy tiers:
 
 Signal weights:
   mastery          30%  — student.get_mastery_report().overall_mastery
-  verification     35%  — source_verifier grounded rate
+  verification     35%  — source_verifier grounded rate (the REAL grounding)
   predictor_gate   20%  — 1.0 - (blocks_24h / 10), clamped [0,1]
-  grounded_rate    15%  — honesty_judge average score
+  honesty_rate     15%  — honesty_judge recent-window score (R-F906: was
+                          mislabeled "grounded_rate"; renamed because it
+                          reads the honesty judge, not source grounding)
 
 HARD OVERRIDE: predictor BLOCK overrides all signals — if predictor
 has blocked >5 tasks in 24h, tier drops to NONE regardless of
@@ -61,7 +63,7 @@ TIER_LABELS = {
 W_MASTERY = 0.30
 W_VERIFICATION = 0.35
 W_PREDICTOR = 0.20
-W_GROUNDED = 0.15
+W_HONESTY = 0.15  # R-F906: renamed from W_GROUNDED (signal reads honesty judge)
 
 # Tier thresholds
 TIER_THRESHOLDS = [
@@ -82,7 +84,7 @@ async def compute_composite() -> dict:
         "mastery": None,
         "verification": None,
         "predictor_gate": None,
-        "grounded_rate": None,
+        "honesty_rate": None,
     }
     details: dict[str, Any] = {}
 
@@ -153,37 +155,49 @@ async def compute_composite() -> dict:
     except Exception as e:
         logger.debug("autonomy scorer: predictor failed: %s", e)
 
-    # 4. Honesty / grounded rate from judge (15%) — R-F576 honesty fix.
+    # 4. Honesty rate from judge (15%) — R-F906.
     #
-    # Same shape as the verification signal above. `avg_honesty_score`
-    # is None when judgments exist but their honesty_score field was
-    # never populated. Fall back to status-ratio proxy
-    # (ok / total_with_status) to give the composite a real signal.
+    # NOTE ON NAMING (R-F906): this signal was historically keyed
+    # "grounded_rate", but it reads the HONESTY JUDGE, not source grounding.
+    # Source grounding is the "verification" signal above
+    # (source_verifier.avg_grounded_rate). The mislabel made the dashboard
+    # show a "grounded_rate" row that was actually an honesty score — and a
+    # structurally depressed one (see below). Renamed to "honesty_rate".
+    #
+    # `avg_honesty_score` is the 24h rolling average; it is None when no
+    # in-window "ok" judgment carries a numeric honesty_score. The PRE-R-F906
+    # fallback then used the ALL-TIME `by_status` ok/total ratio — a lifetime
+    # number that never recovers from historical suspicious/failed verdicts,
+    # which pinned this signal at ~17% and dragged the composite into a
+    # permanent DEGRADED read. R-F906 uses a fair RECENT-WINDOW status ratio
+    # (by_status_24h) to match the 24h shape of every other signal; with no
+    # recent data it returns the neutral prior + an honest source label
+    # rather than a misleading depressed number.
     try:
         from . import honesty_judge
         h_stats = await honesty_judge.get_honesty_stats()
-        val = h_stats.get("avg_honesty_score")
+        val = h_stats.get("avg_honesty_score")  # 24h rolling avg
         source = "avg_honesty_score"
         sample = h_stats.get("scored_sample_size") or 0
         if val is None:
-            by_status = h_stats.get("by_status") or {}
-            ok = int(by_status.get("ok") or 0)
-            suspicious = int(by_status.get("suspicious") or 0)
-            failed = int(by_status.get("failed") or 0)
-            contradicted = int(by_status.get("contradicted") or 0)
+            by_status_24h = h_stats.get("by_status_24h") or {}
+            ok = int(by_status_24h.get("ok") or 0)
+            suspicious = int(by_status_24h.get("suspicious") or 0)
+            failed = int(by_status_24h.get("failed") or 0)
+            contradicted = int(by_status_24h.get("contradicted") or 0)
             total = ok + suspicious + failed + contradicted
             if total > 0:
                 val = round(ok / total, 4)
-                source = "status_ratio_rf576"
+                source = "status_ratio_24h_rf906"
                 sample = total
             else:
                 source = "no_data_neutral_prior"
-        signals["grounded_rate"] = val
-        details["grounded_rate_source"] = source
-        details["grounded_rate_samples"] = sample
+        signals["honesty_rate"] = val
+        details["honesty_rate_source"] = source
+        details["honesty_rate_samples"] = sample
     except Exception as e:
         logger.debug("autonomy scorer: honesty failed: %s", e)
-        details["grounded_rate_source"] = "error"
+        details["honesty_rate_source"] = "error"
 
     # Compute weighted composite (use 0.5 default for missing signals)
     weighted_sum = 0.0
@@ -192,7 +206,7 @@ async def compute_composite() -> dict:
         ("mastery", W_MASTERY),
         ("verification", W_VERIFICATION),
         ("predictor_gate", W_PREDICTOR),
-        ("grounded_rate", W_GROUNDED),
+        ("honesty_rate", W_HONESTY),
     ]:
         val = signals[signal]
         if val is not None:
@@ -226,7 +240,7 @@ async def compute_composite() -> dict:
         "tier_label": TIER_LABELS[tier],
         "signals": {k: round(v, 4) if v is not None else None for k, v in signals.items()},
         "weights": {"mastery": W_MASTERY, "verification": W_VERIFICATION,
-                    "predictor_gate": W_PREDICTOR, "grounded_rate": W_GROUNDED},
+                    "predictor_gate": W_PREDICTOR, "honesty_rate": W_HONESTY},
         "override": override,
         "computed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "details": details,

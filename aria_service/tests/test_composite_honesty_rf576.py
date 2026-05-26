@@ -130,29 +130,50 @@ def test_no_data_falls_back_to_neutral_with_honest_source_label(monkeypatch):
 # ── Same shape for honesty signal #4 ──────────────────────────────────
 
 
-def test_grounded_rate_uses_avg_honesty_score_when_present(monkeypatch):
+def test_honesty_rate_uses_avg_honesty_score_when_present(monkeypatch):
+    # R-F906: signal renamed grounded_rate -> honesty_rate (it reads the
+    # honesty judge, not source grounding).
     _patch_inputs(monkeypatch, honesty_stats={
         "avg_honesty_score": 0.82,
         "scored_sample_size": 15,
-        "by_status": {"ok": 12, "suspicious": 3},
+        "by_status_24h": {"ok": 12, "suspicious": 3},
     })
     from aria_service.intel import autonomy_scorer
     result = asyncio.run(autonomy_scorer.compute_composite())
-    assert result["signals"]["grounded_rate"] == 0.82
-    assert result["details"]["grounded_rate_source"] == "avg_honesty_score"
+    assert result["signals"]["honesty_rate"] == 0.82
+    assert result["details"]["honesty_rate_source"] == "avg_honesty_score"
 
 
-def test_grounded_rate_status_ratio_fallback(monkeypatch):
-    """Status-ratio proxy when avg_honesty_score is None."""
+def test_honesty_rate_status_ratio_fallback_uses_24h_window(monkeypatch):
+    """R-F906: when avg_honesty_score is None the status-ratio proxy must
+    use the RECENT-WINDOW breakdown (by_status_24h), NOT the all-time
+    by_status that pinned the signal at a permanently depressed value."""
     _patch_inputs(monkeypatch, honesty_stats={
         "avg_honesty_score": None,
-        "by_status": {"ok": 8, "suspicious": 2, "failed": 0},
+        "by_status": {"ok": 1, "suspicious": 99},   # all-time: must be IGNORED
+        "by_status_24h": {"ok": 8, "suspicious": 2, "failed": 0},
     })
     from aria_service.intel import autonomy_scorer
     result = asyncio.run(autonomy_scorer.compute_composite())
-    assert abs(result["signals"]["grounded_rate"] - 0.8) < 0.001  # 8/10
-    assert result["details"]["grounded_rate_source"] == "status_ratio_rf576"
-    assert result["details"]["grounded_rate_samples"] == 10
+    assert abs(result["signals"]["honesty_rate"] - 0.8) < 0.001  # 8/10 from 24h
+    assert result["details"]["honesty_rate_source"] == "status_ratio_24h_rf906"
+    assert result["details"]["honesty_rate_samples"] == 10
+
+
+def test_honesty_rate_no_recent_data_uses_neutral_not_depressed_alltime(monkeypatch):
+    """R-F906 capability: the exact bug being fixed. With no recent honesty
+    data, the signal must be None (-> neutral 0.5 in composite math), NOT a
+    depressed all-time ok/total ratio. Pre-R-F906 this returned 0.17
+    (17/100) and dragged the composite into a permanent DEGRADED read."""
+    _patch_inputs(monkeypatch, honesty_stats={
+        "avg_honesty_score": None,
+        "by_status": {"ok": 17, "suspicious": 83},  # all-time 17% — the old drag
+        # no by_status_24h key at all (no recent judgments)
+    })
+    from aria_service.intel import autonomy_scorer
+    result = asyncio.run(autonomy_scorer.compute_composite())
+    assert result["signals"]["honesty_rate"] is None
+    assert result["details"]["honesty_rate_source"] == "no_data_neutral_prior"
 
 
 # ── Composite math sanity: real verdicts move the score ───────────────
