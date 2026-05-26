@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 908,
+  "next_available": 909,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3593,6 +3593,15 @@
       "commit_sha": "7e0c58c",
       "notes": null,
       "shipped_at": "2026-05-26T12:45:49Z"
+    },
+    {
+      "r_number": "R-F908",
+      "title": "gap_detector: extend operational-shed filter (circuit-breaker/mastery-floor/boot-state/by-design events are not code bugs)",
+      "claimed_at": "2026-05-26T13:08:53Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

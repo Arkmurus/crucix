@@ -206,6 +206,26 @@ class ErrorLedgerExtractor:
         "neural: timeout", "concurrency cap", "absorb: concurrency",
         "absorb pause", "tier: timeout", "knowledge: timeout",
         "brain_hook(", "hard cooldown", "fallback chain",
+        # R-F908 — more BY-DESIGN / operational / external events that the
+        # R-F884 reconnect started surfacing as "Error in X" gaps. Confirmed
+        # live 2026-05-26 in /api/aria/coder/gaps (49 gaps, most non-bugs).
+        # None of these are code defects the coder can fix; they churned its
+        # 6/hr budget + inflated the backlog. NOTE: real bugs are deliberately
+        # NOT here — "event loop stalled" (R-F703 perf) and "codegen json parse
+        # failed" stay actionable, as do genuine exceptions + source failures.
+        "consecutive failures",     # circuit breaker tripping (source down)
+        "circuit tripped",          # brain_hook circuit shed
+        "mastery hard floor",       # mastery clamp (R-F796, by design)
+        "overconfident by",         # calibration signal (not a code bug)
+        "state at boot",            # R-F248 ARIA-STATE INFO dump (mis-classed)
+        "missing api key",          # provider not configured (by design)
+        "not pruning",              # infinite-memory rule (§7, by design)
+        "warn threshold",           # neural edge-count warning (by design)
+        "content threats detected", # security detection working (by design)
+        "blocked url",              # security blocking auth-required URLs
+        "not in whitelist",         # the coder's OWN stage rejection (control flow)
+        "rate limit hit",           # autonomous rate limiter (by design)
+        "already at cap",           # rate bucket at cap (by design)
     )
 
     def _entry_to_gap(self, entry: dict) -> Optional[Gap]:

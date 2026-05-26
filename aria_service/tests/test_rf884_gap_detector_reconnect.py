@@ -107,6 +107,41 @@ def test_rf889_operational_shed_is_skipped_not_a_gap():
     assert real is not None and real.gap_type == gd.GapType.DOCUMENT_PARSE
 
 
+def test_rf908_more_operational_events_skipped():
+    """R-F908 — circuit-breaker trips, mastery clamps, the R-F248 boot-state
+    dump, by-design provider/security/infinite-memory events, and the coder's
+    OWN 'not in whitelist' rejection are operational/by-design, not code bugs.
+    Confirmed live 2026-05-26 (/api/aria/coder/gaps had 49 gaps, mostly these);
+    they churned the coder's 6/hr budget. Real bugs must still pass through."""
+    ex = gd.ErrorLedgerExtractor(None)
+    skipped = [
+        "[circuit_breaker] search:duckduckgo: CLOSED -> OPEN (5 consecutive failures)",
+        "[circuit_breaker] CIRCUIT TRIPPED — p95=5764ms reason=absorb(knowledge_balkans)",
+        "MASTERY HARD FLOOR BREACH: sanctions (50% < 50%) — remediation flagged",
+        "[calibration] OVERCONFIDENT by 42.8pp — lowered mastery on 11 topics",
+        "[R-F248] ARIA STATE AT BOOT — knowledge_facts=65540 ledger_signals=48062",
+        "LLM fallback 'openai' skipped — missing API key. Set its env var.",
+        "[neural] neuron 474120fa has 9488 edges > warn threshold 2000. NOT pruning",
+        "Content threats detected from http://www.defensa.com/brasil/x: 1 threats",
+        "Blocked URL: https://uk.linkedin.com/comm/in/x — Auth-required URL",
+        "[aria_coder] stage_improvement failed for aria_service/intel/circuit_breaker.py: "
+        "ARIA cannot modify aria_service/intel/circuit_breaker.py — not in whitelist",
+        "[autonomous safety] rate limit hit: bucket already at cap 6 this hour. Skipped.",
+    ]
+    for msg in skipped:
+        assert ex._entry_to_gap({"type": "WARNING", "file": "x.py", "message": msg}) is None, msg
+    # Real bugs are deliberately NOT filtered.
+    stall = ex._entry_to_gap({"type": "WARNING", "file": "main.py",
+        "message": "[R-F703] event loop stalled for 52.92s (threshold=5.0s)"})
+    assert stall is not None, "event-loop stall is a real perf bug — must stay actionable"
+    codegen = ex._entry_to_gap({"type": "ERROR", "file": "self_improvement_codegen.py",
+        "message": "Codegen JSON parse failed, storing as raw code"})
+    assert codegen is not None, "codegen parse failure is a real bug — must stay"
+    exc = ex._entry_to_gap({"type": "TypeError", "file": "researcher.py",
+        "message": "'NoneType' object is not subscriptable"})
+    assert exc is not None, "a genuine exception must still become a gap"
+
+
 def test_mistake_ledger_is_observe_only_not_auto_fix():
     """Safety: mistake-ledger gaps map to MISSING_CAPABILITY (auto_fixable=False)
     so a recorded past mistake is surfaced for review, never auto-fixed."""
