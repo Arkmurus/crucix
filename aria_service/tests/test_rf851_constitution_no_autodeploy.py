@@ -114,13 +114,17 @@ def test_critical_files_still_modifiable():
 
 # ── Capability: stage_improvement stamps the flag correctly ───────────────
 
-def test_stage_improvement_marks_constitution_not_autodeployable(monkeypatch):
+def test_stage_improvement_marks_constitution_not_autodeployable(tmp_path, monkeypatch):
     """End-to-end: staging a bug_fix to aria_engine.py under the live flag
     yields auto_deployable=False; staging the same to an ordinary file
     yields True. This is the contract the autonomous loop reads."""
     _si = _reload_self_improve({"ARIA_SELF_IMPROVE_AUTO_DEPLOY": "1"})
     fake = _FakeRS()
     monkeypatch.setattr(_si, "rs", fake)
+    # Isolate the auto_deployable contract from the R-F904 truncation guard:
+    # point _root at an empty dir so the real (large) target files are absent
+    # and the size guard stays inert for this flag-logic test.
+    monkeypatch.setattr(_si, "_root", tmp_path)
 
     async def _noop_log(*a, **kw):
         return None

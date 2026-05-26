@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 903,
+  "next_available": 905,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3538,6 +3538,25 @@
       "r_number": "R-F902",
       "title": "coder only attempts gaps in MODIFIABLE_FILES (was burning its whole budget on non-modifiable brain_hook/tender_monitor/safety errors that stage_improvement rejects -> STAGED=0); the prioritise-auto-deployable-gaps residual",
       "claimed_at": "2026-05-26T11:34:29Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "95c5855c716e313a712fec43ba11b33b0c992457",
+      "notes": null,
+      "shipped_at": "2026-05-26T11:37:16Z"
+    },
+    {
+      "r_number": "R-F903",
+      "title": "stage_improvement de-dup: skip re-staging identical file+content",
+      "claimed_at": "2026-05-26T12:05:17Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F904",
+      "title": "stage_improvement truncation guard: reject full-file replacement that shrinks a substantial module below half its size",
+      "claimed_at": "2026-05-26T12:09:21Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

@@ -243,8 +243,55 @@ async def stage_improvement(
         return {"error": f"Schema/syntax check failed: {valid.get('error', 'unknown')}",
                 "staged": False}
 
+    # R-F904: truncation / destruction guard. The coder stages a FULL-FILE
+    # replacement; for a large module (e.g. 4087 lines) the fixer LLM cannot emit
+    # the whole file in its output budget and returns a syntactically-valid STUB
+    # (e.g. 164 lines) that would DELETE the rest. _validate_by_path only checks
+    # syntax, not preservation, so these passed review-as-valid. (Live 2026-05-26:
+    # 4 staged "fixes" replaced researcher.py 4087→164, routes/aria.py 19443→208,
+    # neural_memory.py 1447→3 — each a catastrophic stub.) Reject any proposal
+    # that shrinks a substantial existing file below half its current line count;
+    # a legitimate autonomous bug_fix never halves a module.
+    full_path = _root / file_path
+    if full_path.exists():
+        try:
+            current_lines = full_path.read_text(encoding="utf-8").count("\n") + 1
+        except Exception:
+            current_lines = 0
+        proposed_lines = new_content.count("\n") + 1
+        if current_lines >= 40 and proposed_lines < 0.5 * current_lines:
+            return {
+                "error": (
+                    f"Rejected: proposed content ({proposed_lines} lines) is under half "
+                    f"the current file ({current_lines} lines) — almost certainly a "
+                    f"truncated full-file replacement that would destroy the module. "
+                    f"ARIA does not stage destructive shrinkage."
+                ),
+                "staged": False,
+                "truncation_guard": True,
+            }
+
     # Load existing staged improvements
     staged = await rs.get_json(STAGED_KEY) or []
+
+    # R-F903: de-dup. The coder re-stages the same fix every cycle because the
+    # underlying gap recurs and nothing collapses identical proposals. If an
+    # identical (file, new_content) is already staged + pending review, return
+    # that entry instead of accumulating a duplicate. (Live 2026-05-26: 50
+    # staged entries were only 4 unique fixes, churned 20/17/9/4×.)
+    for existing in staged:
+        if (
+            existing.get("status") == "staged"
+            and existing.get("file") == file_path
+            and existing.get("new_content") == new_content
+        ):
+            return {
+                "staged": True,
+                "id": existing["id"],
+                "auto_deployable": existing.get("auto_deployable", False),
+                "description": existing.get("description", description),
+                "duplicate": True,
+            }
 
     improvement = {
         "id": str(uuid.uuid4())[:8],
@@ -415,6 +462,36 @@ async def deploy_improvement(improvement_id: str) -> dict:
             "id": improvement_id,
             "file": file_path,
         }
+
+    # R-F904 — deploy-side truncation guard (defense-in-depth with the
+    # stage-side guard). Even an item that was staged BEFORE the stage guard
+    # existed (e.g. the 50 destructive stubs found live 2026-05-26) must never
+    # be written if it would shrink a substantial file below half its size — a
+    # near-certain truncated full-file replacement. Closes the manual-deploy
+    # footgun for already-staged junk.
+    if full_path.exists():
+        try:
+            _cur_lines = full_path.read_text(encoding="utf-8").count("\n") + 1
+        except Exception:
+            _cur_lines = 0
+        _prop_lines = (target.get("new_content") or "").count("\n") + 1
+        if _cur_lines >= 40 and _prop_lines < 0.5 * _cur_lines:
+            logger.warning(
+                "[self_improve] R-F904 BLOCKED deploy of %s (id=%s): proposed %d lines "
+                "< half of current %d — destructive truncation.",
+                file_path, improvement_id, _prop_lines, _cur_lines,
+            )
+            return {
+                "error": (
+                    f"BLOCKED: proposed content ({_prop_lines} lines) is under half the "
+                    f"current file ({_cur_lines} lines) — a truncated full-file "
+                    f"replacement that would destroy the module."
+                ),
+                "blocked": True,
+                "truncation_guard": True,
+                "id": improvement_id,
+                "file": file_path,
+            }
 
     # Backup current file — structured backup with metadata for the
     # metacognitive coding_lessons module to track rollback history.
