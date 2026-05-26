@@ -71,6 +71,49 @@ from .dd_schema import (
 logger = logging.getLogger("ARIA.DDOrchestrator")
 
 
+# R-F896 — flag-level DD goods-screening severities worth recording to the brain
+# as compliance catches. Engine vocab is info/amber/red/hard_stop; routine
+# "info"/clean findings are skipped to avoid noise — only real flags are a
+# learning signal.
+_DD_FLAG_SEVERITIES = {"amber", "red", "hard_stop", "critical", "high", "elevated"}
+
+
+def _absorb_dd_compliance_catch(report, target, severity, summary, detail=""):
+    """R-F896 — record a flag-level DD goods-screening catch (sanctioned weapon
+    origin, aggregation pattern, evasion typology, weak end-user, MOU gate) to
+    the brain so ARIA learns from her own compliance flags. The success side of
+    these engines was dark; R-F892 wired eliminated_weapons and R-F891 wired
+    their failure side. Fire-and-forget; never blocks DD; never raises."""
+    if (severity or "").lower() not in _DD_FLAG_SEVERITIES:
+        return
+    try:
+        from . import brain_hook as _bh
+        _entity = (getattr(getattr(report, "identity", None), "legal_name", "")
+                   or str((target or {}).get("name", "")))
+        coro = _bh.absorb_silent(
+            module="dd_orchestrator",
+            summary=str(summary)[:200],
+            detail=str(detail or "")[:600],
+            entity_name=_entity[:120],
+            success=True,
+            confidence="PROBABLE",
+            source_id="dd_goods_screening:R-F896",
+        )
+    except Exception:
+        return
+    try:
+        _t = asyncio.create_task(coro)  # orchestrate_dd is async → loop present
+        _t.add_done_callback(
+            lambda t: t.result() if not t.cancelled() and not t.exception() else None
+        )
+    except Exception:
+        # No running loop (e.g. unit test) — close the coro so it doesn't warn.
+        try:
+            coro.close()
+        except Exception:
+            pass
+
+
 # =============================================================================
 # CONFIG
 # =============================================================================
@@ -2670,6 +2713,11 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                     _weapon_origins.append(_w_finding.get("origin_iso2", ""))
                     _weapon_statuses.append(_w_finding.get("sanctions_status", ""))
                     report.compliance.meta.subcalls += 1
+                    _absorb_dd_compliance_catch(  # R-F896
+                        report, target, _w_finding.get("severity", ""),
+                        f"DD weapon-origin flag: {_w_finding.get('title', '')}",
+                        _w_finding.get("detail", ""),
+                    )
             except Exception as _e1:
                 logger.warning("R-F886 weapon-catalogue line failed: %s", _e1)
 
@@ -2760,6 +2808,11 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                         confidence=_agg_finding["confidence"],
                     ))
                     report.compliance.meta.subcalls += 1
+                    _absorb_dd_compliance_catch(  # R-F896
+                        report, target, _agg_finding.get("severity", ""),
+                        f"DD aggregation-pattern flag: {_agg_finding.get('title', '')}",
+                        _agg_finding.get("detail", ""),
+                    )
             except Exception as _e3:
                 logger.warning("R-F886 aggregator failed: %s", _e3)
 
@@ -2797,6 +2850,11 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                     confidence=_typ_f["confidence"],
                 ))
                 report.compliance.meta.subcalls += 1
+                _absorb_dd_compliance_catch(  # R-F896
+                    report, target, _typ_f.get("severity", ""),
+                    f"DD evasion-typology flag: {_typ_f.get('title', '')}",
+                    _typ_f.get("detail", ""),
+                )
         except Exception as _e4:
             logger.warning("R-F886 typology detector failed: %s", _e4)
 
@@ -2815,6 +2873,11 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                     confidence=_eu_f["confidence"],
                 ))
                 report.compliance.meta.subcalls += 1
+                _absorb_dd_compliance_catch(  # R-F896
+                    report, target, _eu_f.get("severity", ""),
+                    f"DD end-user-granularity flag: {_eu_f.get('title', '')}",
+                    _eu_f.get("detail", ""),
+                )
         except Exception as _e5:
             logger.warning("R-F886 end-user granularity failed: %s", _e5)
 
@@ -2831,6 +2894,11 @@ async def _run_compliance(target: dict, report: ARKDDReport) -> None:
                         confidence=_gate_f["confidence"],
                     ))
                     report.compliance.meta.subcalls += 1
+                    _absorb_dd_compliance_catch(  # R-F896
+                        report, target, _gate_f.get("severity", ""),
+                        f"DD MOU clause-gate flag: {_gate_f.get('title', '')}",
+                        _gate_f.get("detail", ""),
+                    )
         except Exception as _e6:
             logger.warning("R-F886 mou-gate analyser failed: %s", _e6)
     except Exception as _expert_err:
