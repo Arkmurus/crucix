@@ -350,6 +350,30 @@ async def deploy_improvement(improvement_id: str) -> dict:
         target["status"] = "blocked_constitutional"
         target["blocked_at"] = time.time()
         target["block_violations"] = _cv_violations
+        # R-F893 (L5) — preserve a provenance/evidence trace so a blocked
+        # tag-faking item is forensically traceable (where it came from + why it
+        # was staged), not just discarded.
+        _provenance = {
+            "improvement_id": improvement_id,
+            "file": file_path,
+            "change_type": target.get("change_type"),
+            "description": (target.get("description") or "")[:300],
+            "reasoning": (target.get("reasoning") or "")[:500],
+            "staged_at": target.get("staged_at"),
+            "auto_deployable": target.get("auto_deployable"),
+        }
+        target["provenance_evidence"] = _provenance
+        # R-F893 (L3) — learn the blocked content as a regression signature so
+        # the SAME adversarial proposal can never be deployed again (the
+        # validator checks new content against this store on every deploy).
+        try:
+            from ..autonomous.constitutional_validator import record_learned_attack
+            record_learned_attack(
+                target.get("new_content", ""), _cv_violations,
+                provenance=_provenance, origin="self_improve.deploy_block",
+            )
+        except Exception as _la_err:
+            logger.error("[self_improve] R-F893 learned-attack record failed: %s", _la_err)
         try:
             discarded = await rs.get_json(DISCARDED_KEY) or []
             discarded.insert(0, target)

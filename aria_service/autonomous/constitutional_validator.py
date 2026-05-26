@@ -28,12 +28,87 @@ from `aria:` to `crucix:` to match current prod conventions.
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 import logging
+import os
 import re
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger("aria.autonomous.constitutional_validator")
+
+# ── R-F893 (L3) — learned-attack regression store ────────────────────────────
+# When a proposal is BLOCKED (adversarial / tag-faking amendment), its
+# distinctive phrasing is persisted here so the SAME attack can never be
+# deployed again — even reworded around the static WEAKENING_PATTERNS. This is
+# the "quarantine → study store → ATTACK_LIBRARY regression test" step of the
+# self-improve hardening plan. Append-only evidence: never deleted. File-based
+# (the validator is sync; no async redis here) per ARIA's files+LLM design.
+_LEARNED_ATTACKS_FILE = (os.getenv("ARIA_LEARNED_ATTACKS_FILE") or "").strip() or (
+    # Persist on the fly /data volume when present (the repo dir is ephemeral —
+    # reset every deploy — which would defeat "never deployable again").
+    "/data/learned_attack_signatures.json" if os.path.isdir("/data")
+    else str(Path(__file__).resolve().parents[2] / "data" / "learned_attack_signatures.json")
+)
+_MIN_ATTACK_PHRASE_LEN = 24   # only learn distinctive phrases, not boilerplate
+
+
+def _load_learned_attacks() -> list[dict]:
+    try:
+        p = Path(_LEARNED_ATTACKS_FILE)
+        if p.exists():
+            return json.loads(p.read_text(encoding="utf-8")) or []
+    except Exception as e:
+        logger.debug("[constitutional_validator] R-F893 learned-attacks load failed: %s", e)
+    return []
+
+
+def record_learned_attack(
+    content: str,
+    violations: list[str],
+    *,
+    provenance: Optional[dict] = None,
+    origin: str = "",
+) -> None:
+    """R-F893 (L3) — persist a BLOCKED proposal as a regression signature.
+
+    Stores a content sha + the most distinctive lines (the injected clause text)
+    + the violations that fired + provenance (L5 evidence trace). Append-only,
+    deduped by sha, capped at 500. Never deleted — it's the evidence + the
+    regression corpus future deploys are checked against in `validate()`.
+    """
+    try:
+        content = content or ""
+        sha = hashlib.sha256(content.encode("utf-8", "ignore")).hexdigest()[:16]
+        phrases = sorted(
+            {ln.strip() for ln in content.splitlines()
+             if len(ln.strip()) >= _MIN_ATTACK_PHRASE_LEN},
+            key=len, reverse=True,
+        )[:5]
+        store = _load_learned_attacks()
+        if any(e.get("sha") == sha for e in store):
+            return  # already learned
+        store.insert(0, {
+            "sha": sha,
+            "phrases": phrases,
+            "violations": (violations or [])[:10],
+            "provenance": provenance or {},
+            "origin": origin,
+            "excerpt": content[:400],
+            "ts": time.time(),
+        })
+        p = Path(_LEARNED_ATTACKS_FILE)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(store[:500], ensure_ascii=False), encoding="utf-8")
+        logger.warning(
+            "[constitutional_validator] R-F893 learned BLOCKED attack signature "
+            "%s (origin=%s, %d phrases)", sha, origin or "?", len(phrases),
+        )
+    except Exception as e:
+        logger.error("[constitutional_validator] R-F893 record_learned_attack failed: %s", e)
 
 
 # ── PROTECTED FILES ──────────────────────────────────────────────────────────
@@ -186,6 +261,12 @@ class ConstitutionalValidator:
         # 3. Regex pattern checks (catches non-AST safety patterns) — ALL types.
         self._check_patterns(result, code)
 
+        # 3b. R-F893 (L3) — learned-attack regression: block content that reuses
+        # a previously-BLOCKED attack's distinctive phrasing. An attack blocked
+        # once can never be deployed again, even reworded around the static
+        # WEAKENING_PATTERNS.
+        self._check_learned_attacks(result, code)
+
         # 4. Protected-function integrity if patching a guard file (Python only)
         if tree is not None and ("guard" in target_file.lower() or "verifier" in target_file.lower()):
             self._check_protected_functions(result, tree)
@@ -255,6 +336,24 @@ class ConstitutionalValidator:
                     f"Safety-weakening pattern: {label}",
                     score_delta=0.7,
                 )
+
+    def _check_learned_attacks(self, result: ValidationResult, code: str) -> None:
+        """R-F893 (L3) — regression check against previously-BLOCKED attacks."""
+        lowered = (code or "").lower()
+        if not lowered:
+            return
+        for entry in _load_learned_attacks():
+            for phrase in entry.get("phrases", []):
+                if (phrase and len(phrase) >= _MIN_ATTACK_PHRASE_LEN
+                        and phrase.lower() in lowered):
+                    result.add_violation(
+                        f"R-F893 regression: reuses a previously-BLOCKED attack "
+                        f"signature ({entry.get('sha', '?')}) — phrase "
+                        f"{phrase[:80]!r}. This exact content was quarantined "
+                        f"before; it is permanently non-deployable.",
+                        score_delta=0.9,
+                    )
+                    return  # one confirmed reuse is enough to block
 
     def _check_protected_functions(
         self, result: ValidationResult, tree: ast.AST,
