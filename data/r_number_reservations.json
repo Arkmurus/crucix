@@ -3549,18 +3549,20 @@
       "title": "stage_improvement de-dup: skip re-staging identical file+content",
       "claimed_at": "2026-05-26T12:05:17Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6efefb4",
+      "notes": null,
+      "shipped_at": "2026-05-26T12:14:23Z"
     },
     {
       "r_number": "R-F904",
       "title": "stage_improvement truncation guard: reject full-file replacement that shrinks a substantial module below half its size",
       "claimed_at": "2026-05-26T12:09:21Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "6efefb4",
+      "notes": null,
+      "shipped_at": "2026-05-26T12:14:23Z"
     }
   ]
 }
