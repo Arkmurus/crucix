@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 889,
+  "next_available": 890,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3398,6 +3398,16 @@
       "r_number": "R-F888",
       "title": "web_search relevance: academic registries demoted to fallback + live-web/news boosted — fixes academic results (Who Was Who, Crossref) burying current-affairs/entity answers (operator zero-confidence: 'who is US president' returned 2007 dictionary)",
       "claimed_at": "2026-05-26T08:26:45Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "96f10b0f0cd70deec49aca1ed0ef3ed22e0f64d6",
+      "notes": null,
+      "shipped_at": "2026-05-26T08:31:14Z"
+    },
+    {
+      "r_number": "R-F889",
+      "title": "ErrorLedgerExtractor skips operational wedge-shed warnings (neural timeout / concurrency cap / absorb pause) — not code bugs; stops coder churning LLM budget on designed shed after R-F884 reconnect",
+      "claimed_at": "2026-05-26T08:37:27Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

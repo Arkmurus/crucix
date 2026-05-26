@@ -196,6 +196,18 @@ class ErrorLedgerExtractor:
                 continue
         return gaps
 
+    # R-F889 — operational fail-fast SHED that is BY DESIGN, not a code bug.
+    # brain_hook logs these at WARNING under "aria.brain_hook" so the operator
+    # can watch wedge pressure (R-F872 levers: concurrency cap + neural/tier
+    # timeouts). error_log_handler mirrors WARNING+ aria.* into error_log, so
+    # after the R-F884 reconnect the coder started picking them up as "gaps"
+    # and churning LLM budget trying to "fix" intentional shed. Skip them.
+    _OPERATIONAL_SHED_MARKERS = (
+        "neural: timeout", "concurrency cap", "absorb: concurrency",
+        "absorb pause", "tier: timeout", "knowledge: timeout",
+        "brain_hook(", "hard cooldown", "fallback chain",
+    )
+
     def _entry_to_gap(self, entry: dict) -> Optional[Gap]:
         msg = entry.get("message", "")
         etype = entry.get("type", "")
@@ -203,11 +215,16 @@ class ErrorLedgerExtractor:
         module = entry.get("file") or entry.get("function") or "unknown"
         trace = entry.get("traceback", "")
 
+        lowered = f"{msg} {etype}".lower()
+        # R-F889 — drop designed operational shed (not code bugs) so the coder
+        # stays focused on real errors instead of churning on wedge warnings.
+        if any(m in lowered for m in self._OPERATIONAL_SHED_MARKERS):
+            return None
+
         gap_type = GapType.MODULE_BUG
         severity = GapSeverity.HIGH
         title = f"Error in {module}"
 
-        lowered = f"{msg} {etype}".lower()
         if "dd_orchestrator" in module or "layer" in lowered:
             gap_type = GapType.DD_LAYER_FAILURE
             severity = GapSeverity.CRITICAL

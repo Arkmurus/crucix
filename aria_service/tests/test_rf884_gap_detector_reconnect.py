@@ -91,6 +91,22 @@ def test_dead_extractors_dropped_real_added():
     assert gd.ErrorLedgerExtractor(None).KEY == "crucix:aria:error_log"
 
 
+def test_rf889_operational_shed_is_skipped_not_a_gap():
+    """R-F889 — designed wedge shed (neural timeout / concurrency cap) logged by
+    brain_hook at WARNING flows to error_log, but it's NOT a code bug; the
+    ErrorLedgerExtractor must skip it so the reconnected coder doesn't churn LLM
+    budget 'fixing' intentional shed."""
+    ex = gd.ErrorLedgerExtractor(None)
+    assert ex._entry_to_gap({"type": "WARNING", "file": "brain_hook.py",
+                             "message": "brain_hook(signal_generator): 1 errors — neural: timeout (>2.0s)"}) is None
+    assert ex._entry_to_gap({"type": "WARNING", "file": "brain_hook.py",
+                             "message": "absorb: concurrency cap (>0.5s wait)"}) is None
+    # a real exception still becomes a gap
+    real = ex._entry_to_gap({"type": "ValueError", "file": "document_reader.py",
+                             "message": "list index out of range parsing pdf"})
+    assert real is not None and real.gap_type == gd.GapType.DOCUMENT_PARSE
+
+
 def test_mistake_ledger_is_observe_only_not_auto_fix():
     """Safety: mistake-ledger gaps map to MISSING_CAPABILITY (auto_fixable=False)
     so a recorded past mistake is surfaced for review, never auto-fixed."""
