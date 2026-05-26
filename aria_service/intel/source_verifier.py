@@ -78,6 +78,21 @@ URL_RE = re.compile(
 # Markdown brackets and prose punctuation gets caught by the main regex.
 URL_TRAILING_TRIM = ".,;:!?\"')]}"
 
+# R-F894 — bare-domain citation inside a `[from …]` marker, e.g.
+#   [from whitehouse.gov/administration/donald-j-trump]
+#   [from govtrack.us: "Trump is President…"]
+#   [from factually.co]
+# Captures (domain, optional-path). Requires a real dotted TLD so prose refs
+# like "[from Britannica biography]" or "[from snippet #N]" do NOT match. The
+# path stops at the first `]`, whitespace, or `:` so the quote/snippet tail is
+# excluded.
+_BARE_DOMAIN_CITATION_RE = re.compile(
+    r"\[from\s+"
+    r"((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,})"  # domain.tld
+    r"(/[^\]\s:]*)?",                                           # optional path
+    re.IGNORECASE,
+)
+
 # Pre-Phase-3 fix 2026-04-09: clause 15 of the constitution tells the LLM
 # to cite tool-derived facts using one of these inline marker formats:
 #   - [from <url>]                       (URL — picked up by URL_RE)
@@ -163,7 +178,19 @@ def extract_urls(text: str) -> list[str]:
     """
     if not text:
         return []
-    raw = URL_RE.findall(text)
+    raw = list(URL_RE.findall(text))
+    # R-F894 — bare-domain citations. The LLM frequently cites "[from
+    # whitehouse.gov/administration/...]" or "[from govtrack.us: \"...\"]"
+    # WITHOUT an http(s):// scheme, so URL_RE missed them entirely → the
+    # verifier returned no_citations on well-sourced answers and the
+    # officeholder guard FALSELY demoted them to UNCERTAIN (live 2026-05-26:
+    # "who is the US president" cited 12 gov/news domains yet showed 0 grounded /
+    # NO_CITATIONS). Capture the bare domain (+ optional path) inside a [from …]
+    # marker and treat it as an https:// citation so it grounds against the
+    # tool_context by domain like any other URL. Requires a real dotted TLD, so
+    # "[from Britannica biography]" / "[from snippet #N]" are NOT matched.
+    for _dom, _path in _BARE_DOMAIN_CITATION_RE.findall(text):
+        raw.append("https://" + _dom + (_path or ""))
     seen: set[str] = set()
     out: list[str] = []
     for u in raw:

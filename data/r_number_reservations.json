@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 894,
+  "next_available": 896,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3453,6 +3453,24 @@
       "commit_sha": "d6ede807f24bf54f623e3759b58b97bcee422c64",
       "notes": null,
       "shipped_at": "2026-05-26T09:18:40Z"
+    },
+    {
+      "r_number": "R-F894",
+      "title": "source_verifier counts bare-domain [from whitehouse.gov] citations (was http-only) — fixes false NO_CITATIONS/UNCERTAIN demotion on well-sourced answers (live: 12-source US-president answer showed 0 grounded)",
+      "claimed_at": "2026-05-26T09:23:52Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F895",
+      "title": "semantic_search encode-failure observability — emit deduped capability_gaps on embedder encode failure (cross-thread via captured loop ref); the wedge-epicentre encoder was dark to the brain/coder",
+      "claimed_at": "2026-05-26T09:25:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
