@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 925,
+  "next_available": 926,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3762,6 +3762,15 @@
       "commit_sha": "a7d133d",
       "notes": null,
       "shipped_at": "2026-05-26T23:57:19Z"
+    },
+    {
+      "r_number": "R-F925",
+      "title": "WA chat-failure emits wa_chat_failed brain signal (cross-tier P3; coder-visible capability gap)",
+      "claimed_at": "2026-05-27T00:09:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

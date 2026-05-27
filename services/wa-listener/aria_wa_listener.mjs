@@ -376,12 +376,32 @@ async function readDocumentAsync(payload, chatId, filename) {
 // through the async job+poll path so a slow crawl never reads as an outage.
 const URL_RE = /https?:\/\/[^\s]+/i;
 
+// R-F925 — cross-tier observability (handoff P3). A WA chat failure (brain
+// timeout / down) used to be a console line only — invisible to ARIA's brain,
+// so the exact 2026-05-26 incident class never became a coder-visible signal.
+// Emit a `wa_chat_failed` signal to /api/aria/brain/signal; the endpoint routes
+// failure-type signals to capability_gaps (R-F887), which gap_detector's
+// CapabilityGapExtractor (R-F884) reads → the coder can finally SEE WA-tier
+// chat failures. Fire-and-forget: never blocks or breaks the user reply, and
+// brain/signal returns 202 immediately (fast even while the chat path is slow).
+function signalChatFailure(message, senderJid, errMsg) {
+  try {
+    brainPost('/api/aria/brain/signal', {
+      content: `WA chat failed (${errMsg}). User asked: "${String(message || '').slice(0, 300)}"`,
+      source: 'aria-wa',
+      signal_type: 'wa_chat_failed',
+      metadata: { sender: String(senderJid || ''), error: String(errMsg || '').slice(0, 200) },
+    }).catch(() => {});   // best-effort — the brain may be the thing that's down
+  } catch { /* never let observability break the reply path */ }
+}
+
 async function askARIA(message, senderJid, chatId = null) {
   if (URL_RE.test(message)) {
     try {
       return await askARIAAsync(message, senderJid, chatId);
     } catch (e) {
       console.error('[ARIA Listener] Async chat failed:', e.message);
+      signalChatFailure(message, senderJid, `async: ${e.message}`);
       return '⚠️ That research took longer than expected — please ask me again in a moment.';
     }
   }
@@ -391,6 +411,7 @@ async function askARIA(message, senderJid, chatId = null) {
     return r.response || r.answer || 'No response.';
   } catch (e) {
     console.error('[ARIA Listener] Chat failed:', e.message);
+    signalChatFailure(message, senderJid, e.message);
     return '⚠️ ARIA is temporarily unavailable.';
   }
 }
