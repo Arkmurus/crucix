@@ -80,6 +80,21 @@ _kb_warn_throttle = 0
 
 _cache: dict[str, list] | None = None
 
+# R-F939 (2026-05-27) — search_knowledge lowercased-text cache. Pre-R-F939
+# search_knowledge rebuilt `f"{topic} {content}".lower()` for EVERY fact on
+# EVERY chat query (the 7-layer-context "knowledge" layer). At ~67k facts —
+# several with 4000-char case-library bodies — that pure-Python string build +
+# lower is a CPU hog that, run in the context thread-pool alongside the autonomous
+# chain_correlator + the knowledge disk-write, contended for the GIL and produced
+# 5-6s event-loop stalls at cold boot / task cycles (wedge_672 2026-05-27
+# 10:15-10:22). Cache the lc text per fact id, keyed on content length so an
+# in-place content edit (knowledge.py:892/908) rebuilds just that entry; cleared
+# wholesale when the facts list is replaced (reload) so stale/removed ids don't
+# accumulate. Searches vastly outnumber writes, so steady-state searches now scan
+# precomputed strings instead of rebuilding 67k of them per query.
+_search_lc: dict[str, tuple[int, str]] = {}
+_search_lc_facts_id: int = 0
+
 # Debounced-flush state. Writes mark _dirty; a single background task
 # flushes to disk after FLUSH_DEBOUNCE_S. Multiple rapid store_fact()
 # calls (brain_hook burst) coalesce into one disk write instead of N.
@@ -1182,10 +1197,32 @@ def search_knowledge(query: str) -> str:
     if not words:
         return ""
 
+    # R-F939 — reuse the lowercased fact-text cache; clear it when the facts
+    # list object is replaced (reload), so removed/renumbered ids don't linger.
+    global _search_lc_facts_id
+    facts = _cache["facts"]
+    if id(facts) != _search_lc_facts_id:
+        _search_lc.clear()
+        _search_lc_facts_id = id(facts)
+
     scored: list[tuple[float, dict]] = []
-    for f in _cache["facts"]:
+    for idx, f in enumerate(facts):
+        # R-F939 — yield the GIL during a cold/large scan so this worker thread
+        # (the 7-layer-context pool) can't starve the event loop while it builds
+        # the cache for the first time. Cheap once the cache is warm.
+        if (idx & 0x7FF) == 0:
+            time.sleep(0)
+        content = f.get("content") or ""
+        clen = len(content)
+        fid = f.get("id")
+        cached = _search_lc.get(fid) if fid else None
+        if cached is not None and cached[0] == clen:
+            text = cached[1]
+        else:
+            text = f"{f.get('topic') or ''} {content}".lower()
+            if fid:
+                _search_lc[fid] = (clen, text)
         score = 0
-        text = f"{f['topic']} {f['content']}".lower()
         for w in words:
             if w in text:
                 score += 3
