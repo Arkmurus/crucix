@@ -914,6 +914,56 @@ def _read_html(filepath: str) -> ExtractionResult:
 
 
 def _read_docx(filepath: str) -> ExtractionResult:
+    # R-F946 (2026-05-27) — extract the body IN DOCUMENT ORDER. The previous
+    # impl read ALL paragraphs, then APPENDED all table cells at the end, so a
+    # contract with interleaved tables came out jumbled: the live Korvera review
+    # stopped mid-sentence at "Clause 5.4(b) … cancellation of th" while later
+    # clauses were dumped out of order, and text-boxes / content-controls were
+    # missed entirely. Walk word/document.xml (+ headers, footers, foot/endnotes)
+    # converting structural boundaries (paragraph, row, tab, break) to whitespace
+    # and keeping the run text in place — this captures tables, text-boxes and
+    # SDT content in reading order so ARIA sees the WHOLE document coherently.
+    import re as _re
+    try:
+        import zipfile
+        import html as _html
+        texts: list[str] = []
+        with zipfile.ZipFile(filepath) as zf:
+            names = set(zf.namelist())
+            ordered = (
+                ["word/document.xml"]
+                + sorted(n for n in names if _re.match(r"word/header\d*\.xml$", n))
+                + sorted(n for n in names if _re.match(r"word/footnotes\.xml$", n))
+                + sorted(n for n in names if _re.match(r"word/endnotes\.xml$", n))
+                + sorted(n for n in names if _re.match(r"word/footer\d*\.xml$", n))
+            )
+            for n in ordered:
+                if n not in names:
+                    continue
+                xml = zf.read(n).decode("utf-8", errors="ignore")
+                # Drop field instruction codes (TOC/HYPERLINK/REF) — they are not
+                # body text and would inject noise.
+                xml = _re.sub(r"<w:instrText[^>]*>.*?</w:instrText>", "", xml, flags=_re.DOTALL)
+                # Structural boundaries → whitespace, BEFORE stripping tags.
+                xml = _re.sub(r"<w:p\b[^>]*>", "\n", xml)      # paragraph
+                xml = _re.sub(r"<w:tr\b[^>]*>", "\n", xml)     # table row
+                xml = _re.sub(r"<w:tab\b[^>]*/?>", "\t", xml)  # tab
+                xml = _re.sub(r"<w:br\b[^>]*/?>", "\n", xml)   # line break
+                texts.append(_re.sub(r"<[^>]+>", "", xml))     # strip remaining tags; run text survives
+        text = _html.unescape("".join(texts))
+        text = _re.sub(r"[ \t]+\n", "\n", text)
+        text = _re.sub(r"\n{3,}", "\n\n", text).strip()
+        if len(text) > 100:
+            return ExtractionResult(
+                text=text, method="DOCX", confidence=0.95,
+                pages_extracted=1, total_pages=1,
+            )
+        # raw parse yielded almost nothing — fall through to python-docx
+    except Exception as e:
+        logger.debug("DOCX in-order XML extraction failed, falling back to python-docx: %s", e)
+
+    # Fallback: python-docx (paragraphs + tables). Ordering is less faithful but
+    # it still recovers the body if the zip/xml parse path failed.
     try:
         from docx import Document
         doc = Document(filepath)

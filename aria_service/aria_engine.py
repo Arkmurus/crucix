@@ -1472,6 +1472,13 @@ def _build_7_layer_context(message: str, intel_data: dict | None) -> str:
     self_infra_query = bool(
         message and _SELF_INFRA_INTROSPECTION_RE.search(message)
     )
+    # R-F945 — retrieval layers search by QUERY, not by the document body. Strip
+    # the attached-document block + cap so a 60K-char contract is never used as
+    # the search key (the search_knowledge GIL wedge that stalled the event loop
+    # 5s+ between every review step). document_grounded / self_infra_query are
+    # already computed above from the FULL message; the full document still
+    # reaches the LLM via the user_prompt — this governs only layer matching.
+    message = _context_search_query(message)
     # Phase 3 cherry-pick from aria_research_architecture.py 2026-04-09:
     # mem0 retrieval is now a SEPARATE first-class context layer instead of
     # being silently mixed into the generic knowledge block. This lets the
@@ -2027,6 +2034,23 @@ def _format_history_user_prompt(history, lang_hint: str, message: str, context: 
         for m in history
     )
     return f"{lang_hint}[Previous conversation]\n{formatted}\n\n[Current message]\nUser: {message}{context}"
+
+
+def _context_search_query(message: str, max_chars: int = 1500) -> str:
+    """R-F945 (2026-05-27) — the QUERY the 7-layer retrieval context matches on.
+    A document-review message carries the whole [ATTACHED DOCUMENT] body (tens of
+    K chars); feeding THAT to search_knowledge / the embedder / the ledger as a
+    search key is both useless AND the proven event-loop wedge — search_knowledge
+    is a GIL-bound scan of ~45K facts, so a 60K-char query froze the loop for 5s+
+    between every review step (wedge_674, 2026-05-27). Strip the document block +
+    cap to the user's actual question/topic. The full document still reaches the
+    LLM via the user_prompt; this governs ONLY what the retrieval layers search."""
+    if not message:
+        return message or ""
+    q = _HISTORY_DOC_BLOCK_RE.sub(" ", message).strip()
+    if len(q) > max_chars:
+        q = q[:max_chars]
+    return q or message[:max_chars]
 
 
 def _detect_metacog_domain(message: str) -> str:

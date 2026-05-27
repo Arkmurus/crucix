@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 945,
+  "next_available": 947,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3962,6 +3962,26 @@
       "commit_sha": "PENDING",
       "notes": null,
       "shipped_at": "2026-05-27T15:55:29Z"
+    },
+    {
+      "r_number": "R-F945",
+      "title": "context layers search by capped query not the full document body (fixes search_knowledge GIL wedge on doc reviews)",
+      "claimed_at": "2026-05-27T16:21:53Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-27T16:30:09Z"
+    },
+    {
+      "r_number": "R-F946",
+      "title": "_read_docx extracts body in document order (paragraphs+tables+textboxes interleaved), not paragraphs-then-tables-appended",
+      "claimed_at": "2026-05-27T16:25:02Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-27T16:30:09Z"
     }
   ]
 }
