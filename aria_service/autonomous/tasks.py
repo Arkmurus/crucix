@@ -764,6 +764,72 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         report = await _er.run_eval(llm, label=label)
         return {"run_eval": report}
 
+    elif tool_kind == "cost_guard":
+        # R-F930 (2026-05-27) — ARIA monitors her OWN month-to-date LLM spend
+        # and throttles autonomous work BEFORE the $300/mo hard cap
+        # (cost_tracker.assert_monthly_cap) would block EVERY call — including
+        # user-facing chat. This task makes NO LLM call (pure read + guard) and:
+        #   1. reads month-to-date burn vs cap (cost_tracker.get_month_spend),
+        #   2. feeds it to ARIA's brain every run so she SEES her cost
+        #      (Rule Zero / the R-F921 self_monitor channel),
+        #   3. at >= pause-threshold PAUSES the autonomous engine — chat is
+        #      NOT engine-gated, so pausing autonomous spend preserves the
+        #      remaining budget for the user-facing path.
+        # Thresholds are env-tunable; pause defaults to 90% (10% chat buffer).
+        # Resume is deliberate (POST /api/aria/autonomous/resume) per safety.py.
+        from ..intel import cost_tracker as _ct930
+        from ..intel import brain_hook as _bh930
+        from . import safety as _sf930
+
+        def _pct_env(name: str, default: float) -> float:
+            try:
+                return float(os.getenv(name, str(default)))
+            except (TypeError, ValueError):
+                return default
+
+        spend = await _ct930.get_month_spend()
+        util = float(spend.get("utilisation_pct") or 0.0)
+        pause_at = _pct_env("ARIA_COST_GUARD_PAUSE_PCT", 90.0)
+        warn_at = _pct_env("ARIA_COST_GUARD_WARN_PCT", 70.0)
+        autopause = os.getenv("ARIA_COST_GUARD_AUTOPAUSE", "1").strip().lower() in ("1", "true", "yes")
+
+        action = "ok"
+        if util >= pause_at:
+            if autopause and not await _sf930.is_engine_paused():
+                await _sf930.pause_engine(
+                    reason=(
+                        f"cost_guard R-F930: monthly LLM spend at {util:.1f}% of cap "
+                        f"(${spend.get('spent_usd')} / ${spend.get('cap_usd')}) — autonomous "
+                        f"engine paused to protect the user-facing chat budget. Resume via "
+                        f"POST /api/aria/autonomous/resume once spend headroom recovers."
+                    )
+                )
+                action = "paused"
+            else:
+                action = "over_threshold_no_pause"
+        elif util >= warn_at:
+            action = "warn"
+
+        # Rule Zero — ARIA observes her own spend EVERY run (healthy heartbeat
+        # when ok; a capability gap when warn/paused so the coder/operator see it).
+        try:
+            await _bh930.observe_self_event(
+                "cost_status",
+                {**spend, "action": action, "pause_at_pct": pause_at, "warn_at_pct": warn_at},
+                success=(action == "ok"),
+                gap_type=("cost_pressure" if action != "ok" else "self_runtime"),
+            )
+        except Exception as _cg_e:
+            logger.debug("R-F930 cost_guard brain signal failed (non-fatal): %s", _cg_e)
+
+        readable = (
+            f"💸 LLM spend {util:.1f}% of ${spend.get('cap_usd')} cap "
+            f"(${spend.get('spent_usd')} spent, ${spend.get('remaining_usd')} left) — {action}"
+        )
+        if action in ("paused", "over_threshold_no_pause"):
+            logger.warning("[autonomous] R-F930 cost_guard: %s", readable)
+        return {"cost_guard": {**spend, "action": action, "readable": readable}}
+
     elif tool_kind == "learning_cycle":
         # R-F662 (2026-05-17): OSS-only learning controller.
         # Zero cloud LLM calls in the loop — uses FSRS schedule +
@@ -1326,7 +1392,13 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "counter_intel_sweep",
                            "crypto_sanctions_refresh",
                            "fcpa_enforcement_scan",
-                           "recompute_priorities"):
+                           "recompute_priorities",
+                           # R-F930 [2026-05-27]: cost self-guardian. Also adds
+                           # cost_free_learn -- a pre-existing dark handler whose
+                           # elif exists but was never routable here; caught by
+                           # test_autonomous_dispatch_parity.
+                           "cost_free_learn",
+                           "cost_guard"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             # 2026-04-27 — attribute every direct-tool LLM call to its

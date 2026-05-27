@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 929,
+  "next_available": 931,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3802,6 +3802,24 @@
       "commit_sha": "3a365a1",
       "notes": null,
       "shipped_at": "2026-05-27T00:42:02Z"
+    },
+    {
+      "r_number": "R-F929",
+      "title": "re-enable RUN-EVAL-DAILY pinned to DeepSeek (regression signal back on; R-F651 timeout + 300/mo cap as brakes)",
+      "claimed_at": "2026-05-27T08:27:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F930",
+      "title": "cost-guardian autonomous task: ARIA monitors monthly burn + auto-throttles/pauses autonomous tasks before 300 cap",
+      "claimed_at": "2026-05-27T08:27:41Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
