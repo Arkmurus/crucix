@@ -275,6 +275,30 @@ def _count_facts_for_cell_sync(
     return fact_count, signal_count
 
 
+def _count_from_texts(
+    fact_texts: list[str],
+    signal_texts: list[str],
+    dom_tokens: list[str],
+    jur_synonyms: list[str],
+) -> tuple[int, int]:
+    """R-F928 — count cell matches against PRE-LOWERCASED text lists.
+
+    `_compute_matrix_sync` precomputes `_fact_text`/`_signal_text` ONCE per
+    fact/signal, then calls this for each cell. Pre-R-F928 the matrix path
+    rebuilt `_fact_text(fact)` for every (fact × cell) pair = domains ×
+    jurisdictions × facts ≈ 57M string-joins on a 67k-fact corpus, holding
+    the GIL ~18s and stalling the event loop (wedge_673). Building the text
+    once per fact cuts that string work ~850×; here we only run the cheap
+    substring matcher."""
+    fact_count = sum(
+        1 for t in fact_texts if _matches_cell(t, dom_tokens, jur_synonyms)
+    )
+    signal_count = sum(
+        1 for t in signal_texts if _matches_cell(t, dom_tokens, jur_synonyms)
+    )
+    return fact_count, signal_count
+
+
 async def _count_facts_for_cell(domain: str, jurisdiction: str) -> tuple[int, int]:
     """Backwards-compatible single-cell scorer. Fetches facts + signals
     fresh on every call — kept for any caller that needs a one-off
@@ -427,13 +451,25 @@ async def _build_heatmap_uncached(
         logger.debug("coverage signals fetch failed: %s", e)
 
     def _compute_matrix_sync() -> dict[str, dict[str, Any]]:
+        # R-F928 — precompute the lowercased match-text ONCE per fact/signal
+        # (and the per-domain tokens / per-jurisdiction synonyms once). The
+        # old path rebuilt _fact_text() for every (fact × cell) pair ≈ 57M
+        # string-joins on a 67k-fact corpus, pinning the GIL ~18s and
+        # starving the event loop (wedge_673, R-F703 detector). Building the
+        # text once per fact cuts that string work ~(domains×jurisdictions)×.
+        fact_texts = [_fact_text(f) for f in facts if isinstance(f, dict)]
+        signal_texts = [_signal_text(s) for s in signals if isinstance(s, dict)]
+        dom_tokens_map = {d: _domain_tokens(d) for d in domain_list}
+        jur_syn_map = {j: _juris_synonyms(j) for j in juris_list}
+
         m: dict[str, dict[str, Any]] = {}
         for d in domain_list:
             m[d] = {}
             domain_freshness = freshness_records.get(d, {})
+            dom_tokens = dom_tokens_map[d]
             for j in juris_list:
-                fact_count, signal_count = _count_facts_for_cell_sync(
-                    d, j, facts, signals,
+                fact_count, signal_count = _count_from_texts(
+                    fact_texts, signal_texts, dom_tokens, jur_syn_map[j],
                 )
                 # R-F164: tier off the combined density. Signal_count was being
                 # collected but never used in the grade, so a cell with 200
@@ -452,6 +488,14 @@ async def _build_heatmap_uncached(
                     "is_stale":            domain_freshness.get("is_stale", True),
                     "hours_since_refresh": domain_freshness.get("hours_since_refresh"),
                 }
+                # R-F928 — release the GIL after EACH cell so this worker
+                # thread can never hold the interpreter long enough to starve
+                # the asyncio event loop. Bounds R-F703 heartbeat staleness to
+                # a single cell's matching (~one fact-sweep), independent of
+                # corpus size — even at 67k facts a cell is tens of ms, well
+                # under the 5s stall threshold. (Per-row yielding left a row
+                # at risk of >5s on a slow/contended VM; wedge_673 was 18.6s.)
+                time.sleep(0)
         return m
 
     matrix = await asyncio.to_thread(_compute_matrix_sync)

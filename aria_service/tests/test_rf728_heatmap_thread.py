@@ -172,3 +172,72 @@ def test_build_heatmap_runs_matrix_compute_in_to_thread():
         f"The matrix compute MUST run via to_thread or the event loop wedges "
         f"under production data volume (wedge_674 captured 186.89s here)."
     )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# R-F928 (2026-05-27) — wedge_673 fix: precompute fact/signal text ONCE per
+# fact (was rebuilt per (fact × cell) ≈ 57M string-joins on a 67k-fact corpus,
+# pinning the GIL ~18.6s and stalling the event loop) + GIL-yield per row.
+# ════════════════════════════════════════════════════════════════════════════
+
+def test_rf928_precompute_matches_legacy_scorer():
+    """R-F928 EQUIVALENCE: the precompute path (`_count_from_texts` over
+    pre-built lowercased text) yields counts IDENTICAL to the legacy
+    per-cell scorer (`_count_facts_for_cell_sync`) for EVERY domain ×
+    jurisdiction cell. Guards the wedge fix against changing matrix values."""
+    from aria_service.intel import coverage_heatmap as ch
+
+    fact_texts = [ch._fact_text(f) for f in _SAMPLE_FACTS if isinstance(f, dict)]
+    signal_texts = [ch._signal_text(s) for s in _SAMPLE_SIGNALS if isinstance(s, dict)]
+
+    for d in ch.DOMAINS:
+        dom_tokens = ch._domain_tokens(d)
+        for j in ch.JURISDICTIONS:
+            jur_syn = ch._juris_synonyms(j)
+            new = ch._count_from_texts(fact_texts, signal_texts, dom_tokens, jur_syn)
+            legacy = ch._count_facts_for_cell_sync(d, j, _SAMPLE_FACTS, _SAMPLE_SIGNALS)
+            assert new == legacy, (
+                f"R-F928 diverged at {d}×{j}: precompute={new} legacy={legacy}"
+            )
+
+
+def test_rf928_yields_gil_during_compute():
+    """R-F928: `_compute_matrix_sync` must call `time.sleep(0)` frequently
+    (per cell) so the worker thread releases the GIL and can't starve the
+    asyncio event loop (the wedge_673 failure mode). Lower-bound assertion:
+    at least one yield per domain row."""
+    from aria_service.intel import coverage_heatmap as ch
+
+    ch.invalidate_heatmap_cache()
+    fake_k = type("K", (), {"all_facts": staticmethod(lambda: _SAMPLE_FACTS)})()
+    fake_il = type("IL", (), {"get_recent": staticmethod(lambda: _SAMPLE_SIGNALS)})()
+
+    async def _fake_get_all_domains():
+        return []
+
+    fake_lp = type("LP", (), {"get_all_domains": staticmethod(_fake_get_all_domains)})()
+
+    zero_sleeps = {"n": 0}
+    real_sleep = time.sleep
+
+    def _spy_sleep(s):
+        if s == 0:
+            zero_sleeps["n"] += 1
+        return real_sleep(s)
+
+    async def _run():
+        with patch.dict("sys.modules", {
+            "aria_service.intel.knowledge": fake_k,
+            "aria_service.intel.intel_ledger": fake_il,
+            "aria_service.intel.learning_progress": fake_lp,
+        }), patch.object(ch.time, "sleep", _spy_sleep):
+            return await ch.build_heatmap()
+
+    result = asyncio.run(_run())
+    assert result["matrix"], "build_heatmap returned empty matrix"
+    assert zero_sleeps["n"] >= len(ch.DOMAINS), (
+        f"R-F928 regression: expected >= {len(ch.DOMAINS)} GIL yields "
+        f"(time.sleep(0) per domain row), got {zero_sleeps['n']}. Without the "
+        f"per-row yield the worker thread can monopolize the GIL and wedge "
+        f"the event loop (wedge_673 captured an 18.6s stall here)."
+    )
