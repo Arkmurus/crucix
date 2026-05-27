@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 944,
+  "next_available": 945,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3952,6 +3952,16 @@
       "commit_sha": "PENDING",
       "notes": null,
       "shipped_at": "2026-05-27T15:09:17Z"
+    },
+    {
+      "r_number": "R-F944",
+      "title": "compact chat history: strip attached-doc blocks + cap per-turn so a re-attached contract stops drowning the payload",
+      "claimed_at": "2026-05-27T15:52:07Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-27T15:55:29Z"
     }
   ]
 }

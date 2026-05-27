@@ -1972,6 +1972,63 @@ def _completion_max_tokens(message: str) -> int:
     return 4000
 
 
+# R-F944 (2026-05-27) — chat-history compaction. A turn that carried an
+# [ATTACHED DOCUMENT … END ATTACHED DOCUMENT] block (e.g. a 60K-char contract
+# re-attached on every retry by R-F912) was kept VERBATIM in the recent-history
+# window. By the ~70th message the live payload hit 156K tokens (489K chars of
+# history) and the model could no longer attend to the CURRENT document — it
+# reviewed only the first clauses and reported the rest "not visible" (live
+# Korvera UTS contract, 2026-05-27). Fix: drop attached-document blocks OUT of
+# history (the live turn re-attaches the doc fresh when relevant) and cap each
+# retained turn so accumulated history can't drown the current request.
+_HISTORY_DOC_BLOCK_RE = re.compile(
+    r"\[ATTACHED DOCUMENT.*?\[(?:/|END\s+)ATTACHED DOCUMENT\]",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _compact_history_content(content: str, max_chars: int = 2000) -> str:
+    """Strip re-attached document blocks from a historical turn and cap its
+    length. History is for conversational continuity, not for re-carrying a
+    full contract on every turn."""
+    if not content:
+        return ""
+    c = _HISTORY_DOC_BLOCK_RE.sub("[earlier attached document — omitted from history]", content)
+    if len(c) > max_chars:
+        c = c[:max_chars].rstrip() + " […]"
+    return c
+
+
+def _format_history_user_prompt(history, lang_hint: str, message: str, context: str) -> str:
+    """Build the user_prompt with history compaction. SHARED by aria_chat and
+    aria_chat_stream so the two paths stay in lockstep (CLAUDE.md §13)."""
+    if not history:
+        return f"{lang_hint}{message}{context}"
+    recent_cutoff = 10 * 2  # last 10 exchanges in full (after compaction)
+    if len(history) > recent_cutoff:
+        older = history[:-recent_cutoff]
+        recent = history[-recent_cutoff:]
+        older_summary = "\n".join(
+            f"- {'User asked' if m['role'] == 'user' else 'ARIA said'}: {_compact_history_content(m['content'], 150)}"
+            for m in older
+        )
+        recent_formatted = "\n\n".join(
+            f"{'User' if m['role'] == 'user' else 'ARIA'}: {_compact_history_content(m['content'])}"
+            for m in recent
+        )
+        return (
+            f"{lang_hint}"
+            f"[Earlier in conversation — summary]\n{older_summary}\n\n"
+            f"[Recent conversation]\n{recent_formatted}\n\n"
+            f"[Current message]\nUser: {message}{context}"
+        )
+    formatted = "\n\n".join(
+        f"{'User' if m['role'] == 'user' else 'ARIA'}: {_compact_history_content(m['content'])}"
+        for m in history
+    )
+    return f"{lang_hint}[Previous conversation]\n{formatted}\n\n[Current message]\nUser: {message}{context}"
+
+
 def _detect_metacog_domain(message: str) -> str:
     """Best-effort domain classification for the metacognitive self-assessment.
 
@@ -3161,35 +3218,10 @@ async def _aria_chat_impl(
     # Detect language and add hint
     lang_hint = _detect_language_hint(message)
 
-    # Format conversation — recent turns in full, older turns summarised
-    if history:
-        recent_cutoff = 10 * 2  # last 10 exchanges in full detail
-        if len(history) > recent_cutoff:
-            older = history[:-recent_cutoff]
-            recent = history[-recent_cutoff:]
-            # Compress older history to key points only
-            older_summary = "\n".join(
-                f"- {'User asked' if m['role'] == 'user' else 'ARIA said'}: {m['content'][:150]}"
-                for m in older
-            )
-            recent_formatted = "\n\n".join(
-                f"{'User' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
-                for m in recent
-            )
-            user_prompt = (
-                f"{lang_hint}"
-                f"[Earlier in conversation — summary]\n{older_summary}\n\n"
-                f"[Recent conversation]\n{recent_formatted}\n\n"
-                f"[Current message]\nUser: {message}{context}"
-            )
-        else:
-            formatted = "\n\n".join(
-                f"{'User' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
-                for m in history
-            )
-            user_prompt = f"{lang_hint}[Previous conversation]\n{formatted}\n\n[Current message]\nUser: {message}{context}"
-    else:
-        user_prompt = f"{lang_hint}{message}{context}"
+    # Format conversation history (R-F944: shared, compaction-aware helper that
+    # strips re-attached document blocks + caps each turn so accumulated history
+    # can't drown the current request).
+    user_prompt = _format_history_user_prompt(history, lang_hint, message, context)
 
     # Build the final system prompt with calibration adjustments learned from
     # past errors. This is the closed loop: confidence calibration → behaviour.
@@ -3917,34 +3949,9 @@ async def _aria_chat_stream_impl(
 
     lang_hint = _detect_language_hint(message)
 
-    # Format conversation history — same logic as aria_chat
-    if history:
-        recent_cutoff = 10 * 2
-        if len(history) > recent_cutoff:
-            older = history[:-recent_cutoff]
-            recent = history[-recent_cutoff:]
-            older_summary = "\n".join(
-                f"- {'User asked' if m['role'] == 'user' else 'ARIA said'}: {m['content'][:150]}"
-                for m in older
-            )
-            recent_formatted = "\n\n".join(
-                f"{'User' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
-                for m in recent
-            )
-            user_prompt = (
-                f"{lang_hint}"
-                f"[Earlier in conversation — summary]\n{older_summary}\n\n"
-                f"[Recent conversation]\n{recent_formatted}\n\n"
-                f"[Current message]\nUser: {message}{context}"
-            )
-        else:
-            formatted = "\n\n".join(
-                f"{'User' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
-                for m in history
-            )
-            user_prompt = f"{lang_hint}[Previous conversation]\n{formatted}\n\n[Current message]\nUser: {message}{context}"
-    else:
-        user_prompt = f"{lang_hint}{message}{context}"
+    # Format conversation history (R-F944: shared compaction-aware helper —
+    # same call as aria_chat, keeping the two paths in lockstep per §13).
+    user_prompt = _format_history_user_prompt(history, lang_hint, message, context)
 
     system_prompt = await _build_calibrated_system_prompt(message, persona=persona)
 
