@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 926,
+  "next_available": 927,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3772,6 +3772,15 @@
       "commit_sha": "5a20119",
       "notes": null,
       "shipped_at": "2026-05-27T00:13:36Z"
+    },
+    {
+      "r_number": "R-F926",
+      "title": "CI: decouple aria-web/aria-wa deploys from aria-intel flaky cold-start verify (!cancelled + per-deploy gate) — stop silent Node-deploy skips",
+      "claimed_at": "2026-05-27T00:15:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -146,12 +146,21 @@ jobs:
       # changes silently lag — Python changes deploy but UI/auth/Stripe
       # stay on whatever image was last manually `flyctl deploy`-ed.
       #
-      # Sequential rather than matrixed: keeps the existing aria-intel
-      # verify gate as the primary "deploy succeeded" signal. If
-      # aria-intel deploy fails the whole job fails; aria-web / aria-wa
-      # are skipped (`if: success()`).
+      # R-F926 (2026-05-27) — DECOUPLE the Node-tier deploys from aria-intel's
+      # verify outcome. aria-web + aria-wa are SEPARATE Fly apps with SEPARATE
+      # builds (Dockerfile.web / services/wa-listener/Dockerfile), so a flaky
+      # aria-intel cold-start (the /health verify above has a 180s budget;
+      # first-boot RAG warm-up can exceed it) must NOT skip them. Pre-R-F926 all
+      # four Node steps were `if: success()`, so one slow aria-intel boot
+      # silently left UI/auth/WA on a stale image — observed repeatedly, incl.
+      # the R-F916/F925 WA-listener fixes needing manual `flyctl deploy -a
+      # aria-wa`. Now: each Deploy runs `if: !cancelled()` (independent of
+      # aria-intel + of each other), and each Verify gates on ITS OWN deploy's
+      # outcome. The job still reports failure if any step failed, but the Node
+      # tiers always get their shot.
       - name: Deploy aria-web
-        if: success()
+        id: deploy_web
+        if: ${{ !cancelled() }}
         run: |
           # R-F846 — pass build-time SHA + R-tag so /api/health reports
           # the actual deployed commit instead of UNKNOWN-BUILD.
@@ -165,7 +174,7 @@ jobs:
             -t "${{ secrets.FLY_API_TOKEN }}"
 
       - name: Verify aria-web is live
-        if: success()
+        if: ${{ !cancelled() && steps.deploy_web.outcome == 'success' }}
         run: |
           for i in $(seq 1 18); do
             http=$(curl -sS -m 5 -o /tmp/web_health.json -w '%{http_code}' \
@@ -181,13 +190,14 @@ jobs:
           exit 1
 
       - name: Deploy aria-wa
-        if: success()
+        id: deploy_wa
+        if: ${{ !cancelled() }}
         run: |
           flyctl deploy --remote-only --config fly.wa.toml --app aria-wa \
             --wait-timeout 600 -t "${{ secrets.FLY_API_TOKEN }}"
 
       - name: Verify aria-wa is live
-        if: success()
+        if: ${{ !cancelled() && steps.deploy_wa.outcome == 'success' }}
         run: |
           for i in $(seq 1 18); do
             http=$(curl -sS -m 5 -o /tmp/wa_health.json -w '%{http_code}' \
