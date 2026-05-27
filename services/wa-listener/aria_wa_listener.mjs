@@ -376,6 +376,19 @@ async function readDocumentAsync(payload, chatId, filename) {
 // through the async job+poll path so a slow crawl never reads as an outage.
 const URL_RE = /https?:\/\/[^\s]+/i;
 
+// R-F940 — route DOCUMENT-GROUNDED + heavy follow-up chats through the same
+// async job+poll path, not just URL crawls. Live 2026-05-27: "Aria, anything we
+// missed?" on a re-attached 47k-char contract (R-F912 prepends an
+// [ATTACHED DOCUMENT …] block) built a ~95k-token request; DeepSeek answered but
+// the full chat (incl. self-review passes) crossed the 90s sync cap → the user
+// saw "temporarily unavailable". A re-attached document, a URL, or any large
+// message all need the async path (poll up to 4 min) instead of the 90s sync call.
+const HEAVY_CHAT_CHARS = 6000;
+function _needsAsyncChat(message) {
+  const m = message || '';
+  return URL_RE.test(m) || /\[ATTACHED DOCUMENT/i.test(m) || m.length > HEAVY_CHAT_CHARS;
+}
+
 // R-F925 — cross-tier observability (handoff P3). A WA chat failure (brain
 // timeout / down) used to be a console line only — invisible to ARIA's brain,
 // so the exact 2026-05-26 incident class never became a coder-visible signal.
@@ -396,13 +409,13 @@ function signalChatFailure(message, senderJid, errMsg) {
 }
 
 async function askARIA(message, senderJid, chatId = null) {
-  if (URL_RE.test(message)) {
+  if (_needsAsyncChat(message)) {
     try {
       return await askARIAAsync(message, senderJid, chatId);
     } catch (e) {
       console.error('[ARIA Listener] Async chat failed:', e.message);
       signalChatFailure(message, senderJid, `async: ${e.message}`);
-      return '⚠️ That research took longer than expected — please ask me again in a moment.';
+      return '⚠️ That took longer than expected to analyse — please ask me again in a moment.';
     }
   }
   const sid = `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}`;
@@ -439,8 +452,8 @@ async function askARIAAsync(message, senderJid, chatId = null) {
   }
   if (chatId) {
     await sendReply(chatId,
-      '🔎 Looking into that now — I\'m pulling fresh sources, which takes a moment. '
-      + 'I\'ll reply here as soon as it\'s ready.').catch(() => {});
+      '🔎 Working on that now — this one needs a deeper look (fresh sources or a '
+      + 'full document), so it takes a moment. I\'ll reply here as soon as it\'s ready.').catch(() => {});
   }
   const POLL_MS = 4000, MAX_POLLS = 60;   // 4s × 60 = up to 4 minutes
   for (let i = 0; i < MAX_POLLS; i++) {
