@@ -218,15 +218,24 @@ async def finalize_reviewed_contract(
         return None
     try:
         from . import cost_tracker
+        # R-F949 (2026-05-27) — pass the FULL document to the synthesis step.
+        # The previous [:16000] slice fed only the first ~16K chars (≈ clause
+        # 5.4 of a 60K agreement), so the synthesis — which writes the
+        # USER-FACING review — falsely concluded "the excerpt ends at Clause
+        # 5.4 / 3.1" and overrode a complete draft. The self-review audits the
+        # whole document in windows; finalize must see the same. DeepSeek handles
+        # a 60K doc (~12.7K tokens) + draft + findings well within its window
+        # (proven live 2026-05-27). 120K covers typical contracts; larger ones
+        # already carry the self-review truncation banner.
         prompt = (
             f"USER QUESTION:\n{(user_question or '').strip()[:1500]}\n\n"
             f"YOUR DRAFT REVIEW:\n{(draft_review or '').strip()[:6000]}\n\n"
             f"AUDIT FINDINGS (apply every correction):\n{(findings or '').strip()[:6000]}\n\n"
-            f"DOCUMENT EXCERPT (quote verbatim from this):\n{(document_excerpt or '').strip()[:16000]}"
+            f"FULL DOCUMENT (quote verbatim from this — review EVERY clause to the end):\n{(document_excerpt or '').strip()[:120000]}"
         )
         with cost_tracker.feature("contract_intelligence"):
             res = await llm.complete(
-                CORRECTION_SYNTHESIS_PROMPT, prompt, max_tokens=2200, timeout=60.0,
+                CORRECTION_SYNTHESIS_PROMPT, prompt, max_tokens=4000, timeout=120.0,
             )
         out = (res.text or "").strip()
         return out or None
