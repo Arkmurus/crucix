@@ -1148,6 +1148,60 @@ tasks:
     mem0_tags: [cost, guardian, safety, autonomous]
 
   # ──────────────────────────────────────────────────────────────────
+  # COMPLIANCE WATCH — R-F933..F936 (2026-05-27)
+  # ARIA analyses captured WhatsApp group messages (deception + risk +
+  # blind-spot + contradiction lanes), feeds findings to her brain + a
+  # coverage ledger, and emails a grounded, attributed digest PRIVATELY to
+  # the compliance principal (ARIA_COMPLIANCE_DIGEST_TO / ARIA_OPERATOR_EMAIL,
+  # default acorrea@arkmurus.com). Delivery is draft-safe until
+  # ARIA_EMAIL_OUTBOUND_ENABLED=1 + the principal is allow-listed. No
+  # per-message LLM — cheap. Daily full digest + a 30-min urgent scan that
+  # only emails on a HIGH/CRITICAL finding.
+  # ──────────────────────────────────────────────────────────────────
+  - id: RUN-COMPLIANCE-DIGEST-DAILY
+    name: Compliance Watch — daily private digest to the compliance principal
+    description: |
+      Daily 07:00 UTC — analyse the last 24h of captured group messages
+      (deception/risk/blind-spot/contradiction), update the brain + coverage
+      ledger, and email a grounded structured digest privately to the
+      compliance principal. Draft-safe until outbound email is enabled.
+    cron: "0 7 * * *"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 180
+    cost_cap_usd: 0.0
+    tool_chain:
+      - tool: compliance_watch
+        label: daily
+        urgent: false
+        window_hours: 24
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [compliance, watch, surveillance, private, autonomous]
+
+  - id: RUN-COMPLIANCE-WATCH-URGENT
+    name: Compliance Watch — 30-min urgent scan (HIGH/CRITICAL only)
+    description: |
+      Every 30 min — scan the last hour of captured messages; email the
+      principal ONLY if a HIGH/CRITICAL finding appears (sanctions, diversion,
+      bribery, a sharp reversal, or HIGH deception). Otherwise silent. No LLM.
+    cron: "*/30 * * * *"
+    enabled: true
+    priority: HIGH
+    timeout_seconds: 90
+    cost_cap_usd: 0.0
+    tool_chain:
+      - tool: compliance_watch
+        label: urgent
+        urgent: true
+        window_hours: 1
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [compliance, watch, urgent, private, autonomous]
+
+  # ──────────────────────────────────────────────────────────────────
   # R-F662 (2026-05-17) — LEARNING-CYCLE: OSS-only learning controller.
   # Drains the FSRS-due queue + reading-list using local code only
   # (rag_store + neural_memory + topic_completion). Zero cloud LLM

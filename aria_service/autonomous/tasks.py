@@ -830,6 +830,20 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
             logger.warning("[autonomous] R-F930 cost_guard: %s", readable)
         return {"cost_guard": {**spend, "action": action, "readable": readable}}
 
+    elif tool_kind == "compliance_watch":
+        # R-F935 — Compliance Watch private digest. Analyses the captured WA
+        # group-message window -- deception + risk + blind-spot + contradiction
+        # lanes -- feeds findings to the brain + coverage ledger, and emails a
+        # grounded structured digest to the compliance principal. Delivery is
+        # draft-safe until ARIA_EMAIL_OUTBOUND_ENABLED=1. No per-message LLM, so
+        # it is cheap; urgent runs suppress email unless a HIGH/CRITICAL finding.
+        from ..intel import compliance_watch as _cw935
+        _cfg = task.tool_chain[0] if task.tool_chain else {}
+        _urgent = bool(_cfg.get("urgent"))
+        _win = float(_cfg.get("window_hours", 1.0 if _urgent else 24.0))
+        report = await _cw935.run_compliance_watch(window_hours=_win, urgent_only=_urgent)
+        return {"compliance_watch": report}
+
     elif tool_kind == "learning_cycle":
         # R-F662 (2026-05-17): OSS-only learning controller.
         # Zero cloud LLM calls in the loop — uses FSRS schedule +
@@ -1398,7 +1412,9 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            # elif exists but was never routable here; caught by
                            # test_autonomous_dispatch_parity.
                            "cost_free_learn",
-                           "cost_guard"):
+                           "cost_guard",
+                           # R-F935 -- Compliance Watch private digest task.
+                           "compliance_watch"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             # 2026-04-27 — attribute every direct-tool LLM call to its

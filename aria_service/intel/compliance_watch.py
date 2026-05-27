@@ -26,6 +26,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import re
 import time
 from typing import Any, Optional
 
@@ -151,3 +153,371 @@ async def stats() -> dict:
         return {"total_captured": await rs.llen(_LOG_KEY)}
     except Exception:
         return {"total_captured": 0}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SLICE 2 — ANALYSE: grounded findings engine (R-F934)
+# Reads the capture store and produces findings, each carrying its exact
+# evidence (verbatim quote + attribution). HARD RULE: no finding without a
+# quote — Compliance Watch never accuses on an inference alone.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Deterministic risk lexicon (no LLM, no cost). Tuned for defence-broking
+# compliance: sanctions, export-control, diversion, and bribery/ABC.
+_RISK_PATTERNS: list[tuple[str, str, "re.Pattern[str]"]] = [
+    ("sanctions", "HIGH", re.compile(
+        r"\b(sanction(ed|s)?|embargo(ed)?|ofac|ofsi|sdn list|consolidated list|"
+        r"designated (entity|person)|asset freeze|blocked person)\b", re.I)),
+    ("diversion", "HIGH", re.compile(
+        r"\b(divert(ed|ing)?|re-?export|tran(s-?)?ship(ment)?|front compan(y|ies)|"
+        r"false (end-?user|euc)|grey market|circumvent(ing)? (the )?(sanction|control)|"
+        r"change (the )?(final )?destination)\b", re.I)),
+    ("export_control", "MEDIUM", re.compile(
+        r"\b(export licen[cs]e|\bitar\b|dual-?use|\bml\s?\d|controlled goods|"
+        r"end-?user (cert|certificate|undertaking)|\beuc\b|wassenaar|brokering licen[cs]e)\b", re.I)),
+    ("bribery", "HIGH", re.compile(
+        r"\b(bribe|kickback|facilitation payment|under the table|off the books|"
+        r"grease (the )?palm|secret commission|slush fund|envelope for|"
+        r"commission to (the )?(official|minister|general|colonel))\b", re.I)),
+]
+
+# Cues that a message is an ASK aimed at the team (for the blind-spot lane).
+_ASK_CUE = re.compile(
+    r"(\?\s*$)|\b(can you|could you|please (confirm|send|advise|approve|review)|"
+    r"need(ed)? (it |this )?(by|before)|deadline|by (tomorrow|monday|tuesday|wednesday|"
+    r"thursday|friday|end of (day|week)|cob|eod)|asap|waiting (on|for) (you|your)|"
+    r"awaiting your|any update|chase|follow(-| )?up)\b", re.I)
+
+# Conservative contradiction cue: an explicit reversal by the same person.
+_REVERSAL_CUE = re.compile(
+    r"\b(actually|in fact|to be clear|correction|i misspoke|that('?s| is) (not|wrong)|"
+    r"no longer|we don'?t|we do not|never (said|agreed)|changed? my mind|"
+    r"scratch that|disregard|the opposite)\b", re.I)
+
+_SEV_RANK = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+_URGENT_SEVERITIES = {"HIGH", "CRITICAL"}
+
+_LAST_ANALYSED_KEY = "crucix:aria:compliance_watch:last_analysed_seq"
+
+
+def _operator_email() -> str:
+    for k in ("ARIA_COMPLIANCE_DIGEST_TO", "ARIA_OPERATOR_EMAIL", "ARIA_EMAIL_USER"):
+        v = (os.getenv(k) or "").strip()
+        if v:
+            return v
+    return "acorrea@arkmurus.com"
+
+
+def _principal_names() -> set[str]:
+    raw = os.getenv("ARIA_COMPLIANCE_PRINCIPAL_NAMES") or "Antonio,Arkmurus"
+    return {n.strip().lower() for n in raw.split(",") if n.strip()}
+
+
+_deception_analyser = None
+
+
+def _get_deception_analyser():
+    global _deception_analyser
+    if _deception_analyser is None:
+        from .deception_detection import ARIADeceptionAnalyser
+        _deception_analyser = ARIADeceptionAnalyser()
+    return _deception_analyser
+
+
+def _finding(*, category: str, severity: str, rec: dict, read: str, action: str,
+             confidence: float, extra: Optional[dict] = None) -> dict:
+    """Build one grounded finding. `rec` supplies the verbatim evidence +
+    attribution — a finding can ONLY exist with a backing record."""
+    f = {
+        "category": category,
+        "severity": severity,
+        "group": rec.get("group", ""),
+        "sender": rec.get("sender", ""),
+        "timestamp": rec.get("timestamp", ""),
+        "seq": rec.get("seq"),
+        "quote": (rec.get("text") or "")[:600],     # the evidence — verbatim
+        "read": read,
+        "action": action,
+        "confidence": round(float(confidence), 2),
+    }
+    if extra:
+        f.update(extra)
+    return f
+
+
+def analyse_message(rec: dict) -> list[dict]:
+    """Per-message deterministic analysis: risk lexicon + linguistic deception.
+    Cheap (no LLM). Returns zero or more grounded findings."""
+    findings: list[dict] = []
+    text = (rec.get("text") or "").strip()
+    if not text:
+        return findings
+
+    # ── Risk lexicon ──
+    for category, severity, pat in _RISK_PATTERNS:
+        m = pat.search(text)
+        if m:
+            findings.append(_finding(
+                category=f"risk:{category}", severity=severity, rec=rec,
+                read=(f"Message references {category.replace('_',' ')} "
+                      f"(matched: \"{m.group(0)}\"). In a defence-broking channel "
+                      f"this is a {severity.lower()}-priority compliance signal."),
+                action=("Review the full thread; if this concerns a live deal, run "
+                        "sanctions/export-control screening on the parties + end-user "
+                        "before any commitment."),
+                confidence=0.6, extra={"matched_term": m.group(0)},
+            ))
+
+    # ── Linguistic deception (heuristic, no LLM) ──
+    try:
+        score = _get_deception_analyser().analyse(text, context_type="business_communication")
+        tier = getattr(getattr(score, "tier", None), "value", "LOW")
+        if tier in ("ELEVATED", "HIGH"):
+            sev = "HIGH" if tier == "HIGH" else "MEDIUM"
+            sigs = ", ".join(s.category for s in (score.signals_detected or [])[:3]) or "linguistic markers"
+            findings.append(_finding(
+                category="deception", severity=sev, rec=rec,
+                read=(f"Linguistic deception risk {tier} ({score.percentage}) — "
+                      f"signals: {sigs}. This is a RISK INDICATOR, not a verdict."),
+                action="Treat statements in this message with extra scrutiny; corroborate independently before relying on them.",
+                confidence=round(float(getattr(score, "confidence", 0.5)) * float(getattr(score, "raw_score", 0.5)) + 0.2, 2),
+                extra={"deception_score": round(float(getattr(score, "raw_score", 0.0)), 3), "deception_tier": tier},
+            ))
+    except Exception as e:
+        logger.debug("deception analyse failed (non-fatal): %s", e)
+
+    return findings
+
+
+def detect_blind_spots(records: list[dict]) -> list[dict]:
+    """Flag clear asks/deadlines that went UNANSWERED in the window — things
+    the principal/team may have missed. Conservative: only fires on an explicit
+    ask with no subsequent reply in the same group. Records are newest-first."""
+    findings: list[dict] = []
+    principals = _principal_names()
+    # Index later replies per group (anything said AFTER a given seq in that group).
+    by_group: dict[str, list[dict]] = {}
+    for r in records:
+        by_group.setdefault(r.get("group", ""), []).append(r)
+    for grp, recs in by_group.items():
+        # recs are newest-first; iterate and check if anyone replied AFTER each ask
+        for i, r in enumerate(recs):
+            text = (r.get("text") or "")
+            if not _ASK_CUE.search(text):
+                continue
+            sender = (r.get("sender") or "").lower()
+            if sender in principals:
+                continue  # the principal asking others isn't a blind spot for them
+            # any message in this group NEWER than r (index < i, since newest-first)?
+            answered = any(
+                (recs[j].get("sender") or "").lower() != sender
+                for j in range(0, i)
+            )
+            if not answered:
+                findings.append(_finding(
+                    category="blind_spot", severity="MEDIUM", rec=r,
+                    read=("A direct ask/deadline aimed at the team appears UNANSWERED "
+                          "in the captured window — a potential dropped ball."),
+                    action="Confirm whether this was handled off-channel; if not, respond or delegate.",
+                    confidence=0.5,
+                ))
+    return findings
+
+
+def detect_contradictions(records: list[dict]) -> list[dict]:
+    """Conservative same-sender reversal detector (deterministic, no LLM): a
+    sender who later explicitly reverses/corrects an earlier statement. Low
+    confidence by design — flags for review, never asserts bad faith. The deep
+    LLM claim-ledger contradiction pass is available separately (cost-gated)."""
+    findings: list[dict] = []
+    by_sender: dict[str, list[dict]] = {}
+    for r in records:
+        key = (r.get("group", ""), (r.get("sender") or "").lower())
+        by_sender.setdefault(str(key), []).append(r)
+    for _, recs in by_sender.items():
+        for r in recs:  # newest-first; a reversal cue references something earlier
+            text = (r.get("text") or "")
+            if len(recs) >= 2 and _REVERSAL_CUE.search(text):
+                findings.append(_finding(
+                    category="contradiction", severity="HIGH", rec=r,
+                    read=("Same participant appears to REVERSE/correct an earlier "
+                          "statement in this group — verify which version is operative; "
+                          "shifting positions can signal risk or simply a clarification."),
+                    action="Pull this sender's prior messages in the thread and reconcile the two statements before relying on either.",
+                    confidence=0.45,
+                ))
+    return findings
+
+
+async def analyse_window(*, window_hours: float = 24.0, group: Optional[str] = None,
+                         limit: int = 2000) -> dict:
+    """Pull the recent capture window and run every analysis lane. Returns
+    {findings, analysed, analysed_seq_max, window_hours}. Findings sorted by
+    severity then recency."""
+    since = time.time() - window_hours * 3600.0
+    records = await get_captured(since_epoch=since, group=group, limit=limit)
+    findings: list[dict] = []
+    seq_max = 0
+    for rec in records:
+        try:
+            seq_max = max(seq_max, int(rec.get("seq") or 0))
+        except (TypeError, ValueError):
+            pass
+        findings.extend(analyse_message(rec))
+    findings.extend(detect_blind_spots(records))
+    findings.extend(detect_contradictions(records))
+    findings.sort(key=lambda f: (_SEV_RANK.get(f.get("severity", "LOW"), 0),
+                                 f.get("seq") or 0), reverse=True)
+    return {
+        "findings": findings,
+        "analysed": len(records),
+        "analysed_seq_max": seq_max,
+        "window_hours": window_hours,
+    }
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SLICE 4 — FEEDBACK LOOP + coverage ledger (R-F936)
+# ═════════════════════════════════════════════════════════════════════════════
+
+async def record_findings_to_brain(findings: list[dict]) -> None:
+    """Feed findings into ARIA's brain so she learns patterns + the operator
+    dashboard/coder can see them. Best-effort; never raises."""
+    if not findings:
+        return
+    try:
+        from . import brain_hook as _bh
+        for f in findings[:50]:
+            sev = f.get("severity", "LOW")
+            await _bh.observe_self_event(
+                f"compliance_finding:{f.get('category','')}",
+                {k: f.get(k) for k in ("category", "severity", "group", "sender",
+                                       "timestamp", "seq", "confidence")},
+                success=(sev not in _URGENT_SEVERITIES),
+                gap_type=("compliance_risk" if sev in _URGENT_SEVERITIES else "compliance_observation"),
+            )
+    except Exception as e:
+        logger.debug("record_findings_to_brain failed (non-fatal): %s", e)
+
+
+async def mark_analysed(seq: int) -> None:
+    try:
+        from . import redis_store as rs
+        if seq and int(seq) > 0:
+            await rs.set(_LAST_ANALYSED_KEY, str(int(seq)))
+    except Exception:
+        pass
+
+
+async def coverage_report() -> dict:
+    """The 'nothing missed' proof: total captured vs highest seq analysed.
+    A positive gap = messages captured but not yet analysed."""
+    try:
+        from . import redis_store as rs
+        total = await rs.llen(_LOG_KEY)
+        head = await rs.lrange(_LOG_KEY, 0, 0)
+        max_seq = 0
+        if head:
+            try:
+                max_seq = int((json.loads(head[0]) or {}).get("seq") or 0)
+            except Exception:
+                max_seq = 0
+        last = await rs.get(_LAST_ANALYSED_KEY)
+        last_seq = int(last) if (last and str(last).isdigit()) else 0
+        return {
+            "total_captured": total,
+            "max_seq": max_seq,
+            "last_analysed_seq": last_seq,
+            "unanalysed_gap": max(0, max_seq - last_seq),
+            "fully_covered": max_seq <= last_seq,
+        }
+    except Exception as e:
+        return {"error": str(e)[:200]}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SLICE 3 — PRIVATE DELIVERY: structured digest emailed to the principal (R-F935)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def format_digest(findings: list[dict], *, period_label: str, coverage: Optional[dict] = None) -> tuple[str, str]:
+    """Render (subject, body) — structured exactly per the spec:
+    Subject · Group · Person · Time · verbatim quote · ARIA's read · action · confidence."""
+    urgent = [f for f in findings if f.get("severity") in _URGENT_SEVERITIES]
+    subject = (f"[ARIA Compliance Watch] {period_label} — "
+               f"{len(findings)} finding(s), {len(urgent)} urgent")
+    lines = [
+        "ARIA COMPLIANCE WATCH — PRIVATE / COMPLIANCE PRINCIPAL ONLY",
+        f"Period: {period_label}",
+        "",
+        ("⚠ This brief is grounded: every finding cites the verbatim message + "
+         "attribution. Risk indicators are not verdicts."),
+        "",
+    ]
+    if coverage:
+        lines.append(f"Coverage: {coverage.get('total_captured','?')} messages captured · "
+                     f"gap {coverage.get('unanalysed_gap','?')} unanalysed")
+        lines.append("")
+    if not findings:
+        lines.append("No findings in this window. (Capture + analysis ran clean.)")
+        return subject, "\n".join(lines)
+
+    for f in findings:
+        lines += [
+            "─" * 60,
+            f"[{f.get('severity')} · {f.get('category')}]  "
+            f"{f.get('group','')} · {f.get('sender','')} · {f.get('timestamp','')}  (seq {f.get('seq')})",
+            f"  Evidence: \"{f.get('quote','')}\"",
+            f"  Read:     {f.get('read','')}",
+            f"  Action:   {f.get('action','')}",
+            f"  Confidence: {f.get('confidence')}",
+        ]
+    lines.append("─" * 60)
+    return subject, "\n".join(lines)
+
+
+async def run_compliance_watch(*, window_hours: float = 24.0, urgent_only: bool = False,
+                               period_label: str = "") -> dict:
+    """End-to-end: analyse the window → (feedback to brain + coverage) → email the
+    private digest to the compliance principal. Uses the gated email_outbound
+    bridge: it DRAFTS (and logs) until ARIA_EMAIL_OUTBOUND_ENABLED=1 + the
+    principal is allow-listed, so this is safe to run before delivery is turned on.
+    urgent_only=True suppresses the email unless there is a HIGH/CRITICAL finding."""
+    label = period_label or ("urgent scan" if urgent_only else f"last {int(window_hours)}h")
+    res = await analyse_window(window_hours=window_hours)
+    findings = res["findings"]
+    if urgent_only:
+        findings = [f for f in findings if f.get("severity") in _URGENT_SEVERITIES]
+
+    # Feedback loop + coverage (always, even if nothing emailed).
+    await record_findings_to_brain(findings)
+    if res.get("analysed_seq_max"):
+        await mark_analysed(res["analysed_seq_max"])
+    coverage = await coverage_report()
+
+    if urgent_only and not findings:
+        return {"sent": False, "reason": "no_urgent_findings", "analysed": res["analysed"],
+                "findings": 0, "coverage": coverage}
+
+    subject, body = format_digest(findings, period_label=label, coverage=coverage)
+    delivery = {"sent": False, "draft": True}
+    try:
+        from ..integrations import email_outbound as _eo
+        delivery = _eo.send_email(
+            to=_operator_email(), subject=subject, body=body, internal=True,
+            sender_note=("ARIA Compliance Watch — PRIVATE to the compliance principal. "
+                         "Do not forward. Grounded findings (verbatim evidence cited)."),
+        )
+    except Exception as e:
+        logger.warning("compliance digest send failed (non-fatal): %s", e)
+        delivery = {"sent": False, "error": str(e)[:200]}
+
+    return {
+        "sent": bool(delivery.get("sent")),
+        "drafted": bool(delivery.get("draft")) and not delivery.get("sent"),
+        "to": _operator_email(),
+        "findings": len(findings),
+        "urgent_only": urgent_only,
+        "analysed": res["analysed"],
+        "coverage": coverage,
+        "subject": subject,
+    }
