@@ -348,7 +348,7 @@ async function readDocumentAsync(payload, chatId, filename) {
   await sendReply(chatId,
     `📥 Reading *${filename}* — a large or scanned document takes a minute. `
     + `I'll send the overview as soon as it's ready.`).catch(() => {});
-  const POLL_MS = 5000, MAX_POLLS = 96;   // 5s × 96 = up to 8 minutes
+  const POLL_MS = 5000, MAX_POLLS = 120;   // R-F943: 5s × 120 = up to 10 minutes (was 8)
   // R-F880 — 8-min window (was 4): with document_intelligence deferred server-
   // side, a text-layer doc resolves in seconds, but a LENGTHY SCANNED PDF still
   // needs full multi-page OCR (no shortcuts) which can run several minutes. The
@@ -364,7 +364,7 @@ async function readDocumentAsync(payload, chatId, filename) {
     if (st.status === 'not_found') throw new Error('extraction job expired');
     // status === 'processing' → keep polling
   }
-  throw new Error('extraction timed out after 4 minutes');
+  throw new Error('extraction timed out after 10 minutes');
 }
 
 // ── Ask ARIA with persistent per-sender sessions ────────────────────────────
@@ -453,9 +453,17 @@ async function askARIAAsync(message, senderJid, chatId = null) {
   if (chatId) {
     await sendReply(chatId,
       '🔎 Working on that now — this one needs a deeper look (fresh sources or a '
-      + 'full document), so it takes a moment. I\'ll reply here as soon as it\'s ready.').catch(() => {});
+      + 'full document). A complete contract/agreement review can take several '
+      + 'minutes; I\'ll take the time to do it properly and reply here the moment '
+      + 'it\'s ready.').catch(() => {});
   }
-  const POLL_MS = 4000, MAX_POLLS = 60;   // 4s × 60 = up to 4 minutes
+  // R-F943 (2026-05-27) — 4-min → 10-min window. The brain job has NO server-side
+  // cap (line ~338), so a thorough review of a large agreement (e.g. Korvera UTS
+  // Master Agency Agreement, 324 facts, 2026-05-27) is only ever cut off by THIS
+  // client poll window. Operator directive: "give a good length of time... she
+  // uses what is needed... stop constantly setting up limitations." 10 min lets a
+  // full multi-section review (read → synthesis → self-review passes) finish.
+  const POLL_MS = 5000, MAX_POLLS = 120;   // 5s × 120 = up to 10 minutes
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise(r => setTimeout(r, POLL_MS));
     let st;
@@ -470,7 +478,7 @@ async function askARIAAsync(message, senderJid, chatId = null) {
     if (st.status === 'not_found') throw new Error('chat job expired');
     // status === 'processing' → keep polling
   }
-  throw new Error('chat job timed out after 4 minutes');
+  throw new Error('chat job timed out after 10 minutes');
 }
 
 // ── Split long messages into chunks for WhatsApp ────────────────────────────
