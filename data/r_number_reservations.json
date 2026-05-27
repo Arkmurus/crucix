@@ -3897,9 +3897,10 @@
       "title": "aria-intel HF_HUB_OFFLINE=1 — load baked all-MiniLM from disk, no HF network round-trip on restart (kills post-restart cold-load degradation)",
       "claimed_at": "2026-05-27T10:19:05Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "caf26e4",
+      "notes": null,
+      "shipped_at": "2026-05-27T10:19:53Z"
     }
   ]
 }
