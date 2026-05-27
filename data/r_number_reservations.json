@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 931,
+  "next_available": 934,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3822,6 +3822,33 @@
       "commit_sha": "b5275dd",
       "notes": null,
       "shipped_at": "2026-05-27T08:46:43Z"
+    },
+    {
+      "r_number": "R-F931",
+      "title": "coverage_heatmap v2: inverted-index matcher (O(facts*(D+J))) + disk-persist matrix so cold boots skip recompute (kill 35s cold-boot stall)",
+      "claimed_at": "2026-05-27T09:38:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F932",
+      "title": "brain_hook neural-tier timeout: relax R-F872 wedge band-aid now wedge fixed (per-tier neural timeout + concurrency)",
+      "claimed_at": "2026-05-27T09:38:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F933",
+      "title": "Compliance Watch slice1 — append-only hash-chained attributed capture store for WA group messages (evidentiary)",
+      "claimed_at": "2026-05-27T09:44:47Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

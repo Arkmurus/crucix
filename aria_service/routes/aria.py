@@ -11378,6 +11378,22 @@ async def brain_signal_ep(request: Request, background_tasks: _BackgroundTasks):
 
     async def _route_signal():
         try:
+            # R-F933 — Compliance Watch CAPTURE. Every WhatsApp group message is
+            # persisted to the append-only, hash-chained, attributed evidentiary
+            # store (in ADDITION to the learning absorb below). This is the
+            # bedrock the analysis + private-digest slices read from. Best-effort.
+            if sig_type == "whatsapp_group_message":
+                try:
+                    from ..intel import compliance_watch as _cw933
+                    await _cw933.capture_message(
+                        group=str(metadata.get("group", "")),
+                        sender=str(metadata.get("sender", "")),
+                        text=content,
+                        timestamp=str(metadata.get("timestamp", "")),
+                        channel=str(metadata.get("channel", "whatsapp")),
+                    )
+                except Exception as _cw_e:
+                    _log.debug("R-F933 compliance_watch capture failed (non-fatal): %s", _cw_e)
             if _is_failure:
                 from ..intel import capability_gaps as _cg887
                 await _cg887.record_gap(
@@ -11400,7 +11416,8 @@ async def brain_signal_ep(request: Request, background_tasks: _BackgroundTasks):
 
     background_tasks.add_task(_route_signal)
     return {"ok": True, "accepted": True, "signal_type": sig_type,
-            "routed": "capability_gap" if _is_failure else "brain_absorb"}
+            "routed": "capability_gap" if _is_failure else "brain_absorb",
+            "captured": sig_type == "whatsapp_group_message"}
 
 
 @router.post("/brain/absorb")
