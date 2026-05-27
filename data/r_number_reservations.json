@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 937,
+  "next_available": 938,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3881,6 +3881,15 @@
       "commit_sha": "4b81b5f",
       "notes": null,
       "shipped_at": "2026-05-27T10:03:43Z"
+    },
+    {
+      "r_number": "R-F937",
+      "title": "Compliance Watch — self-feedback lane: analyse the principal's OWN messages for misleading/evasive tone, framed as coaching not counterparty alert",
+      "claimed_at": "2026-05-27T10:10:48Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

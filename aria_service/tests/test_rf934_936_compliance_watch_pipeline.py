@@ -157,6 +157,30 @@ def test_rf935_run_end_to_end_emails_principal(fake_rs, monkeypatch):
     assert report["coverage"]["fully_covered"] is True
 
 
+def test_rf937_principal_own_message_is_self_feedback(monkeypatch):
+    """R-F937 — the principal's OWN messages get reframed as self-awareness
+    coaching (category self_style, MEDIUM); a counterparty saying the same gets
+    a deception ALERT. Uses a forced-HIGH score so the branch is deterministic."""
+    class _T:
+        value = "HIGH"
+    class _FakeScore:
+        tier = _T(); percentage = "75%"; signals_detected = []; confidence = 0.7; raw_score = 0.75
+    class _FakeAnalyser:
+        def analyse(self, *a, **k): return _FakeScore()
+    monkeypatch.setattr(cw, "_get_deception_analyser", lambda: _FakeAnalyser())
+    monkeypatch.setenv("ARIA_COMPLIANCE_PRINCIPAL_NAMES", "Antonio,Arkmurus")
+
+    fp = cw.analyse_message(_rec(1, "Antonio", "well i mean its sort of basically fine more or less"))
+    cats = [f["category"] for f in fp]
+    assert "self_style" in cats and "deception" not in cats
+    sf = next(f for f in fp if f["category"] == "self_style")
+    assert sf["severity"] == "MEDIUM" and sf.get("self_feedback") is True and sf["quote"]
+
+    fc = cw.analyse_message(_rec(2, "Counterparty", "well i mean its sort of basically fine more or less"))
+    cats2 = [f["category"] for f in fc]
+    assert "deception" in cats2 and "self_style" not in cats2
+
+
 def test_rf935_urgent_only_silent_without_high_finding(fake_rs, monkeypatch):
     calls = {"n": 0}
     def _send(**kw): calls["n"] += 1; return {"sent": True}

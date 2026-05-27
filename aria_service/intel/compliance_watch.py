@@ -273,16 +273,36 @@ def analyse_message(rec: dict) -> list[dict]:
         score = _get_deception_analyser().analyse(text, context_type="business_communication")
         tier = getattr(getattr(score, "tier", None), "value", "LOW")
         if tier in ("ELEVATED", "HIGH"):
-            sev = "HIGH" if tier == "HIGH" else "MEDIUM"
             sigs = ", ".join(s.category for s in (score.signals_detected or [])[:3]) or "linguistic markers"
-            findings.append(_finding(
-                category="deception", severity=sev, rec=rec,
-                read=(f"Linguistic deception risk {tier} ({score.percentage}) — "
-                      f"signals: {sigs}. This is a RISK INDICATOR, not a verdict."),
-                action="Treat statements in this message with extra scrutiny; corroborate independently before relying on them.",
-                confidence=round(float(getattr(score, "confidence", 0.5)) * float(getattr(score, "raw_score", 0.5)) + 0.2, 2),
-                extra={"deception_score": round(float(getattr(score, "raw_score", 0.0)), 3), "deception_tier": tier},
-            ))
+            conf = round(float(getattr(score, "confidence", 0.5)) * float(getattr(score, "raw_score", 0.5)) + 0.2, 2)
+            dscore = round(float(getattr(score, "raw_score", 0.0)), 3)
+            is_principal = (rec.get("sender", "") or "").lower() in _principal_names()
+            if is_principal:
+                # R-F937 — self-feedback. The principal asked to know whether their
+                # OWN messages read as misleading. Framed as constructive
+                # self-awareness coaching (capped MEDIUM — it is feedback, not a
+                # counterparty alert), so the daily digest tells you how you come
+                # across. The lane always analysed the principal; this just
+                # reframes the output for the person reading their own digest.
+                findings.append(_finding(
+                    category="self_style", severity="MEDIUM", rec=rec,
+                    read=(f"YOUR OWN message reads as potentially misleading/evasive "
+                          f"({tier}, {score.percentage}) — signals: {sigs}. "
+                          f"Self-awareness feedback on how you come across — not a verdict."),
+                    action=("If clarity matters here, restate the point plainly — fewer "
+                            "hedges, qualifiers and negations tends to read as more candid."),
+                    confidence=conf,
+                    extra={"deception_score": dscore, "deception_tier": tier, "self_feedback": True},
+                ))
+            else:
+                findings.append(_finding(
+                    category="deception", severity=("HIGH" if tier == "HIGH" else "MEDIUM"), rec=rec,
+                    read=(f"Linguistic deception risk {tier} ({score.percentage}) — "
+                          f"signals: {sigs}. This is a RISK INDICATOR, not a verdict."),
+                    action="Treat statements in this message with extra scrutiny; corroborate independently before relying on them.",
+                    confidence=conf,
+                    extra={"deception_score": dscore, "deception_tier": tier},
+                ))
     except Exception as e:
         logger.debug("deception analyse failed (non-fatal): %s", e)
 
