@@ -3846,9 +3846,10 @@
       "title": "Compliance Watch slice1 — append-only hash-chained attributed capture store for WA group messages (evidentiary)",
       "claimed_at": "2026-05-27T09:44:47Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "fe2b803",
+      "notes": null,
+      "shipped_at": "2026-05-27T09:50:08Z"
     }
   ]
 }
