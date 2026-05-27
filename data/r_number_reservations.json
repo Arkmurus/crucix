@@ -3768,9 +3768,10 @@
       "title": "WA chat-failure emits wa_chat_failed brain signal (cross-tier P3; coder-visible capability gap)",
       "claimed_at": "2026-05-27T00:09:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5a20119",
+      "notes": null,
+      "shipped_at": "2026-05-27T00:13:36Z"
     }
   ]
 }
