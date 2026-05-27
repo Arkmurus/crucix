@@ -2099,6 +2099,17 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     """
     addendum_parts = []
 
+    # R-F947 (2026-05-27) — when a DOCUMENT is attached, the context window must
+    # leave room for the document itself. The calibrated prompt had grown to
+    # ~236K chars (~59K tokens) from store-backed addenda (calibration,
+    # contradictions, correction lessons) that grow unbounded as ARIA learns,
+    # plus always-on principle blocks — so on DeepSeek's ~64K window a 15K-token
+    # contract was truncated to ~Clause 5.4 (live Korvera review, 2026-05-27).
+    # In document mode we skip the unbounded/irrelevant addenda and keep only
+    # the constitution + persona + the contract-review checklist + law context,
+    # so the full document survives in the window.
+    _doc_grounded = bool(message and "[ATTACHED DOCUMENT" in message)
+
     # R-F48a: persona overlay — sector-specific tuning of the constitution.
     # Prepended FIRST so the LLM reads the persona framing immediately
     # after the constitution, before any of the conditional addenda
@@ -2114,11 +2125,11 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
 
     cal = await _get_cached_calibration()
     cal_addendum = _calibration_to_prompt_addendum(cal)
-    if cal_addendum:
+    if cal_addendum and not _doc_grounded:
         addendum_parts.append(cal_addendum)
 
     contras_addendum = await _get_relevant_contradictions(message)
-    if contras_addendum:
+    if contras_addendum and not _doc_grounded:
         addendum_parts.append(contras_addendum)
 
     # PMESII template — fires when message looks like a country assessment.
@@ -2128,7 +2139,7 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     try:
         from .intel import pmesii as _pmesii
         country = _pmesii.detect_country_assessment(message)
-        if country:
+        if country and not _doc_grounded:
             addendum_parts.append(_pmesii.addendum_for(country))
             logger.info("[pmesii] country-assessment template injected for %s", country)
     except Exception as e:
@@ -2142,7 +2153,7 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     try:
         from .intel import stale_knowledge_alerts as _ska
         alerts = _ska.relevant_alerts(message)
-        if alerts:
+        if alerts and not _doc_grounded:
             addendum_parts.append(_ska.addendum_for(alerts))
             logger.info("[stale_knowledge] injected %d alert(s)", len(alerts))
     except Exception as e:
@@ -2157,7 +2168,7 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     try:
         from .intel import analytic_principles as _ap
         principles = _ap.addendum()
-        if principles:
+        if principles and not _doc_grounded:
             addendum_parts.append(principles)
     except Exception as e:
         logger.debug("analytic_principles injection failed (non-fatal): %s", e)
@@ -2170,7 +2181,7 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     # ARIA_NEGOTIATION_PRINCIPLES env var (default ON).
     try:
         from .intel import negotiation_principles as _np
-        if _np.detect_negotiation_intent(message):
+        if _np.detect_negotiation_intent(message) and not _doc_grounded:
             neg = _np.addendum()
             if neg:
                 addendum_parts.append(neg)
@@ -2187,7 +2198,7 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     # ARIA_GHOST_DETECTION_PRINCIPLES env var (default ON).
     try:
         from .intel import ghost_detection_principles as _gd
-        if _gd.detect_dd_intent(message):
+        if _gd.detect_dd_intent(message) and not _doc_grounded:
             gd = _gd.addendum()
             if gd:
                 addendum_parts.append(gd)
@@ -2612,7 +2623,16 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
 
     if not addendum_parts:
         return ARIA_SYSTEM_PROMPT
-    return ARIA_SYSTEM_PROMPT + "\n\n" + "\n\n".join(addendum_parts)
+    final = ARIA_SYSTEM_PROMPT + "\n\n" + "\n\n".join(addendum_parts)
+    # R-F947 — hard safety cap so the system prompt can never grow to eat the
+    # context window and truncate an attached document. In document mode the
+    # budget is tighter (leave ~30K+ tokens for the document + its context).
+    # The base constitution is always FIRST, so a tail-trim preserves it.
+    _cap = 150_000 if _doc_grounded else 260_000
+    if len(final) > _cap:
+        final = final[:_cap] + "\n\n[System addenda truncated to preserve context-window room.]"
+        logger.info("[R-F947] system prompt capped to %d chars (doc_grounded=%s)", _cap, _doc_grounded)
+    return final
 
 
 # ── Chat audit helper ────────────────────────────────────────────────────────

@@ -7103,7 +7103,13 @@ async def chat_ep(req: ChatRequest, request: Request):
         # can show what user-driven traffic costs vs background cycles.
         with cost_tracker.feature("chat"):
             # ── NLU tool-use: detect investigative intent and run tools first ──
-            if req.auto_tools:
+            # R-F948 (2026-05-27) — skip auto tool-crawl when a DOCUMENT is
+            # attached. The document IS the content to review; crawling URLs
+            # embedded in it (LinkedIn/email links in a contract signature block)
+            # added minutes and timed out the WhatsApp review (live Korvera,
+            # 2026-05-27). The document reaches the LLM directly; an explicit
+            # follow-up question without an attachment still triggers tools.
+            if req.auto_tools and "[ATTACHED DOCUMENT" not in (req.message or ""):
                 intent = _detect_tool_intent(req.message)
                 if intent and llm and llm.is_configured:
                     tool_used = intent.get("tool")
@@ -8356,7 +8362,8 @@ async def chat_stream_ep(req: ChatRequest, request: Request):
         # generator definition for the why.
         tool_used = None
         tool_context = ""
-        if req.auto_tools:
+        # R-F948 — skip auto tool-crawl when a document is attached (see chat path).
+        if req.auto_tools and "[ATTACHED DOCUMENT" not in (req.message or ""):
             yield f'data: {json.dumps({"type":"progress","stage":"detecting","message":"Detecting intent…"})}\n\n'
             intent = _detect_tool_intent(req.message)
             if intent and llm and llm.is_configured:
