@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 941,
+  "next_available": 943,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3838,9 +3838,10 @@
       "title": "brain_hook neural-tier timeout: relax R-F872 wedge band-aid now wedge fixed (per-tier neural timeout + concurrency)",
       "claimed_at": "2026-05-27T09:38:00Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ccfe749",
+      "notes": null,
+      "shipped_at": "2026-05-27T13:21:17Z"
     },
     {
       "r_number": "R-F933",
@@ -3907,9 +3908,10 @@
       "title": "knowledge.search_knowledge: cache lowercased fact search-text (lazy, fact-list-change invalidated) to cut per-query CPU contention (5-6s cold-boot wedge_672)",
       "claimed_at": "2026-05-27T10:28:08Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "ccfe749",
+      "notes": null,
+      "shipped_at": "2026-05-27T10:34:23Z"
     },
     {
       "r_number": "R-F940",
@@ -3920,6 +3922,24 @@
       "commit_sha": "310dbc8",
       "notes": null,
       "shipped_at": "2026-05-27T10:30:54Z"
+    },
+    {
+      "r_number": "R-F941",
+      "title": "read tool-context renders fact content/topic (was wrong keys → empty summary → empty doc-read answer)",
+      "claimed_at": "2026-05-27T13:32:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F942",
+      "title": "chat never returns empty user-facing response (scratchpad-only salvage)",
+      "claimed_at": "2026-05-27T13:32:19Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

@@ -6583,23 +6583,45 @@ async def _execute_tool(intent: dict, llm) -> str:
                 facts_list = r.get("facts") or []
                 if facts_list:
                     parts: list[str] = []
-                    for ff in facts_list[:8]:
+                    for ff in facts_list[:15]:
                         if isinstance(ff, dict):
-                            txt = ff.get("text") or ff.get("claim") or ff.get("value") or ""
+                            # R-F941 (2026-05-27) — facts carry topic/content
+                            # (researcher.py:1731 schema), NOT text/claim/value.
+                            # R-W3 built this fallback summary but reached for
+                            # keys the fact dicts never carry, so a 16-fact read
+                            # rendered an EMPTY Summary → the LLM had nothing to
+                            # cite → it returned an empty answer (live CSG read
+                            # 2026-05-27, trace tr_1779888228956_88ad3c). Mirror
+                            # the proven crawl_website renderer (line ~6550).
+                            topic = (ff.get("topic") or "").strip()
+                            content = (
+                                ff.get("content") or ff.get("text")
+                                or ff.get("claim") or ff.get("value") or ""
+                            ).strip()
+                            conf = ff.get("confidence", "?")
+                            line = (
+                                f"{topic}: {content}"
+                                if (topic and content) else (content or topic)
+                            )
+                            if line:
+                                parts.append(f"  - [{conf}] {line[:240]}")
                         else:
-                            txt = str(ff)
-                        if txt:
-                            parts.append("• " + txt.strip()[:240])
+                            s = str(ff).strip()
+                            if s:
+                                parts.append("  - " + s[:240])
                     summary = "\n".join(parts)
                 hyp = r.get("hypothesis")
                 if hyp and isinstance(hyp, dict):
-                    h_text = hyp.get("hypothesis") or hyp.get("text") or ""
+                    h_text = (
+                        hyp.get("statement") or hyp.get("hypothesis")
+                        or hyp.get("text") or ""
+                    )
                     if h_text:
                         summary = (summary + "\n\nHypothesis: " + h_text).strip()
-            summary = summary[:1500]
+            summary = summary[:2000]
             base = (
                 f"\n\n[TOOL: read_article]\nURL: {intent['url']}\n"
-                f"Facts learned: {facts}\nSummary: {summary}"
+                f"Facts learned: {facts}\nSummary:\n{summary}"
             )
             if facts == 0 and not summary.strip():
                 base += _no_data_warning(
@@ -7142,6 +7164,7 @@ async def chat_ep(req: ChatRequest, request: Request):
             # scratchpad is produced in the SAME call as the answer, so
             # latency/cost is flat vs the old single-pass path.
             _scratchpad_applied = False
+            _sp_prefix = ""  # R-F942 — always bound for the empty-response salvage
             try:
                 from ..intel import scratchpad as _sp
                 _complexity_hint = ""
@@ -7324,6 +7347,68 @@ async def chat_ep(req: ChatRequest, request: Request):
                     result["scratchpad_skipped_by_llm"] = True
             except Exception as e:
                 _log.debug("[scratchpad] strip failed (non-fatal): %s", e)
+
+        # ── R-F942 (2026-05-27) — never ship an EMPTY user-facing answer ──
+        # Live failure (CSG read 2026-05-27, trace tr_1779888228956_88ad3c):
+        # the LLM reasoned the whole turn inside <scratchpad> ("no citable
+        # content → state the gap") and emitted NO text after </scratchpad>;
+        # strip() correctly removed the reasoning, leaving response="" →
+        # status=empty_response → the WA user saw "temporarily unavailable".
+        # Salvage by re-prompting ONCE with the scratchpad instruction removed
+        # so the model produces a clean answer. The tool result is already
+        # baked into message_for_llm, so this does NOT re-fetch/re-crawl — it's
+        # a single extra completion, and only on the rare empty-after-strip turn.
+        if (
+            not (response_text or "").strip()
+            and _scratchpad_applied
+            and not (result or {}).get("cached")
+            and not (result or {}).get("llm_failure")
+            and llm is not None
+        ):
+            try:
+                _salvage_msg = (
+                    message_for_llm.replace(_sp_prefix, "")
+                    if _sp_prefix else message_for_llm
+                )
+                _salvage = await aria_chat(
+                    _salvage_msg, session_id, llm, intel,
+                    user_id=getattr(req, "user_id", "") or "",
+                    persona=getattr(req, "persona", "") or "",
+                )
+                _sv_text = (_salvage or {}).get("response") or (_salvage or {}).get("answer") or ""
+                try:
+                    from ..intel import scratchpad as _sp_sv
+                    _sv_text, _ = _sp_sv.strip(_sv_text)
+                except Exception:
+                    pass
+                if _sv_text.strip():
+                    response_text = _sv_text.strip()
+                    result["response"] = response_text
+                    result["scratchpad_only_salvaged"] = True
+                    _log.warning(
+                        "[scratchpad] R-F942 salvaged empty response via "
+                        "no-scratchpad re-prompt (trace=%s)", trace_id,
+                    )
+            except Exception as e:
+                _log.warning(
+                    "[scratchpad] R-F942 salvage failed (trace=%s): %s",
+                    trace_id, e,
+                )
+
+        # Last-resort floor: if the answer is STILL empty, return an honest
+        # message rather than "" (which the WA listener renders as the
+        # "temporarily unavailable" incident). Skip cached hits.
+        if not (response_text or "").strip() and not (result or {}).get("cached"):
+            response_text = (
+                "I read the source but couldn't compose a grounded answer on "
+                "that pass. Please retry — if it persists, the page may not "
+                "expose readable text I can cite directly."
+            )
+            result["response"] = response_text
+            result["empty_response_fallback"] = True
+            _log.warning(
+                "[chat] R-F942 empty-response floor engaged (trace=%s)", trace_id,
+            )
 
         # ── Verification gate on CRITICAL chat outputs (2026-04-18) ──
         # When ARIA's reply is CRITICAL (NO-GO / RED / HARD_STOP / direct
