@@ -93,6 +93,77 @@ def invalidate_heatmap_cache() -> None:
     they just don't block a fresh recompute on the next call."""
     _HEATMAP_CACHE.clear()
     _HEATMAP_INFLIGHT.clear()
+    _HEATMAP_DISK_SEEDED.clear()
+
+
+# R-F931 (2026-05-27) — disk-persist the matrix to the aria_rag volume so a
+# COLD boot/cache (post-deploy first /learning/coverage poll) serves the last
+# computed matrix instead of recomputing from scratch — which is what produced
+# the post-deploy event-loop stall storm (wedge_675: 5.2s + 35.3s at cold boot
+# 2026-05-27 08:29-08:30). The disk cache is a one-time cold-start SEED per
+# process: after it seeds memory once, the normal 120s-TTL compute+persist path
+# takes over (the inverted-index compute below is now cheap + GIL-yielding, so a
+# live recompute no longer wedges). Fail-safe: any disk error → compute normally.
+# Opt-in (default OFF) so dev/CI without the volume — and the test suite —
+# never touch disk. Enabled in production via the fly secret
+# ARIA_HEATMAP_DISK_CACHE=/data/coverage_heatmap_cache.json (aria_rag volume).
+# The inverted-index compute below already keeps a live recompute non-wedging;
+# this disk seed additionally skips the cold-boot recompute entirely.
+_HEATMAP_DISK_PATH = os.getenv("ARIA_HEATMAP_DISK_CACHE", "")
+_HEATMAP_DISK_TTL_S = float(os.getenv("ARIA_HEATMAP_DISK_TTL_S", "3600"))
+_HEATMAP_DISK_SEEDED: set = set()
+
+
+def _disk_cache_path(cache_key: tuple) -> str | None:
+    """Only the default (unfiltered) matrix is disk-persisted — that's the one
+    the dashboard polls on cold boot. Filtered queries (custom domains/juris)
+    are rare and skip disk."""
+    if not _HEATMAP_DISK_PATH:
+        return None
+    if cache_key != (None, None):
+        return None
+    return _HEATMAP_DISK_PATH
+
+
+def _load_disk_cache(cache_key: tuple) -> dict[str, Any] | None:
+    path = _disk_cache_path(cache_key)
+    if not path:
+        return None
+    try:
+        import json as _json
+        with open(path, encoding="utf-8") as f:
+            blob = _json.load(f)
+        if (time.time() - float(blob.get("_persisted_at", 0))) < _HEATMAP_DISK_TTL_S:
+            data = blob.get("data")
+            if isinstance(data, dict) and data.get("matrix"):
+                return data
+    except FileNotFoundError:
+        return None
+    except Exception as e:  # corrupt/partial file — ignore, recompute
+        logger.debug("heatmap disk-cache read failed: %s", e)
+    return None
+
+
+def _save_disk_cache(cache_key: tuple, result: dict[str, Any]) -> None:
+    path = _disk_cache_path(cache_key)
+    if not path:
+        return
+    try:
+        import json as _json
+        import tempfile
+        d = os.path.dirname(path)
+        # Only persist when the target dir already exists (the aria_rag volume
+        # at /data on fly). Never create the volume root — keeps this inert on
+        # dev/CI machines that have no /data, so tests don't pollute disk.
+        if d and not os.path.isdir(d):
+            return
+        blob = {"_persisted_at": time.time(), "data": result}
+        fd, tmp = tempfile.mkstemp(dir=d or ".", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            _json.dump(blob, f)
+        os.replace(tmp, path)  # atomic
+    except Exception as e:
+        logger.debug("heatmap disk-cache write failed: %s", e)
 
 # ── Domain rows ───────────────────────────────────────────────────
 
@@ -365,6 +436,19 @@ async def build_heatmap(
             # cell matrix per request would defeat the cache speedup.
             return dict(cached[1])
 
+        # R-F931 — COLD-START disk seed: on the first miss this process,
+        # serve the last persisted matrix (if fresh within the disk TTL)
+        # instead of forcing a synchronous recompute on the boot-time
+        # request — that cold recompute is what wedged the loop post-deploy.
+        # One-shot per key: after seeding memory, the normal TTL-driven
+        # compute+persist path below takes over.
+        if cache_key not in _HEATMAP_DISK_SEEDED:
+            _HEATMAP_DISK_SEEDED.add(cache_key)
+            disk = _load_disk_cache(cache_key)
+            if disk is not None:
+                _HEATMAP_CACHE[cache_key] = (time.time(), disk)
+                return dict(disk)
+
         existing = _HEATMAP_INFLIGHT.get(cache_key)
         if existing is not None and not existing.done():
             try:
@@ -381,6 +465,7 @@ async def build_heatmap(
                 domains=domains, jurisdictions=jurisdictions,
             )
             _HEATMAP_CACHE[cache_key] = (time.time(), result)
+            _save_disk_cache(cache_key, result)  # R-F931 — persist for cold-start seed
             if not fut.done():
                 fut.set_result(result)
             return dict(result)
@@ -451,36 +536,66 @@ async def _build_heatmap_uncached(
         logger.debug("coverage signals fetch failed: %s", e)
 
     def _compute_matrix_sync() -> dict[str, dict[str, Any]]:
-        # R-F928 — precompute the lowercased match-text ONCE per fact/signal
-        # (and the per-domain tokens / per-jurisdiction synonyms once). The
-        # old path rebuilt _fact_text() for every (fact × cell) pair ≈ 57M
-        # string-joins on a 67k-fact corpus, pinning the GIL ~18s and
-        # starving the event loop (wedge_673, R-F703 detector). Building the
-        # text once per fact cuts that string work ~(domains×jurisdictions)×.
-        fact_texts = [_fact_text(f) for f in facts if isinstance(f, dict)]
-        signal_texts = [_signal_text(s) for s in signals if isinstance(s, dict)]
+        # R-F931 — INVERTED-INDEX matcher. The R-F928 path removed the per-cell
+        # string REBUILD but still ran the matcher facts×domains×jurisdictions
+        # ≈ 58M times; one heavy cell's sweep could still exceed the 5s stall
+        # threshold on a cold recompute (wedge_675 hit 35.3s post-deploy
+        # 2026-05-27 08:30). Now: for each fact/signal, compute WHICH domains +
+        # jurisdictions its text matches ONCE (facts×(D+J) ≈ 4.6M), then tally
+        # cells from those matches. Truth value per cell is identical to
+        # `_matches_cell` — an item counts for (d,j) iff (any jurisdiction
+        # synonym in text) AND (all domain tokens in text) — so matrix values
+        # are unchanged; just ~(D·J)/(D+J) ≈ 12× fewer ops and no heavy cell.
         dom_tokens_map = {d: _domain_tokens(d) for d in domain_list}
         jur_syn_map = {j: _juris_synonyms(j) for j in juris_list}
+
+        fact_cells: dict[tuple[str, str], int] = {}
+        signal_cells: dict[tuple[str, str], int] = {}
+
+        def _tally(items: list, text_fn, target: dict[tuple[str, str], int]) -> None:
+            for idx, it in enumerate(items):
+                # R-F931 — yield the GIL every 1024 items so this worker thread
+                # can't starve the event loop, regardless of corpus size
+                # (bounds R-F703 heartbeat staleness to a ~1024-item slice).
+                if (idx & 0x3FF) == 0:
+                    time.sleep(0)
+                if not isinstance(it, dict):
+                    continue
+                text = text_fn(it)
+                if not text:
+                    continue
+                matched_doms = [
+                    d for d in domain_list
+                    if all(tok in text for tok in dom_tokens_map[d])
+                ]
+                if not matched_doms:
+                    continue
+                matched_jurs = [
+                    j for j in juris_list
+                    if any(s in text for s in jur_syn_map[j])
+                ]
+                if not matched_jurs:
+                    continue
+                for d in matched_doms:
+                    for j in matched_jurs:
+                        key = (d, j)
+                        target[key] = target.get(key, 0) + 1
+
+        _tally(facts, _fact_text, fact_cells)
+        _tally(signals, _signal_text, signal_cells)
 
         m: dict[str, dict[str, Any]] = {}
         for d in domain_list:
             m[d] = {}
             domain_freshness = freshness_records.get(d, {})
-            dom_tokens = dom_tokens_map[d]
             for j in juris_list:
-                fact_count, signal_count = _count_from_texts(
-                    fact_texts, signal_texts, dom_tokens, jur_syn_map[j],
-                )
-                # R-F164: tier off the combined density. Signal_count was being
-                # collected but never used in the grade, so a cell with 200
-                # intel_ledger signals but 0 fact-store hits still rendered
-                # 'absent'. Weight signals at 0.5 (they're noisier than curated
-                # facts) so cells with strong ledger coverage but thin curated
-                # knowledge still surface as moderate / strong.
+                fact_count = fact_cells.get((d, j), 0)
+                signal_count = signal_cells.get((d, j), 0)
+                # R-F164: tier off the combined density. Signals weighted 0.5
+                # (noisier than curated facts) so cells with strong ledger
+                # coverage but thin curated knowledge still surface.
                 combined = fact_count + int(signal_count * 0.5)
                 tier = density_tier(combined)
-                # freshness for the domain (jurisdiction-specific freshness
-                # would require finer-grained tagging — defer to next iter)
                 m[d][j] = {
                     "fact_count":          fact_count,
                     "signal_count":        signal_count,
@@ -488,14 +603,6 @@ async def _build_heatmap_uncached(
                     "is_stale":            domain_freshness.get("is_stale", True),
                     "hours_since_refresh": domain_freshness.get("hours_since_refresh"),
                 }
-                # R-F928 — release the GIL after EACH cell so this worker
-                # thread can never hold the interpreter long enough to starve
-                # the asyncio event loop. Bounds R-F703 heartbeat staleness to
-                # a single cell's matching (~one fact-sweep), independent of
-                # corpus size — even at 67k facts a cell is tens of ms, well
-                # under the 5s stall threshold. (Per-row yielding left a row
-                # at risk of >5s on a slow/contended VM; wedge_673 was 18.6s.)
-                time.sleep(0)
         return m
 
     matrix = await asyncio.to_thread(_compute_matrix_sync)

@@ -202,10 +202,11 @@ def test_rf928_precompute_matches_legacy_scorer():
 
 
 def test_rf928_yields_gil_during_compute():
-    """R-F928: `_compute_matrix_sync` must call `time.sleep(0)` frequently
-    (per cell) so the worker thread releases the GIL and can't starve the
-    asyncio event loop (the wedge_673 failure mode). Lower-bound assertion:
-    at least one yield per domain row."""
+    """R-F928/R-F931: `_compute_matrix_sync` must call `time.sleep(0)` during
+    the heavy loop so the worker thread releases the GIL and can't starve the
+    asyncio event loop (the wedge_673/wedge_675 failure mode). R-F931 moved the
+    yield into the per-item `_tally` (every 1024 items), so a small test corpus
+    yields a few times; lower-bound assertion: at least one yield occurred."""
     from aria_service.intel import coverage_heatmap as ch
 
     ch.invalidate_heatmap_cache()
@@ -230,14 +231,97 @@ def test_rf928_yields_gil_during_compute():
             "aria_service.intel.knowledge": fake_k,
             "aria_service.intel.intel_ledger": fake_il,
             "aria_service.intel.learning_progress": fake_lp,
-        }), patch.object(ch.time, "sleep", _spy_sleep):
+        }), patch.object(ch, "_HEATMAP_DISK_PATH", ""), \
+             patch.object(ch.time, "sleep", _spy_sleep):
             return await ch.build_heatmap()
 
     result = asyncio.run(_run())
     assert result["matrix"], "build_heatmap returned empty matrix"
-    assert zero_sleeps["n"] >= len(ch.DOMAINS), (
-        f"R-F928 regression: expected >= {len(ch.DOMAINS)} GIL yields "
-        f"(time.sleep(0) per domain row), got {zero_sleeps['n']}. Without the "
-        f"per-row yield the worker thread can monopolize the GIL and wedge "
-        f"the event loop (wedge_673 captured an 18.6s stall here)."
+    assert zero_sleeps["n"] >= 1, (
+        f"R-F931 regression: the matrix compute never yielded the GIL "
+        f"(time.sleep(0) in _tally), got {zero_sleeps['n']}. Without periodic "
+        f"yields the worker thread can monopolize the GIL and wedge the loop."
     )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# R-F931 (2026-05-27) — inverted-index matcher + disk-persist (cold-boot wedge).
+# ════════════════════════════════════════════════════════════════════════════
+
+def test_rf931_inverted_index_matches_legacy_counts():
+    """R-F931 EQUIVALENCE: the inverted-index matrix produces fact_count /
+    signal_count IDENTICAL to the legacy per-cell scorer
+    (`_count_facts_for_cell_sync`) for EVERY cell. Guards the cold-boot-wedge
+    fix (facts×(D+J) inverted tally) against changing matrix values."""
+    from aria_service.intel import coverage_heatmap as ch
+
+    # Facts crafted to actually populate cells (need ALL domain tokens + a
+    # jurisdiction synonym in one text), so the equivalence check exercises
+    # non-zero counts, not just an all-absent matrix.
+    rich_facts = [
+        {"content": "sanctions screening review for Saudi Arabia entity"},      # sanctions_screening × Saudi Arabia
+        {"content": "fcpa enforcement action involving Brazil officials"},      # fcpa_enforcement × Brazil
+        {"topic": "weapon systems", "content": "weapon systems exported to UAE"},  # weapon_systems × UAE
+        {"content": "sanctions screening hit, Nigeria and Saudi Arabia"},       # sanctions_screening × Nigeria + Saudi Arabia
+    ]
+    rich_signals = [
+        {"summary": "procurement pipeline award in Nigeria", "source": "s"},    # procurement_pipeline × Nigeria
+    ]
+    ch.invalidate_heatmap_cache()
+    fake_k = type("K", (), {"all_facts": staticmethod(lambda: rich_facts)})()
+    fake_il = type("IL", (), {"get_recent": staticmethod(lambda: rich_signals)})()
+
+    async def _fake_get_all_domains():
+        return []
+
+    fake_lp = type("LP", (), {"get_all_domains": staticmethod(_fake_get_all_domains)})()
+
+    async def _run():
+        with patch.dict("sys.modules", {
+            "aria_service.intel.knowledge": fake_k,
+            "aria_service.intel.intel_ledger": fake_il,
+            "aria_service.intel.learning_progress": fake_lp,
+        }), patch.object(ch, "_HEATMAP_DISK_PATH", ""):
+            return await ch.build_heatmap()
+
+    result = asyncio.run(_run())
+    diverged = []
+    for d in result["domains"]:
+        for j in result["jurisdictions"]:
+            cell = result["matrix"][d][j]
+            legacy = ch._count_facts_for_cell_sync(d, j, rich_facts, rich_signals)
+            if (cell["fact_count"], cell["signal_count"]) != legacy:
+                diverged.append((d, j, (cell["fact_count"], cell["signal_count"]), legacy))
+    assert not diverged, f"R-F931 inverted-index diverged from legacy at: {diverged[:5]}"
+    # Sanity: at least one non-zero cell so the test actually exercised matches.
+    nonzero = sum(
+        1 for d in result["domains"] for j in result["jurisdictions"]
+        if result["matrix"][d][j]["fact_count"] or result["matrix"][d][j]["signal_count"]
+    )
+    assert nonzero > 0, "R-F931 test fixture produced an all-zero matrix — not exercising matches"
+
+
+def test_rf931_disk_persist_roundtrip(tmp_path, monkeypatch):
+    """R-F931: _save_disk_cache writes the matrix and _load_disk_cache reads it
+    back within TTL; a stale entry returns None. Cold-start seed serves disk."""
+    from aria_service.intel import coverage_heatmap as ch
+
+    cache_file = tmp_path / "heatmap.json"
+    monkeypatch.setattr(ch, "_HEATMAP_DISK_PATH", str(cache_file))
+    key = (None, None)
+    payload = {"matrix": {"d": {"j": {"fact_count": 3}}}, "domains": ["d"], "jurisdictions": ["j"]}
+
+    # Save → load round-trip (fresh)
+    monkeypatch.setattr(ch, "_HEATMAP_DISK_TTL_S", 3600.0)
+    ch._save_disk_cache(key, payload)
+    assert cache_file.exists()
+    loaded = ch._load_disk_cache(key)
+    assert loaded is not None and loaded["matrix"]["d"]["j"]["fact_count"] == 3
+
+    # Stale (TTL=0) → None
+    monkeypatch.setattr(ch, "_HEATMAP_DISK_TTL_S", 0.0)
+    assert ch._load_disk_cache(key) is None
+
+    # Filtered key never persists/loads (only default matrix)
+    monkeypatch.setattr(ch, "_HEATMAP_DISK_TTL_S", 3600.0)
+    assert ch._load_disk_cache((("sanctions_screening",), None)) is None
