@@ -4,6 +4,20 @@ primary_region = 'lhr'
 [build]
   dockerfile = 'aria_service/Dockerfile'
 
+# R-F938 (2026-05-27) — load the BAKED sentence-transformers model from disk,
+# never the network. The Dockerfile pre-bakes all-MiniLM-L6-v2 (line ~81), but
+# without offline mode SentenceTransformer() still makes HuggingFace HEAD
+# round-trips on every (re)start to "check" the cache — slow + network-dependent.
+# Live evidence 2026-05-27 10:14 UTC: a restart (email-secret change) collided
+# with a contract-review test; the brain spent minutes doing huggingface.co
+# round-trips + hit EncodeLockTimeout, so doc-reads + chat returned "temporarily
+# unavailable". Offline mode = the baked model loads straight from disk → fast,
+# predictable cold starts, no post-restart degradation window.
+[env]
+  HF_HUB_OFFLINE = '1'
+  TRANSFORMERS_OFFLINE = '1'
+  HF_HUB_DISABLE_TELEMETRY = '1'
+
 [http_service]
   internal_port = 8000
   force_https = true

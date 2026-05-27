@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 938,
+  "next_available": 939,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3891,6 +3891,15 @@
       "commit_sha": "802385c",
       "notes": null,
       "shipped_at": "2026-05-27T10:12:21Z"
+    },
+    {
+      "r_number": "R-F938",
+      "title": "aria-intel HF_HUB_OFFLINE=1 — load baked all-MiniLM from disk, no HF network round-trip on restart (kills post-restart cold-load degradation)",
+      "claimed_at": "2026-05-27T10:19:05Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
