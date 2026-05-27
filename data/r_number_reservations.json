@@ -3857,27 +3857,30 @@
       "title": "Compliance Watch slice2 — grounded findings engine (deception+risk+blind-spot+contradiction) over capture store",
       "claimed_at": "2026-05-27T09:52:19Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4b81b5f",
+      "notes": null,
+      "shipped_at": "2026-05-27T10:03:43Z"
     },
     {
       "r_number": "R-F935",
       "title": "Compliance Watch slice3 — private structured digest + urgent alerts emailed to compliance principal",
       "claimed_at": "2026-05-27T09:52:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4b81b5f",
+      "notes": null,
+      "shipped_at": "2026-05-27T10:03:43Z"
     },
     {
       "r_number": "R-F936",
       "title": "Compliance Watch slice4 — feedback loop to brain + coverage ledger (nothing-missed proof)",
       "claimed_at": "2026-05-27T09:52:20Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "4b81b5f",
+      "notes": null,
+      "shipped_at": "2026-05-27T10:03:43Z"
     }
   ]
 }
