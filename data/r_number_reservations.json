@@ -3788,9 +3788,10 @@
       "title": "P4: find+fix hanging tests (pytest-timeout diagnosis, mock network-bound) + refresh baseline + CI timeout guard",
       "claimed_at": "2026-05-27T00:19:29Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "126ba37",
+      "notes": null,
+      "shipped_at": "2026-05-27T08:20:40Z"
     },
     {
       "r_number": "R-F928",
