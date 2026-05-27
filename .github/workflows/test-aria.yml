@@ -43,7 +43,7 @@ jobs:
           # aria_service.main fails to import → test_module_imports_cleanly
           # fires for main + config → the smoke test gate (which blocks
           # fly.io auto-deploy) has been broken since 2026-04-17.
-          pip install pytest pytest-asyncio fastapi pydantic pydantic-settings \
+          pip install pytest pytest-timeout pytest-asyncio fastapi pydantic pydantic-settings \
                       httpx python-multipart redis pyyaml beautifulsoup4 \
                       lxml requests numpy
 
@@ -95,7 +95,7 @@ jobs:
           # missing chromadb / sentence-transformers (they degrade
           # gracefully). Adding them would push CI past the 5-minute
           # mark and pull torch (3 GB).
-          pip install pytest pytest-asyncio fastapi pydantic pydantic-settings \
+          pip install pytest pytest-timeout pytest-asyncio fastapi pydantic pydantic-settings \
                       httpx python-multipart redis pyyaml beautifulsoup4 \
                       lxml requests numpy
       - name: Run lifespan smoke
@@ -136,7 +136,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio fastapi pydantic pydantic-settings \
+          pip install pytest pytest-timeout pytest-asyncio fastapi pydantic pydantic-settings \
                       httpx python-multipart redis pyyaml beautifulsoup4 \
                       lxml requests numpy anthropic
       - name: Run constitution suite

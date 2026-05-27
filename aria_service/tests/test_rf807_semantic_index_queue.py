@@ -31,6 +31,10 @@ def _reset_module_state(monkeypatch):
     care about worker behaviour call _process_batch directly. This
     avoids pytest hanging on a 10s drain timeout inside a cancelled
     worker."""
+    # R-F927 — the suite-wide conftest sets ARIA_INDEX_QUEUE_DISABLED=1 (the
+    # background embed worker is the local-dev deadlock root). This is the ONE
+    # suite that tests the queue itself, so re-enable it just for these tests.
+    monkeypatch.setenv("ARIA_INDEX_QUEUE_DISABLED", "0")
     siq._queue = None
     siq._worker_task = None
     siq._drops_total = 0

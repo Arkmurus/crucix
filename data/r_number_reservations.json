@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 927,
+  "next_available": 929,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -3782,6 +3782,25 @@
       "commit_sha": "122442b",
       "notes": null,
       "shipped_at": "2026-05-27T00:17:27Z"
+    },
+    {
+      "r_number": "R-F927",
+      "title": "P4: find+fix hanging tests (pytest-timeout diagnosis, mock network-bound) + refresh baseline + CI timeout guard",
+      "claimed_at": "2026-05-27T00:19:29Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F928",
+      "title": "coverage_heatmap wedge: cache+debounce matrix recompute + GIL-yield chunking (event-loop stall up to 18.6s)",
+      "claimed_at": "2026-05-27T00:33:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "3a365a1",
+      "notes": null,
+      "shipped_at": "2026-05-27T00:42:02Z"
     }
   ]
 }
