@@ -42,11 +42,12 @@ def _perf_block() -> str:
 # ── Schema contract ─────────────────────────────────────────────────
 
 def test_rf400_schema_version_bumped_to_v1():
-    """The schema version must move from rf396.v1 → rf400.v1 to signal
-    the inventory + retention contract change."""
+    """The schema version must keep bumping as the contract grows so
+    consumers know new fields exist. rf396.v1 → rf400.v1 (inventory +
+    retention) → rf974.v1 (cross_tier added)."""
     block = _perf_block()
-    assert '"_schema_version": "rf400.v1"' in block, (
-        "R-F400 regression: schema version did not bump. Consumers "
+    assert '"_schema_version": "rf974.v1"' in block, (
+        "R-F400/F974 regression: schema version did not bump. Consumers "
         "(e.g. R-F399 introspection router) won't know the new fields exist."
     )
 

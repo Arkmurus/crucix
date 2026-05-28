@@ -1894,10 +1894,26 @@ async def ingest_sweep(request: Request):
     to tell whether it was malformed JSON, a non-dict top-level, or a shape
     mismatch from the WhatsApp mirror (which posts WA-shaped payloads here).
     """
+    async def _record_sweep_failure(reason: str, detail: str) -> None:
+        # R-F973 (§21a): ingest_sweep is the largest Node→brain data path and
+        # its parse-failure branches were logger.warning-only (DARK) — ARIA had
+        # no coder-visible signal that sweeps were failing to ingest. Record a
+        # capability gap so the failure reaches the brain on the failure branch.
+        try:
+            from .intel import capability_gaps as _cg
+            await _cg.record_gap(
+                gap_type="file_parse",
+                detail=f"ingest_sweep {reason}: {detail[:300]}",
+                source="ingest_sweep",
+            )
+        except Exception as _cg_e:
+            logger.debug("ingest_sweep gap-record failed: %s", _cg_e)
+
     try:
         raw = await request.body()
     except Exception as e:
         logger.warning("ingest: body read failed: %s", e)
+        await _record_sweep_failure("body_read_failed", str(e))
         raise HTTPException(status_code=400, detail="body_read_failed")
 
     try:
@@ -1905,6 +1921,7 @@ async def ingest_sweep(request: Request):
     except Exception as e:
         preview = (raw[:200] if raw else b"").decode("utf-8", errors="replace")
         logger.warning("ingest: JSON parse failed (%s). Body first 200b: %r", e, preview)
+        await _record_sweep_failure("invalid_json", f"{e} | {preview}")
         raise HTTPException(status_code=400, detail="invalid_json")
 
     if not isinstance(data, dict):
@@ -1912,6 +1929,7 @@ async def ingest_sweep(request: Request):
             "ingest: expected dict body, got %s. Preview: %r",
             type(data).__name__, str(data)[:200],
         )
+        await _record_sweep_failure("expected_dict_body", f"got {type(data).__name__}")
         raise HTTPException(status_code=400, detail="expected_dict_body")
 
     app.state.current_data = data
@@ -1974,10 +1992,28 @@ async def ingest_sweep(request: Request):
     # Looks at the fresh sweep data for spikes vs the rolling baseline
     # and pushes alerts to the proactive queue if anything stands out.
     anomaly_alerts = 0
+    anomaly_failed = False
     try:
         anomaly_alerts = await proactive.anomaly_watch(data)
     except Exception as e:
+        anomaly_failed = True
         logger.warning("Proactive anomaly watch failed: %s", e)
+
+    # R-F973 (§21a): wire the success path to the brain. Pre-R-F973 this
+    # returned counts to the Node tier but emitted NO brain signal, so the
+    # largest cross-tier data path was invisible to ARIA's self-introspection
+    # (health_perf_ep could cite knowledge_facts but not "what the sweep
+    # ingested"). Use the lightweight per-module signal recorder (a §21a
+    # metric, NOT absorb): it surfaces the ingest in brain_hook.get_stats() and
+    # health_perf cross_tier WITHOUT re-running neural learning on a meta-summary
+    # (the sweep already learns its own signals/news above via _learn_one) or
+    # adding latency to the ingest connection. anomaly-watch failure flips the
+    # signal to unsuccessful so a degrading sweep stays visible.
+    try:
+        from .intel import brain_hook as _bh_sweep
+        await _bh_sweep._record_signal("ingest_sweep", success=not anomaly_failed)
+    except Exception as _bh_e:
+        logger.debug("ingest_sweep brain signal-record failed: %s", _bh_e)
 
     return {
         "ok": True,

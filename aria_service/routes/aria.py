@@ -18485,6 +18485,61 @@ async def health_perf_ep():
             f"(36500-day retention = effectively permanent)."
         )
 
+    # R-F974 (2026-05-28): cross-tier data-output visibility. health_perf_ep
+    # was Python-brain-only — ARIA could cite knowledge_facts but had NO field
+    # for what the Node sweep ingested or how many WhatsApp messages she
+    # captured, so self_introspect could not honestly answer "what am I
+    # outputting across my ecosystem?". These fields make the cross-tier
+    # picture callable + quotable from one place.
+    cross_tier: dict = {
+        "node_sweep": None,
+        "whatsapp_messages_captured": None,
+        "cross_tier_signals": None,
+    }
+    try:
+        from ..main import app as _app_ct
+        _cd = getattr(_app_ct.state, "current_data", None)
+        if isinstance(_cd, dict):
+            _cdm = _cd.get("meta") or {}
+            cross_tier["node_sweep"] = {
+                "last_ingest": _cdm.get("timestamp"),
+                "signals": len(_cd.get("signals") or _cd.get("urgentSignals") or []),
+                "news": len(_cd.get("news") or []),
+                "sources_ok": _cdm.get("sourcesOk"),
+                "sources_total": _cdm.get("sourcesQueried"),
+            }
+    except Exception:
+        pass
+    try:
+        from ..intel import compliance_watch as _cw974
+        _cws = await _cw974.stats()
+        cross_tier["whatsapp_messages_captured"] = _cws.get("total_captured")
+    except Exception:
+        pass
+    try:
+        from ..intel import brain_hook as _bh974
+        _bhs = await _bh974.get_stats()
+        _mods = _bhs.get("modules") or {}
+        _ct_sig = {
+            k: v.get("total", 0) for k, v in _mods.items()
+            if any(p in k for p in ("ingest_sweep", "node_tier", "whatsapp", "wa_", "cross_tier"))
+        }
+        cross_tier["cross_tier_signals"] = _ct_sig or None
+    except Exception:
+        pass
+    # Make the cross-tier picture quotable in self-assessments.
+    _ns = cross_tier.get("node_sweep")
+    if _ns and _ns.get("last_ingest"):
+        advisories.append(
+            f"Node OSINT sweep: last ingest {_ns['last_ingest']} "
+            f"({_ns.get('signals', 0)} signals, {_ns.get('news', 0)} news items)."
+        )
+    if cross_tier.get("whatsapp_messages_captured") is not None:
+        advisories.append(
+            f"WhatsApp capture store: {cross_tier['whatsapp_messages_captured']:,} "
+            f"messages captured (Compliance Watch)."
+        )
+
     return {
         "build_rev": base.get("build_rev"),
         "status": base.get("status"),
@@ -18500,12 +18555,17 @@ async def health_perf_ep():
         # will quote these directly when asked introspective questions.
         "inventory": inventory,
         "retention": retention,
+        # R-F974: cross-tier data output (Node sweep + WhatsApp capture +
+        # per-module cross-tier signal counts) so the self-picture spans all
+        # three tiers, not just the Python brain.
+        "cross_tier": cross_tier,
         "advisories": advisories,
         # R-F396: structured-shape contract for ARIA's tool dispatch —
         # if these top-level keys ever change, update the prompt that
         # tells her how to quote the response in self-assessments.
         # R-F400: schema bumped to rf400.v1 (inventory + retention added).
-        "_schema_version": "rf400.v1",
+        # R-F974: schema bumped to rf974.v1 (cross_tier added).
+        "_schema_version": "rf974.v1",
     }
 
 

@@ -111,7 +111,7 @@ document.getElementById('bd-tabs').addEventListener('click', function(e) {
 });
 
 function openShare(text, url) {
-  shareText = text + (url ? '\n\n' + url : '') + '\n\n— CRUCIX Intelligence · intel.sursec.co.uk';
+  shareText = text + (url ? '\n\n' + url : '') + '\n\n— CRUCIX Intelligence · intel.arkmurus.com';
   document.getElementById('share-preview').textContent = truncate(shareText, 180);
   document.getElementById('share-sheet').classList.add('open');
 }
@@ -132,7 +132,7 @@ document.getElementById('share-sheet').addEventListener('click', function(e) {
     if (action === 'close') { document.getElementById('share-sheet').classList.remove('open'); return; }
     if (action === 'copy') { navigator.clipboard.writeText(shareText).then(function() { Toast.show('Copied', 'success'); }); return; }
     var enc = encodeURIComponent(shareText);
-    var urls = { wa: 'https://wa.me/?text=' + enc, tg: 'https://t.me/share/url?url=' + encodeURIComponent('intel.sursec.co.uk') + '&text=' + enc, em: 'mailto:?subject=CRUCIX%20Intelligence&body=' + enc };
+    var urls = { wa: 'https://wa.me/?text=' + enc, tg: 'https://t.me/share/url?url=' + encodeURIComponent('intel.arkmurus.com') + '&text=' + enc, em: 'mailto:?subject=CRUCIX%20Intelligence&body=' + enc };
     if (urls[action]) window.open(urls[action], '_blank');
     return;
   }

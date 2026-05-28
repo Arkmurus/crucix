@@ -163,6 +163,26 @@ async def self_review_contract(
         )
 
     if not all_findings:
+        # R-F977 (§21a): this branch returned with NO brain emission while the
+        # success path below absorbs — a dark failure branch. Mirror it with
+        # success=False so ARIA learns when contract self-review produces nothing
+        # usable, instead of the failure being invisible to the learning loop.
+        # NB: a window that *raises* appends an ERROR marker above, so this
+        # branch fires specifically when every window returned EMPTY output
+        # (e.g. provider returned blank completions) — provenance worded to match.
+        try:
+            from . import brain_hook
+            await brain_hook.absorb(
+                module="contract_intelligence",
+                summary=f"Contract self-review produced NO findings: all {len(chunks)} windows returned empty",
+                detail="every self-review window returned empty output — no audit produced",
+                success=False,
+                gap_type="operational:research_failure",
+                gap_detail=f"contract self-review: {len(chunks)} windows all empty",
+                confidence="ASSESSED",
+            )
+        except Exception as _bh:
+            logger.debug("contract self-review failure brain_hook failed: %s", _bh)
         return {"self_reviewed": False, "reason": "all windows failed"}
 
     # ── Brain hook: feed self-review findings to learning ──

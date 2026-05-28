@@ -38,6 +38,15 @@
     </div>
   </div>
 
+  <!-- R-F971 (2026-05-28): source provenance. This brief is the live OSINT
+       market sweep (Node intelligence tier), NOT ARIA's brain knowledge base.
+       Without this label a user reads the sweep's market/OSINT figures as
+       "ARIA's intelligence" — the two stores are distinct and their counts
+       will not match (see web_brain_correlation audit). -->
+  <p style="margin:-4px 0 18px;color:#8b949e;font-size:12px;line-height:1.5">
+    <i class="bi bi-info-circle"></i> Source: live <strong>OSINT market sweep</strong> (Node intelligence tier) — distinct from ARIA's brain knowledge base. See <a href="/aria-brain" style="color:#913BFF">ARIA Brain</a> for her learned facts &amp; composite score.
+  </p>
+
   <!-- KPI Tiles -->
   <div class="sc-grid-4 mb-24" id="kpi-row">
     <div class="sc-stat"><div class="sc-stat-icon"><i class="bi bi-compass"></i></div><div><div class="sc-stat-value" id="kpi-direction">—</div><div class="sc-stat-label">Market Direction</div></div></div>
@@ -162,8 +171,25 @@ async function loadData() {
   const sweepTs = data.meta?.timestamp;
   const srcOk   = data.meta?.sourcesOk ?? 0;
   const srcTotal = data.meta?.sourcesQueried ?? 0;
-  document.getElementById('last-updated').textContent =
-    sweepTs ? `Updated: ${fmtDateTime(sweepTs)} · ${srcOk}/${srcTotal} sources` : '';
+  const lu = document.getElementById('last-updated');
+  if (!sweepTs) {
+    lu.textContent = '';
+  } else {
+    const base = `Updated: ${fmtDateTime(sweepTs)} · ${srcOk}/${srcTotal} sources`;
+    // R-F978 (2026-05-28): stale-sweep warning. The server (/api/data) flags
+    // the brief stale when the last sweep is older than 2 refresh cycles —
+    // e.g. a fresh container before its first sweep, or a wedged sweep loop.
+    // Without this, a stale brief looks identical to a live one.
+    const fresh = data._freshness || {};
+    if (fresh.stale && fresh.ageSeconds != null) {
+      const mins = Math.round(fresh.ageSeconds / 60);
+      const win = Math.round((fresh.staleAfterSeconds || 0) / 60);
+      lu.innerHTML = `${escHtml(base)} `
+        + `<span class="sc-badge sc-badge-orange" title="Last sweep ${mins} min ago — exceeds the ${win} min refresh window. Data may be out of date.">⚠ STALE · ${mins}m old</span>`;
+    } else {
+      lu.textContent = base;
+    }
+  }
 
   // Correlations
   const corrEl = document.getElementById('correlations-list');

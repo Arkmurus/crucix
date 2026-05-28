@@ -254,6 +254,10 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     # through here so she SEES what happens to her OS and can later reason about
     # / propose fixes for it. Routed via observe_self_event() below.
     "self_monitor":         ["general", "compliance"],
+    # R-F973 (2026-05-28): Node OSINT sweep ingest (main.py ingest_sweep) —
+    # the largest Node→brain data path. Registered so its absorb signal is
+    # tracked on System Health instead of showing ⚠ "unknown module".
+    "ingest_sweep":         ["osint", "market_intel"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)

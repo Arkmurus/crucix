@@ -23,6 +23,7 @@
     .st-banner-text { flex: 1; }
     .st-banner-status { font-size: 22px; font-weight: 800; margin: 0; line-height: 1.2; }
     .st-banner-summary { font-size: 14px; color: rgba(255,255,255,0.65); margin: 6px 0 0; }
+    .st-banner-scope { font-size: 12px; color: rgba(255,255,255,0.42); margin: 4px 0 0; font-style: italic; }
     .st-banner.operational    { background: rgba(34,197,94,0.07);  border-color: rgba(34,197,94,0.32);  color: #4ade80; }
     .st-banner.operational .st-banner-icon { color: #22c55e; }
     .st-banner.degraded       { background: rgba(245,158,11,0.07); border-color: rgba(245,158,11,0.32); color: #fbbf24; }
@@ -99,6 +100,7 @@
     <div class="st-banner-text">
       <p class="st-banner-status" id="banner-status">Loading…</p>
       <p class="st-banner-summary" id="banner-summary"></p>
+      <p class="st-banner-scope" id="banner-scope"></p>
     </div>
   </div>
 
@@ -208,6 +210,9 @@ function renderIncidents(list, target, emptyMsg) {
     document.getElementById('banner-status').textContent = s.label;
     banner.querySelector('.st-banner-icon').innerHTML = '<i class="bi bi-' + s.icon + '"></i>';
     document.getElementById('banner-summary').textContent = data.summary || '';
+    // R-F975 (2026-05-28): scope caption — "operational" measures availability,
+    // not intelligence quality. Make that explicit under the banner.
+    document.getElementById('banner-scope').textContent = data.measuresNote || '';
 
     // Uptime
     document.getElementById('uptime-pct').textContent =

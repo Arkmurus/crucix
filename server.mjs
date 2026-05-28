@@ -1234,7 +1234,25 @@ console.log('[Crucix] Static dashboard live at /');
 
 app.get('/api/data', requireAuth, (req, res) => {
   if (!currentData) return res.status(503).json({ error: 'No data yet — first sweep in progress' });
-  res.json(currentData);
+  // R-F978 (2026-05-28): surface sweep freshness so the dashboard can warn
+  // when the brief is stale (fresh container before first sweep, or a wedged
+  // sweep loop) instead of rendering stale data as if it were live. Shallow
+  // copy so the shared currentData object is never mutated. Stale = older
+  // than two refresh cycles.
+  const freshTs = currentData.meta?.timestamp || lastSweepTime;
+  const ageSeconds = freshTs
+    ? Math.max(0, Math.floor((Date.now() - new Date(freshTs).getTime()) / 1000))
+    : null;
+  const staleAfterSeconds = Math.round((config.refreshIntervalMinutes || 5) * 60 * 2);
+  res.json({
+    ...currentData,
+    _freshness: {
+      ageSeconds,
+      staleAfterSeconds,
+      stale: ageSeconds != null && ageSeconds > staleAfterSeconds,
+      lastSweep: freshTs || null,
+    },
+  });
 });
 
 // R-F548 (2026-05-15) — fast /healthz for seenode platform liveness probe.
@@ -1804,25 +1822,26 @@ app.post('/api/explorer/run', requireAuth, async (req, res) => {
 // The real brain data (leads, briefs, run history) lives in the Python
 // aria_service via SQLite — accessed through /api/aria/* proxy.
 
-app.get('/api/brain/leads', requireAuth, async (req, res) => {
-  // R-F382: dead Upstash read removed; brain leads live in Python aria_service.
-  res.json([]);
-});
+// R-F976 (2026-05-28): these four GETs were dead since the Upstash removal
+// (R-F382) — they returned falsey-OK bodies ([], {last_run:null}) that a
+// caller cannot distinguish from "the brain genuinely has no data". The real
+// data lives in the Python brain under /api/aria/* (leads via proactive
+// lead-hunt, sources via brain/stats). Return an honest 410 Gone with a
+// pointer so a stale emptiness is never mistaken for live intelligence. The
+// only consumer is the unmounted admin Angular bundle (frontend/dist, not
+// served); live WA/Telegram callers hit the brain directly and .catch().
+const _brainStubGone = (movedTo) => (req, res) =>
+  res.status(410).json({
+    error: 'endpoint_removed',
+    deprecated: true,
+    moved_to: movedTo,
+    note: 'Node /api/brain/* is dead since the Upstash removal (R-F382). Real brain data lives in the Python service under /api/aria/*.',
+  });
 
-app.get('/api/brain/brief', requireAuth, async (req, res) => {
-  // R-F382: dead Upstash read removed; brief lives in Python aria_service.
-  res.status(404).json({ error: 'No brief generated yet. Brain sweep required.' });
-});
-
-app.get('/api/brain/status', requireAuth, async (req, res) => {
-  // R-F382: dead Upstash read removed.
-  res.json({ last_run: null, service: 'crucix-brain' });
-});
-
-app.get('/api/brain/history', requireAuth, async (req, res) => {
-  // R-F382: dead Upstash read removed; run history lives in Python aria_service.
-  res.json([]);
-});
+app.get('/api/brain/leads', requireAuth, _brainStubGone('/api/aria/proactive/lead-hunt?structured=1'));
+app.get('/api/brain/brief', requireAuth, _brainStubGone('/api/aria/brain/stats'));
+app.get('/api/brain/status', requireAuth, _brainStubGone('/api/aria/health/perf'));
+app.get('/api/brain/history', requireAuth, _brainStubGone('/api/aria/brain/stats'));
 
 // ── Brain API bridge — WhatsApp/Zoom call /api/brain/* routes ────────────────
 // These map to existing local functions so integrations work without the Python brain
@@ -1864,18 +1883,18 @@ app.post('/api/brain/signal', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/brain/sweep', requireAuth, async (req, res) => {
-  // Forward to Python brain if available, else trigger local sweep
-  if (BRAIN_URL) {
-    try {
-      const r = await fetch(`${BRAIN_URL}/api/brain/sweep`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: '{}', signal: AbortSignal.timeout(5000),
-      });
-      if (r.ok) return res.json(await r.json());
-    } catch {}
-  }
-  res.json({ status: 'sweep_started', note: 'Triggered via local scheduler' });
+app.post('/api/brain/sweep', requireAuth, (req, res) => {
+  // R-F976 (2026-05-28): this never started a sweep. The BRAIN_URL forward hit
+  // `/api/brain/sweep` — a route the Python brain does not serve (it uses
+  // /api/aria/*) — then fell through to a FALSE `{status:'sweep_started'}` ack
+  // while triggering nothing. The OSINT sweep is owned by THIS (Node) tier; the
+  // real, working trigger is POST /api/sweep. Return an honest pointer.
+  res.status(410).json({
+    error: 'endpoint_removed',
+    deprecated: true,
+    moved_to: 'POST /api/sweep',
+    note: 'This route never triggered a sweep. Use POST /api/sweep — the real sweep trigger owned by this tier.',
+  });
 });
 
 app.post('/api/brain/counterparty-risk', requireAuth, async (req, res) => {

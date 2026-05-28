@@ -97,7 +97,7 @@ export class BdIntelligenceComponent implements OnInit {
     const msg = text + (url ? '\n\n' + url : '');
     const links: Record<string, string> = {
       whatsapp: `https://wa.me/?text=${encodeURIComponent(msg)}`,
-      telegram: `https://t.me/share/url?url=${encodeURIComponent(url || 'https://intel.sursec.co.uk')}&text=${encodeURIComponent(text)}`,
+      telegram: `https://t.me/share/url?url=${encodeURIComponent(url || 'https://intel.arkmurus.com')}&text=${encodeURIComponent(text)}`,
       email:    `mailto:?subject=${encodeURIComponent('CRUCIX Intelligence')}&body=${encodeURIComponent(msg)}`,
       x:        `https://x.com/intent/tweet?text=${encodeURIComponent(text.slice(0, 240))}`,
     };
@@ -121,7 +121,7 @@ export class BdIntelligenceComponent implements OnInit {
     if (l.procurementAuthority) lines.push(`🏛 Authority: ${l.procurementAuthority}`);
     if (l.oemRecommendation) lines.push(`🔩 OEM: ${l.oemRecommendation}`);
     if (l.nextStep) lines.push(`→ ${l.nextStep}`);
-    lines.push('\n— CRUCIX Intelligence · intel.sursec.co.uk');
+    lines.push('\n— CRUCIX Intelligence · intel.arkmurus.com');
     return lines.join('\n');
   }
 
@@ -132,7 +132,7 @@ export class BdIntelligenceComponent implements OnInit {
     if (t.summary && t.summary !== t.title) lines.push(t.summary.slice(0, 180));
     if (t.winProbability != null) lines.push(`Win probability: ${t.winProbability}%`);
     if (t.date) lines.push(`📅 ${t.date}`);
-    lines.push('\n— CRUCIX Intelligence · intel.sursec.co.uk');
+    lines.push('\n— CRUCIX Intelligence · intel.arkmurus.com');
     return lines.join('\n');
   }
 
@@ -141,14 +141,14 @@ export class BdIntelligenceComponent implements OnInit {
     if (idea.rationale) lines.push(idea.rationale);
     if (idea.actionStep) lines.push(`→ ${idea.actionStep}`);
     if (idea.type) lines.push(`Type: ${idea.type}`);
-    lines.push('\n— CRUCIX Intelligence · intel.sursec.co.uk');
+    lines.push('\n— CRUCIX Intelligence · intel.arkmurus.com');
     return lines.join('\n');
   }
 
   fmtDeal(deal: any): string {
     const lines = [`📊 PIPELINE [${deal.stage}] — ${deal.market}`];
     if (deal.title) lines.push(deal.title);
-    lines.push('\n— CRUCIX Intelligence · intel.sursec.co.uk');
+    lines.push('\n— CRUCIX Intelligence · intel.arkmurus.com');
     return lines.join('\n');
   }
 
@@ -158,7 +158,7 @@ export class BdIntelligenceComponent implements OnInit {
     else if (l.signal_title) lines.push(l.signal_title);
     lines.push(`Win probability: ${this.mlWinProbPct(l)}%`);
     if (l.reasoning) lines.push(l.reasoning.slice(0, 150));
-    lines.push('\n— CRUCIX Intelligence · intel.sursec.co.uk');
+    lines.push('\n— CRUCIX Intelligence · intel.arkmurus.com');
     return lines.join('\n');
   }
 
