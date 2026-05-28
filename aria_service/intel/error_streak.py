@@ -31,6 +31,24 @@ Honesty:
     - 7-day TTL on the source ledger means a streak >7d shows as
       "≥7 (older entries pruned)" — gate still passes; this is
       intentional.
+
+R-F969 (2026-05-28) — THIS endpoint is the CANONICAL gate-#3 measure, and
+it is deploy-noise-immune by construction. Two classes of noise that look
+like "fly ERROR logs" but do NOT (and must not) reset the streak:
+  1. Fly-platform deploy-window errors — `[PM08]`/`[PR03]` proxy-lease +
+     health-check-fail lines emitted while a machine is replaced during a
+     redeploy. These are fly ORCHESTRATION events, not app logs; they never
+     enter the app error ledger this endpoint reads, so a deploy cannot
+     reset the streak here. (Hand-grepping `flyctl logs | grep -i error`
+     DOES surface them — which is exactly why that hand method was retired
+     in favour of this counter.)
+  2. Operational WARNINGs — circuit-breaker source-down transitions
+     (`HALF_OPEN → OPEN`, `CLOSED → OPEN`, brain_hook.py / circuit_breaker.py)
+     and R-F703 event-loop-stall warnings all log at WARNING (`log:warning`),
+     so they show in the windowed totals but never reset the clean streak.
+The `noise_excluded` field below documents this so the gate stays trustworthy
+without re-litigating "does a deploy break gate #3?" every session (it does
+not).
 """
 from __future__ import annotations
 
@@ -80,6 +98,15 @@ async def compute_error_streak(
         "window_errors_7d": 0,
         "level_breakdown_7d": {},
         "as_of": int(t_now),
+        # R-F969 — make the deploy-noise immunity explicit + self-documenting.
+        "noise_excluded": (
+            "fly-platform deploy-window errors (PM08/PR03 proxy-lease + "
+            "health-check-fail during machine replacement) are orchestration "
+            "events, not app logs, so they never reach this ledger; "
+            "operational WARNINGs (circuit-breaker source-down, R-F703 "
+            "event-loop stalls) log at WARNING and never reset the streak. "
+            "Only app-level ERROR/CRITICAL reset it."
+        ),
     }
 
     try:

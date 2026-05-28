@@ -178,6 +178,56 @@ def test_rf858_trip_stamps_last_ticket_at():
     _reset_breaker()
 
 
+# ─── R-F968 — trip threshold must clear the per-tier wall-time ceiling ──────
+
+def test_rf968_steady_state_tier_ceiling_does_not_trip():
+    """R-F968 — a single slow-but-healthy tier hitting its configured budget
+    must NOT trip the breaker. Live 2026-05-28 16:59-17:00: with the R-F932
+    tier timeout at 3500ms, one slow neural absorb pushed p95 to ~4200ms and
+    the OLD 3500ms trip threshold flapped the breaker TRIPPED↔CLOSED every
+    ~60s with zero real loop starvation. The trip threshold (6000) now clears
+    the configured tier ceiling + observed steady p95."""
+    _reset_breaker()
+    brain_hook._warmup_complete = True
+    # p95 ~4200ms — the observed steady-state one-slow-tier latency, well
+    # under the 6000ms threshold but over the OLD 3500ms one.
+    brain_hook._recent_latencies_ms.extend([4200.0] * 12)
+    for _ in range(brain_hook._TRIP_CONSECUTIVE + 2):
+        brain_hook._maybe_trip_breaker(reason="steady-state tier ceiling")
+    assert brain_hook._breaker_state["open"] is False, (
+        "p95 at the configured tier ceiling (~4200ms) must NOT trip the "
+        "6000ms breaker — that was the R-F968 flap"
+    )
+    _reset_breaker()
+    brain_hook._warmup_complete = False
+
+
+def test_rf968_genuine_wedge_still_trips():
+    """A genuine wedge / loop starvation (the 11.6s R-F703 stalls) pushes p95
+    well above 6000ms and must still trip — raising the threshold tames the
+    flap without disarming the breaker."""
+    _reset_breaker()
+    brain_hook._warmup_complete = True
+    brain_hook._recent_latencies_ms.extend([8000.0] * 12)
+    for _ in range(brain_hook._TRIP_CONSECUTIVE):
+        brain_hook._maybe_trip_breaker(reason="genuine wedge")
+    assert brain_hook._breaker_state["open"] is True, (
+        "a real >6000ms wedge must still trip the breaker"
+    )
+    _reset_breaker()
+    brain_hook._warmup_complete = False
+
+
+def test_rf968_trip_threshold_clears_tier_ceiling_invariant():
+    """Invariant guard: the breaker trip threshold MUST stay above the per-tier
+    wall-time ceiling (_TIER_TIMEOUT_S). If it drops to/below the ceiling, a
+    healthy slow tier guarantees a false trip (the R-F968 regression)."""
+    assert brain_hook._LATENCY_TRIP_MS > brain_hook._TIER_TIMEOUT_S * 1000, (
+        f"trip threshold {brain_hook._LATENCY_TRIP_MS}ms must exceed the "
+        f"per-tier ceiling {brain_hook._TIER_TIMEOUT_S * 1000}ms"
+    )
+
+
 def test_rf790_close_does_not_reference_pending_actions():
     """Source-level regression guard. R-F790 removed the premature
     auto-resolve from _maybe_close_breaker because cooldown elapsing is

@@ -991,11 +991,22 @@ _ALERT_STALE_HOURS = 24  # alert if module hasn't sent a signal in 24h
 # Live observation 2026-04-30 10:03:13: 7 absorbs in 3ms wall-time pushed
 # absorb p95 to 2084ms, tripping the 2000ms breaker for 60s of cooldown
 # before auto-recovery. Same pattern as F69 — legitimate burst, not a
-# downstream outage. 3500ms gives the post-F94 burst pattern ~70%
-# headroom. Real Redis/Chroma outages still produce p95 > 5000ms within
-# seconds, well clear of the new threshold. Operator can still override
+# downstream outage. Real Redis/Chroma outages still produce p95 > 6000ms
+# within seconds, well clear of the threshold. Operator can still override
 # via ARIA_BRAIN_LATENCY_TRIP_MS env var.
-_LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "3500"))
+#
+# R-F968 (2026-05-28) — raised 3500→6000. The trip threshold MUST sit
+# above the per-tier wall-time ceiling (_TIER_TIMEOUT_S, R-F795), otherwise
+# a SINGLE slow-but-healthy tier hitting its allowed budget trips the
+# breaker. R-F932 set the live tier timeout to 3500ms — equal to the old
+# 3500ms trip threshold — so one slow neural absorb pushed p95 to its
+# configured ceiling and the breaker flapped TRIPPED↔CLOSED every ~60s
+# (live 2026-05-28 16:59-17:00: p95=3665-4205ms reason=absorb(signal_
+# generator), 0 actual loop starvation). 6000ms clears the live 3500ms
+# tier ceiling + the observed ~4200ms steady p95 with margin, while a
+# genuine multi-tier wedge / loop starvation (the 11.6s R-F703 stalls)
+# still spikes p95 well above 6000ms and trips correctly.
+_LATENCY_TRIP_MS = int(os.environ.get("ARIA_BRAIN_LATENCY_TRIP_MS", "6000"))
 
 # R-F795 (2026-05-22) — per-tier wall-time ceiling. Defensive bound on
 # absorb() wall-time when a downstream tier wedges. Live evidence

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 967,
+  "next_available": 971,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4182,6 +4182,42 @@
       "commit_sha": "1d50226",
       "notes": null,
       "shipped_at": "2026-05-28T14:18:13Z"
+    },
+    {
+      "r_number": "R-F967",
+      "title": "F1+F2 shed transient doc-extraction/operational events from coder gap pipeline",
+      "claimed_at": "2026-05-28T15:16:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F968",
+      "title": "F3 raise brain_hook circuit trip threshold above configured tier-timeout ceiling to stop steady-state flap",
+      "claimed_at": "2026-05-28T15:16:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F969",
+      "title": "F4 document gate-3 error_streak as canonical deploy-noise-immune counter + skip pointless docker build on non-code commits",
+      "claimed_at": "2026-05-28T15:16:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F970",
+      "title": "F5 repo hygiene: gitignore scratch monitoring logs, commit handoff docs",
+      "claimed_at": "2026-05-28T15:16:08Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

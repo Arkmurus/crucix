@@ -180,6 +180,43 @@ def test_ledger_fetch_failure_degrades_gracefully(monkeypatch):
     assert r["phase_a_gate_3_pass"] is False  # honest default
 
 
+# ── R-F969 — deploy-noise immunity is explicit + real operational WARNINGs ──
+
+
+def test_rf969_noise_excluded_documented(monkeypatch):
+    """R-F969 — the output explicitly documents that fly-platform deploy-window
+    errors + operational WARNINGs don't reset the streak, so the gate stops
+    being re-litigated each session."""
+    _setup_fake_redis(monkeypatch, initial_events=[])
+    from aria_service.intel import error_streak as es
+
+    r = asyncio.run(es.compute_error_streak())
+    note = r.get("noise_excluded", "")
+    assert "deploy-window" in note and "WARNING" in note
+
+
+def test_rf969_operational_warnings_do_not_reset(monkeypatch):
+    """Realistic regression: a redeploy's circuit-breaker source-down +
+    R-F703 event-loop-stall WARNINGs (both log:warning) must NOT reset the
+    gate-3 streak — they are operational, not app ERROR/CRITICAL."""
+    base = time.time()
+    events = [
+        {"type": "log:warning", "file": "aria_service/intel/circuit_breaker.py",
+         "message": "[circuit_breaker] search:duckduckgo: CLOSED -> OPEN (5 consecutive failures)",
+         "timestamp": base - 3600},
+        {"type": "log:warning", "file": "aria_service/main.py",
+         "message": "[R-F703] event loop stalled for 11.64s (threshold=5.0s)",
+         "timestamp": base - 1800},
+    ]
+    _setup_fake_redis(monkeypatch, initial_events=events)
+    from aria_service.intel import error_streak as es
+
+    r = asyncio.run(es.compute_error_streak())
+    assert r["phase_a_gate_3_pass"] is True
+    assert r["consecutive_clean_days"] == 7
+    assert r["window_errors_7d"] == 2  # still counted in the window
+
+
 # ── Endpoint wiring ─────────────────────────────────────────────────────
 
 

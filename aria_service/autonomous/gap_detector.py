@@ -226,6 +226,21 @@ class ErrorLedgerExtractor:
         "not in whitelist",         # the coder's OWN stage rejection (control flow)
         "rate limit hit",           # autonomous rate limiter (by design)
         "already at cap",           # rate bucket at cap (by design)
+        # R-F967 (2026-05-28) — operational events that the ErrorLedgerExtractor
+        # was mis-classing as auto_fixable gaps, churning the coder's 6/hr
+        # budget (live: 16:58Z self_coder picked 3× "Document parse failure in
+        # routes/aria.py" — all rate-blocked, nothing staged). These are NOT
+        # code defects the coder can fix from a one-line WARNING:
+        "extraction failed",        # PDF/DOCX/Excel/PPTX/EML extraction of a
+                                    # user upload failed + was handled/fell
+                                    # through (routes/aria.py:9187-9442). Bad
+                                    # input, not a routes/aria.py bug. A genuine
+                                    # extraction code bug still surfaces via the
+                                    # document_reader failure path + operator.
+        "probe failed",             # circuit_breaker HALF_OPEN recovery probe
+                                    # for an external source still down (§14).
+        "returned empty",           # external provider (OCR.space etc.) returned
+                                    # an empty body — operational, not a bug.
     )
 
     def _entry_to_gap(self, entry: dict) -> Optional[Gap]:

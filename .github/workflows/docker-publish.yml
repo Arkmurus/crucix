@@ -4,6 +4,18 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    # R-F969 (2026-05-28) — registry/doc-only commits (the "chore: ship
+    # marker R-Fxxx" commits that touch only data/r_number_reservations.json,
+    # plus docs + markdown + leading-underscore session scratch) don't change
+    # the image, so don't burn a full multi-arch QEMU build on them. The fly
+    # deploy pipeline (test-aria.yml → deploy-fly.yml) is already path-filtered
+    # to aria_service/**, so this is the only workflow that fired on every
+    # commit. Reduces per-R-number CI churn.
+    paths-ignore:
+      - 'docs/**'
+      - 'data/r_number_reservations.json'
+      - '**/*.md'
+      - '_*.txt'
   pull_request:
     branches: [main]
 

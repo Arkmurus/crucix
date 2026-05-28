@@ -87,3 +87,17 @@ corpus_clean.tar.gz
 # demand by the autonomous pod-launch flow, never source-controlled.
 runpod_aria
 runpod_aria.pub
+
+# R-F970 (2026-05-28) — session-scratch monitoring/report artefacts written
+# during live log-watch sessions (leading-underscore convention at repo root).
+# Operator-local, regenerated each session; never source-controlled. (The
+# matching *.log monitor stream is already covered by the Logs section above.)
+/_monitor_*.md
+/_monitoring_*.md
+/_full_pytest_*.txt
+/_inspect_*.py
+
+# R-F970 — runtime-learned regression signatures. constitutional_validator.py
+# writes these to /data on fly; on a local checkout (no /data mount) it falls
+# back to data/learned_attack_signatures.json. Runtime state, not source.
+data/learned_attack_signatures.json

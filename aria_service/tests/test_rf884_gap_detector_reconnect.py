@@ -142,6 +142,36 @@ def test_rf908_more_operational_events_skipped():
     assert exc is not None, "a genuine exception must still become a gap"
 
 
+def test_rf967_transient_extraction_and_operational_events_skipped():
+    """R-F967 — document-extraction failures of a *user upload* (handled +
+    fallthrough at routes/aria.py:9187-9442), circuit-breaker recovery-probe
+    failures, and external-provider empty responses are operational, not code
+    defects. Pre-R-F967 (live 2026-05-28 16:58Z) the coder picked 3×
+    'Document parse failure in routes/aria.py' (routes/aria.py IS modifiable),
+    all rate-blocked at cap 6 → the 6/hr budget burned, nothing staged. They
+    must be shed so the coder spends its budget on real bugs."""
+    ex = gd.ErrorLedgerExtractor(None)
+    skipped = [
+        "PDF extraction failed: cannot identify image file",
+        "DOCX extraction failed: Package not found",
+        "Excel extraction failed: File is not a zip file — mime=... name=...",
+        "PPTX extraction failed: bad magic number — mime=...",
+        "EML extraction failed: 'utf-8' codec can't decode byte",
+        "[circuit_breaker] archive_is: HALF_OPEN -> OPEN (probe failed)",
+        "OCR.space returned empty text",
+    ]
+    for msg in skipped:
+        assert ex._entry_to_gap(
+            {"type": "WARNING", "file": "aria_service/routes/aria.py", "message": msg}
+        ) is None, msg
+    # A genuine extraction CODE bug (a real exception, not a handled
+    # 'extraction failed' fallthrough) must still become an actionable gap.
+    real = ex._entry_to_gap({"type": "ValueError", "file": "document_reader.py",
+                             "message": "list index out of range parsing pdf"})
+    assert real is not None and real.gap_type == gd.GapType.DOCUMENT_PARSE, \
+        "a genuine parse exception must stay actionable"
+
+
 def test_mistake_ledger_is_observe_only_not_auto_fix():
     """Safety: mistake-ledger gaps map to MISSING_CAPABILITY (auto_fixable=False)
     so a recorded past mistake is surfaced for review, never auto-fixed."""
