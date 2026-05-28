@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 985,
+  "next_available": 988,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4358,9 +4358,41 @@
       "title": "move source_verifier.verify_response off event loop + cap doc context",
       "claimed_at": "2026-05-28T20:45:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
+      "status": "abandoned",
       "commit_sha": null,
-      "notes": null
+      "notes": null,
+      "abandoned_at": "2026-05-28T20:51:33Z",
+      "abandon_reason": "verify_response cap deferred — quality tradeoff; operator chose D+C instead"
+    },
+    {
+      "r_number": "R-F985",
+      "title": "env: throttle absorb storm (concurrency=1, interactive pause) for chat latency",
+      "claimed_at": "2026-05-28T20:51:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "50cee2c",
+      "notes": null,
+      "shipped_at": "2026-05-28T21:03:42Z"
+    },
+    {
+      "r_number": "R-F986",
+      "title": "coalesce neural _persist (dirty-flag periodic flush, stop per-absorb gzip)",
+      "claimed_at": "2026-05-28T20:51:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "50cee2c",
+      "notes": null,
+      "shipped_at": "2026-05-28T21:03:42Z"
+    },
+    {
+      "r_number": "R-F987",
+      "title": "encode-lock priority for interactive chat RAG query",
+      "claimed_at": "2026-05-28T20:51:33Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "50cee2c",
+      "notes": null,
+      "shipped_at": "2026-05-28T21:03:42Z"
     }
   ]
 }
