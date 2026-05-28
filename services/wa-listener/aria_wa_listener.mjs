@@ -310,7 +310,14 @@ function shouldAutoRespond(chatId, keywords) {
 
 // ── Internal API helpers ─────────────────────────────────────────────────────
 async function brainPost(path, body) {
-  const timeout = path.includes('/aria/') ? 90000 : 15000;
+  // R-F960 — /transcribe needs a long ceiling: a long voice note decoded by the
+  // 'small' model with beam-search (beam_size=5) is several× slower than the old
+  // base/greedy config, and the very first note after a redeploy also pays the
+  // bigger model's cold-load from /data. 300s keeps long, accented notes from
+  // aborting mid-decode. (Checked before '/aria/' — /api/aria/transcribe matches both.)
+  const timeout = path.includes('/transcribe') ? 300000
+                : path.includes('/aria/')       ? 90000
+                :                                 15000;
   const r = await fetch(`${BRAIN_URL}${path}`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INT_TOKEN}` },

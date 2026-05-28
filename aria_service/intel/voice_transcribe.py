@@ -28,7 +28,16 @@ import time
 
 logger = logging.getLogger("aria.voice")
 
-_MODEL_SIZE = (os.getenv("ARIA_WHISPER_MODEL") or "base").strip()
+# R-F960 (2026-05-28) — default upgraded base→small + beam search. The 'base'
+# model with greedy decoding kept mis-transcribing the "Aria" wake-word (→"Area",
+# or dropping the short leading word) on accented / non-native-English speech, so
+# the WhatsApp name-only gate never fired and voice notes got no reply (live:
+# 12:51 "Area…", 13:17 wake-word dropped — both silent). 'small' is markedly more
+# accurate on accents (~460MB vs 142MB, staged on /data per R-F958 lazy-load), and
+# beam_size=5 over greedy (1) further cuts word/wake-word errors. Both env-tunable
+# so we can dial back without a redeploy if CPU/latency becomes a problem.
+_MODEL_SIZE = (os.getenv("ARIA_WHISPER_MODEL") or "small").strip()
+_BEAM_SIZE = max(1, int(os.getenv("ARIA_WHISPER_BEAM", "5") or "5"))
 _CONCURRENCY = max(1, int(os.getenv("ARIA_WHISPER_CONCURRENCY", "1") or "1"))
 _MAX_AUDIO_BYTES = int(os.getenv("ARIA_WHISPER_MAX_BYTES", str(25 * 1024 * 1024)))  # 25MB
 
@@ -86,7 +95,7 @@ async def transcribe_audio(audio_bytes: bytes, *, mime: str = "") -> dict:
             def _run():
                 # faster-whisper decodes Opus/OGG/MP3/WAV via PyAV from a file-like.
                 segments, info = model.transcribe(
-                    io.BytesIO(audio_bytes), beam_size=1, vad_filter=True,
+                    io.BytesIO(audio_bytes), beam_size=_BEAM_SIZE, vad_filter=True,
                 )
                 text = " ".join(s.text.strip() for s in segments).strip()
                 return text, getattr(info, "language", "") or "", float(getattr(info, "duration", 0.0) or 0.0)
