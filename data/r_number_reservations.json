@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 982,
+  "next_available": 983,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4332,6 +4332,16 @@
       "commit_sha": "feac280",
       "notes": null,
       "shipped_at": "2026-05-28T16:24:23Z"
+    },
+    {
+      "r_number": "R-F982",
+      "title": "WA: route all chats through async job+poll (no sync timeout)",
+      "claimed_at": "2026-05-28T20:20:44Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "57873f3",
+      "notes": null,
+      "shipped_at": "2026-05-28T20:24:19Z"
     }
   ]
 }
