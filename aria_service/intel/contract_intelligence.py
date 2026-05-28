@@ -17,6 +17,7 @@ Three capabilities that elevate ARIA's contract review from competent to excepti
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -123,8 +124,8 @@ async def self_review_contract(
     has_corrections = False
     model = ""
 
-    for idx, chunk in enumerate(chunks):
-        prompt = (
+    def _window_prompt(idx: int, chunk: str) -> str:
+        return (
             f"ORIGINAL DOCUMENT [window {idx+1}/{len(chunks)}, "
             f"chars {idx * (_SELF_REVIEW_CHUNK_CHARS - _SELF_REVIEW_OVERLAP_CHARS)}–"
             f"{idx * (_SELF_REVIEW_CHUNK_CHARS - _SELF_REVIEW_OVERLAP_CHARS) + len(chunk)}]:\n"
@@ -140,20 +141,51 @@ async def self_review_contract(
             f"omitted. If the draft is consistent with everything visible here, "
             f"reply exactly 'No issues in this window.'"
         )
-        try:
-            from . import cost_tracker
-            with cost_tracker.feature("contract_intelligence"):
-                result = await llm.complete(SELF_REVIEW_PROMPT, prompt, max_tokens=2000, timeout=60.0)
-            text = (result.text or "").strip()
-            if text:
-                header = f"── Self-review window {idx+1}/{len(chunks)} ──\n"
-                all_findings.append(header + text)
-                if any(kw in text.upper() for kw in ("REMOVE:", "ADD:", "FLAG:", "MEMORY CONTAMINATION", "MISSED")):
-                    has_corrections = True
-            model = model or result.model
-        except Exception as e:
-            logger.warning("Contract self-review window %d/%d failed: %s", idx + 1, len(chunks), e)
-            all_findings.append(f"── Self-review window {idx+1}/{len(chunks)} — ERROR: {e} ──")
+
+    # R-F983 — run the per-window audits CONCURRENTLY (bounded) instead of
+    # serially. Each window is an independent audit of a DISJOINT document slice
+    # with no ordering dependency, so N serial DeepSeek round-trips (the bulk of a
+    # ~143s doc-review chat trace) collapse to ceil(N / concurrency). Results are
+    # reassembled in window order so the merged findings read identically to the
+    # old serial version. Concurrency is bounded so the provider rate limiter /
+    # $300 cap still gate spend.
+    try:
+        _conc = max(1, int(os.getenv("ARIA_SELF_REVIEW_CONCURRENCY", "3") or "3"))
+    except ValueError:
+        _conc = 3
+    _sem = asyncio.Semaphore(_conc)
+
+    async def _audit_window(idx: int, chunk: str) -> tuple[int, str, bool, str]:
+        async with _sem:
+            try:
+                result = await llm.complete(
+                    SELF_REVIEW_PROMPT, _window_prompt(idx, chunk),
+                    max_tokens=2000, timeout=60.0,
+                )
+                text = (result.text or "").strip()
+                if text:
+                    corr = any(kw in text.upper() for kw in
+                               ("REMOVE:", "ADD:", "FLAG:", "MEMORY CONTAMINATION", "MISSED"))
+                    return (idx,
+                            f"── Self-review window {idx+1}/{len(chunks)} ──\n{text}",
+                            corr, result.model or "")
+                return (idx, "", False, result.model or "")
+            except Exception as e:
+                logger.warning("Contract self-review window %d/%d failed: %s", idx + 1, len(chunks), e)
+                return (idx, f"── Self-review window {idx+1}/{len(chunks)} — ERROR: {e} ──", False, "")
+
+    # Single cost-tracking context spans all concurrent windows (the gathered
+    # tasks inherit it); attribution stays "contract_intelligence" as before.
+    from . import cost_tracker
+    with cost_tracker.feature("contract_intelligence"):
+        _results = await asyncio.gather(*[_audit_window(i, c) for i, c in enumerate(chunks)])
+    for _idx, _body, _corr, _mdl in sorted(_results, key=lambda r: r[0]):
+        if _body:
+            all_findings.append(_body)
+        if _corr:
+            has_corrections = True
+        if not model and _mdl:
+            model = _mdl
 
     if truncated:
         all_findings.append(
