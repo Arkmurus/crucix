@@ -271,10 +271,57 @@ def test_fetch_url_rejects_non_http(tmp_path):
 def test_new_tools_are_advertised():
     from aria_cli.tools import TOOL_SCHEMAS
     names = {s["function"]["name"] for s in TOOL_SCHEMAS}
-    assert {"update_plan", "fetch_url"}.issubset(names)
+    assert {"update_plan", "fetch_url", "ask_claude", "check_claude"}.issubset(names)
     # the full Claude-Code-style kit
     assert {"read_file", "write_file", "edit_file", "list_dir", "glob",
             "grep", "run"}.issubset(names)
+
+
+# ── Claude <-> ARIA back-door mailbox (R-F990) ───────────────────────────────
+from aria_cli import bridge  # noqa: E402
+
+
+def test_bridge_roundtrip_and_seen(tmp_path):
+    # ARIA asks; Claude sees it once (read_new marks seen), then replies.
+    q = bridge.send(tmp_path, frm="aria", to="claude", text="how?", kind="question")
+    first = bridge.read_new(tmp_path, "claude")
+    assert len(first) == 1 and first[0]["text"] == "how?"
+    assert bridge.read_new(tmp_path, "claude") == []   # consumed once
+
+    bridge.send(tmp_path, frm="claude", to="aria", text="like this", kind="answer",
+                reply_to=q["id"])
+    got = bridge.read_new(tmp_path, "aria")
+    assert len(got) == 1 and got[0]["reply_to"] == q["id"]
+
+
+def test_bridge_wait_for_reply_returns_match(tmp_path):
+    q = bridge.send(tmp_path, frm="aria", to="claude", text="q", kind="question")
+    bridge.send(tmp_path, frm="claude", to="aria", text="A", reply_to=q["id"])
+    reply = bridge.wait_for_reply(tmp_path, "aria", q["id"], timeout=1.0)
+    assert reply is not None and reply["text"] == "A"
+
+
+def test_bridge_wait_times_out_without_reply(tmp_path):
+    q = bridge.send(tmp_path, frm="aria", to="claude", text="q", kind="question")
+    assert bridge.wait_for_reply(tmp_path, "aria", q["id"], timeout=0.2, interval=0.1) is None
+
+
+def test_ask_and_check_claude_tools(tmp_path):
+    box = Toolbox(root=tmp_path, guard=WriteGuard(self_mode=False), bridge_base=tmp_path)
+    r = box.ask_claude("what's the north star here?")
+    assert not r.is_error and "sent to claude" in r.output.lower()
+    # Claude answers via the bridge
+    pending = bridge.read_new(tmp_path, "claude")
+    bridge.send(tmp_path, frm="claude", to="aria", text="ship Phase A",
+                reply_to=pending[0]["id"])
+    c = box.check_claude()
+    assert "ship Phase A" in c.output
+
+
+def test_bridge_tools_disabled_without_base(tmp_path):
+    box = Toolbox(root=tmp_path, guard=WriteGuard(self_mode=False))  # no bridge_base
+    assert box.ask_claude("hi").is_error
+    assert box.check_claude().is_error
 
 
 # ── .env auto-loading (expert-coder convenience) ─────────────────────────────

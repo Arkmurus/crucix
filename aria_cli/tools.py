@@ -38,11 +38,15 @@ class ToolResult:
 class Toolbox:
     """Filesystem + shell tools scoped to ``root`` (the launch directory)."""
 
-    def __init__(self, root: Path, guard: WriteGuard) -> None:
+    def __init__(self, root: Path, guard: WriteGuard,
+                 bridge_base: Path | None = None) -> None:
         self.root = root.resolve()
         self.guard = guard
         self.changed_files: list[str] = []
         self.plan: list[dict] = []
+        # Base dir for the Claude<->ARIA mailbox (the repo root in self-mode);
+        # None disables the bridge tools.
+        self.bridge_base = bridge_base
 
     # ── path helpers ──────────────────────────────────────────────────────
     def _resolve(self, path: str) -> Path:
@@ -290,6 +294,42 @@ class Toolbox:
         return ToolResult(f"HTTP {resp.status_code} {url}\n{body}",
                           is_error=resp.status_code >= 400)
 
+    # ── Claude back-door (ask_claude / check_claude) ────────────────────────
+    def ask_claude(self, question: str, wait_seconds: int = 0) -> ToolResult:
+        if not self.bridge_base:
+            return ToolResult("error: the Claude bridge is only available in "
+                              "self-mode (inside the crucix repo).", is_error=True)
+        from . import bridge
+        msg = bridge.send(self.bridge_base, frm="aria", to="claude",
+                          text=question, kind="question")
+        wait = max(0, min(int(wait_seconds or 0), 120))
+        if wait:
+            reply = bridge.wait_for_reply(self.bridge_base, reader="aria",
+                                          reply_to_id=msg["id"], timeout=wait)
+            if reply:
+                return ToolResult(f"Claude replied: {reply['text']}")
+            return ToolResult(
+                f"Question sent to Claude (id {msg['id']}), but no reply within "
+                f"{wait}s — Claude may not be active right now. Continue with your "
+                f"best judgement and call check_claude later for the answer.")
+        return ToolResult(
+            f"Question sent to Claude (id {msg['id']}). Claude answers when active "
+            f"in this folder — call check_claude later to read the reply.")
+
+    def check_claude(self) -> ToolResult:
+        if not self.bridge_base:
+            return ToolResult("error: the Claude bridge is only available in "
+                              "self-mode (inside the crucix repo).", is_error=True)
+        from . import bridge
+        new = bridge.read_new(self.bridge_base, reader="aria")
+        if not new:
+            return ToolResult("No new messages from Claude.")
+        lines = []
+        for m in new:
+            tag = "reply" if m.get("reply_to") else m.get("kind", "note")
+            lines.append(f"[Claude {tag}] {m.get('text', '')}")
+        return ToolResult("\n".join(lines))
+
     def _track(self, p: Path) -> None:
         d = self._display(p)
         if d not in self.changed_files:
@@ -442,6 +482,29 @@ TOOL_SCHEMAS: list[dict] = [
                 },
                 "required": ["url"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_claude",
+            "description": "Ask Claude Code (the operator's other coding agent working in this same repo) a question — e.g. for guidance on the north star, a design decision, a tricky bug, or a review. Claude answers asynchronously when active. Set wait_seconds to block briefly for a near-live reply.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "wait_seconds": {"type": "integer", "description": "Seconds to wait for a reply (0 = fire-and-forget; max 120)."},
+                },
+                "required": ["question"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_claude",
+            "description": "Read any new messages or answers Claude Code has sent you in this repo.",
+            "parameters": {"type": "object", "properties": {}},
         },
     },
 ]

@@ -104,7 +104,7 @@ class TerminalUI(AgentUI):
             head = result.output.splitlines()[0] if result.output else ""
             print(self.c.red(f"    -> {head[:200]}"))
             return
-        if name == "update_plan":
+        if name in {"update_plan", "ask_claude", "check_claude"}:
             for ln in result.output.splitlines():
                 print(self.c.dim(f"    {ln}"))
 
@@ -146,6 +146,10 @@ class TerminalUI(AgentUI):
             return repr(args.get("url", ""))
         if name == "update_plan":
             return f"{len(args.get('plan', []))} steps"
+        if name == "ask_claude":
+            return repr(args.get("question", ""))[:100]
+        if name == "check_claude":
+            return ""
         return ", ".join(f"{k}={repr(v)[:40]}" for k, v in args.items())
 
 
@@ -168,7 +172,9 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
 
     resolver = _repo_relative_resolver(repo_root) if repo_root else None
     guard = WriteGuard(self_mode=self_mode, repo_relative_resolver=resolver)
-    toolbox = Toolbox(root=cwd, guard=guard)
+    # The Claude<->ARIA mailbox lives at the repo root, so the bridge tools are
+    # available whenever ARIA is working in her own ecosystem.
+    toolbox = Toolbox(root=cwd, guard=guard, bridge_base=repo_root)
 
     # In self-mode, feed the CLI from the repo's own .env (same file the server
     # reads) so the operator's DEEPSEEK_API_KEY is picked up automatically.
@@ -195,6 +201,24 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
     ui = TerminalUI(auto_approve=args.auto, interactive=interactive, color=color)
     agent = Agent(llm=llm, toolbox=toolbox, system_prompt=system_prompt, ui=ui,
                   auto_approve=args.auto)
+
+    # Back door: surface any messages Claude left for ARIA into this session so
+    # she sees them up front (CLAUDE.md §21 — agents working together).
+    if repo_root is not None:
+        try:
+            from . import bridge
+            pending = bridge.read_new(repo_root, reader="aria")
+        except Exception:  # noqa: BLE001 — bridge must never block startup
+            pending = []
+        if pending:
+            note = ("Claude Code (the operator's other agent in this repo) left "
+                    "you the message(s) below. This IS Claude's guidance — treat "
+                    "it as delivered and act on it; you do NOT need to call "
+                    "check_claude for these (check_claude is only for replies that "
+                    "arrive later in this session):\n"
+                    + "\n".join(f"- {m.get('text', '')}" for m in pending))
+            agent.messages.append({"role": "system", "content": note})
+            print(color.yellow(f"  [bridge] {len(pending)} message(s) from Claude loaded into this session."))
     return agent, ui, cfg, self_mode, guard
 
 
@@ -243,8 +267,21 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 print(color.dim(
                     "  /auto — toggle auto-approve of edits/commands\n"
                     "  /changes — list files changed this session\n"
+                    "  /claude — read new messages from Claude Code\n"
                     "  /reset — clear the conversation history\n"
                     "  /exit — quit"))
+                continue
+            if line == "/claude":
+                try:
+                    from . import bridge
+                    msgs = bridge.read_new(cwd, reader="aria") if find_repo_root(cwd) else []
+                except Exception:  # noqa: BLE001
+                    msgs = []
+                if msgs:
+                    for m in msgs:
+                        print(color.cyan(f"  [Claude] {m.get('text', '')}"))
+                else:
+                    print(color.dim("  no new messages from Claude"))
                 continue
             if line == "/auto":
                 ui.auto_approve = agent.auto_approve = not agent.auto_approve

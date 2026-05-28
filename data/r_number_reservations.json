@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 990,
+  "next_available": 991,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4413,6 +4413,15 @@
       "commit_sha": "b056514",
       "notes": null,
       "shipped_at": "2026-05-28T22:13:27Z"
+    },
+    {
+      "r_number": "R-F990",
+      "title": "Claude<->ARIA back-door mailbox (ask_claude/check_claude tools + agent_bridge.py)",
+      "claimed_at": "2026-05-28T22:22:56Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
