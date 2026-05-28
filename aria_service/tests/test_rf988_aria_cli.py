@@ -455,6 +455,99 @@ def test_turn_abort_surfaces_reason_at_step_cap(tmp_path, monkeypatch):
     assert any("limit" in m.lower() for m in ui.infos)  # reason was shown, not swallowed
 
 
+def test_llm_transient_error_is_retried(tmp_path):
+    """A transient LLM error self-heals: the agent retries and the turn succeeds."""
+    from aria_cli.llm import LLMError
+
+    class _FlakyLLM:
+        total_input_tokens = 0
+        total_output_tokens = 0
+
+        def __init__(self):
+            self.calls = 0
+
+        def chat(self, messages, tools=None):
+            self.calls += 1
+            if self.calls < 3:
+                raise LLMError("read timeout while contacting endpoint")
+            return _assistant(content="recovered after retry")
+
+        def close(self):
+            pass
+
+    agent = Agent(llm=_FlakyLLM(), toolbox=_general_box(tmp_path),
+                  system_prompt="s", ui=_CollectUI(), auto_approve=True)
+    agent.retry_backoff = 0  # no real sleeping in tests
+    result = agent.run_turn("do it")
+    assert not result.aborted
+    assert "recovered" in result.final_text
+
+
+def test_hard_llm_error_does_not_retry_or_resume(tmp_path):
+    """A non-transient error (auth) is not retried and is not resumable."""
+    from aria_cli.llm import LLMError
+
+    class _AuthFailLLM:
+        total_input_tokens = 0
+        total_output_tokens = 0
+
+        def __init__(self):
+            self.calls = 0
+
+        def chat(self, messages, tools=None):
+            self.calls += 1
+            raise LLMError("HTTP 401 authentication_error: invalid api key")
+
+        def close(self):
+            pass
+
+    llm = _AuthFailLLM()
+    agent = Agent(llm=llm, toolbox=_general_box(tmp_path), system_prompt="s",
+                  ui=_CollectUI(), auto_approve=True)
+    agent.retry_backoff = 0
+    result = agent.run_until_complete("do it")
+    assert result.aborted and not result.resumable
+    assert llm.calls == 1  # no retry, no resume on a hard auth failure
+
+
+def test_run_until_complete_self_resumes_on_resumable_abort(tmp_path, monkeypatch):
+    """If a turn ends incomplete-but-resumable, the agent auto-continues itself
+    instead of stopping (the self-start trigger)."""
+    import aria_cli.agent as ag
+    monkeypatch.setattr(ag, "MAX_STEPS", 1)        # force a step-cap abort per turn
+    monkeypatch.setattr(ag, "AUTO_RESUME_MAX", 3)
+
+    calls = {"n": 0}
+
+    class _ToolThenDoneLLM:
+        total_input_tokens = 0
+        total_output_tokens = 0
+
+        def chat(self, messages, tools=None):
+            calls["n"] += 1
+            # First two model calls request a tool (each turn caps at 1 step and
+            # aborts-resumable); the third finishes.
+            if calls["n"] < 3:
+                return _assistant(tool_calls=[_tool_call("c", "list_dir", '{"path": "."}')])
+            return _assistant(content="all done")
+
+        def close(self):
+            pass
+
+    agent = Agent(llm=_ToolThenDoneLLM(), toolbox=_general_box(tmp_path),
+                  system_prompt="s", ui=_CollectUI(), auto_approve=True)
+    result = agent.run_until_complete("big task")
+    assert not result.aborted
+    assert "all done" in result.final_text
+
+
+def test_thinking_hooks_exist_on_ui():
+    # The agent calls these around every model call to show live activity.
+    ui = AgentUI()
+    ui.thinking_start()
+    ui.thinking_stop()  # no-ops on the base UI, must not raise
+
+
 def test_agent_handles_bad_tool_arguments(tmp_path):
     box = _general_box(tmp_path)
     llm = FakeLLM([

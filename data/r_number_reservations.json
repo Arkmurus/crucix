@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 993,
+  "next_available": 994,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4443,6 +4443,15 @@
       "commit_sha": "e4a1fd4",
       "notes": null,
       "shipped_at": "2026-05-28T22:56:11Z"
+    },
+    {
+      "r_number": "R-F993",
+      "title": "aria CLI: self-start — LLM retry/backoff + auto-resume on incomplete turn (never sit stuck)",
+      "claimed_at": "2026-05-28T22:57:15Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

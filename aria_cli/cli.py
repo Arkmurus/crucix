@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import threading
 from pathlib import Path
 
 from . import __version__
@@ -91,6 +92,11 @@ class TerminalUI(AgentUI):
         self.interactive = interactive
         self.c = color
         self.approve_all = False
+        # Animated "thinking" indicator while the model is being called, so the
+        # operator can always see ARIA is working (only on a real terminal).
+        self._can_animate = sys.stdout.isatty()
+        self._spin_stop: threading.Event | None = None
+        self._spin_thread: threading.Thread | None = None
 
     def assistant(self, text: str) -> None:
         print("\n" + self.c.cyan("aria") + "  " + text)
@@ -110,6 +116,32 @@ class TerminalUI(AgentUI):
 
     def info(self, text: str) -> None:
         print(self.c.dim("  " + text))
+
+    # ── live "thinking" spinner ─────────────────────────────────────────────
+    def thinking_start(self) -> None:
+        if not self._can_animate or self._spin_thread is not None:
+            return
+        self._spin_stop = threading.Event()
+        self._spin_thread = threading.Thread(target=self._spin, daemon=True)
+        self._spin_thread.start()
+
+    def _spin(self) -> None:
+        frames = "-\\|/"
+        i = 0
+        while self._spin_stop is not None and not self._spin_stop.is_set():
+            sys.stdout.write("\r  " + self.c.dim(f"{frames[i % 4]} thinking..."))
+            sys.stdout.flush()
+            i += 1
+            self._spin_stop.wait(0.12)
+        sys.stdout.write("\r" + " " * 24 + "\r")
+        sys.stdout.flush()
+
+    def thinking_stop(self) -> None:
+        if self._spin_thread is not None and self._spin_stop is not None:
+            self._spin_stop.set()
+            self._spin_thread.join(timeout=1.0)
+            self._spin_thread = None
+            self._spin_stop = None
 
     def approve(self, name: str, args: dict) -> bool:
         if self.auto_approve or self.approve_all:
@@ -299,9 +331,9 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 print(color.dim("  conversation reset"))
                 continue
             last_task = line
-            result = agent.run_turn(line)
-            # The reason for an aborted turn (step cap / LLM error) is already
-            # surfaced via ui.info inside run_turn, so no opaque marker here.
+            # run_until_complete self-resumes if a turn ends incomplete, so ARIA
+            # keeps going instead of sitting stuck at the prompt.
+            agent.run_until_complete(line)
     except KeyboardInterrupt:
         print("\n" + color.dim("  interrupted"))
     finally:
@@ -361,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _banner(color, cfg, self_mode, guard, cwd, auto_approve=agent.auto_approve)
     print()
-    result = agent.run_turn(oneshot_text)
+    result = agent.run_until_complete(oneshot_text)
     _finalize(agent, ui, cfg, self_mode, oneshot_text,
               success=not result.aborted, color=color)
     return 1 if result.aborted else 0
