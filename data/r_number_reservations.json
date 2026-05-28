@@ -4310,9 +4310,10 @@
       "title": "voice transcription guards against implausible Whisper language auto-detect (Arabic on accented en/pt) via allow-list + fallback",
       "claimed_at": "2026-05-28T15:52:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "9a672df",
+      "notes": null,
+      "shipped_at": "2026-05-28T15:54:21Z"
     }
   ]
 }
