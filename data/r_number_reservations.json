@@ -4300,9 +4300,10 @@
       "title": "F1a durable OMP/MKL/BLAS/tokenizers thread caps in aria-intel image to cut cold-boot GIL contention",
       "claimed_at": "2026-05-28T15:45:34Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "5f089b0",
+      "notes": null,
+      "shipped_at": "2026-05-28T15:46:39Z"
     }
   ]
 }
