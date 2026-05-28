@@ -55,12 +55,14 @@ aria -p "run the test suite and fix any failures" --auto
 Interactive commands: `/auto` (toggle approval), `/changes`, `/reset`, `/help`,
 `/exit`.
 
-### Approval
+### Autonomy (free rein by default)
 
-By default ARIA **asks before** every mutating action (write / edit / run);
-read-only tools run freely. Answer `y` / `n` / `a` (allow all this session), or
-pass `--auto` (alias `--yolo`) to skip the prompts. Like Claude Code, she edits
-the working tree directly — review with `git diff` and commit yourself.
+ARIA runs **autonomously like Claude Code** — she reads, edits, runs cmd/shell
+commands, tests, commits, and deploys **without per-action yes/no prompts**. She
+only stops to ask when there's a genuine decision for you to make. Pass
+`--confirm` (alias `--ask`) if you want her to ask before each mutating action,
+or toggle it live with `/confirm` in a session. The deterministic guards
+(constitutional validator + truncation) always apply and can't be bypassed.
 
 ## Tools
 

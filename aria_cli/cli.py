@@ -223,14 +223,15 @@ def _build_agent(cwd: Path, args, color: _Color, interactive: bool):
 
 
 def _banner(color: _Color, cfg: LLMConfig, self_mode: bool, guard: WriteGuard,
-            cwd: Path) -> None:
+            cwd: Path, auto_approve: bool = True) -> None:
     mode = color.green("self (crucix ecosystem)") if self_mode else "general project"
     brain = "wired" if brain_mod.brain_enabled(self_mode) else "off"
     guard_state = "constitution + truncation" if guard.constitution_active else "truncation only"
+    approval = color.green("autonomous (free rein)") if auto_approve else "confirm each action"
     print(color.bold("ARIA Coder") + color.dim(f" v{__version__}"))
     print(color.dim(f"  dir:      {cwd}"))
     print(color.dim(f"  mode:     {mode}    guard: {guard_state}    brain: {brain}"))
-    print(color.dim(f"  model:    {cfg.provider}/{cfg.model}"))
+    print(color.dim(f"  model:    {cfg.provider}/{cfg.model}    approval: ") + approval)
 
 
 def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
@@ -250,8 +251,8 @@ def _finalize(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
 
 def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
           guard: WriteGuard, cwd: Path, color: _Color) -> None:
-    _banner(color, cfg, self_mode, guard, cwd)
-    print(color.dim("  Type a task. Commands: /auto /changes /reset /help /exit\n"))
+    _banner(color, cfg, self_mode, guard, cwd, auto_approve=agent.auto_approve)
+    print(color.dim("  Type a task. Commands: /confirm /changes /claude /reset /help /exit\n"))
     last_task = ""
     try:
         while True:
@@ -265,7 +266,7 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 break
             if line == "/help":
                 print(color.dim(
-                    "  /auto — toggle auto-approve of edits/commands\n"
+                    "  /confirm — toggle asking before edits/commands (default: autonomous)\n"
                     "  /changes — list files changed this session\n"
                     "  /claude — read new messages from Claude Code\n"
                     "  /reset — clear the conversation history\n"
@@ -283,9 +284,11 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 else:
                     print(color.dim("  no new messages from Claude"))
                 continue
-            if line == "/auto":
+            if line in {"/confirm", "/auto"}:
+                # /confirm toggles the approval gate; /auto kept as an alias.
                 ui.auto_approve = agent.auto_approve = not agent.auto_approve
-                print(color.yellow(f"  auto-approve: {'ON' if agent.auto_approve else 'OFF'}"))
+                state = "autonomous (free rein)" if agent.auto_approve else "confirm each action"
+                print(color.yellow(f"  approval: {state}"))
                 continue
             if line == "/changes":
                 ch = agent.toolbox.changed_files
@@ -314,8 +317,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("task", nargs="*", help="Task to run one-shot. Omit for an interactive session.")
     parser.add_argument("-p", "--print", dest="oneshot", metavar="TASK", default=None,
                         help="Run a single task non-interactively and exit.")
+    parser.add_argument("--confirm", "--ask", dest="confirm", action="store_true",
+                        help="Ask for approval before each edit/command. Default is "
+                             "full autonomy (free rein, no prompts).")
+    # Back-compat: --auto/--yolo used to enable autonomy; that is now the default,
+    # so the flag is accepted but a no-op.
     parser.add_argument("--auto", "--yolo", dest="auto", action="store_true",
-                        help="Apply edits and run commands without asking for approval.")
+                        help=argparse.SUPPRESS)
     parser.add_argument("--self", dest="self_mode", action="store_true",
                         help="Force self-mode (crucix guardrails + brain wiring).")
     parser.add_argument("--general", dest="general", action="store_true",
@@ -325,6 +333,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI colour.")
     parser.add_argument("--version", action="version", version=f"aria {__version__}")
     args = parser.parse_args(argv)
+
+    # Full autonomy by default (free rein); --confirm opts back into prompts.
+    args.auto = not args.confirm
 
     # The model's output (and ARIA's own glyphs) is UTF-8; the Windows console
     # is often cp1252, which raises UnicodeEncodeError on chars like arrows.
@@ -348,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
         _repl(agent, ui, cfg, self_mode, guard, cwd, color)
         return 0
 
-    _banner(color, cfg, self_mode, guard, cwd)
+    _banner(color, cfg, self_mode, guard, cwd, auto_approve=agent.auto_approve)
     print()
     result = agent.run_turn(oneshot_text)
     _finalize(agent, ui, cfg, self_mode, oneshot_text,

@@ -236,6 +236,34 @@ def test_agent_approval_gate_blocks_mutation_when_denied(tmp_path):
                if m.get("role") == "tool")
 
 
+def test_autonomous_mode_never_asks_approval(tmp_path):
+    """Free rein: with auto_approve=True the approval gate is never consulted —
+    mutating tools just run."""
+    box = _general_box(tmp_path)
+    llm = FakeLLM([
+        _assistant(tool_calls=[_tool_call(
+            "c1", "write_file", '{"path": "a.txt", "content": "x"}')]),
+        _assistant(content="done"),
+    ])
+
+    class _RaiseUI(_CollectUI):
+        def approve(self, name, args):
+            raise AssertionError("approval must not be requested in autonomous mode")
+
+    agent = Agent(llm=llm, toolbox=box, system_prompt="s", ui=_RaiseUI(), auto_approve=True)
+    agent.run_turn("write a.txt")
+    assert (tmp_path / "a.txt").read_text() == "x"
+
+
+def test_prompt_declares_full_autonomy():
+    repo_root = find_repo_root(Path(__file__).resolve().parent)
+    prompt = build_system_prompt(root=repo_root, self_mode=True,
+                                 constitution_active=True, repo_root=repo_root)
+    low = prompt.lower()
+    assert "full autonomy" in low or "free rein" in low
+    assert "do not ask" in low
+
+
 def test_write_file_is_a_mutating_tool():
     # plan + fetch are read-only (no approval); only these three mutate.
     assert {"write_file", "edit_file", "run"} == MUTATING_TOOLS
