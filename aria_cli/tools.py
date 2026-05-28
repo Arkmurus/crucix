@@ -42,6 +42,7 @@ class Toolbox:
         self.root = root.resolve()
         self.guard = guard
         self.changed_files: list[str] = []
+        self.plan: list[dict] = []
 
     # ── path helpers ──────────────────────────────────────────────────────
     def _resolve(self, path: str) -> Path:
@@ -249,6 +250,46 @@ class Toolbox:
                           is_error=proc.returncode != 0,
                           mutation=f"ran: {command[:80]}")
 
+    # ── update_plan (multi-step planning, like a Claude Code todo list) ─────
+    def update_plan(self, plan: list) -> ToolResult:
+        if not isinstance(plan, list):
+            return ToolResult("error: plan must be a list of steps", is_error=True)
+        norm: list[dict] = []
+        for item in plan:
+            if isinstance(item, str):
+                norm.append({"step": item, "status": "pending"})
+            elif isinstance(item, dict):
+                norm.append({
+                    "step": str(item.get("step") or item.get("title") or "").strip(),
+                    "status": str(item.get("status") or "pending").strip().lower(),
+                })
+        norm = [p for p in norm if p["step"]]
+        if not norm:
+            return ToolResult("error: plan has no steps", is_error=True)
+        self.plan = norm
+        return ToolResult(self.render_plan())
+
+    def render_plan(self) -> str:
+        sym = {"completed": "[x]", "in_progress": "[~]", "pending": "[ ]"}
+        return "\n".join(f"{sym.get(p['status'], '[ ]')} {p['step']}" for p in self.plan)
+
+    # ── fetch_url (read a web page / API, like Claude Code's WebFetch) ───────
+    def fetch_url(self, url: str, max_chars: int = 10000) -> ToolResult:
+        if not url.lower().startswith(("http://", "https://")):
+            return ToolResult("error: url must start with http:// or https://", is_error=True)
+        try:
+            import httpx  # already a dependency; lazy import keeps startup light
+            resp = httpx.get(url, timeout=25.0, follow_redirects=True,
+                             headers={"User-Agent": "aria-coder-cli/0.1"})
+        except Exception as exc:  # noqa: BLE001
+            return ToolResult(f"error fetching {url}: {exc}", is_error=True)
+        body = resp.text or ""
+        cap = max(500, min(int(max_chars or 10000), _MAX_OUTPUT_CHARS))
+        if len(body) > cap:
+            body = body[:cap] + f"\n... (truncated, {len(resp.text)} chars total)"
+        return ToolResult(f"HTTP {resp.status_code} {url}\n{body}",
+                          is_error=resp.status_code >= 400)
+
     def _track(self, p: Path) -> None:
         d = self._display(p)
         if d not in self.changed_files:
@@ -356,10 +397,50 @@ TOOL_SCHEMAS: list[dict] = [
                 "type": "object",
                 "properties": {
                     "command": {"type": "string"},
-                    "timeout": {"type": "integer", "description": "Seconds before kill (default 300)."},
+                    "timeout": {"type": "integer", "description": "Seconds before kill (default 300; use 600+ for deploys)."},
                     "cwd": {"type": "string", "description": "Sub-directory to run in (optional)."},
                 },
                 "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_plan",
+            "description": "Maintain a visible step-by-step plan for multi-step work (like a todo list). Call it at the start of a non-trivial task and update statuses as you go. Keep exactly one step 'in_progress'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plan": {
+                        "type": "array",
+                        "description": "Ordered steps.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "step": {"type": "string"},
+                                "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]},
+                            },
+                            "required": ["step", "status"],
+                        },
+                    },
+                },
+                "required": ["plan"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": "HTTP GET a URL and return its text (docs, an API response, a raw file). Read-only.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "max_chars": {"type": "integer", "description": "Max chars to return (optional)."},
+                },
+                "required": ["url"],
             },
         },
     },

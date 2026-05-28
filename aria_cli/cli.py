@@ -103,6 +103,10 @@ class TerminalUI(AgentUI):
         if result.is_error:
             head = result.output.splitlines()[0] if result.output else ""
             print(self.c.red(f"    -> {head[:200]}"))
+            return
+        if name == "update_plan":
+            for ln in result.output.splitlines():
+                print(self.c.dim(f"    {ln}"))
 
     def info(self, text: str) -> None:
         print(self.c.dim("  " + text))
@@ -138,6 +142,10 @@ class TerminalUI(AgentUI):
             return repr(args.get("pattern", ""))
         if name == "list_dir":
             return repr(args.get("path", "."))
+        if name == "fetch_url":
+            return repr(args.get("url", ""))
+        if name == "update_plan":
+            return f"{len(args.get('plan', []))} steps"
         return ", ".join(f"{k}={repr(v)[:40]}" for k, v in args.items())
 
 

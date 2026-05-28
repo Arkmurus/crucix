@@ -237,7 +237,44 @@ def test_agent_approval_gate_blocks_mutation_when_denied(tmp_path):
 
 
 def test_write_file_is_a_mutating_tool():
+    # plan + fetch are read-only (no approval); only these three mutate.
     assert {"write_file", "edit_file", "run"} == MUTATING_TOOLS
+
+
+def test_update_plan_renders_checkboxes(tmp_path):
+    box = _general_box(tmp_path)
+    r = box.update_plan([
+        {"step": "read the file", "status": "completed"},
+        {"step": "make the edit", "status": "in_progress"},
+        {"step": "run tests", "status": "pending"},
+        "bare string becomes pending",
+    ])
+    assert not r.is_error
+    assert "[x] read the file" in r.output
+    assert "[~] make the edit" in r.output
+    assert "[ ] run tests" in r.output
+    assert "[ ] bare string becomes pending" in r.output
+    assert len(box.plan) == 4
+
+
+def test_update_plan_rejects_non_list(tmp_path):
+    box = _general_box(tmp_path)
+    assert box.update_plan("not a list").is_error
+
+
+def test_fetch_url_rejects_non_http(tmp_path):
+    box = _general_box(tmp_path)
+    r = box.fetch_url("file:///etc/passwd")
+    assert r.is_error and "http" in r.output.lower()
+
+
+def test_new_tools_are_advertised():
+    from aria_cli.tools import TOOL_SCHEMAS
+    names = {s["function"]["name"] for s in TOOL_SCHEMAS}
+    assert {"update_plan", "fetch_url"}.issubset(names)
+    # the full Claude-Code-style kit
+    assert {"read_file", "write_file", "edit_file", "list_dir", "glob",
+            "grep", "run"}.issubset(names)
 
 
 # ── .env auto-loading (expert-coder convenience) ─────────────────────────────
@@ -282,6 +319,30 @@ def test_system_prompt_no_repo_rules_in_general_mode():
                                  constitution_active=False, repo_root=None)
     assert "BINDING REPO RULES" not in prompt
     assert "coding agent" in prompt.lower()
+
+
+def test_system_prompt_injects_agents_playbook(tmp_path):
+    # AGENTS.md (when present) is injected alongside CLAUDE.md so ARIA gets the
+    # coder playbook. Use a synthetic repo so the test doesn't depend on the
+    # live AGENTS.md wording.
+    (tmp_path / "CLAUDE.md").write_text("floor rules: R-number everything", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text("PLAYBOOK-MARKER ship via push", encoding="utf-8")
+    prompt = build_system_prompt(root=tmp_path, self_mode=True,
+                                 constitution_active=True, repo_root=tmp_path)
+    assert "AGENTS.md" in prompt and "PLAYBOOK-MARKER" in prompt
+    assert "CLAUDE.md" in prompt and "floor rules" in prompt
+
+
+def test_self_mode_prompt_covers_shipping_and_excellence():
+    repo_root = find_repo_root(Path(__file__).resolve().parent)
+    prompt = build_system_prompt(root=repo_root, self_mode=True,
+                                 constitution_active=True, repo_root=repo_root)
+    low = prompt.lower()
+    # exceptional-coder standard + the end-to-end ship path are both present
+    assert "exceptional" in low
+    assert "git push origin main" in low
+    assert "aria-wa" in low and "fly.wa.toml" in low
+    assert "verify" in low
 
 
 def test_agent_handles_bad_tool_arguments(tmp_path):
