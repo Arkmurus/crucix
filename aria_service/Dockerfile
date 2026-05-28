@@ -15,6 +15,24 @@ ARG ARIA_BUILD_R_TAG=
 ENV ARIA_BUILD_GIT_SHA=$ARIA_BUILD_GIT_SHA
 ENV ARIA_BUILD_R_TAG=$ARIA_BUILD_R_TAG
 
+# R-F979 (2026-05-28) — cap math-library thread pools at the IMAGE level.
+# R-F857 already calls torch.set_num_threads(1), but OMP/MKL/OpenBLAS read
+# their thread counts at IMPORT time (before any Python runs), so the only
+# reliable lever is an env var on the machine. It was a fly secret
+# (OMP_NUM_THREADS) that may be unset; baking it here makes it durable on
+# every boot, independent of secrets. On the shared-cpu box the all-MiniLM
+# encoder is GIL-bound and tiny — extra OpenMP/BLAS worker threads only
+# oversubscribe the CPU and lengthen the GIL hold during the cold-boot model
+# load + first encode (the residual R-F703 cold-boot stall; heatmap was fixed
+# in R-F931). 1 thread is sufficient (steady-state encodes ~50-100ms) and
+# releases the GIL cleaner. TOKENIZERS_PARALLELISM=false stops HF tokenizers
+# spawning its own fork-parallel threads. Mitigation, not elimination — fully
+# removing the cold-boot GIL hold needs a subprocess encoder (deferred).
+ENV OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    TOKENIZERS_PARALLELISM=false
+
 WORKDIR /app
 
 # ── System dependencies for local OCR (EasyOCR + Tesseract + PyMuPDF) ──────
