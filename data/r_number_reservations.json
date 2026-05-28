@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 951,
+  "next_available": 956,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4022,6 +4022,52 @@
       "commit_sha": "PENDING",
       "notes": null,
       "shipped_at": "2026-05-28T08:31:38Z"
+    },
+    {
+      "r_number": "R-F951",
+      "title": "D: bound system-prompt growth — cap store-backed addenda (calibration/contradictions/corrections) + tighten total cap for all chat",
+      "claimed_at": "2026-05-28T08:34:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F952",
+      "title": "B: source_verifier scores attached-document reviews (was verdict=None for contract reviews)",
+      "claimed_at": "2026-05-28T08:34:54Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F953",
+      "title": "A: daily synthetic-contract self-check task flags brain on review regression (truncation/empty/timeout)",
+      "claimed_at": "2026-05-28T08:34:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F954",
+      "title": "C: contract self-review windows stop flagging cross-window clauses as hallucination",
+      "claimed_at": "2026-05-28T08:34:55Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F955",
+      "title": "WA: doc sent WITH a review-caption attaches the freshly-extracted text DIRECTLY to the review (not via the fragile cache/re-attach) + honest message when extraction is empty",
+      "claimed_at": "2026-05-28T08:40:43Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-28T08:43:19Z"
     }
   ]
 }

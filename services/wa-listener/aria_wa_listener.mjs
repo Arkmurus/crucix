@@ -1070,6 +1070,7 @@ async function startListener() {
       }
 
       // ── DOCUMENT PATH: PDF / DOCX / Excel / TXT / CSV ─────────────────
+      let _docAnsweredCaption = false;  // R-F955 — doc+caption answered inline below
       if (docMsg) {
         const filename = docMsg.fileName || 'attachment';
         const mimetype = docMsg.mimetype || '';
@@ -1124,10 +1125,32 @@ async function startListener() {
                 const summary = result.summary || `${docType} file, ${content.length} characters`;
                 console.log(`[ARIA Listener] Doc processed: ${filename} → ${result.facts_learned || 0} facts (form: ${result.doc_intel?.form_code || '?'})${bytesTruncated ? ' [BYTE-TRUNCATED >8MB]' : ''}`);
                 const overview = result.overview_markdown;
-                if (overview && overview.length > 40) {
+                // R-F955 (2026-05-28) — when the document arrives WITH a caption
+                // (the user asked something in the SAME message, e.g. "review this
+                // contract"), answer it with the freshly-extracted text attached
+                // INLINE. Pre-R-F955 the caption routed to askARIA separately and
+                // depended on the per-chat cache + async re-attach lining up — which
+                // failed live (Korvera Maintenance Services Agreement, 2026-05-28:
+                // doc read OK but the review said "no document text reached my
+                // context"). Inline attach removes that race entirely.
+                if (text.trim() && _cacheText.length >= 200) {
+                  const _reviewMsg = `${text.trim()}\n\n[ATTACHED DOCUMENT: ${filename}]\n${_cacheText}\n[END ATTACHED DOCUMENT]`;
+                  _docAnsweredCaption = true;   // skip the redundant text-routing below
+                  try {
+                    const _ans = await askARIA(_reviewMsg, senderJid, chatId);
+                    for (const part of splitMessage(_ans)) await sendReply(chatId, part);
+                  } catch (e) {
+                    console.warn('[ARIA Listener] R-F955 inline doc+caption review failed:', e.message);
+                    await sendReply(chatId, `📄 I've read *${filename}* but my analysis step failed (${e.message}). Please ask me again in a moment.`).catch(() => {});
+                  }
+                } else if (overview && overview.length > 40) {
                   await sendReply(chatId, `🧠 *ARIA — document overview*\n\n${overview}`.slice(0, 3800));
-                } else {
+                } else if (_cacheText.length >= 200) {
                   await sendReply(chatId, `📄 I've read *${filename}*. ${summary}\n\nAsk me anything about it.`);
+                } else {
+                  // R-F955 — extraction returned no usable text; be honest instead
+                  // of inviting questions that will fail with "no document".
+                  await sendReply(chatId, `⚠️ I received *${filename}* but couldn't extract readable text from it (it may be scanned/image-only or an unsupported layout). Please paste the key clauses as text, or send a text-based copy, and I'll review it.`);
                 }
                 // R-F862 — tell the user the read was partial so they don't trust
                 // a 360 review built on a clipped document.
@@ -1167,7 +1190,9 @@ async function startListener() {
         }
       }
 
-      if (!text.trim()) continue;   // skip text routing for media-only messages
+      // R-F955 — if a doc+caption was already answered inline above (with the
+      // doc attached directly), don't re-route the caption through chat again.
+      if (!text.trim() || _docAnsweredCaption) continue;   // skip text routing for media-only / already-answered
 
       const ts = new Date(
         (msg.messageTimestamp ? Number(msg.messageTimestamp) * 1000 : Date.now())
