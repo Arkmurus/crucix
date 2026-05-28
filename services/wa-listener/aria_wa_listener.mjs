@@ -169,8 +169,14 @@ function store(groupId, groupName, sender, senderName, text, ts) {
 // (R-F853 fixed the LEGACY lib/whatsapp/waListener.mjs by mistake; this file —
 // services/wa-listener/aria_wa_listener.mjs — is the canonical aria-wa entry.)
 const _recentDocs = new Map();                 // chatId → [{filename,text,ts,sender}] (most-recent last)
-const _RECENT_DOC_TTL_MS = 60 * 60 * 1000;     // 1h — a follow-up is usually prompt
+// R-F964 (2026-05-28) — was 1h. Operator: "she should not forget anything." A
+// doc follow-up often comes hours after upload, so default 24h (env-tunable).
+// The cache is ALSO persisted to disk (below) so a listener restart no longer
+// wipes it — today a redeploy erased a contract uploaded 59 min earlier, so the
+// review lost the document and the footer read "from memory / training".
+const _RECENT_DOC_TTL_MS = parseInt(process.env.ARIA_RECENT_DOC_TTL_MS || String(24 * 60 * 60 * 1000), 10);
 const _MAX_DOCS_PER_CHAT = 6;                  // R-F912 — keep several recent docs, not just one
+const _RECENT_DOCS_FILE = process.env.ARIA_RECENT_DOCS_FILE || '/data/recent_docs.json';
 export const _DOC_REF_PATTERN = /\b(contract|agreement|nda|mou|rfq|tender|document|annex|appendix|clause|terms|paperwork|the\s+file|the\s+pdf|attachment|payment)\b/i;
 // R-F912 — collective/plural reference → the follow-up wants ALL recent docs
 // ("analyse all contracts", "both agreements", "review the documents").
@@ -195,6 +201,33 @@ function _cacheRecentDoc(chatId, senderName, filename, text) {
   const entry = { filename: fname, text, ts: Date.now(), sender: senderName || 'someone' };
   if (idx >= 0) list[idx] = entry; else list.push(entry);
   _recentDocs.set(chatId, _pruneChatDocs(list));
+  _persistRecentDocs();                          // R-F964 — survive restarts
+}
+
+// R-F964 — persist the recent-doc cache to the aria-wa volume so a listener
+// restart (deploy, crash, watchdog) no longer makes ARIA "forget" a document
+// the operator shared minutes/hours earlier. Best-effort: any failure is logged
+// and ignored — the cache simply falls back to in-memory-only for that write.
+function _persistRecentDocs() {
+  try {
+    fs.writeFileSync(_RECENT_DOCS_FILE, JSON.stringify([..._recentDocs.entries()]));
+  } catch (e) {
+    console.warn('[ARIA Listener] R-F964 doc-cache save failed:', e.message);
+  }
+}
+
+function _loadRecentDocs() {
+  try {
+    const arr = JSON.parse(fs.readFileSync(_RECENT_DOCS_FILE, 'utf-8'));
+    let restored = 0;
+    for (const [chatId, list] of arr) {
+      const pruned = _pruneChatDocs(Array.isArray(list) ? list : []);   // drop expired on load
+      if (pruned.length) { _recentDocs.set(chatId, pruned); restored++; }
+    }
+    if (restored) console.log(`[ARIA Listener] R-F964 restored doc cache for ${restored} chat(s) from ${_RECENT_DOCS_FILE}`);
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.warn('[ARIA Listener] R-F964 doc-cache load failed:', e.message);
+  }
 }
 
 // Returns an ARRAY of cached docs relevant to `question` (most-recent last), or
@@ -1428,6 +1461,7 @@ app.listen(PORT, () => {
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
+_loadRecentDocs();   // R-F964 — restore the doc cache from disk so a restart doesn't forget shared documents
 startListener().catch(e => {
   console.error('[ARIA Listener] Fatal error:', e);
   process.exit(1);
