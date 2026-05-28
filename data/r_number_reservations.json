@@ -4118,9 +4118,10 @@
       "title": "voice: small model (accents/non-native) + beam_size 5 + 300s transcribe timeout for long notes",
       "claimed_at": "2026-05-28T12:50:24Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "49ab73a",
+      "notes": null,
+      "shipped_at": "2026-05-28T13:35:04Z"
     },
     {
       "r_number": "R-F961",
@@ -4137,9 +4138,10 @@
       "title": "consolidate_facts: remove §7-violating >90-day age-prune; replace with non-destructive staleness flag",
       "claimed_at": "2026-05-28T13:16:44Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "99e3640",
+      "notes": null,
+      "shipped_at": "2026-05-28T13:35:05Z"
     }
   ]
 }
