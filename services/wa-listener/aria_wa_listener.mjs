@@ -739,7 +739,14 @@ async function handleCommand(cmd, args, senderJid) {
 }
 
 // ── Trigger detection for Baileys listener ───────────────────────────────────
-const MENTIONS_RE  = [/\baria\b/i, /@aria/i, /^aria[,:]/i];
+// R-F959 (2026-05-28) — tolerate speech-to-text variants of "Aria". Whisper
+// transcribes a spoken "Aria" as "Arya"/"Ariya" (live: a voice note "Hey Aria,
+// tell me about Brazil" came through as "Hey Arya … above Brazil", so the
+// wake-word missed and she stayed silent). `ar[iy]{1,3}a` matches aria/arya/
+// ariya but NOT "area" (the 'e' excludes it) — fuzzy enough for voice, no
+// false-positives on common words.
+const _ARIA_NAME = /\bar[iy]{1,3}a\b/i;
+const MENTIONS_RE  = [_ARIA_NAME, /@ar[iy]{1,3}a/i, /^ar[iy]{1,3}a[,:]/i];
 const COMMAND_RE   = /^\/(\w+)(.*)/s;
 
 // ── Group name cache ──────────────────────────────────────────────────────────
@@ -1265,7 +1272,7 @@ async function startListener() {
 
       // ── Mention handling — respond when ARIA is mentioned ──────────────────
       if (MENTIONS_RE.some(p => p.test(text))) {
-        let q = text.replace(/^@?aria[,:?\s]*/i, '').trim() || text;
+        let q = text.replace(/^@?ar[iy]{1,3}a[,:?\s]*/i, '').trim() || text;  // R-F959 — strip STT-variant name prefix
         // R-F854 — if this is a doc-referencing follow-up and we recently read
         // a document from this sender, re-attach its text as an
         // [ATTACHED DOCUMENT] block so the chat path is document-grounded.
