@@ -16545,7 +16545,30 @@ async def ingest_ep(body: _IngestBody):
     try:
         await intel_ledger.add_signal(payload)
     except Exception as e:
+        # R-F995 — wire failure to brain
+        try:
+            from ..intel.engine_wiring import wire_failure
+            wire_failure(
+                module="channel_ingest",
+                detail=f"intel_ledger.add_signal failed: {e}",
+                gap_type="ingest_failure",
+                source="routes/aria.py:ingest_ep",
+            )
+        except Exception:
+            pass
         return {"ok": False, "error": str(e)[:120]}
+    # R-F995 — wire success to brain
+    try:
+        from ..intel.engine_wiring import wire_success
+        wire_success(
+            module="channel_ingest",
+            summary=f"Channel ingest: {body.source} ({len(body.text)} chars)",
+            detail=f"Source: {body.source}. Severity: {severity}. Tags: {tags}.",
+            confidence="ASSESSED",
+            source_id="channel_ingest:R-F995",
+        )
+    except Exception:
+        pass
     return {"ok": True, "source": body.source, "chars": len(body.text)}
 
 

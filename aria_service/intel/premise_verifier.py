@@ -581,7 +581,29 @@ def verify_premises(text: str, *, _llm_provider=None) -> VerifierReport:
         premises.append(verify_programme_premise(p))
 
     dt_ms = int((time.time() - t0) * 1000)
-    return VerifierReport(premises=premises, duration_ms=dt_ms)
+    report = VerifierReport(premises=premises, duration_ms=dt_ms)
+    # R-F995 — wire refuted/injection premises to capability_gaps
+    _wire_premise_verifier_result(report)
+    return report
+
+
+def _wire_premise_verifier_result(report: VerifierReport) -> None:
+    """Fire-and-forget brain signal for honesty-guard trips."""
+    if not (report.has_refuted or report.has_injection):
+        return
+    try:
+        from . import capability_gaps as _cg
+        _t = asyncio.create_task(_cg.record_gap(
+            gap_type="premise_verifier_veto",
+            detail=(
+                f"Premise verifier vetoed {len(report.refuted)} refuted + "
+                f"{len(report.injection_patterns)} injection premises"
+            ),
+            source="premise_verifier.verify_premises",
+        ))
+        _t.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+    except Exception:
+        pass
 
 
 def format_for_system_prompt(report: VerifierReport) -> str:

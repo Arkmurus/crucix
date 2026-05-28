@@ -582,6 +582,8 @@ async def record_violations(
         return
     import json as _json
     import time as _time
+    # R-F995 — wire violations to brain
+    _wire_self_claim_violations(violations)
     try:
         from . import redis_store as rs
     except Exception:
@@ -715,3 +717,21 @@ async def get_stats() -> dict:
         ),
         "guards": "R-F401 architectural-self-claim regex scan",
     }
+
+
+def _wire_self_claim_violations(violations):
+    """Fire-and-forget brain signal for self-claim guard violations."""
+    try:
+        from . import capability_gaps as _cg
+        import asyncio as _aio
+        _t = _aio.create_task(_cg.record_gap(
+            gap_type="self_claim_violation",
+            detail=(
+                f"Self-claim guard: {len(violations)} violation(s) — "
+                f"{violations[0].pattern_id}: {violations[0].phrase[:120]}"
+            ),
+            source="self_claim_guard.record_violations",
+        ))
+        _t.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+    except Exception:
+        pass

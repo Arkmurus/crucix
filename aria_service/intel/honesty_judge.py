@@ -370,8 +370,28 @@ async def record_judgment(
             ))
         except Exception as e:
             logger.debug("diagnose_failure dispatch failed: %s", e)
+    else:
+        # R-F995 — wire clean honesty to brain
+        _wire_honesty_judge_success(score, judgment)
 
     return record
+
+
+def _wire_honesty_judge_success(score, judgment):
+    """Fire-and-forget brain signal for clean honesty judgments."""
+    try:
+        from . import brain_hook as _bh
+        _t = asyncio.create_task(_bh.absorb_silent(
+            module="honesty_judge",
+            summary=f"Honesty judge: score {score:.2f} ({judgment.get('supported_count', 0)}/{len(judgment.get('claims') or [])} supported)",
+            detail=f"Status: {judgment.get('status')}. Score: {score}. Claims: {len(judgment.get('claims') or [])}.",
+            success=True,
+            confidence="ASSESSED",
+            source_id="honesty_judge:R-F995",
+        ))
+        _t.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+    except Exception:
+        pass
 
 
 async def get_judgment(jid: str) -> dict | None:
