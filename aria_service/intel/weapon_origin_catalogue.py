@@ -63,9 +63,13 @@ public API never invents — unknown weapon → None, not a guess.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Optional
+
+logger = logging.getLogger("aria.weapon_origin_catalogue")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -1190,7 +1194,7 @@ def render_finding_for_text(line_item_text: str) -> Optional[dict]:
         SanctionsStatus.RESTRICTED: "amber",
         SanctionsStatus.CLEARED: "info",
     }
-    return {
+    result = {
         "severity": severity_map.get(ws.sanctions_status, "amber"),
         "title": f"Weapon match: {ws.canonical_name} — origin {ws.origin_iso2} — {ws.sanctions_status.upper()}",
         "detail": (
@@ -1209,3 +1213,14 @@ def render_finding_for_text(line_item_text: str) -> Optional[dict]:
         "sanctions_status": ws.sanctions_status,
         "matched_text": line_item_text[:200],
     }
+    # R-F994 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="weapon_origin_catalogue",
+        summary=f"Weapon origin match: {ws.canonical_name} ({ws.origin_iso2}, {ws.sanctions_status})",
+        detail=result["detail"][:600],
+        entity_name=ws.canonical_name,
+        confidence="PROBABLE",
+        source_id="weapon_origin_catalogue:R-F638",
+    )
+    return result

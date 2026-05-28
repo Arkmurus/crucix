@@ -1605,7 +1605,17 @@ def get_regional_context(query: str) -> str:
         return ""
 
     header = "[REGIONAL NAVIGATION INTELLIGENCE — Arkmurus BD operational guidance]\n"
-    return header + "\n\n".join(parts)
+    result = header + "\n\n".join(parts)
+    # R-F994 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="regional_navigation",
+        summary=f"Regional context: {len(matched_regions)} regions matched",
+        detail=f"Matched regions: {', '.join(matched_regions)}. Tokens: {len(tokens)}.",
+        confidence="ASSESSED",
+        source_id="regional_navigation:R-F994",
+    )
+    return result
 
 
 if __name__ == "__main__":

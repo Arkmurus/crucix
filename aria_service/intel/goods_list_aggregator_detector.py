@@ -19,8 +19,12 @@ give the full composite verdict.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 from dataclasses import dataclass
+
+logger = logging.getLogger("aria.goods_list_aggregator_detector")
 
 
 # Calibres categorised by alliance/origin
@@ -208,7 +212,7 @@ def render_finding(line_items: list[str],
     result = analyse_line_items(line_items, buyer_country_iso2)
     if not result.signals:
         return None
-    return {
+    finding = {
         "severity": result.severity,
         "title": (
             f"Goods-list aggregator-pattern score: {result.score}/10 — "
@@ -229,3 +233,13 @@ def render_finding(line_items: list[str],
         "has_diversion_flag": result.has_diversion_flag,
         "has_strategic_volumes": result.has_strategic_volumes,
     }
+    # R-F994 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="goods_list_aggregator_detector",
+        summary=f"Aggregator pattern: score {result.score}/10 ({result.severity})",
+        detail=f"Signals: {'; '.join(result.signals)}"[:600],
+        confidence="PROBABLE",
+        source_id="goods_list_aggregator_detector:R-F643",
+    )
+    return finding

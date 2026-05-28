@@ -50,8 +50,12 @@ not CONFIRMED.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
+
+logger = logging.getLogger("aria.evasion_typology_detector")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -390,7 +394,7 @@ def render_findings_for_ctx(ctx: DealContext) -> list[dict]:
     matches = detect(ctx)
     out: list[dict] = []
     for m in matches:
-        out.append({
+        finding = {
             "severity": m.severity,
             "title": f"Typology match: {m.title}",
             "detail": (
@@ -406,7 +410,17 @@ def render_findings_for_ctx(ctx: DealContext) -> list[dict]:
             ),
             "confidence": "PROBABLE",
             "typology_id": m.typology_id,
-        })
+        }
+        out.append(finding)
+        # R-F994 — wire each typology match to brain
+        from .engine_wiring import wire_success
+        wire_success(
+            module="evasion_typology_detector",
+            summary=f"Typology match: {m.title} ({m.severity})",
+            detail=m.detail[:600],
+            confidence="PROBABLE",
+            source_id=f"evasion_typology_detector:R-F640:{m.typology_id}",
+        )
     return out
 
 

@@ -157,10 +157,29 @@ class ErrorLedgerHandler(logging.Handler):
                 file=_project_relative_path(record.pathname),
                 function=record.funcName,
             ))
+            # R-F994 — increment error count for self_coder post-deploy monitor
+            _increment_error_count(loop)
         except Exception:
             # Logging handlers must NEVER raise — would cascade into
             # logger machinery and potentially crash the process.
             pass
+
+
+_ERROR_COUNT_KEY = "crucix:aria:error_ledger:count"
+
+
+def _increment_error_count(loop: asyncio.AbstractEventLoop) -> None:
+    """Fire-and-forget Redis INCR for the error count key.
+
+    The self_coder post-deploy monitor reads this key to detect
+    regressions after an auto-deploy. Pre-R-F994 the key had no
+    producer, so the monitor was a permanent no-op.
+    """
+    try:
+        from . import redis_store as _rs
+        loop.create_task(_rs.incr(_ERROR_COUNT_KEY))
+    except Exception:
+        pass
 
 
 _installed_handler: Optional[ErrorLedgerHandler] = None

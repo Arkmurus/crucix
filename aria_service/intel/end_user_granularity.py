@@ -24,9 +24,13 @@ as_of. Each entry cites the authoritative reference where possible.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 from dataclasses import dataclass
 from typing import Optional
+
+logger = logging.getLogger("aria.end_user_granularity")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -303,7 +307,7 @@ def render_finding(stated_end_user: str, country_iso2: Optional[str] = None) -> 
         GranularityLevel.COUNTRY_LEVEL: "End-user specified only at country level — INSUFFICIENT for ECJU EUC",
         GranularityLevel.INSUFFICIENT: "No acceptable end-user identified — HARD STOP",
     }
-    return {
+    finding = {
         "severity": severity_map[result.level],
         "title": title_map[result.level],
         "detail": result.detail,
@@ -315,3 +319,14 @@ def render_finding(stated_end_user: str, country_iso2: Optional[str] = None) -> 
         "level": result.level,
         "matched_entity_name": result.matched_entity_name,
     }
+    # R-F994 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="end_user_granularity",
+        summary=f"End-user granularity: {result.level} ({severity_map[result.level]})",
+        detail=result.detail[:600],
+        entity_name=stated_end_user[:120],
+        confidence=finding["confidence"],
+        source_id="end_user_granularity:R-F641",
+    )
+    return finding
