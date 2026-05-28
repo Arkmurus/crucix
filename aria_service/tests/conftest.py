@@ -36,3 +36,15 @@ os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("ARIA_INDEX_QUEUE_DISABLED", "1")
 os.environ.setdefault("ARIA_SEMANTIC_INDEX_BUILD", "0")
 os.environ.setdefault("ARIA_RAG_BACKFILL_ENABLED", "false")
+
+# R-F950 (2026-05-28) — use the in-memory state backend for tests. The prod
+# default is sqlite (ARIA_STATE_BACKEND=sqlite), but the sqlite backend only
+# works after redis_store.connect() runs (the app lifespan does this at boot).
+# test_imports.py exercises store round-trips (golden_autogen / web_atlas /
+# source_validator / verified_intel reject+roundtrip) DIRECTLY, without the
+# lifespan, so every set_json→get_json no-op'd to None and 8 tests failed —
+# silently turning the CI deploy gate RED and forcing manual deploys all of
+# 2026-05-27. The memory backend round-trips in-process with no connect() and
+# no /data file, which is exactly what a hermetic CI run needs. setdefault so a
+# developer can still run an integration suite against sqlite by exporting it.
+os.environ.setdefault("ARIA_STATE_BACKEND", "memory")
