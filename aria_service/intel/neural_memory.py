@@ -117,6 +117,16 @@ _loaded = False
 # after boot always syncs disk → Redis.
 _edges_dirty: bool = True
 
+# R-F986 (2026-05-28) — debounce window for _maybe_persist() (see below). The
+# high-frequency callers (learn_from_text = the absorb storm, recall = the chat
+# retrieval path) re-gzip the full neuron set on every call via _persist(), a
+# GIL-bound CPU burst that piled onto the event loop and slowed chats (143s
+# traces / R-F704 wedges). _maybe_persist() coalesces them on this interval.
+_last_neurons_write: float = 0.0
+_NEURONS_MIN_WRITE_INTERVAL_S = float(
+    os.getenv("ARIA_NEURAL_NEURONS_FLUSH_S", "20") or "20"
+)
+
 # R-F442 (2026-05-13) — gzip wrapper for the edges blob. Same pattern as
 # R-F1 (knowledge) and R-F36 (intel_ledger). 4.14 MB raw JSON compresses
 # to ~700 KB (sparse-graph + repeated float patterns), well under the
@@ -511,6 +521,27 @@ async def _persist() -> None:
             _edges_dirty = False
     except Exception as e:
         logger.warning("Neural memory persist failed: %s", e)
+
+
+async def _maybe_persist() -> None:
+    """R-F986 — debounced persist for HIGH-FREQUENCY callers (learn_from_text =
+    the absorb storm; recall = the chat retrieval path). _persist() re-gzips the
+    full neuron set (sharded) — a GIL-bound CPU burst; firing it on every absorb
+    and every recall piled onto the event loop and slowed chats. The persisted
+    state is a FULL snapshot of live _neurons, so it is safe to skip when the last
+    persist was < interval ago: the next call after the interval flushes the
+    current (complete) state. Infrequent callers (learn_explicit / consolidate /
+    migration / shutdown) keep calling _persist() directly for immediate
+    durability. No data is dropped — the in-memory graph stays complete; worst
+    case on an ungraceful crash is up to interval seconds of re-learnable
+    learning delayed, so the infinite-memory rule holds.
+    """
+    global _last_neurons_write
+    now = time.time()
+    if (now - _last_neurons_write) < _NEURONS_MIN_WRITE_INTERVAL_S:
+        return
+    _last_neurons_write = now
+    await _persist()
 
 
 # ── Neuron Operations ────────────────────────────────────────────────────────
@@ -914,7 +945,7 @@ async def learn_from_text(text: str, source: str = "conversation",
             _strengthen_edge(n1["id"], n2["id"], boost=CO_OCCURRENCE_BOOST * 0.5)
             connections += 1
 
-    await _persist()
+    await _maybe_persist()  # R-F986 — debounced (storm driver)
     return {
         "neurons_activated": len(neurons),
         "connections_formed": connections,
@@ -1058,7 +1089,7 @@ async def recall(
         seed["activation"] = min(1.0, seed["activation"] + ACTIVATION_BOOST * 0.5)
         seed["last_activated"] = time.time()
 
-    await _persist()
+    await _maybe_persist()  # R-F986 — debounced (chat retrieval path)
 
     return {
         "query": query,

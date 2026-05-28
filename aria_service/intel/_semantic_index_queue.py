@@ -52,6 +52,16 @@ _MAX_QUEUE_SIZE = int(os.environ.get("ARIA_INDEX_QUEUE_MAX", "1000"))
 _BATCH_SIZE = int(os.environ.get("ARIA_INDEX_QUEUE_BATCH_SIZE", "32"))
 _BATCH_WINDOW_MS = int(os.environ.get("ARIA_INDEX_QUEUE_BATCH_WINDOW_MS", "100"))
 _DRAIN_TIMEOUT_S = 10.0  # how long to wait for first item before idling
+# R-F987 (2026-05-28) — yield the shared encode lock to interactive chats. A
+# batch's model.encode contends the SAME process-wide _encode_lock as the chat
+# RAG query (semantic_search._safe_encode); a 32-item batch can hold it for
+# seconds, stalling an in-flight chat behind it (the encode-lock contention the
+# 360 latency review surfaced). When a chat is interactive-active (R-F860
+# brain_hook.mark_interactive, 8s window) the worker defers its already-assembled
+# batch in short steps so the query encodes first. Items are HELD, never dropped;
+# the deferral is capped so background indexing can't starve.
+_INTERACTIVE_DEFER_MAX_S = float(os.environ.get("ARIA_INDEX_INTERACTIVE_DEFER_MAX_S", "5"))
+_INTERACTIVE_DEFER_STEP_S = float(os.environ.get("ARIA_INDEX_INTERACTIVE_DEFER_STEP_S", "0.25"))
 
 
 def _disabled() -> bool:
@@ -148,6 +158,9 @@ async def _worker_loop():
                 logger.info("R-F807 worker cancelled mid-batch — finishing batch")
                 break
 
+        # R-F987 — let an in-flight chat win the encode lock before this batch.
+        await _yield_to_interactive()
+
         try:
             await _process_batch(batch)
             _indexed_total += len(batch)
@@ -157,6 +170,22 @@ async def _worker_loop():
                 "R-F807 batch process failed (%d items): %s",
                 len(batch), e,
             )
+
+
+async def _yield_to_interactive() -> float:
+    """R-F987 — block while a chat is interactive-active (R-F860), up to
+    _INTERACTIVE_DEFER_MAX_S, so the chat's RAG-query encode wins the shared
+    encode lock before this background batch contends it. Returns seconds
+    deferred. Best-effort: never raises (indexing must never break)."""
+    deferred = 0.0
+    try:
+        from .brain_hook import _interactive_active
+        while _interactive_active() and deferred < _INTERACTIVE_DEFER_MAX_S:
+            await asyncio.sleep(_INTERACTIVE_DEFER_STEP_S)
+            deferred += _INTERACTIVE_DEFER_STEP_S
+    except Exception:
+        pass
+    return deferred
 
 
 async def _process_batch(batch: list[tuple[str, str, dict]]) -> None:
