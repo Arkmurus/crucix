@@ -4429,9 +4429,10 @@
       "title": "aria CLI: full-autonomy default (free rein, no per-action prompts) + Claude-grade operating prompt",
       "claimed_at": "2026-05-28T22:31:57Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b2564e9",
+      "notes": null,
+      "shipped_at": "2026-05-28T22:35:23Z"
     }
   ]
 }
