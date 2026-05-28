@@ -41,6 +41,25 @@ _BEAM_SIZE = max(1, int(os.getenv("ARIA_WHISPER_BEAM", "5") or "5"))
 _CONCURRENCY = max(1, int(os.getenv("ARIA_WHISPER_CONCURRENCY", "1") or "1"))
 _MAX_AUDIO_BYTES = int(os.getenv("ARIA_WHISPER_MAX_BYTES", str(25 * 1024 * 1024)))  # 25MB
 
+# R-F980 (2026-05-28) — guard against Whisper's wrong-language auto-detect.
+# Live: an operator voice note came back as an ARABIC transcript — faster-whisper
+# auto-detects language from the first ~30s, and on short/accented/noisy audio it
+# can confidently pick a language the speaker never used. Two levers:
+#   ARIA_WHISPER_LANGUAGE      — if set, HARD-PIN (skip detection entirely).
+#   ARIA_WHISPER_ALLOWED_LANGS — else auto-detect but reject any detected lang
+#                                outside this set (default en/pt/es/fr) and
+#                                re-transcribe forcing ARIA_WHISPER_FALLBACK_LANG.
+# faster-whisper populates info.language BEFORE the (lazy) segment decode runs, so
+# the allow-list check costs only the cheap detection pass — we decode once in the
+# normal case, twice only when a detection is rejected.
+_PINNED_LANG = (os.getenv("ARIA_WHISPER_LANGUAGE") or "").strip().lower() or None
+_ALLOWED_LANGS = {
+    s.strip().lower()
+    for s in (os.getenv("ARIA_WHISPER_ALLOWED_LANGS") or "en,pt,es,fr").split(",")
+    if s.strip()
+}
+_FALLBACK_LANG = (os.getenv("ARIA_WHISPER_FALLBACK_LANG") or "en").strip().lower()
+
 _model = None
 _model_lock = asyncio.Lock()
 _sem = asyncio.Semaphore(_CONCURRENCY)
@@ -94,9 +113,31 @@ async def transcribe_audio(audio_bytes: bytes, *, mime: str = "") -> dict:
         async with _sem:   # cap concurrent transcriptions → no CPU saturation
             def _run():
                 # faster-whisper decodes Opus/OGG/MP3/WAV via PyAV from a file-like.
-                segments, info = model.transcribe(
-                    io.BytesIO(audio_bytes), beam_size=_BEAM_SIZE, vad_filter=True,
-                )
+                # R-F980 — pin or guard the language so a wrong auto-detect (the
+                # Arabic-transcript bug) can't ship a wrong-script result.
+                if _PINNED_LANG:
+                    segments, info = model.transcribe(
+                        io.BytesIO(audio_bytes), beam_size=_BEAM_SIZE,
+                        vad_filter=True, language=_PINNED_LANG,
+                    )
+                else:
+                    segments, info = model.transcribe(
+                        io.BytesIO(audio_bytes), beam_size=_BEAM_SIZE, vad_filter=True,
+                    )
+                    detected = (getattr(info, "language", "") or "").lower()
+                    # info.language is set before the lazy `segments` decode runs,
+                    # so we can reject an implausible detection without decoding it.
+                    if _ALLOWED_LANGS and detected and detected not in _ALLOWED_LANGS:
+                        prob = float(getattr(info, "language_probability", 0.0) or 0.0)
+                        logger.warning(
+                            "[voice] R-F980 implausible language '%s' (p=%.2f) not in "
+                            "%s — re-transcribing forced as '%s'",
+                            detected, prob, sorted(_ALLOWED_LANGS), _FALLBACK_LANG,
+                        )
+                        segments, info = model.transcribe(
+                            io.BytesIO(audio_bytes), beam_size=_BEAM_SIZE,
+                            vad_filter=True, language=_FALLBACK_LANG,
+                        )
                 text = " ".join(s.text.strip() for s in segments).strip()
                 return text, getattr(info, "language", "") or "", float(getattr(info, "duration", 0.0) or 0.0)
             text, lang, dur = await asyncio.to_thread(_run)

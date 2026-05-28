@@ -39,6 +39,71 @@ def test_rf956_endpoint_present():
     assert "audio_b64" in src
 
 
+# ── R-F980 — wrong-language auto-detect guard ────────────────────────────────
+
+class _Seg:
+    def __init__(self, text): self.text = text
+
+class _Info:
+    def __init__(self, language, prob=0.9, duration=3.0):
+        self.language = language
+        self.language_probability = prob
+        self.duration = duration
+
+class _FakeModel:
+    """Stands in for faster-whisper's WhisperModel. Records the `language`
+    kwarg of each transcribe() call so tests can assert the guard re-ran."""
+    def __init__(self, first_lang, first_text, forced_text="forced text"):
+        self.first_lang, self.first_text, self.forced_text = first_lang, first_text, forced_text
+        self.calls = []
+    def transcribe(self, fileobj, **kwargs):
+        lang = kwargs.get("language")
+        self.calls.append(lang)
+        if lang is None:
+            return [_Seg(self.first_text)], _Info(self.first_lang)
+        return [_Seg(self.forced_text)], _Info(lang)
+
+
+def _prep(monkeypatch, fake, *, pinned=None, allowed={"en", "pt", "es", "fr"}, fallback="en"):
+    monkeypatch.setenv("ARIA_VOICE_TRANSCRIBE_ENABLED", "1")
+    from aria_service.intel import voice_transcribe as vt
+    monkeypatch.setattr(vt, "_model", fake)          # _get_model returns it, no faster-whisper
+    monkeypatch.setattr(vt, "_PINNED_LANG", pinned)
+    monkeypatch.setattr(vt, "_ALLOWED_LANGS", set(allowed))
+    monkeypatch.setattr(vt, "_FALLBACK_LANG", fallback)
+    return vt
+
+
+def test_rf980_implausible_language_is_rejected_and_refallback(monkeypatch):
+    """The Arabic-transcript bug: auto-detect returns 'ar' (not in allow-list)
+    → re-transcribe forcing the fallback 'en', return the forced result."""
+    fake = _FakeModel(first_lang="ar", first_text="arabic garbage", forced_text="what is your recommendation")
+    vt = _prep(monkeypatch, fake)
+    r = asyncio.run(vt.transcribe_audio(b"x" * 500))
+    assert fake.calls == [None, "en"], "must auto-detect then force the fallback"
+    assert r["ok"] is True
+    assert r["text"] == "what is your recommendation"
+    assert r["language"] == "en"
+
+
+def test_rf980_allowed_language_accepted_no_retranscribe(monkeypatch):
+    """A plausible detection (pt) is accepted as-is — no second decode."""
+    fake = _FakeModel(first_lang="pt", first_text="ola aria")
+    vt = _prep(monkeypatch, fake)
+    r = asyncio.run(vt.transcribe_audio(b"x" * 500))
+    assert fake.calls == [None], "an allowed language must not trigger a re-transcribe"
+    assert r["text"] == "ola aria" and r["language"] == "pt"
+
+
+def test_rf980_hard_pin_skips_detection(monkeypatch):
+    """ARIA_WHISPER_LANGUAGE set → pin directly, single forced call, no detect."""
+    fake = _FakeModel(first_lang="en", first_text="auto", forced_text="pinned text")
+    vt = _prep(monkeypatch, fake, pinned="en")
+    r = asyncio.run(vt.transcribe_audio(b"x" * 500))
+    assert fake.calls == ["en"], "pinned language must be passed on the only call"
+    assert r["text"] == "pinned text" and r["language"] == "en"
+
+
 # ── R-F957 — listener wiring ─────────────────────────────────────────────────
 
 def _wa() -> str:

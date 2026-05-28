@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 980,
+  "next_available": 981,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4304,6 +4304,15 @@
       "commit_sha": "5f089b0",
       "notes": null,
       "shipped_at": "2026-05-28T15:46:39Z"
+    },
+    {
+      "r_number": "R-F980",
+      "title": "voice transcription guards against implausible Whisper language auto-detect (Arabic on accented en/pt) via allow-list + fallback",
+      "claimed_at": "2026-05-28T15:52:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
