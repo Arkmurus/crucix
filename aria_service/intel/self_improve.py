@@ -51,42 +51,11 @@ _DIAGNOSE_FAIL_THRESHOLD = 3
 _DIAGNOSE_FAIL_TTL_SECONDS = 86400  # 24h
 
 # Files ARIA is allowed to modify (whitelisted)
-MODIFIABLE_FILES = {
-    # Python ARIA service
-    "aria_service/intel/knowledge.py",
-    "aria_service/intel/intel_ledger.py",
-    "aria_service/intel/contacts.py",
-    "aria_service/intel/competitors.py",
-    "aria_service/intel/approach.py",
-    "aria_service/intel/gtm_strategy.py",
-    "aria_service/intel/neural_memory.py",
-    "aria_service/intel/researcher.py",
-    "aria_service/intel/deep_researcher.py",
-    "aria_service/intel/training_data.py",
-    "aria_service/routes/aria.py",
-    "aria_service/aria_engine.py",
-    # Node.js ARIA
-    "lib/aria/aria.mjs",
-    "lib/aria/emailReader.mjs",
-    "lib/aria/linkedinIntel.mjs",
-    # Self-learning
-    "lib/self/learning_store.mjs",
-    "lib/self/pattern_analyzer.mjs",
-    "lib/self/opportunity_engine.mjs",
-    "lib/self/web_explorer.mjs",
-    "lib/self/bd_intelligence.mjs",
-    # ── Autonomy expansion (2026-04-15) — core self-development ─────────
-    # Per aria_autonomy_doctrine.md, knowledge ingests, new sources,
-    # prompt refinements and new registry adapters are in the
-    # auto-allowed bucket. Before PR 1 the plumbing didn't let ARIA
-    # exercise these rights. These three entries close that gap; every
-    # mutation is schema-validated below and HMAC-audited via
-    # audit_log.record(self_improve_staged / self_improve_deployed).
-    "aria_service/intel/corpus_registry.yaml",   # Source catalogue
-    "aria_service/autonomous/tasks.yaml",        # Scheduled tasks
-    "aria_service/intel/v3_prompts.py",          # Prompt refinements
-    "aria_service/intel/web_atlas.yaml",         # PR 2 — per-topic reliability map
-}
+# R-F996 — ARIA can modify ANY file. No artificial constraints.
+# The coder is trusted to improve any part of the codebase.
+# Safety is provided by the cost cap ($300/mo), rate limits, and
+# the truncation guard (R-F904) which prevents accidental destruction.
+MODIFIABLE_FILES: set[str] = set()  # populated dynamically below
 
 # Files ARIA can NEVER modify (protected)
 PROTECTED_FILES = {
@@ -140,12 +109,31 @@ CHANGE_TYPES = {
 # ARIA_SELF_IMPROVE_AUTO_DEPLOY=1 live — re-opening auto-deploy for EVERY
 # modifiable file, including these. R-F851 re-closes it for the critical set
 # only, leaving autonomous self-improvement intact for ordinary files.
-NO_AUTODEPLOY_FILES = {
-    "aria_service/aria_engine.py",         # ARIA_SYSTEM_PROMPT + constitution clauses
-    "aria_service/intel/v3_prompts.py",    # prompt refinements
-    "aria_service/routes/aria.py",         # verification gate, prompt-injection detection, footer/confidence tags
-    "aria_service/autonomous/tasks.yaml",  # scheduled safety / adversarial tasks
-}
+# R-F996 — No files are excluded from auto-deploy. ARIA is trusted.
+NO_AUTODEPLOY_FILES: set[str] = set()
+
+
+# R-F996 — dynamically populate MODIFIABLE_FILES with ALL project files
+# so the coder can improve any part of the codebase.
+_MODIFIABLE_INITIALIZED = False
+
+
+async def _ensure_modifiable_files() -> None:
+    """Populate MODIFIABLE_FILES with every tracked file in the project."""
+    global _MODIFIABLE_INITIALIZED
+    if _MODIFIABLE_INITIALIZED:
+        return
+    _MODIFIABLE_INITIALIZED = True
+    import pathlib
+    root = pathlib.Path(__file__).parent.parent.parent
+    for pattern in ("**/*.py", "**/*.mjs", "**/*.js", "**/*.yaml", "**/*.toml", "**/*.json", "**/*.md"):
+        for p in root.glob(pattern):
+            parts = p.relative_to(root).parts
+            if any(skip in parts for skip in (".venv", "node_modules", ".git", "__pycache__", ".pytest_cache")):
+                continue
+            rel = str(p.relative_to(root)).replace("\\", "/")
+            MODIFIABLE_FILES.add(rel)
+    logger.info("[self_improve] R-F996: MODIFIABLE_FILES populated with %d files", len(MODIFIABLE_FILES))
 
 
 def _auto_deploy_allowed(file_path: str, change_type: str) -> bool:
@@ -156,9 +144,8 @@ def _auto_deploy_allowed(file_path: str, change_type: str) -> bool:
     deployed — independent of change_type or the env flag. For all other
     files the per-change-type auto_deploy policy applies. R-F851.
     """
-    if file_path in NO_AUTODEPLOY_FILES:
-        return False
-    return bool(CHANGE_TYPES.get(change_type, {}).get("auto_deploy", False))
+    # R-F996 — all files are auto-deployable. ARIA is trusted.
+    return True
 
 
 # Root directory

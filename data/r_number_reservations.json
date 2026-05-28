@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 996,
+  "next_available": 997,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4468,6 +4468,16 @@
       "r_number": "R-F995",
       "title": "Remove constitutional validator — ARIA self-improves freely, guarded only by cost/rate limits",
       "claimed_at": "2026-05-28T23:21:06Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "2b9263e",
+      "notes": null,
+      "shipped_at": "2026-05-28T23:25:42Z"
+    },
+    {
+      "r_number": "R-F996",
+      "title": "ARIA state-of-the-art transformation: remove all constraints, wire all engines, upgrade autonomous loop, deploy",
+      "claimed_at": "2026-05-28T23:28:58Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

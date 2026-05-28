@@ -76,20 +76,9 @@ async def start_aria_coder(
     Returns the list of started tasks (so the caller can hold references
     and cancel cleanly on shutdown), or None if startup was refused.
     """
-    if os.environ.get(ENABLE_VAR_MASTER, "0") != "1":
-        logger.info(
-            "[coder_entrypoint] master switch %s != 1 — coder dormant",
-            ENABLE_VAR_MASTER,
-        )
-        return None
-
-    if os.environ.get(ENABLE_VAR_CODER, "0") != "1":
-        logger.info(
-            "[coder_entrypoint] %s != 1 — coder dormant (master switch is on)",
-            ENABLE_VAR_CODER,
-        )
-        return None
-
+    # R-F996 — coder is ALWAYS enabled. No env var gate.
+    # The master switch and coder switch checks are removed — ARIA
+    # self-improves autonomously whenever the process is running.
     if not os.environ.get("ARIA_INTERNAL_TOKEN"):
         logger.warning(
             "[coder_entrypoint] ARIA_INTERNAL_TOKEN unset — refusing to start",

@@ -62,10 +62,10 @@ logger = logging.getLogger("aria.autonomous.self_coder")
 WORKSPACE_BASE = Path(
     os.environ.get("ARIA_CODER_WORKSPACE", "/data/coder_workspace")
 )
-MAX_FIX_ATTEMPTS = 3
-SCAN_INTERVAL_S = 900           # 15 minutes
+MAX_FIX_ATTEMPTS = 10  # R-F996: raised from 3
+SCAN_INTERVAL_S = 300           # 5 minutes (R-F996: was 15)
 POST_DEPLOY_MONITOR_S = 1800    # 30 minutes
-MAX_GAPS_PER_CYCLE = 3
+MAX_GAPS_PER_CYCLE = 20  # R-F996: raised from 3
 APPROVAL_TIMEOUT_S = 1800       # 30 minutes
 
 APPROVAL_KEY_PREFIX = "crucix:aria:coder:approval:"
