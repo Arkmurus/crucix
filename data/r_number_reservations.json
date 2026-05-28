@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 997,
+  "next_available": 999,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4480,9 +4480,27 @@
       "claimed_at": "2026-05-28T23:28:58Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "1a433a1",
+      "commit_sha": "4abdd2c",
       "notes": null,
-      "shipped_at": "2026-05-28T23:30:35Z"
+      "shipped_at": "2026-05-28T23:35:22Z"
+    },
+    {
+      "r_number": "R-F997",
+      "title": "ARIA self-improvement: ecosystem dashboard, adversarial agents, security scanner, CLI upgrade",
+      "claimed_at": "2026-05-28T23:48:36Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F998",
+      "title": "ARIA self-improvement: ecosystem dashboard, adversarial agents, security scanner, CLI upgrade",
+      "claimed_at": "2026-05-28T23:48:40Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
