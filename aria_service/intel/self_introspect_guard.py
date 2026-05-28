@@ -118,13 +118,60 @@ async def self_introspect_context_block(message: str) -> str:
     autonomy = perf.get("autonomy", {}) or {}
     advisories = perf.get("advisories", []) or []
 
+    # R-F961 (2026-05-28) — surface the REAL degraded_reasons + operating_mode +
+    # live autonomy state. Live incident: a self-gap-analysis claimed "a subsystem
+    # needs attention (DEGRADED)" + "(autonomy fields UNAVAILABLE)" and confabulated
+    # a mystery failing subsystem — when degraded_reasons was simply
+    # ['mode_supervised'] (a posture, NOT a broken subsystem) and the engine was
+    # actually enabled + running. Pull the truth so introspection stops guessing.
+    _status_info, _auton_live = {}, {}
+    try:
+        from ..routes.aria import health_check_ep as _hc
+        _h = await _hc()
+        _status_info = {
+            "operating_mode": _h.get("operating_mode"),
+            "status": _h.get("status"),
+            "degraded_reasons": _h.get("degraded_reasons") or [],
+        }
+    except Exception as _he:
+        logger.debug("R-F961 health_check_ep failed: %s", _he)
+    try:
+        from ..routes.aria import autonomous_status_ep as _as
+        _a = await _as() or {}
+        _eng = _a.get("engine", {}) or {}
+        if _eng:  # only when the endpoint actually returned engine state
+            _auton_live = {
+                "enabled": _eng.get("enabled"),
+                "running": _eng.get("running"),
+                "paused": (_a.get("safety", {}) or {}).get("engine_paused"),
+                "autonomy_level": _eng.get("autonomy_label") or _eng.get("autonomy_level"),
+                "fire_count": _eng.get("fire_count"),
+                "scheduled_tasks": len(_a.get("tasks") or []),
+            }
+    except Exception as _ae:
+        logger.debug("R-F961 autonomous_status_ep failed: %s", _ae)
+
     lines = [
         "\n\n[TOOL: self_introspect — auto-fired by R-F595 capability detector]",
         "Live data from /api/aria/health/perf. Cite these EXACT numbers verbatim.",
         "Do NOT round, estimate, or replace with prior values from training.",
-        "",
-        "INVENTORY:",
     ]
+    # R-F961 — STATUS section, with the degraded-reason guard so introspection
+    # never confabulates a mystery failing subsystem.
+    if _status_info:
+        _dr = _status_info.get("degraded_reasons") or []
+        lines += ["", "STATUS:",
+                  f"  - operating_mode: {_status_info.get('operating_mode')}",
+                  f"  - status: {_status_info.get('status')}",
+                  f"  - degraded_reasons: {_dr}"]
+        if _dr == ["mode_supervised"]:
+            lines.append("  - NOTE: degraded_reasons is ONLY 'mode_supervised' → NO subsystem is "
+                         "failing. You are in SUPERVISED posture (deliberate review-gating), NOT "
+                         "broken. Do NOT claim a subsystem needs attention or that the cause is unknown.")
+        elif _dr:
+            lines.append(f"  - NOTE: the failing subsystem(s) are NAMED here ({_dr}) — cite them; "
+                         "do not say the degraded cause is unidentifiable.")
+    lines += ["", "INVENTORY:"]
 
     for key in ("knowledge_facts", "ledger_signals", "rag_chunks",
                 "rag_documents", "rag_facts_indexed"):
@@ -137,19 +184,35 @@ async def self_introspect_context_block(message: str) -> str:
             except (TypeError, ValueError):
                 lines.append(f"  - {key}: {v}")
 
-    # Autonomy block — schema varies across engine versions, so try common
-    # field names. Missing fields are NOT fabricated; say UNAVAILABLE.
+    # Autonomy block — R-F961 prefers the LIVE engine state from
+    # /api/aria/autonomous/status (enabled/running/paused/level/fires/tasks),
+    # because /health/perf's `autonomy` dict often lacks these field names and
+    # the old fallback printed "(autonomy fields UNAVAILABLE)" — which the LLM
+    # then turned into "SUPERVISED means no autonomous execution". The engine is
+    # a separate axis from the operating MODE: it can be enabled+running while
+    # the mode is SUPERVISED. Both are reported so introspection can't conflate.
     lines.append("")
-    lines.append("AUTONOMY:")
-    for key in ("scheduled_tasks", "tasks_total", "tasks_enabled",
-                "ticks_24h", "tasks_fired_24h"):
-        if key in autonomy:
-            v = autonomy.get(key)
-            lines.append(f"  - {key}: {v}")
-    if not any(k in autonomy for k in ("scheduled_tasks", "tasks_total",
-                                        "tasks_enabled", "ticks_24h",
-                                        "tasks_fired_24h")):
-        lines.append("  - (autonomy fields UNAVAILABLE — do not fabricate task counts)")
+    lines.append("AUTONOMY (engine state — independent of operating_mode above):")
+    if _auton_live:
+        lines.append(f"  - enabled: {_auton_live.get('enabled')}")
+        lines.append(f"  - running: {_auton_live.get('running')}")
+        lines.append(f"  - paused: {_auton_live.get('paused')}")
+        lines.append(f"  - autonomy_level: {_auton_live.get('autonomy_level')}")
+        lines.append(f"  - fire_count: {_auton_live.get('fire_count')}")
+        lines.append(f"  - scheduled_tasks: {_auton_live.get('scheduled_tasks')}")
+        lines.append("  - NOTE: 'enabled+running' means the autonomous loop IS executing tasks. "
+                     "A SUPERVISED operating_mode does NOT stop the engine — it gates "
+                     "review of certain change types. Do NOT say autonomy is off because of SUPERVISED.")
+    else:
+        # Fall back to whatever /health/perf surfaced; never fabricate.
+        for key in ("scheduled_tasks", "tasks_total", "tasks_enabled",
+                    "ticks_24h", "tasks_fired_24h"):
+            if key in autonomy:
+                lines.append(f"  - {key}: {autonomy.get(key)}")
+        if not any(k in autonomy for k in ("scheduled_tasks", "tasks_total",
+                                            "tasks_enabled", "ticks_24h",
+                                            "tasks_fired_24h")):
+            lines.append("  - (autonomy fields UNAVAILABLE — do not fabricate task counts)")
 
     # Retention — the explicit "no TTL" anchor so the LLM can never
     # reintroduce an 18-month TTL claim.

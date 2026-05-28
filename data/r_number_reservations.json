@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 960,
+  "next_available": 962,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4112,6 +4112,24 @@
       "commit_sha": "PENDING",
       "notes": null,
       "shipped_at": "2026-05-28T12:37:30Z"
+    },
+    {
+      "r_number": "R-F960",
+      "title": "voice: small model (accents/non-native) + beam_size 5 + 300s transcribe timeout for long notes",
+      "claimed_at": "2026-05-28T12:50:24Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F961",
+      "title": "self_introspect surfaces degraded_reasons + operating_mode + live autonomy status (stop self-introspection confabulating a mystery degraded subsystem)",
+      "claimed_at": "2026-05-28T12:55:35Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

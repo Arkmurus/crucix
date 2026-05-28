@@ -109,9 +109,19 @@ def test_rf595_context_block_returns_self_introspect_block_on_match(monkeypatch)
             "advisories": ["Live build: R-F595"],
         }
 
-    # Patch the lazy import target on the actual module.
+    # R-F961 — autonomy now comes from the LIVE /autonomous/status (engine
+    # state), not perf.autonomy. Patch it so the real task count still renders.
+    async def _fake_auton():
+        return {"ok": True,
+                "engine": {"enabled": True, "running": True,
+                           "autonomy_label": "L3 FULL", "fire_count": 5},
+                "safety": {"engine_paused": False},
+                "tasks": [{"id": f"t{i}"} for i in range(78)]}
+
+    # Patch the lazy import targets on the actual module.
     from aria_service.routes import aria as _aria_route
     monkeypatch.setattr(_aria_route, "health_perf_ep", _fake_perf)
+    monkeypatch.setattr(_aria_route, "autonomous_status_ep", _fake_auton, raising=False)
 
     from aria_service.intel.self_introspect_guard import (
         self_introspect_context_block,
