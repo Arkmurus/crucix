@@ -105,6 +105,13 @@ const BRAIN_URL     = process.env.BRAIN_SERVICE_URL      || 'http://localhost:31
 const INT_TOKEN     = process.env.ARIA_INTERNAL_TOKEN    || 'aria-internal';
 const REDIS_URL     = process.env.REDIS_URL              || '';
 const AUTO_RESPOND  = (process.env.WA_LISTENER_AUTO_RESPOND || 'true').toLowerCase() === 'true';
+// R-F963 (2026-05-28, operator choice) — a voice note is a deliberate act aimed
+// at ARIA, but STT keeps dropping/garbling the short leading "Aria" wake-word on
+// accented speech, so name-only mode left voice notes unanswered (live 12:51,
+// 13:17, 13:48). When on, ANY voice note is treated as an implicit mention →
+// routed to ARIA (incl. R-F912 doc re-attach) regardless of the transcript.
+// Set ARIA_VOICE_ALWAYS_REPLY=false to revert to wake-word-required for voice.
+const VOICE_ALWAYS_REPLY = (process.env.ARIA_VOICE_ALWAYS_REPLY || 'true').toLowerCase() === 'true';
 const MAX_DOC_CHARS = parseInt(process.env.ARIA_MAX_DOC_CHARS || '200000', 10);
 
 // Parse group IDs — can be set after first run once you know your group IDs
@@ -1088,6 +1095,7 @@ async function startListener() {
 
       // ── DOCUMENT PATH: PDF / DOCX / Excel / TXT / CSV ─────────────────
       let _docAnsweredCaption = false;  // R-F955 — doc+caption answered inline below
+      let _isVoiceNote = false;         // R-F963 — set when this message is a transcribed voice note
       if (docMsg) {
         const filename = docMsg.fileName || 'attachment';
         const mimetype = docMsg.mimetype || '';
@@ -1210,8 +1218,9 @@ async function startListener() {
       // ── VOICE PATH: download voice note → /api/aria/transcribe → text ──
       // R-F957 — a voice note carries no caption, so `text` is empty here. We
       // transcribe it (OSS faster-whisper on the brain) and treat the transcript
-      // exactly like a typed message: captured for Compliance Watch, and a reply
-      // only when ARIA is addressed by name. Flag-gated brain-side
+      // exactly like a typed message: captured for Compliance Watch, and (R-F963)
+      // a voice note is treated as an implicit mention (VOICE_ALWAYS_REPLY) since
+      // STT can't be trusted to preserve the spoken wake-word. Flag-gated brain-side
       // (ARIA_VOICE_TRANSCRIBE_ENABLED) — when off, /transcribe returns
       // skipped:disabled and we just note the voice note was heard.
       if (audioMsg && !text.trim()) {
@@ -1226,6 +1235,7 @@ async function startListener() {
           });
           if (tr && tr.ok && tr.text) {
             text = tr.text;   // transcript flows through the normal text path below
+            _isVoiceNote = true;   // R-F963 — treat as an implicit mention (STT drops the wake-word)
             console.log(`[ARIA Listener] 🎙 Voice note transcribed (${tr.duration_s || '?'}s → ${text.length} chars) in ${groupName} by ${senderName}: ${text.slice(0, 80)}`);
           } else if (tr && tr.skipped === 'disabled') {
             console.log(`[ARIA Listener] 🎙 Voice note received in ${groupName} — transcription disabled (set ARIA_VOICE_TRANSCRIBE_ENABLED=1 on aria-intel).`);
@@ -1277,8 +1287,10 @@ async function startListener() {
         continue;
       }
 
-      // ── Mention handling — respond when ARIA is mentioned ──────────────────
-      if (MENTIONS_RE.some(p => p.test(text))) {
+      // ── Mention handling — respond when ARIA is mentioned, OR (R-F963) when
+      //    this is a voice note and ARIA_VOICE_ALWAYS_REPLY is on (the wake-word
+      //    is unreliable in STT, so a voice note IS the address). ──────────────
+      if (MENTIONS_RE.some(p => p.test(text)) || (_isVoiceNote && VOICE_ALWAYS_REPLY)) {
         let q = text.replace(/^@?ar[iy]{1,3}a[,:?\s]*/i, '').trim() || text;  // R-F959 — strip STT-variant name prefix
         // R-F854 — if this is a doc-referencing follow-up and we recently read
         // a document from this sender, re-attach its text as an

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 963,
+  "next_available": 964,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4142,6 +4142,15 @@
       "commit_sha": "99e3640",
       "notes": null,
       "shipped_at": "2026-05-28T13:35:05Z"
+    },
+    {
+      "r_number": "R-F963",
+      "title": "WA voice notes always routed to ARIA (implicit mention) regardless of wake-word — STT drops short leading name",
+      "claimed_at": "2026-05-28T13:54:11Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
