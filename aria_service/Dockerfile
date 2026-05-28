@@ -46,6 +46,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # SQLite for chromadb persistent backend (modern version)
     sqlite3 \
     libsqlite3-dev \
+    # R-F956 — ffmpeg for faster-whisper voice-note (Opus/OGG) audio decode
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # ── RAG store mount point ──────────────────────────────────────────────────
@@ -79,6 +81,13 @@ RUN curl -fsSL -o /usr/local/bin/lightpanda \
 # so the first _get_embedder() call is a fast file read instead of an HTTP
 # download. Adds ~80MB to the image but makes cold starts predictable.
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+
+# ── R-F956 — pre-bake the faster-whisper voice model into the image ──────────
+# WhatsApp voice-note transcription. Baked so it loads from disk offline at boot
+# (HF_HUB_OFFLINE, like the embedder) — no cold-start network download.
+# 'base' = multilingual (English + Spanish for the LatAm deals), ~150MB, int8/CPU.
+# ARIA_WHISPER_MODEL can override at runtime; gated by ARIA_VOICE_TRANSCRIBE_ENABLED.
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
 
 COPY aria_service/ ./aria_service/
 

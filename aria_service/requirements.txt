@@ -95,3 +95,9 @@ fsrs>=6.3.0
 # Dockerfile (~24MB). Only invoked on-demand when httpx returns thin/JS-only
 # content (React SPAs, dashboards, modern defence ministry sites).
 playwright>=1.40.0
+
+# R-F956 (2026-05-28) — WhatsApp voice-note transcription (OSS, self-hosted).
+# faster-whisper = CTranslate2 Whisper; int8/CPU, no paid STT API, audio stays
+# in-infra. Decodes Opus/OGG via bundled PyAV. Model baked in the Dockerfile so
+# it loads from disk offline (HF_HUB_OFFLINE). Flag-gated (ARIA_VOICE_TRANSCRIBE_ENABLED).
+faster-whisper>=1.0.0

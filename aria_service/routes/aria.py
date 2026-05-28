@@ -8851,6 +8851,33 @@ async def chat_result_ep(job_id: str):
     return {"job_id": job_id, **job}
 
 
+@router.post("/transcribe")
+async def transcribe_ep(request: Request):
+    """R-F956 (2026-05-28) — transcribe a WhatsApp voice note (OSS faster-whisper,
+    local). Body: {"audio_b64": "<base64 opus/ogg/mp3/wav>", "mime": "audio/ogg"}.
+    Returns {"ok", "text", "language", "duration_s", ...}. Flag-gated
+    (ARIA_VOICE_TRANSCRIBE_ENABLED); off → ok:false skipped:disabled. Runs the
+    CPU-bound transcription off the event loop with a concurrency cap so it can
+    never re-wedge the loop."""
+    from ..intel import voice_transcribe as _vt
+    if not _vt.is_enabled():
+        return {"ok": False, "skipped": "disabled",
+                "hint": "set ARIA_VOICE_TRANSCRIBE_ENABLED=1 on aria-intel to enable"}
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="expected JSON body")
+    import base64 as _b64
+    _b = body.get("audio_b64") or body.get("audio") or ""
+    if not _b:
+        raise HTTPException(status_code=400, detail="missing audio_b64")
+    try:
+        audio = _b64.b64decode(_b)
+    except Exception:
+        raise HTTPException(status_code=400, detail="audio_b64 is not valid base64")
+    return await _vt.transcribe_audio(audio, mime=str(body.get("mime") or ""))
+
+
 @router.post("/read-document")
 async def read_document_ep(request: Request):
     """R-F725 (2026-05-19) — hard 45s wall-clock cap.

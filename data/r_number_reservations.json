@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 956,
+  "next_available": 958,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4072,6 +4072,26 @@
       "commit_sha": "PENDING",
       "notes": null,
       "shipped_at": "2026-05-28T08:43:19Z"
+    },
+    {
+      "r_number": "R-F956",
+      "title": "brain voice transcription: faster-whisper module + /transcribe endpoint, off-loop + concurrency-capped + flag-gated (ARIA_VOICE_TRANSCRIBE_ENABLED)",
+      "claimed_at": "2026-05-28T10:24:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-28T10:30:51Z"
+    },
+    {
+      "r_number": "R-F957",
+      "title": "WA listener: detect voice notes (audioMessage/PTT) -> brain /transcribe -> process transcript as text (capture + wake-word)",
+      "claimed_at": "2026-05-28T10:24:30Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-28T10:30:51Z"
     }
   ]
 }

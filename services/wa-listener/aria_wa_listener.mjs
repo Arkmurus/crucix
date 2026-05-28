@@ -855,8 +855,9 @@ async function startListener() {
       // Filter to target groups if specified
       if (TARGET_GROUPS.length && !TARGET_GROUPS.includes(chatId)) continue;
 
-      // Extract message text
-      const text =
+      // Extract message text (R-F957 — `let`, so a transcribed voice note can
+      // populate it and flow through the normal capture + wake-word path).
+      let text =
         msg.message?.conversation                              ||
         msg.message?.extendedTextMessage?.text                 ||
         msg.message?.imageMessage?.caption                     ||
@@ -891,6 +892,8 @@ async function startListener() {
       // not image bytes — every image was silently dropped.
       const docMsg = msg.message?.documentMessage;
       const imgMsg = msg.message?.imageMessage;
+      // R-F957 — voice notes (PTT) + audio messages.
+      const audioMsg = msg.message?.audioMessage;
 
       // ── IMAGE PATH: download → /api/aria/ocr → reply with extraction ──
       if (imgMsg) {
@@ -1187,6 +1190,36 @@ async function startListener() {
               `⚠️ I couldn't process *${filename}* (${e.message}). Try resending, or paste the text.`
             ).catch(() => {});
           }
+        }
+      }
+
+      // ── VOICE PATH: download voice note → /api/aria/transcribe → text ──
+      // R-F957 — a voice note carries no caption, so `text` is empty here. We
+      // transcribe it (OSS faster-whisper on the brain) and treat the transcript
+      // exactly like a typed message: captured for Compliance Watch, and a reply
+      // only when ARIA is addressed by name. Flag-gated brain-side
+      // (ARIA_VOICE_TRANSCRIBE_ENABLED) — when off, /transcribe returns
+      // skipped:disabled and we just note the voice note was heard.
+      if (audioMsg && !text.trim()) {
+        try {
+          const stream = await downloadMediaMessage(msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });
+          const buffer = Buffer.isBuffer(stream) ? stream : Buffer.concat(await (async () => {
+            const chunks = []; for await (const c of stream) chunks.push(c); return chunks;
+          })());
+          const tr = await brainPost('/api/aria/transcribe', {
+            audio_b64: buffer.toString('base64'),
+            mime: audioMsg.mimetype || 'audio/ogg',
+          });
+          if (tr && tr.ok && tr.text) {
+            text = tr.text;   // transcript flows through the normal text path below
+            console.log(`[ARIA Listener] 🎙 Voice note transcribed (${tr.duration_s || '?'}s → ${text.length} chars) in ${groupName} by ${senderName}: ${text.slice(0, 80)}`);
+          } else if (tr && tr.skipped === 'disabled') {
+            console.log(`[ARIA Listener] 🎙 Voice note received in ${groupName} — transcription disabled (set ARIA_VOICE_TRANSCRIBE_ENABLED=1 on aria-intel).`);
+          } else {
+            console.warn(`[ARIA Listener] 🎙 Voice transcription failed: ${(tr && tr.error) || 'no response'}`);
+          }
+        } catch (e) {
+          console.warn('[ARIA Listener] Voice processing failed:', e.message);
         }
       }
 
