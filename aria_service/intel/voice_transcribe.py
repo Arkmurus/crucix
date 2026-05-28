@@ -51,8 +51,17 @@ async def _get_model():
         if _model is None:
             def _load():
                 from faster_whisper import WhisperModel
-                # int8 on CPU: ~4x smaller/faster than fp32, fine for voice notes.
-                return WhisperModel(_MODEL_SIZE, device="cpu", compute_type="int8")
+                # R-F958 — load from the persistent /data volume. The model is
+                # NOT baked into the image (that pushed it past Fly's 8GB cap and
+                # blocked all deploys); it's downloaded to /data once, then loaded
+                # from there offline. int8/CPU: ~4x smaller/faster than fp32.
+                dl = os.getenv("ARIA_WHISPER_DIR") or "/data/whisper_models"
+                try:
+                    os.makedirs(dl, exist_ok=True)
+                except Exception:
+                    dl = None
+                return WhisperModel(_MODEL_SIZE, device="cpu",
+                                    compute_type="int8", download_root=dl)
             _model = await asyncio.to_thread(_load)
             logger.info("[voice] faster-whisper model '%s' loaded (int8/cpu)", _MODEL_SIZE)
     return _model

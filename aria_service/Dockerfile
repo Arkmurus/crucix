@@ -46,8 +46,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # SQLite for chromadb persistent backend (modern version)
     sqlite3 \
     libsqlite3-dev \
-    # R-F956 — ffmpeg for faster-whisper voice-note (Opus/OGG) audio decode
-    ffmpeg \
+    # R-F958 — system ffmpeg removed (R-F956 added it for voice decode, but
+    # faster-whisper decodes Opus/OGG via bundled PyAV/libav — system ffmpeg is
+    # redundant ~70MB and every MB matters against Fly's 8GB image cap).
     && rm -rf /var/lib/apt/lists/*
 
 # ── RAG store mount point ──────────────────────────────────────────────────
@@ -82,12 +83,15 @@ RUN curl -fsSL -o /usr/local/bin/lightpanda \
 # download. Adds ~80MB to the image but makes cold starts predictable.
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 
-# ── R-F956 — pre-bake the faster-whisper voice model into the image ──────────
-# WhatsApp voice-note transcription. Baked so it loads from disk offline at boot
-# (HF_HUB_OFFLINE, like the embedder) — no cold-start network download.
-# 'base' = multilingual (English + Spanish for the LatAm deals), ~150MB, int8/CPU.
-# ARIA_WHISPER_MODEL can override at runtime; gated by ARIA_VOICE_TRANSCRIBE_ENABLED.
-RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
+# ── R-F958 (2026-05-28) — Whisper model is NOT baked into the image ──────────
+# R-F956 baked the faster-whisper 'base' model here, but stacked on top of the
+# already-baked MiniLM + torch + Chromium + OCR deps it pushed the image over
+# Fly's 8GB UNCOMPRESSED limit ("Not enough space to unpack image"). Releases
+# v1092/v1093 failed, the machine rolled back to v1091, and ALL aria-intel
+# deploys were blocked. Mirroring the EasyOCR lazy-download pattern: the model
+# is fetched ONCE to the persistent /data volume on first transcription
+# (voice_transcribe.py download_root) and loaded from there offline thereafter,
+# so the image stays under 8GB.
 
 COPY aria_service/ ./aria_service/
 

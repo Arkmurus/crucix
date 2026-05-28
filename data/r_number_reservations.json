@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 958,
+  "next_available": 959,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4092,6 +4092,16 @@
       "commit_sha": "PENDING",
       "notes": null,
       "shipped_at": "2026-05-28T10:30:51Z"
+    },
+    {
+      "r_number": "R-F958",
+      "title": "P0: stop baking whisper model (image >8GB blocked all aria-intel deploys); lazy-load from /data volume instead — unblocks deploys + voice",
+      "claimed_at": "2026-05-28T11:14:23Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-28T11:16:44Z"
     }
   ]
 }
