@@ -2126,11 +2126,14 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     cal = await _get_cached_calibration()
     cal_addendum = _calibration_to_prompt_addendum(cal)
     if cal_addendum and not _doc_grounded:
-        addendum_parts.append(cal_addendum)
+        # R-F951 — cap store-backed addenda. Calibration/contradictions grow as
+        # ARIA learns; uncapped they ballooned the system prompt toward the
+        # context window. 3K chars (~750 tok) holds the salient adjustments.
+        addendum_parts.append(cal_addendum[:3000])
 
     contras_addendum = await _get_relevant_contradictions(message)
     if contras_addendum and not _doc_grounded:
-        addendum_parts.append(contras_addendum)
+        addendum_parts.append(contras_addendum[:3000])
 
     # PMESII template — fires when message looks like a country assessment.
     # Conservative detector + feature flag (ARIA_PMESII_TEMPLATE_ENABLED).
@@ -2226,7 +2229,8 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
                 from .intel import contract_intelligence as _ci
                 correction_addendum = await _ci.get_correction_addendum()
                 if correction_addendum:
-                    addendum_parts.append(correction_addendum)
+                    # R-F951 — cap accumulated correction lessons (grows over time).
+                    addendum_parts.append(correction_addendum[:4000])
                     logger.info("[contract_intelligence] %d correction lessons injected",
                                 correction_addendum.count("- "))
             except Exception as e2:
@@ -2628,10 +2632,13 @@ async def _build_calibrated_system_prompt(message: str, persona: str = "") -> st
     # context window and truncate an attached document. In document mode the
     # budget is tighter (leave ~30K+ tokens for the document + its context).
     # The base constitution is always FIRST, so a tail-trim preserves it.
-    _cap = 150_000 if _doc_grounded else 260_000
+    # R-F951 — tightened the non-doc cap 260K→200K. 260K (~65K tok) could fill
+    # DeepSeek's ~64K window on its own as the store-backed addenda grew; 200K
+    # (~50K tok) leaves room for the conversation + output. Doc mode stays 150K.
+    _cap = 150_000 if _doc_grounded else 200_000
     if len(final) > _cap:
         final = final[:_cap] + "\n\n[System addenda truncated to preserve context-window room.]"
-        logger.info("[R-F947] system prompt capped to %d chars (doc_grounded=%s)", _cap, _doc_grounded)
+        logger.info("[R-F947/F951] system prompt capped to %d chars (doc_grounded=%s)", _cap, _doc_grounded)
     return final
 
 

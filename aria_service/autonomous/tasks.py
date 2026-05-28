@@ -844,6 +844,14 @@ async def _execute_direct_tool(tool_kind: str, task: Task, llm) -> dict:
         report = await _cw935.run_compliance_watch(window_hours=_win, urgent_only=_urgent)
         return {"compliance_watch": report}
 
+    elif tool_kind == "contract_selfcheck":
+        # R-F953 — daily contract-review canary. Runs a synthetic review
+        # end-to-end and flags the brain if it truncates / empties / times out
+        # (the recurring contract-review failure class). One cheap LLM turn.
+        from ..intel import contract_intelligence as _ci953
+        report = await _ci953.run_contract_selfcheck(llm)
+        return {"contract_selfcheck": report}
+
     elif tool_kind == "learning_cycle":
         # R-F662 (2026-05-17): OSS-only learning controller.
         # Zero cloud LLM calls in the loop — uses FSRS schedule +
@@ -1414,7 +1422,9 @@ async def execute_task(task: Task, llm, *, dry_run: bool = True) -> dict[str, An
                            "cost_free_learn",
                            "cost_guard",
                            # R-F935 -- Compliance Watch private digest task.
-                           "compliance_watch"):
+                           "compliance_watch",
+                           # R-F953 -- daily contract-review self-check canary.
+                           "contract_selfcheck"):
             # Direct-call tools — these don't go through chat, they call
             # their module function directly and return a summary.
             # 2026-04-27 — attribute every direct-tool LLM call to its

@@ -1180,6 +1180,29 @@ tasks:
     escalate_if: []
     mem0_tags: [compliance, watch, surveillance, private, autonomous]
 
+  # RUN-CONTRACT-SELFCHECK-DAILY — R-F953 (2026-05-28)
+  - id: RUN-CONTRACT-SELFCHECK-DAILY
+    name: Contract review — daily self-check canary
+    description: |
+      Daily 05:00 UTC — run a synthetic contract review end-to-end and verify it
+      returns a non-empty answer that reaches the LAST clause (governing law,
+      placed past the ~16K char point the R-F949 truncation bug cut at). On any
+      truncation / empty / timeout regression it flags the brain (capability gap)
+      so ARIA catches a contract-review regression BEFORE the operator hits it —
+      the durable guard for the recurring contract-review failure class.
+    cron: "0 5 * * *"
+    enabled: true
+    priority: MEDIUM
+    timeout_seconds: 300
+    cost_cap_usd: 0.10
+    tool_chain:
+      - tool: contract_selfcheck
+        label: daily
+    delivery_channels: [mem0]
+    whatsapp_group_id: ""
+    escalate_if: []
+    mem0_tags: [contract, selfcheck, canary, regression, autonomous]
+
   - id: RUN-COMPLIANCE-WATCH-URGENT
     name: Compliance Watch — 30-min urgent scan (HIGH/CRITICAL only)
     description: |

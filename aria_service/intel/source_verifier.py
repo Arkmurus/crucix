@@ -322,9 +322,14 @@ def verify_response(response_text: str, tool_context: str) -> dict:
     # Raw text (full message OR tool_context) is checked because the
     # WhatsApp listener injects the block into the user message, not
     # into the tool_context slot.
+    # R-F952 — accept BOTH close-tag dialects: the WhatsApp listener emits
+    # `[END ATTACHED DOCUMENT]` and the web UI emits `[/ATTACHED DOCUMENT]`.
+    # Pre-R-F952 only the WA tag was recognised, so a web-UI contract review
+    # scored `no_citations` instead of `grounded` (its honesty score was wrong).
+    _tc = tool_context or ""
     has_attached_doc = (
-        "[ATTACHED DOCUMENT" in (tool_context or "")
-        and "[END ATTACHED DOCUMENT]" in (tool_context or "")
+        "[ATTACHED DOCUMENT" in _tc
+        and ("[END ATTACHED DOCUMENT]" in _tc or "[/ATTACHED DOCUMENT]" in _tc)
     )
 
     if not tool_context and not has_attached_doc:

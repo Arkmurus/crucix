@@ -130,9 +130,15 @@ async def self_review_contract(
             f"{idx * (_SELF_REVIEW_CHUNK_CHARS - _SELF_REVIEW_OVERLAP_CHARS) + len(chunk)}]:\n"
             f"{chunk}\n\n"
             f"ARIA'S DRAFT REVIEW:\n{draft_slice}\n\n"
-            f"Audit this review against the document WINDOW shown above. "
-            f"Only flag issues whose evidence lies in this window — later "
-            f"windows will cover the rest. Do not hallucinate clauses you cannot see."
+            f"Audit ARIA's draft against the document WINDOW shown above. "
+            f"R-F954: the draft reviews the FULL document across MANY windows — a "
+            f"draft claim about a clause that is NOT in THIS window is almost "
+            f"certainly covered by another window, so you MUST NOT flag it as "
+            f"missing, absent, hallucinated, or 'memory contamination'. ONLY flag: "
+            f"(a) a draft claim that CONTRADICTS or misquotes text visible in THIS "
+            f"window, or (b) a clause present in THIS window the draft got wrong or "
+            f"omitted. If the draft is consistent with everything visible here, "
+            f"reply exactly 'No issues in this window.'"
         )
         try:
             from . import cost_tracker
@@ -242,6 +248,78 @@ async def finalize_reviewed_contract(
     except Exception as e:
         logger.warning("R-F883 contract correction synthesis failed: %s", e)
         return None
+
+
+# ── R-F953 — daily contract-review self-check ───────────────────────────────
+# A standing canary: run a synthetic contract review end-to-end and verify it
+# (a) returns a non-empty answer, (b) is not truncated mid-document, and (c)
+# reaches the LAST clause. The governing-law clause is deliberately placed PAST
+# the ~16K char point that the R-F949 bug truncated at, so a regression of that
+# class is caught here BEFORE the operator hits it (the recurring contract-review
+# failure mode, 2026-05-27/28). Flags the brain on failure.
+
+def build_selfcheck_contract() -> str:
+    """A deterministic synthetic agreement (~20K chars) whose GOVERNING LAW
+    clause sits past 16K, so any mid-document truncation regression is visible."""
+    _titles = ["DEFINITIONS", "APPOINTMENT", "COMMISSION", "PAYMENT MECHANICS",
+               "TERM", "TERMINATION", "LIABILITY", "CONFIDENTIALITY",
+               "INTELLECTUAL PROPERTY", "ANTI-BRIBERY AND COMPLIANCE", "FORCE MAJEURE"]
+    _filler = ("This provision is included for completeness and reflects standard "
+               "commercial drafting practice between the parties to this Agreement. ") * 22
+    parts = ["MASTER TEST AGREEMENT (ARIA self-check fixture)\n"]
+    for i, t in enumerate(_titles, start=1):
+        parts.append(f"\n{i}. {t}\n{_filler}\n")
+    parts.append(
+        "\n12. GOVERNING LAW AND DISPUTE RESOLUTION\n"
+        "This Agreement is governed by and construed in accordance with the laws of "
+        "England and Wales. Any dispute is finally resolved by arbitration under the "
+        "LCIA Rules, seat London, three arbitrators.\n"
+        "\n[SIGNATURES]\nParty A: __________   Party B: __________\n"
+    )
+    return "".join(parts)
+
+
+async def run_contract_selfcheck(llm) -> dict:
+    """Run the synthetic review end-to-end; flag the brain on regression."""
+    import time
+    if not llm or not getattr(llm, "is_configured", False):
+        return {"ok": False, "skipped": "no_llm"}
+    doc = build_selfcheck_contract()
+    gov_offset = doc.find("GOVERNING LAW AND DISPUTE")
+    msg = (f"Review this agreement and confirm the GOVERNING LAW clause.\n\n"
+           f"[ATTACHED DOCUMENT: selfcheck_agreement.txt]\n{doc}\n[END ATTACHED DOCUMENT]")
+    t0 = time.time()
+    resp, err = "", ""
+    try:
+        from .. import aria_engine
+        res = await aria_engine.aria_chat(msg, "aria_selfcheck_contract", llm, None)
+        resp = (res or {}).get("response") or (res or {}).get("answer") or ""
+    except Exception as e:
+        err = str(e)[:200]
+    elapsed = round(time.time() - t0, 1)
+    low = resp.lower()
+    reaches_end = ("governing law" in low) or ("england and wales" in low) or ("lcia" in low)
+    ok = bool(resp.strip()) and len(resp) > 200 and reaches_end and not err
+    report = {"ok": ok, "len": len(resp), "reaches_governing_law": reaches_end,
+              "elapsed_s": elapsed, "gov_clause_offset": gov_offset, "error": err}
+    if not ok:
+        try:
+            from . import brain_hook
+            await brain_hook.observe_self_event(
+                "contract_review_selfcheck_failed",
+                (f"Daily contract self-check FAILED: len={len(resp)} "
+                 f"reaches_governing_law={reaches_end} elapsed={elapsed}s err={err or 'none'}. "
+                 f"Governing-law clause sits at char {gov_offset} (past the 16K R-F949 truncation point) "
+                 f"— a regression of the contract-review truncation/empty class."),
+                success=False,
+                gap_type="contract_review_regression",
+            )
+        except Exception as _be:
+            logger.warning("R-F953 self-check brain signal failed: %s", _be)
+        logger.warning("[R-F953] contract self-check FAILED: %s", report)
+    else:
+        logger.info("[R-F953] contract self-check OK (%ds, %d chars)", int(elapsed), len(resp))
+    return report
 
 
 # ── 2. CLAUSE LIBRARY ──────────────────────────────────────────────────────

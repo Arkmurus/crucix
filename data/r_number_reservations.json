@@ -4028,36 +4028,40 @@
       "title": "D: bound system-prompt growth — cap store-backed addenda (calibration/contradictions/corrections) + tighten total cap for all chat",
       "claimed_at": "2026-05-28T08:34:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-28T08:57:18Z"
     },
     {
       "r_number": "R-F952",
       "title": "B: source_verifier scores attached-document reviews (was verdict=None for contract reviews)",
       "claimed_at": "2026-05-28T08:34:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-28T08:57:18Z"
     },
     {
       "r_number": "R-F953",
       "title": "A: daily synthetic-contract self-check task flags brain on review regression (truncation/empty/timeout)",
       "claimed_at": "2026-05-28T08:34:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-28T08:57:18Z"
     },
     {
       "r_number": "R-F954",
       "title": "C: contract self-review windows stop flagging cross-window clauses as hallucination",
       "claimed_at": "2026-05-28T08:34:55Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "PENDING",
+      "notes": null,
+      "shipped_at": "2026-05-28T08:57:18Z"
     },
     {
       "r_number": "R-F955",
