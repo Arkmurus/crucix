@@ -4409,9 +4409,10 @@
       "title": "Equip aria CLI to ship end-to-end (git/push/fly deploy) + coder playbook AGENTS.md",
       "claimed_at": "2026-05-28T22:06:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "b056514",
+      "notes": null,
+      "shipped_at": "2026-05-28T22:13:27Z"
     }
   ]
 }
