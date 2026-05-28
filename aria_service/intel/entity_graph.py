@@ -253,6 +253,14 @@ class ERGraph:
             for n in flagged[:10]:
                 lines.append(f"  {n.risk_level.upper()}: {n.label} — {n.risk_reason}")
 
+        # R-F996 — wire to brain
+        from .engine_wiring import wire_success
+        wire_success(
+            module="entity_graph",
+            summary="Get Network Summary",
+            source_id="entity_graph:R-F996",
+        )
+
         return "\n".join(lines)
 
     # ── Persistence ──────────────────────────────────────────────────────

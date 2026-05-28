@@ -108,6 +108,7 @@ async def run_court_records_check(
         }
     except Exception as e:
         logger.debug("[R-F584] court_records wire failed (non-fatal): %s", e)
+
         return None
 
 

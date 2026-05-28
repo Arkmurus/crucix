@@ -211,6 +211,14 @@ async def get_user_state(user_id: str) -> dict:
     """Expose current quota state for debugging / /quota endpoint."""
     if not user_id:
         user_id = "__anon__"
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="user_quota",
+        summary="Get User State",
+        source_id="user_quota:R-F996",
+    )
+
     return {
         "user": user_id,
         "unlimited": is_unlimited(user_id),

@@ -772,6 +772,7 @@ Respond with JSON:
             return []
 
     def _get_clause(self, clause_id: str) -> Optional[ConstitutionClause]:
+
         return next(
             (c for c in self._load_clauses() if c.clause_id == clause_id),
             None

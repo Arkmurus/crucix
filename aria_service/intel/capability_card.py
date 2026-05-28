@@ -1,4 +1,6 @@
-"""Auto-generated capability card — what ARIA can/can't do, with evidence.
+"""Auto-generated capability card — what ARIA ca
+from .engine_wiring import wire_success
+n/can't do, with evidence.
 
 Why this exists
 ───────────────
@@ -432,4 +434,11 @@ async def render_markdown() -> str:
         "`GET /api/aria/capability-card?format=json`.*"
     )
 
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="capability_card",
+        summary="Capability card",
+        source_id="capability_card:R-F996",
+    )
     return "\n".join(lines)

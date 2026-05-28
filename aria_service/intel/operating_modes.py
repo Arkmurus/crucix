@@ -1,4 +1,6 @@
-"""ARIA Operating Modes — graduated response to quality degradation.
+"""ARIA Operating Modes
+from .engine_wiring import wire_success
+ — graduated response to quality degradation.
 
 Four modes, auto-triggered by quality metric thresholds:
 
@@ -170,4 +172,11 @@ def should_task_run(task_id: str, mode: Mode) -> bool:
 
 def should_deliver_external(mode: Mode) -> bool:
     """Check if external delivery (WhatsApp) should happen."""
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="operating_modes",
+        summary="Operating mode",
+        source_id="operating_modes:R-F996",
+    )
     return mode == Mode.NORMAL

@@ -85,6 +85,8 @@ def detect_self_capability_question(message: str) -> bool:
         from .self_infra_detector import is_self_state_query
         return is_self_state_query(message)
     except Exception:
+        pass
+
         return False
 
 

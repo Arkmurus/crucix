@@ -1,5 +1,7 @@
 """ARIA branded-report builder.
 
+from .engine_wiring import wire_success
+
 Generates Arkmurus-formatted compliance / due-diligence / market reports by
 combining:
 
@@ -346,6 +348,13 @@ async def build_report(
             "investigation_facts": investigation_facts,
         }
 
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="report_builder",
+        summary="Report building",
+        source_id="report_builder:R-F996",
+    )
     return {
         "report_type": report_type,
         "subject": subject,

@@ -631,6 +631,14 @@ async def shutdown() -> None:
 async def get_all_facts() -> list[dict]:
     """Return all facts in the knowledge base (for security audit scanning)."""
     cache = await _load()
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="knowledge",
+        summary="Get All Facts",
+        source_id="knowledge:R-F996",
+    )
+
     return cache.get("facts", [])
 
 

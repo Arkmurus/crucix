@@ -279,4 +279,12 @@ def render_context_block(resolved: dict[str, Any]) -> str:
             if summary:
                 lines.append(f"  - {summary}")
     lines.append("Use these as starting context. Verify before citing as fact.")
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="entity_resolver",
+        summary="Render Context Block",
+        source_id="entity_resolver:R-F996",
+    )
+
     return "\n".join(lines)

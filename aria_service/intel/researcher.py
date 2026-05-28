@@ -1,5 +1,7 @@
 """
-ARIA Research Engine — Active learning through article reading and hypothesis validation.
+ARIA Research Engine — Active 
+from .engine_wiring import wire_success
+learning through article reading and hypothesis validation.
 
 ARIA doesn't just respond to questions — she actively reads defence/security articles,
 extracts intelligence, cross-references with existing knowledge, validates or challenges
@@ -4056,6 +4058,13 @@ async def run_adverse_media_deep_search(
 
     duration = round(time.time() - started, 2)
 
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="researcher",
+        summary="Research",
+        source_id="researcher:R-F996",
+    )
     return {
         "ok": True,
         "entity": entity_name,

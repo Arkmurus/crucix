@@ -1,4 +1,6 @@
-"""ARIA Document Intelligence Reader — 4-strategy fallback pipeline.
+"""ARIA Document Intelligence Reade
+from .engine_wiring import wire_success
+r — 4-strategy fallback pipeline.
 
 Cherry-picked from the v3 architecture proposal and adapted to our
 existing stack (LLM provider abstraction, redis_store, config.py).
@@ -1085,6 +1087,13 @@ async def analyse_contract(
     missing = [c for c in REQUIRED_CONTRACT_CLAUSES if c not in text_lower]
     sitcl_found = [kw for kw in SITCL_TRIGGERS if kw in text_lower]
 
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="document_reader",
+        summary="Document reading",
+        source_id="document_reader:R-F996",
+    )
     return {
         "status": "ANALYSED",
         "extraction_method": extraction.method,

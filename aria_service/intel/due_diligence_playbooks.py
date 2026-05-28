@@ -945,6 +945,14 @@ def score_ghost_indicators(profile: dict[str, Any]) -> GhostScoreResult:
     total = sum(i.points for i in indicators)
     max_total = sum(i.max_points for i in indicators)
     classification, recommendation = _classify(total)
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="due_diligence_playbooks",
+        summary="Score Ghost Indicators",
+        source_id="due_diligence_playbooks:R-F996",
+    )
+
     return GhostScoreResult(
         total=total,
         max_total=max_total,

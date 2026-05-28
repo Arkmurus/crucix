@@ -129,6 +129,14 @@ def validate_url(url: str) -> tuple[bool, str]:
     if _is_low_value_url(hostname, path_lower):
         return False, f"Low-value navigational URL (product help / footer): {hostname}{path_lower[:50]}"
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="security",
+        summary="Validate Url",
+        source_id="security:R-F996",
+    )
+
     return True, "OK"
 
 

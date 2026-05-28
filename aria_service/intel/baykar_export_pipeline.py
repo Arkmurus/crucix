@@ -129,6 +129,14 @@ def get_baykar_context(query: str, max_hits: int = 5) -> str:
             f"• {e.customer_name} ({e.customer_iso2}) — {e.platform}{qty} "
             f"[{e.status}, first reported {e.first_reported}]"
         )
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="baykar_export_pipeline",
+        summary="Get Baykar Context",
+        source_id="baykar_export_pipeline:R-F996",
+    )
+
     return "\n".join(lines)
 
 

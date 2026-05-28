@@ -422,6 +422,14 @@ class ARIADeceptionAnalyser:
             )
         except Exception:
             pass
+        # R-F996 — wire to brain
+        from .engine_wiring import wire_success
+        wire_success(
+            module="deception_detection",
+            summary="Analyse Async",
+            source_id="deception_detection:R-F996",
+        )
+
         return score
 
     def analyse(

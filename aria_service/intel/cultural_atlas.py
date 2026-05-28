@@ -565,6 +565,14 @@ def render_context_block(iso2: str, *, depth: str = "brief") -> str:
         lines.append("Notes:")
         for n in p.notes:
             lines.append(f"  - {n}")
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="cultural_atlas",
+        summary="Render Context Block",
+        source_id="cultural_atlas:R-F996",
+    )
+
     return "\n".join(lines)
 
 

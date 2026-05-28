@@ -195,6 +195,14 @@ def get_south_se_asia_context(query: str, max_blocks: int = 2) -> str:
     if not scored:
         return ""
     scored.sort(key=lambda x: -x[0])
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="knowledge_south_se_asia",
+        summary="Get South Se Asia Context",
+        source_id="knowledge_south_se_asia:R-F996",
+    )
+
     return "\n\n".join(e["text"] for _, e in scored[:max_blocks])
 
 

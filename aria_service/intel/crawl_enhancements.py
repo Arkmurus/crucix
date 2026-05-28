@@ -92,6 +92,14 @@ async def detect_content_type(url: str, timeout: float = 8.0) -> dict:
     # Strip ";charset=..." noise
     ct = out["content_type"].split(";")[0].strip().lower()
     out["content_type"] = ct
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="crawl_enhancements",
+        summary="Detect Content Type",
+        source_id="crawl_enhancements:R-F996",
+    )
+
     return out
 
 

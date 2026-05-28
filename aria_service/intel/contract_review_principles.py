@@ -277,6 +277,14 @@ def detect_review_intent(message: str) -> bool:
         return False
     has_verb = bool(_REVIEW_VERB_RE.search(message))
     has_object = bool(_DOC_OBJECT_RE.search(message))
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="contract_review_principles",
+        summary="Detect Review Intent",
+        source_id="contract_review_principles:R-F996",
+    )
+
     return has_verb and has_object
 
 

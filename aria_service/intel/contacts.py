@@ -174,6 +174,14 @@ async def add_contact(contact: dict) -> None:
 
 async def get_all() -> list[dict]:
     db = await _load()
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="contacts",
+        summary="Get All",
+        source_id="contacts:R-F996",
+    )
+
     return db["contacts"]
 
 

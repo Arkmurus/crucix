@@ -1,4 +1,6 @@
-"""ARIA Web Search — independent multi-backend search engine.
+"""ARIA Web Search — independent mult
+from .engine_wiring import wire_success
+i-backend search engine.
 
 INDEPENDENCE PRINCIPLE: ARIA owns her search infrastructure. No single
 vendor dependency. If Brave is down, use SearXNG. If SearXNG is down,
@@ -1550,4 +1552,11 @@ async def get_search_health() -> dict:
     # Google News RSS is almost always available
     health["google_news"] = True
     health["bing_news"] = True
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="web_search",
+        summary="Web search",
+        source_id="web_search:R-F996",
+    )
     return health

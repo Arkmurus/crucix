@@ -126,6 +126,14 @@ async def get_conversation(session_id: str, user_id: str | None = None) -> dict 
     session_data = await rs.get_json(_SESSION_KEY.format(session_id=session_id))
     messages = (session_data or {}).get("messages", []) if session_data else []
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="conversation_store",
+        summary="Get Conversation",
+        source_id="conversation_store:R-F996",
+    )
+
     return {
         "session_id": session_id,
         "title": meta.get("title", "Untitled"),

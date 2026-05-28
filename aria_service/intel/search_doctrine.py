@@ -931,4 +931,12 @@ def detect_conflicts(results: list[dict]) -> list[dict]:
                 "values": sorted(uniq_vals),
                 "sources": [u for _, u in items][:4],
             })
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="search_doctrine",
+        summary="Detect Conflicts",
+        source_id="search_doctrine:R-F996",
+    )
+
     return conflicts

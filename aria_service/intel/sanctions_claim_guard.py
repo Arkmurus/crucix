@@ -111,6 +111,14 @@ def detect_sanctions_question(message: str) -> str | None:
         if not entity:
             continue
         return entity
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="sanctions_claim_guard",
+        summary="Detect Sanctions Question",
+        source_id="sanctions_claim_guard:R-F996",
+    )
+
     return None
 
 

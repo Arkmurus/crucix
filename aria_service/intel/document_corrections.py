@@ -362,6 +362,14 @@ def render_few_shot_block(examples: list[dict]) -> str:
         parts.append(json.dumps(ex["structured"], ensure_ascii=False, indent=2))
         parts.append("```")
     parts.append("")
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="document_corrections",
+        summary="Render Few Shot Block",
+        source_id="document_corrections:R-F996",
+    )
+
     return "\n".join(parts)
 
 

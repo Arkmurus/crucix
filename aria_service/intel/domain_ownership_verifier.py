@@ -1,4 +1,6 @@
-"""Domain ownership verifier — RDAP-based, no external deps.
+"""Domain ownership verifier — RDAP-b
+from .engine_wiring import wire_success
+ased, no external deps.
 
 Resolves a domain to its registrant, creation date, registrar, and
 country via RDAP (Registration Data Access Protocol — the modern
@@ -415,6 +417,13 @@ def severity_for(verification: dict[str, Any]) -> str:
 
 
 def summary() -> dict[str, Any]:
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="domain_ownership_verifier",
+        summary="Domain verification",
+        source_id="domain_ownership_verifier:R-F996",
+    )
     return {
         "tlds_seeded": len(_RDAP_SEED),
         "bootstrap_cached": len(_BOOTSTRAP_CACHE),

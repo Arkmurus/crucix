@@ -428,6 +428,14 @@ async def ingest_all_sections() -> dict:
             logger.error("SIPRI section ingestion failed [%s]: %s", section_name, e)
 
     success = sum(1 for v in results.values() if v.get("status") == "OK")
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="sipri_knowledge",
+        summary="Ingest All Sections",
+        source_id="sipri_knowledge:R-F996",
+    )
+
     return {
         "sections_ingested": success,
         "total_sections": len(ALL_SECTIONS),

@@ -1,6 +1,8 @@
 """ARIA Web Explorer — unified entry point for web research.
 
-R-F307 (2026-05-11): consolidates the fragmented web-research stack
+R-F307 (2026-05-11): consolidates the fragme
+from .engine_wiring import wire_success
+nted web-research stack
 (web_search + researcher + link_investigator + deep_researcher) behind
 one coherent capability with ecosystem awareness baked in.
 
@@ -848,4 +850,11 @@ async def explore_and_remember(*args, **kwargs) -> ExplorationResult:
             ))
     except Exception as e:
         logger.debug("explore_and_remember brain_hook absorb failed: %s", e)
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="web_explorer",
+        summary="Web exploration",
+        source_id="web_explorer:R-F996",
+    )
     return result

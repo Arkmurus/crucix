@@ -207,6 +207,14 @@ def analyse_cui(cui: int | str) -> Optional[CUIAnalysis]:
         age_days = (today - estimated).days
         age_months_now = max(0, int(round(age_days / 30.5)))
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="_romanian_cui",
+        summary="Analyse Cui",
+        source_id="_romanian_cui:R-F996",
+    )
+
     return CUIAnalysis(
         cui=parsed,
         raw=raw,

@@ -341,6 +341,14 @@ class ARIACounterpartyClaimLedger:
                     f"via {verification_source}"
                 )
                 return claim
+        # R-F996 — wire to brain
+        from .engine_wiring import wire_success
+        wire_success(
+            module="counterparty_claim_ledger",
+            summary="Verify Claim",
+            source_id="counterparty_claim_ledger:R-F996",
+        )
+
         return None
 
     # ── INTERNAL ─────────────────────────────────────────────────────────────

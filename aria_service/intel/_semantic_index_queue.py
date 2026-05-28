@@ -210,6 +210,14 @@ async def _process_batch(batch: list[tuple[str, str, dict]]) -> None:
 
 def get_stats() -> dict:
     """Surface stats for /api/aria/brain/stats and operator dashboards."""
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="_semantic_index_queue",
+        summary="Get Stats",
+        source_id="_semantic_index_queue:R-F996",
+    )
+
     return {
         "enabled": not _disabled(),
         "queue_depth": _queue.qsize() if _queue is not None else 0,

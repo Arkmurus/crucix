@@ -415,6 +415,14 @@ def verify_response(response_text: str, tool_context: str) -> dict:
     else:
         verdict = "ungrounded"
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="source_verifier",
+        summary="Verify Response",
+        source_id="source_verifier:R-F996",
+    )
+
     return {
         "cited_urls": cited,
         "fetched_urls": fetched,

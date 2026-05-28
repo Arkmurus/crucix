@@ -111,6 +111,7 @@ async def get_status(response_hash: str) -> dict | None:
         entry = await rs.get_json(_KEY_PREFIX + response_hash)
         return entry if isinstance(entry, dict) else None
     except Exception:
+
         return None
 
 

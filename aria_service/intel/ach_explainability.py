@@ -153,6 +153,14 @@ def build_ach_output(
                 "reason":      str(r.get("reason", "")),
             })
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="ach_explainability",
+        summary="Build Ach Output",
+        source_id="ach_explainability:R-F996",
+    )
+
     return {
         "schema_version": "ach.v1",
         "subject":        subject,

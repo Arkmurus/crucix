@@ -898,6 +898,14 @@ async def find_match(question: str, *, threshold: float = DEFAULT_MATCH_THRESHOL
     _mark_meta_dirty()  # R-F268
     await _save_meta()
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="reasoning_library",
+        summary="Find Match",
+        source_id="reasoning_library:R-F996",
+    )
+
     return {
         "match": True,
         "score": round(best_score, 3),

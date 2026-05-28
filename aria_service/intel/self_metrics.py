@@ -350,6 +350,14 @@ async def verify_chain(start: int = 0, count: int = 500) -> dict:
             broken.append({"index": i, "ts": e.get("ts"), "reason": "chain break"})
         expected_prev = e.get("entry_hash", "")
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="self_metrics",
+        summary="Verify Chain",
+        source_id="self_metrics:R-F996",
+    )
+
     return {"verified": not broken, "checked": len(entries_chrono), "broken": broken[:20]}
 
 

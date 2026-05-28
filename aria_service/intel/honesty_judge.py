@@ -398,6 +398,7 @@ async def get_judgment(jid: str) -> dict | None:
     try:
         return await rs.get_json(f"{JUDGMENT_KEY_PREFIX}{jid}")
     except Exception:
+
         return None
 
 

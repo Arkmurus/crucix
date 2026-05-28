@@ -387,6 +387,7 @@ async def get_user(user_id: str) -> Optional[dict[str, Any]]:
         return _row_to_user(row) if row else None
     except Exception as exc:
         logger.warning("get_user(%s): failed: %s", user_id, exc)
+
         return None
 
 

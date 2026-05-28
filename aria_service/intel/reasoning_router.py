@@ -421,6 +421,14 @@ async def get_independence_report() -> dict:
     cloud_count = by_source.get("cloud_llm", 0)
     independence_ratio = round(local_count / max(total, 1), 3)
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="reasoning_router",
+        summary="Get Independence Report",
+        source_id="reasoning_router:R-F996",
+    )
+
     return {
         "total_queries": total,
         "by_source": by_source,

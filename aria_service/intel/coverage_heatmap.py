@@ -476,6 +476,14 @@ async def build_heatmap(
         finally:
             _HEATMAP_INFLIGHT.pop(cache_key, None)
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="coverage_heatmap",
+        summary="Build Heatmap",
+        source_id="coverage_heatmap:R-F996",
+    )
+
     return await _build_heatmap_uncached(
         domains=domains, jurisdictions=jurisdictions,
     )

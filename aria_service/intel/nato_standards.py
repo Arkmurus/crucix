@@ -1007,6 +1007,13 @@ async def ingest_to_knowledge() -> dict:
     success = sum(1 for v in results.values() if v.get("status") == "OK")
     logger.info("NATO standards ingestion: %d/%d sections, %d total chunks",
                 success, len(ALL_SECTIONS), total_chunks)
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="nato_standards",
+        summary="NATO standards",
+        source_id="nato_standards:R-F996",
+    )
     return {
         "sections_ingested": success,
         "total_sections": len(ALL_SECTIONS),

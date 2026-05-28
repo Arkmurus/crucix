@@ -122,6 +122,14 @@ def detect_file_type(raw_bytes: bytes) -> str:
         return _peek_office_zip(raw_bytes)
     if _is_probably_text(raw_bytes):
         return "txt"
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="file_type_detector",
+        summary="Detect File Type",
+        source_id="file_type_detector:R-F996",
+    )
+
     return "unknown"
 
 

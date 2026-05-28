@@ -83,6 +83,14 @@ def classify_emoji(emoji: str) -> str:
     for ref in UNCERTAIN_EMOJI:
         if ref.replace("\ufe0f", "") == e:
             return "uncertain"
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="feedback",
+        summary="Classify Emoji",
+        source_id="feedback:R-F996",
+    )
+
     return "neutral"
 
 

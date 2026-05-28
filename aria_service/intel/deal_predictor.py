@@ -1,4 +1,6 @@
-"""R-F780 — deal-outcome predictor + calibration post-mortem ingest.
+"""R-F780 — deal-outcome predictor + c
+from .engine_wiring import wire_success
+alibration post-mortem ingest.
 
 This is the 99.99%-on-calibration piece of the strategic roadmap.
 
@@ -311,6 +313,13 @@ async def record_outcome(
     except Exception as e:
         feeds["brain_hook"] = f"error:{e!s}"[:200]
 
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="deal_predictor",
+        summary="Deal prediction",
+        source_id="deal_predictor:R-F996",
+    )
     return {
         "ok": True,
         "deal_id": deal_id,

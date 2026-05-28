@@ -141,6 +141,7 @@ def lookup_by_canonical_id(canonical_entity_id: str) -> list[dict]:
         return [dict(r) for r in rows]
     except Exception as e:
         logger.debug("dd_case_archive.lookup_by_canonical_id failed: %s", e)
+
         return []
 
 

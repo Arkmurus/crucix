@@ -312,6 +312,14 @@ def detect_research_intent(message: str) -> bool:
         return False
     if not is_enabled():
         return False
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="researcher_principles",
+        summary="Detect Research Intent",
+        source_id="researcher_principles:R-F996",
+    )
+
     return bool(_RESEARCH_INTENT_RE.search(message))
 
 

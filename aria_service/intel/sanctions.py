@@ -1,5 +1,7 @@
 """
-ARIA Sanctions Intelligence — fuzzy entity screening with OpenSanctions integration.
+ARIA Sanctions Intelligence 
+from .engine_wiring import wire_success
+— fuzzy entity screening with OpenSanctions integration.
 
 The previous /api/aria/compliance/sanctions endpoint only checked the local Node
 brain's exact-match `entityMatcher` and ARIA's knowledge base. That misses:
@@ -854,6 +856,13 @@ async def screen_with_aliases(name: str, known_aliases: list[str] | None = None)
         seen.add(key)
         deduped.append(m)
 
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="sanctions",
+        summary="Sanctions screening",
+        source_id="sanctions:R-F996",
+    )
     return {
         "name": name,
         "aliases_checked": targets,

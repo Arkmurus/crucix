@@ -164,6 +164,14 @@ async def get_reliability(source_url: str, topic: str) -> dict:
     data = await rs.get_json(key)
     if data:
         return data
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="web_atlas",
+        summary="Get Reliability",
+        source_id="web_atlas:R-F996",
+    )
+
     return {
         "family": family, "topic": topic_k,
         "confirmed": 0, "contradicted": 0,

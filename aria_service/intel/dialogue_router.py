@@ -167,6 +167,14 @@ def classify_dialogue_intent(
         return DialogueIntent.REPORT
 
     # Default — DIALOGUE
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="dialogue_router",
+        summary="Classify Dialogue Intent",
+        source_id="dialogue_router:R-F996",
+    )
+
     return DialogueIntent.DIALOGUE
 
 

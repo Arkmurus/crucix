@@ -230,6 +230,14 @@ async def verify_chain(sample: int = 100) -> dict:
                 "expected_prev": prev.get("chain_hash"),
                 "actual_prev": current.get("prev_hash"),
             })
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="chat_audit_log",
+        summary="Verify Chain",
+        source_id="chat_audit_log:R-F996",
+    )
+
     return {
         "verified": len(breaks) == 0,
         "checked": len(entries),

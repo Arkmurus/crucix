@@ -307,6 +307,14 @@ def get_platform(name: str) -> Optional[dict]:
     for p in _PLATFORMS:
         if p["name"].lower() == n:
             return dict(p)
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="equipment_specs",
+        summary="Get Platform",
+        source_id="equipment_specs:R-F996",
+    )
+
     return None
 
 

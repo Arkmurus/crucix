@@ -386,6 +386,14 @@ async def get_hits_24h() -> dict[str, Any]:
     for it in kept:
         c = it.get("code", "?")
         by_code[c] = by_code.get(c, 0) + 1
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="regional_bright_lines",
+        summary="Get Hits 24H",
+        source_id="regional_bright_lines:R-F996",
+    )
+
     return {"total": len(kept), "by_code": by_code, "items": kept[-20:]}
 
 

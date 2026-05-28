@@ -1,4 +1,6 @@
-"""prompt_injection_suite — OWASP LLM01 prompt-injection adversarial
+"""prompt_injection_suite — OWASP LLM01 prompt-inject
+from .engine_wiring import wire_success
+ion adversarial
 test library (R-F80, 2026-05-09).
 
 Why this module exists
@@ -379,6 +381,13 @@ def _by_severity(results: list[dict[str, Any]]) -> dict[int, dict[str, int]]:
 
 
 def summary() -> dict[str, Any]:
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="prompt_injection_suite",
+        summary="Prompt injection suite",
+        source_id="prompt_injection_suite:R-F996",
+    )
     return {
         "module":      "prompt_injection_suite",
         "owasp_ref":   "LLM01 — Prompt Injection (OWASP LLM Top 10 2023)",

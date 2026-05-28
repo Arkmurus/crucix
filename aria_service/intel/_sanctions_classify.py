@@ -550,6 +550,14 @@ def classify_match(match: dict, query_name: str = "") -> str:
         and SEVERITY_RANK[severity] > SEVERITY_RANK["amber"]
     ):
         severity = "amber"
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="_sanctions_classify",
+        summary="Classify Match",
+        source_id="_sanctions_classify:R-F996",
+    )
+
     return severity
 
 

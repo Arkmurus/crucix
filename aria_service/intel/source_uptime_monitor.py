@@ -313,6 +313,14 @@ async def run_daily_ping() -> dict:
         "[uptime_monitor] sweep done: %d/%d up, %d suspended, %d recovered",
         up_count, len(ping_results), len(newly_suspended), len(recovered),
     )
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="source_uptime_monitor",
+        summary="Run Daily Ping",
+        source_id="source_uptime_monitor:R-F996",
+    )
+
     return summary
 
 

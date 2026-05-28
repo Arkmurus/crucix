@@ -765,6 +765,14 @@ class ARKDDReport:
             f"*Duration:* {self.total_duration_ms}ms  ·  "
             f"*run_id:* {self.run_id}"
         )
+        # R-F996 — wire to brain
+        from .engine_wiring import wire_success
+        wire_success(
+            module="dd_schema",
+            summary="Render Markdown",
+            source_id="dd_schema:R-F996",
+        )
+
         return "\n".join(lines)
 
 

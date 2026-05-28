@@ -1,4 +1,6 @@
-"""ARIA Security Protocol Module.
+"""ARIA Security Protocol Mo
+from .engine_wiring import wire_success
+dule.
 
 Comprehensive security hardening for ARIA's defence procurement intelligence
 operations.  ARIA handles CONFIDENTIAL data -- sanctions screening results,
@@ -1063,6 +1065,13 @@ async def ingest_to_knowledge() -> dict:
     logger.info(
         "Security protocol ingestion: %d/%d sections, %d total chunks",
         success, len(SECURITY_SECTIONS), total_chunks,
+    )
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="security_protocol",
+        summary="Security audit",
+        source_id="security_protocol:R-F996",
     )
     return {
         "sections_ingested": success,

@@ -190,6 +190,14 @@ def get_turkey_context(query: str, max_blocks: int = 1) -> str:
     if not scored:
         return ""
     scored.sort(key=lambda x: -x[0])
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="knowledge_turkey_standalone",
+        summary="Get Turkey Context",
+        source_id="knowledge_turkey_standalone:R-F996",
+    )
+
     return "\n\n".join(e["text"] for _, e in scored[:max_blocks])
 
 

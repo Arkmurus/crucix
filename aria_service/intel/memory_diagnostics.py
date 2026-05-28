@@ -145,4 +145,12 @@ async def diagnose_topic(topic: str) -> dict:
     except Exception as e:
         hits["tiers"]["neural"] = {"ok": False, "error": str(e)[:200]}
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="memory_diagnostics",
+        summary="Diagnose Topic",
+        source_id="memory_diagnostics:R-F996",
+    )
+
     return hits

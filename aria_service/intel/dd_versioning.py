@@ -261,6 +261,14 @@ def resolve_version_chain(
         return 1, None
     matching.sort(key=lambda e: e.get("generated_at") or "", reverse=True)
     last = matching[0]
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="dd_versioning",
+        summary="Resolve Version Chain",
+        source_id="dd_versioning:R-F996",
+    )
+
     return int(last.get("version_number") or 1) + 1, last.get("run_id")
 
 

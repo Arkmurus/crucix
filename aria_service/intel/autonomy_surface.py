@@ -636,6 +636,14 @@ async def get_surface() -> dict[str, Any]:
         _safe(lambda: _operator_queue(),         dict(_DEFAULT_QUEUE),         "queue"),
         _safe(lambda: _resilience_floor(),       dict(_DEFAULT_RESILIENCE),    "resilience"),
     )
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="autonomy_surface",
+        summary="Get Surface",
+        source_id="autonomy_surface:R-F996",
+    )
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "auto_allowed": auto,

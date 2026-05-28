@@ -95,6 +95,14 @@ def detect_publisher(url: str) -> str | None:
     if host.endswith("sagepub.com"):
         return "crossref_doi"
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="known_publisher_router",
+        summary="Detect Publisher",
+        source_id="known_publisher_router:R-F996",
+    )
+
     return None
 
 

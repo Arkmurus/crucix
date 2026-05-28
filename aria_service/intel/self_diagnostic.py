@@ -854,6 +854,14 @@ async def run_diagnostic() -> dict:
     except Exception:
         pass
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="self_diagnostic",
+        summary="Run Diagnostic",
+        source_id="self_diagnostic:R-F996",
+    )
+
     return report
 
 

@@ -185,6 +185,14 @@ async def verify_and_tag_response(
             "unchanged": True,
         }
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="response_verifier",
+        summary="Verify And Tag Response",
+        source_id="response_verifier:R-F996",
+    )
+
     return {
         "original": response_text,
         "tagged": tagged_text,

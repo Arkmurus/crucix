@@ -201,6 +201,14 @@ def get_cross_regional_context(query: str) -> str:
             f"({h['lag_weeks']}w lag, {h['confidence']} confidence). "
             f"{h['downstream_effect']}"
         )
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="cross_regional_correlator",
+        summary="Get Cross Regional Context",
+        source_id="cross_regional_correlator:R-F996",
+    )
+
     return "\n".join(lines)
 
 

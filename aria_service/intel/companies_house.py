@@ -100,6 +100,14 @@ async def search_companies(query: str, limit: int = 5) -> list[dict]:
     if not data:
         return []
     items = data.get("items") or []
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="companies_house",
+        summary="Search Companies",
+        source_id="companies_house:R-F996",
+    )
+
     return [
         {
             "company_number": item.get("company_number"),

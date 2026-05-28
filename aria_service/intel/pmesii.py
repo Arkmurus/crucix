@@ -135,6 +135,14 @@ def detect_country_assessment(message: str) -> str | None:
     if _VERB_RE.search(msg):
         return country
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="pmesii",
+        summary="Detect Country Assessment",
+        source_id="pmesii:R-F996",
+    )
+
     return None
 
 

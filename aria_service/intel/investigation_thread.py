@@ -228,6 +228,14 @@ def render_context_block(thread: dict[str, Any]) -> str:
         "Carry this context forward — do NOT re-fetch from scratch unless "
         "the user is clearly asking about a different entity."
     )
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="investigation_thread",
+        summary="Render Context Block",
+        source_id="investigation_thread:R-F996",
+    )
+
     return "\n".join(lines)
 
 

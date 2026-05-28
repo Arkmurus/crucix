@@ -269,6 +269,7 @@ async def get_latest() -> dict | None:
         from . import redis_store as rs
         return await rs.get_json(_K_COMPOSITE)
     except Exception:
+
         return None
 
 

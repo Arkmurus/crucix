@@ -4479,9 +4479,10 @@
       "title": "ARIA state-of-the-art transformation: remove all constraints, wire all engines, upgrade autonomous loop, deploy",
       "claimed_at": "2026-05-28T23:28:58Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "1a433a1",
+      "notes": null,
+      "shipped_at": "2026-05-28T23:30:35Z"
     }
   ]
 }

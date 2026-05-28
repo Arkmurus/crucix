@@ -181,6 +181,7 @@ async def detect_knowledge_gaps(question: str) -> None:
     try:
         topics = student.detect_topics(question)
         if not topics or topics == ["general"]:
+
             return
 
         gaps = await rs.get_json(GAP_TRACKER_KEY) or {}

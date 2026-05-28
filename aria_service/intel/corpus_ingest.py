@@ -1,6 +1,8 @@
 """ARIA tiered corpus ingest.
 
-Provides a clean interface for pushing proprietary or curated documents
+Provides a cle
+from .engine_wiring import wire_success
+an interface for pushing proprietary or curated documents
 into the RAG store with explicit provenance metadata (tier, source class,
 region, etc). Used by the corpus-ingest CLI and the /api/aria/corpus/ingest
 endpoint.
@@ -246,4 +248,11 @@ async def ingest_corpus_document(
     )
     result["tier"] = tier
     result["source_class"] = source_class
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="corpus_ingest",
+        summary="Corpus ingest",
+        source_id="corpus_ingest:R-F996",
+    )
     return result

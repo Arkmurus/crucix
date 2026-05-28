@@ -295,6 +295,14 @@ async def verify_response(
             f"unsupported claims for hallucination risk."
         )
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="citation_audit",
+        summary="Verify Response",
+        source_id="citation_audit:R-F996",
+    )
+
     return {
         "ok":                       True,
         "total_citations":          len(pairs),

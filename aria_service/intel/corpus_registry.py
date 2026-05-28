@@ -167,6 +167,14 @@ def get_sources(
         if category is not None and s.category != category:
             continue
         out.append(s)
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="corpus_registry",
+        summary="Get Sources",
+        source_id="corpus_registry:R-F996",
+    )
+
     return out
 
 

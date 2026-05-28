@@ -627,6 +627,14 @@ async def degraded_response(message: str, reason: str = "LLM unavailable") -> di
 
 def get_capability_surface() -> dict:
     """Report what local_brain can answer without any LLM call."""
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="local_brain",
+        summary="Get Capability Surface",
+        source_id="local_brain:R-F996",
+    )
+
     return {
         "intents_supported": [
             "sanctions_screen",

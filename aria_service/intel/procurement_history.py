@@ -130,6 +130,14 @@ async def query_usaspending(
         })
     out["ok"] = True
     out["records"] = records
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="procurement_history",
+        summary="Query Usaspending",
+        source_id="procurement_history:R-F996",
+    )
+
     return out
 
 

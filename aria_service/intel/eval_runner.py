@@ -1,5 +1,7 @@
 """
-ARIA Golden Q&A Evaluation Framework — regression catching for prompt/code
+ARIA Golden Q&A Evaluation Framework — regressi
+from .engine_wiring import wire_success
+on catching for prompt/code
 changes using a hand-curated set of question/expected-answer pairs.
 
 Why this exists
@@ -380,4 +382,5 @@ async def get_run(run_id: str) -> dict | None:
     try:
         return await rs.get_json(f"{RUNS_KEY}:{run_id}")
     except Exception:
+
         return None

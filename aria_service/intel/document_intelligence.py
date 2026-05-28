@@ -843,6 +843,14 @@ def render_overview(form_code: str, structured: dict, redflags: list[dict]) -> s
             badge = _SEVERITY_BADGE.get(f.get("severity"), "•")
             body_lines.append(f"  {badge} *{f['code']}* — {f['message']}")
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="document_intelligence",
+        summary="Render Overview",
+        source_id="document_intelligence:R-F996",
+    )
+
     return "\n".join(body_lines)
 
 

@@ -630,6 +630,14 @@ def verify_webhook_signature(request_body: bytes, signature: str, timestamp: str
     expected = hmac.new(
         _WEBHOOK_SECRET.encode(), message.encode(), hashlib.sha256
     ).hexdigest()
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="zoom_integration",
+        summary="Verify Webhook Signature",
+        source_id="zoom_integration:R-F996",
+    )
+
     return hmac.compare_digest(f"v0={expected}", signature)
 
 

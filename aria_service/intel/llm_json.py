@@ -473,4 +473,5 @@ def parse_llm_json(text: str, *, default: Any = None, source: str = "") -> Any:
             "total_fails=%d): %s. Preview: %r",
             _r472_key, _R472_TOTAL_FAILS, str(e)[:120], candidate[:200],
         )
+
         return default

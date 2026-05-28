@@ -127,4 +127,12 @@ def get_gtm_context(query: str) -> str:
                 f"Best OEM: {result['bestOEM']} | Key relationship: {result['keyRelationship']}",
             ]
             return "\n".join(lines)
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="gtm_strategy",
+        summary="Get Gtm Context",
+        source_id="gtm_strategy:R-F996",
+    )
+
     return ""

@@ -1,4 +1,6 @@
-"""ARIA confidence-tagged reply footer.
+"""ARIA confidence-tagged reply foot
+from .engine_wiring import wire_success
+er.
 
 Wires the existing observability signals (confidence tags, source verifier,
 RAG retrieval count) into a structured footer block appended to chat replies.
@@ -494,4 +496,11 @@ def build_footer(
     except Exception as e:
         logger.debug("self_claim_guard scan failed (non-fatal): %s", e)
 
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="confidence_footer",
+        summary="Confidence footer",
+        source_id="confidence_footer:R-F996",
+    )
     return "\n".join(lines)

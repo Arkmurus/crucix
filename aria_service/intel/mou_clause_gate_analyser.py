@@ -1,4 +1,6 @@
-"""R-F642 — MOU clause-gate analyser.
+"""R-F642 — MOU clause-gate an
+from .engine_wiring import wire_success
+alyser.
 
 Why this exists
 ───────────────
@@ -231,4 +233,11 @@ def render_finding(contract_text: str) -> list[dict]:
 
 def list_known_satisfaction_patterns() -> list[str]:
     """Operator dashboard helper."""
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="mou_clause_gate_analyser",
+        summary="MOU clause analysis",
+        source_id="mou_clause_gate_analyser:R-F996",
+    )
     return list(_SATISFACTION_LANGUAGE)

@@ -1,4 +1,6 @@
-"""ARIA Signal Correlator — connects the dots across intelligence sources.
+"""ARIA Signal Correlato
+from .engine_wiring import wire_success
+r — connects the dots across intelligence sources.
 
 The difference between a news ticker and an intelligence analyst is
 CORRELATION: seeing that "Angola budget increase" + "new defence minister"
@@ -409,4 +411,11 @@ async def generate_correlation_briefing() -> str:
         lines.append(f"  {i['recommendation'][:200]}")
         lines.append("")
 
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="signal_correlator",
+        summary="Signal correlation",
+        source_id="signal_correlator:R-F996",
+    )
     return "\n".join(lines)

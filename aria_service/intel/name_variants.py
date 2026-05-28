@@ -1,5 +1,7 @@
 """R-F766 — entity-name variant generator.
 
+from .engine_wiring import wire_success
+
 LIVE BUG from 2026-05-20 5-turn audit transcript:
 
   deep_research on 'Efdal Colpan' ran 4 queries -> 0 results.
@@ -560,4 +562,11 @@ def likely_needs_variants(name: str) -> bool:
     for tok in tokens:
         if re.match(r"^(ch|dj|kh|zh|ts|ya|yu|ye|yo)", tok):
             return True
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="name_variants",
+        summary="Name variants",
+        source_id="name_variants:R-F996",
+    )
     return False

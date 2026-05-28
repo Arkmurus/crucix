@@ -73,6 +73,14 @@ async def get_cached(query: str, context: str = "") -> dict | None:
         await rs.set_json(_K_STATS, stats, ex=30 * 86400)
     except Exception:
         pass
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="response_cache",
+        summary="Get Cached",
+        source_id="response_cache:R-F996",
+    )
+
     return None
 
 

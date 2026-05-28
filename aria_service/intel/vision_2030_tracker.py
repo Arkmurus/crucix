@@ -181,6 +181,14 @@ def get_vision_2030_context(query: str) -> str:
         )
     lines.append("Offset multipliers: direct defence manufacturing 3×, "
                  "tech transfer 2.5×, KSA supply-chain 2×, training 1.5×.")
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="vision_2030_tracker",
+        summary="Get Vision 2030 Context",
+        source_id="vision_2030_tracker:R-F996",
+    )
+
     return "\n".join(lines)
 
 

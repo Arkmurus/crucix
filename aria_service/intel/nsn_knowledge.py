@@ -1,5 +1,7 @@
 """
-ARIA NSN (NATO Stock Number) Knowledge Module — v2.1 Schema Integration
+ARIA NSN (NATO Stock Number)
+from .engine_wiring import wire_success
+ Knowledge Module — v2.1 Schema Integration
 
 PURPOSE:
   Parse, decode, and explain NATO Stock Numbers. NSN is the universal
@@ -368,4 +370,11 @@ def lookup_demil(code: str) -> Optional[str]:
 
 def lookup_niin_status(code: str) -> Optional[str]:
     """Look up a NIIN status code."""
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="nsn_knowledge",
+        summary="NSN knowledge",
+        source_id="nsn_knowledge:R-F996",
+    )
     return NIIN_STATUS.get(code.strip())

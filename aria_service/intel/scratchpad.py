@@ -158,6 +158,14 @@ def build_prefix(user_message: str, complexity: str = "") -> str:
             "5. Which constitutional clause is most relevant?"
         )
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="scratchpad",
+        summary="Build Prefix",
+        source_id="scratchpad:R-F996",
+    )
+
     return (
         "\n\n[CLAUSE 22 — Think Before Speak]\n"
         "Before your user-facing response, produce a private reasoning "

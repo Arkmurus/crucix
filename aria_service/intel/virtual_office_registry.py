@@ -287,6 +287,14 @@ def check_address(address: str) -> dict[str, Any]:
         except Exception as exc:
             logger.debug("virtual_office brain dispatch failed: %s", exc)
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="virtual_office_registry",
+        summary="Check Address",
+        source_id="virtual_office_registry:R-F996",
+    )
+
     return out
 
 

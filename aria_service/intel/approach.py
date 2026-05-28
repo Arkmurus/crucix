@@ -1,5 +1,7 @@
 """
-Market Approach Strategy Generator.
+Market
+from .engine_wiring import wire_success
+ Approach Strategy Generator.
 Ported from lib/aria/approach.mjs.
 """
 from __future__ import annotations
@@ -217,4 +219,11 @@ def get_approach_context(query: str) -> str:
             if result["rankedOEMs"]:
                 lines.append("Ranked OEMs: " + ", ".join(f"{o['oem']} ({o['country']})" for o in result["rankedOEMs"][:4]))
             return "\n".join(lines)
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="approach",
+        summary="Approach",
+        source_id="approach:R-F996",
+    )
     return ""

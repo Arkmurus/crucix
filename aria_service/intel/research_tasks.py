@@ -105,6 +105,7 @@ async def get_task(task_id: str) -> dict | None:
         return await rs.get_json(f"{TASKS_KEY_PREFIX}{task_id}")
     except Exception as e:
         logger.debug("get_task failed: %s", e)
+
         return None
 
 

@@ -1,4 +1,6 @@
-"""R-F956 (2026-05-28) — WhatsApp voice-note transcription via faster-whisper.
+"""R-F956 (2026-05-28) — Wh
+from .engine_wiring import wire_success
+atsApp voice-note transcription via faster-whisper.
 
 OSS, self-hosted, native — audio never leaves ARIA's infra (no paid STT API),
 per the "ARIA mirrors Claude / no paid dependency" rule (CLAUDE.md §6). The
@@ -152,4 +154,5 @@ async def transcribe_audio(audio_bytes: bytes, *, mime: str = "") -> dict:
                 "duration_s": round(dur, 1), "elapsed_s": elapsed}
     except Exception as e:
         logger.warning("[voice] transcription failed: %s", e)
+
         return {"ok": False, "error": str(e)[:200]}

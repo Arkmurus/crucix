@@ -153,6 +153,14 @@ def verify_against_records(
     except Exception as exc:
         logger.debug("mem0 verification skipped: %s", exc)
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="cited_artifact_verifier",
+        summary="Verify Against Records",
+        source_id="cited_artifact_verifier:R-F996",
+    )
+
     return artifacts
 
 

@@ -264,6 +264,14 @@ def find_corroboration_candidates(
         if cand.first_seen == 0.0 or ts < cand.first_seen:
             cand.first_seen = ts
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="cost_free_learning",
+        summary="Find Corroboration Candidates",
+        source_id="cost_free_learning:R-F996",
+    )
+
     return [c for c in by_claim.values() if c.tier_1a_count >= min_tier_1a]
 
 

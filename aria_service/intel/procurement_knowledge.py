@@ -1,4 +1,6 @@
-"""ARIA Procurement Intelligence Knowledge Module.
+"""ARIA Procurement
+from .engine_wiring import wire_success
+ Intelligence Knowledge Module.
 
 Permanent knowledge base covering global defence procurement lifecycle,
 procurement portal mastery (TED, SAM.gov, Contracts Finder, UNGM, AfDB),
@@ -737,6 +739,13 @@ async def ingest_to_knowledge() -> dict:
     logger.info(
         "Procurement knowledge ingestion: %d/%d sections, %d total chunks",
         success, len(PROCUREMENT_SECTIONS), total_chunks,
+    )
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="procurement_knowledge",
+        summary="Procurement knowledge",
+        source_id="procurement_knowledge:R-F996",
     )
     return {
         "sections_ingested": success,

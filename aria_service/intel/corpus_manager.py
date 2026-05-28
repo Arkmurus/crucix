@@ -418,6 +418,14 @@ async def run_weekly_crawl(tiers: list[str] | None = None) -> dict:
 async def get_registry_summary() -> dict:
     """Return a summary of the current URL registry."""
     registry = await load_registry()
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="corpus_manager",
+        summary="Get Registry Summary",
+        source_id="corpus_manager:R-F996",
+    )
+
     return {
         "total_urls": sum(len(v) for v in registry.values()),
         "by_tier": {k: len(v) for k, v in registry.items()},

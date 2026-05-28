@@ -442,6 +442,14 @@ def _trigger_auto_install() -> bool:
 
 def get_auto_install_status() -> dict:
     """Report on the auto-install state."""
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="ocr",
+        summary="Get Auto Install Status",
+        source_id="ocr:R-F996",
+    )
+
     return {
         "started": _auto_install_started,
         "enabled": (os.getenv("ARIA_OCR_AUTO_INSTALL", "1") or "1").lower() not in ("0", "false", "no"),

@@ -405,6 +405,14 @@ def get_market_context(query: str) -> str:
         parts.append(content)
         parts.append("")
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="market_competitor_knowledge",
+        summary="Get Market Context",
+        source_id="market_competitor_knowledge:R-F996",
+    )
+
     return "\n".join(parts)
 
 

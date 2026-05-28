@@ -781,6 +781,13 @@ async def walk_ubo_chain(
     else:
         verdict = "traced"
 
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="network_walker",
+        summary="Network walk",
+        source_id="network_walker:R-F996",
+    )
     return {
         "graph": {"nodes": nodes, "edges": edges},
         "sanctioned_in_chain": sanctioned_in_chain,

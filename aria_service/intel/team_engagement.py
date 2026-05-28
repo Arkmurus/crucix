@@ -174,6 +174,14 @@ async def get_team_stats() -> dict:
             ),
         }
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="team_engagement",
+        summary="Get Team Stats",
+        source_id="team_engagement:R-F996",
+    )
+
     return result
 
 

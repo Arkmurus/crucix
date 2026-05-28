@@ -1,5 +1,7 @@
 """
-ARIA Symbolic Reasoner — pure-Python rules engine for defence intelligence.
+ARIA Symbolic Reasoner — pure-Python rules e
+from .engine_wiring import wire_success
+ngine for defence intelligence.
 
 No LLM calls. No statistical models. Just deterministic logic encoding the
 hard rules of export control, sanctions, procurement structure, market
@@ -673,6 +675,13 @@ def reason(question: str, *, silent_brain_hook: bool = False) -> dict:
 
 
 def get_capability_surface() -> dict:
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="symbolic_reasoner",
+        summary="Symbolic reasoning",
+        source_id="symbolic_reasoner:R-F996",
+    )
     return {
         "rules_loaded": len(_HANDLERS),
         "intents_supported": [

@@ -166,6 +166,14 @@ _current_feature: contextvars.ContextVar[str] = contextvars.ContextVar(
 
 
 def get_current_feature() -> str:
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="cost_tracker",
+        summary="Get Current Feature",
+        source_id="cost_tracker:R-F996",
+    )
+
     return _current_feature.get()
 
 

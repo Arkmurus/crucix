@@ -182,6 +182,14 @@ async def record_knowledge_fact(topic: str, content: str, confidence: str) -> No
 # ── Export ────────────────────────────────────────────────────────────────────
 
 async def get_stats() -> dict:
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="training_data",
+        summary="Get Stats",
+        source_id="training_data:R-F996",
+    )
+
     return {**_meta}
 
 

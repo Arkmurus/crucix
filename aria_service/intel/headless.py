@@ -123,6 +123,7 @@ async def fetch_rendered_html(
     # acceptable. Without the lock, three concurrent extractions all
     # spawn Lightpanda on the same port; only one wins.
     async with _get_render_lock():
+
         return await _fetch_rendered_html_locked(url, timeout)
 
 

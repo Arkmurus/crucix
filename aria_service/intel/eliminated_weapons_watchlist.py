@@ -1,4 +1,6 @@
-"""R-F639 — Treaty-eliminated / non-existent / treaty-prohibited weapons watchlist.
+"""R-F639 — Treaty-eliminated / non-existent / treaty
+from .engine_wiring import wire_success
+-prohibited weapons watchlist.
 
 Why this module exists
 ──────────────────────
@@ -545,6 +547,13 @@ def render_finding_for_text(text: str) -> Optional[dict]:
         EliminationStatus.CATEGORICALLY_BANNED: "TREATY-BANNED WEAPON",
         EliminationStatus.TREATY_PROHIBITED_STATE_PARTY: "TREATY-PROHIBITED (state-party)",
     }
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="eliminated_weapons_watchlist",
+        summary="Eliminated weapon match: {text}",
+        source_id="eliminated_weapons_watchlist:R-F996",
+    )
     return {
         "severity": severity_map.get(entry.elimination_status, "amber"),
         "title": (

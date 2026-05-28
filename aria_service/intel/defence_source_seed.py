@@ -662,6 +662,14 @@ async def seed_web_atlas(skip_if_populated: bool = True) -> dict:
         "[defence_seed] complete: added=%d skipped=%d errors=%d",
         added, skipped, errors,
     )
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="defence_source_seed",
+        summary="Seed Web Atlas",
+        source_id="defence_source_seed:R-F996",
+    )
+
     return {
         "ok": errors == 0,
         "added": added,

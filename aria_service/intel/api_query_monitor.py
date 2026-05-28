@@ -214,6 +214,14 @@ async def analyze_key(
     else:
         narrative = f"{key_id} normal activity ({n} events, no pattern flags)."
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="api_query_monitor",
+        summary="Analyze Key",
+        source_id="api_query_monitor:R-F996",
+    )
+
     return {
         "key_id":         key_id,
         "window_hours":   window_hours,

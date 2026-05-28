@@ -1012,6 +1012,14 @@ async def assess_commercial_coherence(
     except Exception:
         pass
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="commercial_coherence",
+        summary="Assess Commercial Coherence",
+        source_id="commercial_coherence:R-F996",
+    )
+
     return section
 
 

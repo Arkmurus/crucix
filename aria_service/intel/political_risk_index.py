@@ -199,6 +199,14 @@ def get_risk_context(query: str) -> str:
             f"• {h.country} ({h.iso2}): tier={h.tier.upper()}, FSI {h.fsi_band}, "
             f"trajectory={h.trajectory}. Drivers: {drivers}."
         )
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="political_risk_index",
+        summary="Get Risk Context",
+        source_id="political_risk_index:R-F996",
+    )
+
     return "\n".join(lines)
 
 

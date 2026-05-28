@@ -1196,6 +1196,14 @@ async def get_rag_context_with_sources(
         for r in results
     ]
     text = _format_rag_context(results, max_chars)
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="rag_store",
+        summary="Get Rag Context With Sources",
+        source_id="rag_store:R-F996",
+    )
+
     return (text, sources)
 
 

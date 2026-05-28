@@ -223,6 +223,14 @@ async def check_thresholds_and_alert(
     except Exception as e:
         logger.warning("check_thresholds_and_alert: pending_actions failed: %s", e)
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="brier_drift_monitor",
+        summary="Check Thresholds And Alert",
+        source_id="brier_drift_monitor:R-F996",
+    )
+
     return {
         "alerted": recorded,
         "worst_topic": worst_topic,

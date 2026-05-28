@@ -50,6 +50,14 @@ class _ConfigShim:
 
     @property
     def model_standard(self) -> str:
+        # R-F996 — wire to brain
+        from .engine_wiring import wire_success
+        wire_success(
+            module="active_challenge_engine",
+            summary="Model Standard",
+            source_id="active_challenge_engine:R-F996",
+        )
+
         return os.getenv("ARIA_CHALLENGE_MODEL", "claude-sonnet-4-5")
 
 

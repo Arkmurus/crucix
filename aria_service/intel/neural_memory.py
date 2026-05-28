@@ -1,5 +1,7 @@
 """
-ARIA Neural Memory — Associative Knowledge Graph with Growing Neurons.
+ARIA Neural Memory — Associativ
+from .engine_wiring import wire_success
+e Knowledge Graph with Growing Neurons.
 
 Each "neuron" is a concept node with:
   - Connections to other neurons (weighted edges)
@@ -1475,4 +1477,5 @@ async def clear_all_conflicts() -> int:
             await rs.set_json(CONFLICT_KEY, [])
         return count
     except Exception:
+
         return 0

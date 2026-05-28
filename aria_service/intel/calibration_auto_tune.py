@@ -85,6 +85,7 @@ async def get_effective_threshold(name: str, base_value: float) -> float:
         return adjusted
     except Exception as e:
         logger.debug("[auto_tune] threshold read failed: %s", e)
+
         return base_value
 
 

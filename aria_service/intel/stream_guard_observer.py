@@ -231,6 +231,14 @@ async def get_stats() -> dict[str, Any]:
     total_24h = sum(counters_24h.values())
     rate = (total_24h / turns_observed_24h) if turns_observed_24h else None
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="stream_guard_observer",
+        summary="Get Stats",
+        source_id="stream_guard_observer:R-F996",
+    )
+
     return {
         "total_violations_logged_lifetime": total_entries,
         "turns_observed_24h": turns_observed_24h,

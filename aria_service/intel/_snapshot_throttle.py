@@ -67,6 +67,7 @@ async def run_in_thread_throttled(
     """
     sem = _get_semaphore()
     async with sem:
+
         return await asyncio.to_thread(fn, *args, **kwargs)
 
 

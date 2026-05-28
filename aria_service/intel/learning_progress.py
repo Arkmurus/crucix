@@ -198,6 +198,14 @@ async def get_freshness(domain: str) -> dict[str, Any]:
             "narrative":   f"{domain}: never refreshed (or not yet tracked).",
             "max_staleness_hours": _max_staleness_for(domain),
         }
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="learning_progress",
+        summary="Get Freshness",
+        source_id="learning_progress:R-F996",
+    )
+
     return _compute_staleness(record)
 
 

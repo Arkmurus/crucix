@@ -1316,6 +1316,14 @@ async def run_single(
         "empty_turn_count": _empty_turn_count,
         "degraded": _degraded,
     }
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="adversarial_challenge",
+        summary="Run Single",
+        source_id="adversarial_challenge:R-F996",
+    )
+
     return record
 
 

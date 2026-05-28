@@ -367,6 +367,14 @@ def score_substance(profile: dict[str, Any]) -> dict[str, Any]:
             f"{('Worst flags: ' + flag_summary + '.') if flag_summary else ''}".strip()
         )
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="economic_substance",
+        summary="Score Substance",
+        source_id="economic_substance:R-F996",
+    )
+
     return {
         "substance_score":  composite,
         "grade":            grade,

@@ -1,4 +1,6 @@
-"""search_searxng — SearXNG free web-search adapter (R-F86, 2026-05-09).
+"""search_searxng — SearXNG 
+from .engine_wiring import wire_success
+free web-search adapter (R-F86, 2026-05-09).
 
 Why this module exists
 ──────────────────────
@@ -157,6 +159,13 @@ async def search(
 
 
 def summary() -> dict[str, Any]:
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="search_searxng",
+        summary="SearXNG search",
+        source_id="search_searxng:R-F996",
+    )
     return {
         "module":     "search_searxng",
         "configured": is_configured(),

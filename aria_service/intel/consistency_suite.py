@@ -472,6 +472,7 @@ async def get_latest_scores() -> dict | None:
     try:
         return await rs.get_json(_KEY_LATEST)
     except Exception:
+
         return None
 
 

@@ -174,6 +174,14 @@ def get_central_africa_context(query: str, max_blocks: int = 2) -> str:
     if not scored:
         return ""
     scored.sort(key=lambda x: -x[0])
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="knowledge_central_africa",
+        summary="Get Central Africa Context",
+        source_id="knowledge_central_africa:R-F996",
+    )
+
     return "\n\n".join(e["text"] for _, e in scored[:max_blocks])
 
 

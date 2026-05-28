@@ -420,4 +420,5 @@ async def get_baseline() -> dict | None:
         from . import redis_store as rs
         return await rs.get_json(_K_BASELINE)
     except Exception:
+
         return None

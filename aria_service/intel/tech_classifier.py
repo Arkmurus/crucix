@@ -565,6 +565,14 @@ def classify_text(text: str) -> dict:
 
     controlled_count = sum(1 for s in found_systems if s.get("controlled"))
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="tech_classifier",
+        summary="Classify Text",
+        source_id="tech_classifier:R-F996",
+    )
+
     return {
         "calibres": list(found_calibres.values()),
         "systems": found_systems,

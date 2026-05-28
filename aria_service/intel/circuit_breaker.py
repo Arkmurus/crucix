@@ -192,6 +192,14 @@ def get_breaker(
             failure_threshold=failure_threshold,
             cooldown_seconds=cooldown_seconds,
         )
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="circuit_breaker",
+        summary="Get Breaker",
+        source_id="circuit_breaker:R-F996",
+    )
+
     return _breakers[name]
 
 

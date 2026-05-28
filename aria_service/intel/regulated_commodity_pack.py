@@ -749,6 +749,14 @@ def enrich_dd_report(report_dict: dict) -> dict:
         ),
     }
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="regulated_commodity_pack",
+        summary="Enrich Dd Report",
+        source_id="regulated_commodity_pack:R-F996",
+    )
+
     return report_dict
 
 

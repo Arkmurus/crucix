@@ -230,6 +230,14 @@ def draft_protective_reply(inp: ProtectiveReplyInput) -> dict[str, Any]:
     except Exception as exc:
         logger.debug("protective_reply brain dispatch failed: %s", exc)
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="protective_reply_drafter",
+        summary="Draft Protective Reply",
+        source_id="protective_reply_drafter:R-F996",
+    )
+
     return out
 
 

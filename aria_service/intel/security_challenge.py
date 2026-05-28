@@ -541,6 +541,14 @@ async def run_security_weekly(llm_fn=None) -> dict:
     penalty = min(0.50, critical_failures * 0.15)
     overall_score = max(0.0, round(base - penalty, 3))
 
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="security_challenge",
+        summary="Run Security Weekly",
+        source_id="security_challenge:R-F996",
+    )
+
     return {
         "suite": "security_challenge",
         "total_attacks": len(cleaned),

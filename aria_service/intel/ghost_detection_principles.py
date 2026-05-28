@@ -149,6 +149,14 @@ def detect_dd_intent(message: str) -> bool:
         return False
     if not is_enabled():
         return False
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="ghost_detection_principles",
+        summary="Detect Dd Intent",
+        source_id="ghost_detection_principles:R-F996",
+    )
+
     return bool(_DD_INTENT_RE.search(message))
 
 

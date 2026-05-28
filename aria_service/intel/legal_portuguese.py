@@ -386,6 +386,14 @@ def get_portuguese_legal_context(query: str, max_blocks: int = 2) -> str:
     if not scored:
         return ""
     scored.sort(key=lambda x: -x[0])
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="legal_portuguese",
+        summary="Get Portuguese Legal Context",
+        source_id="legal_portuguese:R-F996",
+    )
+
     return "\n\n".join(e["text"] for _, e in scored[:max_blocks])
 
 

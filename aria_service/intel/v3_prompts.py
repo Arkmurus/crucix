@@ -379,6 +379,14 @@ def detect_pillar(message: str) -> str | None:
         return "writer"
     if _RESEARCH_KW.search(message):
         return "researcher"
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="v3_prompts",
+        summary="Detect Pillar",
+        source_id="v3_prompts:R-F996",
+    )
+
     return None
 
 

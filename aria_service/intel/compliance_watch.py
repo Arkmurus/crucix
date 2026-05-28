@@ -143,6 +143,7 @@ async def verify_chain(limit: int = 1000) -> dict:
             checked += 1
         return {"ok": True, "checked": checked, "broken_at": None}
     except Exception as e:
+
         return {"ok": False, "checked": 0, "error": str(e)[:200]}
 
 

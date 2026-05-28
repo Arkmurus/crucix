@@ -1,4 +1,6 @@
-"""ARIA OSINT Methodology Knowledge Module.
+"""ARIA OSINT Methodology Knowledge
+from .engine_wiring import wire_success
+ Module.
 
 Comprehensive open-source intelligence (OSINT) methodology for defence
 procurement intelligence, counterparty investigation, and analytical
@@ -1070,6 +1072,13 @@ async def ingest_to_knowledge() -> dict:
     logger.info(
         "OSINT knowledge ingestion: %d/%d sections, %d total chunks",
         success, len(OSINT_SECTIONS), total_chunks,
+    )
+
+    # R-F996 — wire to brain
+    wire_success(
+        module="osint_knowledge",
+        summary="OSINT knowledge",
+        source_id="osint_knowledge:R-F996",
     )
     return {
         "sections_ingested": success,

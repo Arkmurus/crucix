@@ -265,6 +265,14 @@ async def get_lineage(node_id: str, *, max_depth: int = 10) -> list[dict[str, An
         for edge in reverse.get(cur, []):
             path.append(edge)
             queue.append((edge["src_id"], depth + 1))
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="provenance_chain",
+        summary="Get Lineage",
+        source_id="provenance_chain:R-F996",
+    )
+
     return path
 
 

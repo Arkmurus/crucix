@@ -52,6 +52,14 @@ async def fetch_answer(*_args, **_kwargs) -> dict:
 
 async def get_month_spend() -> dict:
     """R-F320 stub. Brave spend is $0 by definition now."""
+    # R-F996 — wire to brain
+    from .engine_wiring import wire_success
+    wire_success(
+        module="brave_answers",
+        summary="Get Month Spend",
+        source_id="brave_answers:R-F996",
+    )
+
     return {
         "month": "n/a",
         "spend_usd": 0.0,
