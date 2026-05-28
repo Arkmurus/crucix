@@ -9,13 +9,28 @@ interactive REPL and one-shot ``-p`` mode.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 
 from .llm import LLMClient, LLMError
 from .tools import MUTATING_TOOLS, TOOL_SCHEMAS, Toolbox, ToolResult
 
-# Hard ceiling on tool round-trips per turn — a backstop against a runaway loop.
-MAX_STEPS = 60
+
+def _resolve_max_steps() -> int:
+    """Per-turn tool round-trip ceiling. Effectively unlimited by default so long
+    autonomous tasks (audits, big refactors) never cap out mid-flow; it exists
+    only as a last-resort backstop against a literal infinite loop burning tokens.
+    Override with ARIA_CODER_MAX_STEPS (set 0 / negative for no ceiling)."""
+    try:
+        val = int(os.getenv("ARIA_CODER_MAX_STEPS", "100000"))
+    except ValueError:
+        return 100000
+    return val if val > 0 else 10**12
+
+
+# Resolved once at import; the conversation is always retained on a cap, so
+# "continue" resumes with full context.
+MAX_STEPS = _resolve_max_steps()
 
 
 class AgentUI:
@@ -110,9 +125,11 @@ class Agent:
                 self.ui.tool_result(name, result)
                 self._record_tool(tc, result)
 
-        return TurnResult(
-            final_text="(stopped: reached the maximum number of tool steps for "
-                       "this turn)", steps=steps, aborted=True)
+        msg = (f"Reached the per-turn tool-step limit ({MAX_STEPS}). I paused here, "
+               f"but the full context is kept — say 'continue' to resume, or break "
+               f"the task into smaller steps.")
+        self.ui.info(msg)
+        return TurnResult(final_text=msg, steps=steps, aborted=True)
 
     def _record_tool(self, tool_call: dict, result: ToolResult) -> None:
         self.messages.append({

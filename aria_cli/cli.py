@@ -300,8 +300,8 @@ def _repl(agent: Agent, ui: TerminalUI, cfg: LLMConfig, self_mode: bool,
                 continue
             last_task = line
             result = agent.run_turn(line)
-            if result.aborted:
-                print(color.yellow("  [turn aborted]"))
+            # The reason for an aborted turn (step cap / LLM error) is already
+            # surfaced via ui.info inside run_turn, so no opaque marker here.
     except KeyboardInterrupt:
         print("\n" + color.dim("  interrupted"))
     finally:

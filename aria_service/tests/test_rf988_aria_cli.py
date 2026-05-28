@@ -420,6 +420,41 @@ def test_self_mode_prompt_covers_shipping_and_excellence():
     assert "verify" in low
 
 
+def test_turn_abort_surfaces_reason_at_step_cap(tmp_path, monkeypatch):
+    """A turn that never stops calling tools hits MAX_STEPS, aborts gracefully,
+    surfaces the reason (via ui.info) and keeps it in final_text — no silent stop.
+    MAX_STEPS is patched low so the test is fast (the default is effectively
+    unlimited)."""
+    import aria_cli.agent as ag
+    monkeypatch.setattr(ag, "MAX_STEPS", 3)
+
+    class _LoopLLM:
+        total_input_tokens = 0
+        total_output_tokens = 0
+
+        def chat(self, messages, tools=None):
+            return _assistant(tool_calls=[_tool_call("c", "list_dir", '{"path": "."}')])
+
+        def close(self):
+            pass
+
+    class _InfoUI(_CollectUI):
+        def __init__(self):
+            super().__init__()
+            self.infos = []
+
+        def info(self, text):
+            self.infos.append(text)
+
+    ui = _InfoUI()
+    agent = Agent(llm=_LoopLLM(), toolbox=_general_box(tmp_path),
+                  system_prompt="s", ui=ui, auto_approve=True)
+    result = agent.run_turn("loop forever")
+    assert result.aborted
+    assert "3" in result.final_text                     # the cap value is named
+    assert any("limit" in m.lower() for m in ui.infos)  # reason was shown, not swallowed
+
+
 def test_agent_handles_bad_tool_arguments(tmp_path):
     box = _general_box(tmp_path)
     llm = FakeLLM([
