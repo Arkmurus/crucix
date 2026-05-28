@@ -101,3 +101,6 @@ runpod_aria.pub
 # writes these to /data on fly; on a local checkout (no /data mount) it falls
 # back to data/learned_attack_signatures.json. Runtime state, not source.
 data/learned_attack_signatures.json
+
+# R-F988 — pip editable-install artifact for the aria CLI (not source)
+*.egg-info/

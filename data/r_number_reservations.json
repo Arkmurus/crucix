@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 988,
+  "next_available": 989,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4393,6 +4393,15 @@
       "commit_sha": "50cee2c",
       "notes": null,
       "shipped_at": "2026-05-28T21:03:42Z"
+    },
+    {
+      "r_number": "R-F988",
+      "title": "ARIA Coder CLI — local Claude-Code-style agent (any dir, edits cwd, brain-wired)",
+      "claimed_at": "2026-05-28T21:37:04Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }
