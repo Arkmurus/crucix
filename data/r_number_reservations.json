@@ -4449,9 +4449,10 @@
       "title": "aria CLI: self-start — LLM retry/backoff + auto-resume on incomplete turn (never sit stuck)",
       "claimed_at": "2026-05-28T22:57:15Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "d538b1d",
+      "notes": null,
+      "shipped_at": "2026-05-28T23:00:55Z"
     }
   ]
 }
