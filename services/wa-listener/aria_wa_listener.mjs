@@ -415,26 +415,15 @@ async function readDocumentAsync(payload, chatId, filename) {
 }
 
 // ── Ask ARIA with persistent per-sender sessions ────────────────────────────
-// R-F916 — a question that carries a URL triggers a fresh crawl (multi-page) +
-// narrative synthesis on the brain that routinely out-runs the 90s sync
-// brainPost cap. Live 2026-05-26 16:53:48Z + 16:56:43Z: two CSG-website asks
-// each hit "Chat failed: The operation was aborted due to timeout" → the user
-// saw "⚠️ ARIA is temporarily unavailable." mid-demo. Route URL questions
-// through the async job+poll path so a slow crawl never reads as an outage.
-const URL_RE = /https?:\/\/[^\s]+/i;
-
-// R-F940 — route DOCUMENT-GROUNDED + heavy follow-up chats through the same
-// async job+poll path, not just URL crawls. Live 2026-05-27: "Aria, anything we
-// missed?" on a re-attached 47k-char contract (R-F912 prepends an
-// [ATTACHED DOCUMENT …] block) built a ~95k-token request; DeepSeek answered but
-// the full chat (incl. self-review passes) crossed the 90s sync cap → the user
-// saw "temporarily unavailable". A re-attached document, a URL, or any large
-// message all need the async path (poll up to 4 min) instead of the 90s sync call.
-const HEAVY_CHAT_CHARS = 6000;
-function _needsAsyncChat(message) {
-  const m = message || '';
-  return URL_RE.test(m) || /\[ATTACHED DOCUMENT/i.test(m) || m.length > HEAVY_CHAT_CHARS;
-}
+// R-F982 (2026-05-28) — route EVERY chat through the async job+poll path.
+// History: R-F916 sent URL questions async, R-F940 added doc-grounded + >6k-char
+// messages — but a PLAIN question that triggered heavy tool-use (research /
+// crawl) still used the 90s sync cap and aborted. Live 2026-05-28: 6× "Chat
+// failed: The operation was aborted due to timeout" → users saw "⚠️ ARIA is
+// temporarily unavailable." on ordinary questions whose brain trace ran ~143s.
+// The async job has NO server-side cap, so going async for ALL chats means a slow
+// answer is never an outage; fast chats stay snappy via fast-first polling + a
+// deferred "working on it" acknowledgement (see askARIAAsync).
 
 // R-F925 — cross-tier observability (handoff P3). A WA chat failure (brain
 // timeout / down) used to be a console line only — invisible to ARIA's brain,
@@ -456,23 +445,13 @@ function signalChatFailure(message, senderJid, errMsg) {
 }
 
 async function askARIA(message, senderJid, chatId = null) {
-  if (_needsAsyncChat(message)) {
-    try {
-      return await askARIAAsync(message, senderJid, chatId);
-    } catch (e) {
-      console.error('[ARIA Listener] Async chat failed:', e.message);
-      signalChatFailure(message, senderJid, `async: ${e.message}`);
-      return '⚠️ That took longer than expected to analyse — please ask me again in a moment.';
-    }
-  }
-  const sid = `wa_${senderJid.replace(/[^a-zA-Z0-9_]/g, '')}`;
+  // R-F982 — ALL chats go through the async job+poll path (no 90s sync cap).
   try {
-    const r = await brainPost('/api/aria/chat', { message, session_id: sid });
-    return r.response || r.answer || 'No response.';
+    return await askARIAAsync(message, senderJid, chatId);
   } catch (e) {
-    console.error('[ARIA Listener] Chat failed:', e.message);
-    signalChatFailure(message, senderJid, e.message);
-    return '⚠️ ARIA is temporarily unavailable.';
+    console.error('[ARIA Listener] Async chat failed:', e.message);
+    signalChatFailure(message, senderJid, `async: ${e.message}`);
+    return '⚠️ That took longer than expected to analyse — please ask me again in a moment.';
   }
 }
 
@@ -497,22 +476,27 @@ async function askARIAAsync(message, senderJid, chatId = null) {
     // Older brain build without async chat support — it returned the sync result.
     return (job && (job.response || job.answer)) || 'No response.';
   }
-  if (chatId) {
-    await sendReply(chatId,
-      '🔎 Working on that now — this one needs a deeper look (fresh sources or a '
-      + 'full document). A complete contract/agreement review can take several '
-      + 'minutes; I\'ll take the time to do it properly and reply here the moment '
-      + 'it\'s ready.').catch(() => {});
-  }
-  // R-F943 (2026-05-27) — 4-min → 10-min window. The brain job has NO server-side
-  // cap (line ~338), so a thorough review of a large agreement (e.g. Korvera UTS
-  // Master Agency Agreement, 324 facts, 2026-05-27) is only ever cut off by THIS
-  // client poll window. Operator directive: "give a good length of time... she
-  // uses what is needed... stop constantly setting up limitations." 10 min lets a
-  // full multi-section review (read → synthesis → self-review passes) finish.
-  const POLL_MS = 5000, MAX_POLLS = 120;   // 5s × 120 = up to 10 minutes
-  for (let i = 0; i < MAX_POLLS; i++) {
-    await new Promise(r => setTimeout(r, POLL_MS));
+  // R-F982 — fast-first polling so quick chats stay snappy now that ALL chats are
+  // async. Most answers land in a few seconds: poll at 1s for the first 30s, then
+  // back off to 5s. The "working on it" acknowledgement is DEFERRED until the job
+  // has run past INTERIM_AFTER_MS, so a fast reply isn't preceded by noise (it was
+  // sent immediately pre-R-F982, when only known-slow URL/doc chats came here).
+  // Total window 10 min (operator: "give her the time she needs"); the brain job
+  // has NO server-side cap (line ~338), so this client poll window is the only bound.
+  const FAST_MS = 1000, SLOW_MS = 5000, FAST_PHASE_MS = 30000;
+  const INTERIM_AFTER_MS = 7000, MAX_MS = 600000;
+  const t0 = Date.now();
+  let interimSent = false;
+  while (Date.now() - t0 < MAX_MS) {
+    const elapsed = Date.now() - t0;
+    await new Promise(r => setTimeout(r, elapsed < FAST_PHASE_MS ? FAST_MS : SLOW_MS));
+    if (chatId && !interimSent && (Date.now() - t0) >= INTERIM_AFTER_MS) {
+      interimSent = true;
+      await sendReply(chatId,
+        '🔎 Working on that — this one needs a deeper look. I\'ll reply here the '
+        + 'moment it\'s ready (a full document or contract review can take a few minutes).'
+      ).catch(() => {});
+    }
     let st;
     try { st = await brainGet(`/api/aria/chat/result/${jobId}`); }
     catch { continue; }                    // transient poll error — keep waiting
