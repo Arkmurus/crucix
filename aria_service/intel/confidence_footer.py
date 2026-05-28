@@ -332,7 +332,21 @@ def build_footer(
         head = "*Confidence:* (no tag — treat as unverified)"
 
     # ── Sources / verification line ──
-    if has_verification:
+    if document_grounded:
+        # R-F965 — the answer is grounded in an attached document. The
+        # verification dict counts EXTERNAL source citations, which don't apply
+        # to a document the operator handed us; reporting "0 grounded / NO_TOOL"
+        # read as "ungrounded / from memory" and undersold a full document review
+        # (live 2026-05-28 contract review). Lead with the document as the
+        # grounding; only add external counts if she ALSO cited external sources.
+        head += "  ·  *Grounded in:* attached document"
+        if has_verification:
+            v = verification or {}
+            cited = int(v.get("cited", 0) or 0)
+            if cited > 0:
+                unverified = int(v.get("unverified", 0) or 0)
+                head += f" + {cited - unverified} external grounded / {unverified} unverified"
+    elif has_verification:
         v = verification or {}
         cited = int(v.get("cited", 0) or 0)
         unverified = int(v.get("unverified", 0) or 0)
