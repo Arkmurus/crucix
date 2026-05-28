@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 981,
+  "next_available": 982,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4228,72 +4228,80 @@
       "title": "label home dashboard as OSINT sweep not brain",
       "claimed_at": "2026-05-28T15:28:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "feac280",
+      "notes": null,
+      "shipped_at": "2026-05-28T16:24:22Z"
     },
     {
       "r_number": "R-F972",
       "title": "fix wrong share-footer domain sursec->arkmurus",
       "claimed_at": "2026-05-28T15:28:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "feac280",
+      "notes": null,
+      "shipped_at": "2026-05-28T16:24:22Z"
     },
     {
       "r_number": "R-F973",
       "title": "wire ingest_sweep to brain success+failure",
       "claimed_at": "2026-05-28T15:28:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "feac280",
+      "notes": null,
+      "shipped_at": "2026-05-28T16:24:23Z"
     },
     {
       "r_number": "R-F974",
       "title": "add cross-tier output fields to health self-picture",
       "claimed_at": "2026-05-28T15:28:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "feac280",
+      "notes": null,
+      "shipped_at": "2026-05-28T16:24:23Z"
     },
     {
       "r_number": "R-F975",
       "title": "relabel status banner as service availability",
       "claimed_at": "2026-05-28T15:28:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "feac280",
+      "notes": null,
+      "shipped_at": "2026-05-28T16:24:23Z"
     },
     {
       "r_number": "R-F976",
       "title": "fix or honest-fail api/brain stub endpoints",
       "claimed_at": "2026-05-28T15:28:12Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "feac280",
+      "notes": null,
+      "shipped_at": "2026-05-28T16:24:23Z"
     },
     {
       "r_number": "R-F977",
       "title": "wire contract self-review all-windows-failed branch",
       "claimed_at": "2026-05-28T15:28:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "feac280",
+      "notes": null,
+      "shipped_at": "2026-05-28T16:24:23Z"
     },
     {
       "r_number": "R-F978",
       "title": "surface sweep staleness on api/data",
       "claimed_at": "2026-05-28T15:28:13Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "feac280",
+      "notes": null,
+      "shipped_at": "2026-05-28T16:24:23Z"
     },
     {
       "r_number": "R-F979",
@@ -4314,6 +4322,16 @@
       "commit_sha": "9a672df",
       "notes": null,
       "shipped_at": "2026-05-28T15:54:21Z"
+    },
+    {
+      "r_number": "R-F981",
+      "title": "replace dead intel.sursec.co.uk refs with intel.arkmurus.com",
+      "claimed_at": "2026-05-28T16:14:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "feac280",
+      "notes": null,
+      "shipped_at": "2026-05-28T16:24:23Z"
     }
   ]
 }
