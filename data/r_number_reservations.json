@@ -4399,9 +4399,10 @@
       "title": "ARIA Coder CLI — local Claude-Code-style agent (any dir, edits cwd, brain-wired)",
       "claimed_at": "2026-05-28T21:37:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "746915f",
+      "notes": null,
+      "shipped_at": "2026-05-28T22:04:50Z"
     }
   ]
 }
