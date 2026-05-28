@@ -1400,33 +1400,55 @@ async def consolidate_facts() -> dict:
         else:
             seen[key] = i
 
-    # ── 2. Prune stale facts (>90 days old, accessCount < 2) ────────────
-    pruned = 0
+    # ── 2. FLAG stale facts — NON-DESTRUCTIVE (R-F962, CLAUDE.md §7) ─────
+    # §7 is binding: infinite memory — NO TTL, NO oldest-first prune, NO
+    # eviction; overflow → cold storage, never delete. The pre-R-F962 code
+    # here DELETED facts >90 days old with accessCount<2 — a direct §7
+    # violation (same class as R-F173, reversed by R-F238). It was reachable
+    # only via the manual POST /api/aria/neural/consolidate (no cron), so it
+    # was a latent landmine rather than an active drain, but a landmine still.
+    # We now MARK staleness in-place instead of deleting: every fact is kept
+    # forever; a `stale` flag makes age visible — the legitimate kernel of the
+    # 2026-05-28 self-gap-analysis "recency layer" request — without losing
+    # knowledge. The flag is self-correcting: facts that no longer meet the
+    # criteria (re-accessed, recently re-confirmed) are un-flagged next pass.
+    flagged_stale = 0
     ninety_days_ago = now.timestamp() - 90 * 86400
     for i, f in enumerate(facts):
         if i in to_remove:
-            continue
+            continue  # already merged away as a duplicate
+        is_stale = False
         created = f.get("createdAt", "")
-        if not created:
-            continue
-        try:
-            created_ts = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
-        except (ValueError, TypeError):
-            continue
-        if created_ts < ninety_days_ago and f.get("accessCount", 0) < 2:
-            to_remove.add(i)
-            pruned += 1
+        if created:
+            try:
+                created_ts = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
+                is_stale = created_ts < ninety_days_ago and f.get("accessCount", 0) < 2
+            except (ValueError, TypeError):
+                is_stale = False
+        if is_stale:
+            if not f.get("stale"):
+                flagged_stale += 1
+            f["stale"] = True
+        elif f.get("stale"):
+            f["stale"] = False  # criteria no longer met → clear the flag
 
-    # ── 3. Rebuild facts list ────────────────────────────────────────────
+    # ── 3. Rebuild facts list — ONLY merged duplicates are removed.
+    #       Aged facts are FLAGGED (above), never deleted (§7). ───────────
     db["facts"] = [f for i, f in enumerate(facts) if i not in to_remove]
     await _save()
 
     total_after = len(db["facts"])
-    logger.info("Knowledge consolidation: merged %d, pruned %d, %d → %d facts",
-                merged, pruned, total_before, total_after)
+    logger.info(
+        "Knowledge consolidation: merged %d (dupes), flagged_stale %d, "
+        "%d → %d facts (§7: no age-prune)",
+        merged, flagged_stale, total_before, total_after,
+    )
     return {
         "merged": merged,
-        "pruned": pruned,
+        # R-F962 — age-pruning removed (§7). Key retained at 0 for callers
+        # that read it; nothing is deleted by age anymore.
+        "pruned": 0,
+        "flagged_stale": flagged_stale,
         "total_before": total_before,
         "total_after": total_after,
     }
