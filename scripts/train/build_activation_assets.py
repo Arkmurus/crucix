@@ -87,7 +87,7 @@ async def build_dpo_dataset(output_path: str) -> int:
 
     # 1. Get critique collector DPO triples
     try:
-        triples = await cc.get_triples(limit=200)
+        triples = await cc.export_jsonl(limit=200)
         for t in triples:
             prompt = t.get("prompt", "") or t.get("question", "")
             chosen = t.get("chosen", "") or t.get("correct", "")

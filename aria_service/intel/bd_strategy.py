@@ -135,6 +135,7 @@ async def generate_market_intelligence() -> dict:
             })
     except Exception as e:
         logger.debug("[bd_strategy] political_risk_index failed: %s", e)
+        wire_failure(module="bd_strategy", detail=f"political_risk_index failed: {e}", gap_type="source_failure", source="bd_strategy")
 
     # 5. Strategic recommendations
     report["strategic_recommendations"] = _generate_recommendations(
@@ -298,6 +299,7 @@ async def generate_deal_strategy(deal_id: str) -> dict:
             })
     except Exception as e:
         logger.debug("[bd_strategy] competitors failed: %s", e)
+        wire_failure(module="bd_strategy", detail=f"competitors failed: {e}", gap_type="source_failure", source="bd_strategy")
 
     # Win strategy
     strategy["win_strategy"] = {
@@ -319,6 +321,7 @@ async def generate_deal_strategy(deal_id: str) -> dict:
             })
     except Exception as e:
         logger.debug("[bd_strategy] risks failed: %s", e)
+        wire_failure(module="bd_strategy", detail=f"risks failed: {e}", gap_type="source_failure", source="bd_strategy")
 
     # Recommended actions
     strategy["recommended_actions"] = [

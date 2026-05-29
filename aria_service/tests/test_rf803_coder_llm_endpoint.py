@@ -218,29 +218,8 @@ class TestCoderLLMEndpoint:
 # ════════════════════════════════════════════════════════════════════════════
 
 class TestCoderEntrypointGates:
-    def test_refuses_when_master_disabled(self, monkeypatch) -> None:
-        monkeypatch.delenv("ARIA_AUTONOMOUS_ENABLED", raising=False)
-        monkeypatch.setenv("ARIA_CODER_ENABLED", "1")
-        monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "test-token")
-
-        from aria_service.autonomous.coder_entrypoint import start_aria_coder
-        app_state = SimpleNamespace(redis=MagicMock())
-        result = _run(start_aria_coder(app_state))
-        assert result is None
-
-    def test_refuses_when_coder_disabled(self, monkeypatch) -> None:
-        monkeypatch.setenv("ARIA_AUTONOMOUS_ENABLED", "1")
-        monkeypatch.delenv("ARIA_CODER_ENABLED", raising=False)
-        monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "test-token")
-
-        from aria_service.autonomous.coder_entrypoint import start_aria_coder
-        app_state = SimpleNamespace(redis=MagicMock())
-        result = _run(start_aria_coder(app_state))
-        assert result is None
-
     def test_refuses_when_no_internal_token(self, monkeypatch) -> None:
-        monkeypatch.setenv("ARIA_AUTONOMOUS_ENABLED", "1")
-        monkeypatch.setenv("ARIA_CODER_ENABLED", "1")
+        """R-F996: coder is ALWAYS enabled — only ARIA_INTERNAL_TOKEN gates it."""
         monkeypatch.delenv("ARIA_INTERNAL_TOKEN", raising=False)
 
         from aria_service.autonomous.coder_entrypoint import start_aria_coder
@@ -259,8 +238,6 @@ class TestCoderEntrypointGates:
         This is the regression guard for the live-deploy failure
         observed at 2026-05-22T21:13:45Z immediately after the first
         ARIA_CODER_ENABLED=1 flip."""
-        monkeypatch.setenv("ARIA_AUTONOMOUS_ENABLED", "1")
-        monkeypatch.setenv("ARIA_CODER_ENABLED", "1")
         monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "test-token")
         monkeypatch.setenv("ARIA_CODER_WORKSPACE", str(tmp_path))
 
@@ -273,7 +250,8 @@ class TestCoderEntrypointGates:
             assert tasks is not None, (
                 "engine refused to start — adapter fallback failed"
             )
-            assert len(tasks) == 2
+            # R-F1046: gap_detector standalone loop removed — only self_coder runs
+            assert len(tasks) == 1
             for t in tasks:
                 t.cancel()
             for t in tasks:
@@ -285,12 +263,9 @@ class TestCoderEntrypointGates:
         _run(body())
 
     def test_starts_when_all_gates_hold(self, monkeypatch, tmp_path) -> None:
-        """Capability test: when ALL gates pass, the engine starts and
-        returns a list of running tasks. Critical because today R-F794
-        already set ARIA_AUTONOMOUS_ENABLED=1; only ARIA_CODER_ENABLED=1
-        stands between us and the engine firing."""
-        monkeypatch.setenv("ARIA_AUTONOMOUS_ENABLED", "1")
-        monkeypatch.setenv("ARIA_CODER_ENABLED", "1")
+        """Capability test: when all gates pass, the engine starts and
+        returns a list of running tasks. R-F996 removed the env var gates
+        (coder is always enabled); only ARIA_INTERNAL_TOKEN is required."""
         monkeypatch.setenv("ARIA_INTERNAL_TOKEN", "test-token")
         # Direct workspace at tmp to avoid /data/coder_workspace
         monkeypatch.setenv("ARIA_CODER_WORKSPACE", str(tmp_path))
@@ -312,8 +287,9 @@ class TestCoderEntrypointGates:
         async def body():
             tasks = await start_aria_coder(app_state)
             assert tasks is not None
-            assert len(tasks) == 2  # gap_detector + self_coder
-            # Cancel immediately so test doesn't hang on the 15-min sleeps
+            # R-F1046: gap_detector standalone loop removed — only self_coder runs
+            assert len(tasks) == 1
+            # Cancel immediately so test doesn't hang on the 5-min sleeps
             for t in tasks:
                 t.cancel()
             # Let cancellation propagate

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1074,
+  "next_available": 1077,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5244,6 +5244,34 @@
       "r_number": "R-F1073",
       "title": "Fix bulletproof guardrails — install hook, fix CI, fix eval wiring, add enforcement",
       "claimed_at": "2026-05-29T22:45:00Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "64fd5e4f",
+      "notes": null,
+      "shipped_at": "2026-05-29T22:48:06Z"
+    },
+    {
+      "r_number": "R-F1074",
+      "title": "Fix P0 user-facing crashes batch 1",
+      "claimed_at": "2026-05-29T23:05:50Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1075",
+      "title": "Fix CI guardrails - pre-commit hook, --check-all, ecosystem_audit",
+      "claimed_at": "2026-05-29T23:07:31Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
+    },
+    {
+      "r_number": "R-F1076",
+      "title": "Fix bd_strategy failure path dark + engagement.py dead module",
+      "claimed_at": "2026-05-29T23:11:31Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
