@@ -483,3 +483,19 @@ if __name__ == "__main__":
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(main_results, f, indent=2, default=str)
     print(f"\nResults saved to {output_path}")
+
+    # R-F1073: exit 1 if any issues found (CI enforcement)
+    exit_code = 0
+    if main_results.get("syntax_errors"):
+        print(f"FAIL: {len(main_results['syntax_errors'])} syntax errors")
+        exit_code = 1
+    if main_results.get("cross_reference_issues"):
+        print(f"FAIL: {len(main_results['cross_reference_issues'])} cross-reference issues")
+        exit_code = 1
+    if main_results.get("bug_patterns"):
+        print(f"FAIL: {len(main_results['bug_patterns'])} bug patterns")
+        exit_code = 1
+    if main_results.get("dead_modules"):
+        print(f"FAIL: {len(main_results['dead_modules'])} dead modules")
+        exit_code = 1
+    sys.exit(exit_code)

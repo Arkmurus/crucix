@@ -234,14 +234,34 @@ async def run_eval(llm: Any, *, ids: list[str] | None = None, label: str = "") -
     if not items:
         return {"ok": False, "reason": "no golden entries to run"}
 
-    # R-F1068: also run through llm_eval_framework for deeper analysis
+    # R-F1068/R-F1073: run through llm_eval_framework for deeper analysis.
+    # evaluate() takes a model name string and list[EvalQuestion], not an LLM object.
+    # We pass "deepseek" as the model name (the primary provider) and let the
+    # framework load its own questions from the golden seed if items is empty.
     try:
         from .llm_eval_framework import evaluate as _framework_evaluate
-        _framework_result = await _framework_evaluate(llm, items)
-        if _framework_result:
+        from .llm_eval_framework import EvalQuestion
+        # Convert items to EvalQuestion objects if we have them
+        _fw_questions = []
+        for item in (items or []):
+            try:
+                _fw_questions.append(EvalQuestion(
+                    question=item.get("question", ""),
+                    expected_answer=item.get("expected_answer", ""),
+                    category=item.get("category", "general"),
+                    requires_refusal=False,
+                ))
+            except Exception:
+                continue
+        _fw_result = await _framework_evaluate(
+            model_a="deepseek",
+            questions=_fw_questions if _fw_questions else [],
+        )
+        if _fw_result:
             logger.info(
-                "[eval_runner] Framework eval: %s",
-                _framework_result.get("summary", ""),
+                "[eval_runner] Framework eval: run_id=%s score_a=%.3f",
+                _fw_result.run_id,
+                _fw_result.model_a.overall_score if _fw_result.model_a else 0,
             )
     except Exception as _fe:
         logger.debug("[eval_runner] Framework eval skipped: %s", _fe)

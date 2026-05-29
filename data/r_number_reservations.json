@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1073,
+  "next_available": 1074,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5236,9 +5236,18 @@
       "claimed_at": "2026-05-29T22:39:04Z",
       "claimed_by": "claude",
       "status": "shipped",
-      "commit_sha": "688c1aba",
+      "commit_sha": "7f967e32",
       "notes": null,
-      "shipped_at": "2026-05-29T22:42:13Z"
+      "shipped_at": "2026-05-29T22:43:41Z"
+    },
+    {
+      "r_number": "R-F1073",
+      "title": "Fix bulletproof guardrails — install hook, fix CI, fix eval wiring, add enforcement",
+      "claimed_at": "2026-05-29T22:45:00Z",
+      "claimed_by": "claude",
+      "status": "in_progress",
+      "commit_sha": null,
+      "notes": null
     }
   ]
 }

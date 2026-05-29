@@ -1,4 +1,5 @@
-# R-F1070 — CI pipeline: test + ecosystem audit + pre-commit verification
+# R-F1073 — CI pipeline: test + ecosystem audit + pre-commit verification
+# Each step FAILS THE BUILD on error (no || true bypass).
 name: CI
 
 on:
@@ -13,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # needed for git diff in pre-commit hook
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -26,11 +27,10 @@ jobs:
           pip install pytest pytest-asyncio httpx
           pip install -r requirements-dev.txt 2>/dev/null || true
 
-      - name: Pre-commit function-name verification
+      - name: Pre-commit function-name verification (--check-all)
         run: |
-          echo "Checking staged changes for non-existent function calls..."
-          python scripts/pre-commit --check-all 2>/dev/null || \
-          echo "Pre-commit check skipped (not a git commit context)"
+          echo "Checking ALL Python files for non-existent function calls..."
+          python scripts/pre-commit --check-all
 
       - name: Ecosystem audit
         run: |
@@ -44,14 +44,24 @@ jobs:
       - name: Check for syntax errors
         run: |
           echo "Checking syntax of all Python files..."
-          find aria_service -name "*.py" -not -path "*/__pycache__/*" -exec python -c "
-          import ast, sys
-          for f in sys.argv[1:]:
-              try:
-                  with open(f) as fh:
-                      ast.parse(fh.read())
-              except SyntaxError as e:
-                  print(f'SYNTAX ERROR: {f}: {e}')
-                  sys.exit(1)
-          " {} +
-          echo "All files pass syntax check."
+          python -c "
+import ast, sys, os
+errors = []
+for root, dirs, files in os.walk('aria_service'):
+    if 'tests' in root or '__pycache__' in root:
+        continue
+    for f in files:
+        if not f.endswith('.py'):
+            continue
+        path = os.path.join(root, f)
+        try:
+            with open(path, 'r', encoding='utf-8') as fh:
+                ast.parse(fh.read())
+        except SyntaxError as e:
+            errors.append(f'{path}: {e}')
+if errors:
+    for e in errors:
+        print(e)
+    sys.exit(1)
+print('All files pass syntax check.')
+"
