@@ -1,5 +1,5 @@
 """R-F956 (2026-05-28) — Wh
-from .engine_wiring import wire_success
+
 atsApp voice-note transcription via faster-whisper.
 
 OSS, self-hosted, native — audio never leaves ARIA's infra (no paid STT API),
@@ -18,9 +18,9 @@ WEDGE-SAFETY (the priority, given the 2026-05 event-loop history):
     it cannot destabilise the brain until it is explicitly turned on + verified.
 
 Model is baked into the image (Dockerfile) so it loads from disk offline
-(HF_HUB_OFFLINE, R-F938) — no cold-start network download.
-"""
+(HF_HUB_OFFLINE, R-F938) — no cold-start network download."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import asyncio
 import io

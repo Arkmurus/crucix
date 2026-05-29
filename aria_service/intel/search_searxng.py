@@ -1,5 +1,5 @@
 """search_searxng — SearXNG 
-from .engine_wiring import wire_success
+
 free web-search adapter (R-F86, 2026-05-09).
 
 Why this module exists
@@ -21,9 +21,9 @@ Public API
 ──────────
     is_configured() -> bool
     search(query: str, *, count: int = 10, lang: str = 'en') -> dict
-    summary() -> dict
-"""
+    summary() -> dict"""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 import os

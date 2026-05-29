@@ -1,6 +1,4 @@
-"""ARIA Web Search — independent mult
-from .engine_wiring import wire_success
-i-backend search engine.
+"""ARIA Web Search — independent multi-backend search engine.
 
 INDEPENDENCE PRINCIPLE: ARIA owns her search infrastructure. No single
 vendor dependency. If Brave is down, use SearXNG. If SearXNG is down,
@@ -21,7 +19,10 @@ Usage:
   results = await search_news("ECJU export licence update", language="en")
   results = await search_entity("Duma Engineering Ltd", country="UK")
 """
+
 from __future__ import annotations
+
+from .engine_wiring import wire_success
 
 import asyncio
 import hashlib

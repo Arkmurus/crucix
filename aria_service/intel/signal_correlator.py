@@ -1,5 +1,5 @@
 """ARIA Signal Correlato
-from .engine_wiring import wire_success
+
 r — connects the dots across intelligence sources.
 
 The difference between a news ticker and an intelligence analyst is
@@ -16,9 +16,9 @@ Correlation types:
   RELATIONSHIP_LEVERAGE — warm contact + active opportunity in their org
   URGENCY_SIGNAL      — deadline approaching + lead stale + competitor active
   MARKET_HEATING      — multiple signals in same country within 7 days
-  RISK_CONVERGENCE    — sanctions + compliance + political instability overlap
-"""
+  RISK_CONVERGENCE    — sanctions + compliance + political instability overlap"""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 import time

@@ -1,6 +1,5 @@
-"""
-ARIA Sanctions Intelligence 
-from .engine_wiring import wire_success
+"""ARIA Sanctions Intelligence 
+
 — fuzzy entity screening with OpenSanctions integration.
 
 The previous /api/aria/compliance/sanctions endpoint only checked the local Node
@@ -22,9 +21,9 @@ This module adds:
 Usage:
     from .sanctions import fuzzy_screen
     result = await fuzzy_screen("Bank Rossiya")
-    # → {matches: [...], top_score: 0.95, blocked: True, suggestions: [...]}
-"""
+    # → {matches: [...], top_score: 0.95, blocked: True, suggestions: [...]}"""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 import os

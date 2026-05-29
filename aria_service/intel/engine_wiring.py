@@ -5,7 +5,7 @@ helpers on BOTH success and failure paths, so ARIA's brain (gap_detector,
 capability_gaps, mistake_ledger) sees every engine's output.
 
 Usage:
-    from .engine_wiring import wire_success, wire_failure
+    
 
     # On success:
     wire_success("my_engine", "Summary of what happened", detail="...")
@@ -21,8 +21,7 @@ stalls: `reserve_r_number.py` (a sync CLI) called `wire_success`, which ran a
 full neural-memory brain absorb synchronously on every R-number reservation,
 freezing ARIA's loop on every task. Wiring is best-effort (CLAUDE.md §21a):
 if a sync caller exits before the daemon thread finishes, the signal is
-dropped — never blocked.
-"""
+dropped — never blocked."""
 from __future__ import annotations
 
 import asyncio

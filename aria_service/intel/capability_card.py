@@ -1,5 +1,5 @@
 """Auto-generated capability card — what ARIA ca
-from .engine_wiring import wire_success
+
 n/can't do, with evidence.
 
 Why this exists
@@ -41,9 +41,9 @@ Public API
 ──────────
   async build_card() -> dict   # full structured representation
   async render_markdown() -> str
-  async render_json() -> dict
-"""
+  async render_json() -> dict"""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 from datetime import datetime, timezone

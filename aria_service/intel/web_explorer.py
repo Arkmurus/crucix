@@ -1,7 +1,7 @@
 """ARIA Web Explorer — unified entry point for web research.
 
 R-F307 (2026-05-11): consolidates the fragme
-from .engine_wiring import wire_success
+
 nted web-research stack
 (web_search + researcher + link_investigator + deep_researcher) behind
 one coherent capability with ecosystem awareness baked in.
@@ -94,9 +94,9 @@ USAGE
 
 The result is a dataclass — `result.facts` is the fused findings,
 `result.provenance` is per-fact source attribution, `result.ecosystem`
-is the per-backend status snapshot. Always populated, even on errors.
-"""
+is the per-backend status snapshot. Always populated, even on errors."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import asyncio
 import logging

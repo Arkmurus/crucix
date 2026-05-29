@@ -1,10 +1,10 @@
 """
-Market
-from .engine_wiring import wire_success
- Approach Strategy Generator.
+Market Approach Strategy Generator.
 Ported from lib/aria/approach.mjs.
 """
 from __future__ import annotations
+
+from .engine_wiring import wire_success
 
 import re
 from typing import Any

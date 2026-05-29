@@ -1,5 +1,5 @@
 """ARIA OSINT Methodology Knowledge
-from .engine_wiring import wire_success
+
  Module.
 
 Comprehensive open-source intelligence (OSINT) methodology for defence
@@ -15,9 +15,9 @@ for prompt-time injection (same pattern as
 ``procurement_knowledge.get_procurement_context``).
 
 All sources: open-source, publicly verifiable intelligence community
-doctrine and best practice.
-"""
+doctrine and best practice."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 logger = logging.getLogger("aria.osint_knowledge")

@@ -1,5 +1,5 @@
 """Domain ownership verifier — RDAP-b
-from .engine_wiring import wire_success
+
 ased, no external deps.
 
 Resolves a domain to its registrant, creation date, registrar, and
@@ -26,9 +26,9 @@ Flags raised:
 Design:
   - Pure stdlib + httpx (already a dependency)
   - RDAP endpoints discovered via IANA bootstrap (cached per-TLD)
-  - 15s timeout; best-effort graceful degradation
-"""
+  - 15s timeout; best-effort graceful degradation"""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 import re

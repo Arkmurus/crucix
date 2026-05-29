@@ -1,5 +1,5 @@
 """R-F780 — deal-outcome predictor + c
-from .engine_wiring import wire_success
+
 alibration post-mortem ingest.
 
 This is the 99.99%-on-calibration piece of the strategic roadmap.
@@ -30,9 +30,9 @@ Honest scope of this initial revision:
     returns evidence + a `needs_llm_scoring: True` flag.
   - The post-mortem ingest updates the mastery heatmap on the deal's
     inferred topic tags + writes a closed_case to reasoning_library
-    so future predictions see this outcome.
-"""
+    so future predictions see this outcome."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import hashlib
 import logging

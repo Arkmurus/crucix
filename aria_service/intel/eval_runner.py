@@ -1,6 +1,5 @@
-"""
-ARIA Golden Q&A Evaluation Framework — regressi
-from .engine_wiring import wire_success
+"""ARIA Golden Q&A Evaluation Framework — regressi
+
 on catching for prompt/code
 changes using a hand-curated set of question/expected-answer pairs.
 
@@ -41,9 +40,9 @@ answer's embedding and the expected answer's embedding. Buckets:
   < 0.50 → fail     (different answer or hallucination)
 
 A run produces a summary: pass_rate, mean_score, count by bucket, and
-delta vs the previous run so regressions surface immediately.
-"""
+delta vs the previous run so regressions surface immediately."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 import time

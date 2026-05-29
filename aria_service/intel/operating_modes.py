@@ -1,5 +1,5 @@
 """ARIA Operating Modes
-from .engine_wiring import wire_success
+
  — graduated response to quality degradation.
 
 Four modes, auto-triggered by quality metric thresholds:
@@ -16,9 +16,9 @@ Mode transitions:
   all metrics recover above thresholds  → NORMAL
 
 Mode is stored in Redis and checked by the autonomous engine + delivery.
-Manual override available via /api/aria/operating-mode/set.
-"""
+Manual override available via /api/aria/operating-mode/set."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 import time

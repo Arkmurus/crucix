@@ -1,6 +1,5 @@
-"""
-ARIA NSN (NATO Stock Number)
-from .engine_wiring import wire_success
+"""ARIA NSN (NATO Stock Number)
+
  Knowledge Module — v2.1 Schema Integration
 
 PURPOSE:
@@ -25,9 +24,9 @@ COVERAGE:
   - Demilitarization code meaning
   - NIIN status code interpretation
 
-SOURCE: nsnSchema-2.1 (NATO NMCRL XML Schema, April 2025)
-"""
+SOURCE: nsnSchema-2.1 (NATO NMCRL XML Schema, April 2025)"""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 import re

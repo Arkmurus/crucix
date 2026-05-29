@@ -1,5 +1,5 @@
 """ARIA Procurement
-from .engine_wiring import wire_success
+
  Intelligence Knowledge Module.
 
 Permanent knowledge base covering global defence procurement lifecycle,
@@ -14,9 +14,9 @@ context.  The ``get_procurement_context`` helper performs lightweight
 keyword matching for prompt-time injection (similar to
 ``nato_standards.get_nato_context``).
 
-All sources: open-source, publicly verifiable.
-"""
+All sources: open-source, publicly verifiable."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 logger = logging.getLogger("aria.procurement_knowledge")

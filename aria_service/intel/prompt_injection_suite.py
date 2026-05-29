@@ -1,5 +1,5 @@
 """prompt_injection_suite — OWASP LLM01 prompt-inject
-from .engine_wiring import wire_success
+
 ion adversarial
 test library (R-F80, 2026-05-09).
 
@@ -47,9 +47,9 @@ Public API
     list_attacks() -> list[dict]
     grade_response(attack_id, response) -> dict
     run_suite(chat_fn) -> dict   — runs every attack against a chat fn,
-                                    returns pass-rate + per-attack verdicts
-"""
+                                    returns pass-rate + per-attack verdicts"""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import re
 from typing import Any, Callable, Awaitable

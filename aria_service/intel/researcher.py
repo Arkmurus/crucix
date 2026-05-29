@@ -1,6 +1,5 @@
-"""
-ARIA Research Engine — Active 
-from .engine_wiring import wire_success
+"""ARIA Research Engine — Active 
+
 learning through article reading and hypothesis validation.
 
 ARIA doesn't just respond to questions — she actively reads defence/security articles,
@@ -12,9 +11,9 @@ Three modes of learning:
 2. ON-DEMAND — reads any article URL you give her
 3. WHATSAPP — reads articles shared via WhatsApp links
 
-This is what makes ARIA a learning analyst, not a chatbot.
-"""
+This is what makes ARIA a learning analyst, not a chatbot."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import asyncio
 import json

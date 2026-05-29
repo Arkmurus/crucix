@@ -1,6 +1,5 @@
-"""
-ARIA Symbolic Reasoner — pure-Python rules e
-from .engine_wiring import wire_success
+"""ARIA Symbolic Reasoner — pure-Python rules e
+
 ngine for defence intelligence.
 
 No LLM calls. No statistical models. Just deterministic logic encoding the
@@ -39,9 +38,9 @@ Usage
         return answer["response"]
 
     # Otherwise fall through to LLM
-    return await llm.complete(...)
-"""
+    return await llm.complete(...)"""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 import re

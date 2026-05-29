@@ -1,7 +1,7 @@
 """ARIA tiered corpus ingest.
 
 Provides a cle
-from .engine_wiring import wire_success
+
 an interface for pushing proprietary or curated documents
 into the RAG store with explicit provenance metadata (tier, source class,
 region, etc). Used by the corpus-ingest CLI and the /api/aria/corpus/ingest
@@ -36,9 +36,9 @@ Public API
     ingest_corpus_document(text, filename, tier, source_class, ...) -> dict
         Async wrapper around rag_store.ingest_document that injects the
         tier/provenance metadata into extra_metadata. Returns the same
-        dict shape as ingest_document.
-"""
+        dict shape as ingest_document."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import io
 import logging

@@ -1,7 +1,5 @@
 """R-F766 — entity-name variant generator.
 
-from .engine_wiring import wire_success
-
 LIVE BUG from 2026-05-20 5-turn audit transcript:
 
   deep_research on 'Efdal Colpan' ran 4 queries -> 0 results.
@@ -36,9 +34,9 @@ exists to close the 'I listed the variants but didn't try them'
 behaviour observed in the 2026-05-20 transcript. If the variants are
 all wrong, the user can supply the correct one; if any single variant
 is right, deep_research gets a non-zero result on the same turn
-instead of forcing the user back into the loop.
-"""
+instead of forcing the user back into the loop."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import re
 import unicodedata

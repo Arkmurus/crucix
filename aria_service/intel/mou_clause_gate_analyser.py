@@ -1,5 +1,5 @@
 """R-F642 — MOU clause-gate an
-from .engine_wiring import wire_success
+
 alyser.
 
 Why this exists
@@ -24,9 +24,9 @@ This module:
   - Returns a structured analysis the operator + orchestrator use to
     pre-compute the "what we need before satisfying 4.5(e)" list
 
-This is NOT legal advice. It's a structural-pattern detector.
-"""
+This is NOT legal advice. It's a structural-pattern detector."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import re
 from dataclasses import dataclass

@@ -1,7 +1,5 @@
 """ARIA branded-report builder.
 
-from .engine_wiring import wire_success
-
 Generates Arkmurus-formatted compliance / due-diligence / market reports by
 combining:
 
@@ -26,9 +24,9 @@ output.
 
 Independent of any deployed chat path. Building a report is a separate
 endpoint (/api/aria/report) and slash command (/report). The chat handler
-itself is unmodified.
-"""
+itself is unmodified."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import logging
 from typing import Any

@@ -1,5 +1,5 @@
 """ARIA Security Protocol Mo
-from .engine_wiring import wire_success
+
 dule.
 
 Comprehensive security hardening for ARIA's defence procurement intelligence
@@ -19,9 +19,9 @@ matching for prompt-time injection (same pattern as other knowledge modules).
 
 All functions work alongside the existing ``security.py`` module which
 handles lower-level URL validation, SSRF protection, and content scanning.
-This module operates at the intelligence/protocol layer.
-"""
+This module operates at the intelligence/protocol layer."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import asyncio
 import logging

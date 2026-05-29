@@ -1,5 +1,5 @@
 """ARIA Document Intelligence Reade
-from .engine_wiring import wire_success
+
 r — 4-strategy fallback pipeline.
 
 Cherry-picked from the v3 architecture proposal and adapted to our
@@ -21,9 +21,9 @@ Dependencies (gracefully degraded if missing):
   - python-docx (optional, .docx files)
   - trafilatura / beautifulsoup4 (optional, .html files)
 
-Feature-gated: ARIA_DOCUMENT_READER_ENABLED env var (default ON).
-"""
+Feature-gated: ARIA_DOCUMENT_READER_ENABLED env var (default ON)."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import base64
 import io

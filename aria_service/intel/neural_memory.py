@@ -1,6 +1,5 @@
-"""
-ARIA Neural Memory — Associativ
-from .engine_wiring import wire_success
+"""ARIA Neural Memory — Associativ
+
 e Knowledge Graph with Growing Neurons.
 
 Each "neuron" is a concept node with:
@@ -17,9 +16,9 @@ The network grows autonomously:
     connected neurons like "FADM", "Luanda procurement", "Baykar UAV"
 
 This gives ARIA emergent intelligence — she doesn't just search keywords,
-she thinks in connected concepts like a human analyst.
-"""
+she thinks in connected concepts like a human analyst."""
 from __future__ import annotations
+from .engine_wiring import wire_success
 
 import asyncio
 import base64
