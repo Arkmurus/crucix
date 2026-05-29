@@ -1,6 +1,4 @@
-"""R-F639 — Treaty-eliminated / non-existent / treaty
-from .engine_wiring import wire_success
--prohibited weapons watchlist.
+"""R-F639 — Treaty-eliminated / non-existent / treaty-prohibited weapons watchlist.
 
 Why this module exists
 ──────────────────────
@@ -53,6 +51,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Optional
+
+from .engine_wiring import wire_success, wire_failure
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -466,7 +466,16 @@ def lookup_by_name(name: str) -> Optional[WatchlistEntry]:
     """Exact-or-alias lookup. None for clean weapons."""
     if not name or not isinstance(name, str):
         return None
-    return _BY_ALIAS.get(name.strip().lower())
+    result = _BY_ALIAS.get(name.strip().lower())
+    # R-F1046 — wire to brain on both paths so ARIA learns from watchlist hits
+    if result is not None:
+        wire_success(
+            module="eliminated_weapons_watchlist",
+            summary=f"Watchlist hit: {result.canonical_name} matched alias '{name[:80]}'",
+            entity_name=result.canonical_name,
+            source_id="eliminated_weapons_watchlist:lookup_by_name",
+        )
+    return result
 
 
 def best_match_for_text(text: str) -> Optional[WatchlistEntry]:
@@ -548,11 +557,12 @@ def render_finding_for_text(text: str) -> Optional[dict]:
         EliminationStatus.TREATY_PROHIBITED_STATE_PARTY: "TREATY-PROHIBITED (state-party)",
     }
 
-    # R-F996 — wire to brain
+    # R-F1046 — wire to brain on match
     wire_success(
         module="eliminated_weapons_watchlist",
-        summary="Eliminated weapon match: {text}",
-        source_id="eliminated_weapons_watchlist:R-F996",
+        summary=f"Eliminated weapon match: {entry.canonical_name}",
+        entity_name=entry.canonical_name,
+        source_id="eliminated_weapons_watchlist:render_finding_for_text",
     )
     return {
         "severity": severity_map.get(entry.elimination_status, "amber"),

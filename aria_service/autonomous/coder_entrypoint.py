@@ -213,14 +213,11 @@ async def start_aria_coder(
         logger.debug("[coder_entrypoint] could not stash coder on app_state: %s", e)
 
     tasks = [
-        # R-F994 — gap_detector.run_forever removed: self_coder._one_cycle
-        # already calls gap_detector.scan() on every cycle, so the standalone
-        # loop was double-scanning (43 gaps detected twice = double rate-bucket
-        # burn). publish_latest is called here after each scan cycle instead.
-        asyncio.create_task(
-            coder.gap_detector.run_forever(),
-            name="aria_coder.gap_detector",
-        ),
+        # R-F1046 — gap_detector.run_forever REMOVED (was double-scanning).
+        # self_coder._one_cycle already calls gap_detector.scan() on every
+        # cycle, so the standalone loop was scanning twice — 43 gaps detected
+        # twice = double rate-bucket burn + double the gap-detection log noise.
+        # publish_latest is called inside _one_cycle after each fix attempt.
         asyncio.create_task(
             coder.run_forever(),
             name="aria_coder.self_coder",

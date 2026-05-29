@@ -76,19 +76,23 @@ def detect_self_capability_question(message: str) -> bool:
     unavailable", "are you down") so the live /health/perf block is injected
     and the LLM answers from real operational state instead of fabricating a
     diagnostic (the 2026-05-26 incident).
+
+    R-F1046 — wired to brain via _wire_introspect_hit() on every detection.
     """
     if not message or not isinstance(message, str):
         return False
     if _CAPABILITY_KEYWORDS.search(message):
+        _wire_introspect_hit(message)
         return True
     try:
         from .self_infra_detector import is_self_state_query
-        return is_self_state_query(message)
+        result = is_self_state_query(message)
+        if result:
+            _wire_introspect_hit(message)
+        return result
     except Exception:
         pass
-
-
-        return False
+    return False
 
 
 async def self_introspect_context_block(message: str) -> str:
@@ -254,3 +258,28 @@ async def self_introspect_context_block(message: str) -> str:
     )
 
     return "\n".join(lines)
+
+
+# ── R-F1046: Brain wiring ──────────────────────────────────────────────────────
+
+def _wire_introspect_hit(message: str) -> None:
+    """Fire-and-forget brain signal when a self-introspection question is detected.
+    Writes to brain_hook so ARIA learns which self-capability questions are asked.
+    Never raises."""
+    try:
+        from . import brain_hook as _bh
+        import asyncio as _aio
+        try:
+            _loop = _aio.get_running_loop()
+        except RuntimeError:
+            _loop = None
+        if _loop is not None:
+            _t = _loop.create_task(_bh.absorb_silent(
+                module="self_introspect_guard",
+                summary=f"Self-introspection question detected: {message[:120]}",
+                success=True,
+                source_id="self_introspect_guard:detect_self_capability_question",
+            ))
+            _t.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+    except Exception:
+        pass

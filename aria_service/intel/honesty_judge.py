@@ -18,6 +18,8 @@ This module is the check. For every chat response that:
 we fire a SECOND, cheap LLM call (DeepSeek) that gets:
   - the list of [CONFIRMED] claims extracted from ARIA's answer
   - the raw tool_context (the actual fetched source content)
+
+R-F1046 — wired to brain via _wire_judge_result() on every judgment.
 and asks: "for each claim, is it explicitly supported by the source
 content? Return per-claim verdict in JSON."
 
@@ -213,28 +215,36 @@ async def judge_response(llm: Any, response_text: str, tool_context: str) -> dic
       - error               : populated when status == "judge_failed"
     """
     if not response_text:
-        return {"status": "no_claims", "claims": [], "verdicts": [], "honesty_score": None}
+        result = {"status": "no_claims", "claims": [], "verdicts": [], "honesty_score": None}
+        _wire_judge_result(result)
+        return result
 
     claims = extract_confirmed_claims(response_text)
     if not claims:
-        return {"status": "no_claims", "claims": [], "verdicts": [], "honesty_score": None}
+        result = {"status": "no_claims", "claims": [], "verdicts": [], "honesty_score": None}
+        _wire_judge_result(result)
+        return result
 
     if not tool_context or len(tool_context) < 50:
         # We can't honestly judge confirmed claims if there's no source
         # content to compare against. Record the gap so it shows up in
         # /honesty stats — claims marked [CONFIRMED] without any source
         # backing is itself a signal worth tracking.
-        return {
+        result = {
             "status": "no_source",
             "claims": claims,
             "verdicts": [],
             "supported_count": 0,
             "honesty_score": 0.0,
         }
+        _wire_judge_result(result)
+        return result
 
     if not llm or not getattr(llm, "is_configured", False):
-        return {"status": "judge_failed", "claims": claims, "verdicts": [],
+        result = {"status": "judge_failed", "claims": claims, "verdicts": [],
                 "honesty_score": None, "error": "llm not configured"}
+        _wire_judge_result(result)
+        return result
 
     # The judge runs under its own cost-tracker feature so /cost shows
     # the honesty-judge cost separately from chat. Lazy import.
@@ -256,8 +266,10 @@ async def judge_response(llm: Any, response_text: str, tool_context: str) -> dic
         verdicts = _parse_judge_response(getattr(result, "text", "") or "", len(claims))
     except Exception as e:
         logger.warning("honesty judge call failed: %s", e)
-        return {"status": "judge_failed", "claims": claims, "verdicts": [],
+        result = {"status": "judge_failed", "claims": claims, "verdicts": [],
                 "honesty_score": None, "error": str(e)[:300]}
+        _wire_judge_result(result)
+        return result
     finally:
         if token is not None:
             try:
@@ -267,18 +279,22 @@ async def judge_response(llm: Any, response_text: str, tool_context: str) -> dic
                 pass
 
     if verdicts is None:
-        return {"status": "judge_failed", "claims": claims, "verdicts": [],
+        result = {"status": "judge_failed", "claims": claims, "verdicts": [],
                 "honesty_score": None, "error": "parse failure"}
+        _wire_judge_result(result)
+        return result
 
     supported = sum(1 for v in verdicts if v.get("supported"))
     score = round(supported / len(claims), 3) if claims else None
-    return {
+    result = {
         "status": "ok",
         "claims": claims,
         "verdicts": verdicts,
         "supported_count": supported,
         "honesty_score": score,
     }
+    _wire_judge_result(result)
+    return result
 
 
 # ── Persistence ────────────────────────────────────────────────────────────
@@ -502,3 +518,45 @@ async def get_honesty_stats() -> dict:
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+# ── R-F1046: Brain wiring ──────────────────────────────────────────────────────
+
+def _wire_judge_result(result: dict) -> None:
+    """Fire-and-forget brain signal for honesty-judge outcomes.
+    
+    Writes to capability_gaps when the judge finds unsupported claims
+    (honesty_score < 1.0), and to brain_hook on success. Never raises.
+    """
+    try:
+        status = result.get("status", "")
+        score = result.get("honesty_score")
+        n_claims = len(result.get("claims", []))
+        
+        if status == "judge_failed":
+            from . import capability_gaps as _cg
+            _cg.record_gap(
+                gap_type="honesty_judge_failure",
+                detail=f"Honesty judge failed: {result.get('error', 'unknown')[:200]}",
+                source="honesty_judge.judge_response",
+            )
+        elif status == "ok" and score is not None and score < 1.0:
+            from . import capability_gaps as _cg
+            _cg.record_gap(
+                gap_type="honesty_judge_unsupported_claims",
+                detail=(
+                    f"Honesty judge found {n_claims - result.get('supported_count', 0)}/"
+                    f"{n_claims} unsupported [CONFIRMED] claims (score={score})"
+                ),
+                source="honesty_judge.judge_response",
+            )
+        elif status == "ok" and score is not None and score >= 1.0:
+            from . import brain_hook as _bh
+            _bh.absorb_silent(
+                module="honesty_judge",
+                summary=f"Honesty judge passed: {n_claims}/{n_claims} claims supported",
+                success=True,
+                source_id="honesty_judge:judge_response",
+            )
+    except Exception:
+        pass  # wiring must never block the caller

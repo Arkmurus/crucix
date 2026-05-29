@@ -6,6 +6,8 @@ ARIA's own architecture (TTLs, eviction policies, inventory counts) —
 this module SCANS THE FINAL RESPONSE TEXT for the exact patterns
 observed in past hallucinations and flags or annotates them.
 
+R-F1046 — wired to brain via _wire_scan_result() on every scan_response call.
+
 The guard is **soft** today (logs + appends a warning block to the
 response) because the streaming chat path bypasses rewrite (per
 `stream_bypass_pattern.md` and the R-F403 candidate). When R-F403 lands

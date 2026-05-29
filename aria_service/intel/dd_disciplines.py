@@ -364,7 +364,7 @@ DD_DISCIPLINES: dict[str, dict[str, Any]] = {
             "status": "fully_traced | opacity_flagged | refused",
             "depth_traced": "<int layers>",
             "ultimate_beneficial_owners": [{"name": "...", "control_pct": 0.0, "jurisdiction": "...", "verified_against": "registry|self-declaration"}],
-            "opacity_layers": [{"layer": <int>, "jurisdiction": "...", "reason": "registry private | nominee | shell"}],
+            "opacity_layers": [{"layer": 0, "jurisdiction": "...", "reason": "registry private | nominee | shell"}],
             "nominee_directors_flagged": [{"name": "...", "service_provider": "..."}],
         },
     },

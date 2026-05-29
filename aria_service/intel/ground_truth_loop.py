@@ -840,4 +840,16 @@ async def record_assessment_async(
         "[gt_loop] async assessment recorded: %s | %s | %s | %.0f%%",
         assessment_id, assessment_type.value, subject[:60], record["aria_confidence"] * 100,
     )
+    # R-F1046 — wire to brain
+    try:
+        from . import brain_hook as _bh
+        await _bh.absorb_silent(
+            module="ground_truth_loop",
+            summary=f"Ground-truth assessment: {assessment_type.value} on {subject[:80]}",
+            detail=f"Prediction: {aria_prediction[:200]}, confidence={aria_confidence}",
+            success=True,
+            source_id=f"ground_truth_loop:{assessment_id}",
+        )
+    except Exception:
+        pass
     return assessment_id
