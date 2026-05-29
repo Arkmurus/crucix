@@ -258,6 +258,8 @@ _MODULE_TOPICS: dict[str, list[str]] = {
     # the largest Node→brain data path. Registered so its absorb signal is
     # tracked on System Health instead of showing ⚠ "unknown module".
     "ingest_sweep":         ["osint", "market_intel"],
+    # R-F1048 -- grounded reasoner: evidence-traced, ground-or-abstain answers.
+    "grounded_reasoner":    ["general", "osint", "compliance", "legal"],
 }
 
 # Default mastery weight per module (how much a successful run boosts score)
@@ -412,6 +414,8 @@ _MODULE_WEIGHT: dict[str, float] = {
     "mistake_ledger":       0.05,  # meta — records its own activity
     "predictor":            0.05,  # meta — forecast-hit-rate signals
     "self_assess":          0.10,  # daily briefing composer
+    # R-F1048 -- grounded reasoner: moderate weight per grounded answer
+    "grounded_reasoner":    0.20,
 }
 
 
