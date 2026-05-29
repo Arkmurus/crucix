@@ -102,9 +102,15 @@ class MeteredProvider(LLMProvider):
             ))
             # R-F104: surface silent failures
             def _on_done(t):
+                # R-F1029: a cancelled cost-record task raises CancelledError
+                # (a BaseException, NOT caught by `except Exception`) from
+                # t.exception(), which made this very callback error loudly during
+                # restart churn. Guard it so cancellation is silent.
+                if t.cancelled():
+                    return
                 try:
                     exc = t.exception()
-                except Exception:
+                except BaseException:  # noqa: BLE001 — never let the callback raise
                     return
                 if exc is not None:
                     logger.warning("cost_tracker.record_call task failed: %s: %s",
