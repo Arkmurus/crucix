@@ -1075,7 +1075,7 @@ _TIER_TIMEOUT_S = (
 # section is skipped (signal counter + _record_signal still fire so
 # observability is preserved). Set ARIA_BRAIN_ABSORB_CONCURRENCY=0
 # to disable the cap entirely (legacy unbounded behaviour).
-_ABSORB_CONCURRENCY = int(os.environ.get("ARIA_BRAIN_ABSORB_CONCURRENCY", "2"))
+_ABSORB_CONCURRENCY = int(os.environ.get("ARIA_BRAIN_ABSORB_CONCURRENCY", "8"))  # R-F1056: raised from 2
 _ABSORB_SEM_ACQUIRE_TIMEOUT_S = (
     float(os.environ.get("ARIA_BRAIN_ABSORB_SEM_ACQUIRE_MS", "500")) / 1000.0
 )

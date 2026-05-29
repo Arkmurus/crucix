@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1056,
+  "next_available": 1057,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5064,6 +5064,16 @@
       "r_number": "R-F1055",
       "title": "DD engine review + dialogue uplift + ARIA persona professional upgrade",
       "claimed_at": "2026-05-29T14:59:34Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "b1da2d64",
+      "notes": null,
+      "shipped_at": "2026-05-29T15:02:18Z"
+    },
+    {
+      "r_number": "R-F1056",
+      "title": "Full system audit — logs, errors, bugs, non-responsive components",
+      "claimed_at": "2026-05-29T15:03:55Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
