@@ -223,8 +223,21 @@ async def start_aria_coder(
             name="aria_coder.self_coder",
         ),
     ]
+
+    # R-F1080 — start continuous profiler alongside the coder
+    try:
+        from ..intel.continuous_profiler import start_profiler as _start_prof
+        _prof_tasks = _start_prof()
+        tasks.extend(_prof_tasks)
+        logger.info(
+            "[coder_entrypoint] Continuous profiler started (%d tasks)",
+            len(_prof_tasks),
+        )
+    except Exception as _prof_e:
+        logger.debug("[coder_entrypoint] Continuous profiler not available: %s", _prof_e)
+
     logger.info(
-        "[coder_entrypoint] ✅ ARIA-Coder started (%d background tasks)",
+        "[coder_entrypoint] ARIA-Coder started (%d background tasks)",
         len(tasks),
     )
     return tasks

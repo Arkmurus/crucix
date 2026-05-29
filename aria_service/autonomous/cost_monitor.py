@@ -142,6 +142,7 @@ class DailyBudgetState:
     task_spent: dict = field(default_factory=dict)  # task_id → spent
     circuit_state: str = CircuitState.CLOSED
     warning_sent: bool = False
+    anomaly_sent: dict = field(default_factory=dict)  # task_id → bool
     suspended_tasks: list = field(default_factory=list)
 
     @property
@@ -407,7 +408,7 @@ class ARIACostMonitor:
             state.circuit_state = CircuitState.WARNING
             if self.notify:
                 self.notify(
-                    f"⚠️ ARIA Cost Warning\n"
+                    f"ARIA Cost Warning\n"
                     f"Daily spend at {state.utilisation:.0%} of cap "
                     f"(${state.total_spent_usd:.2f}/${self.daily_cap:.2f}).\n"
                     f"Top spenders: "
@@ -422,6 +423,26 @@ class ARIACostMonitor:
             logger.warning(
                 f"Daily cost at {state.utilisation:.0%} — WARNING threshold reached"
             )
+
+        # R-F1080 — cost anomaly detection: if any single task exceeds
+        # 50% of the daily cap, emit a brain signal.
+        for tid, spent in state.task_spent.items():
+            if spent > self.daily_cap * 0.5 and not state.anomaly_sent.get(tid):
+                state.anomaly_sent[tid] = True
+                logger.warning(
+                    "Cost anomaly: task %s spent $%.2f (%.0f%% of daily cap)",
+                    tid, spent, spent / self.daily_cap * 100,
+                )
+                try:
+                    from ..intel.engine_wiring import wire_failure as _wf
+                    _wf(
+                        module="cost_monitor",
+                        detail=f"Cost anomaly: task {tid} spent ${spent:.2f} ({spent/self.daily_cap*100:.0f}% of daily cap)",
+                        gap_type="cost_anomaly",
+                        source="cost_monitor",
+                    )
+                except Exception:
+                    pass
 
         # Global cap exceeded — open circuit
         if state.utilisation >= 1.0:

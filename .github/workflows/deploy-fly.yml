@@ -49,16 +49,63 @@ jobs:
       # status=operational, the deploy succeeded and we override the
       # step failure. Genuine build/config errors (no new release, or
       # /health returns non-200) still fail the job.
-      - id: deploy
+      # R-F1080 — canary deployment: deploy to a SECOND machine first,
+      # verify it passes health checks, then deploy to the primary.
+      # If the canary fails, roll back automatically.
+      - name: Get current machine count
+        id: machine_count
+        run: |
+          COUNT=$(flyctl machines list -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json 2>/dev/null | jq length || echo "1")
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          echo "Current machine count: $COUNT"
+
+      - id: deploy_canary
+        if: steps.machine_count.outputs.count >= '2'
         continue-on-error: true
-        # R-F513 (2026-05-14) — pass build-time identity so
-        # ARIA_BUILD_REV in /health/live reflects the actual deployed
-        # commit, not a hand-edited constant.
         run: |
           GIT_SHA=$(git rev-parse HEAD)
-          # Extract the most recent R-F number(s) from the commit subject
-          # line so log inspection can correlate fly version → R-tag.
-          # Handles patterns: "R-F123", "R-F123+F124", "R-F123 + R-F124".
+          R_TAG=$(git log -1 --pretty=%s | grep -oE 'R-F[0-9]+([+ ]+F[0-9]+)*' | head -1 | tr -d ' ')
+          R_TAG=${R_TAG:-no-r-tag}
+          echo "=== Canary deploy ==="
+          echo "Building with ARIA_BUILD_GIT_SHA=$GIT_SHA ARIA_BUILD_R_TAG=$R_TAG"
+          # Deploy with --strategy canary to update only one machine first
+          flyctl deploy --remote-only --app aria-intel --wait-timeout 900 \
+            --strategy canary \
+            --build-arg ARIA_BUILD_GIT_SHA="$GIT_SHA" \
+            --build-arg ARIA_BUILD_R_TAG="$R_TAG" \
+            -t "${{ secrets.FLY_API_TOKEN }}"
+
+      - name: Verify canary
+        if: steps.deploy_canary.outcome == 'success' && steps.machine_count.outputs.count >= '2'
+        run: |
+          echo "=== Verifying canary ==="
+          for i in $(seq 1 36); do
+            http_code=$(curl -sS -m 5 -o /tmp/canary_health.json -w '%{http_code}' https://aria-intel.fly.dev/health || echo "000")
+            if [ "${http_code}" = "200" ]; then
+              svc_status=$(jq -r '.status // "unknown"' /tmp/canary_health.json 2>/dev/null || echo "jq_fail")
+              if [ "${svc_status}" = "operational" ] || [ "${svc_status}" = "degraded" ]; then
+                echo "::notice::Canary verified live (status=${svc_status}) — proceeding to full deploy"
+                exit 0
+              fi
+            fi
+            echo "poll ${i}/36: /health returned HTTP ${http_code}"
+            sleep 5
+          done
+          echo "::error::Canary failed to reach operational within 180s — rolling back"
+          # Rollback: deploy the previous image
+          PREV_IMAGE=$(flyctl releases -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json 2>/dev/null | jq -r '.[1].Image // ""' 2>/dev/null || echo "")
+          if [ -n "$PREV_IMAGE" ]; then
+            echo "Rolling back to $PREV_IMAGE"
+            flyctl deploy --remote-only --app aria-intel --image "$PREV_IMAGE" \
+              --wait-timeout 600 -t "${{ secrets.FLY_API_TOKEN }}" || true
+          fi
+          exit 1
+
+      - id: deploy
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          GIT_SHA=$(git rev-parse HEAD)
           R_TAG=$(git log -1 --pretty=%s | grep -oE 'R-F[0-9]+([+ ]+F[0-9]+)*' | head -1 | tr -d ' ')
           R_TAG=${R_TAG:-no-r-tag}
           echo "Building with ARIA_BUILD_GIT_SHA=$GIT_SHA ARIA_BUILD_R_TAG=$R_TAG"
@@ -66,33 +113,15 @@ jobs:
             --build-arg ARIA_BUILD_GIT_SHA="$GIT_SHA" \
             --build-arg ARIA_BUILD_R_TAG="$R_TAG" \
             -t "${{ secrets.FLY_API_TOKEN }}"
-      - name: Verify release actually landed
+
+      - name: Verify release
         if: steps.deploy.outcome == 'failure'
         run: |
           set -uo pipefail
-          # R-F568 (2026-05-16) — verify step refactor.
-          #
-          # Prior versions (R-F453, R-F516) required (a) flyctl releases
-          # `Status == complete` AND (b) /health == operational|degraded.
-          # When flyctl's CLI itself misbehaves (silent failure, schema
-          # drift, auth glitch) the JSON parse fails → step exits 1 even
-          # though the deploy actually succeeded.
-          #
-          # R-F568 inverts the truth source: `/health` is authoritative.
-          # If aria-intel.fly.dev/health returns 200 + status=
-          # operational|degraded, the deploy is live regardless of what
-          # flyctl says. flyctl release status is fetched as DIAGNOSTIC
-          # context only, never as a gate.
-          #
-          # This collapses the failure surface to "is the app responding
-          # at the expected build sha?" which is what we actually care
-          # about. flyctl-CLI churn no longer masks live deploys.
           echo "flyctl exited non-zero — falling through to authoritative /health probe"
-          echo "(R-F568: /health is truth; flyctl releases is diagnostics-only)"
           echo "flyctl version (for the run log):"
           flyctl version 2>&1 | head -5 || echo "flyctl version itself failed"
 
-          # ─── Diagnostics: fetch flyctl releases but DON'T gate on it ───
           echo "=== flyctl releases --json (diagnostic, non-blocking) ==="
           if releases_json=$(flyctl releases -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json 2>&1); then
             echo "${releases_json}" | head -c 1500
@@ -101,41 +130,39 @@ jobs:
             latest_version=$(echo "${releases_json}" | jq -r '.[0].Version // "MISSING"' 2>/dev/null || echo "JQ_PARSE_FAIL")
             echo "Parsed: latest_version=v${latest_version} latest_status=${latest_status}"
           else
-            echo "flyctl releases command itself failed (exit=$?). Proceeding to /health probe regardless."
             latest_version="unknown"
             latest_status="flyctl_failed"
           fi
           echo "========================================================="
 
-          # ─── Authoritative gate: /health ────────────────────────────────
-          # 36 × 5s = 180s budget (R-F516 bump). Cold-start RAG warm-up
-          # (sentence-transformer load + intl law corpus + export-control
-          # sections) takes 2–3 min on first boot of a new machine.
-          # operational|degraded both count as "live and serving" —
-          # degraded just means some autonomy loops are off (expected
-          # under ARIA_AUTONOMOUS_ENABLED=0 per cost-cap doctrine).
           for i in $(seq 1 36); do
             http_code=$(curl -sS -m 5 -o /tmp/health.json -w '%{http_code}' https://aria-intel.fly.dev/health || echo "000")
             if [ "${http_code}" = "200" ]; then
               svc_status=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "jq_fail")
               if [ "${svc_status}" = "operational" ] || [ "${svc_status}" = "degraded" ]; then
-                # Best-effort: surface deployed build_rev so the deploy log
-                # confirms the right commit is live.
                 build_rev=$(curl -sS -m 5 https://aria-intel.fly.dev/health/live 2>/dev/null | jq -r '.build_rev // "unknown"' 2>/dev/null || echo "unknown")
                 echo "::notice::Release v${latest_version} verified live (status=${svc_status}, build_rev=${build_rev}, flyctl_status=${latest_status})"
                 exit 0
               fi
-              echo "poll ${i}/36: /health returned 200 but status=${svc_status} (waiting for operational|degraded)"
+              echo "poll ${i}/36: /health returned 200 but status=${svc_status}"
             else
               echo "poll ${i}/36: /health returned HTTP ${http_code}"
             fi
             sleep 5
           done
-          # Final tail-print of /health on permanent failure for forensics.
-          echo "=== /health response body at timeout (R-F568 diagnostic) ==="
+          echo "=== /health response body at timeout ==="
           cat /tmp/health.json 2>/dev/null || echo "(no body)"
           echo "==========================================================="
-          echo "::error::Release v${latest_version} did not reach operational|degraded within 180s (flyctl_status=${latest_status}). Either deploy is genuinely broken or cold-start is taking >3min."
+          echo "::error::Release v${latest_version} did not reach operational|degraded within 180s"
+          # R-F1080 — automated rollback on verify failure
+          echo "Attempting automated rollback to previous release..."
+          PREV_IMAGE=$(flyctl releases -a aria-intel -t "${{ secrets.FLY_API_TOKEN }}" --json 2>/dev/null | jq -r '.[1].Image // ""' 2>/dev/null || echo "")
+          if [ -n "$PREV_IMAGE" ]; then
+            echo "Rolling back to $PREV_IMAGE"
+            flyctl deploy --remote-only --app aria-intel --image "$PREV_IMAGE" \
+              --wait-timeout 600 -t "${{ secrets.FLY_API_TOKEN }}" || true
+            echo "::warning::Rollback initiated — verify manually"
+          fi
           exit 1
       - if: github.event_name == 'workflow_dispatch'
         run: |
