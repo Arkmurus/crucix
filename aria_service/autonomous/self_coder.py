@@ -2,11 +2,11 @@
 
 The closed-loop self-coder. Wires the components together:
 
-    GapDetector → SovereignLLM (plan) → CodebaseReader (context)
+    GapDetector → AutonomousCoder (plan) → CodebaseReader (context)
                 ↓
-    SovereignLLM (write code) → ConstitutionalValidator
+    AutonomousCoder (write code) → ConstitutionalValidator
                 ↓
-    TestRunner (isolated) ← SovereignLLM (heal, ≤3 attempts)
+    TestRunner (isolated) ← AutonomousCoder (heal, ≤3 attempts)
                 ↓
     FlyDeployer (canary → bluegreen → PR)
                 ↓
