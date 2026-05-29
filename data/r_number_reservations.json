@@ -4827,54 +4827,60 @@
       "title": "Safety module unit tests",
       "claimed_at": "2026-05-29T12:15:52Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "583b164e",
+      "notes": null,
+      "shipped_at": "2026-05-29T12:57:34Z"
     },
     {
       "r_number": "R-F1032",
       "title": "Self-coder orchestrator unit tests",
       "claimed_at": "2026-05-29T12:15:54Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "583b164e",
+      "notes": null,
+      "shipped_at": "2026-05-29T12:57:34Z"
     },
     {
       "r_number": "R-F1033",
       "title": "Fix WA listener BRAIN_URL default to aria-intel",
       "claimed_at": "2026-05-29T12:15:56Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "583b164e",
+      "notes": null,
+      "shipped_at": "2026-05-29T12:57:34Z"
     },
     {
       "r_number": "R-F1034",
       "title": "Fix test_only_modifiable_gaps_attempted for R-F996",
       "claimed_at": "2026-05-29T12:15:59Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "583b164e",
+      "notes": null,
+      "shipped_at": "2026-05-29T12:57:34Z"
     },
     {
       "r_number": "R-F1035",
       "title": "SovereignLLM unit tests with mocked HTTP",
       "claimed_at": "2026-05-29T12:16:02Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "583b164e",
+      "notes": null,
+      "shipped_at": "2026-05-29T12:57:35Z"
     },
     {
       "r_number": "R-F1036",
       "title": "TestRunner unit tests with mocked subprocess",
       "claimed_at": "2026-05-29T12:16:04Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "583b164e",
+      "notes": null,
+      "shipped_at": "2026-05-29T12:57:35Z"
     },
     {
       "r_number": "R-F1037",
@@ -4890,9 +4896,10 @@
       "title": "Normalize uppercase ARIA.* logger names to lowercase",
       "claimed_at": "2026-05-29T12:16:09Z",
       "claimed_by": "claude",
-      "status": "in_progress",
-      "commit_sha": null,
-      "notes": null
+      "status": "shipped",
+      "commit_sha": "583b164e",
+      "notes": null,
+      "shipped_at": "2026-05-29T12:57:35Z"
     },
     {
       "r_number": "R-F1039",
