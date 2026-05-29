@@ -222,9 +222,93 @@ def proactive_insight(
 
 def follow_up_questions(context: str, questions: list[str]) -> str:
     """Generate contextual follow-up questions to deepen engagement."""
+    _wire_engagement_use("follow_up_questions")
     return "\n".join([
         "**To help me provide more targeted intelligence:**",
     ] + [f"  • {q}" for q in questions])
+
+
+def customer_support_response(
+    issue_type: str,
+    summary: str,
+    resolution: str,
+    next_steps: Optional[list[str]] = None,
+    escalation_path: Optional[str] = None,
+) -> str:
+    """Generate a professional customer support response.
+
+    Use for: support requests, issue resolution, escalation handling.
+
+    Args:
+        issue_type: Type of issue (technical, data, access, billing, other).
+        summary: Brief summary of the issue and what was found.
+        resolution: What was done or what the resolution is.
+        next_steps: Optional list of next steps for the user.
+        escalation_path: Optional escalation path if the issue needs human review.
+    """
+    _wire_engagement_use("customer_support_response")
+    lines = [
+        f"## Support Response — {issue_type.replace('_', ' ').title()}",
+        "",
+        f"**Summary:** {summary}",
+        "",
+        f"**Resolution:** {resolution}",
+    ]
+    if next_steps:
+        lines.extend([
+            "",
+            "**Next Steps:**",
+        ])
+        for step in next_steps:
+            lines.append(f"  • {step}")
+    if escalation_path:
+        lines.extend([
+            "",
+            f"**Escalation:** {escalation_path}",
+            "",
+            "This issue has been flagged for human review. You will receive an update.",
+        ])
+    return "\n".join(lines)
+
+
+def escalation_response(
+    reason: str,
+    context: str,
+    expected_timeline: str = "within 24 hours",
+) -> str:
+    """Generate an escalation response when an issue needs human intervention.
+
+    Use for: complex issues, security concerns, compliance questions,
+    or any situation where ARIA cannot provide a definitive answer.
+    """
+    _wire_engagement_use("escalation_response")
+    return (
+        f"## Escalation Notice\n\n"
+        f"**Reason:** {reason}\n\n"
+        f"**Context:** {context}\n\n"
+        f"This requires human review. A team member will follow up {expected_timeline}. "
+        f"You will receive a notification when there is an update."
+    )
+
+
+def proactive_follow_up(
+    previous_topic: str,
+    new_information: str,
+    relevance: str,
+) -> str:
+    """Generate a proactive follow-up when new information becomes relevant.
+
+    Use for: alerting users to new developments on previous topics,
+    surfacing relevant intelligence the user didn't ask for.
+    """
+    _wire_engagement_use("proactive_follow_up")
+    return (
+        f"## Proactive Intelligence Update\n\n"
+        f"**Regarding:** {previous_topic}\n\n"
+        f"**New Information:** {new_information}\n\n"
+        f"**Why This Matters:** {relevance}\n\n"
+        f"I am monitoring this closely and will keep you informed of developments."
+    )
 
 
 def context_summary(

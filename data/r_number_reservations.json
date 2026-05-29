@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1072,
+  "next_available": 1073,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5224,6 +5224,16 @@
       "r_number": "R-F1071",
       "title": "Review web tier and data layer coherence",
       "claimed_at": "2026-05-29T22:31:04Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "dbecc848",
+      "notes": null,
+      "shipped_at": "2026-05-29T22:33:36Z"
+    },
+    {
+      "r_number": "R-F1072",
+      "title": "Full-stack improvement: web UI, DD storage, auth, email, reports, customer support",
+      "claimed_at": "2026-05-29T22:39:04Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,
