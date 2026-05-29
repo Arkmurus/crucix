@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1025,
+  "next_available": 1026,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -4761,6 +4761,16 @@
       "commit_sha": "667c7fd",
       "notes": null,
       "shipped_at": "2026-05-29T11:05:35Z"
+    },
+    {
+      "r_number": "R-F1025",
+      "title": "Fix ARIA coder-pipeline logic: write_code edits not stubs, write_tests key, analyse_failure, autonomous_coder/self_coder key mismatch, plan_change bug-fix path",
+      "claimed_at": "2026-05-29T11:08:05Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "6a2d284",
+      "notes": null,
+      "shipped_at": "2026-05-29T11:15:23Z"
     }
   ]
 }
