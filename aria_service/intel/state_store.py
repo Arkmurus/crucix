@@ -389,6 +389,25 @@ async def lpush(key: str, value: str) -> None:
                       expires_at=expires_at, keepttl=True)
 
 
+async def lpop(key: str) -> str | None:
+    """Pop the first item from a list.
+
+    Args:
+        key: Redis key.
+
+    Returns:
+        The popped value, or None if the list is empty.
+    """
+    async with _get_lock():
+        lst, expires_at = await _read_list(key)
+        if not lst:
+            return None
+        val = lst.pop(0)
+        await _upsert(key, json.dumps(lst, default=str), kind="list",
+                      expires_at=expires_at, keepttl=True)
+        return str(val) if val is not None else None
+
+
 async def ltrim(key: str, start: int, stop: int) -> None:
     async with _get_lock():
         lst, expires_at = await _read_list(key)

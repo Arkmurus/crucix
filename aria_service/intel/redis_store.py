@@ -256,6 +256,40 @@ async def lpush(key: str, value: str) -> None:
     _mem_store[key] = json.dumps(lst)
 
 
+async def lpop_multi(key: str, count: int = 10) -> list[str]:
+    """Pop multiple items from the head of a list.
+
+    Args:
+        key: Redis key.
+        count: Max items to pop (default 10).
+
+    Returns:
+        List of popped values (oldest first).
+    """
+    result: list[str] = []
+    if _use_sqlite():
+        from . import state_store as _ss
+        for _ in range(count):
+            val = await _ss.lpop(key)
+            if val is None:
+                break
+            result.append(val)
+        return result
+    if _client:
+        try:
+            pipe = _client.pipeline()
+            for _ in range(count):
+                pipe.lpop(key)
+            outcomes = await pipe.execute()
+            return [o for o in outcomes if o is not None]
+        except Exception as e:
+            logger.warning("Redis LPOP %s failed: %s", key, e)
+    lst = json.loads(_mem_store.get(key, "[]"))
+    popped = lst[:count]
+    _mem_store[key] = json.dumps(lst[count:])
+    return popped
+
+
 async def ltrim(key: str, start: int, stop: int) -> None:
     if _use_sqlite():
         from . import state_store as _ss
