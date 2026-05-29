@@ -123,7 +123,7 @@ async def generate_market_intelligence() -> dict:
 
     # 4. Risk assessment
     try:
-        risks = await pri.get_current_state()
+        risks = pri.summary()
         report["sources_consulted"].append("political_risk_index")
         for risk in risks[:10]:
             report["risk_assessment"].append({
@@ -309,7 +309,7 @@ async def generate_deal_strategy(deal_id: str) -> dict:
     # Risk factors
     try:
         from . import political_risk_index as pri
-        risks = await pri.get_current_state()
+        risks = pri.summary()
         for risk in risks:
             strategy["risk_factors"].append({
                 "type": risk.get("type", "political"),

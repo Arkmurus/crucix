@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "R-number reservation log (R-F540). Prevents collisions when multiple agents/sessions ship in parallel. Read-before-claim, write-then-commit. Git serialises further.",
-  "next_available": 1067,
+  "next_available": 1068,
   "reservations": [
     {
       "r_number": "R-F540",
@@ -5174,6 +5174,16 @@
       "r_number": "R-F1066",
       "title": "Fix remaining P1/P2 defects — eval gates, engagement, persona, dark failures",
       "claimed_at": "2026-05-29T22:04:26Z",
+      "claimed_by": "claude",
+      "status": "shipped",
+      "commit_sha": "72c71f65",
+      "notes": null,
+      "shipped_at": "2026-05-29T22:07:14Z"
+    },
+    {
+      "r_number": "R-F1067",
+      "title": "Fix remaining P1-2 bd_strategy + P0-2 RESTART/ROLLBACK + add capability tests",
+      "claimed_at": "2026-05-29T22:08:36Z",
       "claimed_by": "claude",
       "status": "in_progress",
       "commit_sha": null,

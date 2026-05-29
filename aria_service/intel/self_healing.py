@@ -560,6 +560,38 @@ class AutoRecoveryEngine:
             except Exception as e:
                 return {"success": False, "message": str(e)}
 
+        elif action.action == RecoveryActionType.RESTART:
+            # R-F1067: log the restart request — actual restart requires
+            # operator or fly deployer. Surface as actionable signal.
+            logger.warning("[self_healing] RESTART needed for %s: %s", action.target, action.reason)
+            try:
+                from .engine_wiring import wire_failure as _wf
+                _wf(
+                    module="self_healing",
+                    detail=f"RESTART required for {action.target}: {action.reason}",
+                    gap_type="recovery_needed",
+                    source="self_healing",
+                )
+            except Exception:
+                pass
+            return {"success": True, "message": f"Restart requested for {action.target}", "action": "restart"}
+
+        elif action.action == RecoveryActionType.ROLLBACK:
+            # R-F1067: log the rollback request — NEVER force-push.
+            # Surface as actionable signal for operator review.
+            logger.warning("[self_healing] ROLLBACK needed for %s: %s", action.target, action.reason)
+            try:
+                from .engine_wiring import wire_failure as _wf
+                _wf(
+                    module="self_healing",
+                    detail=f"ROLLBACK required for {action.target}: {action.reason}",
+                    gap_type="recovery_needed",
+                    source="self_healing",
+                )
+            except Exception:
+                pass
+            return {"success": True, "message": f"Rollback requested for {action.target}", "action": "rollback"}
+
         elif action.action == RecoveryActionType.NOTIFY:
             # Log the issue — the autonomous loop will pick it up
             logger.warning("[self_healing] Recovery needed for %s: %s", action.target, action.reason)
